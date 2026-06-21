@@ -2,7 +2,7 @@
 name = "rssripple"
 version = "0.1.0"
 description = "Automated RSS subscription downloader with intelligent filtering and LLM-assisted decisions"
-readme = "AGENTS.md"
+readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
