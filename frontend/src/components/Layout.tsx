@@ -1,13 +1,24 @@
+import { Layout } from 'antd';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 
-export default function Layout() {
+const { Content } = Layout;
+
+export default function AppLayout() {
   return (
-    <div className="flex h-screen bg-gray-50">
+    <Layout style={{ minHeight: '100vh' }}>
       <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">
-        <Outlet />
-      </main>
-    </div>
+      <Layout>
+        <Content
+          style={{
+            padding: 24,
+            overflow: 'auto',
+            minHeight: '100vh',
+          }}
+        >
+          <Outlet />
+        </Content>
+      </Layout>
+    </Layout>
   );
 }

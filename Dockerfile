@@ -25,6 +25,6 @@ COPY --from=frontend-builder /frontend/dist ./app/static/
 
 RUN mkdir -p /app/data
 
-EXPOSE 8000
+EXPOSE 9001
 
-CMD ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001"]
