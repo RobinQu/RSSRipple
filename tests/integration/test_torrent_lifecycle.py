@@ -19,7 +19,6 @@ class TestTorrentLifecycle:
 
     def test_create_torrent(self):
         """Create a .torrent from a known test file."""
-        # Use a file from the pre-generated set
         resp = httpx.post(
             f"{TEST_SERVER}/api/torrents/create",
             params={"file_name": "[LoliHouse] 黄泉使者 - 01 [1080p HEVC-10bit AAC][简繁内封字幕].mkv"},
@@ -33,15 +32,14 @@ class TestTorrentLifecycle:
 
     def test_serve_torrent(self):
         """Verify .torrent file is downloadable."""
-        # First create a torrent
         resp = httpx.post(
             f"{TEST_SERVER}/api/torrents/create",
             params={"file_name": "[ANi] 黄泉使者 - 02 [1080p AVC AAC][CHT].mkv"},
             timeout=10,
         )
+        assert resp.json()["success"]
         info_hash = resp.json()["data"]["info_hash"]
 
-        # Download the .torrent
         resp = httpx.get(f"{TEST_SERVER}/torrents/{info_hash}.torrent", timeout=10)
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/x-bittorrent"
@@ -52,7 +50,7 @@ class TestTorrentLifecycle:
         # 1. Create torrent
         resp = httpx.post(
             f"{TEST_SERVER}/api/torrents/create",
-            params={"file_name": "[Skymoon-Raws] 葬送的芙莉莲 - 01 [720p HEVC][简体].mkv"},
+            params={"file_name": "[ANi] 葬送的芙莉莲 - 01 [1080p AVC AAC][CHT].mkv"},
             timeout=10,
         )
         assert resp.status_code == 200
