@@ -21,5 +21,5 @@ export const channelsApi = {
   applyMapping: (id: string, data: { field_mapping: Record<string, unknown>; parser_type: string }) =>
     api.post<Channel>(`/channels/${id}/apply-mapping`, data),
   validateUrl: (url: string) =>
-    api.post<{ valid: boolean; message: string; item_count: number }>('/channels/validate-url', { url }),
+    api.post<{ valid: boolean; message: string; item_count: number; downloadable_count: number }>('/channels/validate-url', { url }),
 };

@@ -9,6 +9,7 @@ export default function ChannelForm() {
   const [saving, setSaving] = useState(false);
   const [urlStatus, setUrlStatus] = useState<'idle' | 'checking' | 'valid' | 'invalid'>('idle');
   const [urlMessage, setUrlMessage] = useState('');
+  const [downloadableCount, setDownloadableCount] = useState(0);
 
   const validateUrl = async () => {
     if (!form.url) return;
@@ -16,7 +17,8 @@ export default function ChannelForm() {
     const res = await channelsApi.validateUrl(form.url);
     if (res.success && res.data.valid) {
       setUrlStatus('valid');
-      setUrlMessage(`Valid feed with ${res.data.item_count} items`);
+      setDownloadableCount(res.data.downloadable_count);
+      setUrlMessage(`Valid feed: ${res.data.item_count} items, ${res.data.downloadable_count} with downloads`);
     } else {
       setUrlStatus('invalid');
       setUrlMessage(res.data?.message || 'Invalid URL');
@@ -60,7 +62,12 @@ export default function ChannelForm() {
             </button>
           </div>
           {urlStatus === 'checking' && <p className="text-xs text-gray-500 mt-1 flex items-center gap-1"><Loader size={12} className="animate-spin" /> Checking...</p>}
-          {urlStatus === 'valid' && <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle size={12} /> {urlMessage}</p>}
+          {urlStatus === 'valid' && (
+            <div className="mt-1 space-y-0.5">
+              <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> {urlMessage}</p>
+              {downloadableCount === 0 && <p className="text-xs text-amber-600">Warning: no torrent files or magnet links found in feed entries</p>}
+            </div>
+          )}
           {urlStatus === 'invalid' && <p className="text-xs text-red-600 mt-1 flex items-center gap-1"><XCircle size={12} /> {urlMessage}</p>}
         </div>
         <div>

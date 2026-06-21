@@ -1,15 +1,20 @@
 """RSS feed parser using feedparser.
 
 Provides both sync and async entry access for downstream services.
+Supports extracting both .torrent file URLs and magnet links from RSS entries.
 The mikanani-specific namespace fields are extracted but the parser
 is generic enough to work with any RSS/Atom feed.
 """
 
 import asyncio
+import re
 from datetime import datetime
 
 import feedparser
 from pydantic import BaseModel
+
+# Regex to find magnet links in text content
+_MAGNET_RE = re.compile(r"magnet:\?xt=urn:btih:[^\s\"'<>]+", re.IGNORECASE)
 
 
 class RawRSSItem(BaseModel):
@@ -19,6 +24,7 @@ class RawRSSItem(BaseModel):
     description: str | None = None
     link: str | None = None
     torrent_url: str | None = None
+    magnet_url: str | None = None
     content_length: int | None = None
     published_at: datetime | None = None
 
@@ -28,8 +34,94 @@ def _parse_feed_sync(url: str) -> feedparser.FeedParserDict:
     return feedparser.parse(url)
 
 
+def _extract_download_urls(entry) -> tuple[str | None, str | None]:
+    """Extract torrent file URL and magnet link from an RSS entry.
+
+    Searches multiple locations:
+    1. enclosures (type application/x-bittorrent or .torrent URL)
+    2. entry link field (may be a magnet link)
+    3. entry description (magnet links embedded in HTML)
+
+    Returns:
+        (torrent_url, magnet_url) — prefers .torrent URLs for torrent_url,
+        falls back to magnet if no .torrent found.
+    """
+    torrent_url = None
+    magnet_url = None
+
+    # 1. Check enclosures — most common location for .torrent URLs
+    if hasattr(entry, "enclosures") and entry.enclosures:
+        for enc in entry.enclosures:
+            url = enc.get("url", "")
+            enc_type = enc.get("type", "")
+            if url.startswith("magnet:"):
+                if magnet_url is None:
+                    magnet_url = url
+            elif ".torrent" in url or "bittorrent" in enc_type:
+                if torrent_url is None:
+                    torrent_url = url
+            elif url and torrent_url is None:
+                # Generic enclosure — might be a torrent
+                torrent_url = url
+
+    # 2. Check entry link — some feeds put magnet links here
+    link = entry.get("link", "")
+    if link.startswith("magnet:") and magnet_url is None:
+        magnet_url = link
+
+    # 3. Search description for magnet links
+    if magnet_url is None:
+        description = entry.get("description", "") or ""
+        magnet_match = _MAGNET_RE.search(description)
+        if magnet_match:
+            magnet_url = magnet_match.group(0)
+
+    # 4. If no torrent URL found, use magnet as fallback for torrent_url
+    if torrent_url is None and magnet_url:
+        torrent_url = magnet_url
+
+    return torrent_url, magnet_url
+
+
+def _extract_content_length(entry) -> int | None:
+    """Extract content length from entry, checking multiple sources."""
+    # From enclosures
+    if hasattr(entry, "enclosures") and entry.enclosures:
+        enc = entry.enclosures[0]
+        if enc.get("length"):
+            try:
+                return int(enc["length"])
+            except (ValueError, TypeError):
+                pass
+
+    # Mikan namespace
+    if hasattr(entry, "torrent_contentlength"):
+        try:
+            return int(entry.torrent_contentlength)
+        except (ValueError, TypeError):
+            pass
+
+    return None
+
+
+def _extract_published_at(entry) -> datetime | None:
+    """Extract published date from entry."""
+    # Mikan namespace
+    if hasattr(entry, "torrent_pubdate"):
+        try:
+            return datetime.fromisoformat(entry.torrent_pubdate)
+        except (ValueError, TypeError):
+            pass
+    # Standard RSS
+    if hasattr(entry, "published_parsed") and entry.published_parsed:
+        return datetime(*entry.published_parsed[:6])
+    return None
+
+
 async def parse_rss_feed(url: str) -> list[RawRSSItem]:
     """Fetch and parse an RSS feed asynchronously.
+
+    Extracts both .torrent file URLs and magnet links from entries.
 
     Args:
         url: The RSS feed URL.
@@ -41,34 +133,7 @@ async def parse_rss_feed(url: str) -> list[RawRSSItem]:
     items = []
 
     for entry in feed.entries:
-        # Extract enclosure URL (.torrent download link)
-        torrent_url = None
-        content_length = None
-        if hasattr(entry, "enclosures") and entry.enclosures:
-            enc = entry.enclosures[0]
-            torrent_url = enc.get("url")
-            if enc.get("length"):
-                try:
-                    content_length = int(enc["length"])
-                except (ValueError, TypeError):
-                    pass
-
-        # Extract published date — try mikan namespace first, then standard
-        published_at = None
-        if hasattr(entry, "torrent_pubdate"):
-            try:
-                published_at = datetime.fromisoformat(entry.torrent_pubdate)
-            except (ValueError, TypeError):
-                pass
-        elif hasattr(entry, "published_parsed") and entry.published_parsed:
-            published_at = datetime(*entry.published_parsed[:6])
-
-        # Try mikan namespace content length as fallback
-        if content_length is None and hasattr(entry, "torrent_contentlength"):
-            try:
-                content_length = int(entry.torrent_contentlength)
-            except (ValueError, TypeError):
-                pass
+        torrent_url, magnet_url = _extract_download_urls(entry)
 
         items.append(RawRSSItem(
             guid=getattr(entry, "id", entry.get("title", "")),
@@ -76,8 +141,9 @@ async def parse_rss_feed(url: str) -> list[RawRSSItem]:
             description=entry.get("description"),
             link=entry.get("link"),
             torrent_url=torrent_url,
-            content_length=content_length,
-            published_at=published_at,
+            magnet_url=magnet_url,
+            content_length=_extract_content_length(entry),
+            published_at=_extract_published_at(entry),
         ))
 
     return items
@@ -98,7 +164,6 @@ async def get_raw_entries(url: str, limit: int = 5) -> list[dict]:
     feed = await asyncio.to_thread(_parse_feed_sync, url)
     entries = []
     for entry in feed.entries[:limit]:
-        # Convert feedparser entry to a plain dict
         entry_dict = {}
         for key in entry.keys():
             value = entry[key]
@@ -115,16 +180,45 @@ async def get_raw_entries(url: str, limit: int = 5) -> list[dict]:
     return entries
 
 
-def validate_rss_url(url: str) -> tuple[bool, str, int]:
-    """Validate that an RSS URL is reachable and parseable.
+async def validate_rss_url(url: str) -> tuple[bool, str, int, int]:
+    """Validate that an RSS URL is reachable, parseable, and has downloadable content.
+
+    Checks:
+    1. Feed is reachable and parseable (not a bozo feed)
+    2. Feed has at least one entry
+    3. At least some entries have .torrent URLs or magnet links
+
+    Args:
+        url: The RSS feed URL to validate.
 
     Returns:
-        (is_valid, message, item_count)
+        (is_valid, message, item_count, downloadable_count)
     """
     try:
-        feed = feedparser.parse(url)
-        if feed.bozo and not feed.entries:
-            return False, f"Feed parse error: {feed.bozo_exception}", 0
-        return True, "OK", len(feed.entries)
+        feed = await asyncio.to_thread(_parse_feed_sync, url)
     except Exception as e:
-        return False, str(e), 0
+        return False, f"Cannot reach feed: {e}", 0, 0
+
+    if feed.bozo and not feed.entries:
+        reason = str(feed.bozo_exception) if hasattr(feed, "bozo_exception") else "unknown error"
+        return False, f"Feed parse error: {reason}", 0, 0
+
+    item_count = len(feed.entries)
+    if item_count == 0:
+        return False, "Feed is empty — no entries found", 0, 0
+
+    # Check how many entries have downloadable content
+    downloadable = 0
+    for entry in feed.entries:
+        torrent_url, magnet_url = _extract_download_urls(entry)
+        if torrent_url or magnet_url:
+            downloadable += 1
+
+    if downloadable == 0:
+        return False, (
+            f"Feed has {item_count} entries but none contain torrent files or magnet links"
+        ), item_count, 0
+
+    return True, (
+        f"Feed is valid: {item_count} entries, {downloadable} with downloadable content"
+    ), item_count, downloadable

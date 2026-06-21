@@ -47,6 +47,7 @@ class ValidateURLResponse(BaseModel):
     valid: bool
     message: str
     item_count: int = 0
+    downloadable_count: int = 0
 
 
 class FieldMappingEntry(BaseModel):
