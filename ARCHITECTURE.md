@@ -1,4 +1,4 @@
-# RSS Downloader - Architecture Document
+# RSSRipple - Architecture Document
 
 ## 1. System Architecture
 
@@ -326,13 +326,14 @@ RUN npm ci && npm run build
 # Python app
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
 COPY app/ ./app/
 COPY --from=frontend-builder /frontend/dist ./app/static
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
 ## 9. Testing Strategy
@@ -379,7 +380,7 @@ class Settings(BaseSettings):
     tvdb_api_key: str = ""
     
     # App
-    app_name: str = "RSS Downloader"
+    app_name: str = "RSSRipple"
     debug: bool = False
     log_level: str = "INFO"
     

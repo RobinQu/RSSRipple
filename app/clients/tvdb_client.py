@@ -5,9 +5,9 @@ API key configured via settings.tvdb_api_key.
 """
 
 import logging
-from dataclasses import dataclass
 
 import httpx
+from pydantic import BaseModel
 
 from app.config import settings
 
@@ -16,8 +16,7 @@ logger = logging.getLogger(__name__)
 TVDB_BASE_URL = "https://api4.thetvdb.com/v4"
 
 
-@dataclass
-class TVDBSearchResult:
+class TVDBSearchResult(BaseModel):
     """A single search result from TVDB."""
     id: int
     name: str
@@ -28,16 +27,15 @@ class TVDBSearchResult:
     first_air_time: str | None = None
 
 
-@dataclass
-class TVDBSeriesDetail:
+class TVDBSeriesDetail(BaseModel):
     """Detailed TV series info from TVDB."""
     id: int
     name: str
     overview: str
     genres: list[str]
-    first_air_time: str | None
-    status: str | None
-    year: str | None
+    first_air_time: str | None = None
+    status: str | None = None
+    year: str | None = None
 
 
 class TVDBClient:

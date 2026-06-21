@@ -76,4 +76,4 @@ if STATIC_DIR.exists():
 else:
     @app.get("/")
     async def root():
-        return {"message": "RSS Downloader API", "docs": "/docs"}
+        return {"message": "RSSRipple API", "docs": "/docs"}

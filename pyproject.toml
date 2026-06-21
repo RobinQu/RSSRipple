@@ -1,0 +1,50 @@
+[project]
+name = "rssripple"
+version = "0.1.0"
+description = "Automated RSS subscription downloader with intelligent filtering and LLM-assisted decisions"
+readme = "AGENTS.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.6",
+    "sqlalchemy[asyncio]==2.0.35",
+    "aiosqlite==0.20.0",
+    "pydantic==2.9.2",
+    "pydantic-settings==2.5.2",
+    "httpx==0.27.2",
+    "feedparser==6.0.11",
+    "transmission-rpc==7.0.6",
+    "apscheduler==3.10.4",
+    "openai==1.51.0",
+    "python-dotenv==1.0.1",
+    "thefuzz[speedup]==0.22.1",
+    "cinemagoer==2023.5.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[[tool.uv.index]]
+url = "https://pypi.org/simple/"
+default = true

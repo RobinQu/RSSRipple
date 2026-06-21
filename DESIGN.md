@@ -1,8 +1,8 @@
-# RSS Downloader - Design Document
+# RSSRipple - Design Document
 
 ## 1. Overview
 
-RSS Downloader 是一个自动化的 RSS 订阅下载服务，专注于番剧/影视内容的智能筛选与自动下载。通过 RSS 订阅源获取资源信息，利用规则过滤和 LLM 辅助决策进行智能匹配，最终将下载任务推送至 Transmission 下载器。
+RSSRipple 是一个自动化的 RSS 订阅下载服务，专注于番剧/影视内容的智能筛选与自动下载。通过 RSS 订阅源获取资源信息，利用规则过滤和 LLM 辅助决策进行智能匹配，最终将下载任务推送至 Transmission 下载器。
 
 ## 2. Core Problem
 
@@ -405,7 +405,7 @@ class EpisodeProfile:
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  RSS Downloader                          [Settings] │
+│  RSSRipple                               [Settings] │
 ├─────────────────────────────────────────────────────┤
 │                                                      │
 │  Active Agents (3)                                   │

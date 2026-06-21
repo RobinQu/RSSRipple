@@ -5,9 +5,9 @@ API key configured via settings.tmdb_api_key.
 """
 
 import logging
-from dataclasses import dataclass
 
 import httpx
+from pydantic import BaseModel
 
 from app.config import settings
 
@@ -16,8 +16,7 @@ logger = logging.getLogger(__name__)
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 
 
-@dataclass
-class TMDBSearchResult:
+class TMDBSearchResult(BaseModel):
     """A single search result from TMDB."""
     id: int
     title: str
@@ -28,28 +27,26 @@ class TMDBSearchResult:
     first_air_date: str | None = None
 
 
-@dataclass
-class TMDBSeriesDetail:
+class TMDBSeriesDetail(BaseModel):
     """Detailed TV series info from TMDB."""
     id: int
     name: str
     original_name: str
     overview: str
     genres: list[str]
-    first_air_date: str | None
-    number_of_seasons: int
-    number_of_episodes: int
+    first_air_date: str | None = None
+    number_of_seasons: int = 0
+    number_of_episodes: int = 0
 
 
-@dataclass
-class TMDBMovieDetail:
+class TMDBMovieDetail(BaseModel):
     """Detailed movie info from TMDB."""
     id: int
     title: str
     original_title: str
     overview: str
     genres: list[str]
-    release_date: str | None
+    release_date: str | None = None
 
 
 class TMDBClient:

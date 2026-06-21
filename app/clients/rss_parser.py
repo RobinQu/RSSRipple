@@ -7,21 +7,20 @@ is generic enough to work with any RSS/Atom feed.
 
 import asyncio
 from datetime import datetime
-from dataclasses import dataclass
 
 import feedparser
+from pydantic import BaseModel
 
 
-@dataclass
-class RawRSSItem:
+class RawRSSItem(BaseModel):
     """Raw RSS item before database insertion."""
     guid: str
     title: str
-    description: str | None
-    link: str | None
-    torrent_url: str | None
-    content_length: int | None
-    published_at: datetime | None
+    description: str | None = None
+    link: str | None = None
+    torrent_url: str | None = None
+    content_length: int | None = None
+    published_at: datetime | None = None
 
 
 def _parse_feed_sync(url: str) -> feedparser.FeedParserDict:

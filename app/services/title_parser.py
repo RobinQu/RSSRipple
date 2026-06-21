@@ -8,11 +8,11 @@ Examples:
 """
 
 import re
-from dataclasses import dataclass, field
+
+from pydantic import BaseModel
 
 
-@dataclass
-class ParsedTitle:
+class ParsedTitle(BaseModel):
     """Parsed fields from an RSS item title."""
     raw: str = ""
     subtitle_group: str | None = None
