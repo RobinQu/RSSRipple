@@ -5,15 +5,7 @@ services:
       - "8000:8000"
     volumes:
       - app-data:/app/data
-    environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/rss_downloader.db
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_MODEL=${LLM_MODEL:-openrouter/free}
-      - LLM_BASE_URL=${LLM_BASE_URL:-https://openrouter.ai/api/v1}
-      - TMDB_API_KEY=${TMDB_API_KEY:-}
-      - TVDB_API_KEY=${TVDB_API_KEY:-}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DEBUG=${DEBUG:-false}
+    env_file: .env
     depends_on:
       - transmission
     restart: unless-stopped
