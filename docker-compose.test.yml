@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./tests:/app/tests
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/test.db
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      - transmission
+    command: >
+      sh -c "pip install pytest pytest-asyncio httpx &&
+             python -m pytest tests/ -v --tb=short"
+
+  transmission:
+    image: linuxserver/transmission:latest
+    ports:
+      - "9092:9091"
+    volumes:
+      - transmission-test-config:/config
+      - test-downloads:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+
+volumes:
+  transmission-test-config:
+  test-downloads:
