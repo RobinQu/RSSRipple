@@ -1,0 +1,37 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_downloader.db
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-false}
+    depends_on:
+      - transmission
+    restart: unless-stopped
+
+  transmission:
+    image: linuxserver/transmission:latest
+    ports:
+      - "9091:9091"
+      - "51413:51413"
+      - "51413:51413/udp"
+    volumes:
+      - transmission-config:/config
+      - downloads:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+
+volumes:
+  app-data:
+  transmission-config:
+  downloads:
