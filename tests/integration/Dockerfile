@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps
-COPY requirements-test.txt .
+COPY tests/integration/requirements-test.txt .
 RUN pip install --no-cache-dir -r requirements-test.txt
 
 # Copy test server code

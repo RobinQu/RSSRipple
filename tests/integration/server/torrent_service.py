@@ -65,6 +65,9 @@ class TorrentService:
         self._sessions: dict[str, object] = {}  # info_hash -> lt.session
         self._tracker_url: str = ""
 
+        # Shared session for downloads (single session avoids peer discovery issues)
+        self._dl_session = None
+
     def set_tracker_url(self, url: str):
         """Set the tracker URL for new torrents."""
         self._tracker_url = url
@@ -102,15 +105,53 @@ class TorrentService:
         parent = str(file_path.parent)
         lt.set_piece_hashes(t, parent)
 
-        # Generate .torrent
-        torrent_data = lt.bencode(t.generate())
-        info_hash = hashlib.sha1(lt.bencode(t.generate()["info"])).hexdigest().lower()
+        # Generate .torrent and compute info hash
+        entry = t.generate()
+        torrent_data = lt.bencode(entry)
+        # libtorrent 2.x may use bytes keys — extract info dict carefully
+        info_dict = entry.get(b"info") or entry.get("info")
+        if info_dict is None:
+            # Fallback: use torrent_info to get the hash
+            ti = lt.torrent_info(lt.bdecode(torrent_data))
+            info_hash = str(ti.info_hashes().v1).lower()
+        else:
+            info_hash = hashlib.sha1(lt.bencode(info_dict)).hexdigest().lower()
 
         torrent_path = self.torrents_dir / f"{info_hash}.torrent"
         torrent_path.write_bytes(torrent_data)
 
         logger.info("Created torrent: %s -> %s (hash: %s)", file_name, torrent_path, info_hash)
         return info_hash, str(torrent_path)
+
+    def _get_seed_session(self):
+        """Get or create the seed session."""
+        lt = _get_lt()
+        if "seed" not in self._sessions:
+            ses = lt.session()
+            ses.apply_settings({
+                "listen_interfaces": "0.0.0.0:0",
+                "enable_dht": False,
+                "enable_lsd": True,
+                "enable_natpmp": False,
+                "enable_upnp": False,
+            })
+            self._sessions["seed"] = ses
+        return self._sessions["seed"]
+
+    def _get_dl_session(self):
+        """Get or create the download session."""
+        lt = _get_lt()
+        if "download" not in self._sessions:
+            ses = lt.session()
+            ses.apply_settings({
+                "listen_interfaces": "0.0.0.0:0",
+                "enable_dht": False,
+                "enable_lsd": True,
+                "enable_natpmp": False,
+                "enable_upnp": False,
+            })
+            self._sessions["download"] = ses
+        return self._sessions["download"]
 
     async def seed(self, info_hash: str) -> TorrentJob:
         """Start seeding a torrent."""
@@ -120,15 +161,7 @@ class TorrentService:
         if not torrent_path.exists():
             raise FileNotFoundError(f"Torrent not found: {info_hash}")
 
-        # Create a dedicated session for seeding
-        ses = lt.session()
-        ses.apply_settings({
-            "listen_interfaces": "0.0.0.0:0",  # random port
-            "enable_dht": False,
-            "enable_lsd": False,
-            "enable_natpmp": False,
-            "enable_upnp": False,
-        })
+        ses = self._get_seed_session()
 
         ti = lt.torrent_info(str(torrent_path))
         h = ses.add_torrent({
@@ -136,6 +169,11 @@ class TorrentService:
             "save_path": str(self.files_dir),
             "flags": lt.torrent_flags.seed_mode,
         })
+
+        # Wait a moment for the session to start listening
+        await asyncio.sleep(0.5)
+        port = ses.listen_port()
+        logger.info("Seeding: %s (hash: %s) on port %d", ti.name(), info_hash, port)
 
         job = TorrentJob(
             info_hash=info_hash,
@@ -145,13 +183,10 @@ class TorrentService:
             status="seeding",
         )
         self.jobs[info_hash] = job
-        self._sessions[info_hash] = ses
-
-        logger.info("Seeding: %s (hash: %s)", ti.name(), info_hash)
         return job
 
     async def download(self, info_hash: str) -> TorrentJob:
-        """Start downloading a torrent."""
+        """Start downloading a torrent from the seed session."""
         lt = _get_lt()
         torrent_path = self.torrents_dir / f"{info_hash}.torrent"
 
@@ -161,20 +196,25 @@ class TorrentService:
         dl_dir = self.downloads_dir / info_hash
         dl_dir.mkdir(parents=True, exist_ok=True)
 
-        ses = lt.session()
-        ses.apply_settings({
-            "listen_interfaces": "0.0.0.0:0",
-            "enable_dht": False,
-            "enable_lsd": False,
-            "enable_natpmp": False,
-            "enable_upnp": False,
-        })
+        ses = self._get_dl_session()
 
         ti = lt.torrent_info(str(torrent_path))
         h = ses.add_torrent({
             "ti": ti,
             "save_path": str(dl_dir),
         })
+
+        # Connect to the seed peer directly
+        seed_ses = self._sessions.get("seed")
+        if seed_ses:
+            port = seed_ses.listen_port()
+            if port and port > 0:
+                h.connect_peer(("127.0.0.1", port))
+                logger.info("Connected download to seed at 127.0.0.1:%d", port)
+            else:
+                logger.warning("Seed session port not available (port=%d)", port)
+        else:
+            logger.warning("No seed session found for %s", info_hash)
 
         job = TorrentJob(
             info_hash=info_hash,
@@ -184,7 +224,6 @@ class TorrentService:
             status="downloading",
         )
         self.jobs[info_hash] = job
-        self._sessions[info_hash] = ses
 
         # Start background monitor
         asyncio.create_task(self._monitor_download(info_hash, h, ses))
@@ -220,20 +259,25 @@ class TorrentService:
         """Get the current status of a torrent job."""
         job = self.jobs.get(info_hash)
         if job:
-            # Update from live handle if session exists
-            ses = self._sessions.get(info_hash)
-            if ses:
-                try:
-                    for h in ses.get_torrents():
-                        s = h.status()
-                        job.progress = s.progress
-                        job.download_rate = s.download_rate
-                        job.upload_rate = s.upload_rate
-                        if s.is_seeding and job.status == "downloading":
-                            job.status = "complete"
-                            job.progress = 1.0
-                except Exception:
-                    pass
+            # Update from live handles in both sessions
+            for session_key in ("seed", "download"):
+                ses = self._sessions.get(session_key)
+                if ses:
+                    try:
+                        for h in ses.get_torrents():
+                            ti = h.torrent_file()
+                            if ti:
+                                ih = str(ti.info_hashes().v1).lower()
+                                if ih == info_hash and session_key == "download":
+                                    s = h.status()
+                                    job.progress = s.progress
+                                    job.download_rate = s.download_rate
+                                    job.upload_rate = s.upload_rate
+                                    if s.is_seeding and job.status == "downloading":
+                                        job.status = "complete"
+                                        job.progress = 1.0
+                    except Exception:
+                        pass
         return job
 
     def assert_complete(self, info_hash: str) -> tuple[bool, str]:
@@ -270,7 +314,7 @@ class TorrentService:
 
     def cleanup(self):
         """Clean up all sessions and files."""
-        for ses in self._sessions.values():
+        for key, ses in self._sessions.items():
             try:
                 ses.pause()
             except Exception:
