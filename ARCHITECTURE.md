@@ -130,7 +130,7 @@ app/
 │   ├── __init__.py
 │   ├── transmission.py        # Transmission RPC wrapper
 │   ├── rss_parser.py          # RSS feed parser (feedparser)
-│   ├── tmdb_client.py         # TMDB API client
+│   ├── imdb_client.py         # IMDB client (Cinemagoer)
 │   ├── tvdb_client.py         # TVDB API v4 client
 │   └── llm_client.py          # LLM API client
 │
@@ -376,7 +376,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     
     # Metadata providers
-    tmdb_api_key: str = ""
+    # IMDB uses Cinemagoer (no API key needed)
     tvdb_api_key: str = ""
     
     # App

@@ -11,7 +11,6 @@ class AgentCreate(BaseModel):
     name: str
     channel_id: str
     downloader_id: str
-    download_dir: str | None = None
     task_expire_days: int = 30
     llm_enabled: bool = False
     metadata_source: str | None = None
@@ -23,7 +22,6 @@ class AgentUpdate(BaseModel):
     name: str | None = None
     channel_id: str | None = None
     downloader_id: str | None = None
-    download_dir: str | None = None
     task_expire_days: int | None = None
     llm_enabled: bool | None = None
     metadata_source: str | None = None
@@ -38,7 +36,6 @@ class AgentResponse(BaseModel):
     name: str
     channel_id: str
     downloader_id: str | None = None
-    download_dir: str | None = None
     task_expire_days: int
     llm_enabled: bool
     metadata_source: str | None = None

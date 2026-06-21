@@ -11,6 +11,7 @@ class DownloaderCreate(BaseModel):
     url: str
     username: str | None = None
     password: str | None = None
+    download_dir: str | None = None
 
 
 class DownloaderUpdate(BaseModel):
@@ -18,6 +19,7 @@ class DownloaderUpdate(BaseModel):
     url: str | None = None
     username: str | None = None
     password: str | None = None
+    download_dir: str | None = None
 
 
 class DownloaderResponse(BaseModel):
@@ -28,6 +30,7 @@ class DownloaderResponse(BaseModel):
     type: str
     url: str
     username: str | None = None
+    download_dir: str | None = None
     status: str
     last_checked_at: datetime | None = None
     created_at: datetime

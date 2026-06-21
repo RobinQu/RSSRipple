@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Channels from './pages/Channels';
 import ChannelForm from './pages/ChannelForm';
+import ChannelDetail from './pages/ChannelDetail';
 import Downloaders from './pages/Downloaders';
 import DownloaderForm from './pages/DownloaderForm';
 import Agents from './pages/Agents';
@@ -17,6 +18,7 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="channels" element={<Channels />} />
           <Route path="channels/new" element={<ChannelForm />} />
+          <Route path="channels/:id" element={<ChannelDetail />} />
           <Route path="downloaders" element={<Downloaders />} />
           <Route path="downloaders/new" element={<DownloaderForm />} />
           <Route path="agents" element={<Agents />} />

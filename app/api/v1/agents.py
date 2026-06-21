@@ -1,12 +1,16 @@
 """Agent API routes."""
 
+import re
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from thefuzz import fuzz
 
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.filter import ResourceFilter
+from app.models.file_resource import FileResource
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentResponse
 from app.schemas.common import success_response, paginated_response
 from fastapi.responses import JSONResponse
@@ -94,3 +98,99 @@ async def run_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Agent not found"}})
     # TODO: Trigger agent processing
     return success_response({"message": "Agent run triggered", "agent_id": agent_id})
+
+
+@router.post("/agents/{agent_id}/test-filters")
+async def test_filters(
+    agent_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Test agent's filters against its channel's FileResources.
+
+    Returns per-resource match results showing which filters pass/fail.
+    """
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Agent not found"}})
+
+    # Load filters (already eager-loaded but ensure fresh)
+    filters = agent.filters
+    if not filters:
+        return success_response({
+            "total_resources": 0,
+            "matched": 0,
+            "failed": 0,
+            "results": [],
+            "message": "No filters configured",
+        })
+
+    # Load channel resources
+    result = await db.execute(
+        select(FileResource)
+        .where(FileResource.channel_id == agent.channel_id)
+        .order_by(FileResource.published_at.desc())
+        .limit(100)
+    )
+    resources = result.scalars().all()
+
+    results = []
+    matched_count = 0
+
+    for res in resources:
+        resource_result = {
+            "resource_id": res.id,
+            "title_raw": res.title_raw,
+            "filters": [],
+            "all_required_passed": True,
+        }
+
+        for f in filters:
+            field_value = getattr(res, f.field, None)
+            field_str = str(field_value) if field_value is not None else ""
+            passed = _evaluate_filter(field_str, f.operator, f.value)
+
+            resource_result["filters"].append({
+                "field": f.field,
+                "operator": f.operator,
+                "filter_value": f.value,
+                "resource_value": field_str,
+                "passed": passed,
+                "is_required": f.is_required,
+            })
+
+            if f.is_required and not passed:
+                resource_result["all_required_passed"] = False
+
+        if resource_result["all_required_passed"]:
+            matched_count += 1
+
+        results.append(resource_result)
+
+    return success_response({
+        "total_resources": len(resources),
+        "matched": matched_count,
+        "failed": len(resources) - matched_count,
+        "results": results,
+    })
+
+
+def _evaluate_filter(field_value: str, operator: str, filter_value: str) -> bool:
+    """Evaluate a single filter operator against a field value."""
+    if not field_value:
+        return False
+
+    if operator == "eq":
+        return field_value.lower() == filter_value.lower()
+    elif operator == "contains":
+        return filter_value.lower() in field_value.lower()
+    elif operator == "fuzzy":
+        return fuzz.ratio(field_value.lower(), filter_value.lower()) >= 70
+    elif operator == "in":
+        values = [v.strip().lower() for v in filter_value.split(",")]
+        return field_value.lower() in values
+    elif operator == "regex":
+        try:
+            return bool(re.search(filter_value, field_value, re.IGNORECASE))
+        except re.error:
+            return False
+    return False
