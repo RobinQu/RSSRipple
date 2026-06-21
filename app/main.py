@@ -49,7 +49,7 @@ app.add_middleware(
 )
 
 # API routers
-from app.api.v1 import channels, agents, filters, downloaders, tasks, decisions, dashboard, resources  # noqa: E402
+from app.api.v1 import channels, agents, filters, downloaders, tasks, decisions, dashboard, resources, series, movies  # noqa: E402
 
 app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
@@ -59,6 +59,8 @@ app.include_router(downloaders.router, prefix="/api/v1", tags=["downloaders"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
 app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
+app.include_router(series.router, prefix="/api/v1", tags=["series"])
+app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
 
 # Static files (frontend)
 if STATIC_DIR.exists():

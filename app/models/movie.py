@@ -22,8 +22,12 @@ class Movie(Base):
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     release_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     # Relationships

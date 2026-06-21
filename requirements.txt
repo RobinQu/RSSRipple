@@ -11,3 +11,4 @@ apscheduler==3.10.4
 openai==1.51.0
 python-dotenv==1.0.1
 thefuzz[speedup]==0.22.1
+cinemagoer==2023.5.1

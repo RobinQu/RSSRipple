@@ -25,6 +25,14 @@ class Agent(Base):
     download_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     task_expire_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    metadata_source: Mapped[str | None] = mapped_column(
+        Enum("tmdb", "tvdb", "none", name="metadata_source"),
+        nullable=True, default=None,
+    )
+    content_type: Mapped[str] = mapped_column(
+        Enum("anime", "tv", "movie", "mixed", name="content_type"),
+        default="anime", nullable=False,
+    )
     status: Mapped[str] = mapped_column(
         Enum("active", "paused", "error", name="agent_status"),
         default="active",

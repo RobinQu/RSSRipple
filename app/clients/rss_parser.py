@@ -1,5 +1,11 @@
-"""RSS feed parser using feedparser."""
+"""RSS feed parser using feedparser.
 
+Provides both sync and async entry access for downstream services.
+The mikanani-specific namespace fields are extracted but the parser
+is generic enough to work with any RSS/Atom feed.
+"""
+
+import asyncio
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -18,8 +24,13 @@ class RawRSSItem:
     published_at: datetime | None
 
 
-def parse_rss_feed(url: str) -> list[RawRSSItem]:
-    """Fetch and parse an RSS feed.
+def _parse_feed_sync(url: str) -> feedparser.FeedParserDict:
+    """Synchronous feedparser call (blocking)."""
+    return feedparser.parse(url)
+
+
+async def parse_rss_feed(url: str) -> list[RawRSSItem]:
+    """Fetch and parse an RSS feed asynchronously.
 
     Args:
         url: The RSS feed URL.
@@ -27,7 +38,7 @@ def parse_rss_feed(url: str) -> list[RawRSSItem]:
     Returns:
         List of RawRSSItem parsed from the feed.
     """
-    feed = feedparser.parse(url)
+    feed = await asyncio.to_thread(_parse_feed_sync, url)
     items = []
 
     for entry in feed.entries:
@@ -43,7 +54,7 @@ def parse_rss_feed(url: str) -> list[RawRSSItem]:
                 except (ValueError, TypeError):
                     pass
 
-        # Extract mikan torrent namespace fields
+        # Extract published date — try mikan namespace first, then standard
         published_at = None
         if hasattr(entry, "torrent_pubdate"):
             try:
@@ -53,7 +64,8 @@ def parse_rss_feed(url: str) -> list[RawRSSItem]:
         elif hasattr(entry, "published_parsed") and entry.published_parsed:
             published_at = datetime(*entry.published_parsed[:6])
 
-        if hasattr(entry, "torrent_contentlength"):
+        # Try mikan namespace content length as fallback
+        if content_length is None and hasattr(entry, "torrent_contentlength"):
             try:
                 content_length = int(entry.torrent_contentlength)
             except (ValueError, TypeError):
@@ -70,6 +82,38 @@ def parse_rss_feed(url: str) -> list[RawRSSItem]:
         ))
 
     return items
+
+
+async def get_raw_entries(url: str, limit: int = 5) -> list[dict]:
+    """Fetch RSS feed and return raw entry dicts for LLM analysis.
+
+    Converts feedparser entries to plain dicts, suitable for JSON serialization.
+
+    Args:
+        url: The RSS feed URL.
+        limit: Max number of entries to return.
+
+    Returns:
+        List of entry dicts.
+    """
+    feed = await asyncio.to_thread(_parse_feed_sync, url)
+    entries = []
+    for entry in feed.entries[:limit]:
+        # Convert feedparser entry to a plain dict
+        entry_dict = {}
+        for key in entry.keys():
+            value = entry[key]
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                entry_dict[key] = value
+            elif isinstance(value, list):
+                entry_dict[key] = [
+                    dict(item) if hasattr(item, "keys") else str(item)
+                    for item in value
+                ]
+            else:
+                entry_dict[key] = str(value)
+        entries.append(entry_dict)
+    return entries
 
 
 def validate_rss_url(url: str) -> tuple[bool, str, int]:
