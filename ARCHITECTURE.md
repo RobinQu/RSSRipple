@@ -88,23 +88,29 @@ app/
 │   ├── channel.py
 │   ├── file_resource.py
 │   ├── episode.py
+│   ├── series.py              # TVSeries create/update/response
+│   ├── movie.py               # Movie create/update/response
 │   ├── filter.py
 │   ├── agent.py
 │   ├── downloader.py
 │   ├── download_task.py
+│   ├── pending_decision.py
 │   └── common.py
 │
 ├── api/                       # API route handlers
 │   ├── __init__.py
 │   ├── v1/
 │   │   ├── __init__.py
-│   │   ├── channels.py
+│   │   ├── channels.py        # CRUD + analyze + apply-mapping
 │   │   ├── agents.py
 │   │   ├── filters.py
 │   │   ├── downloaders.py
 │   │   ├── tasks.py
 │   │   ├── decisions.py
-│   │   └── dashboard.py
+│   │   ├── dashboard.py
+│   │   ├── resources.py
+│   │   ├── series.py          # TVSeries CRUD
+│   │   └── movies.py          # Movie CRUD
 │   └── deps.py                # Dependency injection
 │
 ├── services/                  # Business logic layer
@@ -113,14 +119,19 @@ app/
 │   ├── agent_service.py       # Agent orchestration
 │   ├── filter_service.py      # Filter matching logic
 │   ├── download_service.py    # Transmission integration
-│   ├── title_parser.py        # RSS title parsing
+│   ├── title_parser.py        # RSS title parsing (mikanani fallback)
+│   ├── resource_parser.py     # Dynamic field mapping parser
+│   ├── feed_analyzer.py       # LLM-based RSS field mapping generation
+│   ├── metadata_service.py    # TVSeries/Movie metadata matching
 │   ├── llm_service.py         # LLM integration
 │   └── scheduler.py           # APScheduler setup
 │
 ├── clients/                   # External API clients
 │   ├── __init__.py
 │   ├── transmission.py        # Transmission RPC wrapper
-│   ├── rss_parser.py          # RSS feed parser
+│   ├── rss_parser.py          # RSS feed parser (feedparser)
+│   ├── tmdb_client.py         # TMDB API client
+│   ├── tvdb_client.py         # TVDB API v4 client
 │   └── llm_client.py          # LLM API client
 │
 └── utils/                     # Utility functions
@@ -358,10 +369,14 @@ class Settings(BaseSettings):
     # Scheduler
     default_fetch_interval: int = 1800  # 30 minutes
     
-    # LLM
+    # LLM (OpenAI-compatible API)
     llm_api_key: str = ""
-    llm_model: str = "gpt-4o-mini"
-    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "openrouter/free"
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+    
+    # Metadata providers
+    tmdb_api_key: str = ""
+    tvdb_api_key: str = ""
     
     # App
     app_name: str = "RSS Downloader"

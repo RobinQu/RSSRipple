@@ -74,6 +74,8 @@ All endpoints under `/api/v1/`. Request/response bodies are JSON.
 | PUT | `/api/v1/channels/{id}` | 更新频道 |
 | DELETE | `/api/v1/channels/{id}` | 删除频道 |
 | POST | `/api/v1/channels/{id}/fetch` | 手动触发 RSS 拉取 |
+| POST | `/api/v1/channels/{id}/analyze` | LLM 分析 RSS 源生成字段映射 |
+| POST | `/api/v1/channels/{id}/apply-mapping` | 应用字段映射到频道 |
 | POST | `/api/v1/channels/validate-url` | 验证 RSS URL 可达性 |
 
 ### Agents（智能代理）
@@ -125,6 +127,26 @@ All endpoints under `/api/v1/`. Request/response bodies are JSON.
 | GET | `/api/v1/agents/{agent_id}/decisions` | 获取待决策列表（分页） |
 | POST | `/api/v1/decisions/{id}/confirm` | 确认选择某个候选资源 |
 | POST | `/api/v1/decisions/{id}/skip` | 跳过该决策 |
+
+### TVSeries（剧集系列）
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/series` | 列出所有剧集系列（分页） |
+| POST | `/api/v1/series` | 创建剧集系列 |
+| GET | `/api/v1/series/{id}` | 获取剧集系列详情 |
+| PUT | `/api/v1/series/{id}` | 更新剧集系列 |
+| DELETE | `/api/v1/series/{id}` | 删除剧集系列 |
+
+### Movies（电影）
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/movies` | 列出所有电影（分页） |
+| POST | `/api/v1/movies` | 创建电影 |
+| GET | `/api/v1/movies/{id}` | 获取电影详情 |
+| PUT | `/api/v1/movies/{id}` | 更新电影 |
+| DELETE | `/api/v1/movies/{id}` | 删除电影 |
 
 ### File Resources（资源条目）
 
@@ -204,18 +226,41 @@ All endpoints under `/api/v1/`. Request/response bodies are JSON.
 }
 ```
 
-## RSS Title Parsing Rules
+## RSS Parsing Architecture
 
-Title format: `[SubtitleGroup] ChineseName / EnglishName - Episode [Quality][Codec][Subtitle][Container]`
+### Dynamic Field Mapping (per-channel)
 
-Key fields to extract:
-- `subtitle_group`: first bracketed content
-- `title_cn`: Chinese name before ` / `
-- `title_en`: English name after ` / ` and before ` - `
-- `episode`: number after ` - `
+Different RSS sources (mikanani.me, dmhy.org, myrss.org, etc.) have varying title formats and XML structures. The system uses a **dynamic field mapping** approach:
+
+1. When creating a Channel, call `POST /channels/{id}/analyze` to have the LLM analyze sample RSS entries
+2. The LLM generates a `field_mapping` JSON that describes how to extract each FileResource field
+3. Review the proposed mapping, then apply it via `POST /channels/{id}/apply-mapping`
+4. Subsequent RSS fetches use the channel's field_mapping via `resource_parser.py`
+
+**Field mapping rule structure:**
+```json
+{
+  "title_cn": {"source": "title", "regex": "\\]\\s*(.+?)\\s*/", "group": 1},
+  "episode": {"source": "title", "regex": "-\\s*(\\d+)\\b", "group": 1, "transform": "int"},
+  "torrent_url": {"source": "enclosures[0].url"},
+  "file_size": {"source": "enclosures[0].length", "transform": "int"}
+}
+```
+
+- `source`: dotted path into feedparser entry dict (e.g., `title`, `enclosures[0].url`)
+- `regex`: optional regex applied to the source value
+- `group`: regex capture group index (0 = full match)
+- `transform`: optional type coercion (`int`, `float`, `iso_datetime`, `lowercase`, `uppercase`)
+
+**Fallback parser** (`title_parser.py`): When no field_mapping is set (`parser_type: "mikanani"`), uses hardcoded regex for the mikanani title format: `[字幕组] CN / EN - EP [quality]`
+
+### Target Fields to Extract
+- `subtitle_group`: release group name
+- `title_cn` / `title_en`: Chinese and English titles
+- `episode`: episode number
 - `resolution`: e.g., `1080p`, `720p`
 - `source`: e.g., `WebRip`, `WEB-DL`
-- `video_codec`: e.g., `HEVC-10bit`, `AVC`, `H264`
+- `video_codec`: e.g., `HEVC-10bit`, `AVC`
 - `audio_codec`: e.g., `AAC`, `FLAC`
 - `subtitle_type`: e.g., `简繁内封字幕`, `CHT`, `CHS`
 - `container`: e.g., `MP4`, `MKV`
@@ -236,9 +281,11 @@ Key fields to extract:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | DATABASE_URL | sqlite+aiosqlite:///data/rss_downloader.db | Database connection |
-| LLM_API_KEY | (empty) | OpenAI API key for LLM decisions |
-| LLM_MODEL | gpt-4o-mini | LLM model name |
-| LLM_BASE_URL | https://api.openai.com/v1 | LLM API base URL |
+| LLM_API_KEY | (empty) | LLM API key (required for feed analysis + decisions) |
+| LLM_MODEL | openrouter/free | LLM model name (OpenAI-compatible) |
+| LLM_BASE_URL | https://openrouter.ai/api/v1 | LLM API base URL |
+| TMDB_API_KEY | (empty) | TMDB API key for metadata matching |
+| TVDB_API_KEY | (empty) | TVDB API key for metadata matching |
 | DEFAULT_FETCH_INTERVAL | 1800 | Default RSS fetch interval (seconds) |
 | MAX_RETRY_COUNT | 3 | Max download retry count |
 | TASK_EXPIRE_DAYS | 30 | Completed task expiry days |

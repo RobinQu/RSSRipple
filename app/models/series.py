@@ -23,6 +23,7 @@ class TVSeries(Base):
     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     genre: Mapped[list | None] = mapped_column(JSON, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

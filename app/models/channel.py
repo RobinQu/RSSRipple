@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, func
+from sqlalchemy import DateTime, Enum, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -25,6 +25,11 @@ class Channel(Base):
         Enum("active", "inactive", "error", name="channel_status"),
         default="active",
         nullable=False,
+    )
+    field_mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    parser_type: Mapped[str] = mapped_column(
+        Enum("auto", "mikanani", "custom", name="parser_type"),
+        default="auto", nullable=False,
     )
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

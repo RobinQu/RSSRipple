@@ -12,10 +12,14 @@ class Settings(BaseSettings):
     # Scheduler
     default_fetch_interval: int = 1800  # 30 minutes
 
-    # LLM
+    # LLM (OpenAI-compatible API)
     llm_api_key: str = ""
-    llm_model: str = "gpt-4o-mini"
-    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = "openrouter/free"
+    llm_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Metadata providers (used for TVSeries/Movie external matching)
+    tmdb_api_key: str = ""
+    tvdb_api_key: str = ""
 
     # App
     app_name: str = "RSS Downloader"

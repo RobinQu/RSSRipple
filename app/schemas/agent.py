@@ -14,6 +14,8 @@ class AgentCreate(BaseModel):
     download_dir: str | None = None
     task_expire_days: int = 30
     llm_enabled: bool = False
+    metadata_source: str | None = None
+    content_type: str = "anime"
     filters: list[FilterCreate] | None = None
 
 
@@ -24,6 +26,8 @@ class AgentUpdate(BaseModel):
     download_dir: str | None = None
     task_expire_days: int | None = None
     llm_enabled: bool | None = None
+    metadata_source: str | None = None
+    content_type: str | None = None
     status: str | None = None
 
 
@@ -33,10 +37,12 @@ class AgentResponse(BaseModel):
     id: str
     name: str
     channel_id: str
-    downloader_id: str
+    downloader_id: str | None = None
     download_dir: str | None = None
     task_expire_days: int
     llm_enabled: bool
+    metadata_source: str | None = None
+    content_type: str
     status: str
     last_run_at: datetime | None = None
     created_at: datetime
