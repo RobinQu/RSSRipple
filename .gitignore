@@ -13,6 +13,7 @@ build/
 venv/
 .venv/
 env/
+.python-version
 
 # IDE
 .idea/

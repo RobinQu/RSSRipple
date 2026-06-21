@@ -12,8 +12,8 @@ services:
     depends_on:
       - transmission
     command: >
-      sh -c "pip install pytest pytest-asyncio httpx &&
-             python -m pytest tests/ -v --tb=short"
+      sh -c "uv sync --frozen &&
+             uv run pytest tests/ -v --tb=short"
 
   transmission:
     image: linuxserver/transmission:latest

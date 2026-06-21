@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     tvdb_api_key: str = ""
 
     # App
-    app_name: str = "RSS Downloader"
+    app_name: str = "RSSRipple"
     debug: bool = False
     log_level: str = "INFO"
 

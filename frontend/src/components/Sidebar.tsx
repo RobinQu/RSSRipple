@@ -12,7 +12,7 @@ export default function Sidebar() {
   return (
     <aside className="w-60 bg-slate-900 text-white flex flex-col shrink-0">
       <div className="p-5 border-b border-slate-700">
-        <h1 className="text-lg font-bold tracking-tight">RSS Downloader</h1>
+        <h1 className="text-lg font-bold tracking-tight">RSSRipple</h1>
         <p className="text-xs text-slate-400 mt-0.5">Auto-download service</p>
       </div>
       <nav className="flex-1 p-3 space-y-1">
