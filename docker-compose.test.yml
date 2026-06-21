@@ -1,21 +1,45 @@
 services:
+  # RSSRipple application
   app:
     build: .
     ports:
-      - "8001:8000"
-    volumes:
-      - ./tests:/app/tests
+      - "8000:8000"
     env_file: .env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///data/test.db
       - DEBUG=true
       - LOG_LEVEL=DEBUG
     depends_on:
-      - transmission
-    command: >
-      sh -c "uv sync --frozen &&
-             uv run pytest tests/ -v --tb=short"
+      - test-server
+    restart: unless-stopped
 
+  # Integration test server (RSS feeds + tracker + torrent client)
+  test-server:
+    build:
+      context: .
+      dockerfile: tests/integration/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_URL=http://test-server:8080
+    restart: unless-stopped
+
+  # Integration test runner
+  test-runner:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/test.db
+      - TEST_SERVER_URL=http://test-server:8080
+      - RSSRIPPLE_URL=http://app:8000
+    depends_on:
+      - app
+      - test-server
+    command: >
+      sh -c "sleep 10 && uv sync --frozen &&
+             uv run pytest tests/integration/ -v --tb=short -x"
+
+  # Optional: Transmission for comparison testing
   transmission:
     image: linuxserver/transmission:latest
     ports:

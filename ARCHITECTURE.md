@@ -360,7 +360,50 @@ docker-compose (test profile)
     6. 验证下载进度上报
 ```
 
-## 10. Configuration
+## 10. Integration Test Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  docker-compose.test.yml                                     │
+│                                                              │
+│  ┌─────────────────┐   ┌──────────────────────────────────┐  │
+│  │  RSSRipple App   │   │  Test Server (port 8080)         │  │
+│  │  (port 8000)     │   │                                  │  │
+│  │                  │   │  /rss/dmhy      (magnet links)   │  │
+│  │  Full FastAPI    │◀──│  /rss/mikanani  (.torrent files) │  │
+│  │  app with all    │   │  /rss/eztv      (scene format)   │  │
+│  │  endpoints       │   │  /rss/movies    (IMDB metadata)  │  │
+│  │                  │   │                                  │  │
+│  └──────────────────┘   │  /announce      (BT tracker)     │  │
+│                          │  /scrape        (BT scrape)      │  │
+│  ┌──────────────────┐   │                                  │  │
+│  │  Test Runner     │   │  /torrents/{h}.torrent           │  │
+│  │  (pytest)        │──▶│  /files/{path}  (test content)   │  │
+│  │                  │   │                                  │  │
+│  │  Runs after app  │   │  /api/torrents/ (libtorrent)     │  │
+│  │  + test-server   │   │  /api/setup/full                 │  │
+│  │  are ready       │   └──────────────────────────────────┘  │
+│  └──────────────────┘                                        │
+│                                                              │
+│  ┌──────────────────┐                                        │
+│  │  Transmission    │  (optional, for comparison)            │
+│  │  (port 9092)     │                                        │
+│  └──────────────────┘                                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Test Server Stack
+- **FastAPI** — serves RSS feeds, tracker, torrent API
+- **libtorrent** — creates, seeds, downloads torrents
+- **bencodepy** — BitTorrent protocol encoding
+- Pre-generated mock data: 4 anime series, 4 TV shows, 3 movies, multiple subtitle/release groups
+
+### Test Data Diversity
+- **Anime** (dmhy/mikanani): 4 series × 3 episodes × 3 subtitle groups, varied resolutions/codecs
+- **TV Shows** (eztv): 4 shows × 3 episodes × 3 release groups, scene naming (SxxExy)
+- **Movies** (IMDB-style): 3 movies × 2 release groups, IMDB IDs and genre metadata
+
+## 11. Configuration
 
 ```python
 class Settings(BaseSettings):

@@ -293,6 +293,39 @@ Different RSS sources (mikanani.me, dmhy.org, myrss.org, etc.) have varying titl
 | LOG_LEVEL | INFO | Logging level |
 | DEBUG | false | Debug mode |
 
+## Integration Test Infrastructure
+
+The project includes a full integration test server (`tests/integration/server/`) that provides:
+
+### Test Server Components
+
+| Component | Endpoint | Description |
+|-----------|----------|-------------|
+| RSS Feed (dmhy) | `GET /rss/dmhy` | Anime feed with magnet links (dmhy.org format) |
+| RSS Feed (mikanani) | `GET /rss/mikanani` | Anime feed with .torrent files (mikanani.me format) |
+| RSS Feed (eztv) | `GET /rss/eztv` | Western TV feed (EZTV scene format) |
+| RSS Feed (movies) | `GET /rss/movies` | Movie feed with IMDB metadata |
+| BitTorrent Tracker | `GET /announce`, `GET /scrape` | Minimal HTTP tracker (BEP 3) |
+| Torrent Files | `GET /torrents/{hash}.torrent` | Serves generated .torrent files |
+| Test Files | `GET /files/{path}` | Serves mock test file content |
+| Torrent API | `POST /api/torrents/create`, `/seed`, `/download` | Create/seed/download torrents via libtorrent |
+| Assertions | `POST /api/torrents/{hash}/assert-complete` | Verify download completion |
+| Setup | `POST /api/setup/full` | One-shot: create + seed all test torrents |
+
+### Integration Test Scenarios
+
+1. **Torrent Lifecycle** (`test_torrent_lifecycle.py`): Create torrent → seed → download → verify file integrity
+2. **RSS Subscription** (`test_rss_subscription.py`): Validate feed → create Channel → verify resources → create Agent
+3. **Filter & Metadata** (`test_filter_metadata.py`): Create agents with filters → test filter matching → IMDB metadata config → Series/Movie CRUD
+
+### Running Integration Tests
+
+```bash
+docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
+```
+
+This starts: `app` (RSSRipple) + `test-server` (mock feeds/tracker/torrents) + `test-runner` (pytest) + `transmission`
+
 ## Running the Project
 
 ```bash
@@ -304,8 +337,9 @@ uv run uvicorn app.main:app --reload --port 8000
 # Docker
 docker-compose up --build
 
-# Tests
-pytest tests/unit -v
-pytest tests/api -v
+# Unit + API tests
+uv run pytest tests/unit tests/api -v
+
+# Integration tests (requires Docker — starts test-server + RSSRipple + test-runner)
 docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
