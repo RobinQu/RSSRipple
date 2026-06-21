@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
 
     # Metadata providers (used for TVSeries/Movie external matching)
-    tmdb_api_key: str = ""
+    # IMDB uses Cinemagoer (no API key needed)
     tvdb_api_key: str = ""
 
     # App

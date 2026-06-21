@@ -50,6 +50,7 @@ export default function Downloaders() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Type</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">URL</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Download Dir</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
               </tr>
@@ -60,6 +61,7 @@ export default function Downloaders() {
                   <td className="px-4 py-3 font-medium">{dl.name}</td>
                   <td className="px-4 py-3 text-gray-500">{dl.type}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs truncate max-w-xs">{dl.url}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{dl.download_dir || '—'}</td>
                   <td className="px-4 py-3"><StatusBadge status={dl.status} /></td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">

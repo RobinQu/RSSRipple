@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { Bot, AlertTriangle, Download } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Bot, AlertTriangle, Download, Plus, Rss } from 'lucide-react';
 import { dashboardApi } from '../api/tasks';
 import { usePolling } from '../hooks/usePolling';
 import StatusBadge from '../components/StatusBadge';
@@ -24,7 +25,17 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <div className="flex gap-2">
+          <Link to="/channels/new" className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+            <Rss size={16} /> Add Channel
+          </Link>
+          <Link to="/agents/new" className="flex items-center gap-2 px-4 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50">
+            <Plus size={16} /> Add Agent
+          </Link>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="bg-white rounded-xl border p-5 shadow-sm">

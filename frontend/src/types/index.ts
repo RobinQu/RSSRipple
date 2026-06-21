@@ -9,6 +9,7 @@ export interface APIResponse<T> {
 // Channel
 export type ChannelType = 'rss_feed';
 export type ChannelStatus = 'active' | 'inactive' | 'error';
+export type ParserType = 'auto' | 'mikanani' | 'custom';
 export interface Channel {
   id: string;
   name: string;
@@ -16,6 +17,8 @@ export interface Channel {
   url: string;
   fetch_interval: number;
   status: ChannelStatus;
+  field_mapping: Record<string, unknown> | null;
+  parser_type: ParserType;
   last_fetched_at: string | null;
   created_at: string;
   updated_at: string;
@@ -83,10 +86,11 @@ export interface Agent {
   id: string;
   name: string;
   channel_id: string;
-  downloader_id: string;
-  download_dir: string | null;
+  downloader_id: string | null;
   task_expire_days: number;
   llm_enabled: boolean;
+  metadata_source: string | null;
+  content_type: string;
   status: AgentStatus;
   last_run_at: string | null;
   created_at: string;
@@ -97,19 +101,44 @@ export interface AgentCreate {
   name: string;
   channel_id: string;
   downloader_id: string;
-  download_dir?: string;
   task_expire_days?: number;
   llm_enabled?: boolean;
+  metadata_source?: string;
+  content_type?: string;
   filters?: FilterCreate[];
 }
 export interface AgentUpdate {
   name?: string;
   channel_id?: string;
   downloader_id?: string;
-  download_dir?: string;
   task_expire_days?: number;
   llm_enabled?: boolean;
+  metadata_source?: string;
+  content_type?: string;
   status?: AgentStatus;
+}
+
+// Filter test result
+export interface FilterTestResult {
+  field: string;
+  operator: string;
+  filter_value: string;
+  resource_value: string;
+  passed: boolean;
+  is_required: boolean;
+}
+export interface ResourceTestResult {
+  resource_id: string;
+  title_raw: string;
+  filters: FilterTestResult[];
+  all_required_passed: boolean;
+}
+export interface FilterTestResponse {
+  total_resources: number;
+  matched: number;
+  failed: number;
+  results: ResourceTestResult[];
+  message?: string;
 }
 
 // Downloader
@@ -121,6 +150,7 @@ export interface DownloaderInstance {
   type: DownloaderType;
   url: string;
   username: string | null;
+  download_dir: string | null;
   status: DownloaderStatus;
   last_checked_at: string | null;
   created_at: string;
@@ -132,12 +162,14 @@ export interface DownloaderCreate {
   url: string;
   username?: string;
   password?: string;
+  download_dir?: string;
 }
 export interface DownloaderUpdate {
   name?: string;
   url?: string;
   username?: string;
   password?: string;
+  download_dir?: string;
 }
 
 // DownloadTask

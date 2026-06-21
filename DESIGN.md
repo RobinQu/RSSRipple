@@ -228,10 +228,9 @@ DownloadTask N──1 Agent
 | name | str | Agent 名称 |
 | channel_id | UUID | 关联频道 |
 | downloader_id | UUID | 关联下载器实例 |
-| download_dir | str? | 下载保存目录 |
 | task_expire_days | int | 已完成任务过期天数 |
 | llm_enabled | bool | 是否启用 LLM 辅助决策 |
-| metadata_source | enum? | 外部元数据源：`tmdb`, `tvdb`, `none` |
+| metadata_source | enum? | 外部元数据源：`imdb`, `tvdb`, `none` |
 | content_type | enum | 内容类型：`anime`, `tv`, `movie`, `mixed` |
 | status | enum | `active`, `paused`, `error` |
 | last_run_at | datetime | 上次运行时间 |

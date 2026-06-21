@@ -89,6 +89,7 @@ All endpoints under `/api/v1/`. Request/response bodies are JSON.
 | PUT | `/api/v1/agents/{id}` | 更新 Agent |
 | DELETE | `/api/v1/agents/{id}` | 删除 Agent |
 | POST | `/api/v1/agents/{id}/run` | 手动触发 Agent 处理 |
+| POST | `/api/v1/agents/{id}/test-filters` | 测试过滤器对频道资源的匹配结果 |
 
 ### Resource Filters（资源过滤器）
 
@@ -285,7 +286,6 @@ Different RSS sources (mikanani.me, dmhy.org, myrss.org, etc.) have varying titl
 | LLM_API_KEY | (empty) | LLM API key (required for feed analysis + decisions) |
 | LLM_MODEL | openrouter/free | LLM model name (OpenAI-compatible) |
 | LLM_BASE_URL | https://openrouter.ai/api/v1 | LLM API base URL |
-| TMDB_API_KEY | (empty) | TMDB API key for metadata matching |
 | TVDB_API_KEY | (empty) | TVDB API key for metadata matching |
 | DEFAULT_FETCH_INTERVAL | 1800 | Default RSS fetch interval (seconds) |
 | MAX_RETRY_COUNT | 3 | Max download retry count |

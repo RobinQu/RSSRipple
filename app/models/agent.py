@@ -22,11 +22,10 @@ class Agent(Base):
     downloader_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("downloader_instances.id", ondelete="SET NULL"), nullable=True
     )
-    download_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     task_expire_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     metadata_source: Mapped[str | None] = mapped_column(
-        Enum("tmdb", "tvdb", "none", name="metadata_source"),
+        Enum("imdb", "tvdb", "none", name="metadata_source"),
         nullable=True, default=None,
     )
     content_type: Mapped[str] = mapped_column(

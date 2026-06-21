@@ -65,7 +65,9 @@ export default function Channels() {
             <tbody className="divide-y">
               {channels.map((ch) => (
                 <tr key={ch.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">{ch.name}</td>
+                  <td className="px-4 py-3">
+                    <Link to={`/channels/${ch.id}`} className="font-medium text-blue-600 hover:underline">{ch.name}</Link>
+                  </td>
                   <td className="px-4 py-3 text-gray-500">{ch.type}</td>
                   <td className="px-4 py-3"><StatusBadge status={ch.status} /></td>
                   <td className="px-4 py-3 text-gray-500 text-xs">

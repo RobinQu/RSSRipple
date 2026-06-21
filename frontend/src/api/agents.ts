@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { Agent, AgentCreate, AgentUpdate } from '../types';
+import type { Agent, AgentCreate, AgentUpdate, FilterTestResponse } from '../types';
 
 export const agentsApi = {
   list: (page = 1, pageSize = 20) =>
@@ -14,4 +14,6 @@ export const agentsApi = {
     api.delete<null>(`/agents/${id}`),
   run: (id: string) =>
     api.post<{ message: string }>(`/agents/${id}/run`),
+  testFilters: (id: string) =>
+    api.post<FilterTestResponse>(`/agents/${id}/test-filters`),
 };

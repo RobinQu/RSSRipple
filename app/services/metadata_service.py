@@ -1,9 +1,9 @@
 """Metadata matching service for TVSeries and Movie entities.
 
-Provides unified metadata lookup using TMDB and TVDB APIs.
+Provides unified metadata lookup using IMDB (Cinemagoer) and TVDB APIs.
 Matching flow:
 1. Local match: search TVSeries/Movie by title + aliases + fuzzy matching
-2. External match: query TMDB/TVDB if agent has metadata_source configured
+2. External match: query IMDB/TVDB if agent has metadata_source configured
 3. Fallback: caller creates PendingDecision for manual matching
 """
 
@@ -16,7 +16,7 @@ from thefuzz import fuzz
 
 from app.models.series import TVSeries
 from app.models.movie import Movie
-from app.clients.tmdb_client import TMDBClient
+from app.clients.imdb_client import IMDBClient
 from app.clients.tvdb_client import TVDBClient
 
 logger = logging.getLogger(__name__)
@@ -131,23 +131,22 @@ async def search_external_metadata(
     Returns:
         Dict with external metadata or None if no match.
     """
-    if metadata_source == "tmdb":
-        client = TMDBClient()
-        if not client.is_configured:
-            logger.warning("TMDB API key not configured")
-            return None
+    if metadata_source == "imdb":
+        client = IMDBClient()
         results = await client.search(title, year=year)
         if not results:
             return None
         best = results[0]
+        # Get detailed info for the best match
+        detail = await client.get_title(best.imdb_id)
         return {
-            "external_id": str(best.id),
-            "external_source": "tmdb",
+            "external_id": best.imdb_id,
+            "external_source": "imdb",
             "title": best.title,
             "original_title": best.original_title,
-            "overview": best.overview,
-            "media_type": best.media_type,
-            "release_date": best.release_date or best.first_air_date,
+            "overview": detail.plot if detail else None,
+            "media_type": "tv" if "tv" in best.kind else "movie",
+            "release_date": str(best.year) if best.year else None,
         }
     elif metadata_source == "tvdb":
         client = TVDBClient()

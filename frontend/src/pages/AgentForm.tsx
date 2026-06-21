@@ -21,7 +21,7 @@ export default function AgentForm() {
   const navigate = useNavigate();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [downloaders, setDownloaders] = useState<DownloaderInstance[]>([]);
-  const [form, setForm] = useState({ name: '', channel_id: '', downloader_id: '', download_dir: '', task_expire_days: 30, llm_enabled: false });
+  const [form, setForm] = useState({ name: '', channel_id: '', downloader_id: '', task_expire_days: 30, llm_enabled: false, metadata_source: '', content_type: 'anime' });
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -73,19 +73,35 @@ export default function AgentForm() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1">Download Directory</label>
-            <input type="text" value={form.download_dir} onChange={e => setForm({ ...form, download_dir: e.target.value })}
-              className="w-full border rounded-lg px-3 py-2 text-sm outline-none" placeholder="/downloads/anime" />
-          </div>
-          <div>
             <label className="block text-sm font-medium mb-1">Task Expire Days</label>
             <input type="number" min={1} value={form.task_expire_days} onChange={e => setForm({ ...form, task_expire_days: parseInt(e.target.value) })}
               className="w-full border rounded-lg px-3 py-2 text-sm outline-none" />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Content Type</label>
+            <select value={form.content_type} onChange={e => setForm({ ...form, content_type: e.target.value })}
+              className="w-full border rounded-lg px-3 py-2 text-sm bg-white outline-none">
+              <option value="anime">Anime</option>
+              <option value="tv">TV Series</option>
+              <option value="movie">Movie</option>
+              <option value="mixed">Mixed</option>
+            </select>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <input type="checkbox" id="llm" checked={form.llm_enabled} onChange={e => setForm({ ...form, llm_enabled: e.target.checked })} className="rounded" />
-          <label htmlFor="llm" className="text-sm">Enable LLM-assisted decisions</label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <input type="checkbox" id="llm" checked={form.llm_enabled} onChange={e => setForm({ ...form, llm_enabled: e.target.checked })} className="rounded" />
+            <label htmlFor="llm" className="text-sm">Enable LLM-assisted decisions</label>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Metadata Source</label>
+            <select value={form.metadata_source} onChange={e => setForm({ ...form, metadata_source: e.target.value })}
+              className="w-full border rounded-lg px-3 py-2 text-sm bg-white outline-none">
+              <option value="">None</option>
+              <option value="imdb">IMDB (Cinemagoer)</option>
+              <option value="tvdb">TVDB</option>
+            </select>
+          </div>
         </div>
 
         <div className="border-t pt-4">

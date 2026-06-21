@@ -24,6 +24,7 @@ class DownloaderInstance(Base):
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    download_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("connected", "disconnected", "error", name="downloader_status"),
         default="disconnected",
