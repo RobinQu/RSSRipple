@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.channel import Channel
 from app.schemas.channel import ChannelCreate, ChannelUpdate, ChannelResponse, ValidateURLRequest
 from app.schemas.common import success_response, paginated_response
-from app.clients.rss_parser import get_raw_entries
+from app.clients.rss_parser import get_raw_entries, validate_rss_url
 from app.services.feed_analyzer import analyze_feed
 from fastapi.responses import JSONResponse
 
@@ -39,11 +39,29 @@ async def create_channel(
     body: ChannelCreate,
     db: AsyncSession = Depends(get_db),
 ):
+    # Validate the RSS feed before creating
+    is_valid, message, item_count, downloadable_count = await validate_rss_url(body.url)
+    if not is_valid:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "INVALID_FEED",
+                    "message": message,
+                },
+            },
+        )
+
     channel = Channel(**body.model_dump())
     db.add(channel)
     await db.flush()
     await db.refresh(channel)
-    return success_response(ChannelResponse.model_validate(channel).model_dump())
+    return success_response(
+        ChannelResponse.model_validate(channel).model_dump(),
+        meta={"feed_items": item_count, "downloadable": downloadable_count},
+    )
 
 
 @router.get("/channels/{channel_id}")
@@ -135,5 +153,11 @@ async def apply_field_mapping(
 
 @router.post("/channels/validate-url")
 async def validate_url(body: ValidateURLRequest):
-    # TODO: Actually validate the RSS URL
-    return success_response({"valid": True, "message": "URL is reachable", "item_count": 0})
+    """Validate that an RSS URL is reachable and has downloadable content."""
+    is_valid, message, item_count, downloadable_count = await validate_rss_url(body.url)
+    return success_response({
+        "valid": is_valid,
+        "message": message,
+        "item_count": item_count,
+        "downloadable_count": downloadable_count,
+    })
