@@ -5,6 +5,7 @@ services:
       - "8001:8000"
     volumes:
       - ./tests:/app/tests
+    env_file: .env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///data/test.db
       - DEBUG=true
