@@ -1,16 +1,18 @@
-interface Props {
+import { Progress } from 'antd';
+
+interface ProgressBarProps {
   progress: number;
   className?: string;
 }
 
-export default function ProgressBar({ progress, className = '' }: Props) {
-  const pct = Math.min(100, Math.max(0, progress));
+export default function ProgressBar({ progress }: ProgressBarProps) {
   return (
-    <div className={`w-full bg-gray-200 rounded-full h-2.5 overflow-hidden ${className}`}>
-      <div
-        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-        style={{ width: `${pct}%` }}
-      />
-    </div>
+    <Progress
+      percent={Math.min(100, Math.max(0, progress))}
+      size="small"
+      strokeColor="#57c1ff"
+      trailColor="#242728"
+      format={(p) => `${p?.toFixed(0)}%`}
+    />
   );
 }

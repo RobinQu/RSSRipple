@@ -45,15 +45,30 @@ rssripple/
 ├── Dockerfile
 ├── pyproject.toml
 ├── uv.lock
-├── DESIGN.md
-├── ARCHITECTURE.md
+├── DESIGN.md                   # Design system (colors, typography, components)
+├── .specify/                   # Spec-Kit configuration
+│   └── memory/
+│       └── constitution.md     # Project governing principles
+├── specs/                      # Feature specifications
+│   └── 001-rssripple/
+│       ├── spec.md             # Feature specification (user stories, requirements)
+│       ├── plan.md             # Implementation plan (architecture, tech stack)
+│       ├── data-model.md       # Data model documentation
+│       ├── tasks.md            # Implementation task breakdown
+│       └── contracts/
+│           └── api-spec.md     # API contract specification
 └── AGENTS.md
 ```
 
-## Key Design Documents
+## Key Design Documents (Spec-Kit)
 
-- `DESIGN.md` - Data models, filter logic, UI wireframes, user stories
-- `ARCHITECTURE.md` - System architecture, module structure, Docker setup, testing strategy
+- `DESIGN.md` - Design system: Raycast-inspired dark theme tokens, typography, components, responsive behavior
+- `.specify/memory/constitution.md` - Project governing principles and development guidelines
+- `specs/001-rssripple/spec.md` - Feature specification: user stories, functional requirements, data models
+- `specs/001-rssripple/plan.md` - Implementation plan: architecture, tech stack, Docker setup, testing strategy
+- `specs/001-rssripple/data-model.md` - Data model: entity relationships, field mappings, filter resolution logic
+- `specs/001-rssripple/tasks.md` - Implementation task breakdown with dependencies and execution order
+- `specs/001-rssripple/contracts/api-spec.md` - API contract: all endpoints, request/response schemas
 
 ## API Endpoints (JSON-RPC Style)
 
@@ -332,7 +347,7 @@ This starts: `app` (RSSRipple) + `test-server` (mock feeds/tracker/torrents) + `
 # Development
 uv sync
 cd frontend && npm install && npm run build && cd ..
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 9001
 
 # Docker
 docker-compose up --build
@@ -343,3 +358,8 @@ uv run pytest tests/unit tests/api -v
 # Integration tests (requires Docker — starts test-server + RSSRipple + test-runner)
 docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->

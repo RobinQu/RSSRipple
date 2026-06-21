@@ -1,1 +1,76 @@
-@import "tailwindcss";
+/* Load Inter font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+
+/* Global reset and base styles */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, sans-serif;
+  font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
+  background-color: #07080a;
+  color: #f4f4f6;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Ant Design overrides for Raycast aesthetic */
+.ant-layout {
+  background-color: #07080a !important;
+}
+
+/* Ensure no shadows on cards */
+.ant-card {
+  box-shadow: none !important;
+}
+
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #242728;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3d3f;
+}
+
+/* Remove default focus outlines and use subtle alternatives */
+:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.16);
+  outline-offset: 2px;
+}
+
+/* Link styles */
+a {
+  color: #ffffff;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+a:hover {
+  opacity: 0.8;
+}

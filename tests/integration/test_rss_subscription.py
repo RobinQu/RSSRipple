@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 TEST_SERVER = "http://test-server:8080"
-RSSRIPPLE = "http://app:8000"
+RSSRIPPLE = "http://app:9001"
 
 
 class TestRSSSubscription:

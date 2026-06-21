@@ -41,8 +41,8 @@ cp .env.example .env
 docker-compose up --build
 ```
 
-- **Web UI**: http://localhost:8000
-- **API docs**: http://localhost:8000/docs
+- **Web UI**: http://localhost:9001
+- **API docs**: http://localhost:9001/docs
 - **Transmission UI**: http://localhost:9091
 
 ### Local Development
@@ -61,7 +61,7 @@ cp .env.example .env
 # Edit .env as needed
 
 # 4. Start the server
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 9001
 ```
 
 ## Configuration
@@ -138,7 +138,8 @@ rssripple/
 ├── uv.lock                 # Dependency lockfile
 ├── Dockerfile              # Multi-stage build (frontend + backend)
 ├── docker-compose.yml      # App + Transmission services
-├── DESIGN.md               # Data models, filter logic, UI wireframes
+├── PRODUCT.md              # Product design: data models, filter logic, user stories
+├── DESIGN.md               # Design system: dark theme tokens, typography, components
 ├── ARCHITECTURE.md         # System architecture, module structure
 └── AGENTS.md               # AI coding agent guide
 ```
@@ -202,7 +203,8 @@ Contributions are welcome. Here's how to get started:
 
 Before making significant changes, review:
 
-- **[DESIGN.md](DESIGN.md)** — Data models, filter logic, RSS parsing architecture, UI wireframes
+- **[PRODUCT.md](PRODUCT.md)** — Product design: data models, filter logic, RSS parsing architecture, UI wireframes
+- **[DESIGN.md](DESIGN.md)** — Design system: Raycast-inspired dark theme tokens, typography, component specs
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — System architecture, module structure, scheduler, Docker setup
 - **[AGENTS.md](AGENTS.md)** — API endpoint reference, environment variables, coding guide for AI agents
 

@@ -3,7 +3,7 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "9001:9001"
     env_file: .env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///data/test.db
@@ -31,7 +31,7 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///data/test.db
       - TEST_SERVER_URL=http://test-server:8080
-      - RSSRIPPLE_URL=http://app:8000
+      - RSSRIPPLE_URL=http://app:9001
     depends_on:
       - app
       - test-server

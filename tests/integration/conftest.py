@@ -5,7 +5,7 @@ import pytest
 import httpx
 
 TEST_SERVER_URL = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
-RSSRIPPLE_URL = os.environ.get("RSSRIPPLE_URL", "http://app:8000")
+RSSRIPPLE_URL = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 
 
 @pytest.fixture(scope="session")
