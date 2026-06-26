@@ -25,8 +25,12 @@ class Agent(Base):
     task_expire_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     metadata_source: Mapped[str | None] = mapped_column(
-        Enum("imdb", "tvdb", "none", name="metadata_source"),
+        Enum("tmdb", "tvdb", "none", name="metadata_source"),
         nullable=True, default=None,
+    )
+    mode: Mapped[str] = mapped_column(
+        Enum("global", "watchlist", name="agent_mode"),
+        default="global", nullable=False,
     )
     content_type: Mapped[str] = mapped_column(
         Enum("anime", "tv", "movie", "mixed", name="content_type"),
@@ -52,6 +56,13 @@ class Agent(Base):
         "ResourceFilter", back_populates="agent",
         order_by="ResourceFilter.priority.desc()",
         lazy="selectin",
+        passive_deletes="all",
     )
-    download_tasks = relationship("DownloadTask", back_populates="agent", lazy="selectin")
-    pending_decisions = relationship("PendingDecision", back_populates="agent", lazy="selectin")
+    watch_entries = relationship(
+        "WatchEntry", back_populates="agent",
+        order_by="WatchEntry.created_at.asc()",
+        lazy="selectin",
+        passive_deletes="all",
+    )
+    download_tasks = relationship("DownloadTask", back_populates="agent", lazy="selectin", passive_deletes="all")
+    pending_decisions = relationship("PendingDecision", back_populates="agent", lazy="selectin", passive_deletes="all")
