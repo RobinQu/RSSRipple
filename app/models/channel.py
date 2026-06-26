@@ -27,10 +27,10 @@ class Channel(Base):
         nullable=False,
     )
     field_mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    parser_type: Mapped[str] = mapped_column(
-        Enum("auto", "mikanani", "custom", name="parser_type"),
-        default="auto", nullable=False,
+    title_extraction_method: Mapped[str] = mapped_column(
+        String(20), default="llm", nullable=False
     )
+    title_extraction_regex: Mapped[str | None] = mapped_column(String(500), nullable=True)
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
@@ -40,5 +40,5 @@ class Channel(Base):
     )
 
     # Relationships
-    file_resources = relationship("FileResource", back_populates="channel", lazy="selectin")
-    agents = relationship("Agent", back_populates="channel", lazy="selectin")
+    file_resources = relationship("FileResource", back_populates="channel", lazy="selectin", passive_deletes="all")
+    agents = relationship("Agent", back_populates="channel", lazy="selectin", passive_deletes="all")

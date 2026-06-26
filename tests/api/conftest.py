@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 # Use in-memory SQLite for tests
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
 
-from app.database import Base, get_db  # noqa: E402
+from app.database import Base, enable_sqlite_fk, get_db  # noqa: E402
 from app.main import app as fastapi_app  # noqa: E402
 import app.models  # noqa: E402, F401
 
@@ -27,6 +27,7 @@ def event_loop():
 async def setup_database():
     """Create all tables before each test, drop after."""
     engine = create_async_engine("sqlite+aiosqlite://")
+    enable_sqlite_fk(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine

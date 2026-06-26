@@ -19,9 +19,17 @@ async function request<T>(url: string, options?: RequestInit): Promise<APIRespon
 
 export const api = {
   get: <T>(url: string) => request<T>(url),
-  post: <T>(url: string, data?: unknown) =>
-    request<T>(url, { method: 'POST', body: data ? JSON.stringify(data) : undefined }),
-  put: <T>(url: string, data?: unknown) =>
-    request<T>(url, { method: 'PUT', body: data ? JSON.stringify(data) : undefined }),
+  post: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>) =>
+    request<T>(url, {
+      method: 'POST',
+      body: data ? JSON.stringify(data) : undefined,
+      headers: extraHeaders ? { 'Content-Type': 'application/json', ...extraHeaders } : undefined,
+    }),
+  put: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>) =>
+    request<T>(url, {
+      method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+      headers: extraHeaders ? { 'Content-Type': 'application/json', ...extraHeaders } : undefined,
+    }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
 };
