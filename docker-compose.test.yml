@@ -100,14 +100,17 @@ services:
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:
-    image: linuxserver/transmission:latest
+    image: lscr.io/linuxserver/transmission:latest
     volumes:
       - transmission-test-config:/config
       - test-downloads:/downloads
+      - test-watch:/watch
     environment:
       - PUID=1000
       - PGID=1000
+      - PEERPORT=51413
 
 volumes:
   transmission-test-config:
   test-downloads:
+  test-watch:
