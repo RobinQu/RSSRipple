@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
   transmission:
-    image: linuxserver/transmission:latest
+    image: lscr.io/linuxserver/transmission:latest
     ports:
       - "9091:9091"
       - "51413:51413"
@@ -38,12 +38,15 @@ services:
     volumes:
       - transmission-config:/config
       - downloads:/downloads
+      - watch:/watch
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Shanghai
+      - PEERPORT=51413
     restart: unless-stopped
 
 volumes:
   transmission-config:
   downloads:
+  watch:
