@@ -12,10 +12,13 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from urllib.parse import unquote
 
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import PlainTextResponse
+
+_SERVER_DIR = Path(__file__).parent
 
 from .rss_server import (
     generate_dmhy_feed,
@@ -99,6 +102,19 @@ async def rss_eztv(show: int = 0):
         tracker_url=TRACKER_URL,
     )
     return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/mikanani-1")
+async def rss_mikanani_real():
+    """Serve the real mikanani-1.xml fixture (100 entries, Spring 2026 season).
+
+    This is a snapshot of an actual Mikan Project RSS feed downloaded from
+    https://test-files-sh.oss-cn-shanghai.aliyuncs.com/mikanani-1.xml.
+    Used for LLM field-mapping tests that require realistic title/enclosure data.
+    """
+    xml_path = _SERVER_DIR / "mikanani-1.xml"
+    content = xml_path.read_bytes()
+    return Response(content=content, media_type="application/rss+xml; charset=utf-8")
 
 
 @app.get("/rss/movies")

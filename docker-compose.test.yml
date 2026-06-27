@@ -1,49 +1,106 @@
 services:
-  # RSSRipple application
+  # ── Redis (required by app-redis backend) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ── RSSRipple (MemoryQueue — default backend) ──────────────────────────────
   app:
     build: .
-    ports:
-      - "9001:9001"
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/test.db
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db
+      - QUEUE_BACKEND=memory
       - DEBUG=true
       - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters
+    volumes:
+      - ./data:/app/data
     depends_on:
-      - test-server
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
     restart: unless-stopped
 
-  # Integration test server (RSS feeds + tracker + torrent client)
+  # ── RSSRipple (RedisQueue backend) ────────────────────────────────────────
+  app-redis:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_redis_test.db
+      - QUEUE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      test-server:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── Integration test server (RSS feeds + BitTorrent tracker) ───────────────
   test-server:
     build:
       context: .
       dockerfile: tests/integration/Dockerfile
-    ports:
-      - "8080:8080"
     environment:
       - SERVER_URL=http://test-server:8080
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
     restart: unless-stopped
 
-  # Integration test runner
+  # ── Test runner ────────────────────────────────────────────────────────────
   test-runner:
     build: .
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/test.db
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db
       - TEST_SERVER_URL=http://test-server:8080
       - RSSRIPPLE_URL=http://app:9001
+      - REDIS_APP_URL=http://app-redis:9001
+    volumes:
+      - ./data:/app/data
     depends_on:
-      - app
-      - test-server
-    command: >
-      sh -c "sleep 10 && uv sync --frozen &&
-             uv run pytest tests/integration/ -v --tb=short -x"
+      app:
+        condition: service_healthy
+      app-redis:
+        condition: service_healthy
+      test-server:
+        condition: service_healthy
+    # Use array form to avoid YAML folded-scalar newline injection.
+    # Ignore test_e2e.py (needs an API-test 'client' fixture absent here)
+    # and test_torrent_lifecycle.py (needs a running BitTorrent client).
+    command:
+      - "sh"
+      - "-c"
+      - "uv sync --frozen && uv run pytest tests/integration/ -v --tb=short -x --ignore=tests/integration/test_e2e.py --ignore=tests/integration/test_torrent_lifecycle.py"
 
-  # Optional: Transmission for comparison testing
+  # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:
     image: linuxserver/transmission:latest
-    ports:
-      - "9092:9091"
     volumes:
       - transmission-test-config:/config
       - test-downloads:/downloads

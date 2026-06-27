@@ -71,8 +71,22 @@ async def update_series(
 
 @router.delete("/series/{series_id}")
 async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
+    from app.models.file_resource import FileResource
+    from app.models.agent_work import AgentWork
+    from app.models.pending_decision import PendingDecision
+    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+    from sqlalchemy import update as sql_update
     series = await db.get(TVSeries, series_id)
     if not series:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Series not found"}})
+    # Nullify FKs
+    await db.execute(sql_update(FileResource).where(FileResource.series_id == series_id).values(series_id=None))
+    await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
+    await db.execute(sql_update(ChannelRawTitleMapping).where(ChannelRawTitleMapping.series_id == series_id).values(series_id=None))
+    # Delete agent_works pointing to this series
+    res = await db.execute(select(AgentWork).where(AgentWork.series_id == series_id))
+    for w in res.scalars().all():
+        await db.delete(w)
     await db.delete(series)
+    await db.commit()
     return success_response({"deleted": True})

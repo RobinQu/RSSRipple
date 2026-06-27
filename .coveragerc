@@ -1,0 +1,6 @@
+[run]
+concurrency = greenlet,thread
+branch = False
+
+[report]
+show_missing = True

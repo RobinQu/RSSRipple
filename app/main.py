@@ -1,16 +1,19 @@
 """FastAPI application entry point."""
 
 import logging
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.database import create_tables
+from app.database import async_session_factory, create_tables
 
 # Import models for SQLAlchemy discovery
 import app.models  # noqa: F401
@@ -20,26 +23,215 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+# ---------------------------------------------------------------------------
+# Background job handlers
+# ---------------------------------------------------------------------------
+
+async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
+    from app.models.channel import Channel
+    from app.services.fetch_service import fetch_channel_resources
+
+    channel_id: str = payload["channel_id"]
+    async with async_session_factory() as session:
+        ch = await session.get(Channel, channel_id)
+        if not ch:
+            raise RuntimeError(f"Channel {channel_id} not found")
+        try:
+            result = await fetch_channel_resources(ch, session)
+            await session.commit()
+            return result
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
+    from datetime import datetime, UTC
+    from app.models.agent import Agent
+    from app.models.file_resource import FileResource
+    from app.services.agent_service import process_resources
+    from sqlalchemy import select
+
+    agent_id: str = payload["agent_id"]
+    async with async_session_factory() as session:
+        agent = await session.get(Agent, agent_id)
+        if not agent:
+            raise RuntimeError(f"Agent {agent_id} not found")
+
+        result = await session.execute(
+            select(FileResource)
+            .where(FileResource.channel_id == agent.channel_id)
+            .order_by(FileResource.published_at.desc())
+            .limit(200)
+        )
+        resources = result.scalars().all()
+
+        run_result = await process_resources(agent, resources, session)
+
+        agent.last_run_at = datetime.now(UTC)
+        agent.last_run_status = "failed" if run_result.errors else "success"
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+    return {
+        "agent_id": agent_id,
+        "total_resources": run_result.total_resources,
+        "matched": run_result.matched,
+        "dispatched": run_result.dispatched,
+        "pending_decisions": run_result.pending_decisions,
+        "filter_failed": run_result.filter_failed,
+        "duplicates_skipped": run_result.duplicates_skipped,
+        "unrecognized": run_result.unrecognized,
+        "errors": run_result.errors,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Startup/shutdown lifecycle."""
-    logging.basicConfig(level=settings.log_level)
+async def lifespan(app: FastAPI):  # pragma: no cover
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger("app").setLevel(settings.log_level)
+
+    # Ensure poster dir exists before mounting
+    poster_dir = Path(settings.poster_cache_dir)
+    try:
+        poster_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        # Fallback to local data/posters if configured path is unwritable
+        logger.warning("Cannot create poster dir %s (%s); falling back to ./data/posters", poster_dir, e)
+        poster_dir = Path("data/posters")
+        poster_dir.mkdir(parents=True, exist_ok=True)
+        settings.poster_cache_dir = str(poster_dir)
+    # Ensure data dir exists for sqlite
+    db_url = settings.database_url
+    if db_url.startswith("sqlite"):
+        db_path_str = db_url.split("sqlite:///", 1)[-1] if "sqlite:///" in db_url else db_url.split("sqlite:", 1)[-1].lstrip("/")
+        db_path = Path(db_path_str)
+        try:
+            if db_path.parent and str(db_path.parent) != "":
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.warning("Cannot create db dir %s (%s)", db_path.parent, e)
+
     logger.info("Creating database tables...")
     await create_tables()
     logger.info("Database ready.")
-    # TODO: Start APScheduler
-    yield
-    # TODO: Shutdown scheduler
-    logger.info("Shutting down.")
+
+    # Init scheduler
+    from app.services.scheduler import init_scheduler, setup_channel_jobs, shutdown_scheduler
+    await init_scheduler()
+
+    # Setup channel jobs with a DB session
+    async with async_session_factory() as sess:
+        await setup_channel_jobs(sess)
+        await sess.commit()
+
+    # Build task queue
+    import app.services.task_queue as _tq_mod
+    from app.services.task_queue import create_queue
+
+    queue = create_queue(
+        backend=settings.queue_backend,
+        redis_url=settings.redis_url,
+    )
+    _tq_mod.task_queue = queue
+
+    queue.register("fetch_channel", _handle_fetch_channel)
+    queue.register("run_agent", _handle_run_agent)
+
+    await queue.start()
+    try:
+        yield
+    finally:
+        await queue.stop()
+        await shutdown_scheduler()
+        logger.info("Shutting down.")
+
+
+# ---------------------------------------------------------------------------
+# Exception handlers
+# ---------------------------------------------------------------------------
+
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    if exc.status_code >= 500:  # pragma: no cover
+        logger.error(
+            "HTTP %s %s %s: %s",
+            exc.status_code, request.method, request.url.path, exc.detail,
+        )
+    code = str(exc.status_code)
+    message = str(exc.detail)
+    if isinstance(exc.detail, dict):  # pragma: no cover
+        code = exc.detail.get("code", code)
+        message = exc.detail.get("message", message)
+    else:
+        if exc.status_code == 404:
+            code = "NOT_FOUND"
+        elif exc.status_code == 409:
+            code = "CONFLICT"
+        elif exc.status_code == 400:
+            code = "BAD_REQUEST"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "data": None,
+            "error": {"code": code, "message": message},
+            "meta": {},
+        },
+    )
+
+
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    logger.warning(
+        "Validation error %s %s: %s",
+        request.method, request.url.path, exc.errors(),
+    )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": exc.errors()},
+            "meta": {},
+        },
+    )
+
+
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled exception %s %s: %r",
+        request.method, request.url.path, exc,
+        exc_info=True,
+    )
+    body: dict = {
+        "success": False,
+        "data": None,
+        "error": {"code": "INTERNAL_SERVER_ERROR", "message": "An unexpected error occurred"},
+        "meta": {},
+    }
+    if settings.dev_mode:
+        body["error"]["stack"] = traceback.format_exc()  # type: ignore[typeddict-unknown-key]
+    return JSONResponse(status_code=500, content=body)
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
+    exception_handlers={
+        StarletteHTTPException: http_exception_handler,
+        RequestValidationError: validation_exception_handler,
+        Exception: unhandled_exception_handler,
+    },
 )
 
-# CORS
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,12 +241,11 @@ app.add_middleware(
 )
 
 # API routers
-from app.api.v1 import channels, agents, filters, downloaders, tasks, decisions, dashboard, resources, series, movies  # noqa: E402
+from app.api.v1 import channels, agents, downloaders, tasks, decisions, dashboard, resources, series, movies  # noqa: E402
 
 app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
-app.include_router(filters.router, prefix="/api/v1", tags=["filters"])
 app.include_router(downloaders.router, prefix="/api/v1", tags=["downloaders"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
@@ -62,18 +253,27 @@ app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
 app.include_router(series.router, prefix="/api/v1", tags=["series"])
 app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
 
+# Poster image cache - mount even if empty/default
+_poster_dir = Path(settings.poster_cache_dir)
+try:  # pragma: no cover
+    _poster_dir.mkdir(parents=True, exist_ok=True)
+except OSError:  # pragma: no cover
+    _poster_dir = Path("data/posters")
+    _poster_dir.mkdir(parents=True, exist_ok=True)
+    settings.poster_cache_dir = str(_poster_dir)
+app.mount("/posters", StaticFiles(directory=str(_poster_dir)), name="poster-cache")
+
 # Static files (frontend)
-if STATIC_DIR.exists():
+if STATIC_DIR.exists():  # pragma: no cover
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="static-assets")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        """Serve the React SPA for all non-API routes."""
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(STATIC_DIR / "index.html")
 else:
     @app.get("/")
-    async def root():
+    async def root():  # pragma: no cover
         return {"message": "RSSRipple API", "docs": "/docs"}

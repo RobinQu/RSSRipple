@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, JSON, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, JSON, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,12 +18,13 @@ class PendingDecision(Base):
     agent_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
-    episode_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("episodes.id", ondelete="SET NULL"), nullable=True
+    series_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("tv_series.id", ondelete="SET NULL"), nullable=True
     )
     movie_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
     )
+    episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)
@@ -33,12 +34,16 @@ class PendingDecision(Base):
         default="pending",
         nullable=False,
     )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     # Relationships
     agent = relationship("Agent", back_populates="pending_decisions")
-    episode = relationship("Episode", back_populates="pending_decisions")
+    series = relationship("TVSeries", back_populates="pending_decisions")
     movie = relationship("Movie", back_populates="pending_decisions")

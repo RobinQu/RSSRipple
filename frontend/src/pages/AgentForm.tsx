@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Form,
   Input,
@@ -13,102 +13,149 @@ import {
   Col,
   Typography,
   App,
+  Radio,
+  Spin,
+  Divider,
 } from 'antd';
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { agentsApi } from '../api/agents';
 import { channelsApi } from '../api/channels';
 import { downloadersApi } from '../api/downloaders';
-import type { Channel, DownloaderInstance, FilterField, FilterOperator } from '../types';
+import FilterBuilder from '../components/FilterBuilder';
+import WorkSelector from '../components/WorkSelector';
+import type { Agent, AgentWork, BoolCondition, Channel, DownloaderInstance } from '../types';
 
-const FIELDS: { label: string; value: FilterField }[] = [
-  { label: 'subtitle_group', value: 'subtitle_group' },
-  { label: 'resolution', value: 'resolution' },
-  { label: 'container', value: 'container' },
-  { label: 'video_codec', value: 'video_codec' },
-  { label: 'audio_codec', value: 'audio_codec' },
-  { label: 'subtitle_type', value: 'subtitle_type' },
-  { label: 'source', value: 'source' },
-  { label: 'title_cn', value: 'title_cn' },
-  { label: 'title_en', value: 'title_en' },
-];
+const { Title, Text } = Typography;
 
-const OPERATORS: { label: string; value: FilterOperator }[] = [
-  { label: 'eq', value: 'eq' },
-  { label: 'contains', value: 'contains' },
-  { label: 'fuzzy', value: 'fuzzy' },
-  { label: 'in', value: 'in' },
-  { label: 'regex', value: 'regex' },
-];
-
-const CONTENT_TYPES = [
-  { label: 'Anime', value: 'anime' },
-  { label: 'TV Series', value: 'tv' },
-  { label: 'Movie', value: 'movie' },
-  { label: 'Mixed', value: 'mixed' },
-];
-
-const METADATA_SOURCES = [
-  { label: 'None', value: '' },
-  { label: 'IMDB (Cinemagoer)', value: 'imdb' },
-  { label: 'TVDB', value: 'tvdb' },
-];
+interface FormValues {
+  name: string;
+  channel_id: string;
+  downloader_id: string;
+  task_expire_days: number;
+  llm_enabled: boolean;
+  scope_channel_wide: boolean;
+  conflict_resolution: 'ask' | 'auto';
+}
 
 export default function AgentForm() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const mode: 'create' | 'edit' = id ? 'edit' : 'create';
   const { message } = App.useApp();
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<FormValues>();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [downloaders, setDownloaders] = useState<DownloaderInstance[]>([]);
+  const [works, setWorks] = useState<AgentWork[]>([]);
+  const [filterConfig, setFilterConfig] = useState<BoolCondition | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(mode === 'edit');
+  const [channelWide, setChannelWide] = useState(false);
 
   useEffect(() => {
-    channelsApi.list(1, 100).then((r) => {
-      if (r.success) setChannels(r.data);
-    });
-    downloadersApi.list(1, 100).then((r) => {
-      if (r.success) setDownloaders(r.data);
-    });
+    Promise.all([channelsApi.list(1, 100), downloadersApi.list(1, 100)]).then(
+      ([c, d]) => {
+        if (c.success) setChannels(c.data);
+        if (d.success) setDownloaders(d.data);
+      },
+    );
   }, []);
 
-  const channelOptions = channels.map((c) => ({ label: c.name, value: c.id }));
-  const downloaderOptions = downloaders.map((d) => ({ label: d.name, value: d.id }));
+  // Load agent for edit
+  useEffect(() => {
+    if (mode === 'edit' && id) {
+      agentsApi.get(id).then((r) => {
+        if (r.success) {
+          const a: Agent = r.data;
+          form.setFieldsValue({
+            name: a.name,
+            channel_id: a.channel_id,
+            downloader_id: a.downloader_id,
+            task_expire_days: a.task_expire_days,
+            llm_enabled: a.llm_enabled,
+            scope_channel_wide: a.scope_channel_wide,
+            conflict_resolution: a.conflict_resolution,
+          });
+          setChannelWide(a.scope_channel_wide);
+          setFilterConfig(a.filter_config);
+          if (a.works) setWorks(a.works);
+        } else {
+          message.error('加载 Agent 失败');
+          navigate('/agents');
+        }
+        setLoading(false);
+      });
+    }
+  }, [mode, id, form, message, navigate]);
 
-  const handleSubmit = async (values: any) => {
-    setSaving(true);
+  // Check for prefill (from FilterSummaryModal)
+  useEffect(() => {
+    if (mode !== 'create') return;
     try {
-      const payload = {
-        name: values.name,
-        channel_id: values.channel_id,
-        downloader_id: values.downloader_id,
-        task_expire_days: values.task_expire_days,
-        llm_enabled: values.llm_enabled ?? false,
-        metadata_source: values.metadata_source || undefined,
-        content_type: values.content_type,
-        filters: (values.filters || []).map((f: any) => ({
-          field: f.field,
-          operator: f.operator,
-          value: f.value,
-          priority: f.priority,
-          is_required: f.is_required ?? false,
-        })),
-      };
-      const res = await agentsApi.create(payload);
-      if (res.success) {
-        message.success('Agent created');
-        navigate('/agents');
+      const raw = sessionStorage.getItem('rssripple:prefill:agent');
+      if (raw) {
+        const data = JSON.parse(raw);
+        sessionStorage.removeItem('rssripple:prefill:agent');
+        form.setFieldsValue({
+          name: data.name || '',
+          channel_id: data.channel_id,
+        });
+        if (data.filter_config) setFilterConfig(data.filter_config);
       }
     } catch {
-      message.error('Failed to create agent');
+      /* ignore */
+    }
+  }, [mode, form]);
+
+  const handleSubmit = async (values: FormValues) => {
+    if (!values.scope_channel_wide && works.length === 0) {
+      message.error('非频道范围模式下至少需要添加 1 个订阅作品');
+      return;
+    }
+    setSaving(true);
+    const payload = {
+      name: values.name,
+      channel_id: values.channel_id,
+      downloader_id: values.downloader_id,
+      task_expire_days: values.task_expire_days,
+      llm_enabled: values.llm_enabled,
+      scope_channel_wide: values.scope_channel_wide,
+      conflict_resolution: values.conflict_resolution,
+      filter_config: filterConfig,
+      works: values.scope_channel_wide
+        ? []
+        : works.map((w) => ({
+            content_type: w.content_type,
+            series_id: w.series_id,
+            movie_id: w.movie_id,
+            enable_episode_dedup: w.enable_episode_dedup,
+            filter_overrides: w.filter_overrides,
+            display_name_override: w.display_name_override,
+          })),
+    };
+    try {
+      let res;
+      if (mode === 'edit' && id) {
+        res = await agentsApi.update(id, payload);
+      } else {
+        res = await agentsApi.create(payload);
+      }
+      if (res.success) {
+        message.success(mode === 'edit' ? '已更新' : '已创建');
+        navigate(`/agents/${res.data.id}`);
+      } else {
+        message.error(res.error?.message || '保存失败');
+      }
     } finally {
       setSaving(false);
     }
   };
 
+  if (loading) return <Spin />;
+
   return (
-    <div style={{ maxWidth: 720 }}>
-      <Typography.Title level={3} style={{ marginBottom: 24 }}>
-        Create Agent
-      </Typography.Title>
+    <div style={{ maxWidth: 820 }}>
+      <Title level={3} style={{ marginBottom: 24 }}>
+        {mode === 'create' ? '新建 Agent' : '编辑 Agent'}
+      </Title>
       <Card>
         <Form
           form={form}
@@ -116,41 +163,43 @@ export default function AgentForm() {
           onFinish={handleSubmit}
           initialValues={{
             task_expire_days: 30,
-            llm_enabled: false,
-            content_type: 'anime',
-            metadata_source: '',
+            llm_enabled: true,
+            scope_channel_wide: false,
+            conflict_resolution: 'ask' as const,
+          }}
+          onValuesChange={(changed) => {
+            if (changed.scope_channel_wide !== undefined) {
+              setChannelWide(changed.scope_channel_wide);
+            }
           }}
         >
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, message: 'Please enter a name' }]}
-          >
-            <Input placeholder="Agent name" />
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：新番自动下载" />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="channel_id"
-                label="Channel"
-                rules={[{ required: true, message: 'Please select a channel' }]}
+                label="频道"
+                rules={[{ required: true, message: '请选择频道' }]}
               >
                 <Select
-                  placeholder="Select channel..."
-                  options={channelOptions}
+                  placeholder="选择频道"
+                  options={channels.map((c) => ({ label: c.name, value: c.id }))}
+                  disabled={mode === 'edit'}
                 />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="downloader_id"
-                label="Downloader"
-                rules={[{ required: true, message: 'Please select a downloader' }]}
+                label="下载器"
+                rules={[{ required: true, message: '请选择下载器' }]}
               >
                 <Select
-                  placeholder="Select downloader..."
-                  options={downloaderOptions}
+                  placeholder="选择下载器"
+                  options={downloaders.map((d) => ({ label: d.name, value: d.id }))}
                 />
               </Form.Item>
             </Col>
@@ -158,115 +207,74 @@ export default function AgentForm() {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="task_expire_days" label="Task Expire Days">
+              <Form.Item name="task_expire_days" label="任务保留天数">
                 <InputNumber min={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="content_type" label="Content Type">
-                <Select options={CONTENT_TYPES} />
+              <Form.Item name="conflict_resolution" label="冲突处理">
+                <Radio.Group>
+                  <Radio value="ask">询问用户</Radio>
+                  <Radio value="auto">自动选择</Radio>
+                </Radio.Group>
               </Form.Item>
             </Col>
           </Row>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="llm_enabled" label="Enable LLM-assisted decisions" valuePropName="checked">
-                <Switch checkedChildren="On" unCheckedChildren="Off" />
+              <Form.Item
+                name="llm_enabled"
+                label="启用 LLM 辅助决策"
+                valuePropName="checked"
+              >
+                <Switch checkedChildren="开" unCheckedChildren="关" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="metadata_source" label="Metadata Source">
-                <Select options={METADATA_SOURCES} />
+              <Form.Item
+                name="scope_channel_wide"
+                label="订阅范围"
+                valuePropName="checked"
+              >
+                <Switch
+                  checkedChildren="整个频道"
+                  unCheckedChildren="选定作品"
+                />
               </Form.Item>
             </Col>
           </Row>
 
-          <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-            Resource Filters
-          </Typography.Text>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: -8, marginBottom: 16 }}>
+            {channelWide
+              ? '整个频道模式：频道下所有已匹配元数据的资源都会进入过滤流程'
+              : '选定作品模式：仅处理下方订阅列表中的作品'}
+          </Text>
 
-          <Form.List name="filters">
-            {(fields, { add, remove }) => (
-              <>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space
-                    key={key}
-                    align="baseline"
-                    style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }}
-                  >
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'field']}
-                      rules={[{ required: true, message: 'Field' }]}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Select options={FIELDS} placeholder="Field" style={{ width: 150 }} />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'operator']}
-                      rules={[{ required: true, message: 'Op' }]}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Select options={OPERATORS} placeholder="Operator" style={{ width: 110 }} />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'value']}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Input placeholder="Value" style={{ width: 140 }} />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'priority']}
-                      style={{ marginBottom: 0 }}
-                    >
-                      <InputNumber placeholder="Priority" style={{ width: 80 }} min={0} />
-                    </Form.Item>
-                    <Form.Item
-                      {...restField}
-                      name={[name, 'is_required']}
-                      valuePropName="checked"
-                      style={{ marginBottom: 0 }}
-                    >
-                      <Switch checkedChildren="Req" unCheckedChildren="Opt" size="small" />
-                    </Form.Item>
-                    <Button
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => remove(name)}
-                    />
-                  </Space>
-                ))}
-                <Button
-                  type="dashed"
-                  onClick={() =>
-                    add({
-                      field: 'subtitle_group',
-                      operator: 'eq',
-                      value: '',
-                      priority: fields.length * 10,
-                      is_required: false,
-                    })
-                  }
-                  block
-                  icon={<PlusOutlined />}
-                >
-                  Add Filter
-                </Button>
-              </>
-            )}
-          </Form.List>
+          <Divider style={{ margin: '12px 0' }} />
+
+          {!channelWide && (
+            <div style={{ marginBottom: 20 }}>
+              <WorkSelector value={works} onChange={setWorks} maxWorks={10} />
+            </div>
+          )}
+
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+              全局过滤条件
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+              所有资源都必须通过这些条件，作品级过滤将按 AND 合并
+            </Text>
+            <FilterBuilder value={filterConfig} onChange={setFilterConfig} />
+          </div>
 
           <Form.Item style={{ marginTop: 24, marginBottom: 0 }}>
             <Space>
               <Button type="primary" htmlType="submit" loading={saving}>
-                Create Agent
+                {mode === 'edit' ? '保存更改' : '创建 Agent'}
               </Button>
-              <Button onClick={() => navigate('/agents')}>Cancel</Button>
+              <Button onClick={() => navigate('/agents')}>取消</Button>
             </Space>
           </Form.Item>
         </Form>

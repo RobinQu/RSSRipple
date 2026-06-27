@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, Zap } from 'lucide-react';
-import { Table, Button, Space, Typography, App, Empty } from 'antd';
+import { Plus, Trash2, Zap, Edit } from 'lucide-react';
+import { Table, Button, Space, Typography, App, Empty, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { downloadersApi } from '../api/downloaders';
-import StatusBadge from '../components/StatusBadge';
 import type { DownloaderInstance } from '../types';
+import { timeAgo } from '../utils/format';
 
 const { Title } = Typography;
+
+const STATUS_COLOR: Record<string, string> = {
+  connected: 'success',
+  disconnected: 'default',
+  error: 'error',
+};
 
 export default function Downloaders() {
   const [items, setItems] = useState<DownloaderInstance[]>([]);
@@ -18,7 +24,7 @@ export default function Downloaders() {
 
   const fetchItems = async () => {
     setLoading(true);
-    const res = await downloadersApi.list(page, 20);
+    const res = await downloadersApi.list(page, 50);
     if (res.success) {
       setItems(res.data);
       if (res.meta) setTotal(res.meta.total);
@@ -26,54 +32,97 @@ export default function Downloaders() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchItems(); }, [page]);
+  useEffect(() => {
+    fetchItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   const handleTest = async (id: string) => {
     const res = await downloadersApi.test(id);
-    if (res.success) {
-      message.success(res.data.message);
-    } else {
-      message.error(res.error?.message || 'Connection test failed');
-    }
+    if (res.success) message.success(res.data.message);
+    else message.error(res.error?.message || '连接测试失败');
+    fetchItems();
   };
 
   const handleDelete = (id: string) => {
     modal.confirm({
-      title: 'Delete this downloader?',
-      content: 'This action cannot be undone.',
-      okText: 'Delete',
+      title: '确定删除该下载器？',
+      content: '关联的 Agent 将被暂停。',
+      okText: '删除',
       okButtonProps: { danger: true },
+      cancelText: '取消',
       onOk: async () => {
-        await downloadersApi.delete(id);
-        message.success('Downloader deleted');
-        fetchItems();
+        const r = await downloadersApi.delete(id);
+        if (r.success) {
+          message.success('下载器已删除');
+          fetchItems();
+        } else message.error(r.error?.message || '删除失败');
       },
     });
   };
 
   const columns: TableColumnsType<DownloaderInstance> = [
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Type', dataIndex: 'type', key: 'type' },
     {
-      title: 'URL', dataIndex: 'url', key: 'url',
-      render: (url: string) => (
-        <span style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>{url}</span>
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, r) => <Link to={`/downloaders/${r.id}`}>{name}</Link>,
+    },
+    { title: '类型', dataIndex: 'type', key: 'type', width: 120 },
+    {
+      title: 'URL',
+      dataIndex: 'url',
+      key: 'url',
+      ellipsis: true,
+    },
+    {
+      title: '下载目录',
+      dataIndex: 'download_dir',
+      key: 'download_dir',
+      ellipsis: true,
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: (s: string) => (
+        <Tag color={STATUS_COLOR[s] ?? 'default'}>{s.toUpperCase()}</Tag>
       ),
     },
     {
-      title: 'Download Dir', dataIndex: 'download_dir', key: 'download_dir',
-      render: (val: string | null) => val || '—',
+      title: '上次检查',
+      dataIndex: 'last_checked_at',
+      key: 'last_checked_at',
+      width: 150,
+      render: (v: string | null) => (v ? timeAgo(v) : '—'),
     },
     {
-      title: 'Status', dataIndex: 'status', key: 'status',
-      render: (status: string) => <StatusBadge status={status} />,
-    },
-    {
-      title: 'Actions', key: 'actions', align: 'right',
+      title: '操作',
+      key: 'actions',
+      width: 160,
+      align: 'right',
       render: (_, record) => (
-        <Space>
-          <Button type="text" size="small" icon={<Zap size={16} />} onClick={() => handleTest(record.id)} />
-          <Button type="text" size="small" danger icon={<Trash2 size={16} />} onClick={() => handleDelete(record.id)} />
+        <Space size={0}>
+          <Button
+            type="text"
+            size="small"
+            icon={<Zap size={14} />}
+            title="测试连接"
+            onClick={() => handleTest(record.id)}
+          />
+          <Link to={`/downloaders/${record.id}/edit`}>
+            <Button type="text" size="small" icon={<Edit size={14} />} title="编辑" />
+          </Link>
+          <Button
+            type="text"
+            size="small"
+            danger
+            icon={<Trash2 size={14} />}
+            title="删除"
+            onClick={() => handleDelete(record.id)}
+          />
         </Space>
       ),
     },
@@ -82,9 +131,9 @@ export default function Downloaders() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>Downloaders</Title>
+        <Title level={3} style={{ margin: 0 }}>下载器</Title>
         <Link to="/downloaders/new">
-          <Button type="primary" icon={<Plus size={16} />}>Add Downloader</Button>
+          <Button type="primary" icon={<Plus size={14} />}>添加下载器</Button>
         </Link>
       </div>
 
@@ -93,10 +142,10 @@ export default function Downloaders() {
         dataSource={items}
         rowKey="id"
         loading={loading}
-        locale={{ emptyText: <Empty description="No downloaders configured." /> }}
+        locale={{ emptyText: <Empty description="还没有下载器" /> }}
         pagination={{
           current: page,
-          pageSize: 20,
+          pageSize: 50,
           total,
           onChange: setPage,
           showSizeChanger: false,

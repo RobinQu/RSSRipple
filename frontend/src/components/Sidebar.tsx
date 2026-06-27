@@ -1,30 +1,32 @@
-import { Layout, Menu } from 'antd';
+import { useState } from 'react';
+import { Layout, Menu, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Rss, HardDrive, Bot } from 'lucide-react';
 
 const { Sider } = Layout;
+const { Text } = Typography;
 
 const menuItems: MenuProps['items'] = [
   {
     key: '/',
     icon: <LayoutDashboard size={16} />,
-    label: 'Dashboard',
+    label: '仪表盘',
   },
   {
     key: '/channels',
     icon: <Rss size={16} />,
-    label: 'Channels',
-  },
-  {
-    key: '/downloaders',
-    icon: <HardDrive size={16} />,
-    label: 'Downloaders',
+    label: '频道',
   },
   {
     key: '/agents',
     icon: <Bot size={16} />,
     label: 'Agents',
+  },
+  {
+    key: '/downloaders',
+    icon: <HardDrive size={16} />,
+    label: '下载器',
   },
 ];
 
@@ -32,9 +34,17 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Determine selected key based on current path
-  const selectedKey = menuItems?.find((item) => {
-    const key = (item as any)?.key;
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem('sidebarCollapsed') === 'true';
+  });
+
+  const handleCollapse = (value: boolean) => {
+    setCollapsed(value);
+    localStorage.setItem('sidebarCollapsed', String(value));
+  };
+
+  const selectedKey = (menuItems as { key: string }[])?.find((item) => {
+    const key = item.key;
     if (key === '/') return location.pathname === '/';
     return location.pathname.startsWith(key as string);
   });
@@ -45,24 +55,33 @@ export default function Sidebar() {
 
   return (
     <Sider
-      width={240}
+      collapsible
+      collapsed={collapsed}
+      onCollapse={handleCollapse}
+      width={220}
+      collapsedWidth={72}
+      breakpoint="lg"
       style={{
         borderRight: '1px solid #242728',
       }}
     >
       <div
         style={{
-          padding: '20px 16px',
+          padding: collapsed ? '20px 0' : '20px 16px',
+          textAlign: 'center',
           borderBottom: '1px solid #242728',
+          overflow: 'hidden',
         }}
       >
-        <span style={{ fontSize: 18, fontWeight: 600, color: '#f4f4f6' }}>
-          RSSRipple
-        </span>
+        {collapsed ? (
+          <Text strong style={{ fontSize: 18, color: '#f4f4f6' }}>R</Text>
+        ) : (
+          <Text strong style={{ fontSize: 18, color: '#f4f4f6' }}>RSSRipple</Text>
+        )}
       </div>
       <Menu
         mode="inline"
-        selectedKeys={[(selectedKey as any)?.key || '/']}
+        selectedKeys={[(selectedKey as { key: string })?.key || '/']}
         items={menuItems}
         onClick={handleMenuClick}
         style={{
@@ -70,19 +89,21 @@ export default function Sidebar() {
           padding: '8px 0',
         }}
       />
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 16,
-          left: 0,
-          right: 0,
-          textAlign: 'center',
-          color: '#6a6b6c',
-          fontSize: 12,
-        }}
-      >
-        v0.1.0
-      </div>
+      {!collapsed && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 48,
+            left: 0,
+            right: 0,
+            textAlign: 'center',
+            color: '#6a6b6c',
+            fontSize: 12,
+          }}
+        >
+          v0.2.0
+        </div>
+      )}
     </Sider>
   );
 }

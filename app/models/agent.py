@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,29 +19,23 @@ class Agent(Base):
     channel_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
     )
-    downloader_id: Mapped[str] = mapped_column(
+    downloader_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("downloader_instances.id", ondelete="SET NULL"), nullable=True
     )
     task_expire_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    metadata_source: Mapped[str | None] = mapped_column(
-        Enum("tmdb", "tvdb", "none", name="metadata_source"),
-        nullable=True, default=None,
+    scope_channel_wide: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    conflict_resolution: Mapped[str] = mapped_column(
+        String(20), default="ask", nullable=False
     )
-    mode: Mapped[str] = mapped_column(
-        Enum("global", "watchlist", name="agent_mode"),
-        default="global", nullable=False,
-    )
-    content_type: Mapped[str] = mapped_column(
-        Enum("anime", "tv", "movie", "mixed", name="content_type"),
-        default="anime", nullable=False,
-    )
+    filter_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("active", "paused", "error", name="agent_status"),
         default="active",
         nullable=False,
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_run_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -52,17 +46,19 @@ class Agent(Base):
     # Relationships
     channel = relationship("Channel", back_populates="agents")
     downloader = relationship("DownloaderInstance", back_populates="agents")
-    filters = relationship(
-        "ResourceFilter", back_populates="agent",
-        order_by="ResourceFilter.priority.desc()",
+    works = relationship(
+        "AgentWork",
+        back_populates="agent",
+        order_by="AgentWork.created_at.asc()",
         lazy="selectin",
-        passive_deletes="all",
+        cascade="all, delete-orphan",
     )
-    watch_entries = relationship(
-        "WatchEntry", back_populates="agent",
-        order_by="WatchEntry.created_at.asc()",
+    download_tasks = relationship(
+        "DownloadTask", back_populates="agent", lazy="selectin"
+    )
+    pending_decisions = relationship(
+        "PendingDecision",
+        back_populates="agent",
         lazy="selectin",
-        passive_deletes="all",
+        cascade="all, delete-orphan",
     )
-    download_tasks = relationship("DownloadTask", back_populates="agent", lazy="selectin", passive_deletes="all")
-    pending_decisions = relationship("PendingDecision", back_populates="agent", lazy="selectin", passive_deletes="all")

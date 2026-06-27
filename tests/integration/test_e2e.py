@@ -36,15 +36,20 @@ class TestE2EFlow:
         assert ch_res.status_code == 201
         ch_id = ch_res.json()["data"]["id"]
 
-        # 4. Create agent with filters
+        # 4. Create agent with filter_config DSL
         ag_res = await client.post("/api/v1/agents", json={
             "name": "Test Agent",
             "channel_id": ch_id,
             "downloader_id": dl_id,
             "llm_enabled": False,
-            "filters": [
-                {"field": "resolution", "operator": "eq", "value": "1080p", "priority": 10, "is_required": True},
-            ],
+            "scope_channel_wide": True,
+            "conflict_resolution": "auto",
+            "filter_config": {
+                "combinator": "and",
+                "conditions": [
+                    {"field": "resolution", "operator": "eq", "value": "1080p"},
+                ],
+            },
         })
         assert ag_res.status_code == 201
         ag_id = ag_res.json()["data"]["id"]

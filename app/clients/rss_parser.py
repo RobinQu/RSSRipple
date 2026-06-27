@@ -149,6 +149,28 @@ async def parse_rss_feed(url: str) -> list[RawRSSItem]:
     return items
 
 
+def _entry_to_dict(entry) -> dict:
+    """Convert a feedparser entry to a plain dict suitable for JSON serialization.
+
+    Handles the three value types feedparser produces: scalars, lists of dicts,
+    and everything else (stringified). Shared between get_raw_entries (LLM
+    analysis) and fetch_channel_resources (field-mapping application).
+    """
+    result = {}
+    for key in entry.keys():
+        value = entry[key]
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            result[key] = value
+        elif isinstance(value, list):
+            result[key] = [
+                dict(item) if hasattr(item, "keys") else str(item)
+                for item in value
+            ]
+        else:
+            result[key] = str(value)
+    return result
+
+
 async def get_raw_entries(url: str, limit: int = 5) -> list[dict]:
     """Fetch RSS feed and return raw entry dicts for LLM analysis.
 
@@ -162,22 +184,7 @@ async def get_raw_entries(url: str, limit: int = 5) -> list[dict]:
         List of entry dicts.
     """
     feed = await asyncio.to_thread(_parse_feed_sync, url)
-    entries = []
-    for entry in feed.entries[:limit]:
-        entry_dict = {}
-        for key in entry.keys():
-            value = entry[key]
-            if isinstance(value, (str, int, float, bool)) or value is None:
-                entry_dict[key] = value
-            elif isinstance(value, list):
-                entry_dict[key] = [
-                    dict(item) if hasattr(item, "keys") else str(item)
-                    for item in value
-                ]
-            else:
-                entry_dict[key] = str(value)
-        entries.append(entry_dict)
-    return entries
+    return [_entry_to_dict(entry) for entry in feed.entries[:limit]]
 
 
 async def validate_rss_url(url: str) -> tuple[bool, str, int, int]:

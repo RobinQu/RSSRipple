@@ -4,8 +4,27 @@ services:
     ports:
       - "9001:9001"
     volumes:
-      - app-data:/app/data
+      - ./data:/app/data
     env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_dev.db
+      - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters
+    command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001", "--reload"]
+    develop:
+      watch:
+        - action: sync
+          path: ./app
+          target: /app/app
+          ignore:
+            - __pycache__/
+            - "*.pyc"
+        - action: rebuild
+          path: pyproject.toml
+        - action: rebuild
+          path: uv.lock
+        - action: rebuild
+          path: frontend
     depends_on:
       - transmission
     restart: unless-stopped
@@ -26,6 +45,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  app-data:
   transmission-config:
   downloads:

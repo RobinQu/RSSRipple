@@ -1,8 +1,12 @@
 """Channel Pydantic schemas."""
 
+import json as _json
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from app.schemas.common import ORMModel
 
 
 class ChannelCreate(BaseModel):
@@ -10,8 +14,11 @@ class ChannelCreate(BaseModel):
     type: str = "rss_feed"
     url: str
     fetch_interval: int = 1800
+    status: str = "active"
     field_mapping: dict | None = None
-    parser_type: str = "auto"
+    title_extraction_method: str = "none"
+    title_extraction_regex: str | None = None
+    metadata_source: str = "llm"
 
 
 class ChannelUpdate(BaseModel):
@@ -20,12 +27,12 @@ class ChannelUpdate(BaseModel):
     fetch_interval: int | None = None
     status: str | None = None
     field_mapping: dict | None = None
-    parser_type: str | None = None
+    title_extraction_method: str | None = None
+    title_extraction_regex: str | None = None
+    metadata_source: str | None = None
 
 
-class ChannelResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class ChannelResponse(ORMModel):
     id: str
     name: str
     type: str
@@ -33,33 +40,50 @@ class ChannelResponse(BaseModel):
     fetch_interval: int
     status: str
     field_mapping: dict | None = None
-    parser_type: str
+    title_extraction_method: str = "none"
+    title_extraction_regex: str | None = None
+    metadata_source: str = "llm"
     last_fetched_at: datetime | None = None
+    last_fetch_status: str | None = None
+    last_fetch_error: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ChannelListItem(ChannelResponse):
+    agent_count: int = 0
+    resource_count: int = 0
 
 
 class ValidateURLRequest(BaseModel):
     url: str
 
 
-class ValidateURLResponse(BaseModel):
-    valid: bool
-    message: str
-    item_count: int = 0
-    downloadable_count: int = 0
+class PreviewFeedRequest(BaseModel):
+    url: str
+    field_mapping: dict | None = None
 
 
-class FieldMappingEntry(BaseModel):
-    """A single field extraction rule for dynamic RSS parsing."""
-    source: str  # feedparser entry field path, e.g. "title", "enclosures[0].url"
-    regex: str | None = None  # optional regex to extract from source
-    group: int = 0  # regex capture group index (0 = full match)
-    transform: str | None = None  # type coercion: "int", "float", "iso_datetime", "lowercase", "uppercase"
+class SummarizeFiltersRequest(BaseModel):
+    resource_ids: list[str]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _decode_bytes(cls, v: Any) -> Any:
+        if isinstance(v, (bytes, bytearray)):
+            return _json.loads(v)
+        return v
 
 
-class FeedAnalysisResponse(BaseModel):
-    """Response from LLM-based RSS feed analysis."""
-    field_mapping: dict[str, FieldMappingEntry]
-    sample_results: list[dict]  # parsed results for sample entries (for user review)
-    confidence: str  # "high", "medium", "low"
+class FilterSuggestion(BaseModel):
+    field: str
+    operator: str
+    value: Any
+    confidence: float
+    label: str
+
+
+class FetchStatusResponse(BaseModel):
+    status: str | None = None
+    result: Any = None
+    error: str | None = None
