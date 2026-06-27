@@ -301,6 +301,14 @@ export default function AgentDetail() {
       ),
     },
     {
+      title: '目录',
+      dataIndex: 'download_dir',
+      key: 'download_dir',
+      width: 180,
+      ellipsis: true,
+      render: (v: string | null) => <Text type="secondary" style={{ fontSize: 12 }}>{v || '—'}</Text>,
+    },
+    {
       title: '错误',
       dataIndex: 'error_message',
       key: 'err',
@@ -320,10 +328,10 @@ export default function AgentDetail() {
             <Button type="text" size="small" icon={<Pause size={14} />} onClick={() => handlePause(record.id)} />
           )}
           {record.status === 'paused' && (
-            <Button type="text" size="small" icon={<Play size={14} style={{ color: '#59d499' }} />} onClick={() => handleResume(record.id)} />
+            <Button type="text" size="small" icon={<Play size={14} style={{ color: '#003c33' }} />} onClick={() => handleResume(record.id)} />
           )}
           {(record.status === 'error' || record.status === 'paused') && (
-            <Button type="text" size="small" icon={<RotateCcw size={14} style={{ color: '#57c1ff' }} />} onClick={() => handleRetry(record.id)} />
+            <Button type="text" size="small" icon={<RotateCcw size={14} style={{ color: '#1863dc' }} />} onClick={() => handleRetry(record.id)} />
           )}
           <Button type="text" size="small" danger icon={<Trash2 size={14} />} onClick={() => handleDeleteTask(record.id)} />
         </Space>
@@ -360,6 +368,9 @@ export default function AgentDetail() {
           </Text>
           <Text type="secondary">
             下载器：{agent.downloader?.name || agent.downloader_id?.slice(0, 8)}
+          </Text>
+          <Text type="secondary">
+            子目录：{agent.download_subdir || '—'}
           </Text>
           <Text type="secondary">
             范围：{agent.scope_channel_wide ? '整个频道' : `${works.length} 个作品`}
@@ -461,7 +472,7 @@ export default function AgentDetail() {
                           >
                             <div>
                               <Text strong>{d.reason}</Text>
-                              <div style={{ fontSize: 12, color: '#9c9c9d', marginTop: 4 }}>
+                              <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
                                 {d.candidates.length} 个候选 · {timeAgo(d.created_at)}
                               </div>
                               {d.llm_suggestion && (
@@ -470,10 +481,10 @@ export default function AgentDetail() {
                                     marginTop: 8,
                                     padding: 8,
                                     borderRadius: 6,
-                                    background: 'rgba(87,193,255,0.08)',
-                                    border: '1px solid rgba(87,193,255,0.2)',
+                                    background: '#f1f5ff',
+                                    border: '1px solid #b8cdf7',
                                     fontSize: 12,
-                                    color: '#57c1ff',
+                                    color: '#1863dc',
                                   }}
                                 >
                                   <strong>AI：</strong>
@@ -497,7 +508,7 @@ export default function AgentDetail() {
                                     alignItems: 'center',
                                     padding: '8px 12px',
                                     borderRadius: 6,
-                                    border: '1px solid rgba(255,255,255,0.08)',
+                                    border: '1px solid #e5e7eb',
                                     gap: 12,
                                   }}
                                 >
@@ -506,7 +517,7 @@ export default function AgentDetail() {
                                       <Text ellipsis style={{ fontSize: 13 }}>
                                         {r.title_cn || r.title_raw}
                                       </Text>
-                                      <Space size={4} wrap style={{ fontSize: 11, color: '#9c9c9d', marginTop: 2 }}>
+                                      <Space size={4} wrap style={{ fontSize: 11, color: '#93939f', marginTop: 2 }}>
                                         {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                                         {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                                         {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
@@ -577,14 +588,14 @@ export default function AgentDetail() {
                         <Statistic
                           title="通过"
                           value={filterTest.stats.passed}
-                          valueStyle={{ color: '#59d499' }}
+                          valueStyle={{ color: '#003c33' }}
                         />
                       </Col>
                       <Col span={8}>
                         <Statistic
                           title="未通过"
                           value={filterTest.stats.failed}
-                          valueStyle={{ color: '#ff6161' }}
+                          valueStyle={{ color: '#b30000' }}
                         />
                       </Col>
                     </Row>
@@ -596,15 +607,15 @@ export default function AgentDetail() {
                             padding: 10,
                             marginBottom: 6,
                             borderRadius: 6,
-                            border: `1px solid ${r.passed ? 'rgba(89,212,153,0.3)' : 'rgba(255,97,97,0.3)'}`,
+                            border: `1px solid ${r.passed ? '#8fbfb7' : '#f2b8b8'}`,
                             background: r.passed
-                              ? 'rgba(89,212,153,0.05)'
-                              : 'rgba(255,97,97,0.05)',
+                              ? '#edfce9'
+                              : '#fff1f0',
                           }}
                         >
                           <Space style={{ marginBottom: 4 }}>
                             {r.passed ? (
-                              <CheckCircle size={14} color="#59d499" />
+                              <CheckCircle size={14} color="#003c33" />
                             ) : (
                               <Tag color="error">FAIL</Tag>
                             )}

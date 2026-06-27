@@ -13,6 +13,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest.fixture
 async def env(client):
     with patch(
@@ -21,11 +27,13 @@ async def env(client):
     ):
         ch = await client.post("/api/v1/channels", json={
             "name": "C3", "type": "rss_feed", "url": "https://x/rss",
-            "fetch_interval": 1800, "metadata_source": "none",
+            "fetch_interval": 1800, "field_mapping": TEST_FIELD_MAPPING,
+            "metadata_source": "none",
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL3", "type": "transmission",
         "url": "http://127.0.0.1:9091/transmission/rpc",
+        "download_dir": "/downloads/rssripple",
     })
     a = await client.post("/api/v1/agents", json={
         "name": "A3", "channel_id": ch.json()["data"]["id"],
@@ -231,9 +239,10 @@ class TestDashboardPopulatedFull:
         async with db_session_factory() as s:
             s.add_all([
                 Channel(id=ch_id, name="DC", type="rss_feed", url="u",
-                        status="active", metadata_source="none",
+                        status="active", field_mapping=TEST_FIELD_MAPPING,
+                        metadata_source="none",
                         title_extraction_method="none"),
-                DownloaderInstance(id=dl_id, name="DD", type="transmission", url="u"),
+                DownloaderInstance(id=dl_id, name="DD", type="transmission", url="u", download_dir="/downloads/rssripple"),
                 Agent(id=a_id, name="DA", channel_id=ch_id, downloader_id=dl_id,
                       scope_channel_wide=True, status="active"),
                 TVSeries(id=s_id, title_cn="剧", title_en="S", content_type="tv"),
@@ -254,11 +263,14 @@ class TestDashboardPopulatedFull:
         async with db_session_factory() as s:
             s.add_all([
                 DownloadTask(id=_uuid(), agent_id=a_id, file_resource_id=r_series,
-                             downloader_id=dl_id, status="downloading", progress=0.5),
+                             downloader_id=dl_id, download_dir="/downloads/rssripple",
+                             status="downloading", progress=0.5),
                 DownloadTask(id=_uuid(), agent_id=a_id, file_resource_id=r_movie,
-                             downloader_id=dl_id, status="queued", progress=0.0),
+                             downloader_id=dl_id, download_dir="/downloads/rssripple",
+                             status="queued", progress=0.0),
                 DownloadTask(id=_uuid(), agent_id=a_id, file_resource_id=r_unk,
-                             downloader_id=dl_id, status="pending", progress=0.0),
+                             downloader_id=dl_id, download_dir="/downloads/rssripple",
+                             status="pending", progress=0.0),
             ])
             await s.commit()
         async with db_session_factory() as s:

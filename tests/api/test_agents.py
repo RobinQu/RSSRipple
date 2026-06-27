@@ -12,6 +12,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest.fixture
 async def channel_and_dl(client, api_mocks):
     """Create a channel and downloader via the API and return their IDs."""
@@ -22,11 +28,13 @@ async def channel_and_dl(client, api_mocks):
         ch = await client.post("/api/v1/channels", json={
             "name": "C", "type": "rss_feed",
             "url": "https://example.com/rss", "fetch_interval": 1800,
+            "field_mapping": TEST_FIELD_MAPPING,
             "metadata_source": "none",
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL", "type": "transmission",
         "url": "http://127.0.0.1:9091/transmission/rpc",
+        "download_dir": "/downloads/rssripple",
     })
     return ch.json()["data"]["id"], dl.json()["data"]["id"]
 
@@ -46,6 +54,29 @@ class TestAgentsCRUD:
         assert data["name"] == "My Agent"
         assert data["scope_channel_wide"] is True
         assert data["status"] == "active"
+
+    async def test_create_agent_with_download_subdir(self, client, channel_and_dl):
+        ch_id, dl_id = channel_and_dl
+        res = await client.post("/api/v1/agents", json={
+            "name": "My Agent",
+            "channel_id": ch_id,
+            "downloader_id": dl_id,
+            "download_subdir": r"Anime\2026",
+            "scope_channel_wide": True,
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["download_subdir"] == "Anime/2026"
+
+    async def test_create_agent_rejects_absolute_download_subdir(self, client, channel_and_dl):
+        ch_id, dl_id = channel_and_dl
+        res = await client.post("/api/v1/agents", json={
+            "name": "My Agent",
+            "channel_id": ch_id,
+            "downloader_id": dl_id,
+            "download_subdir": "/absolute",
+            "scope_channel_wide": True,
+        })
+        assert res.status_code == 422
 
     async def test_create_agent_requires_channel(self, client):
         res = await client.post("/api/v1/agents", json={

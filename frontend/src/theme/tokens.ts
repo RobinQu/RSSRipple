@@ -1,59 +1,52 @@
 import type { ThemeConfig } from 'antd';
 
-// Raycast design tokens from DESIGN.md
+// Cohere-inspired design tokens from DESIGN.md.
 export const raycastColors = {
-  // Surface ladder
-  canvas: '#07080a',
-  surface: '#0d0d0d',
-  'surface-elevated': '#101111',
-  'surface-card': '#121212',
-  'button-fg': '#18191a',
+  canvas: '#ffffff',
+  surface: '#ffffff',
+  'surface-elevated': '#f7f7f5',
+  'surface-card': '#eeece7',
+  'button-fg': '#ffffff',
 
-  // Borders
-  hairline: '#242728',
-  'hairline-soft': 'rgba(255,255,255,0.08)',
-  'hairline-strong': 'rgba(255,255,255,0.16)',
+  hairline: '#d9d9dd',
+  'hairline-soft': '#e5e7eb',
+  'hairline-strong': '#93939f',
 
-  // Text
-  ink: '#f4f4f6',
-  body: '#cdcdcd',
-  charcoal: '#d3d3d4',
-  mute: '#9c9c9d',
-  ash: '#6a6b6c',
-  stone: '#434345',
+  ink: '#212121',
+  body: '#616161',
+  charcoal: '#17171c',
+  mute: '#93939f',
+  ash: '#75758a',
+  stone: '#d9d9dd',
   'on-dark': '#ffffff',
   'on-dark-mute': 'rgba(255,255,255,0.72)',
 
-  // Brand / Primary
-  primary: '#ffffff',
-  'primary-pressed': '#e8e8e8',
-  'on-primary': '#000000',
+  primary: '#17171c',
+  'primary-pressed': '#000000',
+  'on-primary': '#ffffff',
 
-  // Accent (semantic)
-  'accent-blue': '#57c1ff',
-  'accent-blue-soft': 'rgba(87,193,255,0.15)',
-  'accent-red': '#ff6161',
-  'accent-red-soft': 'rgba(255,97,97,0.15)',
-  'accent-green': '#59d499',
-  'accent-green-soft': 'rgba(89,212,153,0.15)',
-  'accent-yellow': '#ffc533',
-  'accent-yellow-soft': 'rgba(255,197,51,0.15)',
+  'accent-blue': '#1863dc',
+  'accent-blue-soft': '#f1f5ff',
+  'accent-red': '#b30000',
+  'accent-red-soft': '#fff1f0',
+  'accent-green': '#003c33',
+  'accent-green-soft': '#edfce9',
+  'accent-yellow': '#ff7759',
+  'accent-yellow-soft': '#ffad9b',
 
-  // Hero gradient
-  'hero-stripe-start': '#ff5757',
-  'hero-stripe-end': '#a1131a',
+  'hero-stripe-start': '#003c33',
+  'hero-stripe-end': '#071829',
 
-  // Keycap gradient
-  'key-bg-start': '#121212',
-  'key-bg-end': '#0d0d0d',
+  'key-bg-start': '#eeece7',
+  'key-bg-end': '#ffffff',
 };
 
 export const raycastRadius = {
   xs: 4,
-  sm: 6,
+  sm: 8,
   md: 8,
-  lg: 10,
-  xl: 16,
+  lg: 16,
+  xl: 22,
 };
 
 export const raycastSpacing = {
@@ -67,17 +60,16 @@ export const raycastSpacing = {
   section: 96,
 };
 
-// Map Raycast tokens to antd seed tokens
+// Map design tokens to antd seed tokens.
 export const seedTokens: ThemeConfig['token'] = {
-  // Colors - using dark algorithm as base, overriding with Raycast palette
-  colorPrimary: '#ffffff',
+  // Colors
+  colorPrimary: raycastColors.primary,
   colorTextLightSolid: raycastColors['button-fg'],
   colorSuccess: raycastColors['accent-green'],
   colorWarning: raycastColors['accent-yellow'],
   colorError: raycastColors['accent-red'],
   colorInfo: raycastColors['accent-blue'],
 
-  // Background colors (surface ladder)
   colorBgBase: raycastColors.canvas,
   colorBgContainer: raycastColors.surface,
   colorBgElevated: raycastColors['surface-elevated'],
@@ -94,8 +86,7 @@ export const seedTokens: ThemeConfig['token'] = {
   colorBorder: raycastColors.hairline,
   colorBorderSecondary: raycastColors['hairline-soft'],
 
-  // Typography
-  fontFamily: "'Inter', 'Inter Fallback', system-ui, -apple-system, sans-serif",
+  fontFamily: "'Inter', 'Unica77 Cohere Web', system-ui, -apple-system, sans-serif",
   fontSize: 14,
 
   // Shape

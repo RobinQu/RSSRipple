@@ -29,14 +29,22 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest.fixture
 async def _seed(db_session):
     """Create a channel, downloader, agent, and a couple of resources/tasks."""
     ch = Channel(id=_uuid(), name="ch", type="rss_feed", url="https://x/rss",
+                 field_mapping=TEST_FIELD_MAPPING,
                  metadata_source="none", title_extraction_method="none")
     dl = DownloaderInstance(
         id=_uuid(), name="dl", type="transmission",
-        url="http://127.0.0.1:9091/transmission/rpc", download_dir="/tmp",
+        url="http://127.0.0.1:9091/transmission/rpc",
+        download_dir="/downloads/rssripple",
         status="disconnected",
     )
     db_session.add_all([ch, dl])
@@ -61,14 +69,17 @@ async def _seed(db_session):
 
     t1 = DownloadTask(
         id=_uuid(), agent_id=agent.id, file_resource_id=r1.id, downloader_id=dl.id,
+        download_dir="/downloads/rssripple",
         transmission_torrent_id=42, status="downloading", progress=0.1,
     )
     t2 = DownloadTask(
         id=_uuid(), agent_id=agent.id, file_resource_id=r2.id, downloader_id=dl.id,
+        download_dir="/downloads/rssripple",
         transmission_torrent_id=43, status="downloading", progress=0.2,
     )
     t_done = DownloadTask(
         id=_uuid(), agent_id=agent.id, file_resource_id=r1.id, downloader_id=dl.id,
+        download_dir="/downloads/rssripple",
         transmission_torrent_id=99, status="completed", progress=1.0,
         completed_at=datetime.now(UTC) - timedelta(days=60),
     )

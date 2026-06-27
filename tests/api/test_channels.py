@@ -14,6 +14,10 @@ def _channel_payload(**overrides):
         "type": "rss_feed",
         "url": "https://example.com/rss",
         "fetch_interval": 1800,
+        "field_mapping": {
+            "list_locator": {"source": "entries"},
+            "field_mappings": {"torrent_url": {"source": "link"}},
+        },
         "metadata_source": "none",
         "title_extraction_method": "none",
     }
@@ -120,7 +124,10 @@ class TestChannelActions:
         ), patch(
             "app.api.v1.channels.analyze_feed",
             AsyncMock(return_value={
-                "field_mapping": {"list_locator": {"source": "entries"}, "field_mappings": {}},
+                "field_mapping": {
+                    "list_locator": {"source": "entries"},
+                    "field_mappings": {"torrent_url": {"source": "link"}},
+                },
                 "sample_results": [],
                 "confidence": "high",
             }),
@@ -179,7 +186,10 @@ class TestChannelActions:
         ):
             res = await client.post("/api/v1/channels/preview-feed", json={
                 "url": "https://x/rss",
-                "field_mapping": {"list_locator": {"source": "entries"}, "field_mappings": {}},
+                "field_mapping": {
+                    "list_locator": {"source": "entries"},
+                    "field_mappings": {"torrent_url": {"source": "link"}},
+                },
             })
         assert res.status_code == 200
 

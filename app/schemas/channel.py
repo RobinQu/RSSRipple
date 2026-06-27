@@ -15,7 +15,7 @@ class ChannelCreate(BaseModel):
     url: str
     fetch_interval: int = 1800
     status: str = "active"
-    field_mapping: dict | None = None
+    field_mapping: dict
     title_extraction_method: str = "none"
     title_extraction_regex: str | None = None
     metadata_source: str = "llm"
@@ -39,7 +39,7 @@ class ChannelResponse(ORMModel):
     url: str
     fetch_interval: int
     status: str
-    field_mapping: dict | None = None
+    field_mapping: dict
     title_extraction_method: str = "none"
     title_extraction_regex: str | None = None
     metadata_source: str = "llm"

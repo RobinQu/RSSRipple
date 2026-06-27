@@ -10,7 +10,7 @@ import {
   App,
   Spin,
 } from 'antd';
-import { Zap } from 'lucide-react';
+import { Folder, Zap } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
 
 const { Title } = Typography;
@@ -33,9 +33,9 @@ export default function DownloaderForm() {
         form.setFieldsValue({
           name: res.data.name,
           url: res.data.url,
+          download_dir: res.data.download_dir,
           username: res.data.username ?? '',
           password: '',
-          download_dir: res.data.download_dir ?? '',
         });
       } else {
         message.error('加载下载器失败');
@@ -59,16 +59,16 @@ export default function DownloaderForm() {
     url: string;
     username?: string;
     password?: string;
-    download_dir?: string;
+    download_dir: string;
   }) => {
     setSaving(true);
     const payload = {
       name: values.name,
       type: 'transmission' as const,
       url: values.url,
+      download_dir: values.download_dir,
       username: values.username || undefined,
       password: values.password || undefined,
-      download_dir: values.download_dir || undefined,
     };
     try {
       let res;
@@ -118,8 +118,12 @@ export default function DownloaderForm() {
             <Input placeholder="http://127.0.0.1:9091/transmission/rpc" />
           </Form.Item>
 
-          <Form.Item name="download_dir" label="默认下载目录">
-            <Input placeholder="/downloads/complete" />
+          <Form.Item
+            name="download_dir"
+            label="默认下载目录"
+            rules={[{ required: true, message: '请输入默认下载目录' }]}
+          >
+            <Input prefix={<Folder size={14} />} placeholder="/volume1/downloads/rssripple" />
           </Form.Item>
 
           <Space style={{ width: '100%' }} size={16}>

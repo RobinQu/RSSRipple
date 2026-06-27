@@ -63,6 +63,15 @@ def setup_test_environment():
     pass
 
 
+DEFAULT_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {
+        "title_raw": {"source": "title"},
+        "torrent_url": {"source": "link"},
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -123,6 +132,7 @@ def channel(request):
         json={
             "name": "Nyaa Real Feed — e2e test",
             "url": REAL_FEED_URL,
+            "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
             "title_extraction_method": "llm",
         },

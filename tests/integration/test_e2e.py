@@ -6,6 +6,11 @@ Run with: docker-compose -f docker-compose.test.yml up --build
 
 import pytest
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
 
 @pytest.mark.integration
 class TestE2EFlow:
@@ -19,6 +24,7 @@ class TestE2EFlow:
             "name": "Test TR",
             "type": "transmission",
             "url": "http://transmission:9091/transmission/rpc",
+            "download_dir": "/downloads",
         })
         assert dl_res.status_code == 201
         dl_id = dl_res.json()["data"]["id"]
@@ -32,6 +38,7 @@ class TestE2EFlow:
             "name": "Test Feed",
             "url": "http://mock-rss:8080/feed.xml",  # Mock RSS server
             "fetch_interval": 60,
+            "field_mapping": TEST_FIELD_MAPPING,
         })
         assert ch_res.status_code == 201
         ch_id = ch_res.json()["data"]["id"]

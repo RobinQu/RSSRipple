@@ -7,7 +7,7 @@ export interface DownloaderCreate {
   url: string;
   username?: string;
   password?: string;
-  download_dir?: string;
+  download_dir: string;
 }
 
 export interface DownloaderUpdate {
@@ -28,7 +28,7 @@ export const downloadersApi = {
     api.put<DownloaderInstance>(`/downloaders/${id}`, data),
   delete: (id: string) => api.delete<null>(`/downloaders/${id}`),
   test: (id: string) =>
-    api.post<{ success: boolean; message: string; version?: string | null }>(
+    api.post<{ success: boolean; message: string; version?: string | null; free_space?: number | null }>(
       `/downloaders/${id}/test`,
     ),
   listTorrents: (id: string) =>

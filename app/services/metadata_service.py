@@ -28,6 +28,8 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from thefuzz import fuzz
 
+import asyncio
+
 from app.config import settings
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.movie import Movie
@@ -281,10 +283,13 @@ async def search_metadata_via_llm(title: str) -> list[dict]:
     )
 
     try:
-        response = await client.responses.create(
-            model=model,
-            tools=[{"type": "web_search"}],
-            input=prompt,
+        response = await asyncio.wait_for(
+            client.responses.create(
+                model=model,
+                tools=[{"type": "web_search"}],
+                input=prompt,
+            ),
+            timeout=15.0,  # don't hang a batch of 100 entries on one LLM call
         )
         raw = (response.output_text or "").strip()
         m = _LLM_JSON_RE.search(raw)
@@ -292,6 +297,9 @@ async def search_metadata_via_llm(title: str) -> list[dict]:
             logger.warning("[llm_search] No JSON in response for %r", title)
             return []
         data = json.loads(m.group(0))
+    except asyncio.TimeoutError:
+        logger.warning("[llm_search] Timeout for %r", title)
+        return []
     except Exception as e:
         logger.warning("[llm_search] API call failed for %r: %s", title, e)
         return []

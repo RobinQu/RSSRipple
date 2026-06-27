@@ -74,6 +74,15 @@ def poll_job_status(app_url: str, endpoint: str, timeout: float = FETCH_TIMEOUT)
         time.sleep(POLL_INTERVAL)
 
 
+DEFAULT_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {
+        "title_raw": {"source": "title"},
+        "torrent_url": {"source": "link"},
+    },
+}
+
+
 def make_channel(app_url: str, name_suffix: str = "") -> str:
     """Create a test channel pointing at the mikanani feed and return its ID."""
     resp = httpx.post(
@@ -81,9 +90,10 @@ def make_channel(app_url: str, name_suffix: str = "") -> str:
         json={
             "name": f"QueueTest-{uuid.uuid4().hex[:6]}{name_suffix}",
             "url": f"{TEST_SERVER}/rss/mikanani",
+            "metadata_source": "none",
+            "title_extraction_method": "none",
+            "field_mapping": DEFAULT_FIELD_MAPPING,
         },
-        # 45s: channel creation can block up to 15s on SQLite busy-wait if a
-        # concurrent background fetch holds the write lock during an LLM call.
         timeout=45,
     )
     assert resp.status_code == 201, resp.text
@@ -100,6 +110,7 @@ def make_agent(app_url: str) -> tuple[str, str]:
             "name": f"QueueTest-DL-{uuid.uuid4().hex[:6]}",
             "type": "transmission",
             "url": "http://transmission:9092/transmission/rpc",
+            "download_dir": "/downloads",
         },
         timeout=10,
     )

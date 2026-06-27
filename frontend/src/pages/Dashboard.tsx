@@ -151,7 +151,7 @@ export default function Dashboard() {
               title="下载中"
               value={dashboard.active_download_count}
               prefix={<Download size={18} />}
-              valueStyle={{ color: '#57c1ff' }}
+              valueStyle={{ color: '#1863dc' }}
             />
           </Card>
         </Col>
@@ -161,7 +161,7 @@ export default function Dashboard() {
               title="待决策"
               value={dashboard.pending_decisions.length}
               prefix={<AlertTriangle size={18} />}
-              valueStyle={{ color: dashboard.pending_decisions.length > 0 ? '#ffc533' : undefined }}
+              valueStyle={{ color: dashboard.pending_decisions.length > 0 ? '#ff7759' : undefined }}
             />
           </Card>
         </Col>
@@ -181,7 +181,7 @@ export default function Dashboard() {
           <List
             dataSource={dashboard.active_download_groups}
             renderItem={(group) => (
-              <List.Item key={`${group.type}-${group.id || 'unknown'}`} style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <List.Item key={`${group.type}-${group.id || 'unknown'}`} style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', width: '100%', gap: 16 }}>
                   <img
                     src={group.poster_url || posterFallback(group.title)}
@@ -192,7 +192,7 @@ export default function Dashboard() {
                       objectFit: 'cover',
                       borderRadius: 6,
                       flexShrink: 0,
-                      background: '#1a1a1a',
+                      background: '#eeece7',
                     }}
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = posterFallback(group.title);
@@ -220,7 +220,7 @@ export default function Dashboard() {
                             <Text ellipsis style={{ flex: 1, fontSize: 13 }}>
                               {t.resource_title}
                             </Text>
-                            <Space size="small" style={{ color: '#9c9c9d', fontSize: 12, flexShrink: 0 }}>
+                            <Space size="small" style={{ color: '#93939f', fontSize: 12, flexShrink: 0 }}>
                               <span>{formatSpeed(0)}</span>
                               <span>ETA: {formatEta(null)}</span>
                               <Link to={`/agents/${t.agent_id}`}>
@@ -252,7 +252,7 @@ export default function Dashboard() {
             renderItem={(d) => (
               <List.Item
                 key={d.id}
-                style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'block' }}
+                style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
               >
                 <div
                   style={{
@@ -264,7 +264,7 @@ export default function Dashboard() {
                 >
                   <div>
                     <Text strong>{d.reason}</Text>
-                    <div style={{ fontSize: 12, color: '#9c9c9d', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
                       <Link to={`/agents/${d.agent_id}`}>
                         <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
                       </Link>
@@ -282,10 +282,10 @@ export default function Dashboard() {
                     style={{
                       padding: 10,
                       borderRadius: 6,
-                      background: 'rgba(87,193,255,0.08)',
-                      border: '1px solid rgba(87,193,255,0.2)',
+                      background: '#f1f5ff',
+                      border: '1px solid #b8cdf7',
                       fontSize: 12,
-                      color: '#57c1ff',
+                      color: '#1863dc',
                       marginBottom: 12,
                     }}
                   >
@@ -306,8 +306,8 @@ export default function Dashboard() {
                           alignItems: 'center',
                           padding: '8px 12px',
                           borderRadius: 6,
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          background: 'rgba(255,255,255,0.02)',
+                          border: '1px solid #e5e7eb',
+                          background: '#f7f7f5',
                           gap: 12,
                         }}
                       >
@@ -316,7 +316,7 @@ export default function Dashboard() {
                             <Text ellipsis style={{ fontSize: 13 }}>
                               {r.title_cn || r.title_raw}
                             </Text>
-                            <Space size={6} style={{ fontSize: 11, color: '#9c9c9d', marginTop: 2 }} wrap>
+                            <Space size={6} style={{ fontSize: 11, color: '#93939f', marginTop: 2 }} wrap>
                               {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                               {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                               {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
@@ -324,7 +324,7 @@ export default function Dashboard() {
                             </Space>
                           </div>
                         ) : (
-                          <Text ellipsis style={{ flex: 1, fontSize: 12, color: '#9c9c9d' }}>
+                          <Text ellipsis style={{ flex: 1, fontSize: 12, color: '#93939f' }}>
                             加载中...
                           </Text>
                         )}

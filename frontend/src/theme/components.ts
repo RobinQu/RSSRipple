@@ -11,16 +11,15 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Menu (sidebar navigation)
   Menu: {
-    darkItemBg: raycastColors.surface,
-    darkItemColor: raycastColors.body,
-    darkItemHoverColor: raycastColors.ink,
-    darkItemSelectedBg: raycastColors['surface-elevated'],
-    darkItemSelectedColor: raycastColors['on-dark'],
-    darkSubMenuItemBg: raycastColors.surface,
+    itemBg: raycastColors.surface,
+    itemColor: raycastColors.body,
+    itemHoverColor: raycastColors.ink,
+    itemHoverBg: raycastColors['surface-elevated'],
+    itemSelectedBg: raycastColors.primary,
+    itemSelectedColor: raycastColors['on-primary'],
     itemBorderRadius: raycastRadius.sm,
     itemMarginInline: 8,
     itemPaddingInline: 12,
-    darkItemHoverBg: raycastColors['surface-card'],
   },
 
   // Table
@@ -44,7 +43,7 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Button
   Button: {
-    borderRadius: raycastRadius.md,
+    borderRadius: 32,
     controlHeight: 36,
     controlHeightLG: 44,
     primaryShadow: 'none',
@@ -54,9 +53,9 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Input
   Input: {
-    colorBgContainer: raycastColors['surface-elevated'],
+    colorBgContainer: raycastColors.surface,
     colorBorder: raycastColors.hairline,
-    activeBorderColor: raycastColors['hairline-strong'],
+    activeBorderColor: '#9b60aa',
     hoverBorderColor: raycastColors['hairline-strong'],
     borderRadius: raycastRadius.md,
     controlHeight: 36,
@@ -64,7 +63,7 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Select
   Select: {
-    colorBgContainer: raycastColors['surface-elevated'],
+    colorBgContainer: raycastColors.surface,
     colorBorder: raycastColors.hairline,
     borderRadius: raycastRadius.md,
     controlHeight: 36,
@@ -86,7 +85,7 @@ export const componentTokens: ThemeConfig['components'] = {
   Tabs: {
     inkBarColor: raycastColors.primary,
     itemActiveColor: raycastColors.ink,
-    itemSelectedColor: raycastColors['on-dark'],
+    itemSelectedColor: raycastColors.ink,
     itemColor: raycastColors.mute,
     itemHoverColor: raycastColors.body,
   },
@@ -108,8 +107,8 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Tooltip
   Tooltip: {
-    colorBgSpotlight: raycastColors['surface-card'],
-    colorTextLightSolid: raycastColors.ink,
+    colorBgSpotlight: raycastColors.primary,
+    colorTextLightSolid: raycastColors['on-primary'],
   },
 
   // Pagination

@@ -13,6 +13,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 async def _insert(db_session_factory, model, **kw):
     async with db_session_factory() as s:
         obj = model(**kw)
@@ -58,9 +64,11 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
     async with db_session_factory() as s:
         s.add_all([
             Channel(id=ch_id, name="DCh", type="rss_feed", url="https://x/rss",
-                    status="active", metadata_source="none", title_extraction_method="none"),
+                    status="active", field_mapping=TEST_FIELD_MAPPING,
+                    metadata_source="none", title_extraction_method="none"),
             DownloaderInstance(id=dl_id, name="DDl", type="transmission",
-                               url="http://127.0.0.1:9091/transmission/rpc"),
+                               url="http://127.0.0.1:9091/transmission/rpc",
+                               download_dir="/downloads/rssripple"),
             Agent(id=a_id, name="DAg", channel_id=ch_id, downloader_id=dl_id,
                   scope_channel_wide=True, status="active"),
             TVSeries(id=s_id, title_cn="剧", title_en="Series", content_type="tv"),
@@ -86,11 +94,14 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
     async with db_session_factory() as s:
         s.add_all([
             DownloadTask(id=t1, agent_id=a_id, file_resource_id=r1,
-                         downloader_id=dl_id, status="downloading", progress=0.5),
+                         downloader_id=dl_id, download_dir="/downloads/rssripple",
+                         status="downloading", progress=0.5),
             DownloadTask(id=t2, agent_id=a_id, file_resource_id=r2,
-                         downloader_id=dl_id, status="downloading", progress=0.3),
+                         downloader_id=dl_id, download_dir="/downloads/rssripple",
+                         status="downloading", progress=0.3),
             DownloadTask(id=t3, agent_id=a_id, file_resource_id=r3,
-                         downloader_id=dl_id, status="queued", progress=0.0),
+                         downloader_id=dl_id, download_dir="/downloads/rssripple",
+                         status="queued", progress=0.0),
         ])
         await s.commit()
 

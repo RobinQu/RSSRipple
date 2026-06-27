@@ -19,9 +19,10 @@ class Agent(Base):
     channel_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
     )
-    downloader_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("downloader_instances.id", ondelete="SET NULL"), nullable=True
+    downloader_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("downloader_instances.id", ondelete="RESTRICT"), nullable=False
     )
+    download_subdir: Mapped[str | None] = mapped_column(String(500), nullable=True)
     task_expire_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     scope_channel_wide: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -58,6 +59,12 @@ class Agent(Base):
     )
     pending_decisions = relationship(
         "PendingDecision",
+        back_populates="agent",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    suggestions = relationship(
+        "AgentSuggestion",
         back_populates="agent",
         lazy="selectin",
         cascade="all, delete-orphan",

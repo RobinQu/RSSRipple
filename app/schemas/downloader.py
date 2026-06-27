@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from app.utils.download_paths import validate_download_root
+
 
 class DownloaderCreate(BaseModel):
     name: str
@@ -12,7 +14,10 @@ class DownloaderCreate(BaseModel):
     url: str
     username: str | None = None
     password: str | None = None
-    download_dir: str | None = None
+    download_dir: str
+
+    def model_post_init(self, __context: Any) -> None:
+        self.download_dir = validate_download_root(self.download_dir)
 
 
 class DownloaderUpdate(BaseModel):
@@ -21,6 +26,10 @@ class DownloaderUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     download_dir: str | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.download_dir is not None:
+            self.download_dir = validate_download_root(self.download_dir)
 
 
 class DownloaderResponse(BaseModel):
@@ -31,7 +40,7 @@ class DownloaderResponse(BaseModel):
     type: str
     url: str
     username: str | None = None
-    download_dir: str | None = None
+    download_dir: str
     status: str
     last_checked_at: datetime | None = None
     created_at: datetime
@@ -41,6 +50,8 @@ class DownloaderResponse(BaseModel):
 class DownloaderTestResult(BaseModel):
     success: bool
     message: str
+    version: str | None = None
+    free_space: int | None = None
 
 
 class TorrentInfo(BaseModel):

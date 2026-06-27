@@ -1,213 +1,110 @@
 # RSSRipple
 
-Automated RSS subscription downloader with intelligent filtering, LLM-assisted decisions, and Transmission integration.
+RSSRipple is an RSS subscription downloader for TV/anime/movie releases. It fetches RSS feeds, parses resources with per-channel field mappings, links resources to local metadata, filters them through Agents, and sends matching torrents to Transmission.
 
 ## Features
 
-- **Multi-source RSS support** — Dynamic field mapping via LLM analysis works with any RSS source (mikanani.me, dmhy.org, myrss.org, etc.)
-- **Intelligent resource selection** — Three-tier decision pipeline: rule-based filters → LLM judgment → manual selection
-- **Metadata matching** — Automatic TVSeries/Movie identification via TMDB and TVDB APIs
-- **Subtitle group consistency** — Keeps the same release group across episodes of a series
-- **Transmission integration** — Push download tasks directly to your Transmission daemon
-- **Web UI** — React-based dashboard for managing channels, agents, filters, and download progress
+- Multi-source RSS support through required per-channel `field_mapping` rules.
+- LLM-assisted feed analysis, title cleaning, title regex generation, metadata search, and pending-decision suggestions.
+- Local metadata cache for `TVSeries` and `Movie`, populated by manual metadata linking or LLM web search.
+- Agent-based subscriptions with channel-wide or selected-work scope.
+- Bool-query Filter DSL with nested `and`/`or`, field operators, and per-work overrides.
+- Persistent suggestions for resources that cannot be linked to metadata yet.
+- Transmission RPC integration for torrent add/pause/resume/retry/delete, per-downloader default directories, optional per-Agent subdirectories, and progress sync.
+- React dashboard for channels, resources, agents, decisions, download tasks, series, movies, and downloaders.
+
+## Architecture
+
+The system is organized around two design documents:
+
+- [AGENTS.md](AGENTS.md) is the authoritative product/API/data-model specification.
+- [ARCHITECTURE.md](ARCHITECTURE.md) describes the module layout and runtime data flow.
+
+`DESIGN.md` is reserved for design tokens and visual guidance only.
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2 |
-| Database | SQLite with aiosqlite |
+| --- | --- |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
+| Database | SQLite with aiosqlite by default; PostgreSQL-compatible architecture |
+| Queue/Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
-| Download | transmission-rpc |
-| Scheduler | APScheduler |
-| Frontend | React 18, TypeScript, TailwindCSS, Vite |
-| Package manager | uv |
-| Container | Docker, docker-compose |
+| Metadata/AI | OpenAI-compatible LLM APIs, optional web-search-capable model |
+| Download | Transmission RPC |
+| Frontend | React 18, TypeScript, Vite, Ant Design 5 |
+| Package manager | uv, npm |
 
-## Quick Start
+## Key Concepts
 
-### Docker (recommended)
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/RobinQu/RSSRipple.git
-cd RSSRipple
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env and set your API keys (LLM_API_KEY is required for LLM features)
-
-# 3. Start everything (app + Transmission)
-docker-compose up --build
-```
-
-- **Web UI**: http://localhost:9001
-- **API docs**: http://localhost:9001/docs
-- **Transmission UI**: http://localhost:9091
-
-### Local Development
-
-```bash
-# 1. Clone and install
-git clone https://github.com/RobinQu/RSSRipple.git
-cd RSSRipple
-uv sync
-
-# 2. Build frontend
-cd frontend && npm install && npm run build && cd ..
-
-# 3. Configure environment
-cp .env.example .env
-# Edit .env as needed
-
-# 4. Start the server
-uv run uvicorn app.main:app --reload --port 9001
-```
-
-## Configuration
-
-All configuration is done via environment variables (or a `.env` file):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///data/rss_downloader.db` | Database connection |
-| `LLM_API_KEY` | _(empty)_ | API key for LLM features (required for feed analysis and decisions) |
-| `LLM_MODEL` | `openrouter/free` | LLM model name (OpenAI-compatible) |
-| `LLM_BASE_URL` | `https://openrouter.ai/api/v1` | LLM API base URL |
-| `TMDB_API_KEY` | _(empty)_ | TMDB API key for metadata matching ([get one](https://www.themoviedb.org/settings/api)) |
-| `TVDB_API_KEY` | _(empty)_ | TVDB API key for metadata matching |
-| `DEFAULT_FETCH_INTERVAL` | `1800` | Default RSS fetch interval in seconds |
-| `MAX_RETRY_COUNT` | `3` | Max download retry count |
-| `TASK_EXPIRE_DAYS` | `30` | Completed task expiry in days |
-| `LOG_LEVEL` | `INFO` | Logging level |
-| `DEBUG` | `false` | Debug mode |
-
-### LLM Setup
-
-RSSRipple uses an OpenAI-compatible API for feed analysis and decision-making. By default it points to [OpenRouter](https://openrouter.ai/) free models. To enable LLM features:
-
-1. Get a free API key at https://openrouter.ai/keys
-2. Set `LLM_API_KEY=sk-or-...` in your `.env`
-3. Optionally change `LLM_MODEL` to a specific model (e.g., `google/gemini-2.0-flash-exp:free`)
-
-You can also use any OpenAI-compatible endpoint by changing `LLM_BASE_URL` and `LLM_MODEL`.
+- **Channel**: RSS feed configuration. `field_mapping` is required and defines how RSS entries become `FileResource` records. `metadata_source` defaults to `llm`; if set to `none`, automatic web metadata search is disabled and users must manually link metadata.
+- **FileResource**: One parsed RSS release. TV episode numbering uses the `episode` field directly.
+- **TVSeries / Movie**: Local metadata cache. External metadata search results are stored here rather than in a separate search cache.
+- **Agent**: Watches one Channel, requires a Downloader, applies Filter DSL, and dispatches matching resources. It may specify a relative `download_subdir` under the Downloader's default directory.
+- **AgentWork**: A selected TV series or movie for scoped Agents, with optional filter overrides.
+- **AgentSuggestion**: Persisted groups of unrecognized resources for later manual metadata linking.
+- **PendingDecision**: Multiple valid candidates for the same movie or episode when `conflict_resolution="ask"`.
+- **DownloaderInstance**: Transmission RPC connection plus a required default `download_dir`, interpreted on the download server where Transmission runs. Its connection test also checks the directory with Transmission's free-space RPC.
+- **Download directory resolution**: A task's effective directory is `DownloaderInstance.download_dir` plus `Agent.download_subdir` when set. Agent subdirectories must be relative paths and must not escape the Downloader root.
 
 ## API Overview
 
-All endpoints are under `/api/v1/`. Interactive docs available at `/docs` when the server is running.
+All API routes are under `/api/v1`.
 
-| Resource | Endpoints |
-|----------|-----------|
+| Area | Main endpoints |
+| --- | --- |
 | Dashboard | `GET /dashboard` |
-| Channels | CRUD + `POST /{id}/fetch` + `POST /{id}/analyze` + `POST /{id}/apply-mapping` |
-| Agents | CRUD + `POST /{id}/run` |
-| Filters | CRUD under `/agents/{agent_id}/filters` |
-| TVSeries | CRUD |
-| Movies | CRUD |
-| Resources | `GET /channels/{id}/resources`, `GET /resources/{id}` |
-| Download Tasks | List, detail, pause, resume, retry, delete |
+| Channels | CRUD, fetch, fetch-status, analyze/analyze-stream, preview-feed, validate-url, title-regex, summarize-filters |
+| Resources | Channel resources, resource detail, metadata search/link |
+| Agents | CRUD, run/run-status, test-filters, persisted suggestions |
+| Agent Works | CRUD under `/agents/{agent_id}/works` |
+| Downloaders | CRUD with required default download directory, connection test, local tasks, live Transmission torrents |
+| Tasks | Detail, pause, resume, retry, delete |
 | Decisions | List, confirm, skip |
-| Downloaders | CRUD + `POST /{id}/test` |
+| Series / Movies | CRUD and search/list views |
 
-## Development
+## Download Directories
 
-### Prerequisites
+Each Downloader must define a default `download_dir`, using the path as seen by the Transmission server. The path may use the native absolute-path style of that server, such as `/volume1/downloads/rssripple`, `D:\Downloads\RSSRipple`, or a UNC path if supported by the Transmission daemon.
 
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Node.js 20+ (for frontend)
-- Docker (optional, for integration tests)
+Each Agent may optionally define a relative `download_subdir`; RSSRipple joins it under the Downloader directory when creating tasks.
 
-### Project Structure
+The resolved directory is stored on each `DownloadTask`, so retries keep using the original destination even if the Downloader or Agent configuration changes later. Agent subdirectories are validated as relative paths and cannot escape the Downloader root.
 
-```
-rssripple/
-├── app/                    # Backend
-│   ├── api/v1/             # API route handlers
-│   ├── clients/            # External API clients (RSS, TMDB, TVDB, Transmission)
-│   ├── models/             # SQLAlchemy ORM models
-│   ├── schemas/            # Pydantic request/response schemas
-│   ├── services/           # Business logic (parsers, metadata, feed analyzer)
-│   ├── config.py           # Settings (pydantic-settings)
-│   ├── database.py         # SQLAlchemy engine/session
-│   └── main.py             # FastAPI app entry
-├── frontend/               # React SPA
-│   └── src/
-├── tests/                  # Test suite (unit, api, integration)
-├── pyproject.toml          # Project config + dependencies
-├── uv.lock                 # Dependency lockfile
-├── Dockerfile              # Multi-stage build (frontend + backend)
-├── docker-compose.yml      # App + Transmission services
-├── PRODUCT.md              # Product design: data models, filter logic, user stories
-├── DESIGN.md               # Design system: dark theme tokens, typography, components
-├── ARCHITECTURE.md         # System architecture, module structure
-└── AGENTS.md               # AI coding agent guide
-```
+RSSRipple does not change Transmission's global session download directory. It passes the resolved directory per torrent when calling Transmission.
 
-### Running Tests
+## Configuration
+
+Common environment variables:
+
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | SQLAlchemy database URL |
+| `REDIS_URL` | Optional Redis backend for queue locks |
+| `LLM_API_KEY` | API key for LLM features |
+| `LLM_BASE_URL` | OpenAI-compatible base URL |
+| `LLM_MODEL` | Model for feed analysis, title cleaning, regex generation, and suggestions |
+| `LLM_SEARCH_MODEL` | Web-search-capable model for metadata search |
+| `POSTER_CACHE_DIR` | Local poster cache mounted at `/posters` |
+| `TRANSMISSION_TIMEOUT` | Transmission RPC timeout |
+| `DEV_MODE` | Include stack traces in internal error responses when true |
+
+## Local Development
 
 ```bash
-# Unit + API tests
+uv sync
+cd frontend && npm install && npm run build && cd ..
+uv run uvicorn app.main:app --reload --port 9001
+```
+
+Web UI: [http://localhost:9001](http://localhost:9001)
+
+API docs: [http://localhost:9001/docs](http://localhost:9001/docs)
+
+## Tests
+
+```bash
 uv run pytest tests/unit tests/api -v
-
-# Integration tests (requires Docker)
-docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```
 
-### Code Style
-
-- Python: [ruff](https://docs.astral.sh/ruff/) (configured in `pyproject.toml`, line-length 120)
-- TypeScript: ESLint (configured in `frontend/eslint.config.js`)
-
-```bash
-# Lint
-uv run ruff check app/ tests/
-
-# Format
-uv run ruff format app/ tests/
-```
-
-### Adding a Dependency
-
-```bash
-# Production dependency
-uv add <package>
-
-# Dev dependency
-uv add --dev <package>
-```
-
-## Contributing
-
-Contributions are welcome. Here's how to get started:
-
-1. **Fork** the repository
-2. **Create a branch** for your feature or fix
-3. **Install dependencies**: `uv sync`
-4. **Make your changes** following the coding conventions below
-5. **Run tests**: `uv run pytest tests/ -v`
-6. **Run lint**: `uv run ruff check app/ tests/`
-7. **Submit a pull request**
-
-### Coding Conventions
-
-- All async where possible (FastAPI, SQLAlchemy, httpx)
-- Pydantic v2 `BaseModel` for all data structures (no `dataclass`)
-- UUID primary keys for all entities
-- Type hints everywhere
-- Docstrings on service layer functions
-- ISO 8601 datetime strings in API responses
-- Structured error responses with error codes
-
-### Key Design Documents
-
-Before making significant changes, review:
-
-- **[PRODUCT.md](PRODUCT.md)** — Product design: data models, filter logic, RSS parsing architecture, UI wireframes
-- **[DESIGN.md](DESIGN.md)** — Design system: Raycast-inspired dark theme tokens, typography, component specs
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — System architecture, module structure, scheduler, Docker setup
-- **[AGENTS.md](AGENTS.md)** — API endpoint reference, environment variables, coding guide for AI agents
-
-## License
-
-MIT
+Integration tests use `docker-compose.test.yml`.

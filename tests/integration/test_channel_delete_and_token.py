@@ -34,7 +34,20 @@ def _create_channel(name: str = "Token Test Channel", url: str = FEED_URL,
     headers = {"X-Form-Token": token} if token else {}
     return httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
-        json={"name": name, "url": url, "fetch_interval": 3600},
+        json={
+            "name": name,
+            "url": url,
+            "fetch_interval": 3600,
+            "field_mapping": {
+                "list_locator": {"source": "entries"},
+                "field_mappings": {
+                    "title_raw": {"source": "title"},
+                    "torrent_url": {"source": "link"},
+                },
+            },
+            "metadata_source": "none",  # avoid per-entry LLM calls that hang in CI
+            "title_extraction_method": "none",
+        },
         headers=headers,
         timeout=20,
     )

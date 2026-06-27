@@ -93,6 +93,12 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest_asyncio.fixture
 async def sample_channel(db_session: AsyncSession):
     """Create and persist a minimal active Channel."""
@@ -106,6 +112,7 @@ async def sample_channel(db_session: AsyncSession):
         url="https://example.com/rss",
         fetch_interval=1800,
         status="active",
+        field_mapping=TEST_FIELD_MAPPING,
         metadata_source="none",
         title_extraction_method="none",
     )
@@ -132,7 +139,7 @@ async def sample_downloader(db_session: AsyncSession):
         name="Test Downloader",
         type="transmission",
         url="http://127.0.0.1:9091/transmission/rpc",
-        download_dir="/tmp/downloads",
+        download_dir="/downloads/rssripple",
         status="disconnected",
     )
     db_session.add(dl)
@@ -228,6 +235,7 @@ def mock_transmission():
     add_torrent = AsyncMock(return_value={"torrent_id": 42, "name": "x", "hash": "h"})
     list_torrents = AsyncMock(return_value=[])
     test_conn = AsyncMock(return_value=(True, "Transmission 3.00"))
+    free_space = AsyncMock(return_value=1024 * 1024 * 1024)
     pause_torrent = AsyncMock(return_value=True)
     resume_torrent = AsyncMock(return_value=True)
     remove_torrent = AsyncMock(return_value=True)
@@ -237,6 +245,8 @@ def mock_transmission():
         "app.clients.transmission.TransmissionWrapper.list_torrents", list_torrents
     ), patch(
         "app.clients.transmission.TransmissionWrapper.test_connection", test_conn
+    ), patch(
+        "app.clients.transmission.TransmissionWrapper.free_space", free_space
     ), patch(
         "app.clients.transmission.TransmissionWrapper.pause_torrent", pause_torrent
     ), patch(
@@ -248,6 +258,7 @@ def mock_transmission():
             add_torrent=add_torrent,
             list_torrents=list_torrents,
             test_connection=test_conn,
+            free_space=free_space,
             pause_torrent=pause_torrent,
             resume_torrent=resume_torrent,
             remove_torrent=remove_torrent,

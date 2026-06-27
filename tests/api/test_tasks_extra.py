@@ -14,6 +14,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 async def _create_resource(db_session_factory, ch_id, title_raw):
     from app.models.file_resource import FileResource
     rid = _uuid()
@@ -35,11 +41,13 @@ async def setup(client, mock_transmission, db_session_factory):
         ch = await client.post("/api/v1/channels", json={
             "name": "CT", "type": "rss_feed",
             "url": "https://example.com/rss", "fetch_interval": 1800,
+            "field_mapping": TEST_FIELD_MAPPING,
             "metadata_source": "none",
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DLT", "type": "transmission",
         "url": "http://127.0.0.1:9091/transmission/rpc",
+        "download_dir": "/downloads/rssripple",
     })
     a = await client.post("/api/v1/agents", json={
         "name": "AT", "channel_id": ch.json()["data"]["id"],
@@ -59,6 +67,7 @@ async def with_task(setup, db_session_factory):
         task = DownloadTask(
             id=_uuid(), agent_id=setup.aid, file_resource_id=setup.rid,
             downloader_id=setup.dl_id, transmission_torrent_id=42,
+            download_dir="/downloads/rssripple/AgentA",
             status="downloading", progress=0.25,
             download_speed=0, upload_speed=0, retry_count=0, max_retries=3,
         )
@@ -85,7 +94,8 @@ class TestTaskActions:
         res = await client.post(f"/api/v1/tasks/{with_task.id}/retry")
         assert res.status_code == 200
         assert res.json()["data"]["message"] == "retried"
-        mock_transmission.add_torrent.assert_awaited()
+        _, kwargs = mock_transmission.add_torrent.await_args
+        assert kwargs["download_dir"] == "/downloads/rssripple/AgentA"
 
     async def test_delete_task(self, client, with_task, mock_transmission):
         res = await client.delete(f"/api/v1/tasks/{with_task.id}")

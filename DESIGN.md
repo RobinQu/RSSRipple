@@ -1,459 +1,451 @@
-# RSSRipple - Design Document
+---
+version: alpha
+name: Cohere-design-analysis
+description: Cohere's 2026 web system is a controlled enterprise AI interface built from stark white editorial space, deep green-black product bands, soft mineral surfaces, rounded media cards, and a distinctive type split between monospaced-feeling display headlines and precise Unica77 UI text.
 
-## 1. Overview
+colors:
+  primary: "#17171c"
+  cohere-black: "#000000"
+  ink: "#212121"
+  deep-green: "#003c33"
+  dark-navy: "#071829"
+  canvas: "#ffffff"
+  soft-stone: "#eeece7"
+  pale-green: "#edfce9"
+  pale-blue: "#f1f5ff"
+  hairline: "#d9d9dd"
+  border-light: "#e5e7eb"
+  card-border: "#f2f2f2"
+  muted: "#93939f"
+  slate: "#75758a"
+  body-muted: "#616161"
+  action-blue: "#1863dc"
+  focus-blue: "#4c6ee6"
+  coral: "#ff7759"
+  coral-soft: "#ffad9b"
+  form-focus: "#9b60aa"
+  on-primary: "#ffffff"
+  on-dark: "#ffffff"
+  error: "#b30000"
 
-RSSRipple 是一个自动化的 RSS 订阅下载服务，专注于番剧/影视内容的智能筛选与自动下载。通过 RSS 订阅源获取资源信息，利用规则过滤和 LLM 辅助决策进行智能匹配，最终将下载任务推送至 Transmission 下载器。
+typography:
+  hero-display:
+    fontFamily: CohereText
+    fontSize: 96px
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: -1.92px
+  product-display:
+    fontFamily: CohereText
+    fontSize: 72px
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: -1.44px
+  section-display:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 60px
+    fontWeight: 400
+    lineHeight: 1
+    letterSpacing: -1.2px
+  section-heading:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 48px
+    fontWeight: 400
+    lineHeight: 1.2
+    letterSpacing: -0.48px
+  card-heading:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 32px
+    fontWeight: 400
+    lineHeight: 1.2
+    letterSpacing: -0.32px
+  feature-heading:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 24px
+    fontWeight: 400
+    lineHeight: 1.3
+    letterSpacing: 0
+  body-large:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 18px
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: 0
+  body:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 16px
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: 0
+  button:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 14px
+    fontWeight: 500
+    lineHeight: 1.71
+    letterSpacing: 0
+  caption:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: 0
+  mono-label:
+    fontFamily: CohereMono
+    fontSize: 14px
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: 0.28px
+  micro:
+    fontFamily: Unica77 Cohere Web
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: 0
 
-## 2. Core Problem
+rounded:
+  xs: 4px
+  sm: 8px
+  md: 16px
+  lg: 22px
+  xl: 30px
+  pill: 32px
+  full: 9999px
 
-在番剧 RSS 订阅中，同一节目会有多个字幕组同时发布不同版本（不同分辨率、编码、封装格式）。用户希望：
-- 同一节目仅下载一个版本
-- 不同分集尽量保持同一字幕组（一致性）
-- 当无法自动决策时，由用户手动选择
+spacing:
+  xxs: 2px
+  xs: 6px
+  sm: 8px
+  md: 12px
+  lg: 16px
+  xl: 24px
+  xxl: 32px
+  section: 80px
 
-## 3. User Stories
+components:
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.button}"
+    rounded: "{rounded.pill}"
+    padding: 12px 24px
+  button-secondary:
+    backgroundColor: transparent
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.xs}"
+    padding: 8px 0
+  button-pill-outline:
+    backgroundColor: transparent
+    textColor: "{colors.primary}"
+    typography: "{typography.button}"
+    rounded: "{rounded.xl}"
+    padding: 6px 12px
+  announcement-bar:
+    backgroundColor: "{colors.cohere-black}"
+    textColor: "{colors.on-dark}"
+    typography: "{typography.micro}"
+    height: 36px
+  hero-photo-card:
+    backgroundColor: "{colors.canvas}"
+    rounded: "{rounded.lg}"
+  agent-console-card:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-dark}"
+    rounded: "{rounded.sm}"
+    padding: 24px
+  trust-logo-strip:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.caption}"
+  capability-card:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    rounded: "{rounded.xs}"
+    padding: 24px
+  dark-feature-band:
+    backgroundColor: "{colors.deep-green}"
+    textColor: "{colors.on-dark}"
+    rounded: "{rounded.lg}"
+    padding: 80px
+  product-card:
+    backgroundColor: "{colors.soft-stone}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.sm}"
+    padding: 32px
+  blog-filter-chip:
+    backgroundColor: transparent
+    textColor: "{colors.coral}"
+    typography: "{typography.card-heading}"
+    rounded: "{rounded.sm}"
+    padding: 8px 14px
+  research-table:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    typography: "{typography.body-large}"
+  contact-form-card:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.lg}"
+    padding: 32px
+  footer-newsletter:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-dark}"
+    typography: "{typography.micro}"
+---
 
-| # | 角色 | 故事 | 验收标准 |
-|---|------|------|----------|
-| US-1 | 用户 | 创建 RSS 订阅频道 | 输入 RSS URL，系统验证可达性并展示预览 |
-| US-2 | 用户 | 配置 Agent 的过滤规则 | 设置字幕组、分辨率、格式等偏好，Agent 按规则筛选 |
-| US-3 | 用户 | 查看下载进度 | 首页展示活跃任务的下载速度、进度、状态 |
-| US-4 | 用户 | 手动选择下载版本 | 当出现歧义时，系统展示候选列表供用户选择 |
-| US-5 | 用户 | 管理 Transmission 实例 | 添加/测试/修改 Transmission API 连接 |
-| US-6 | 系统 | 自动匹配并保持字幕组一致性 | 新一集自动匹配上一集的字幕组和参数 |
-| US-7 | 系统 | LLM 辅助决策 | 规则无法唯一匹配时调用 LLM 进行智能判断 |
+## Overview
 
-## 4. RSS Feed Analysis
+Cohere's current web presence feels like a sober enterprise AI command center with editorial restraint. The home page opens on a huge typographic declaration over a white canvas, then uses photography, dark product mockups, trust logos, and generous empty space to make AI infrastructure feel controlled rather than speculative. Product pages invert the tone into deep green-black or dark navy bands, while blog and research pages move toward publishing-system clarity: large filters, thin rules, dense lists, and pale technical backgrounds.
 
-### 4.1 Mikanani RSS 结构
+What makes the system distinctive is the mix of austere black-and-white UI with bursts of tactile brand imagery. The site avoids decorative chrome in the normal interface; color arrives through photography, abstract 3D media, coral blog taxonomy chips, blue research links, and dark product environments. Cards are rounded but not cute. Type is large, tight, and almost monospaced in spirit, creating a research-lab cadence across marketing, product, and editorial surfaces.
 
-```xml
-<rss version="2.0">
-  <channel>
-    <title>Mikan Project - 我的番组</title>
-    <item>
-      <guid isPermaLink="false">[字幕组] 标题 - EP [质量信息]</guid>
-      <link>https://mikanani.me/Home/Episode/{hash}</link>
-      <title>[字幕组] 中文名 / English Name - EP## [WebRip 1080p HEVC-10bit AAC][字幕]</title>
-      <description>同标题 + [文件大小]</description>
-      <torrent xmlns="https://mikanani.me/0.1/">
-        <link>https://mikanani.me/Home/Episode/{hash}</link>
-        <contentLength>718442304</contentLength>
-        <pubDate>2026-06-21T09:40:23.901</pubDate>
-      </torrent>
-      <enclosure type="application/x-bittorrent" length="718442304"
-        url="https://mikanani.me/Download/20260621/{hash}.torrent" />
-    </item>
-  </channel>
-</rss>
-```
+**Key Characteristics:**
+- Monumental display headlines with very tight line height and negative tracking.
+- White editorial canvases interrupted by deep green, dark navy, and image-led CTA bands.
+- Rounded media cards and product cards, usually 8px to 22px.
+- Pill CTAs in near-black or white, with most secondary actions rendered as underlined text links.
+- Trust-logo strips with monochrome partner marks and very wide vertical spacing.
+- Agent-console mockups using dark panels, small status chips, and product integration badges.
+- Blog and research surfaces with prominent taxonomy chips, long rule-separated lists, and search fields.
 
-### 4.2 标题解析规则
+## Colors
 
-标题格式（正则分组）：
-```
-[字幕组名] 中文名 / 英文名 - 集数 [分辨率][编码][字幕类型][封装格式]
-```
+### Brand & Accent
 
-解析字段：
-| 字段 | 示例 | 说明 |
-|------|------|------|
-| `subtitle_group` | `LoliHouse`, `Skymoon-Raws`, `ANi` | 首对方括号内容 |
-| `title_cn` | `黄泉使者` | 中文名 |
-| `title_en` | `Yomi no Tsugai` / `Daemons of the Shadow Realm` | 英文名 |
-| `episode` | `12` | 集数 |
-| `resolution` | `1080p`, `1080P`, `720p` | 分辨率 |
-| `source` | `WebRip`, `WEB-DL`, `Baha`, `ViuTV` | 来源 |
-| `video_codec` | `HEVC-10bit`, `AVC`, `H264` | 视频编码 |
-| `audio_codec` | `AAC`, `FLAC` | 音频编码 |
-| `subtitle_type` | `简繁内封字幕`, `CHT`, `CHS` | 字幕类型 |
-| `container` | `MP4`, `MKV` | 封装格式 |
-| `file_size` | `685.16 MB` | 文件大小（从 description 提取）|
+- **Cohere Black** (`#000000`): Announcement bar, highest-contrast text, and the global brand anchor.
+- **Near-Black Primary** (`#17171c`): Primary CTA buttons, dark footer, and deep UI cards.
+- **Deep Enterprise Green** (`#003c33`): Product hero bands for North and Command-style dark sections.
+- **Dark Navy** (`#071829`): Financial-services and security-oriented solution bands.
+- **Action Blue** (`#1863dc`): Editorial links, pagination, and secondary action emphasis.
+- **Coral** (`#ff7759`): Blog category chips, taxonomy outlines, and warm product markers.
+- **Soft Coral** (`#ffad9b`): Pale chip borders and segmented article-label details.
 
-### 4.3 资源链接
+### Surface & Background
 
-- `enclosure.url`：指向 `.torrent` 文件下载链接
-- `torrent.contentLength`：文件大小（字节）
-- 磁力链接需要从 `.torrent` 文件或详情页面获取（Transmission 支持直接添加 `.torrent` URL）
+- **Canvas White** (`#ffffff`): Dominant page background and form/card surface.
+- **Soft Stone** (`#eeece7`): Product cards, testimonial placeholders, and warm neutral surface blocks.
+- **Pale Green Wash** (`#edfce9`): North page section backdrop behind stacked dark capability panels.
+- **Pale Blue Wash** (`#f1f5ff`): Blog CTA surface behind abstract 3D imagery.
+- **Card Border** (`#f2f2f2`): Softest card containment line.
 
-### 4.4 动态字段映射（多源支持）
+### Text & Rules
 
-不同 RSS 源（mikanani.me, share.dmhy.org, myrss.org 等）的标题格式和 XML 结构各不相同。系统采用 **动态字段映射** 方式：
+- **Ink** (`#212121`): Default body text and most link text on light backgrounds.
+- **Muted Slate** (`#93939f`): Footer links, dates, metadata, and de-emphasized labels.
+- **Slate** (`#75758a`): Research separators and tertiary text.
+- **Hairline** (`#d9d9dd`): Standard list rules and section dividers.
+- **Border Light** (`#e5e7eb`): Secondary divider and utility rule.
 
-1. 创建 Channel 后，调用 `POST /channels/{id}/analyze` 让 LLM 分析样本 RSS 条目
-2. LLM 生成 `field_mapping` JSON，描述如何从 feedparser 条目中提取每个 FileResource 字段
-3. 用户审核映射后，通过 `POST /channels/{id}/apply-mapping` 应用
-4. 后续 RSS 拉取使用该 Channel 的 `field_mapping`，通过 `resource_parser.py` 解析
+### Semantic
 
-**映射规则格式：**
-```json
-{
-  "title_cn": {"source": "title", "regex": "\\]\\s*(.+?)\\s*/", "group": 1},
-  "episode": {"source": "title", "regex": "-\\s*(\\d+)\\b", "group": 1, "transform": "int"},
-  "torrent_url": {"source": "enclosures[0].url"},
-  "file_size": {"source": "enclosures[0].length", "transform": "int"}
-}
-```
+- **Focus Blue** (`#4c6ee6`): Keyboard focus and ring color.
+- **Form Focus Violet** (`#9b60aa`): Focus border for text inputs.
+- **Error Red** (`#b30000`): Extracted ring/shadow color associated with validation-like states.
 
-- `source`: feedparser 条目的字段路径（如 `title`, `enclosures[0].url`）
-- `regex`: 可选的正则表达式
-- `group`: 正则捕获组索引（0 = 完整匹配）
-- `transform`: 可选的类型转换（`int`, `float`, `iso_datetime`, `lowercase`, `uppercase`）
+### Gradient System
 
-**回退解析器**（`title_parser.py`）：当 `field_mapping` 未设置（`parser_type: "mikanani"`）时，使用硬编码正则解析 mikanani 标题格式。
+Cohere does not use gradients as a generic UI fill. Gradients and color fields are media-led: abstract 3D hero imagery, deep blue open-science particle fields, red-orange product video posters, and dark green-to-black product environments. Keep UI surfaces flat; reserve gradient richness for large media panels and CTA image bands.
 
-**支持的 RSS 源示例：**
-- mikanani.me：标准 anime RSS，带 `<torrent>` 命名空间
-- share.dmhy.org：动漫花园 RSS，标题格式不同
-- myrss.org/eztv：欧美影视 RSS
+## Typography
 
-## 5. Data Model Design
+### Font Family
 
-### 5.1 Entity Relationship
+- **Display**: `CohereText`, falling back to `Space Grotesk`, `Inter`, `ui-sans-serif`, and `system-ui`.
+- **Body/UI**: `Unica77 Cohere Web`, falling back to `Inter`, `Arial`, `ui-sans-serif`, and `system-ui`.
+- **Technical labels**: `CohereMono`, falling back to `Arial`, `ui-sans-serif`, and `system-ui`.
+- **Icons**: Cohere uses custom icon fonts and thin-line geometric illustrations.
 
-```
-Channel 1──N FileResource
-Channel 1──N Agent
-Agent   1──N ResourceFilter
-Agent   1──1 DownloaderInstance
-Agent   1──N DownloadTask
-FileResource N──1 Episode
-Episode N──1 TVSeries
-FileResource N──1 Movie
-DownloadTask N──1 FileResource
-DownloadTask N──1 Agent
-```
+### Hierarchy
 
-### 5.2 Core Entities
+| Role | Font | Size | Weight | Line Height | Letter Spacing | Notes |
+|---|---|---:|---:|---:|---:|---|
+| Hero Display | CohereText | 96px | 400 | 1.00 | -1.92px | Home page declaration scale. |
+| Product Display | CohereText | 72px | 400 | 1.00 | -1.44px | Product and research hero headlines. |
+| Section Display | Unica77 | 60px | 400 | 1.00 | -1.2px | Large product-page headings. |
+| Section Heading | Unica77 | 48px | 400 | 1.20 | -0.48px | Split hero and CTA headings. |
+| Card Heading | Unica77 | 32px | 400 | 1.20 | -0.32px | Feature card and list section titles. |
+| Feature Heading | Unica77 | 24px | 400 | 1.30 | 0 | Cards, filters, and article titles. |
+| Body Large | Unica77 | 18px | 400 | 1.40 | 0 | Lead text and larger paragraphs. |
+| Body | Unica77 | 16px | 400 | 1.50 | 0 | Default copy and link text. |
+| Button | Unica77 | 14px | 500 | 1.71 | 0 | Compact CTA labels. |
+| Caption | Unica77 | 14px | 400 | 1.40 | 0 | Metadata and small explanatory text. |
+| Mono Label | CohereMono | 14px | 400 | 1.40 | 0.28px | Uppercase technical labels. |
+| Micro | Unica77 | 12px | 400 | 1.40 | 0 | Footer, nav microcopy, and small links. |
 
-#### Channel（订阅频道）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| name | str | 频道名称 |
-| type | enum | 频道类型（当前仅 `rss_feed`） |
-| url | str | RSS 订阅 URL |
-| fetch_interval | int | 拉取间隔（秒） |
-| field_mapping | JSON? | 动态字段映射规则（由 LLM 生成） |
-| parser_type | enum | 解析器类型：`auto`, `mikanani`, `custom` |
-| last_fetched_at | datetime | 上次拉取时间 |
-| status | enum | `active`, `inactive`, `error` |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+### Principles
 
-#### FileResource（资源条目）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| channel_id | UUID | 所属频道 |
-| guid | str | RSS 条目 GUID |
-| title_raw | str | 原始标题 |
-| title_cn | str? | 解析-中文名 |
-| title_en | str? | 解析-英文名 |
-| subtitle_group | str? | 解析-字幕组 |
-| episode | int? | 解析-集数 |
-| resolution | str? | 解析-分辨率 |
-| source | str? | 解析-来源 |
-| video_codec | str? | 解析-视频编码 |
-| audio_codec | str? | 解析-音频编码 |
-| subtitle_type | str? | 解析-字幕类型 |
-| container | str? | 解析-封装格式 |
-| file_size | int? | 文件大小（字节） |
-| torrent_url | str | .torrent 下载链接 |
-| detail_url | str | 详情页面链接 |
-| published_at | datetime | 发布时间 |
-| parsed_at | datetime | 解析时间 |
-| episode_id | UUID? | 关联剧集 |
-| movie_id | UUID? | 关联电影 |
-| created_at | datetime | 创建时间 |
+- Use massive type sparingly; Cohere pages often have one oversized headline and then settle into restrained 16px-24px UI copy.
+- Keep display type tight. Hero copy should feel compact and carved, not airy.
+- Avoid heavy bold weights. Size, spacing, and surface contrast do most of the hierarchy work.
+- Use uppercase mono labels for category and system markers, especially on product and research pages.
+- Editorial pages can use coral chips and blue links, but the base typography remains black and measured.
 
-#### Episode（剧集）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| series_id | UUID | 所属剧集系列 |
-| episode_number | int | 集数 |
-| title | str? | 集标题 |
-| air_date | date? | 播出日期 |
-| preferred_profile_id | UUID? | 首选下载配置（来自历史选择） |
-| created_at | datetime | 创建时间 |
+## Layout
 
-#### TVSeries（剧集系列）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| title_cn | str? | 中文名 |
-| title_en | str? | 英文名 |
-| aliases | list[str] | 别名列表 |
-| external_id | str? | 外部数据库 ID（如 TMDB） |
-| external_source | str? | 外部数据源名称 |
-| description | str? | 剧情简介 |
-| genre | list[str] | 分类标签 |
-| start_date | date? | 开播日期 |
-| content_type | str? | 内容类型（anime, tv, movie） |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+### Spacing System
 
-#### Movie（电影）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| title_cn | str? | 中文名 |
-| title_en | str? | 英文名 |
-| aliases | list[str] | 别名列表 |
-| external_id | str? | 外部数据库 ID（如 TMDB, TVDB） |
-| external_source | str? | 外部数据源名称（tmdb, tvdb） |
-| description | str? | 简介 |
-| release_date | date? | 上映日期 |
-| content_type | str? | 内容类型 |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+The system uses an 8px base with many one-off alignment values: `2px`, `6px`, `8px`, `10px`, `12px`, `16px`, `20px`, `22px`, `24px`, `28px`, `32px`, `36px`, `40px`, `56px`, `60px`, `64px`, and `80px`.
 
-#### ResourceFilter（资源过滤器）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| agent_id | UUID | 所属 Agent |
-| field | enum | 匹配字段：`subtitle_group`, `resolution`, `container`, `video_codec`, `audio_codec`, `subtitle_type`, `source`, `title_cn`, `title_en` |
-| operator | enum | 操作符：`eq`（精确匹配）, `contains`（包含）, `fuzzy`（模糊匹配）, `in`（在列表中）, `regex`（正则） |
-| value | str | 匹配值 |
-| priority | int | 优先级（越高越优先） |
-| is_required | bool | 是否为必要条件（false 为加分条件） |
-| created_at | datetime | 创建时间 |
+Large sections rely on dramatic vertical breathing room. The home page places a trust-logo strip far below the hero media. Product pages often hold dark panels inside fields of empty white space, then transition to dense forms or footers only near the end.
 
-#### Agent（智能代理）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| name | str | Agent 名称 |
-| channel_id | UUID | 关联频道 |
-| downloader_id | UUID | 关联下载器实例 |
-| task_expire_days | int | 已完成任务过期天数 |
-| llm_enabled | bool | 是否启用 LLM 辅助决策 |
-| metadata_source | enum? | 外部元数据源：`imdb`, `tvdb`, `none` |
-| content_type | enum | 内容类型：`anime`, `tv`, `movie`, `mixed` |
-| status | enum | `active`, `paused`, `error` |
-| last_run_at | datetime | 上次运行时间 |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+### Grid & Container
 
-#### DownloaderInstance（下载器实例）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| name | str | 实例名称 |
-| type | enum | 下载器类型（当前仅 `transmission`） |
-| url | str | API 地址（如 `http://localhost:9091/transmission/rpc`） |
-| username | str? | 认证用户名 |
-| password | str? | 认证密码 |
-| status | enum | `connected`, `disconnected`, `error` |
-| last_checked_at | datetime | 上次连接检测时间 |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+- Global nav uses a three-zone layout: logo left, menu centered, sign-in/CTA right.
+- Home hero is centered text above a two-card media composition: a wide product mockup card beside a narrower photography card.
+- Feature sections commonly use 3-column cards on desktop.
+- Product pages alternate centered hero blocks, trust-logo strips, large single-feature bands, and 2- or 3-column card grids.
+- Research pages use full-width lists with date and chip columns instead of decorative cards.
+- Forms use two-column input rows inside a rounded white card on dark or stone section backgrounds.
 
-#### DownloadTask（下载任务）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| agent_id | UUID | 所属 Agent |
-| file_resource_id | UUID | 关联资源 |
-| downloader_id | UUID | 使用的下载器 |
-| transmission_torrent_id | int? | Transmission 内部 torrent ID |
-| status | enum | `pending`, `queued`, `downloading`, `paused`, `completed`, `error`, `cancelled` |
-| progress | float | 下载进度（0-100） |
-| download_speed | int | 下载速度（bytes/s） |
-| eta | int? | 预计剩余时间（秒） |
-| error_message | str? | 错误信息 |
-| retry_count | int | 重试次数 |
-| max_retries | int | 最大重试次数 |
-| confirmed_at | datetime? | 确认下载时间 |
-| completed_at | datetime? | 完成时间 |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+### Whitespace Philosophy
 
-#### PendingDecision（待决策项）
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | UUID | 主键 |
-| agent_id | UUID | 所属 Agent |
-| episode_id | UUID? | 关联剧集 |
-| movie_id | UUID? | 关联电影 |
-| candidates | list[UUID] | 候选 FileResource ID 列表 |
-| reason | str | 需要决策的原因 |
-| llm_suggestion | str? | LLM 建议 |
-| decided_resource_id | UUID? | 用户选中的资源 |
-| status | enum | `pending`, `decided`, `expired`, `skipped` |
-| created_at | datetime | 创建时间 |
-| decided_at | datetime? | 决策时间 |
+Cohere uses whitespace as a trust signal. Large empty intervals separate the brand claim, customer proof, product proof, and CTA. Dense content appears only where it serves the information architecture: research paper rows, blog card grids, and contact form fields.
 
-## 6. Filter Logic Design
+## Elevation & Depth
 
-### 6.1 Three-Tier Resolution
+Cohere is mostly flat. Depth comes from surface alternation, media contrast, rounded corners, and thin borders rather than drop shadows.
 
-```
-Tier 1: Rule-based Filter（规则过滤）
-  ↓ 唯一匹配 → 直接下载
-  ↓ 多个匹配 → 进入 Tier 2
-  ↓ 无匹配 → 跳过（或标记为未匹配）
+| Level | Treatment | Use |
+|---|---|---|
+| Flat | No shadow, white or dark field | Hero copy, research lists, editorial surfaces |
+| Bordered | 1px `#d9d9dd`, `#e5e7eb`, or dark translucent rules | Research rows, forms, pale cards, footer inputs |
+| Media Lift | Rounded image or video over contrasting section color | Hero photo cards, product videos, CTA imagery |
+| Dark Product Field | Deep green or navy full-width band | Command, North, financial services, security sections |
 
-Tier 2: LLM Decision（LLM 辅助决策）
-  ↓ LLM 选择 → 下载选定项
-  ↓ LLM 无法决定 → 进入 Tier 3
-  ↓ LLM 调用失败 → 进入 Tier 3
+## Shapes
 
-Tier 3: Human Decision（人工决策）
-  ↓ 展示候选列表 → 用户选择
-  ↓ 用户选择 → 下载
-  ↓ 用户跳过 → 标记为跳过
-```
+### Radius Scale
 
-### 6.2 Consistency Matching
+| Token | Value | Role |
+|---|---:|---|
+| `xs` | 4px | Small images, search fields, article thumbnails, utility elements |
+| `sm` | 8px | Blog chips, cards, small media, dialogs |
+| `md` | 16px | Medium product cards and grouped blocks |
+| `lg` | 22px | Signature media-card and soft placeholder radius |
+| `xl` | 30px | Research/topic filter pills |
+| `pill` | 32px | Primary CTA buttons |
+| `full` | 9999px | Round status elements and fully pill-shaped controls |
 
-为保持字幕组一致性，系统维护 `EpisodeProfile`（每集偏好配置）：
+### Image Treatment
 
-```python
-class EpisodeProfile:
-    subtitle_group: str      # 上次选择的字幕组
-    resolution: str          # 上次选择的分辨率
-    container: str           # 上次选择的封装格式
-    video_codec: str         # 上次选择的编码
-    subtitle_type: str       # 上次选择的字幕类型
-```
+Images are not decorative backdrops for text except in CTA bands. Most imagery sits as rounded cards with visible corners: product videos, enterprise photography, article thumbnails, and abstract 3D renders. The dominant radii are 8px and 22px.
 
-匹配流程：
-1. 从同系列上一集获取 `EpisodeProfile`
-2. 用 profile 字段作为加分条件（非硬性过滤）
-3. 得分最高的候选被选中
-4. 若得分相同，进入 Tier 2/3
+## Components
 
-### 6.3 Title Fuzzy Matching
+### **`button-primary`**
 
-节目名称匹配策略：
-1. 精确匹配 `title_cn` 或 `title_en`
-2. 别名匹配（TVSeries.aliases）
-3. 编辑距离/模糊匹配（Levenshtein ratio > 0.7）
-4. 外部数据源关联（TMDB/Bangumi API）
+Near-black or white pill CTA, depending on surface contrast. Uses 14px-16px Unica77, 12px 24px padding, and a 32px pill radius. This is the primary action style for "Request a demo", "Submit", and hero CTAs.
 
-## 7. Agent Workflow
+### **`button-secondary`**
 
-```
-┌─────────────┐
-│  RSS Fetch   │ ← 定时触发 / 手动触发
-│  (Channel)   │
-└──────┬──────┘
-       │ new FileResources
-       ▼
-┌─────────────┐
-│ Parse &     │ ← 解析标题字段
-│ Classify    │ ← 关联 Episode/Series
-└──────┬──────┘
-       │ classified resources
-       ▼
-┌─────────────┐
-│ Rule Filter │ ← 应用 ResourceFilter 规则
-│ (Tier 1)    │
-└──────┬──────┘
-       │
-   ┌───┴───┐
-   │unique?│
-   ├──yes──┤──no──┐
-   ▼       │      ▼
-┌──────┐   │  ┌──────────┐
-│Enqueue│   │  │LLM Judge │ ← Tier 2
-│(TR)  │   │  │          │
-└──────┘   │  └────┬─────┘
-           │       │
-           │   ┌───┴───┐
-           │   │decided?│
-           │   ├──yes──┤──no──┐
-           │   ▼       │      ▼
-           │┌──────┐   │  ┌──────────┐
-           ││Enqueue│   │  │Human     │ ← Tier 3
-           ││(TR)  │   │  │Decision  │
-           │└──────┘   │  └────┬─────┘
-           │           │       │
-           │           │   ┌───┴───┐
-           │           │   │chosen?│
-           │           │   ├──yes──┤──no/skip──┐
-           │           │   ▼       │            ▼
-           │           │┌──────┐   │       ┌───────┐
-           │           ││Enqueue│   │       │Mark   │
-           │           ││(TR)  │   │       │Skipped│
-           │           │└──────┘   │       └───────┘
-           │           │           │
-           └───────────┴───────────┘
-```
+Text-only action link, usually underlined or rule-aligned, with no filled background. Used for "Explore products", "Try the Playground", newsletter signup, and secondary hero actions.
 
-## 8. UI Information Architecture
+### **`button-pill-outline`**
 
-### 8.1 Pages
+Outlined pill control with transparent fill, 1px dark border, and 30px radius. Used for research filters, topic tags, and lightweight taxonomy controls.
 
-| 页面 | 路由 | 描述 |
-|------|------|------|
-| Dashboard | `/` | 活跃 Agent + 活跃下载任务概览 |
-| Channels | `/channels` | 频道列表 |
-| Channel Create | `/channels/new` | 创建频道表单 |
-| Channel Detail | `/channels/:id` | 频道详情（模态对话框） |
-| Downloaders | `/downloaders` | 下载器实例列表 |
-| Downloader Create | `/downloaders/new` | 创建下载器表单 |
-| Agents | `/agents` | Agent 列表 |
-| Agent Create | `/agents/new` | 创建 Agent 表单 |
-| Agent Detail | `/agents/:id` | Agent 详情：下载任务 + 待确认项 |
+### **`announcement-bar`**
 
-### 8.2 Dashboard Layout
+Full-width black strip above the nav, 36px tall, centered microcopy with an underlined "Learn more" link and a close control at the far right.
 
-```
-┌─────────────────────────────────────────────────────┐
-│  RSSRipple                               [Settings] │
-├─────────────────────────────────────────────────────┤
-│                                                      │
-│  Active Agents (3)                                   │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐             │
-│  │ Agent-1  │ │ Agent-2  │ │ Agent-3  │             │
-│  │ 3 tasks  │ │ 1 task   │ │ 5 tasks  │             │
-│  │ ▼ 12MB/s │ │ ▼ 3MB/s  │ │ ▼ 25MB/s │             │
-│  └──────────┘ └──────────┘ └──────────┘             │
-│                                                      │
-│  Active Downloads                                    │
-│  ┌───────────────────────────────────────────────┐   │
-│  │ [LoliHouse] 黄泉使者 EP12          78% ▼5MB/s│   │
-│  │ ████████████████████░░░░░░  ETA: 2min         │   │
-│  ├───────────────────────────────────────────────┤   │
-│  │ [ANi] 葬送的芙莉莲 EP24            45% ▼8MB/s│   │
-│  │ ███████████░░░░░░░░░░░░░░░  ETA: 5min         │   │
-│  └───────────────────────────────────────────────┘   │
-│                                                      │
-│  Pending Decisions (2)                   [View All]  │
-│  ┌───────────────────────────────────────────────┐   │
-│  │ ⚠ 黄泉使者 EP12 - 3 candidates found         │   │
-│  │ ⚠ 药屋少女 EP18 - 2 candidates found         │   │
-│  └───────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────┘
-```
+### **`hero-photo-card`**
 
-## 9. Technology Stack
+Rounded media card used in the home hero and solution pages. It combines photography or abstract imagery with an overlaid dark agent-console module. Radius is usually 22px on large cards and 8px on smaller thumbnails.
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| Backend Framework | FastAPI | 异步 Python Web 框架 |
-| Database | SQLite + SQLAlchemy | 轻量级持久化，支持异步 |
-| ORM | SQLAlchemy 2.0 (async) | 异步 ORM |
-| Data Validation | Pydantic v2 | 数据模型验证 |
-| RSS Parsing | feedparser | RSS/Atom 解析 |
-| Transmission | transmission-rpc | Transmission API 客户端 |
-| Task Scheduling | APScheduler | 定时任务调度 |
-| Frontend | React + TailwindCSS | 单页面应用 |
-| Build Tool | Vite | 前端构建工具 |
-| Container | Docker + docker-compose | 容器化部署 |
-| Testing | pytest + httpx | 单元/集成测试 |
+### **`agent-console-card`**
 
-## 10. Non-Functional Requirements
+Dark product mockup panel showing agent names, status chips, integration badges, prompt fields, and generated response cards. Background is near-black, text is white or muted, and small accent chips use product colors.
 
-| 要求 | 标准 |
-|------|------|
-| RSS 拉取频率 | 可配置，默认 30 分钟 |
-| 下载重试 | 最多 3 次，指数退避 |
-| 数据持久化 | SQLite 文件挂载到 volume |
-| 容器化 | 单容器或前后端分离均可 |
-| 日志 | 结构化 JSON 日志 |
-| API 版本 | 所有 API 路径前缀 `/api/v1/` |
+### **`trust-logo-strip`**
+
+Centered copy above a row of monochrome customer logos. It is intentionally quiet: no cards, no borders, just large horizontal spacing and black or white logos depending on the background.
+
+### **`capability-card`**
+
+Content block with thin-line geometric illustration, 24px heading, body copy, and a text link. On light backgrounds, cards often have only a top rule or a subtle image/card relationship rather than full boxing.
+
+### **`dark-feature-band`**
+
+Deep green or navy full-width section used for product capabilities, security claims, and feature breakdowns. Text turns white; cards use darker translucent surfaces, pale borders, and abstract line illustrations.
+
+### **`product-card`**
+
+Warm stone card used for product/model summaries. Typically 3-column on desktop, with 8px radius, generous padding, a small pill button, a divider line, and checkmark bullet rows.
+
+### **`blog-filter-chip`**
+
+Large coral taxonomy chip used on the blog index. Active chips invert to coral fill with dark text; inactive chips use coral outline and pale fill. Typography is oversized relative to typical filters, making the taxonomy a hero-level control.
+
+### **`research-table`**
+
+Rule-separated publication list with title left, topic pills centered, and date right. Rows are tall, white, and border-driven; filters above use many compact outlined pills.
+
+### **`contact-form-card`**
+
+Rounded white form panel set against dark green or warm stone sections. Inputs are rectangular with thin gray borders, 12px-16px padding, and compact labels/placeholders. Submit uses the same near-black pill style as primary CTAs.
+
+### **`footer-newsletter`**
+
+Dark footer subscription block with coral "AI moves fast" label, white headline, muted legal microcopy, a single-line email field, and arrow submit marker. Footer columns use white section labels and muted links.
+
+## Do's and Don'ts
+
+### Do
+
+- Use white canvas as the default surface; introduce dark green or navy as full-width product bands.
+- Keep primary CTAs pill-shaped and near-black on light surfaces.
+- Use 22px radius on major media cards and placeholders.
+- Use coral for editorial taxonomy and small warm accents, not as the main CTA system.
+- Use monochrome trust logos with wide spacing.
+- Use thin-line geometric illustrations for research and capability icons.
+- Let photography and product mockups carry color, while the UI shell stays restrained.
+
+### Don't
+
+- Do not turn coral or blue into broad decorative surface colors.
+- Do not add heavy drop shadows to cards.
+- Do not make every section card-based; Cohere often uses unframed rows, rules, and open space.
+- Do not use rounded cards below 8px for major media.
+- Do not replace the display/body type split with one generic sans-serif voice.
+- Do not render undocumented interaction variants in documentation or previews.
+- Do not use saturated gradients as normal UI backgrounds; keep gradients media-led.
+
+## Responsive Behavior
+
+### Breakpoints
+
+| Name | Width | Key Changes |
+|---|---:|---|
+| Small Mobile | <425px | Single-column cards, compact nav, reduced hero headline scale |
+| Mobile | 425-640px | Hero media stacks, card grids become one column, form rows stack |
+| Large Mobile | 640-768px | Wider one-column layouts with larger media cards |
+| Tablet | 768-1024px | Two-column cards begin, nav spacing tightens |
+| Desktop | 1024-1440px | Full nav, 3-column card grids, split hero compositions |
+| Large Desktop | 1440-2560px | Wide containers and large empty vertical intervals |
+
+### Touch Targets
+
+Primary CTAs and pills meet comfortable touch sizing through 12px-24px padding and pill radii. Research filter chips and blog category chips are larger than standard tags, making dense taxonomy surfaces usable on touch devices.
+
+### Collapsing Strategy
+
+- Nav collapses from full horizontal links to a compact mobile menu.
+- Hero media moves from split cards to stacked cards.
+- Product and capability grids collapse from 3 columns to 2 and then 1.
+- Form fields collapse from paired rows to a single column.
+- Research rows preserve their rule-separated structure but stack metadata below titles on smaller widths.
+
+## Iteration Guide
+
+1. Start from a white canvas or a full-width dark green/navy band; avoid mid-tone page backgrounds unless the screenshot shows a specific CTA/form section.
+2. Use `button-primary` for the single highest-priority action and `button-secondary` for the companion action.
+3. Use `hero-photo-card` or `agent-console-card` when a page needs visual energy; avoid invented dashboard data.
+4. For editorial pages, combine `blog-filter-chip`, `button-pill-outline`, and `research-table` instead of generic marketing cards.
+5. Keep component examples structurally honest: placeholder product frames are better than invented product content.
+
+## Known Gaps
+
+- Exact proprietary font files are not bundled; use the documented fallbacks when implementing externally.
+- Mobile screenshots were not regenerated in this public update, so mobile behavior is documented from the desktop system and existing responsive patterns.
+- Some live pages lazy-load content blocks late; blank testimonial placeholders are documented as placeholder skeleton surfaces rather than filled testimonial cards.

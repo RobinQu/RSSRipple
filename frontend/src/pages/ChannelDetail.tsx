@@ -195,7 +195,7 @@ export default function ChannelDetail() {
             <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
               上次抓取：{channel.last_fetched_at ? timeAgo(channel.last_fetched_at) : '从未'}
               {channel.last_fetch_error && (
-                <span style={{ color: '#ff6161', marginLeft: 8 }}>
+                <span style={{ color: '#b30000', marginLeft: 8 }}>
                   ⚠ {channel.last_fetch_error}
                 </span>
               )}
@@ -221,19 +221,19 @@ export default function ChannelDetail() {
       <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#9c9c9d' }}>抓取间隔</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>抓取间隔</div>
             <div style={{ fontWeight: 500 }}>{Math.round(channel.fetch_interval / 60)} 分钟</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#9c9c9d' }}>资源总数</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>资源总数</div>
             <div style={{ fontWeight: 500 }}>{total}</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#9c9c9d' }}>作品分组</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>作品分组</div>
             <div style={{ fontWeight: 500 }}>{knownGroups.length}</div>
           </Card>
         </Col>
@@ -245,12 +245,12 @@ export default function ChannelDetail() {
           size="small"
           style={{
             marginBottom: 16,
-            borderColor: 'rgba(89,212,153,0.4)',
-            background: 'rgba(89,212,153,0.05)',
+            borderColor: '#8fbfb7',
+            background: '#edfce9',
           }}
         >
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Text style={{ color: '#59d499' }}>已选 {selectedIds.size} 个资源</Text>
+            <Text style={{ color: '#003c33' }}>已选 {selectedIds.size} 个资源</Text>
             <Space>
               <Button size="small" onClick={() => setSelectedIds(new Set())}>
                 取消选择
@@ -320,7 +320,7 @@ export default function ChannelDetail() {
             <div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr style={{ color: '#9c9c9d', fontSize: 12 }}>
+                  <tr style={{ color: '#93939f', fontSize: 12 }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px', width: 40 }}></th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>标题</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px', width: 70 }}>集</th>
@@ -333,7 +333,7 @@ export default function ChannelDetail() {
                   {g.resources.map((r) => (
                     <tr
                       key={r.id}
-                      style={{ borderTop: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}
+                      style={{ borderTop: '1px solid #f2f2f2', cursor: 'pointer' }}
                       onClick={() => setSelectedResource(r)}
                       className="resource-row"
                     >
@@ -360,7 +360,7 @@ export default function ChannelDetail() {
                       </td>
                       <td style={{ padding: '6px 8px' }}>{r.resolution || '—'}</td>
                       <td style={{ padding: '6px 8px' }}>{r.subtitle_group || '—'}</td>
-                      <td style={{ padding: '6px 8px', color: '#9c9c9d' }}>
+                      <td style={{ padding: '6px 8px', color: '#93939f' }}>
                         {r.published_at ? timeAgo(r.published_at) : '—'}
                       </td>
                     </tr>
@@ -391,7 +391,7 @@ export default function ChannelDetail() {
         >
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ color: '#9c9c9d', fontSize: 12 }}>
+              <tr style={{ color: '#93939f', fontSize: 12 }}>
                 <th style={{ textAlign: 'left', padding: '6px 8px', width: 40 }}></th>
                 <th style={{ textAlign: 'left', padding: '6px 8px' }}>原始标题</th>
                 <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>分辨率</th>
@@ -402,7 +402,7 @@ export default function ChannelDetail() {
               {unknownGroup.resources.map((r) => (
                 <tr
                   key={r.id}
-                  style={{ borderTop: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}
+                  style={{ borderTop: '1px solid #f2f2f2', cursor: 'pointer' }}
                   onClick={() => setSelectedResource(r)}
                   className="resource-row"
                 >
@@ -442,7 +442,7 @@ export default function ChannelDetail() {
       )}
 
       <style>{`
-        .resource-row:hover { background: rgba(255,255,255,0.03); }
+        .resource-row:hover { background: #f7f7f5; }
       `}</style>
 
       <ResourceDetailDrawer

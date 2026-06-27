@@ -13,6 +13,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest.fixture
 async def env(client):
     with patch(
@@ -21,11 +27,13 @@ async def env(client):
     ):
         ch = await client.post("/api/v1/channels", json={
             "name": "C", "type": "rss_feed", "url": "https://x/rss",
-            "fetch_interval": 1800, "metadata_source": "none",
+            "fetch_interval": 1800, "field_mapping": TEST_FIELD_MAPPING,
+            "metadata_source": "none",
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL", "type": "transmission",
         "url": "http://127.0.0.1:9091/transmission/rpc",
+        "download_dir": "/downloads/rssripple",
     })
     a = await client.post("/api/v1/agents", json={
         "name": "A", "channel_id": ch.json()["data"]["id"],
@@ -73,7 +81,10 @@ class TestChannelsMore:
             res = await client.post(
                 "/api/v1/channels",
                 headers={"X-Form-Token": "bad"},
-                json={"name": "N", "type": "rss_feed", "url": "https://x/rss"},
+                json={
+                    "name": "N", "type": "rss_feed", "url": "https://x/rss",
+                    "field_mapping": TEST_FIELD_MAPPING,
+                },
             )
         assert res.status_code == 409
         assert res.json()["error"]["code"] == "DUPLICATE_SUBMISSION"
@@ -231,7 +242,7 @@ class TestAgentsMore:
         res = await client.post("/api/v1/agents", json={
             "name": "NoDL", "channel_id": env.ch_id, "scope_channel_wide": True,
         })
-        assert res.status_code == 201
+        assert res.status_code == 422
 
     async def test_get_agent_404(self, client):
         r = await client.get("/api/v1/agents/nope")
