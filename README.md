@@ -91,20 +91,60 @@ Common environment variables:
 
 ## Local Development
 
+### Quick start (docker-compose)
+
 ```bash
-uv sync
-cd frontend && npm install && npm run build && cd ..
-uv run uvicorn app.main:app --reload --port 9001
+docker compose up --build
 ```
 
 Web UI: [http://localhost:9001](http://localhost:9001)
 
 API docs: [http://localhost:9001/docs](http://localhost:9001/docs)
 
+The compose file starts the app with a MemoryQueue backend and an SQLite database stored in `./data/`.
+
+### Manual run
+
+```bash
+uv sync
+cd frontend && npm install && npm run build && cd ..
+uv run uvicorn app.main:app --reload --port 9001
+```
+
+### With Redis queue backend
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
+```
+
 ## Tests
+
+### Unit and API tests (fast, local SQLite)
 
 ```bash
 uv run pytest tests/unit tests/api -v
 ```
 
-Integration tests use `docker-compose.test.yml`.
+513 tests, typically finish in under 20 seconds.
+
+### Integration tests (docker-compose)
+
+Integration tests spin up a dedicated RSS feed server, Redis, and the app containers:
+
+```bash
+# Clean stale database files from previous runs
+rm -rf data/ && mkdir -p data
+
+# Run all integration tests
+docker compose -f docker-compose.test.yml run --rm test-runner
+```
+
+```bash
+# Run a single integration test module
+docker compose -f docker-compose.test.yml run --rm test-runner \
+  uv run pytest tests/integration/test_channel_workflow.py -v --tb=short
+```
+
+94 integration tests run against real test RSS feeds served by the test-server container. Tests that exercise LLM features are skipped unless the model is configured in `.env`.
+
+**Note:** `./data` is bind-mounted, so stale SQLite files persist across `docker compose down -v`. Always run `rm -rf data/ && mkdir -p data` before a clean test run.
