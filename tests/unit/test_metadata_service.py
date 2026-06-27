@@ -21,6 +21,12 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -30,6 +36,7 @@ def _uuid() -> str:
 async def channel(db_session):
     ch = Channel(
         id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         metadata_source="none", title_extraction_method="none",
     )
     db_session.add(ch)

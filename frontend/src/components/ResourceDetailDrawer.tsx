@@ -39,12 +39,12 @@ function PosterBlock({ url }: { url: string | null | undefined }) {
           width: 80,
           height: 120,
           borderRadius: 6,
-          background: '#1a1a1a',
-          border: '1px solid #242728',
+          background: '#eeece7',
+          border: '1px solid #d9d9dd',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#434345',
+          color: '#75758a',
           flexShrink: 0,
         }}
       >
@@ -61,8 +61,8 @@ function PosterBlock({ url }: { url: string | null | undefined }) {
         height: 120,
         objectFit: 'cover',
         borderRadius: 6,
-        border: '1px solid #242728',
-        background: '#1a1a1a',
+        border: '1px solid #d9d9dd',
+        background: '#eeece7',
         flexShrink: 0,
       }}
       onError={(e) => {
@@ -168,7 +168,7 @@ export default function ResourceDetailDrawer({
               href={r.detail_url}
               target="_blank"
               rel="noreferrer"
-              style={{ color: '#57c1ff' }}
+              style={{ color: '#1863dc' }}
             >
               打开
             </a>
@@ -184,7 +184,7 @@ export default function ResourceDetailDrawer({
               <Tooltip title={r.torrent_url}>
                 <Text
                   ellipsis
-                  style={{ maxWidth: 220, color: '#57c1ff', fontSize: 12 }}
+                  style={{ maxWidth: 220, color: '#1863dc', fontSize: 12 }}
                 >
                   {r.torrent_url.startsWith('magnet:')
                     ? 'magnet:?xt=...'
@@ -228,7 +228,7 @@ export default function ResourceDetailDrawer({
         {r && (
           <div>
             {/* Raw title */}
-            <Paragraph style={{ color: '#9c9c9d', fontSize: 12, marginBottom: 16 }}>
+            <Paragraph style={{ color: '#93939f', fontSize: 12, marginBottom: 16 }}>
               {r.title_raw}
             </Paragraph>
 
@@ -247,9 +247,9 @@ export default function ResourceDetailDrawer({
                     display: 'flex',
                     gap: 12,
                     padding: 12,
-                    border: '1px solid rgba(89,212,153,0.2)',
+                    border: '1px solid #b7d9d3',
                     borderRadius: 8,
-                    background: 'rgba(89,212,153,0.05)',
+                    background: '#edfce9',
                   }}
                 >
                   <PosterBlock url={meta.poster_url} />
@@ -266,7 +266,7 @@ export default function ResourceDetailDrawer({
                 <div
                   style={{
                     padding: 16,
-                    border: '1px dashed rgba(255,255,255,0.12)',
+                    border: '1px dashed #d9d9dd',
                     borderRadius: 8,
                     textAlign: 'center',
                   }}
@@ -292,7 +292,7 @@ export default function ResourceDetailDrawer({
               )}
             </div>
 
-            <Divider style={{ margin: '16px 0', borderColor: '#242728' }} />
+            <Divider style={{ margin: '16px 0', borderColor: '#d9d9dd' }} />
 
             {/* Parsed details */}
             <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
@@ -301,7 +301,7 @@ export default function ResourceDetailDrawer({
             <Descriptions
               column={1}
               size="small"
-              labelStyle={{ color: '#9c9c9d', width: 100, padding: '4px 8px' }}
+              labelStyle={{ color: '#93939f', width: 100, padding: '4px 8px' }}
               contentStyle={{ color: '#cdcdcd', padding: '4px 8px' }}
               style={{ fontSize: 12 }}
               items={parsedItems}

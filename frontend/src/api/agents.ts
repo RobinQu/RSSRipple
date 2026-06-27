@@ -25,7 +25,9 @@ export const agentsApi = {
   testFilters: (id: string, body?: { resource_ids?: string[] }) =>
     api.post<FilterTestResponse>(`/agents/${id}/test-filters`, body ?? {}),
   suggestions: (id: string) =>
-    api.get<{ groups: AgentSuggestionGroup[] }>(`/agents/${id}/suggestions`),
+    api.get<{ scope_channel_wide: boolean; suggestions: AgentSuggestionGroup[] }>(
+      `/agents/${id}/suggestions`,
+    ),
 
   // Works sub-resource
   listWorks: (agentId: string) =>

@@ -13,6 +13,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest.fixture
 async def env(client):
     with patch(
@@ -21,11 +27,13 @@ async def env(client):
     ):
         ch = await client.post("/api/v1/channels", json={
             "name": "C2", "type": "rss_feed", "url": "https://x/rss",
-            "fetch_interval": 1800, "metadata_source": "none",
+            "fetch_interval": 1800, "field_mapping": TEST_FIELD_MAPPING,
+            "metadata_source": "none",
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL2", "type": "transmission",
         "url": "http://127.0.0.1:9091/transmission/rpc",
+        "download_dir": "/downloads/rssripple",
     })
     a = await client.post("/api/v1/agents", json={
         "name": "A2", "channel_id": ch.json()["data"]["id"],
@@ -62,6 +70,7 @@ async def _make_task(db_session_factory, aid, rid, dl_id, **kw):
         t = DownloadTask(
             id=tid, agent_id=aid, file_resource_id=rid, downloader_id=dl_id,
             transmission_torrent_id=kw.pop("transmission_torrent_id", 42),
+            download_dir=kw.pop("download_dir", "/downloads/rssripple"),
             status=kw.pop("status", "downloading"),
             progress=0.3, download_speed=0, upload_speed=0,
             retry_count=0, max_retries=3, **kw,
@@ -82,6 +91,7 @@ class TestDownloadersMore:
             "name": "DLp", "type": "transmission",
             "url": "http://127.0.0.1:9091/transmission/rpc",
             "password": "secret",
+            "download_dir": "/downloads/rssripple",
         })
         assert r.status_code == 201
 
@@ -129,9 +139,10 @@ class TestSeriesMore:
         async with db_session_factory() as ss:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
-                        status="active", metadata_source="none",
+                        status="active", field_mapping=TEST_FIELD_MAPPING,
+                        metadata_source="none",
                         title_extraction_method="none"),
-                DownloaderInstance(id=dl_id, name="d", type="transmission", url="u"),
+                DownloaderInstance(id=dl_id, name="d", type="transmission", url="u", download_dir="/downloads/rssripple"),
                 Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
                       scope_channel_wide=True),
                 AgentWork(id=w_id, agent_id=a_id, content_type="tv", series_id=sid),
@@ -185,9 +196,10 @@ class TestMoviesMore:
         async with db_session_factory() as ss:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
-                        status="active", metadata_source="none",
+                        status="active", field_mapping=TEST_FIELD_MAPPING,
+                        metadata_source="none",
                         title_extraction_method="none"),
-                DownloaderInstance(id=dl_id, name="d", type="transmission", url="u"),
+                DownloaderInstance(id=dl_id, name="d", type="transmission", url="u", download_dir="/downloads/rssripple"),
                 Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
                       scope_channel_wide=True),
                 AgentWork(id=w_id, agent_id=a_id, content_type="movie", movie_id=mid),

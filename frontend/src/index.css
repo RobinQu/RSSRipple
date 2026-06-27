@@ -1,4 +1,3 @@
-/* Load Inter font from Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
 
 /* Global reset and base styles */
@@ -19,8 +18,8 @@ html {
 body {
   font-family: 'Inter', 'Inter Fallback', system-ui, -apple-system, sans-serif;
   font-feature-settings: 'calt', 'kern', 'liga', 'ss03';
-  background-color: #07080a;
-  color: #f4f4f6;
+  background-color: #ffffff;
+  color: #212121;
   line-height: 1.6;
   min-height: 100vh;
 }
@@ -29,9 +28,8 @@ body {
   min-height: 100vh;
 }
 
-/* Ant Design overrides for Raycast aesthetic */
 .ant-layout {
-  background-color: #07080a !important;
+  background-color: #ffffff !important;
 }
 
 /* Ensure no shadows on cards */
@@ -39,7 +37,6 @@ body {
   box-shadow: none !important;
 }
 
-/* Scrollbar styling for dark theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -50,23 +47,23 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #242728;
+  background: #d9d9dd;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3d3f;
+  background: #93939f;
 }
 
 /* Remove default focus outlines and use subtle alternatives */
 :focus-visible {
-  outline: 1px solid rgba(255, 255, 255, 0.16);
+  outline: 1px solid #4c6ee6;
   outline-offset: 2px;
 }
 
 /* Link styles */
 a {
-  color: #ffffff;
+  color: #17171c;
   text-decoration: none;
   transition: opacity 0.15s;
 }
@@ -104,9 +101,9 @@ a:hover {
 .channel-form-preview {
   flex: 0 0 420px;
   width: 420px;
-  background: #0a0a0a;
-  border: 1px solid #1a1a1a;
-  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #d9d9dd;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -118,8 +115,8 @@ a:hover {
   width: 0;
   min-width: 0;
   overflow: hidden;
-  background: #0a0a0a;
-  border-radius: 10px;
+  background: #ffffff;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   transition:
@@ -131,7 +128,7 @@ a:hover {
 .channel-form-stream.open {
   flex: 0 0 360px;
   width: 360px;
-  border: 1px solid #1a1a1a;
+  border: 1px solid #d9d9dd;
   margin-right: 16px;
 }
 
@@ -140,7 +137,7 @@ a:hover {
   display: inline-block;
   width: 7px;
   height: 14px;
-  background: #57c1ff;
+  background: #1863dc;
   margin-left: 2px;
   vertical-align: text-bottom;
   animation: blink-cursor 0.8s step-end infinite;
@@ -179,7 +176,7 @@ a:hover {
 
   .channel-form-stream.open {
     max-height: 380px;
-    border: 1px solid #1a1a1a;
+    border: 1px solid #d9d9dd;
     margin-bottom: 16px;
   }
 

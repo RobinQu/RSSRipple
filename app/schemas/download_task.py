@@ -13,6 +13,7 @@ class DownloadTaskResponse(BaseModel):
     agent_id: str
     file_resource_id: str
     downloader_id: str | None = None
+    download_dir: str | None = None
     transmission_torrent_id: int | None = None
     status: str
     progress: float

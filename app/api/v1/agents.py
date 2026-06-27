@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.models.agent import Agent
+from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_work import AgentWork
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
@@ -82,16 +83,14 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
             "error": {"code": "VALIDATION_ERROR", "message": "channel_id does not exist"},
             "meta": {},
         })
-    # Validate downloader if provided
-    if body.downloader_id:
-        from app.models.downloader import DownloaderInstance
-        dl = await db.get(DownloaderInstance, body.downloader_id)
-        if not dl:
-            return JSONResponse(status_code=422, content={
-                "success": False, "data": None,
-                "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
-                "meta": {},
-            })
+    from app.models.downloader import DownloaderInstance
+    dl = await db.get(DownloaderInstance, body.downloader_id)
+    if not dl:
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
+            "meta": {},
+        })
     # Validate filter_config
     if body.filter_config is not None:
         errs = validate_filter_config(body.filter_config)
@@ -164,6 +163,21 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
         return JSONResponse(status_code=404, content=_not_found("Agent"))
     data = body.model_dump(exclude_unset=True)
     new_works = data.pop("works", None)
+    if data.get("status") == "active" and data.get("downloader_id") is None and not agent.downloader_id:
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": "downloader_id is required for active agents"},
+            "meta": {},
+        })
+    if data.get("downloader_id") is not None:
+        from app.models.downloader import DownloaderInstance
+        dl = await db.get(DownloaderInstance, data["downloader_id"])
+        if not dl:
+            return JSONResponse(status_code=422, content={
+                "success": False, "data": None,
+                "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
+                "meta": {},
+            })
     for key, value in data.items():
         setattr(agent, key, value)
     if new_works is not None:
@@ -439,35 +453,23 @@ async def get_suggestions(
         return JSONResponse(status_code=404, content=_not_found("Agent"))
 
     result = await db.execute(
-        select(FileResource)
-        .where(FileResource.channel_id == agent.channel_id)
-        .order_by(FileResource.published_at.desc())
+        select(AgentSuggestion)
+        .where(AgentSuggestion.agent_id == agent_id, AgentSuggestion.status == "active")
+        .order_by(AgentSuggestion.updated_at.desc())
         .limit(limit)
     )
-    resources = result.scalars().all()
-
-    groups: dict[str, dict] = {}
-    from thefuzz import fuzz
-    for r in resources:
-        if not r.series_id and not r.movie_id:
-            title = r.search_title or r.title_raw
-            if not title:
-                continue
-            # group by fuzzy match
-            placed = False
-            for k in list(groups.keys()):
-                try:
-                    if fuzz.partial_ratio(title, k) >= 80:
-                        groups[k]["resources"].append(r.id)
-                        placed = True
-                        break
-                except Exception:
-                    continue
-            if not placed:
-                groups[title] = {"sample_title": title, "resources": [r.id]}
-
-    suggestions = [SuggestionGroup(**g) for g in groups.values()]
+    suggestions = result.scalars().all()
     return success_response({
         "scope_channel_wide": agent.scope_channel_wide,
-        "suggestions": [s.model_dump() for s in suggestions],
+        "suggestions": [
+            SuggestionGroup(
+                id=s.id,
+                sample_title=s.sample_title,
+                resources=s.resources,
+                status=s.status,
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+            ).model_dump()
+            for s in suggestions
+        ],
     })

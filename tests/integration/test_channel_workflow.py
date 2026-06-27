@@ -29,6 +29,14 @@ MIKANANI_1_URL = f"{TEST_SERVER}/rss/mikanani-1"
 
 _HAS_LLM = bool(os.environ.get("LLM_API_KEY"))
 
+DEFAULT_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {
+        "title_raw": {"source": "title"},
+        "torrent_url": {"source": "link"},
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -148,6 +156,9 @@ def basic_channel_id():
 
     title_extraction_method='none' skips LLM title backfill so the basic
     fetch test finishes quickly without hitting rate limits.
+    metadata_source='none' skips LLM metadata search for each of the 100
+    entries, which would otherwise hang when using models that don't support
+    the Responses API web_search tool.
     Shared across all tests in TestCreateChannelBasic.
     """
     resp = httpx.post(
@@ -155,8 +166,10 @@ def basic_channel_id():
         json={
             "name": "Mikanani-1 Basic Test",
             "url": MIKANANI_1_URL,
+            "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
             "title_extraction_method": "none",
+            "metadata_source": "none",
         },
         timeout=15,
     )
@@ -248,14 +261,17 @@ def channel_with_mapping(analyzed_mapping):
     Shares fixture result across all tests in this module.
     """
     # Create channel — disable LLM title extraction so the 87-entry fetch
-    # finishes quickly (title extraction is tested in test_fetch_with_real_feed.py)
+    # finishes quickly (title extraction is tested in test_fetch_with_real_feed.py).
+    # metadata_source='none' avoids per-entry LLM metadata search hangs.
     resp = httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
         json={
             "name": "Mikanani-1 LLM Test",
             "url": MIKANANI_1_URL,
+            "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
             "title_extraction_method": "none",
+            "metadata_source": "none",
         },
         timeout=15,
     )

@@ -47,7 +47,7 @@ export default function Downloaders() {
   const handleDelete = (id: string) => {
     modal.confirm({
       title: '确定删除该下载器？',
-      content: '关联的 Agent 将被暂停。',
+      content: '仍有关联 Agent 时不能删除该下载器。',
       okText: '删除',
       okButtonProps: { danger: true },
       cancelText: '取消',
@@ -76,11 +76,10 @@ export default function Downloaders() {
       ellipsis: true,
     },
     {
-      title: '下载目录',
+      title: '默认目录',
       dataIndex: 'download_dir',
       key: 'download_dir',
       ellipsis: true,
-      render: (v: string | null) => v || '—',
     },
     {
       title: '状态',

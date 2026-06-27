@@ -176,9 +176,9 @@ export default function WorkSelector({
                 display: 'flex',
                 gap: 10,
                 padding: 10,
-                border: '1px solid rgba(255,255,255,0.08)',
+                border: '1px solid #e5e7eb',
                 borderRadius: 8,
-                background: already ? 'rgba(89,212,153,0.05)' : 'transparent',
+                background: already ? '#edfce9' : 'transparent',
               }}
             >
               {item.poster_url ? (
@@ -191,7 +191,7 @@ export default function WorkSelector({
                     objectFit: 'cover',
                     borderRadius: 4,
                     flexShrink: 0,
-                    background: '#1a1a1a',
+                    background: '#eeece7',
                   }}
                   onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
                 />
@@ -201,12 +201,12 @@ export default function WorkSelector({
                     width: 40,
                     height: 60,
                     borderRadius: 4,
-                    background: '#1a1a1a',
+                    background: '#eeece7',
                     flexShrink: 0,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: '#434345',
+                    color: '#75758a',
                   }}
                 >
                   {type === 'tv' ? <Tv /> : <Film />}
@@ -292,7 +292,7 @@ export default function WorkSelector({
         <div
           style={{
             padding: 32,
-            border: '1px dashed rgba(255,255,255,0.12)',
+            border: '1px dashed #d9d9dd',
             borderRadius: 8,
             textAlign: 'center',
           }}
@@ -333,12 +333,12 @@ export default function WorkSelector({
                         width: 48,
                         height: 72,
                         borderRadius: 4,
-                        background: '#1a1a1a',
+                        background: '#eeece7',
                         flexShrink: 0,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: '#434345',
+                        color: '#75758a',
                       }}
                     >
                       {isTv ? <Tv /> : <Film />}

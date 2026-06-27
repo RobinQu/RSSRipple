@@ -127,14 +127,14 @@ export default function MetadataCorrectionModal({
         </div>
 
         {error && (
-          <div style={{ color: '#ff6161', fontSize: 13 }}>{error}</div>
+          <div style={{ color: '#b30000', fontSize: 13 }}>{error}</div>
         )}
 
         {/* Step 2: results */}
         {loading && (
           <div style={{ textAlign: 'center', padding: 48 }}>
             <Spin />
-            <div style={{ marginTop: 12, color: '#9c9c9d', fontSize: 13 }}>
+            <div style={{ marginTop: 12, color: '#93939f', fontSize: 13 }}>
               正在搜索...
             </div>
           </div>
@@ -153,9 +153,9 @@ export default function MetadataCorrectionModal({
                       display: 'flex',
                       gap: 12,
                       padding: 12,
-                      border: '1px solid rgba(255,255,255,0.08)',
+                      border: '1px solid #e5e7eb',
                       borderRadius: 8,
-                      background: 'rgba(255,255,255,0.02)',
+                      background: '#f7f7f5',
                     }}
                   >
                     {r.poster_url ? (
@@ -168,7 +168,7 @@ export default function MetadataCorrectionModal({
                           objectFit: 'cover',
                           borderRadius: 4,
                           flexShrink: 0,
-                          background: '#1a1a1a',
+                          background: '#eeece7',
                         }}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.display = 'none';
@@ -180,14 +180,14 @@ export default function MetadataCorrectionModal({
                           width: 60,
                           height: 90,
                           borderRadius: 4,
-                          background: '#1a1a1a',
+                          background: '#eeece7',
                           flexShrink: 0,
                         }}
                       />
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <Text strong style={{ color: '#f4f4f6' }}>
+                        <Text strong style={{ color: '#212121' }}>
                           {r.title_cn || r.title_en || r.original_title}
                         </Text>
                         <Tag color={r.content_type === 'tv' ? 'blue' : 'green'}>
@@ -208,7 +208,7 @@ export default function MetadataCorrectionModal({
                       {r.description && (
                         <Paragraph
                           ellipsis={{ rows: 2 }}
-                          style={{ fontSize: 12, color: '#9c9c9d', marginBottom: 8 }}
+                          style={{ fontSize: 12, color: '#93939f', marginBottom: 8 }}
                         >
                           {r.description}
                         </Paragraph>

@@ -52,7 +52,7 @@ export default function ChannelForm() {
   const [loading, setLoading] = useState(mode === 'edit');
 
   // Metadata & title
-  const [metadataSource, setMetadataSource] = useState<'none' | 'llm'>('none');
+  const [metadataSource, setMetadataSource] = useState<'none' | 'llm'>('llm');
   const [titleMethod, setTitleMethod] = useState<'none' | 'regex' | 'llm'>('none');
   const [titleRegex, setTitleRegex] = useState('');
   const [generatingRegex, setGeneratingRegex] = useState(false);
@@ -116,7 +116,7 @@ export default function ChannelForm() {
             fetch_interval: ch.fetch_interval,
             status: ch.status,
           });
-          setMetadataSource(ch.metadata_source || 'none');
+          setMetadataSource(ch.metadata_source || 'llm');
           setTitleMethod(ch.title_extraction_method || 'none');
           setTitleRegex(ch.title_extraction_regex || '');
           if (ch.field_mapping) {
@@ -261,13 +261,18 @@ export default function ChannelForm() {
   }) => {
     // Parse field mapping text if edit mode
     let fm: FieldMapping | null = fieldMapping;
-    if (fieldMappingText && mode === 'edit') {
+    if (fieldMappingText) {
       try {
         fm = JSON.parse(fieldMappingText);
       } catch {
         message.error('字段映射 JSON 格式错误');
         return;
       }
+    }
+
+    if (!fm || !fm.field_mappings || Object.keys(fm.field_mappings).length === 0) {
+      message.error('字段映射为必填项，请先完成 AI 自动分析或手动填写 JSON');
+      return;
     }
 
     if (savingRef.current) return;
@@ -373,7 +378,7 @@ export default function ChannelForm() {
               }
             >
               {mode === 'edit' ? (
-                <Input disabled style={{ color: '#9c9c9d' }} />
+                <Input disabled style={{ color: '#93939f' }} />
               ) : (
                 <Space.Compact style={{ width: '100%' }}>
                   <Input
@@ -396,11 +401,11 @@ export default function ChannelForm() {
             {urlStatus === 'valid' && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <CheckCircle size={14} color="#59d499" />
-                  <Text style={{ fontSize: 12, color: '#59d499' }}>{urlMessage}</Text>
+                  <CheckCircle size={14} color="#003c33" />
+                  <Text style={{ fontSize: 12, color: '#003c33' }}>{urlMessage}</Text>
                 </div>
                 {downloadableCount === 0 && (
-                  <Text style={{ fontSize: 12, color: '#ffc533' }}>
+                  <Text style={{ fontSize: 12, color: '#ff7759' }}>
                     ⚠ 未找到可下载的资源链接
                   </Text>
                 )}
@@ -408,8 +413,8 @@ export default function ChannelForm() {
             )}
             {urlStatus === 'invalid' && (
               <div style={{ marginBottom: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
-                <XCircle size={14} color="#ff6161" />
-                <Text style={{ fontSize: 12, color: '#ff6161' }}>{urlMessage}</Text>
+                <XCircle size={14} color="#b30000" />
+                <Text style={{ fontSize: 12, color: '#b30000' }}>{urlMessage}</Text>
               </div>
             )}
 
@@ -442,7 +447,7 @@ export default function ChannelForm() {
                 <Space size={6}>
                   <Text strong>自动元数据搜索 (LLM)</Text>
                   <Tooltip title="本地匹配失败时调用 LLM 联网搜索元数据，会增加抓取延迟">
-                    <Info size={13} style={{ color: '#6a6b6c' }} />
+                    <Info size={13} style={{ color: '#93939f' }} />
                   </Tooltip>
                 </Space>
                 <Switch
@@ -455,7 +460,7 @@ export default function ChannelForm() {
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {metadataSource === 'llm'
                   ? '本地匹配失败时将通过 LLM 联网搜索作品元数据'
-                  : '仅使用本地已有元数据和精确/模糊匹配'}
+                  : '关闭后不会自动搜索新作品；需要手动设置 metadata 搜索关键字并关联作品'}
               </Text>
             </div>
 
@@ -512,7 +517,7 @@ export default function ChannelForm() {
                 <Space size={6}>
                   <Text strong>字段映射</Text>
                   <Tooltip title="定义如何从 RSS entry 中提取结构化字段">
-                    <Info size={13} style={{ color: '#6a6b6c' }} />
+                    <Info size={13} style={{ color: '#93939f' }} />
                   </Tooltip>
                 </Space>
                 <Button
@@ -534,7 +539,7 @@ export default function ChannelForm() {
                   style={{
                     fontFamily: 'monospace',
                     fontSize: 12,
-                    background: '#0a0a0a',
+                    background: '#ffffff',
                   }}
                   placeholder="AI 分析后将自动填充，或手动编辑 JSON"
                 />
@@ -542,10 +547,10 @@ export default function ChannelForm() {
                 <div
                   style={{
                     padding: 24,
-                    border: '1px dashed rgba(255,255,255,0.12)',
+                    border: '1px dashed #d9d9dd',
                     borderRadius: 8,
                     textAlign: 'center',
-                    color: '#6a6b6c',
+                    color: '#93939f',
                   }}
                 >
                   {mode === 'create'
@@ -589,11 +594,11 @@ export default function ChannelForm() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '10px 16px',
-              borderBottom: '1px solid #1a1a1a',
+              borderBottom: '1px solid #eeece7',
             }}
           >
             <Space>
-              <Wand2 size={14} style={{ color: '#9c9c9d' }} />
+              <Wand2 size={14} style={{ color: '#93939f' }} />
               <Text strong style={{ fontSize: 13 }}>
                 AI 分析
               </Text>
@@ -603,7 +608,7 @@ export default function ChannelForm() {
               size="small"
               icon={<X size={14} />}
               onClick={closeSidebar}
-              style={{ color: '#6a6b6c' }}
+              style={{ color: '#93939f' }}
             />
           </div>
           <div
@@ -615,20 +620,20 @@ export default function ChannelForm() {
               fontFamily: 'monospace',
               fontSize: 12,
               lineHeight: 1.65,
-              color: '#9c9c9d',
+              color: '#93939f',
               whiteSpace: 'pre-wrap',
             }}
           >
             {streamText}
             {sidebarStatus === 'streaming' && <span className="stream-cursor" />}
             {sidebarStatus === 'error' && (
-              <div style={{ color: '#ff6161' }}>{sidebarError}</div>
+              <div style={{ color: '#b30000' }}>{sidebarError}</div>
             )}
           </div>
           <div
             style={{
               padding: '8px 16px',
-              borderTop: '1px solid #1a1a1a',
+              borderTop: '1px solid #eeece7',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -636,20 +641,20 @@ export default function ChannelForm() {
           >
             {sidebarStatus === 'streaming' && (
               <Space>
-                <Loader2 size={13} style={{ color: '#57c1ff', animation: 'spin 1s linear infinite' }} />
-                <Text style={{ fontSize: 12, color: '#57c1ff' }}>分析中...</Text>
+                <Loader2 size={13} style={{ color: '#1863dc', animation: 'spin 1s linear infinite' }} />
+                <Text style={{ fontSize: 12, color: '#1863dc' }}>分析中...</Text>
               </Space>
             )}
             {sidebarStatus === 'done' && (
               <Space>
-                <CheckCircle size={13} color="#59d499" />
-                <Text style={{ fontSize: 12, color: '#59d499' }}>分析完成</Text>
+                <CheckCircle size={13} color="#003c33" />
+                <Text style={{ fontSize: 12, color: '#003c33' }}>分析完成</Text>
               </Space>
             )}
             {sidebarStatus === 'error' && (
               <Space>
-                <XCircle size={13} color="#ff6161" />
-                <Text style={{ fontSize: 12, color: '#ff6161' }}>{sidebarError}</Text>
+                <XCircle size={13} color="#b30000" />
+                <Text style={{ fontSize: 12, color: '#b30000' }}>{sidebarError}</Text>
               </Space>
             )}
           </div>
@@ -663,16 +668,16 @@ export default function ChannelForm() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '14px 16px',
-              borderBottom: '1px solid #1a1a1a',
+              borderBottom: '1px solid #eeece7',
             }}
           >
             <Space>
-              <Rss size={14} style={{ color: '#9c9c9d' }} />
+              <Rss size={14} style={{ color: '#93939f' }} />
               <Text strong style={{ fontSize: 13 }}>
                 预览
               </Text>
               {previewEntries.length > 0 && (
-                <Text style={{ fontSize: 12, color: '#6a6b6c' }}>
+                <Text style={{ fontSize: 12, color: '#93939f' }}>
                   {previewEntries.length} 条
                 </Text>
               )}
@@ -686,7 +691,7 @@ export default function ChannelForm() {
                   const url = form.getFieldValue('url');
                   if (url) fetchPreview(url, fieldMapping);
                 }}
-                style={{ color: '#6a6b6c' }}
+                style={{ color: '#93939f' }}
               />
             )}
           </div>
@@ -696,7 +701,7 @@ export default function ChannelForm() {
                 <Spin />
               </div>
             ) : previewEntries.length === 0 ? (
-              <div style={{ padding: 48, textAlign: 'center', color: '#434345', fontSize: 13 }}>
+              <div style={{ padding: 48, textAlign: 'center', color: '#75758a', fontSize: 13 }}>
                 {mode === 'edit' ? '加载中...' : '验证 URL 后预览条目'}
               </div>
             ) : (
@@ -708,7 +713,7 @@ export default function ChannelForm() {
                     key={i}
                     style={{
                       padding: '12px 16px',
-                      borderBottom: '1px solid #1a1a1a',
+                      borderBottom: '1px solid #eeece7',
                     }}
                   >
                     <Text
@@ -717,7 +722,7 @@ export default function ChannelForm() {
                       {entry.title || 'Untitled'}
                     </Text>
                     {entry.published && (
-                      <Text style={{ fontSize: 11, color: '#6a6b6c', display: 'block', marginBottom: hasParsed ? 6 : 0 }}>
+                      <Text style={{ fontSize: 11, color: '#93939f', display: 'block', marginBottom: hasParsed ? 6 : 0 }}>
                         {new Date(entry.published).toLocaleDateString()}
                       </Text>
                     )}
@@ -730,13 +735,13 @@ export default function ChannelForm() {
                               key={k}
                               style={{
                                 fontSize: 11,
-                                background: '#101111',
-                                border: '1px solid #242728',
-                                color: '#9c9c9d',
+                                background: '#f7f7f5',
+                                border: '1px solid #d9d9dd',
+                                color: '#93939f',
                                 marginInlineEnd: 0,
                               }}
                             >
-                              <span style={{ color: '#6a6b6c' }}>{k}:</span> {String(v)}
+                              <span style={{ color: '#93939f' }}>{k}:</span> {String(v)}
                             </Tag>
                           ))}
                       </div>

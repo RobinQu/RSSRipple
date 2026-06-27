@@ -1,12 +1,15 @@
 """Movie API routes."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from sqlalchemy import or_, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.models.movie import Movie
+from app.models.file_resource import FileResource
+from app.models.download_task import DownloadTask
 from app.schemas.movie import MovieCreate, MovieUpdate, MovieResponse
 from app.schemas.common import success_response, paginated_response
 
@@ -17,13 +20,24 @@ router = APIRouter()
 async def list_movies(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, description="Title fuzzy search"),
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * page_size
-    total_q = await db.execute(select(func.count()).select_from(Movie))
+    base_q = select(Movie)
+    if search:
+        pattern = f"%{search}%"
+        base_q = base_q.where(
+            or_(
+                Movie.title_cn.ilike(pattern),
+                Movie.title_en.ilike(pattern),
+                Movie.original_title.ilike(pattern),
+            )
+        )
+    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = total_q.scalar_one()
     result = await db.execute(
-        select(Movie).order_by(Movie.created_at.desc()).offset(offset).limit(page_size)
+        base_q.order_by(Movie.created_at.desc()).offset(offset).limit(page_size)
     )
     items = result.scalars().all()
     return paginated_response(
@@ -46,10 +60,33 @@ async def create_movie(
 
 @router.get("/movies/{movie_id}")
 async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
+    from app.schemas.file_resource import FileResourceResponse
+
     movie = await db.get(Movie, movie_id)
     if not movie:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Movie not found"}})
-    return success_response(MovieResponse.model_validate(movie).model_dump())
+    data = MovieResponse.model_validate(movie).model_dump()
+
+    # Resources
+    res_q = await db.execute(
+        select(FileResource)
+        .where(FileResource.movie_id == movie_id)
+        .order_by(FileResource.published_at.desc())
+        .limit(20)
+    )
+    resources = res_q.scalars().all()
+    data["resources"] = [FileResourceResponse.model_validate(r).model_dump() for r in resources]
+    data["resource_count"] = len(resources)
+
+    # Download tasks count
+    task_cnt = await db.execute(
+        select(func.count()).select_from(DownloadTask).where(
+            DownloadTask.file_resource.has(FileResource.movie_id == movie_id)
+        )
+    )
+    data["task_count"] = task_cnt.scalar_one() or 0
+
+    return success_response(data)
 
 
 @router.put("/movies/{movie_id}")

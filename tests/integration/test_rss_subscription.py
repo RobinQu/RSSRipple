@@ -15,6 +15,14 @@ import pytest
 TEST_SERVER = "http://test-server:8080"
 RSSRIPPLE = "http://app:9001"
 
+DEFAULT_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {
+        "title_raw": {"source": "title"},
+        "torrent_url": {"source": "link"},
+    },
+}
+
 
 class TestRSSSubscription:
     """Full RSSRipple subscription flow."""
@@ -63,6 +71,9 @@ class TestRSSSubscription:
                 "name": "Test Mikanani",
                 "url": f"{TEST_SERVER}/rss/mikanani",
                 "fetch_interval": 300,
+                "metadata_source": "none",
+                "title_extraction_method": "none",
+                "field_mapping": DEFAULT_FIELD_MAPPING,
             },
             timeout=15,
         )
@@ -80,6 +91,9 @@ class TestRSSSubscription:
                 "name": "Test EZTV",
                 "url": f"{TEST_SERVER}/rss/eztv",
                 "fetch_interval": 300,
+                "metadata_source": "none",
+                "title_extraction_method": "none",
+                "field_mapping": DEFAULT_FIELD_MAPPING,
             },
             timeout=15,
         )
@@ -93,6 +107,7 @@ class TestRSSSubscription:
                 "name": "Bad Feed",
                 "url": "http://nonexistent-server:9999/rss",
                 "fetch_interval": 300,
+                "field_mapping": DEFAULT_FIELD_MAPPING,
             },
             timeout=15,
         )
@@ -107,6 +122,9 @@ class TestRSSSubscription:
             json={
                 "name": "Analyze Test",
                 "url": f"{TEST_SERVER}/rss/mikanani",
+                "metadata_source": "none",
+                "title_extraction_method": "none",
+                "field_mapping": DEFAULT_FIELD_MAPPING,
             },
             timeout=15,
         )

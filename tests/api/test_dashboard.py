@@ -5,6 +5,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 MOCK_VALIDATE = "app.api.v1.channels.validate_rss_url"
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
 
 
 @pytest.mark.asyncio
@@ -23,9 +27,13 @@ async def test_dashboard_empty(client):
 async def test_dashboard_with_data(client):
     # Create channel + downloader + agent
     with patch(MOCK_VALIDATE, new_callable=AsyncMock, return_value=(True, "Valid", 10, 8)):
-        ch = await client.post("/api/v1/channels", json={"name": "Ch", "url": "https://x.com/rss"})
+        ch = await client.post("/api/v1/channels", json={
+            "name": "Ch",
+            "url": "https://x.com/rss",
+            "field_mapping": TEST_FIELD_MAPPING,
+        })
     ch_id = ch.json()["data"]["id"]
-    dl = await client.post("/api/v1/downloaders", json={"name": "TR", "type": "transmission", "url": "http://localhost:9091"})
+    dl = await client.post("/api/v1/downloaders", json={"name": "TR", "type": "transmission", "url": "http://localhost:9091", "download_dir": "/downloads/rssripple"})
     dl_id = dl.json()["data"]["id"]
     await client.post("/api/v1/agents", json={"name": "A1", "channel_id": ch_id, "downloader_id": dl_id})
 

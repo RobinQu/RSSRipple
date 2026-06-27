@@ -103,7 +103,7 @@ export default function DownloaderDetail() {
   const handleTest = async () => {
     if (!id) return;
     const res = await downloadersApi.test(id);
-    if (res.success) message.success(res.data.message || '连接成功');
+    if (res.success) message.success(res.data.free_space != null ? `连接成功，可用空间 ${formatBytes(res.data.free_space)}` : (res.data.message || '连接成功'));
     else message.error(res.error?.message || '连接失败');
     fetchDl();
     fetchTorrents();
@@ -121,6 +121,13 @@ export default function DownloaderDetail() {
         ) : (
           name
         ),
+    },
+    {
+      title: '目录',
+      dataIndex: 'download_dir',
+      key: 'download_dir',
+      ellipsis: true,
+      render: (v: string | null) => <Text type="secondary">{v || '—'}</Text>,
     },
     {
       title: '状态',
@@ -235,12 +242,12 @@ export default function DownloaderDetail() {
       <Card style={{ marginBottom: 24 }}>
         <Descriptions column={2} size="small">
           <Descriptions.Item label="URL">{dl.url}</Descriptions.Item>
+          <Descriptions.Item label="默认目录">{dl.download_dir}</Descriptions.Item>
           <Descriptions.Item label="状态">
             <Tag color={dl.status === 'connected' ? 'success' : dl.status === 'error' ? 'error' : 'default'}>
               {dl.status.toUpperCase()}
             </Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="下载目录">{dl.download_dir || '—'}</Descriptions.Item>
           <Descriptions.Item label="上次检查">
             {dl.last_checked_at ? timeAgo(dl.last_checked_at) : '—'}
           </Descriptions.Item>

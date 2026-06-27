@@ -62,21 +62,21 @@ export default function Sidebar() {
       collapsedWidth={72}
       breakpoint="lg"
       style={{
-        borderRight: '1px solid #242728',
+        borderRight: '1px solid #d9d9dd',
       }}
     >
       <div
         style={{
           padding: collapsed ? '20px 0' : '20px 16px',
           textAlign: 'center',
-          borderBottom: '1px solid #242728',
+          borderBottom: '1px solid #d9d9dd',
           overflow: 'hidden',
         }}
       >
         {collapsed ? (
-          <Text strong style={{ fontSize: 18, color: '#f4f4f6' }}>R</Text>
+          <Text strong style={{ fontSize: 18, color: '#17171c' }}>R</Text>
         ) : (
-          <Text strong style={{ fontSize: 18, color: '#f4f4f6' }}>RSSRipple</Text>
+          <Text strong style={{ fontSize: 18, color: '#17171c' }}>RSSRipple</Text>
         )}
       </div>
       <Menu
@@ -97,7 +97,7 @@ export default function Sidebar() {
             left: 0,
             right: 0,
             textAlign: 'center',
-            color: '#6a6b6c',
+            color: '#93939f',
             fontSize: 12,
           }}
         >

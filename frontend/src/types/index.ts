@@ -15,7 +15,7 @@ export interface Channel {
   url: string;
   fetch_interval: number;
   status: ChannelStatus;
-  field_mapping: FieldMapping | null;
+  field_mapping: FieldMapping;
   title_extraction_method: 'none' | 'regex' | 'llm';
   title_extraction_regex: string | null;
   metadata_source: 'llm' | 'none';
@@ -67,7 +67,6 @@ export interface FileResource {
   detail_url: string | null;
   published_at: string | null;
   parsed_at: string | null;
-  episode_id: string | null;
   series_id: string | null;
   movie_id: string | null;
   metadata_matched_at: string | null;
@@ -105,6 +104,12 @@ export interface TVSeries {
   content_type: string | null;
   created_at: string;
   updated_at: string;
+  // Detail-only fields
+  episodes?: Episode[];
+  resources?: FileResource[];
+  resource_count?: number;
+  task_count?: number;
+  agent_work_count?: number;
 }
 
 // Movie
@@ -126,6 +131,10 @@ export interface Movie {
   content_type: string | null;
   created_at: string;
   updated_at: string;
+  // Detail-only fields
+  resources?: FileResource[];
+  resource_count?: number;
+  task_count?: number;
 }
 
 // Episode
@@ -215,6 +224,7 @@ export interface Agent {
   name: string;
   channel_id: string;
   downloader_id: string;
+  download_subdir: string | null;
   task_expire_days: number;
   llm_enabled: boolean;
   scope_channel_wide: boolean;
@@ -234,6 +244,7 @@ export interface AgentCreate {
   name: string;
   channel_id: string;
   downloader_id: string;
+  download_subdir?: string | null;
   task_expire_days?: number;
   llm_enabled?: boolean;
   scope_channel_wide?: boolean;
@@ -268,6 +279,7 @@ export interface DownloadTask {
   agent_id: string;
   file_resource_id: string;
   downloader_id: string;
+  download_dir: string | null;
   transmission_torrent_id: number | null;
   status: TaskStatus;
   progress: number;
@@ -318,7 +330,7 @@ export interface DownloaderInstance {
   url: string;
   username: string | null;
   password: string | null;
-  download_dir: string | null;
+  download_dir: string;
   status: DownloaderStatus;
   last_checked_at: string | null;
   created_at: string;
@@ -395,8 +407,12 @@ export interface MetadataSearchResult {
 
 // Agent suggestions
 export interface AgentSuggestionGroup {
+  id: string | null;
   sample_title: string;
   resources: string[];
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 // Filter test result

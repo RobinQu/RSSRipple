@@ -45,7 +45,7 @@ export default function Series() {
             onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
           />
         ) : (
-          <div style={{ width: 36, height: 54, background: '#1a1a1a', borderRadius: 4 }} />
+          <div style={{ width: 36, height: 54, background: '#eeece7', borderRadius: 4 }} />
         ),
     },
     {

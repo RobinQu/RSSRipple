@@ -20,12 +20,12 @@ class Channel(Base):
     url: str                             # RSS Feed URL
     fetch_interval: int                  # 定时抓取间隔（秒），默认 1800
     status: str                          # 枚举: "active" | "inactive" | "error"
-    field_mapping: dict | None           # LLM 生成的字段映射规则
+    field_mapping: dict                  # LLM 生成或用户手动配置的字段映射规则（必填）
                                          # 格式: {list_locator: {source: "entries"},
                                          #        field_mappings: {field: {source, regex?, group?, transform?}}}
     title_extraction_method: str         # 标题清洗方式: "none" | "regex" | "llm"，默认 "none"
     title_extraction_regex: str | None   # 用户填入或 LLM 生成的标题清洗正则
-    metadata_source: str                 # 元数据来源策略: "llm" | "none"，默认 "none"
+    metadata_source: str                 # 元数据来源策略: "llm" | "none"，默认 "llm"
                                          # "llm" 表示本地匹配失败时回退到 LLM web-search
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
@@ -68,8 +68,7 @@ class FileResource(Base):
     torrent_url: str                     # 下载链接（magnet:?xt=... 或 .torrent URL）
     detail_url: str | None               # 详情页链接
     published_at: datetime | None        # RSS 发布时间
-    # Metadata 关联（三个 FK 用于定位到具体作品/剧集）
-    episode_id: str | None → Episode     # 具体剧集 FK（可选，多数情况仅 series_id 即可）
+    # Metadata 关联（series/movie 用于定位作品；episode 字段用于定位剧集集数）
     series_id: str | None → TVSeries     # 关联剧集系列 FK
     movie_id: str | None → Movie         # 关联电影 FK
     parsed_at: datetime | None           # 字段映射解析完成时间
@@ -77,10 +76,10 @@ class FileResource(Base):
     created_at: datetime
 ```
 
-资源的三个 FK 互斥规则：
-- 若为剧集资源，`series_id` 非空，`episode_id` 可空（未解析到集数时），`movie_id` 必须为空。
-- 若为电影资源，`movie_id` 非空，`series_id`/`episode_id` 必须为空。
-- 未识别资源三个 FK 均为空。
+资源的 FK 互斥规则：
+- 若为剧集资源，`series_id` 非空，`movie_id` 必须为空；具体集数统一使用 `episode` 字段。
+- 若为电影资源，`movie_id` 非空，`series_id` 必须为空。
+- 未识别资源两个 FK 均为空。
 
 ### TVSeries（剧集系列 - Metadata 缓存）
 
@@ -173,10 +172,12 @@ class Agent(Base):
     name: str                            # Agent 名称
     channel_id: str → Channel            # 关联频道 FK（必选）
     downloader_id: str → DownloaderInstance  # 关联下载器 FK（必选）
+    download_subdir: str | None          # 可选：相对 Downloader.download_dir 的子目录
+                                         # 示例 "Anime/2026-01"，禁止绝对路径、..、空段逃逸
     task_expire_days: int                # completed 任务自动清理天数，默认 30
     llm_enabled: bool                    # 是否启用 LLM 辅助决策（影响冲突自动解决建议）
     scope_channel_wide: bool             # true=订阅整个频道（仅靠 filter_config 过滤）
-                                         # false=仅订阅 selected_works 中的作品
+                                         # false=仅订阅 works 中的作品
     conflict_resolution: str             # 冲突处理策略: "ask" | "auto"，默认 "ask"
                                          # "ask"=多候选时创建 PendingDecision 等待用户
                                          # "auto"=按启发式评分自动选择最优资源
@@ -191,6 +192,7 @@ class Agent(Base):
     channel: Channel
     downloader: DownloaderInstance
     works: list[AgentWork]               # 订阅作品列表（最多 10 个）
+    suggestions: list[AgentSuggestion]   # 未识别资源建议分组（持久化）
     download_tasks: list[DownloadTask]
     pending_decisions: list[PendingDecision]
 ```
@@ -233,6 +235,8 @@ class DownloadTask(Base):
     agent_id: str → Agent                # 所属 Agent FK
     file_resource_id: str → FileResource # 对应资源 FK
     downloader_id: str → DownloaderInstance  # 使用的下载器 FK
+    download_dir: str                       # 创建任务时解析出的最终下载目录（绝对路径）
+                                            # = downloader.download_dir[/agent.download_subdir]
     transmission_torrent_id: int | None  # Transmission 返回的 torrent ID
     status: str                          # "pending" | "queued" | "downloading" | "paused"
                                          # | "completed" | "error" | "cancelled"
@@ -252,6 +256,24 @@ class DownloadTask(Base):
     agent: Agent
     file_resource: FileResource
     downloader: DownloaderInstance
+```
+
+### AgentSuggestion（Agent 未识别资源建议）
+
+当 Agent 运行时遇到未链接 metadata 的资源，系统将按 `search_title/title_raw` 模糊聚类并持久化到本表，供前端展示和后续手动关联作品。
+
+```python
+class AgentSuggestion(Base):
+    __tablename__ = "agent_suggestions"
+    __table_args__ = (UniqueConstraint("agent_id", "sample_title"),)
+
+    id: str                              # UUID
+    agent_id: str → Agent                # 所属 Agent FK
+    sample_title: str                    # 分组代表标题
+    resources: list[str]                 # FileResource ID 列表
+    status: str                          # "active" | "ignored" | "resolved"
+    created_at: datetime
+    updated_at: datetime
 ```
 
 ### PendingDecision（待决策项）
@@ -289,7 +311,9 @@ class DownloaderInstance(Base):
     url: str                             # Transmission RPC URL（如 http://127.0.0.1:9091/transmission/rpc）
     username: str | None                 # RPC 用户名
     password: str | None                 # RPC 密码
-    download_dir: str | None             # 默认下载目录（可被 Agent/Work 覆盖）
+    download_dir: str                    # 默认下载目录（必填）
+                                         # Transmission 下载服务器本地可读写的绝对路径
+                                         # 支持该服务器 OS 的路径风格（POSIX/Windows/UNC）
     status: str                          # "connected" | "disconnected" | "error"
     last_checked_at: datetime | None     # 上次连通性检查时间
     created_at: datetime
@@ -512,7 +536,7 @@ FieldCondition = {
 | POST | `/agents/{id}/run` | 手动触发处理（入队处理该 Agent 频道下未处理资源） |
 | GET | `/agents/{id}/run-status` | 轮询处理状态 |
 | POST | `/agents/{id}/test-filters` | 给定资源或全部资源测试 filter_config 匹配情况，返回匹配结果明细 |
-| GET | `/agents/{id}/suggestions` | 未匹配到 selected_works 的资源按标题分组，供用户一键添加为订阅作品 |
+| GET | `/agents/{id}/suggestions` | 读取持久化的未识别资源建议分组，供用户一键添加为订阅作品 |
 
 `POST /agents` 请求体示例：
 ```json
@@ -520,6 +544,7 @@ FieldCondition = {
   "name": "新番自动下载",
   "channel_id": "...",
   "downloader_id": "...",
+  "download_subdir": "Anime/新番",
   "scope_channel_wide": false,
   "conflict_resolution": "ask",
   "llm_enabled": true,
@@ -562,10 +587,29 @@ FieldCondition = {
 | POST | `/downloaders` | 创建下载器 |
 | GET | `/downloaders/{id}` | 下载器详情 |
 | PUT | `/downloaders/{id}` | 更新下载器 |
-| DELETE | `/downloaders/{id}` | 删除下载器（关联 Agent 的 downloader_id 置空并设为 paused） |
-| POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，更新 status |
+| DELETE | `/downloaders/{id}` | 删除下载器（若仍有关联 Agent，则返回 409，需先修改/删除 Agent） |
+| POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录，更新 status |
 | GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表 |
 | GET | `/downloaders/{id}/torrents` | Transmission 实时种子列表（直连 RPC 返回） |
+
+`POST /downloaders` 请求体示例：
+```json
+{
+  "name": "家用 NAS Transmission",
+  "type": "transmission",
+  "url": "http://127.0.0.1:9091/transmission/rpc",
+  "username": "user",
+  "password": "pass",
+  "download_dir": "/volume1/downloads/rssripple"
+}
+```
+
+下载目录规则：
+- `download_dir` 必填，必须是 Transmission 下载服务器视角的绝对路径；支持 POSIX（`/volume1/downloads`）、Windows drive path（`D:\Downloads`）和 daemon 支持的 UNC path。
+- RSSRipple 后端可能无法访问该目录，因此路径语义以 Transmission daemon 为准。
+- 创建/编辑时做路径格式校验；`POST /downloaders/{id}/test` 必须调用 Transmission `free_space(download_dir)`，返回目录可识别性与剩余空间。
+- 真实写入能力、子目录存在性、磁盘不足等仍以 `torrent_add(download_dir=...)` 的结果为最终准据。
+- 若多个 Agent 共用一个 Downloader，建议通过 Agent 的 `download_subdir` 分流目录。
 
 ### Download Tasks
 
@@ -577,6 +621,8 @@ FieldCondition = {
 | POST | `/tasks/{id}/resume` | 恢复 |
 | POST | `/tasks/{id}/retry` | 重试（重置 retry_count，重新添加 torrent） |
 | DELETE | `/tasks/{id}` | 删除任务；query 参数 `delete_data=false` 控制是否同时删除 Transmission 中已下载数据 |
+
+任务重试规则：`POST /tasks/{id}/retry` 必须优先使用该任务已持久化的 `download_dir` 重新添加 torrent，而不是重新读取当前 Agent/Downloader 配置；这样 Downloader 默认目录或 Agent 子目录后续变更不会改变历史任务的落点。
 
 ### Pending Decisions
 
@@ -817,16 +863,19 @@ process_resources(agent, resources, db)
   │
   ├─ 5. Suggestions 聚合:
   │     将未识别但标题有意义的资源按 search_title 模糊聚类，
-  │     保存到 AgentSuggestion 表（或临时返回），供前端一键添加作品
+  │     保存到 AgentSuggestion 表，供前端一键添加作品
   │
   └─ 6. 返回 RunResult（新下载数、待决策数、跳过数、建议数）
 ```
 
 `dispatch_download(agent, resource)`：
 1. 创建 `DownloadTask(status="pending")`，写入 db。
-2. 调用 `TransmissionWrapper.add_torrent(resource.torrent_url, download_dir)`。
-3. 成功 → 更新 `task.status="downloading"`, `task.transmission_torrent_id=返回值`, `task.confirmed_at=now`。
-4. 失败 → 更新 `task.status="error"`, `task.error_message=异常信息`；触发重试逻辑（若 retry_count < max_retries 则入队重试）。
+2. 解析下载目录：`effective_download_dir = join(downloader.download_dir, agent.download_subdir)`；若 `download_subdir` 为空则直接使用 `downloader.download_dir`。
+3. 校验 `download_subdir`：必须是相对路径，禁止绝对路径、`..`、空段逃逸、控制字符；标准化后不得跳出 `downloader.download_dir`。
+4. 将 `effective_download_dir` 写入 `DownloadTask.download_dir`，用于审计、重试与后续配置变更隔离。
+5. 调用 `TransmissionWrapper.add_torrent(resource.torrent_url, download_dir=effective_download_dir)`。
+6. 成功 → 更新 `task.status="downloading"`, `task.transmission_torrent_id=返回值`, `task.confirmed_at=now`。
+7. 失败 → 更新 `task.status="error"`, `task.error_message=异常信息`；触发重试逻辑（若 retry_count < max_retries 则入队重试）。
 
 ### 手动 metadata 搜索与修正流程
 
@@ -945,12 +994,12 @@ sync_download_progress():
 | `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；主体资源按作品分组展示（每组可折叠，含 poster、作品名、剧集数、最新更新时间）；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
 | `/channels/:id/edit` | ChannelForm | 编辑频道表单，包含 field_mapping 可视化编辑器、标题清洗正则测试器、metadata_source 开关 |
 | `/agents` | AgentList | Agent 列表（名称/频道/下载器/状态/作品数/任务数） |
-| `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；scope_channel_wide 开关；可视化 Filter DSL 编辑器；订阅作品选择器（从频道的已识别作品中多选，最多 10 个） |
+| `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；可视化 Filter DSL 编辑器；订阅作品选择器（从频道的已识别作品中多选，最多 10 个） |
 | `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表/新增/移除/编辑 per-work 覆盖）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete）；待决策 Tab（confirm/skip 操作）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run、状态轮询） |
 | `/downloaders` | DownloaderList | 下载器列表 |
-| `/downloaders/new` | DownloaderForm | 创建 Transmission 实例，含测试连接按钮 |
+| `/downloaders/new` | DownloaderForm | 创建 Transmission 实例，填写默认下载目录，含测试连接按钮 |
 | `/downloaders/:id` | DownloaderDetail | 连接状态；实时速度与总量统计；Transmission 种子列表（直连 RPC 实时刷新）；本地 DownloadTask 分页 |
-| `/downloaders/:id/edit` | DownloaderForm | 编辑下载器 |
+| `/downloaders/:id/edit` | DownloaderForm | 编辑下载器与默认下载目录 |
 | `/series` | SeriesList | 剧集列表，支持模糊搜索 |
 | `/series/:id` | SeriesDetail | 剧集详情，资源列表、任务列表、相关 Agent 列表 |
 | `/movies` | MovieList | 电影列表 |
@@ -984,8 +1033,8 @@ sync_download_progress():
   "data": null,
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "field_mapping is required when status is active",
-    "details": { "field": "field_mapping" }
+    "message": "downloader_id is required",
+    "details": { "field": "downloader_id" }
   },
   "meta": {}
 }
@@ -1028,6 +1077,13 @@ sync_download_progress():
 ## 其他约定
 
 - **时间格式**：API 中所有时间均为 ISO 8601 UTC 字符串（如 `2025-01-01T12:00:00Z`）。
+- **下载目录格式**：
+  - `DownloaderInstance.download_dir` 必填，必须是 Transmission 下载服务器 OS 可识别的绝对路径；路径语义以 Transmission daemon 为准，而不是 RSSRipple 后端进程所在主机为准。
+  - 支持 POSIX absolute path、Windows drive absolute path、daemon 支持的 UNC path；后端校验时需要按路径风格识别根目录。
+  - `Agent.download_subdir` 可空；非空时必须是相对路径，禁止以 `/`、`\`、`~`、Windows drive prefix（如 `C:\`）、UNC prefix（如 `\\server\share`）开头，禁止 `..` 段和控制字符。
+  - 子目录 API 表达推荐使用 `/` 分隔；后端根据 Downloader 根目录风格拼接，标准化后必须保证最终路径仍在 `DownloaderInstance.download_dir` 下。
+  - `DownloadTask.download_dir` 保存创建任务时解析出的最终绝对路径；任务重试沿用该字段。
+- **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
 - **配置项**（环境变量）：`DATABASE_URL`、`REDIS_URL`（可选）、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`（用于 feed 分析、标题清洗、正则生成、PendingDecision 建议）、`LLM_SEARCH_MODEL`（用于 metadata web-search，需支持 web_search 工具，如 perplexity/sonar-pro；与 LLM_MODEL 相同时填同一值）、`POSTER_CACHE_DIR`（默认 `./data/posters`）、`TRANSMISSION_TIMEOUT`、`DEV_MODE`（默认 false）。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。

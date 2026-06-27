@@ -9,6 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.title_cleaner import clean_title_regex
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
 
 # =============================================================================
 # clean_title_regex — sync regex-based title cleanup
@@ -60,6 +65,7 @@ async def test_backfill_titles_extracts_for_resources_without_search_title(db_se
     channel = Channel(
         name="Test",
         url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         title_extraction_method="regex",
         title_extraction_regex=r"^(.+?)\s*-\s*\d+",
     )
@@ -100,6 +106,7 @@ async def test_backfill_titles_skips_resources_with_existing_search_title(db_ses
     channel = Channel(
         name="Test",
         url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         title_extraction_method="regex",
         title_extraction_regex=r"^(.+)",
     )
@@ -135,6 +142,7 @@ async def test_backfill_titles_llm_method_calls_llm(db_session):
     channel = Channel(
         name="Test",
         url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         title_extraction_method="llm",
     )
     db_session.add(channel)
@@ -169,6 +177,7 @@ async def test_backfill_titles_llm_failure_falls_back_to_base_title(db_session):
     channel = Channel(
         name="Test",
         url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         title_extraction_method="llm",
     )
     db_session.add(channel)
@@ -203,6 +212,7 @@ async def test_backfill_titles_none_method_does_nothing(db_session):
     channel = Channel(
         name="Test",
         url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         title_extraction_method="none",
     )
     db_session.add(channel)
@@ -231,7 +241,12 @@ async def test_backfill_titles_no_resources_returns_zero(db_session):
     from app.services.title_cleaner import backfill_titles
     from app.models.channel import Channel
 
-    channel = Channel(name="Test", url="https://example.com/rss", title_extraction_method="llm")
+    channel = Channel(
+        name="Test",
+        url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
+        title_extraction_method="llm",
+    )
     db_session.add(channel)
     await db_session.flush()
 
@@ -249,6 +264,7 @@ async def test_backfill_titles_resource_without_title_cn_uses_title_raw(db_sessi
     channel = Channel(
         name="Test",
         url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
         title_extraction_method="regex",
         title_extraction_regex=r"^(.+?)\s*-",
     )

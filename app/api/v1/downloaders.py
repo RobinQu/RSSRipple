@@ -12,6 +12,7 @@ from app.schemas.downloader import DownloaderCreate, DownloaderUpdate, Downloade
 from app.schemas.download_task import DownloadTaskResponse
 from app.schemas.common import success_response, paginated_response
 from app.clients.transmission import TransmissionWrapper
+from app.utils.download_paths import DownloadPathError
 from fastapi.responses import JSONResponse
 
 router = APIRouter()
@@ -41,7 +42,11 @@ async def create_downloader(
     body: DownloaderCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    dl = DownloaderInstance(**body.model_dump(exclude={"password"}))
+    try:
+        payload = body.model_dump(exclude={"password"})
+    except DownloadPathError as e:
+        return JSONResponse(status_code=422, content={"success": False, "data": None, "error": {"code": "VALIDATION_ERROR", "message": str(e)}, "meta": {}})
+    dl = DownloaderInstance(**payload)
     if body.password:
         dl.password = body.password
     db.add(dl)
@@ -67,7 +72,10 @@ async def update_downloader(
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
-    update_data = body.model_dump(exclude_unset=True)
+    try:
+        update_data = body.model_dump(exclude_unset=True)
+    except DownloadPathError as e:
+        return JSONResponse(status_code=422, content={"success": False, "data": None, "error": {"code": "VALIDATION_ERROR", "message": str(e)}, "meta": {}})
     for key, value in update_data.items():
         setattr(dl, key, value)
     await db.flush()
@@ -78,16 +86,22 @@ async def update_downloader(
 @router.delete("/downloaders/{downloader_id}")
 async def delete_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)):
     from app.models.agent import Agent
-    from sqlalchemy import update as sql_update
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
-    # Null agent FKs and pause agents
-    await db.execute(
-        sql_update(Agent)
-        .where(Agent.downloader_id == downloader_id)
-        .values(downloader_id=None, status="paused")
+    linked_agents = await db.execute(
+        select(func.count()).select_from(Agent).where(Agent.downloader_id == downloader_id)
     )
+    if linked_agents.scalar_one() > 0:
+        return JSONResponse(status_code=409, content={
+            "success": False,
+            "data": None,
+            "error": {
+                "code": "CONFLICT",
+                "message": "Downloader is still used by one or more agents",
+            },
+            "meta": {},
+        })
     await db.delete(dl)
     await db.commit()
     return success_response({"deleted": True})
@@ -150,11 +164,20 @@ async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)
 
     wrapper = TransmissionWrapper(dl.url, dl.username, dl.password)
     success, detail = await wrapper.test_connection()
+    version = detail if success else None
 
     dl.status = "connected" if success else "error"
     dl.last_checked_at = datetime.now(timezone.utc)
+    free_space = None
+    if success:
+        try:
+            free_space = await wrapper.free_space(dl.download_dir)
+        except Exception as e:
+            success = False
+            detail = f"{detail}; download_dir check failed: {e}" if detail else f"download_dir check failed: {e}"
+            dl.status = "error"
     await db.flush()
 
     if success:
-        return success_response({"success": True, "message": detail, "version": detail})
-    return success_response({"success": False, "message": detail or "Connection failed", "version": None})
+        return success_response({"success": True, "message": detail, "version": version, "free_space": free_space})
+    return success_response({"success": False, "message": detail or "Connection failed", "version": version, "free_space": free_space})

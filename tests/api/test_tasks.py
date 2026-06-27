@@ -12,6 +12,12 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
+
+
 @pytest.fixture
 async def setup(client):
     """Create channel + downloader + agent and return their IDs."""
@@ -22,11 +28,13 @@ async def setup(client):
         ch = await client.post("/api/v1/channels", json={
             "name": "C", "type": "rss_feed",
             "url": "https://example.com/rss", "fetch_interval": 1800,
+            "field_mapping": TEST_FIELD_MAPPING,
             "metadata_source": "none",
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL", "type": "transmission",
         "url": "http://127.0.0.1:9091/transmission/rpc",
+        "download_dir": "/downloads/rssripple",
     })
     a = await client.post("/api/v1/agents", json={
         "name": "A",

@@ -151,7 +151,7 @@ export default function FilterSummaryModal({
       {loading ? (
         <div style={{ textAlign: 'center', padding: '48px 0' }}>
           <Spin />
-          <div style={{ marginTop: 12, color: '#9c9c9d', fontSize: 13 }}>
+          <div style={{ marginTop: 12, color: '#93939f', fontSize: 13 }}>
             正在分析 {selectedIds.length} 个资源...
           </div>
         </div>
@@ -231,7 +231,7 @@ export default function FilterSummaryModal({
                 </Typography.Text>
               ) : (
                 <>
-                  <Typography.Text style={{ fontSize: 12, color: '#9c9c9d', display: 'block', marginBottom: 6 }}>
+                  <Typography.Text style={{ fontSize: 12, color: '#93939f', display: 'block', marginBottom: 6 }}>
                     选择目标 Agent
                   </Typography.Text>
                   <Select
@@ -242,7 +242,7 @@ export default function FilterSummaryModal({
                     style={{ width: '100%' }}
                   />
                   {applyAgentId && (
-                    <Typography.Text style={{ fontSize: 12, color: '#9c9c9d', display: 'block', marginTop: 8 }}>
+                    <Typography.Text style={{ fontSize: 12, color: '#93939f', display: 'block', marginTop: 8 }}>
                       新规则将与现有规则按 AND 合并。
                     </Typography.Text>
                   )}

@@ -8,18 +8,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, UTC
 from typing import Any
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from thefuzz import fuzz
 
 from app.config import settings
 from app.models.agent import Agent
+from app.models.agent_suggestion import AgentSuggestion
 from app.models.download_task import DownloadTask
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.filter_engine import evaluate_filter_config, merge_filters
+from app.utils.download_paths import DownloadPathError, resolve_download_dir
 
 logger = logging.getLogger(__name__)
 
@@ -50,23 +52,50 @@ async def dispatch_download(
     agent: Agent, resource: FileResource, db: AsyncSession
 ) -> DownloadTask:
     """Create a DownloadTask and attempt to add it to Transmission."""
+    if not agent.downloader_id:
+        task = DownloadTask(
+            agent_id=agent.id,
+            file_resource_id=resource.id,
+            downloader_id=None,
+            status="error",
+            error_message="No downloader configured for agent",
+            max_retries=settings.max_retry_count,
+        )
+        db.add(task)
+        await db.flush()
+        return task
+
+    from app.models.downloader import DownloaderInstance
+    downloader = await db.get(DownloaderInstance, agent.downloader_id)
+    download_dir: str | None = None
+    if downloader:
+        try:
+            download_dir = resolve_download_dir(downloader.download_dir, agent.download_subdir)
+        except DownloadPathError as e:
+            task = DownloadTask(
+                agent_id=agent.id,
+                file_resource_id=resource.id,
+                downloader_id=agent.downloader_id,
+                download_dir=None,
+                status="error",
+                error_message=str(e),
+                max_retries=settings.max_retry_count,
+            )
+            db.add(task)
+            await db.flush()
+            return task
+
     task = DownloadTask(
         agent_id=agent.id,
         file_resource_id=resource.id,
         downloader_id=agent.downloader_id,
+        download_dir=download_dir,
         status="pending",
         max_retries=settings.max_retry_count,
     )
     db.add(task)
     await db.flush()
 
-    if not agent.downloader_id:
-        task.status = "error"
-        task.error_message = "No downloader configured for agent"
-        return task
-
-    from app.models.downloader import DownloaderInstance
-    downloader = await db.get(DownloaderInstance, agent.downloader_id)
     if not downloader:
         task.status = "error"
         task.error_message = f"Downloader {agent.downloader_id} not found"
@@ -81,7 +110,7 @@ async def dispatch_download(
         result = await asyncio.wait_for(
             wrapper.add_torrent(
                 resource.torrent_url,
-                download_dir=downloader.download_dir,
+                download_dir=task.download_dir,
             ),
             timeout=settings.transmission_timeout,
         )
@@ -181,6 +210,28 @@ def score_and_pick(
             r.published_at or datetime.min.replace(tzinfo=UTC),
         )
     return max(candidates, key=score)
+
+
+async def _persist_suggestions(
+    agent_id: str,
+    suggestions: list[dict],
+    db: AsyncSession,
+) -> None:
+    """Replace the persisted suggestion snapshot for an agent."""
+    await db.execute(delete(AgentSuggestion).where(AgentSuggestion.agent_id == agent_id))
+    for group in suggestions:
+        sample_title = (group.get("sample_title") or "").strip()
+        resources = group.get("resources") or []
+        if not sample_title or not resources:
+            continue
+        db.add(
+            AgentSuggestion(
+                agent_id=agent_id,
+                sample_title=sample_title,
+                resources=list(resources),
+                status="active",
+            )
+        )
 
 
 async def process_resources(
@@ -296,4 +347,5 @@ async def process_resources(
             result.errors.append(str(e))
 
     result.suggestions = list(suggestions.values())
+    await _persist_suggestions(agent.id, result.suggestions, db)
     return result

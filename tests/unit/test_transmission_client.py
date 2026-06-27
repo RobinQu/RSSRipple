@@ -126,17 +126,30 @@ class TestAddTorrent:
 
     @pytest.mark.asyncio
     async def test_add_with_download_dir(self):
-        mock_torrent = MagicMock(id=1, name="x", hashString="h")
+        mock_torrent = MagicMock()
+        mock_torrent.id = 7
+        mock_torrent.name = "x"
+        mock_torrent.hashString = "h"
         mock_client = MagicMock()
         mock_client.add_torrent.return_value = mock_torrent
 
         with patch(MOCK_CLIENT, return_value=mock_client):
-            wrapper = _make_wrapper()
-            await wrapper.add_torrent("magnet:?xt=...", download_dir="/tmp/dl")
+            await _make_wrapper().add_torrent("magnet:?xt=...", download_dir="/downloads/rss")
 
-        _, kwargs = mock_client.add_torrent.call_args
-        assert kwargs.get("download_dir") == "/tmp/dl"
+        mock_client.add_torrent.assert_called_once_with(
+            "magnet:?xt=...", paused=False, download_dir="/downloads/rss"
+        )
 
+
+class TestFreeSpace:
+    @pytest.mark.asyncio
+    async def test_free_space(self):
+        mock_client = MagicMock()
+        mock_client.free_space.return_value = 12345
+        with patch(MOCK_CLIENT, return_value=mock_client):
+            free = await _make_wrapper().free_space("/downloads/rss")
+        assert free == 12345
+        mock_client.free_space.assert_called_once_with("/downloads/rss")
 
 class TestPauseResume:
     @pytest.mark.asyncio

@@ -17,6 +17,10 @@ from app.database import get_db
 # ---------------------------------------------------------------------------
 
 MOCK_VALIDATE = "app.api.v1.channels.validate_rss_url"
+TEST_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {"torrent_url": {"source": "link"}},
+}
 
 
 @pytest_asyncio.fixture
@@ -108,7 +112,7 @@ async def test_unhandled_exception_returns_500_json(error_client, caplog):
         with caplog.at_level(logging.ERROR, logger="app.main"):
             res = await error_client.post(
                 "/api/v1/channels",
-                json={"name": "x", "url": "http://test.example/rss.xml"},
+                json={"name": "x", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
             )
     assert res.status_code == 500
     body = res.json()
@@ -125,7 +129,7 @@ async def test_unhandled_exception_logs_at_error_level(error_client, caplog):
         with caplog.at_level(logging.ERROR, logger="app.main"):
             await error_client.post(
                 "/api/v1/channels",
-                json={"name": "x", "url": "http://test.example/rss.xml"},
+                json={"name": "x", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
             )
     error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(error_records) >= 1
@@ -143,7 +147,7 @@ async def test_dev_mode_includes_stack_trace_in_500(error_client):
         with patch(MOCK_VALIDATE, new_callable=AsyncMock, side_effect=ValueError("test error")):
             res = await error_client.post(
                 "/api/v1/channels",
-                json={"name": "x", "url": "http://test.example/rss.xml"},
+                json={"name": "x", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
             )
     assert res.status_code == 500
     body = res.json()
@@ -158,7 +162,7 @@ async def test_prod_mode_omits_stack_trace(error_client):
         with patch(MOCK_VALIDATE, new_callable=AsyncMock, side_effect=ValueError("secret internals")):
             res = await error_client.post(
                 "/api/v1/channels",
-                json={"name": "x", "url": "http://test.example/rss.xml"},
+                json={"name": "x", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
             )
     assert res.status_code == 500
     body = res.json()
@@ -181,7 +185,7 @@ async def test_channel_create_db_error_returns_500_json(error_client):
                    side_effect=OperationalError("database is locked", None, None)):
             res = await error_client.post(
                 "/api/v1/channels",
-                json={"name": "newchan", "url": "http://test.example/rss.xml"},
+                json={"name": "newchan", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
             )
     assert res.status_code == 500
     body = res.json()

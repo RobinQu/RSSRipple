@@ -26,7 +26,7 @@ class Channel(Base):
         default="active",
         nullable=False,
     )
-    field_mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
     title_extraction_method: Mapped[str] = mapped_column(
         String(20), default="none", nullable=False
     )

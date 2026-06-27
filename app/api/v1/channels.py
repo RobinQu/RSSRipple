@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rss_parser import get_raw_entries, validate_rss_url
-from app.database import get_db
+from app.database import get_db, retry_on_lock
 from app.models.channel import Channel
 from app.schemas.channel import (
     ChannelCreate,
@@ -40,6 +40,15 @@ def _already_running(existing_job: dict | None = None):
         status_code=409,
         content={"success": False, "data": existing_job, "error": {"code": "ALREADY_RUNNING", "message": "A job is already running for this channel"}, "meta": {}},
     )
+
+
+def _valid_field_mapping(mapping: dict | None) -> bool:
+    if not isinstance(mapping, dict):
+        return False
+    field_mappings = mapping.get("field_mappings")
+    if isinstance(field_mappings, dict):
+        return len(field_mappings) > 0
+    return any(isinstance(v, dict) and v.get("source") for v in mapping.values())
 
 
 @router.get("/channels")
@@ -75,6 +84,14 @@ async def create_channel(
     db: AsyncSession = Depends(get_db),
     x_form_token: str | None = Header(default=None),
 ):
+    if not _valid_field_mapping(body.field_mapping):
+        return JSONResponse(status_code=422, content={
+            "success": False,
+            "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": "field_mapping is required"},
+            "meta": {},
+        })
+
     if x_form_token is not None:
         from app.services.submission_guard import submission_guard
         if not await submission_guard.consume(x_form_token):
@@ -96,10 +113,20 @@ async def create_channel(
             "error": {"code": "INVALID_FEED", "message": feed_msg}, "meta": {},
         })
 
-    channel = Channel(**body.model_dump())
-    db.add(channel)
-    await db.flush()
-    await db.refresh(channel)
+    async def _create_channel_in_db() -> Channel:
+        """Create channel in DB — wrapped in retry_on_lock for SQLite."""
+        nonlocal db
+        channel = Channel(**body.model_dump())
+        db.add(channel)
+        try:
+            await db.flush()
+            await db.refresh(channel)
+        except Exception:
+            await db.rollback()
+            raise
+        return channel
+
+    channel = await retry_on_lock(_create_channel_in_db)
 
     # Schedule the channel if active
     try:
@@ -163,6 +190,13 @@ async def update_channel(
     if not channel:
         return _not_found()
     update_data = body.model_dump(exclude_unset=True)
+    if "field_mapping" in update_data and not _valid_field_mapping(update_data.get("field_mapping")):
+        return JSONResponse(status_code=422, content={
+            "success": False,
+            "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": "field_mapping is required"},
+            "meta": {},
+        })
     for key, value in update_data.items():
         setattr(channel, key, value)
     await db.flush()

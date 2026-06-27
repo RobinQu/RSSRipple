@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 import json as _json
 
 from app.schemas.common import ORMModel
+from app.utils.download_paths import validate_download_subdir
 
 
 class AgentWorkCreate(BaseModel):
@@ -42,7 +43,8 @@ class AgentWorkResponse(ORMModel):
 class AgentCreate(BaseModel):
     name: str
     channel_id: str
-    downloader_id: str | None = None
+    downloader_id: str
+    download_subdir: str | None = None
     task_expire_days: int = 30
     llm_enabled: bool = False
     scope_channel_wide: bool = False
@@ -51,11 +53,17 @@ class AgentCreate(BaseModel):
     status: str = "active"
     works: list[AgentWorkCreate] = []
 
+    @model_validator(mode="after")
+    def _validate_download_subdir(self):
+        self.download_subdir = validate_download_subdir(self.download_subdir)
+        return self
+
 
 class AgentUpdate(BaseModel):
     name: str | None = None
     channel_id: str | None = None
     downloader_id: str | None = None
+    download_subdir: str | None = None
     task_expire_days: int | None = None
     llm_enabled: bool | None = None
     scope_channel_wide: bool | None = None
@@ -71,12 +79,18 @@ class AgentUpdate(BaseModel):
             return _json.loads(v)
         return v
 
+    @model_validator(mode="after")
+    def _validate_download_subdir(self):
+        self.download_subdir = validate_download_subdir(self.download_subdir)
+        return self
+
 
 class AgentResponse(ORMModel):
     id: str
     name: str
     channel_id: str
-    downloader_id: str | None = None
+    downloader_id: str
+    download_subdir: str | None = None
     task_expire_days: int
     llm_enabled: bool
     scope_channel_wide: bool
@@ -112,8 +126,12 @@ class TestFilterResult(BaseModel):
 
 
 class SuggestionGroup(BaseModel):
+    id: str | None = None
     sample_title: str
     resources: list[str] = []
+    status: str = "active"
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class RunResponse(BaseModel):

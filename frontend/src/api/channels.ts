@@ -21,7 +21,7 @@ export interface ChannelCreate {
   type: 'rss_feed';
   url: string;
   fetch_interval?: number;
-  field_mapping?: FieldMapping | null;
+  field_mapping: FieldMapping;
   title_extraction_method?: 'none' | 'regex' | 'llm';
   title_extraction_regex?: string | null;
   metadata_source?: 'llm' | 'none';
@@ -32,7 +32,7 @@ export interface ChannelUpdate {
   url?: string;
   fetch_interval?: number;
   status?: ChannelStatus;
-  field_mapping?: FieldMapping | null;
+  field_mapping?: FieldMapping;
   title_extraction_method?: 'none' | 'regex' | 'llm';
   title_extraction_regex?: string | null;
   metadata_source?: 'llm' | 'none';

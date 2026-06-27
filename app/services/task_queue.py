@@ -123,7 +123,7 @@ class MemoryQueue(BaseQueue):
     """asyncio-based task queue. Works in a single process; state is not shared
     across multiple processes or instances."""
 
-    def __init__(self, max_concurrent: int = MAX_CONCURRENT) -> None:
+    def __init__(self, max_concurrent: int = 1) -> None:
         super().__init__()
         self._max_concurrent = max_concurrent
         self._queue: asyncio.Queue[_MemJob] = asyncio.Queue()

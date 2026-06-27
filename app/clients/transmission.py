@@ -171,6 +171,12 @@ class TransmissionWrapper:
             }
         return await asyncio.to_thread(_run)
 
+    async def free_space(self, path: str) -> int:
+        """Return free bytes for a path as seen by the Transmission daemon."""
+        def _run():
+            return int(self._client().free_space(path))
+        return await asyncio.to_thread(_run)
+
     async def get_torrent(self, torrent_id: int) -> dict:
         """Get a single torrent's live stats."""
         def _run():

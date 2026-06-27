@@ -30,6 +30,7 @@ interface FormValues {
   name: string;
   channel_id: string;
   downloader_id: string;
+  download_subdir?: string;
   task_expire_days: number;
   llm_enabled: boolean;
   scope_channel_wide: boolean;
@@ -69,6 +70,7 @@ export default function AgentForm() {
             name: a.name,
             channel_id: a.channel_id,
             downloader_id: a.downloader_id,
+            download_subdir: a.download_subdir ?? '',
             task_expire_days: a.task_expire_days,
             llm_enabled: a.llm_enabled,
             scope_channel_wide: a.scope_channel_wide,
@@ -115,6 +117,7 @@ export default function AgentForm() {
       name: values.name,
       channel_id: values.channel_id,
       downloader_id: values.downloader_id,
+      download_subdir: values.download_subdir?.trim() || null,
       task_expire_days: values.task_expire_days,
       llm_enabled: values.llm_enabled,
       scope_channel_wide: values.scope_channel_wide,
@@ -204,6 +207,19 @@ export default function AgentForm() {
               </Form.Item>
             </Col>
           </Row>
+
+          <Form.Item
+            name="download_subdir"
+            label="下载子目录"
+            rules={[
+              {
+                pattern: /^(?![\\/])(?![A-Za-z]:[\\/])(?!~)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))(?!.*[\\/]$).*$/,
+                message: '请输入相对目录，不能包含 .. 或绝对路径',
+              },
+            ]}
+          >
+            <Input placeholder="Anime/新番" allowClear />
+          </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>

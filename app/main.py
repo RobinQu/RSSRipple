@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -76,17 +77,17 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             await session.rollback()
             raise
 
-    return {
-        "agent_id": agent_id,
-        "total_resources": run_result.total_resources,
-        "matched": run_result.matched,
-        "dispatched": run_result.dispatched,
-        "pending_decisions": run_result.pending_decisions,
-        "filter_failed": run_result.filter_failed,
-        "duplicates_skipped": run_result.duplicates_skipped,
-        "unrecognized": run_result.unrecognized,
-        "errors": run_result.errors,
-    }
+        return {
+            "agent_id": agent_id,
+            "total_resources": run_result.total_resources,
+            "matched": run_result.matched,
+            "dispatched": run_result.dispatched,
+            "pending_decisions": run_result.pending_decisions,
+            "filter_failed": run_result.filter_failed,
+            "duplicates_skipped": run_result.duplicates_skipped,
+            "unrecognized": run_result.unrecognized,
+            "errors": run_result.errors,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -188,16 +189,17 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = jsonable_encoder(exc.errors(), custom_encoder={Exception: str})
     logger.warning(
         "Validation error %s %s: %s",
-        request.method, request.url.path, exc.errors(),
+        request.method, request.url.path, errors,
     )
     return JSONResponse(
         status_code=422,
         content={
             "success": False,
             "data": None,
-            "error": {"code": "VALIDATION_ERROR", "message": exc.errors()},
+            "error": {"code": "VALIDATION_ERROR", "message": errors},
             "meta": {},
         },
     )
