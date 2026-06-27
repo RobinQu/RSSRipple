@@ -21,7 +21,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY README.md ./
 COPY app/ ./app/
-COPY --from=frontend-builder /frontend/dist ./app/static/
+COPY tests/ ./tests/
+COPY --from=frontend-builder /app/static ./app/static/
 
 RUN mkdir -p /app/data
 

@@ -36,6 +36,7 @@ class DownloadTask(Base):
     )
     progress: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     download_speed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    upload_speed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     eta: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

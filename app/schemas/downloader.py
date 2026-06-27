@@ -1,6 +1,7 @@
 """DownloaderInstance Pydantic schemas."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -37,7 +38,26 @@ class DownloaderResponse(BaseModel):
     updated_at: datetime
 
 
-class TestConnectionResponse(BaseModel):
+class DownloaderTestResult(BaseModel):
     success: bool
     message: str
-    version: str | None = None
+
+
+class TorrentInfo(BaseModel):
+    id: int
+    name: str
+    status: str
+    percent_done: float
+    rate_download: int
+    rate_upload: int
+    eta_seconds: int | None = None
+    total_size: int
+    is_finished: bool
+
+
+class DownloaderTask(BaseModel):
+    id: str
+    status: str
+    progress: float
+    resource_title: str | None = None
+    agent_name: str | None = None

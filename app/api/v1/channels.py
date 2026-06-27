@@ -2,22 +2,44 @@
 
 import json
 import logging
+from collections import Counter
 
 from fastapi import APIRouter, Depends, Header, Query
-
-logger = logging.getLogger(__name__)
-from sqlalchemy import select, func
+from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients.rss_parser import get_raw_entries, validate_rss_url
 from app.database import get_db
 from app.models.channel import Channel
-from app.schemas.channel import ChannelCreate, ChannelUpdate, ChannelResponse, ValidateURLRequest, PreviewFeedRequest
-from app.schemas.common import success_response, paginated_response
-from app.clients.rss_parser import get_raw_entries, validate_rss_url
-from app.services.feed_analyzer import analyze_feed
-from fastapi.responses import JSONResponse, StreamingResponse
+from app.schemas.channel import (
+    ChannelCreate,
+    ChannelUpdate,
+    ChannelResponse,
+    PreviewFeedRequest,
+    SummarizeFiltersRequest,
+    ValidateURLRequest,
+)
+from app.schemas.common import paginated_response, success_response
+from app.services.feed_analyzer import analyze_feed, analyze_feed_stream
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _not_found(message: str = "Channel not found"):
+    return JSONResponse(
+        status_code=404,
+        content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": message}, "meta": {}},
+    )
+
+
+def _already_running(existing_job: dict | None = None):
+    return JSONResponse(
+        status_code=409,
+        content={"success": False, "data": existing_job, "error": {"code": "ALREADY_RUNNING", "message": "A job is already running for this channel"}, "meta": {}},
+    )
 
 
 @router.get("/channels")
@@ -26,6 +48,8 @@ async def list_channels(
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.models.agent import Agent
+    from app.models.file_resource import FileResource
     offset = (page - 1) * page_size
     total_q = await db.execute(select(func.count()).select_from(Channel))
     total = total_q.scalar_one()
@@ -33,10 +57,16 @@ async def list_channels(
         select(Channel).order_by(Channel.created_at.desc()).offset(offset).limit(page_size)
     )
     channels = result.scalars().all()
-    return paginated_response(
-        [ChannelResponse.model_validate(c).model_dump() for c in channels],
-        total=total, page=page, page_size=page_size,
-    )
+    items = []
+    for c in channels:
+        d = ChannelResponse.model_validate(c).model_dump()
+        # Count agents
+        ac = await db.execute(select(func.count()).select_from(Agent).where(Agent.channel_id == c.id))
+        rc = await db.execute(select(func.count()).select_from(FileResource).where(FileResource.channel_id == c.id))
+        d["agent_count"] = ac.scalar_one() or 0
+        d["resource_count"] = rc.scalar_one() or 0
+        items.append(d)
+    return paginated_response(items, total=total, page=page, page_size=page_size)
 
 
 @router.post("/channels", status_code=201)
@@ -48,11 +78,12 @@ async def create_channel(
     if x_form_token is not None:
         from app.services.submission_guard import submission_guard
         if not await submission_guard.consume(x_form_token):
-            return JSONResponse(
-                status_code=409,
-                content={"success": False, "data": None, "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted. Please reload the page and try again."}},
-            )
-    # Validate the RSS feed before creating
+            return JSONResponse(status_code=409, content={
+                "success": False, "data": None,
+                "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted."},
+                "meta": {},
+            })
+
     try:
         is_valid, feed_msg, item_count, downloadable_count = await validate_rss_url(body.url)
     except Exception:
@@ -60,22 +91,23 @@ async def create_channel(
         raise
 
     if not is_valid:
-        return JSONResponse(
-            status_code=422,
-            content={
-                "success": False,
-                "data": None,
-                "error": {
-                    "code": "INVALID_FEED",
-                    "message": feed_msg,
-                },
-            },
-        )
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {"code": "INVALID_FEED", "message": feed_msg}, "meta": {},
+        })
 
     channel = Channel(**body.model_dump())
     db.add(channel)
     await db.flush()
     await db.refresh(channel)
+
+    # Schedule the channel if active
+    try:
+        from app.services.scheduler import reschedule_channel
+        reschedule_channel(channel)
+    except Exception:
+        logger.debug("Scheduler not ready; skipping schedule for new channel", exc_info=True)
+
     return success_response(
         ChannelResponse.model_validate(channel).model_dump(),
         meta={"feed_items": item_count, "downloadable": downloadable_count},
@@ -84,24 +116,32 @@ async def create_channel(
 
 @router.get("/channels/form-token")
 async def get_form_token():
-    """Issue a single-use submission token (synchronizer token pattern).
-
-    The frontend requests a token when the Create/Edit Channel form loads and
-    includes it in the subsequent POST/PUT via the X-Form-Token header.  The
-    server consumes the token on first use; a second request with the same
-    token is rejected with 409 DUPLICATE_SUBMISSION.
-    """
     from app.services.submission_guard import submission_guard
-    token = await submission_guard.issue()
-    return success_response({"token": token})
+    return success_response({"token": await submission_guard.issue()})
 
 
 @router.get("/channels/{channel_id}")
 async def get_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
+    from app.models.file_resource import FileResource
+    from app.schemas.file_resource import FileResourceResponse
+    from sqlalchemy.orm import selectinload
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
-    return success_response(ChannelResponse.model_validate(channel).model_dump())
+        return _not_found()
+    base = ChannelResponse.model_validate(channel).model_dump()
+    # Recent 20 resources preview
+    res = await db.execute(
+        select(FileResource)
+        .where(FileResource.channel_id == channel_id)
+        .options(selectinload(FileResource.series), selectinload(FileResource.movie))
+        .order_by(FileResource.published_at.desc())
+        .limit(20)
+    )
+    recent = res.scalars().all()
+    base["recent_resources"] = [
+        FileResourceResponse.model_validate(r).model_dump() for r in recent
+    ]
+    return success_response(base)
 
 
 @router.put("/channels/{channel_id}")
@@ -114,18 +154,26 @@ async def update_channel(
     if x_form_token is not None:
         from app.services.submission_guard import submission_guard
         if not await submission_guard.consume(x_form_token):
-            return JSONResponse(
-                status_code=409,
-                content={"success": False, "data": None, "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted. Please reload the page and try again."}},
-            )
+            return JSONResponse(status_code=409, content={
+                "success": False, "data": None,
+                "error": {"code": "DUPLICATE_SUBMISSION", "message": "This form was already submitted."},
+                "meta": {},
+            })
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
+        return _not_found()
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(channel, key, value)
     await db.flush()
     await db.refresh(channel)
+
+    try:
+        from app.services.scheduler import reschedule_channel
+        reschedule_channel(channel)
+    except Exception:
+        logger.debug("Scheduler not ready; skipping reschedule", exc_info=True)
+
     return success_response(ChannelResponse.model_validate(channel).model_dump())
 
 
@@ -133,208 +181,173 @@ async def update_channel(
 async def delete_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
+        return _not_found()
+    try:
+        from app.services.scheduler import unschedule_channel
+        unschedule_channel(channel_id)
+    except Exception:
+        pass
     await db.delete(channel)
     return success_response({"deleted": True})
 
 
 @router.post("/channels/{channel_id}/fetch")
 async def fetch_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
-    """Enqueue a background fetch for the channel.
-
-    Returns immediately with job status.  Use GET /fetch-status to poll progress.
-    Returns 409 (with current job state) if a fetch is already in progress.
-    """
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
-
+        return _not_found()
     from app.services.task_queue import task_queue
-
-    job = await task_queue.enqueue("fetch_channel", channel_id, {"channel_id": channel_id})
+    job = await task_queue.enqueue("fetch_channel", f"channel:{channel_id}", {"channel_id": channel_id})
     if job is None:
-        current = await task_queue.status(channel_id)
-        return JSONResponse(
-            status_code=409,
-            content={"success": False, "data": current, "error": {"code": "ALREADY_RUNNING", "message": "A fetch is already in progress for this channel"}},
-        )
-
+        existing = await task_queue.status(f"channel:{channel_id}")
+        return _already_running(existing)
     return success_response(job)
 
 
 @router.get("/channels/{channel_id}/fetch-status")
 async def get_fetch_status(channel_id: str, db: AsyncSession = Depends(get_db)):
-    """Poll the status of the latest fetch job for a channel."""
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
-
+        return _not_found()
     from app.services.task_queue import task_queue
-    return success_response(await task_queue.status(channel_id))
+    return success_response(await task_queue.status(f"channel:{channel_id}"))
 
 
 @router.post("/channels/{channel_id}/analyze")
 async def analyze_channel_feed(channel_id: str, db: AsyncSession = Depends(get_db)):
-    """Analyze RSS feed using LLM to generate field mappings.
-
-    Fetches sample entries, sends them to the LLM, and returns proposed field mappings.
-    Does NOT auto-save the mapping - returns it for user review.
-    """
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
-
+        return _not_found()
     try:
         entries = await get_raw_entries(channel.url, limit=5)
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}})
-
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
+        })
     if not entries:
-        return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found in RSS feed"}})
-
-    result = await analyze_feed(entries)
-    return success_response(result)
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found"}, "meta": {},
+        })
+    return success_response(await analyze_feed(entries))
 
 
 @router.post("/channels/validate-url")
 async def validate_url(body: ValidateURLRequest):
-    """Validate that an RSS URL is reachable and has downloadable content."""
     is_valid, message, item_count, downloadable_count = await validate_rss_url(body.url)
     return success_response({
-        "valid": is_valid,
-        "message": message,
-        "item_count": item_count,
-        "downloadable_count": downloadable_count,
+        "valid": is_valid, "message": message,
+        "item_count": item_count, "downloadable_count": downloadable_count,
     })
 
 
 @router.post("/channels/preview-feed")
 async def preview_feed(body: PreviewFeedRequest):
-    """Preview RSS feed entries and optionally parse them with a field mapping.
-
-    Fetches up to 20 raw entries from the given URL. If ``field_mapping`` is
-    provided, each entry is also parsed using ``resource_parser.parse_entry``
-    so the caller can see how the current rules would extract structured
-    fields. Used by the Channel form's live preview pane.
-    """
     try:
         entries = await get_raw_entries(body.url, limit=20)
     except Exception as e:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "data": None,
-                "error": {"code": "FETCH_ERROR", "message": str(e)},
-            },
-        )
-
-    parsed: list[dict] = []
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
+        })
+    parsed = []
     if body.field_mapping and entries:
         from app.services.resource_parser import parse_entry
         for entry in entries:
             parsed.append(parse_entry(entry, body.field_mapping))
+    return success_response({"entries": entries, "parsed": parsed})
 
-    return success_response({
-        "entries": entries,
-        "parsed": parsed,
-    })
+
+async def _stream_events(gen):
+    async for event in gen:
+        yield f"data: {json.dumps(event)}\n\n"
 
 
 @router.post("/channels/analyze-url-stream")
 async def analyze_url_stream(body: ValidateURLRequest):
-    """Stream LLM analysis for a feed URL — no existing channel required.
-
-    Used by the Create Channel form so users can generate field mappings
-    before saving the channel. Identical to the channel-based endpoint but
-    accepts a URL in the request body instead of looking up a channel.
-    """
     try:
         entries = await get_raw_entries(body.url, limit=5)
     except Exception as e:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}},
-        )
-
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
+        })
     if not entries:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found in RSS feed"}},
-        )
-
-    from app.services.feed_analyzer import analyze_feed_stream
-
-    async def event_generator():
-        async for event in analyze_feed_stream(entries):
-            yield f"data: {json.dumps(event)}\n\n"
-
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found"}, "meta": {},
+        })
     return StreamingResponse(
-        event_generator(),
+        _stream_events(analyze_feed_stream(entries)),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 
 @router.post("/channels/{channel_id}/analyze-stream")
-async def analyze_channel_feed_stream(channel_id: str, db: AsyncSession = Depends(get_db)):
-    """Stream LLM analysis of RSS feed as Server-Sent Events."""
+async def analyze_channel_stream(channel_id: str, db: AsyncSession = Depends(get_db)):
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
-
+        return _not_found()
     try:
         entries = await get_raw_entries(channel.url, limit=5)
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}})
-
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
+        })
     if not entries:
-        return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found in RSS feed"}})
-
-    from app.services.feed_analyzer import analyze_feed_stream
-
-    async def event_generator():
-        async for event in analyze_feed_stream(entries):
-            yield f"data: {json.dumps(event)}\n\n"
-
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found"}, "meta": {},
+        })
     return StreamingResponse(
-        event_generator(),
+        _stream_events(analyze_feed_stream(entries)),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
 
 
 @router.post("/channels/{channel_id}/generate-title-regex")
 async def generate_title_regex(channel_id: str, db: AsyncSession = Depends(get_db)):
-    """Generate a title cleanup regex via LLM based on feed content.
-
-    Fetches sample entries from the channel's RSS feed, sends the titles
-    to the LLM, and returns a regex pattern that extracts the core work
-    title from each entry. The user can then review and edit the regex
-    in the Channel form.
-
-    Returns ``{ "regex": "..." }`` or an error if the LLM fails.
-    """
     channel = await db.get(Channel, channel_id)
     if not channel:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}})
-
+        return _not_found()
     try:
         entries = await get_raw_entries(channel.url, limit=10)
     except Exception as e:
-        return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}})
-
-    if not entries:
-        return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found in RSS feed"}})
-
-    from app.services.title_cleaner import generate_title_regex as _gen_regex
-
-    regex = await _gen_regex(entries)
+        return JSONResponse(status_code=400, content={
+            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
+        })
+    from app.services.title_cleaner import generate_title_regex as _gen
+    regex = await _gen(entries)
     if not regex:
-        return JSONResponse(status_code=500, content={"success": False, "data": None, "error": {"code": "LLM_ERROR", "message": "LLM failed to generate a regex. Check that the LLM API key is configured."}})
-
+        return JSONResponse(status_code=502, content={
+            "success": False, "data": None,
+            "error": {"code": "LLM_ERROR", "message": "LLM failed to generate regex"}, "meta": {},
+        })
     return success_response({"regex": regex})
+
+
+@router.post("/channels/{channel_id}/summarize-filters")
+async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: AsyncSession = Depends(get_db)):
+    from app.models.file_resource import FileResource
+    if not body.resource_ids:
+        return success_response({"filter_config": None, "explanation": ""})
+    result = await db.execute(
+        select(FileResource).where(
+            FileResource.channel_id == channel_id,
+            FileResource.id.in_(body.resource_ids),
+        )
+    )
+    resources = result.scalars().all()
+    if not resources:
+        return success_response({"filter_config": None, "explanation": ""})
+    conditions = []
+    explanation_parts = []
+    n = len(resources)
+    EXACT_FIELDS = ["subtitle_group", "resolution", "video_codec", "audio_codec", "container", "subtitle_type", "source"]
+    for field in EXACT_FIELDS:
+        values = [getattr(r, field) for r in resources if getattr(r, field)]
+        if not values:
+            continue
+        most_common, count = Counter(values).most_common(1)[0]
+        if count / n >= 0.8:
+            conditions.append({"field": field, "operator": "eq", "value": most_common})
+            explanation_parts.append(f"{field}={most_common}")
+    filter_config = {"combinator": "and", "conditions": conditions} if conditions else None
+    return success_response({"filter_config": filter_config, "explanation": "; ".join(explanation_parts)})

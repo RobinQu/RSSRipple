@@ -174,7 +174,7 @@ class TestChannelDeleteCascade:
         assert fetch_resp.status_code == 200
         result = _poll_fetch(channel_id)
         assert result["status"] == "done", f"fetch failed: {result}"
-        assert result["result"]["new"] > 0, "Expected resources to be created"
+        assert result["result"]["new_count"] > 0, "Expected resources to be created"
 
         # Verify resources exist
         res_resp = httpx.get(

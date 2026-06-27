@@ -74,3 +74,118 @@ a {
 a:hover {
   opacity: 0.8;
 }
+
+/* ─── Channel Form: two-column layout with persistent preview ─── */
+
+.channel-form-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.channel-form-main {
+  flex: 1;
+  min-width: 0;
+  max-width: 640px;
+}
+
+/* Right column: sticky horizontal container holding AI Analysis + Feed Preview */
+.channel-form-right {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 120px);
+  flex-shrink: 0;
+}
+
+/* Feed Preview panel — always visible */
+.channel-form-preview {
+  flex: 0 0 420px;
+  width: 420px;
+  background: #0a0a0a;
+  border: 1px solid #1a1a1a;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* AI Analysis panel — collapses horizontally when closed */
+.channel-form-stream {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: #0a0a0a;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  transition:
+    width 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    margin-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.channel-form-stream.open {
+  flex: 0 0 360px;
+  width: 360px;
+  border: 1px solid #1a1a1a;
+  margin-right: 16px;
+}
+
+/* Blinking cursor for streaming text */
+.stream-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  background: #57c1ff;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink-cursor 0.8s step-end infinite;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Responsive: stack everything vertically on smaller screens */
+@media (max-width: 1200px) {
+  .channel-form-layout {
+    flex-direction: column;
+  }
+
+  .channel-form-main {
+    width: 100%;
+    max-width: 100% !important;
+  }
+
+  .channel-form-right {
+    position: static;
+    flex-direction: column;
+    max-height: none;
+    width: 100%;
+  }
+
+  .channel-form-stream {
+    width: 100% !important;
+    flex-basis: auto !important;
+    max-height: 0;
+    margin-right: 0 !important;
+    transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .channel-form-stream.open {
+    max-height: 380px;
+    border: 1px solid #1a1a1a;
+    margin-bottom: 16px;
+  }
+
+  .channel-form-preview {
+    width: 100%;
+    flex: 0 0 auto;
+    max-height: 500px;
+  }
+}

@@ -4,7 +4,7 @@ Tests:
 1. Create a Channel pointing to a test RSS feed
 2. Verify channel validation succeeds
 3. Fetch the feed and verify FileResources are created
-4. Create an Agent with filters
+4. Create an Agent with filter_config DSL
 5. Verify filter matching against resources
 """
 
@@ -70,7 +70,7 @@ class TestRSSSubscription:
         data = resp.json()["data"]
         assert data["name"] == "Test Mikanani"
         assert data["status"] == "active"
-        assert data["parser_type"] == "auto"
+        assert "parser_type" not in data
 
     def test_create_channel_eztv(self):
         """Create a channel for the EZTV feed."""

@@ -8,23 +8,32 @@ from pydantic import BaseModel, ConfigDict
 class MovieCreate(BaseModel):
     title_cn: str | None = None
     title_en: str | None = None
+    original_title: str | None = None
     aliases: list[str] | None = None
     external_id: str | None = None
     external_source: str | None = None
     description: str | None = None
+    poster_url: str | None = None
+    rating: float | None = None
+    genre: list[str] | None = None
+    status: str | None = None
     release_date: date | None = None
-    content_type: str | None = None
+    runtime: int | None = None
+    content_type: str | None = "movie"
 
 
 class MovieUpdate(BaseModel):
     title_cn: str | None = None
     title_en: str | None = None
+    original_title: str | None = None
     aliases: list[str] | None = None
-    external_id: str | None = None
-    external_source: str | None = None
     description: str | None = None
+    poster_url: str | None = None
+    rating: float | None = None
+    genre: list[str] | None = None
+    status: str | None = None
     release_date: date | None = None
-    content_type: str | None = None
+    runtime: int | None = None
 
 
 class MovieResponse(BaseModel):
@@ -33,11 +42,17 @@ class MovieResponse(BaseModel):
     id: str
     title_cn: str | None = None
     title_en: str | None = None
+    original_title: str | None = None
     aliases: list[str] | None = None
     external_id: str | None = None
     external_source: str | None = None
     description: str | None = None
+    poster_url: str | None = None
+    rating: float | None = None
+    genre: list[str] | None = None
+    status: str | None = None
     release_date: date | None = None
+    runtime: int | None = None
     content_type: str | None = None
     created_at: datetime
     updated_at: datetime

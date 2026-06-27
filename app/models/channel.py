@@ -28,10 +28,15 @@ class Channel(Base):
     )
     field_mapping: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     title_extraction_method: Mapped[str] = mapped_column(
-        String(20), default="llm", nullable=False
+        String(20), default="none", nullable=False
     )
     title_extraction_regex: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    metadata_source: Mapped[str] = mapped_column(
+        String(20), default="llm", nullable=False
+    )
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_fetch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_fetch_error: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -40,5 +45,15 @@ class Channel(Base):
     )
 
     # Relationships
-    file_resources = relationship("FileResource", back_populates="channel", lazy="selectin", passive_deletes="all")
-    agents = relationship("Agent", back_populates="channel", lazy="selectin", passive_deletes="all")
+    file_resources = relationship(
+        "FileResource", back_populates="channel", lazy="selectin", cascade="all, delete-orphan"
+    )
+    agents = relationship(
+        "Agent", back_populates="channel", lazy="selectin", cascade="all, delete-orphan"
+    )
+    raw_title_mappings = relationship(
+        "ChannelRawTitleMapping",
+        back_populates="channel",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
