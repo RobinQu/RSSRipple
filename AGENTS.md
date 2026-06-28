@@ -1088,3 +1088,77 @@ sync_download_progress():
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。
+
+---
+
+## 分支与协作规范
+
+本项目遵循 [Conventional Branch](https://conventionalbranch.org/) v1.1.0 分支命名规范。
+
+### 分支命名格式
+
+```
+<type>/<description>
+```
+
+- 全部使用小写字母（`a-z`）、数字（`0-9`）和连字符（`-`）
+- 禁止连续/首尾连字符、禁止空格、禁止下划线
+- `release/` 分支的描述中允许多个 `.` 表示版本号
+
+### 类型前缀
+
+| 前缀 | 别名 | 用途 |
+|---|---|---|
+| `feature/` | `feat/` | 新功能 |
+| `bugfix/` | `fix/` | Bug 修复 |
+| `hotfix/` | — | 紧急修复（通常从 main 分出） |
+| `release/` | — | 发布准备（如 `release/v1.2.0`） |
+| `chore/` | — | 非代码任务：依赖更新、文档、配置 |
+| `ai/` | — | 通用 AI Agent 生成的分支 |
+| `copilot/` | — | GitHub Copilot |
+| `cursor/` | — | Cursor |
+| `claude/` | — | Claude Code (Anthropic) |
+| `codex/` | — | OpenAI Codex |
+
+主干分支（`main`、`master`、`develop`）不使用前缀。
+
+### 合法示例
+
+```
+feature/add-login-page
+feat/agent-filter-dsl
+bugfix/fix-sqlite-lock
+fix/header-bug
+hotfix/security-patch
+release/v1.2.0
+chore/update-dependencies
+ai/refactor-auth-flow
+claude/metadata-service
+feature/issue-123-new-login
+```
+
+### 非法示例
+
+```
+Feature/Add-Login       ← 大写字母
+feature/new--login      ← 连续连字符
+feature/-new-login      ← 描述开头连字符
+fix/header bug          ← 空格
+fix/header_bug          ← 下划线
+release/v1.-2.0         ← 连字符与点相邻
+unknown/some-task       ← 未知前缀
+```
+
+### 包含 Ticket 编号
+
+若关联 Issue/任务追踪，将编号放在描述开头：
+
+```
+feature/issue-123-new-login
+```
+
+### 自动化工具
+
+- 本地校验：[commit-check](https://github.com/commit-check/commit-check)
+- CI 校验（GitHub Actions）：[commit-check-action](https://github.com/commit-check/commit-check-action)
+- VS Code 插件：[Conventional Branch](https://marketplace.visualstudio.com/items?itemName=pshaddel.conventional-branch)
