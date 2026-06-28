@@ -25,10 +25,15 @@ export function formatEta(seconds: number | null | undefined): string {
   return `${s}s`;
 }
 
+function parseApiDate(dateStr: string): Date {
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(dateStr) ? dateStr : `${dateStr}Z`;
+  return new Date(normalized);
+}
+
 export function timeAgo(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   try {
-    return formatDistanceToNow(new Date(dateStr), { addSuffix: true });
+    return formatDistanceToNow(parseApiDate(dateStr), { addSuffix: true });
   } catch {
     return dateStr;
   }
@@ -37,7 +42,7 @@ export function timeAgo(dateStr: string | null | undefined): string {
 export function formatDate(dateStr: string | null | undefined, pattern = 'yyyy-MM-dd HH:mm'): string {
   if (!dateStr) return '—';
   try {
-    return formatDateFns(new Date(dateStr), pattern);
+    return formatDateFns(parseApiDate(dateStr), pattern);
   } catch {
     return dateStr;
   }

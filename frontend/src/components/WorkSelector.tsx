@@ -230,6 +230,7 @@ export default function WorkSelector({
                 </Space>
               </div>
               <Button
+                htmlType="button"
                 type="primary"
                 size="small"
                 disabled={already}
@@ -254,6 +255,7 @@ export default function WorkSelector({
           </Text>
         </Space>
         <Button
+          htmlType="button"
           type="primary"
           icon={<PlusOutlined />}
           disabled={works.length >= maxWorks}
@@ -356,6 +358,7 @@ export default function WorkSelector({
                         {t(isTv ? 'work.series' : 'work.movie')}
                       </Tag>
                       <Button
+                        htmlType="button"
                         type="text"
                         size="small"
                         danger

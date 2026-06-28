@@ -72,6 +72,120 @@ a:hover {
   opacity: 0.8;
 }
 
+.sidebar-control-button.ant-btn {
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.sidebar-control-button.ant-btn:hover,
+.sidebar-control-button.ant-btn:focus,
+.sidebar-control-button.ant-btn:active {
+  background: #f7f7f5 !important;
+  border-color: #e5e7eb !important;
+  color: #17171c !important;
+}
+
+.sidebar-control-button.ant-btn:focus-visible {
+  outline: 1px solid #1863dc;
+  outline-offset: 2px;
+}
+
+/* ─── Channel Detail: resource tables ─── */
+
+.resource-table-wrap {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.resource-table th,
+.resource-table td {
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.resource-title-cell,
+.resource-text-cell {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.resource-check-cell {
+  width: 40px;
+}
+
+@media (max-width: 760px) {
+  .resource-table-wrap {
+    overflow-x: visible;
+  }
+
+  .resource-table,
+  .resource-table thead,
+  .resource-table tbody,
+  .resource-table tr,
+  .resource-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .resource-table thead {
+    display: none;
+  }
+
+  .resource-table tr.resource-row {
+    position: relative;
+    padding: 10px 12px 10px 44px;
+    border-top: 1px solid #f2f2f2;
+  }
+
+  .resource-table td {
+    padding: 2px 0 !important;
+  }
+
+  .resource-table .resource-check-cell {
+    left: 8px;
+    position: absolute;
+    top: 12px;
+    width: 24px;
+  }
+
+  .resource-table .resource-title-cell {
+    font-weight: 600;
+    padding-bottom: 6px !important;
+  }
+
+  .resource-table td:not(.resource-check-cell):not(.resource-title-cell) {
+    color: #616161;
+    display: inline-flex;
+    margin-right: 12px;
+    max-width: 100%;
+  }
+
+  .resource-table td:not(.resource-check-cell):not(.resource-title-cell)::before {
+    color: #93939f;
+    content: attr(data-label);
+    flex: 0 0 auto;
+    font-size: 12px;
+    margin-right: 4px;
+  }
+
+  .resource-table .resource-text-cell {
+    display: flex !important;
+    width: 100%;
+  }
+
+  .resource-table .resource-text-cell .ant-typography {
+    min-width: 0;
+  }
+}
+
 /* ─── Channel Form: two-column layout with persistent preview ─── */
 
 .channel-form-layout {

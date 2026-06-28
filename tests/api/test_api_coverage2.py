@@ -124,43 +124,53 @@ class TestDownloadersMore:
 class TestSeriesMore:
     async def test_delete_series_cascade(self, client, db_session_factory):
         from app.models.file_resource import FileResource
-        from app.models.agent_work import AgentWork
-        from app.models.pending_decision import PendingDecision
-        from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
         from app.models.channel import Channel
-        from app.models.agent import Agent
-        from app.models.downloader import DownloaderInstance
         from sqlalchemy import select
 
         s = await client.post("/api/v1/series", json={"title_cn": "剧D", "title_en": "SD"})
         sid = s.json()["data"]["id"]
-        ch_id = _uuid(); dl_id = _uuid(); a_id = _uuid(); w_id = _uuid()
-        rid = _uuid(); pd_id = _uuid(); mp_id = _uuid()
+        ch_id = _uuid(); rid = _uuid()
         async with db_session_factory() as ss:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
                         metadata_source="none",
                         title_extraction_method="none"),
-                DownloaderInstance(id=dl_id, name="d", type="transmission", url="u", download_dir="/downloads/rssripple"),
-                Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
-                      scope_channel_wide=True),
-                AgentWork(id=w_id, agent_id=a_id, content_type="tv", series_id=sid),
                 FileResource(id=rid, channel_id=ch_id, guid="g", title_raw="r",
                              torrent_url="m:", series_id=sid, search_title="r"),
-                PendingDecision(id=pd_id, agent_id=a_id, status="pending",
-                                candidates=[rid], series_id=sid, reason="x"),
-                ChannelRawTitleMapping(id=mp_id, channel_id=ch_id, raw_title="r",
-                                       series_id=sid),
             ])
             await ss.commit()
         r = await client.delete(f"/api/v1/series/{sid}")
-        assert r.status_code == 200
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
         async with db_session_factory() as ss:
             fr = (await ss.execute(select(FileResource).where(FileResource.id == rid))).scalar_one()
             assert fr.series_id is None
-            w = (await ss.execute(select(AgentWork).where(AgentWork.id == w_id))).scalar_one_or_none()
-            assert w is None
+
+    async def test_delete_series_blocked_by_agent_work(self, client, db_session_factory):
+        """Deletion must return 409 when AgentWork references exist."""
+        from app.models.agent_work import AgentWork
+        from app.models.channel import Channel
+        from app.models.agent import Agent
+        from app.models.downloader import DownloaderInstance
+
+        s = await client.post("/api/v1/series", json={"title_cn": "剧E", "title_en": "SE"})
+        sid = s.json()["data"]["id"]
+        ch_id = _uuid(); dl_id = _uuid(); a_id = _uuid(); w_id = _uuid()
+        async with db_session_factory() as ss:
+            ss.add_all([
+                Channel(id=ch_id, name="c", type="rss_feed", url="u",
+                        status="active", field_mapping=TEST_FIELD_MAPPING,
+                        metadata_source="none", title_extraction_method="none"),
+                DownloaderInstance(id=dl_id, name="d", type="transmission",
+                                   url="u", download_dir="/downloads/rssripple"),
+                Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
+                      scope_channel_wide=True),
+                AgentWork(id=w_id, agent_id=a_id, content_type="tv", series_id=sid),
+            ])
+            await ss.commit()
+        r = await client.delete(f"/api/v1/series/{sid}")
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "DELETE_BLOCKED"
 
     async def test_list_series_populated(self, client):
         await client.post("/api/v1/series", json={"title_en": "S1"})
@@ -181,43 +191,53 @@ class TestSeriesMore:
 class TestMoviesMore:
     async def test_delete_movie_cascade(self, client, db_session_factory):
         from app.models.file_resource import FileResource
-        from app.models.agent_work import AgentWork
-        from app.models.pending_decision import PendingDecision
-        from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
         from app.models.channel import Channel
-        from app.models.agent import Agent
-        from app.models.downloader import DownloaderInstance
         from sqlalchemy import select
 
         m = await client.post("/api/v1/movies", json={"title_cn": "电影D", "title_en": "MD"})
         mid = m.json()["data"]["id"]
-        ch_id = _uuid(); dl_id = _uuid(); a_id = _uuid(); w_id = _uuid()
-        rid = _uuid(); pd_id = _uuid(); mp_id = _uuid()
+        ch_id = _uuid(); rid = _uuid()
         async with db_session_factory() as ss:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
                         metadata_source="none",
                         title_extraction_method="none"),
-                DownloaderInstance(id=dl_id, name="d", type="transmission", url="u", download_dir="/downloads/rssripple"),
-                Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
-                      scope_channel_wide=True),
-                AgentWork(id=w_id, agent_id=a_id, content_type="movie", movie_id=mid),
                 FileResource(id=rid, channel_id=ch_id, guid="g", title_raw="r",
                              torrent_url="m:", movie_id=mid, search_title="r"),
-                PendingDecision(id=pd_id, agent_id=a_id, status="pending",
-                                candidates=[rid], movie_id=mid, reason="x"),
-                ChannelRawTitleMapping(id=mp_id, channel_id=ch_id, raw_title="r",
-                                       movie_id=mid),
             ])
             await ss.commit()
         r = await client.delete(f"/api/v1/movies/{mid}")
-        assert r.status_code == 200
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
         async with db_session_factory() as ss:
             fr = (await ss.execute(select(FileResource).where(FileResource.id == rid))).scalar_one()
             assert fr.movie_id is None
-            w = (await ss.execute(select(AgentWork).where(AgentWork.id == w_id))).scalar_one_or_none()
-            assert w is None
+
+    async def test_delete_movie_blocked_by_agent_work(self, client, db_session_factory):
+        """Deletion must return 409 when AgentWork references exist."""
+        from app.models.agent_work import AgentWork
+        from app.models.channel import Channel
+        from app.models.agent import Agent
+        from app.models.downloader import DownloaderInstance
+
+        m = await client.post("/api/v1/movies", json={"title_cn": "电影E", "title_en": "ME"})
+        mid = m.json()["data"]["id"]
+        ch_id = _uuid(); dl_id = _uuid(); a_id = _uuid(); w_id = _uuid()
+        async with db_session_factory() as ss:
+            ss.add_all([
+                Channel(id=ch_id, name="c", type="rss_feed", url="u",
+                        status="active", field_mapping=TEST_FIELD_MAPPING,
+                        metadata_source="none", title_extraction_method="none"),
+                DownloaderInstance(id=dl_id, name="d", type="transmission",
+                                   url="u", download_dir="/downloads/rssripple"),
+                Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
+                      scope_channel_wide=True),
+                AgentWork(id=w_id, agent_id=a_id, content_type="movie", movie_id=mid),
+            ])
+            await ss.commit()
+        r = await client.delete(f"/api/v1/movies/{mid}")
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "DELETE_BLOCKED"
 
     async def test_list_movies_populated(self, client):
         await client.post("/api/v1/movies", json={"title_en": "M1"})

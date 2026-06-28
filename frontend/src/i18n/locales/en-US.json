@@ -41,8 +41,9 @@
   "nav": {
     "brand": "RSSRipple",
     "dashboard": "Dashboard",
+    "repository": "Repository",
     "channels": "Channels",
-    "agents": "Agents",
+    "agents": "Download Agents",
     "downloaders": "Downloaders"
   },
   "dashboard": {
@@ -156,7 +157,7 @@
     "defaultDir": "Default Directory"
   },
   "agents": {
-    "title": "Agents",
+    "title": "Download Agents",
     "newAgent": "New Agent",
     "editAgent": "Edit Agent",
     "createAgent": "Create Agent",
@@ -305,7 +306,13 @@
     "downloadTasks": "Download Tasks",
     "linkedAgents": "Linked Agents",
     "episodeList": "Episode List",
-    "recentResources": "Recent Resources"
+    "recentResources": "Recent Resources",
+    "deleteConfirm": "Delete this series?",
+    "deleteWarning": "All linked resources will be unlinked. Episode data will be cleared.",
+    "deleteBlockedByAgents": "{n} agent(s) reference this series. Deletion will be blocked.",
+    "deleteBlocked": "Cannot delete: agents reference this series.",
+    "deleteFailed": "Delete failed",
+    "deleted": "Series deleted"
   },
   "movies": {
     "title": "Movies",
@@ -324,7 +331,11 @@
     "enTitle": "English Title",
     "originalTitle": "Original Title",
     "resourceCount": "Resources",
-    "downloadTasks": "Download Tasks"
+    "downloadTasks": "Download Tasks",
+    "deleteConfirm": "Delete this movie? All linked resources will be unlinked.",
+    "deleteBlocked": "Cannot delete: {count} agent(s) reference this movie. Remove the agent work subscriptions first.",
+    "deleteBlockedGeneric": "Cannot delete: movie is referenced by agents. Remove related agent work subscriptions first.",
+    "deleted": "Movie deleted"
   },
   "resource": {
     "detail": "Resource Detail",
@@ -452,6 +463,26 @@
   },
   "pagination": {
     "range": "{from}-{to} of {total}"
+  },
+  "repository": {
+    "title": "Repository",
+    "search": "Search works...",
+    "all": "All",
+    "tvSeries": "TV Series",
+    "movies": "Movies",
+    "noResults": "No works data",
+    "loading": "Loading..."
+  },
+  "works": {
+    "title": "Repository",
+    "searchPlaceholder": "Search works...",
+    "all": "All",
+    "tvSeries": "TV Series",
+    "movies": "Movies",
+    "noResults": "No works data",
+    "tv": "TV Series",
+    "movie": "Movie",
+    "loading": "Loading..."
   },
   "format": {
     "dash": "—",

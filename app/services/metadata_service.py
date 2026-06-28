@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 import re
 from datetime import date, datetime, UTC
@@ -28,8 +27,6 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from thefuzz import fuzz
 
-import asyncio
-
 from app.config import settings
 from app.utils.time import utcnow
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
@@ -40,8 +37,6 @@ logger = logging.getLogger(__name__)
 
 FUZZY_THRESHOLD = 70
 AUTO_LINK_THRESHOLD = 85
-
-_LLM_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 # ---------------------------------------------------------------------------
@@ -233,119 +228,19 @@ async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | No
 
 
 # ---------------------------------------------------------------------------
-# LLM web search
+# Multi-source metadata search (delegates to metadata_search_agent)
 # ---------------------------------------------------------------------------
-
-def _get_search_model() -> str:
-    return settings.llm_search_model or settings.llm_model
 
 
 async def search_metadata_via_llm(title: str) -> list[dict]:
-    """Search for metadata using the LLM web-search tool.
+    """Search for metadata using the multi-source search agent.
 
-    Returns a list of candidate dicts (already sorted best-first by the LLM).
-    Returns an empty list when LLM is unavailable or the call fails.
+    Replaces the single-LLM web-search with TMDB → Exa → LLM fallback.
+    Returns a list of candidate dicts (same shape as before) so callers work unchanged.
     """
-    if not settings.llm_api_key:
-        return []
-    model = _get_search_model()
-    if not model:
-        return []
-
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
-
-    prompt = (
-        f'Search the web for this title and return metadata: "{title}"\n\n'
-        "Return ONLY a JSON object (no markdown) containing an array under the key "
-        '"results" with up to 5 candidate results ranked by relevance. Each result:\n'
-        "{\n"
-        '  "content_type": "tv" or "movie",\n'
-        '  "title_cn": "Chinese title or null",\n'
-        '  "title_en": "English title or null",\n'
-        '  "original_title": "original-language title or null",\n'
-        '  "description": "brief plot summary",\n'
-        '  "poster_url": "direct URL to a poster image or null",\n'
-        '  "year": 2024,\n'
-        '  "rating": 8.2,\n'
-        '  "genre": ["Action"],\n'
-        '  "status": "Ended" or "Returning Series" or "Released" etc,\n'
-        '  "external_id": "stable provider id or null",\n'
-        '  "number_of_episodes": null,\n'
-        '  "number_of_seasons": null,\n'
-        '  "start_date": "YYYY-MM-DD or null",\n'
-        '  "end_date": "YYYY-MM-DD or null",\n'
-        '  "release_date": "YYYY-MM-DD or null",\n'
-        '  "runtime": null\n'
-        "}\n"
-        "Identify whether the title is a TV series/anime or a movie. "
-        "For TV content use content_type=\"tv\" and fill start_date/end_date/episode counts. "
-        "For movies use content_type=\"movie\" and fill release_date/runtime."
-    )
-
-    try:
-        response = await asyncio.wait_for(
-            client.responses.create(
-                model=model,
-                tools=[{"type": "web_search"}],
-                input=prompt,
-            ),
-            timeout=15.0,  # don't hang a batch of 100 entries on one LLM call
-        )
-        raw = (response.output_text or "").strip()
-        m = _LLM_JSON_RE.search(raw)
-        if not m:
-            logger.warning("[llm_search] No JSON in response for %r", title)
-            return []
-        data = json.loads(m.group(0))
-    except asyncio.TimeoutError:
-        logger.warning("[llm_search] Timeout for %r", title)
-        return []
-    except Exception as e:
-        logger.warning("[llm_search] API call failed for %r: %s", title, e)
-        return []
-
-    results = data.get("results") if isinstance(data, dict) else None
-    if not isinstance(results, list):
-        # Fallback: single-result object
-        if isinstance(data, dict) and (data.get("title_en") or data.get("title_cn") or data.get("original_title")):
-            results = [data]
-        else:
-            return []
-
-    normalized: list[dict] = []
-    for r in results:
-        if not isinstance(r, dict):
-            continue
-        ct = r.get("content_type") or "tv"
-        if ct not in ("tv", "movie"):
-            ct = "tv"
-        ext_id = r.get("external_id")
-        if not ext_id:
-            ext_id = "llm_" + hashlib.md5(
-                ((r.get("title_en") or r.get("title_cn") or r.get("original_title") or title).lower()).encode()
-            ).hexdigest()[:12]
-        normalized.append({
-            "content_type": ct,
-            "title_cn": r.get("title_cn"),
-            "title_en": r.get("title_en"),
-            "original_title": r.get("original_title"),
-            "description": r.get("description"),
-            "poster_url": r.get("poster_url"),
-            "year": r.get("year"),
-            "rating": r.get("rating"),
-            "genre": r.get("genre") or [],
-            "status": r.get("status"),
-            "external_id": str(ext_id),
-            "external_source": "llm_search",
-            "number_of_episodes": r.get("number_of_episodes"),
-            "number_of_seasons": r.get("number_of_seasons"),
-            "start_date": r.get("start_date"),
-            "end_date": r.get("end_date"),
-            "release_date": r.get("release_date"),
-            "runtime": r.get("runtime"),
-        })
-    return normalized
+    # Delegate to the multi-source agent (app/services/metadata_search_agent.py)
+    from app.services.metadata_search_agent import search_metadata as agent_search
+    return await agent_search(title)
 
 
 # ---------------------------------------------------------------------------
@@ -390,12 +285,16 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     result = await db.execute(
         select(TVSeries).where(
             TVSeries.external_id == data.get("external_id"),
-            TVSeries.external_source == data.get("external_source", "llm_search"),
+            TVSeries.external_source.in_([data.get("external_source"), "llm_search"]),
         )
     )
     series = result.scalars().first()
 
     if series:
+        # Migrate from llm_search to new source if applicable
+        if series.external_source == "llm_search" and data.get("external_source") != "llm_search":
+            series.external_source = data.get("external_source")
+            series.external_id = data.get("external_id")
         series.description = data.get("description") or series.description
         if data.get("rating") is not None:
             series.rating = data.get("rating")
@@ -470,12 +369,16 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     result = await db.execute(
         select(Movie).where(
             Movie.external_id == data.get("external_id"),
-            Movie.external_source == data.get("external_source", "llm_search"),
+            Movie.external_source.in_([data.get("external_source"), "llm_search"]),
         )
     )
     movie = result.scalars().first()
 
     if movie:
+        # Migrate from llm_search to new source if applicable
+        if movie.external_source == "llm_search" and data.get("external_source") != "llm_search":
+            movie.external_source = data.get("external_source")
+            movie.external_id = data.get("external_id")
         movie.description = data.get("description") or movie.description
         if data.get("rating") is not None:
             movie.rating = data.get("rating")
@@ -592,7 +495,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
 
     # NOTE: 70-84 matches are skipped (too ambiguous) and fall through to LLM layer.
 
-    # Layer 4: LLM web search
+    # Layer 4: Multi-source metadata search
     if channel.metadata_source != "llm":
         return
 

@@ -1,0 +1,118 @@
+# RSSRipple Series & Movies — Browse, search, and view detail
+# Covers: series list with search, series detail (episodes, resources, agents),
+# movies list with search, movie detail.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+
+agent:
+  testId: series-movies
+  groupName: RSSRipple E2E
+  groupDescription: Series and movies browsing and detail tests
+
+tasks:
+  # ── TV Series List ──────────────────────────────────────────────
+  - name: Navigate to Series list
+    flow:
+      - ai: Navigate directly to the /series URL by typing it in the browser address bar, or navigate through a channel detail resource link
+      - ai: The URL should end with /series
+      - sleep: 2000
+
+  - name: Verify series page loads
+    flow:
+      - aiWaitFor: A page showing a list of TV series with columns like Title (CN), Title (EN), Status, Episodes, and Resources is displayed
+        timeout: 10000
+
+  - name: Search for a series
+    flow:
+      - ai: Type a search term in the search input field (e.g., "breaking" or "anime")
+      - aiKeyboardPress: The search input field
+        keyName: Enter
+      - sleep: 3000
+      - aiAssert: The series list filters to show matching results or an empty state
+
+  - name: Clear search and browse full list
+    flow:
+      - ai: Clear the search input field
+      - aiKeyboardPress: The search input field
+        keyName: Enter
+      - sleep: 2000
+
+  # ── Series Detail ───────────────────────────────────────────────
+  - name: Open first series detail
+    flow:
+      - ai: Click on the first series entry in the table to view its detail
+      - aiWaitFor: The series detail page loads with information like title, description, poster, rating, genre, status, and episode count
+        timeout: 10000
+
+  - name: Verify series detail sections
+    flow:
+      - aiAssert: The page shows the series title at the top
+      - ai: Scroll down to view episodes list if available
+      - sleep: 1500
+      - aiAssert: An episodes section or list is displayed
+
+  - name: View linked resources
+    flow:
+      - ai: Look for a "Resources" section showing resources associated with this series
+      - sleep: 1500
+      - aiAssert: Resources linked to this series are listed, or an empty state is shown
+
+  - name: View linked agents
+    flow:
+      - ai: Look for an "Agents" section showing agents subscribed to this series
+      - sleep: 1500
+      - aiAssert: Agents monitoring this series are listed, or an empty state is shown
+
+  - name: Edit series metadata
+    flow:
+      - ai: Click the "Edit" button on the series detail page
+      - sleep: 2000
+      - aiWaitFor: An edit form appears with pre-filled series fields (title, description, genre, etc.)
+        timeout: 10000
+      - ai: Click "Cancel" or go back without saving changes
+      - sleep: 1000
+
+  # ── Movies List ─────────────────────────────────────────────────
+  - name: Navigate to Movies list
+    flow:
+      - ai: Navigate directly to the /movies URL by typing it in the browser address bar
+      - ai: The URL should end with /movies
+      - sleep: 2000
+
+  - name: Verify movies page loads
+    flow:
+      - aiWaitFor: A page showing a list of movies with columns like Title (CN), Title (EN), Status, Release Date, and Runtime is displayed
+        timeout: 10000
+
+  - name: Search for a movie
+    flow:
+      - ai: Type a search term in the search input field (e.g., "inception" or "avatar")
+      - aiKeyboardPress: The search input field
+        keyName: Enter
+      - sleep: 3000
+      - aiAssert: The movies list filters to show matching results or an empty state
+
+  # ── Movie Detail ────────────────────────────────────────────────
+  - name: Open first movie detail
+    flow:
+      - ai: Clear the search field and show full list again
+      - aiKeyboardPress: The search input field
+        keyName: Enter
+      - sleep: 2000
+      - ai: Click on the first movie entry in the table to view its detail
+      - aiWaitFor: The movie detail page loads with information like title, description, poster, rating, genre, status, release date, and runtime
+        timeout: 10000
+
+  - name: Verify movie detail sections
+    flow:
+      - aiAssert: The page shows the movie title at the top
+      - ai: Scroll down to view linked resources and agents sections
+      - sleep: 2000
+      - aiAssert: Resources and agents linked to this movie are displayed, or empty states are shown
+
+  - name: Return to dashboard via sidebar
+    flow:
+      - ai: Click "Dashboard" in the left sidebar
+      - aiWaitFor: The dashboard overview page loads with statistics cards
+        timeout: 10000

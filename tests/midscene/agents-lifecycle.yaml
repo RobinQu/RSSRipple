@@ -1,0 +1,177 @@
+# RSSRipple Agent Lifecycle — Full CRUD + works, filters, run, decisions
+# Covers: create agent with filter DSL and works, view detail with all tabs, manage works,
+# test filters, run agent, handle pending decisions.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+
+agent:
+  testId: agent-lifecycle
+  groupName: RSSRipple E2E
+  groupDescription: Complete agent management lifecycle including filter DSL, works, tasks, and decisions
+
+tasks:
+  # ── Navigate to Agents ──────────────────────────────────────────
+  - name: Navigate to agents list
+    flow:
+      - ai: Click "Agents" in the left sidebar
+      - aiWaitFor: The agents page loads with a table of agents
+        timeout: 10000
+
+  # ── Create Agent ────────────────────────────────────────────────
+  - name: Open new agent form
+    flow:
+      - ai: Click the button to create a new agent ("New Agent", "Create", or plus icon)
+      - aiWaitFor: The agent creation form appears with fields for Name, Channel, Downloader, and other settings
+        timeout: 10000
+
+  - name: Fill agent name
+    flow:
+      - aiInput: The "Name" input field in the agent form
+        value: Test Anime Agent
+      - sleep: 500
+
+  - name: Select channel
+    flow:
+      - ai: Click the "Channel" selector/dropdown
+      - sleep: 500
+      - ai: Select a channel from the dropdown list (pick the first available channel)
+      - sleep: 500
+
+  - name: Select downloader
+    flow:
+      - ai: Click the "Downloader" selector/dropdown
+      - sleep: 500
+      - ai: Select a downloader from the dropdown list (pick the first available downloader)
+      - sleep: 500
+
+  - name: Set download subdirectory
+    flow:
+      - aiInput: The "Download Subdirectory" input field if present
+        value: Anime/Test
+      - sleep: 300
+
+  - name: Configure scope and conflict resolution
+    flow:
+      - ai: Set "Scope Channel Wide" to enabled/on if a toggle exists for it
+      - sleep: 300
+      - ai: Set "Conflict Resolution" to "Ask" if a selector is available (choose "ask" option)
+      - sleep: 300
+
+  - name: Build filter DSL — add resolution condition
+    flow:
+      - ai: In the Filter DSL editor section, add a new condition
+      - ai: Select "resolution" as the field
+      - ai: Select "in" as the operator
+      - ai: Set the value to include "1080p" and "2160p"
+      - sleep: 500
+
+  - name: Verify filter DSL preview
+    flow:
+      - aiAssert: The filter editor shows the configured conditions — a rule selecting resolution in 1080p or 2160p
+
+  - name: Save the agent
+    flow:
+      - ai: Click the "Save" or "Create" button at the bottom of the form
+      - sleep: 3000
+      - aiWaitFor: The agents list page shows "Test Anime Agent" in the table
+        timeout: 10000
+
+  # ── View Agent Detail — Works Tab ───────────────────────────────
+  - name: Open agent detail
+    flow:
+      - ai: In the agents table, click on "Test Anime Agent" to view its detail
+      - aiWaitFor: The agent detail page loads with tab navigation (Works, Tasks, Decisions, Filters, Run)
+        timeout: 10000
+      - aiAssert: The page shows the agent name "Test Anime Agent"
+
+  - name: View Works tab
+    flow:
+      - ai: Click the "Works" or "Subscribed Works" tab
+      - sleep: 2000
+      - aiAssert: The works tab shows the subscribed works list (may be empty if channel-wide scope is enabled)
+
+  - name: Add a work subscription (if scope is not channel-wide)
+    flow:
+      - ai: Look for an "Add Work" or "Add Subscription" button on the works tab
+      - ai: If the button exists, click it
+      - sleep: 2000
+      - ai: If a work selector modal appears, select a series or movie if any are available, then confirm
+      - sleep: 2000
+
+  # ── Agent Detail — Tasks Tab ────────────────────────────────────
+  - name: View Tasks tab
+    flow:
+      - ai: Click the "Tasks" tab
+      - sleep: 3000
+      - aiWaitFor: The tasks tab shows a table of download tasks with columns like Status, Progress, Resource, and actions (Pause/Resume/Retry/Delete)
+        timeout: 10000
+      - aiAssert: The tasks table is displayed, or an empty state message is shown if no tasks exist
+
+  - name: Filter tasks by status if available
+    flow:
+      - ai: Look for a status filter dropdown on the tasks tab
+      - ai: If present, click it and select "completed" or another status to filter
+      - sleep: 2000
+
+  # ── Agent Detail — Decisions Tab ────────────────────────────────
+  - name: View Decisions tab
+    flow:
+      - ai: Click the "Decisions" tab
+      - sleep: 3000
+      - aiWaitFor: The decisions tab shows pending decisions with candidate resources and confirm/skip actions, or an empty state
+        timeout: 10000
+      - aiAssert: The decisions section is displayed with either pending decisions or an empty state message
+
+  - name: Confirm or skip a decision if any exist
+    flow:
+      - ai: If any pending decision is shown, click "Confirm" on one candidate or "Skip" to skip it
+      - sleep: 2000
+      - aiAssert: The decision status updates accordingly
+
+  # ── Agent Detail — Filters Tab ──────────────────────────────────
+  - name: View Filters tab
+    flow:
+      - ai: Click the "Filters" tab
+      - sleep: 3000
+      - aiWaitFor: The filters tab shows the filter DSL editor with the previously configured conditions (resolution in 1080p, 2160p)
+        timeout: 10000
+      - aiAssert: The filter editor displays the resolution filter rule
+
+  - name: Test filters against channel resources
+    flow:
+      - ai: Click the "Test Filters" or "Test" button in the filters tab
+      - sleep: 5000
+      - aiWaitFor: Test results are displayed showing which resources match or do not match the filter
+        timeout: 15000
+      - aiAssert: The test results panel shows matching results (resources listed as pass/fail based on the filter)
+
+  # ── Agent Detail — Run Tab ──────────────────────────────────────
+  - name: View Run tab
+    flow:
+      - ai: Click the "Run" tab
+      - sleep: 2000
+      - aiWaitFor: The run tab shows run controls and status information
+        timeout: 10000
+
+  - name: Trigger manual agent run
+    flow:
+      - ai: Click the "Run" or "Run Now" or "Start" button to trigger agent processing
+      - sleep: 5000
+      - aiAssert: A run status indicator appears showing the run was triggered or is in progress
+
+  # ── Navigate back and delete ────────────────────────────────────
+  - name: Return to agents list
+    flow:
+      - ai: Click the back arrow or "Agents" in the sidebar to return to the agents list
+      - sleep: 2000
+
+  - name: Delete the test agent
+    flow:
+      - ai: Find "Test Anime Agent" in the agents table
+      - ai: Click the "Delete" button for that row
+      - sleep: 1500
+      - ai: Confirm the deletion in any confirmation dialog
+      - sleep: 2000
+      - aiWaitFor: Test Anime Agent is no longer visible in the agents table
+        timeout: 10000

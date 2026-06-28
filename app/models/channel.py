@@ -28,7 +28,7 @@ class Channel(Base):
     )
     field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
     title_extraction_method: Mapped[str] = mapped_column(
-        String(20), default="none", nullable=False
+        String(20), default="llm", nullable=False
     )
     title_extraction_regex: Mapped[str | None] = mapped_column(String(500), nullable=True)
     metadata_source: Mapped[str] = mapped_column(

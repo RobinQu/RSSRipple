@@ -122,7 +122,7 @@ export default function MetadataCorrectionModal({
                 { value: 'movie', label: t('resource.movie') },
               ]}
             />
-            <Button type="primary" onClick={handleSearch} loading={loading}>
+            <Button htmlType="button" type="primary" onClick={handleSearch} loading={loading}>
               {t('metadata.searchBtn')}
             </Button>
           </Space.Compact>
@@ -216,6 +216,7 @@ export default function MetadataCorrectionModal({
                         </Paragraph>
                       )}
                       <Button
+                        htmlType="button"
                         type="primary"
                         size="small"
                         loading={linking}
@@ -230,6 +231,7 @@ export default function MetadataCorrectionModal({
             )}
             <div style={{ marginTop: 12, textAlign: 'center' }}>
               <Button
+                htmlType="button"
                 type="text"
                 size="small"
                 onClick={() => setStep('search')}

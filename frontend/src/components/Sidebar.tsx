@@ -1,12 +1,29 @@
 import { useState } from 'react';
-import { Layout, Menu, Typography, Button, Dropdown } from 'antd';
+import { Layout, Menu, Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { LayoutDashboard, Rss, HardDrive, Bot, Languages } from 'lucide-react';
+import {
+  Bot,
+  ExternalLink,
+  HardDrive,
+  Languages,
+  LayoutDashboard,
+  Library,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Rss,
+} from 'lucide-react';
+import BrandLogo from './BrandLogo';
 
 const { Sider } = Layout;
-const { Text } = Typography;
+const githubUrl = 'https://github.com/RobinQu/RSSRipple';
+
+const iconButtonStyle = {
+  color: '#616161',
+  height: 36,
+  width: 36,
+};
 
 export default function Sidebar() {
   const { t, i18n } = useTranslation();
@@ -27,6 +44,11 @@ export default function Sidebar() {
       key: '/',
       icon: <LayoutDashboard size={16} />,
       label: t('nav.dashboard'),
+    },
+    {
+      key: '/works',
+      icon: <Library size={16} />,
+      label: t('nav.repository'),
     },
     {
       key: '/channels',
@@ -78,26 +100,43 @@ export default function Sidebar() {
       collapsible
       collapsed={collapsed}
       onCollapse={handleCollapse}
+      trigger={null}
       width={220}
       collapsedWidth={72}
       breakpoint="lg"
       style={{
         borderRight: '1px solid #d9d9dd',
+        position: 'relative',
       }}
     >
       <div
         style={{
-          padding: collapsed ? '20px 0' : '20px 16px',
-          textAlign: 'center',
+          alignItems: 'center',
           borderBottom: '1px solid #d9d9dd',
+          display: 'flex',
+          height: 78,
+          justifyContent: collapsed ? 'center' : 'flex-start',
           overflow: 'hidden',
+          padding: collapsed ? '0' : '0 16px',
         }}
       >
-        {collapsed ? (
-          <Text strong style={{ fontSize: 18, color: '#17171c' }}>R</Text>
-        ) : (
-          <Text strong style={{ fontSize: 18, color: '#17171c' }}>RSSRipple</Text>
-        )}
+        <button
+          type="button"
+          aria-label="RSSRipple"
+          title={t('nav.dashboard')}
+          onClick={() => navigate('/')}
+          style={{
+            alignItems: 'center',
+            background: 'transparent',
+            border: 0,
+            cursor: 'pointer',
+            display: 'flex',
+            padding: 0,
+            width: '100%',
+          }}
+        >
+          <BrandLogo collapsed={collapsed} />
+        </button>
       </div>
       <Menu
         mode="inline"
@@ -107,46 +146,112 @@ export default function Sidebar() {
         style={{
           borderRight: 'none',
           padding: '8px 0',
+          paddingBottom: collapsed ? 168 : 136,
         }}
       />
-      {!collapsed && (
-        <div
-          style={{
-            position: 'absolute',
-            bottom: 48,
-            left: 0,
-            right: 0,
-            textAlign: 'center',
-            color: '#93939f',
-            fontSize: 12,
-          }}
-        >
-          v0.2.0
-        </div>
-      )}
       <div
         style={{
           position: 'absolute',
-          bottom: collapsed ? 16 : 80,
-          left: 0,
-          right: 0,
+          bottom: 12,
+          left: collapsed ? 0 : 16,
+          right: collapsed ? 0 : 16,
           display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        {collapsed ? (
+        {!collapsed && (
+          <div
+            style={{
+              color: '#93939f',
+              fontSize: 12,
+              lineHeight: 1.4,
+              textAlign: 'center',
+            }}
+          >
+            <span>v0.2.0</span>
+            <span style={{ color: '#d9d9dd', padding: '0 6px' }}>/</span>
+            <a
+              href={githubUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: '#616161', fontWeight: 650 }}
+            >
+              GitHub
+            </a>
+          </div>
+        )}
+        <div
+          style={{
+            alignItems: 'center',
+            display: 'flex',
+            flexDirection: collapsed ? 'column' : 'row',
+            gap: collapsed ? 6 : 8,
+            justifyContent: 'center',
+          }}
+        >
+          {collapsed && (
+            <Button
+              className="sidebar-control-button"
+              type="text"
+              href={githubUrl}
+              target="_blank"
+              rel="noreferrer"
+              icon={<ExternalLink size={16} />}
+              title="GitHub"
+              style={iconButtonStyle}
+            />
+          )}
+          {collapsed ? (
+            <Button
+              className="sidebar-control-button"
+              type="text"
+              icon={<Languages size={16} />}
+              onClick={() => switchLanguage(i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN')}
+              title={t('language.switch')}
+              style={iconButtonStyle}
+            />
+          ) : (
+            <Dropdown menu={{ items: langItems }} trigger={['click']}>
+              <Button
+                className="sidebar-control-button"
+                type="text"
+                icon={<Languages size={16} />}
+                style={{ color: '#616161' }}
+              >
+                {t('language.switch')}
+              </Button>
+            </Dropdown>
+          )}
           <Button
+            className="sidebar-control-button"
             type="text"
-            icon={<Languages size={16} />}
-            onClick={() => switchLanguage(i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN')}
-            title={t('language.switch')}
+            icon={collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            onClick={() => handleCollapse(!collapsed)}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={collapsed ? iconButtonStyle : { color: '#616161' }}
           />
-        ) : (
-          <Dropdown menu={{ items: langItems }} trigger={['click']}>
-            <Button type="text" icon={<Languages size={16} />}>
-              {t('language.switch')}
-            </Button>
-          </Dropdown>
+        </div>
+        {collapsed ? null : (
+          <a
+            href={githubUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="RSSRipple GitHub"
+            style={{
+              alignItems: 'center',
+              color: '#93939f',
+              display: 'flex',
+              fontSize: 11,
+              gap: 4,
+              lineHeight: 1,
+            }}
+          >
+            <ExternalLink size={12} />
+            RobinQu/RSSRipple
+          </a>
         )}
       </div>
     </Sider>

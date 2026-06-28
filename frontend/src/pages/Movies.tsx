@@ -101,6 +101,7 @@ export default function Movies() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>{t('movies.title')}</Title>
         <Input
+          aria-label={t('movies.search')}
           prefix={<SearchOutlined />}
           placeholder={t('movies.search')}
           value={search}

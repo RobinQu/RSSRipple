@@ -55,7 +55,7 @@ export default function ChannelForm() {
 
   // Metadata & title
   const [metadataSource, setMetadataSource] = useState<'none' | 'llm'>('llm');
-  const [titleMethod, setTitleMethod] = useState<'none' | 'regex' | 'llm'>('none');
+  const [titleMethod, setTitleMethod] = useState<'none' | 'regex' | 'llm'>('llm');
   const [titleRegex, setTitleRegex] = useState('');
   const [generatingRegex, setGeneratingRegex] = useState(false);
 
@@ -119,7 +119,7 @@ export default function ChannelForm() {
             status: ch.status,
           });
           setMetadataSource(ch.metadata_source || 'llm');
-          setTitleMethod(ch.title_extraction_method || 'none');
+          setTitleMethod(ch.title_extraction_method || 'llm');
           setTitleRegex(ch.title_extraction_regex || '');
           if (ch.field_mapping) {
             setFieldMapping(ch.field_mapping as FieldMapping);
@@ -136,6 +136,20 @@ export default function ChannelForm() {
       });
     }
   }, [mode, id, form, fetchPreview, message, navigate]);
+
+  // Auto-trigger field mapping analysis after URL validation succeeds (create mode only)
+  const autoAnalyzeTriggered = useRef(false);
+  useEffect(() => {
+    if (mode === 'create' && urlStatus === 'valid' && !autoAnalyzeTriggered.current && !analyzing) {
+      autoAnalyzeTriggered.current = true;
+      handleAnalyze();
+    }
+  }, [mode, urlStatus, analyzing]);
+  useEffect(() => {
+    if (urlStatus === 'idle' || urlStatus === 'checking') {
+      autoAnalyzeTriggered.current = false;
+    }
+  }, [urlStatus]);
 
   const validateUrl = async () => {
     const url = form.getFieldValue('url');

@@ -135,6 +135,26 @@ export interface Movie {
   resources?: FileResource[];
   resource_count?: number;
   task_count?: number;
+  agent_work_count?: number;
+}
+
+// Unified Work (TVSeries | Movie) for repository view
+export interface Work {
+  id: string;
+  title_cn: string | null;
+  title_en: string | null;
+  original_title: string | null;
+  poster_url: string | null;
+  rating: number | null;
+  status: string | null;
+  content_type: 'tv' | 'movie' | null;
+  number_of_seasons: number | null;
+  number_of_episodes: number | null;
+  release_date: string | null;
+  runtime: number | null;
+  resource_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Episode

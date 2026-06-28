@@ -215,8 +215,8 @@ export default function FilterSummaryModal({
               </Form.Item>
               <div style={{ textAlign: 'right' }}>
                 <Space>
-                  <Button onClick={onClose}>{t('common.cancel')}</Button>
-                  <Button type="primary" onClick={handleCreateFromHere}>
+                  <Button htmlType="button" onClick={onClose}>{t('common.cancel')}</Button>
+                  <Button htmlType="button" type="primary" onClick={handleCreateFromHere}>
                     {t('filter.createAgentAndConfig')}
                   </Button>
                 </Space>
@@ -250,8 +250,9 @@ export default function FilterSummaryModal({
                   )}
                   <div style={{ textAlign: 'right', marginTop: 16 }}>
                     <Space>
-                      <Button onClick={onClose}>{t('common.cancel')}</Button>
+                      <Button htmlType="button" onClick={onClose}>{t('common.cancel')}</Button>
                       <Button
+                        htmlType="button"
                         type="primary"
                         loading={applying}
                         disabled={!applyAgentId}

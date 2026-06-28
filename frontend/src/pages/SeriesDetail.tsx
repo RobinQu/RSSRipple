@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Trash2 } from 'lucide-react';
 import {
   Typography, Spin, Card, Button, Space, Tag, Descriptions,
-  Row, Col, Statistic, Table,
+  Row, Col, Statistic, Table, Modal, App,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { seriesApi } from '../api/series';
@@ -16,6 +16,8 @@ const { Title, Text } = Typography;
 export default function SeriesDetail() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { message } = App.useApp();
   const [series, setSeries] = useState<TVSeries | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -26,6 +28,50 @@ export default function SeriesDetail() {
       setLoading(false);
     });
   }, [id]);
+
+  const handleDelete = () => {
+    if (!series) return;
+    const agentWorkCount = series.agent_work_count ?? 0;
+
+    Modal.confirm({
+      title: t('series.deleteConfirm'),
+      icon: null,
+      content: (
+        <div>
+          <p>{t('series.deleteWarning')}</p>
+          {agentWorkCount > 0 && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: '10px 14px',
+                borderRadius: 6,
+                background: '#2a1a1a',
+                border: '1px solid #6b3434',
+                color: '#e88a8a',
+                fontSize: 13,
+              }}
+            >
+              {t('series.deleteBlockedByAgents', { n: agentWorkCount })}
+            </div>
+          )}
+        </div>
+      ),
+      okText: t('common.delete'),
+      okType: 'danger',
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        const r = await seriesApi.delete(id!);
+        if (r.success) {
+          message.success(t('series.deleted'));
+          navigate('/works');
+        } else if (r.error?.code === 'DELETE_BLOCKED') {
+          message.error(r.error?.message || t('series.deleteBlocked'));
+        } else {
+          message.error(r.error?.message || t('series.deleteFailed'));
+        }
+      },
+    });
+  };
 
   const episodeColumns: TableColumnsType<Episode> = [
     { title: t('series.season'), dataIndex: 'season', key: 'season', width: 60 },
@@ -54,6 +100,15 @@ export default function SeriesDetail() {
           {series.title_cn || series.title_en || series.original_title}
         </Title>
         <Tag color="blue">{t('series.title')}</Tag>
+        <Button
+          type="default"
+          danger
+          icon={<Trash2 size={14} />}
+          onClick={handleDelete}
+          style={{ marginLeft: 8 }}
+        >
+          {t('common.delete')}
+        </Button>
       </Space>
 
       {/* Metadata card */}

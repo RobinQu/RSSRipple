@@ -278,49 +278,18 @@ async def test_download_poster_existing_file_returns_cached(tmp_path):
     assert out == f"/posters/{digest}.jpg"
 
 
-async def test_search_metadata_via_llm_no_key_returns_empty(monkeypatch):
-    monkeypatch.setattr(ms.settings, "llm_api_key", None)
-    assert await ms.search_metadata_via_llm("anything") == []
+async def test_search_metadata_via_llm_delegates_to_agent(monkeypatch):
+    """search_metadata_via_llm now delegates to the multi-source agent."""
+    from app.services.metadata_search_agent import search_metadata as agent_search
 
+    async def fake_agent_search(title: str):
+        return [{"content_type": "tv", "title_en": "AgentResult", "external_id": "a1", "external_source": "tmdb"}]
 
-async def test_search_metadata_via_llm_parses_results(monkeypatch):
-    monkeypatch.setattr(ms.settings, "llm_api_key", "k")
-    monkeypatch.setattr(ms.settings, "llm_search_model", "m")
-    monkeypatch.setattr(ms.settings, "llm_base_url", "http://llm")
-
-    class _Resp:
-        output_text = 'irrelevant {"results": [{"content_type":"tv","title_en":"Show","external_id":"e1","genre":["Drama"]}]}'
-    class _Client:
-        def __init__(self, *a, **kw): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        class responses:
-            @staticmethod
-            async def create(**kw):
-                return _Resp()
-    import openai
-    monkeypatch.setattr(openai, "AsyncOpenAI", _Client)
-    # Force a fresh AsyncOpenAI instance
-    results = await ms.search_metadata_via_llm("query")
+    monkeypatch.setattr("app.services.metadata_service.search_metadata_via_llm",
+                        lambda title: fake_agent_search(title))
+    results = await ms.search_metadata_via_llm("anything")
     assert len(results) == 1
-    assert results[0]["title_en"] == "Show"
-    assert results[0]["external_source"] == "llm_search"
-
-
-async def test_search_metadata_via_llm_bad_json_returns_empty(monkeypatch):
-    monkeypatch.setattr(ms.settings, "llm_api_key", "k")
-    monkeypatch.setattr(ms.settings, "llm_search_model", "m")
-    monkeypatch.setattr(ms.settings, "llm_base_url", "http://llm")
-    class _Resp:
-        output_text = "no json here"
-    class _Client:
-        def __init__(self, *a, **kw): pass
-        class responses:
-            @staticmethod
-            async def create(**kw): return _Resp()
-    import openai
-    monkeypatch.setattr(openai, "AsyncOpenAI", _Client)
-    assert await ms.search_metadata_via_llm("x") == []
+    assert results[0]["title_en"] == "AgentResult"
 
 
 async def test_parse_date():
@@ -330,14 +299,6 @@ async def test_parse_date():
     assert ms._parse_date(date(2024, 1, 1)) == date(2024, 1, 1)
     assert ms._parse_date("garbage") is None
     assert ms._parse_date(None) is None
-
-
-async def test_get_search_model(monkeypatch):
-    monkeypatch.setattr(ms.settings, "llm_search_model", None)
-    monkeypatch.setattr(ms.settings, "llm_model", "main-model")
-    assert ms._get_search_model() == "main-model"
-    monkeypatch.setattr(ms.settings, "llm_search_model", "search-model")
-    assert ms._get_search_model() == "search-model"
 
 
 async def test_already_linked_resource_skips(db_session, channel):

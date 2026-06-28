@@ -191,6 +191,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     errors = jsonable_encoder(exc.errors(), custom_encoder={Exception: str})
+    message = "; ".join(str(error.get("msg", error)) for error in errors) or "Validation error"
     logger.warning(
         "Validation error %s %s: %s",
         request.method, request.url.path, errors,
@@ -200,7 +201,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={
             "success": False,
             "data": None,
-            "error": {"code": "VALIDATION_ERROR", "message": errors},
+            "error": {"code": "VALIDATION_ERROR", "message": message, "details": errors},
             "meta": {},
         },
     )
@@ -244,7 +245,7 @@ app.add_middleware(
 )
 
 # API routers
-from app.api.v1 import channels, agents, downloaders, tasks, decisions, dashboard, resources, series, movies  # noqa: E402
+from app.api.v1 import channels, agents, downloaders, tasks, decisions, dashboard, resources, series, movies, works  # noqa: E402
 
 app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
@@ -255,6 +256,7 @@ app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
 app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
 app.include_router(series.router, prefix="/api/v1", tags=["series"])
 app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
+app.include_router(works.router, prefix="/api/v1", tags=["works"])
 
 # Poster image cache - mount even if empty/default
 _poster_dir = Path(settings.poster_cache_dir)
@@ -270,12 +272,17 @@ app.mount("/posters", StaticFiles(directory=str(_poster_dir)), name="poster-cach
 if STATIC_DIR.exists():  # pragma: no cover
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="static-assets")
 
+    def spa_index_response() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store, max-age=0"})
+
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
+            if file_path.name == "index.html":
+                return spa_index_response()
             return FileResponse(file_path)
-        return FileResponse(STATIC_DIR / "index.html")
+        return spa_index_response()
 else:
     @app.get("/")
     async def root():  # pragma: no cover
