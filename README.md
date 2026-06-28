@@ -131,25 +131,31 @@ uv run pytest tests/unit tests/api -v
 
 ### Integration tests (docker-compose)
 
-Integration tests spin up a dedicated RSS feed server, Redis, and the app containers:
+Two test profiles are available:
+
+**Single-node (SQLite + MemoryQueue)** — fast, no external dependencies:
 
 ```bash
 # Clean stale database files from previous runs
 rm -rf data/ && mkdir -p data
 
-# Run all integration tests
+# Run all integration tests suitable for single-node
 docker compose -f docker-compose.test.yml run --rm test-runner
-```
 
-```bash
 # Run a single integration test module
 docker compose -f docker-compose.test.yml run --rm test-runner \
   uv run pytest tests/integration/test_channel_workflow.py -v --tb=short
 ```
 
-94 integration tests run against real test RSS feeds served by the test-server container. Tests that exercise LLM features are skipped unless the model is configured in `.env`.
+**Distributed (PostgreSQL + Redis, two app replicas)** — exercises multi-instance queue dedup:
 
-**Note:** `./data` is bind-mounted, so stale SQLite files persist across `docker compose down -v`. Always run `rm -rf data/ && mkdir -p data` before a clean test run.
+```bash
+docker compose -f docker-compose.test-distributed.yml run --rm test-runner
+```
+
+Tests that require a persistent network client (E2E, torrent lifecycle) are excluded from both profiles. Redis-specific job-queue tests are automatically skipped in single-node mode.
+
+**Note:** `./data` is bind-mounted in the single-node profile, so stale SQLite files persist across `docker compose down -v`. Always run `rm -rf data/ && mkdir -p data` before a clean test run.
 
 ## Development Collaboration
 
