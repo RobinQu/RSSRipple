@@ -1,15 +1,15 @@
 """Integration tests: task queue endpoints — MemoryQueue and RedisQueue.
 
-Tests run against two live app instances configured in docker-compose.test.yml:
-  app        (QUEUE_BACKEND=memory) → http://app:9001
-  app-redis  (QUEUE_BACKEND=redis)  → http://app-redis:9001
+When a distinct REDIS_APP_URL is configured (distributed/Docker-Compose with
+two app instances), tests are parametrized over both backends ("memory" and
+"redis").  In single-node setups REDIS_APP_URL is omitted, tests run against
+the MemoryQueue instance only, and Redis-specific dedup tests are skipped.
 
-Each test class is parametrized over both backend URLs so the same assertions
-apply to both implementations.  Tests create isolated channels/agents via the
-API, trigger background jobs, and poll until terminal state.
+Run single-node:
+  docker compose -f docker-compose.test.yml run --rm test-runner
 
-Run with:
-  docker compose -f docker-compose.test.yml up --build
+Run distributed:
+  docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 """
 
 import os
@@ -21,16 +21,18 @@ import pytest
 
 TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
 APP_MEMORY = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
-APP_REDIS = os.environ.get("REDIS_APP_URL", "http://app-redis:9001")
+APP_REDIS = os.environ.get("REDIS_APP_URL", "")
+if not APP_REDIS:
+    APP_REDIS = APP_MEMORY  # single-node fallback
+_HAS_DISTINCT_REDIS = APP_REDIS != APP_MEMORY
 
 POLL_INTERVAL = 0.5      # seconds between status polls
 FETCH_TIMEOUT = 45.0     # max seconds to wait for a fetch to finish
 READY_TIMEOUT = 60.0     # max seconds to wait for an app to become reachable
 
-ALL_BACKENDS = [
-    pytest.param(APP_MEMORY, id="memory"),
-    pytest.param(APP_REDIS, id="redis"),
-]
+ALL_BACKENDS = [pytest.param(APP_MEMORY, id="memory")]
+if _HAS_DISTINCT_REDIS:
+    ALL_BACKENDS.append(pytest.param(APP_REDIS, id="redis"))
 
 
 # ---------------------------------------------------------------------------
@@ -39,8 +41,11 @@ ALL_BACKENDS = [
 
 @pytest.fixture(scope="session", autouse=True)
 def wait_for_all_apps():
-    """Block until both app instances answer 200 on GET /api/v1/channels."""
-    for url in [APP_MEMORY, APP_REDIS]:
+    """Block until all configured app instances answer 200 on GET /api/v1/channels."""
+    urls = {APP_MEMORY}
+    if _HAS_DISTINCT_REDIS:
+        urls.add(APP_REDIS)
+    for url in urls:
         deadline = time.monotonic() + READY_TIMEOUT
         while True:
             try:
@@ -353,7 +358,15 @@ class TestRedisDistributedDedup:
     sharing the same Redis.  Here we use a single app-redis instance but
     validate that the shared Redis state returned via /fetch-status matches
     the job initiated via /fetch, demonstrating the shared-state contract.
+
+    Skipped automatically when no distinct Redis-backed app instance is
+    available (single-node docker-compose.test.yml).
     """
+
+    @pytest.fixture(autouse=True)
+    def _require_redis(self):
+        if not _HAS_DISTINCT_REDIS:
+            pytest.skip("No distinct Redis-backed app instance configured")
 
     def test_status_key_shared_after_enqueue(self):
         """State stored by /fetch is immediately visible via /fetch-status."""

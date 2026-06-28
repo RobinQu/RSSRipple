@@ -80,9 +80,12 @@ feature/issue-123-new-login
 # 单元测试和 API 测试
 uv run pytest tests/unit tests/api -v
 
-# 集成测试
+# 集成测试（单节点：SQLite + MemoryQueue）
 rm -rf data/ && mkdir -p data
 docker compose -f docker-compose.test.yml run --rm test-runner
+
+# 集成测试（分布式：PostgreSQL + Redis，双实例）
+docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 ```
 
 ## 工具推荐

@@ -1,0 +1,90 @@
+name: CI Strict Gate
+
+on:
+  push:
+    branches:
+      - develop
+      - 'release/**'
+  pull_request:
+    branches:
+      - develop
+      - 'release/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run ruff
+        run: uv run ruff check .
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Run unit and API tests
+        run: uv run pytest tests/unit tests/api -v --tb=short
+
+  integration-single:
+    needs: [lint, unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create minimal .env
+        run: touch .env
+
+      - name: Prepare data directory
+        run: rm -rf data/ && mkdir -p data
+
+      - name: Run single-node integration tests
+        run: docker compose -f docker-compose.test.yml run --rm test-runner
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.test.yml down --remove-orphans -v
+
+  integration-distributed:
+    needs: [lint, unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create minimal .env
+        run: touch .env
+
+      - name: Start distributed services
+        run: |
+          docker compose -f docker-compose.test-distributed.yml up -d
+          echo "Waiting for services to become healthy..."
+          for i in $(seq 1 36); do
+            HEALTHY=$(docker compose -f docker-compose.test-distributed.yml ps --format json 2>/dev/null | grep -c '"Health":"healthy"' || true)
+            EXPECTED=5
+            if [ "$HEALTHY" -ge "$EXPECTED" ]; then
+              echo "All $HEALTHY services healthy after ${i}0s"
+              break
+            fi
+            echo "  ${i}0s: $HEALTHY/$EXPECTED services healthy, waiting..."
+            sleep 10
+          done
+
+      - name: Run distributed integration tests
+        run: docker compose -f docker-compose.test-distributed.yml run --rm test-runner
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.test-distributed.yml down --remove-orphans -v

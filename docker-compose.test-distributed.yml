@@ -1,13 +1,21 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# RSSRipple integration tests — Distributed (multi-node, external storage)
+# ==============================================================================
+# RSSRipple Integration Tests — Distributed
 #
-#   • PostgreSQL (shared database, no SQLite)
+#   • PostgreSQL (shared database)
 #   • Redis (shared task queue)
 #   • Two app replicas behind independent health checks
 #
+# Complements docker-compose.test.yml (single-node SQLite/MemoryQueue).
+# Runs all integration tests except those requiring a persistent network
+# client (test_e2e.py, test_torrent_lifecycle.py) and those that are
+# specific to single-node/SQLite setups.
+#
+# test_task_queue.py is parametrized over both app-1 and app-2, exercising
+# the Redis-backed queue in a true multi-instance configuration.
+#
 # Usage:
 #   docker compose -f docker-compose.test-distributed.yml run --rm test-runner
-# ──────────────────────────────────────────────────────────────────────────────
+# ==============================================================================
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
@@ -69,9 +77,9 @@ services:
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
       interval: 5s
-      timeout: 10s
+      timeout: 15s
       retries: 30
-      start_period: 45s
+      start_period: 60s
     restart: unless-stopped
 
   # ── RSSRipple replica 2 ────────────────────────────────────────────────────
@@ -95,9 +103,9 @@ services:
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
       interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
+      timeout: 15s
+      retries: 30
+      start_period: 40s
     restart: unless-stopped
 
   # ── Test runner ────────────────────────────────────────────────────────────
