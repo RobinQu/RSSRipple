@@ -145,32 +145,4 @@ docker compose -f docker-compose.test.yml run --rm test-runner \
 
 ## Development Collaboration
 
-### Branch Naming
-
-All branches must follow [Conventional Branch](https://conventionalbranch.org/) v1.1.0:
-
-```
-<type>/<description>
-```
-
-- Lowercase letters, digits, and hyphens only. No spaces, underscores, or uppercase.
-- No consecutive or leading/trailing hyphens.
-
-Common prefixes:
-
-| Prefix | Use |
-|---|---|
-| `feature/` / `feat/` | New features |
-| `bugfix/` / `fix/` | Bug fixes |
-| `hotfix/` | Urgent fixes |
-| `release/` | Release preparation |
-| `chore/` | Dependencies, docs, config |
-| `ai/` / `copilot/` / `cursor/` / `claude/` / `codex/` | AI agent-generated branches |
-
-Examples:
-- `feature/i18n-support`
-- `fix/sqlite-lock`
-- `release/v1.0.0`
-- `chore/update-deps`
-
-See [AGENTS.md](AGENTS.md#分支与协作规范) for the full specification with examples of valid and invalid names.
+See [CONTRIBUTION.md](CONTRIBUTION.md) for branch naming conventions and development workflow. See [AGENTS.md](AGENTS.md#分支与协作规范) for the full branch specification (intended for AI agents).
