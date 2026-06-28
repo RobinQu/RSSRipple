@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+
+from app.config import settings
+from app.services.task_queue import task_queue, JobStatus
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +33,7 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         trigger=IntervalTrigger(minutes=1),
         id="sync_progress",
         replace_existing=True,
-        next_run_time=datetime.now(UTC) + timedelta(seconds=30),
+        next_run_time=utcnow() + timedelta(seconds=30),
     )
     _scheduler.add_job(
         _cleanup_expired,
@@ -42,7 +46,7 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         trigger=IntervalTrigger(hours=1),
         id="check_downloaders",
         replace_existing=True,
-        next_run_time=datetime.now(UTC) + timedelta(minutes=2),
+        next_run_time=utcnow() + timedelta(minutes=2),
     )
     _scheduler.start()
     logger.info("Scheduler started")
@@ -77,7 +81,7 @@ def schedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
         id=job_id,
         args=[channel.id],
         replace_existing=True,
-        next_run_time=datetime.now(UTC) + timedelta(seconds=5),
+        next_run_time=utcnow() + timedelta(seconds=5),
     )
 
 
@@ -150,7 +154,7 @@ async def _sync_download_progress() -> None:
                         task.eta = torrent.get("eta_seconds")
                         if torrent["is_finished"] or torrent.get("left_until_done", 1) == 0:
                             task.status = "completed"
-                            task.completed_at = datetime.now(UTC)
+                            task.completed_at = utcnow()
                         elif torrent["status"] == "stopped":
                             task.status = "paused"
                         elif torrent["status"] in ("downloading", "download pending", "queued"):
@@ -158,10 +162,10 @@ async def _sync_download_progress() -> None:
                         else:
                             task.status = "downloading"
                     downloader.status = "connected"
-                    downloader.last_checked_at = datetime.now(UTC)
+                    downloader.last_checked_at = utcnow()
                 except Exception as e:
                     downloader.status = "error"
-                    downloader.last_checked_at = datetime.now(UTC)  # type: ignore[arg-type]
+                    downloader.last_checked_at = utcnow()  # type: ignore[arg-type]
                     for task in dl_tasks:
                         # Don't override tasks that are already complete/cancelled
                         if task.status in ("pending", "queued", "downloading"):
@@ -187,7 +191,7 @@ async def _cleanup_expired() -> None:
 
     async with async_session_factory() as db:
         try:
-            now = datetime.now(UTC)
+            now = utcnow()
             # Expire pending decisions past expires_at
             stale_stmt = select(PendingDecision).where(and_(
                 PendingDecision.status == "pending",
@@ -243,7 +247,7 @@ async def _check_downloader_connections() -> None:
                     dl.status = "connected" if ok else "error"
                 except Exception:
                     dl.status = "error"
-                dl.last_checked_at = datetime.now(UTC)
+                dl.last_checked_at = utcnow()
             await db.commit()
         except Exception as e:
             logger.exception("Downloader connection check failed: %s", e)

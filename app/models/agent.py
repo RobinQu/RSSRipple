@@ -24,7 +24,7 @@ class Agent(Base):
     )
     download_subdir: Mapped[str | None] = mapped_column(String(500), nullable=True)
     task_expire_days: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
-    llm_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    llm_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     scope_channel_wide: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     conflict_resolution: Mapped[str] = mapped_column(
         String(20), default="ask", nullable=False

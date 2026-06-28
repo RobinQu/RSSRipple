@@ -29,14 +29,9 @@ Or against a local dev server::
 import json
 import os
 import time
-from pathlib import Path
 
 import httpx
 import pytest
-from dotenv import load_dotenv
-
-_project_root = Path(__file__).resolve().parents[2]
-load_dotenv(_project_root / ".env")
 
 RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 
@@ -45,12 +40,8 @@ RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 # first call, keeping the overall runtime manageable.
 REAL_FEED_URL = "https://nyaa.si/?page=rss&c=1_2&f=0&q=spy+x+family+1080p"
 
-_HAS_LLM_KEY = bool(os.getenv("LLM_API_KEY"))
-
-pytestmark = pytest.mark.skipif(
-    not _HAS_LLM_KEY,
-    reason="LLM_API_KEY not set — skipping real-feed integration test",
-)
+# Skip is handled inside the fixture (more reliable than module-level pytestmark
+# in Docker where load_dotenv may race with env_file injection).
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +117,11 @@ def channel(request):
     if vdata["downloadable_count"] == 0:
         pytest.skip("Real feed has no downloadable entries — feed may have changed")
 
-    # 2. Create channel with LLM title extraction
+    if not os.getenv("LLM_API_KEY"):
+        pytest.skip("LLM_API_KEY not set — skipping real-feed integration test")
+
+    # 2. Create channel with LLM title extraction, initially inactive
+    # to prevent the scheduler from auto-fetching while we set up mappings.
     resp = httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
         json={
@@ -135,6 +130,7 @@ def channel(request):
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
             "title_extraction_method": "llm",
+            "status": "inactive",
         },
         timeout=30,
     )
@@ -161,15 +157,16 @@ def channel(request):
 
     assert field_mapping, "LLM produced no field_mapping"
 
-    # 4. Save the mapping back to the channel
+    # 4. Save the mapping back to the channel and activate it
     resp = httpx.put(
         f"{RSSRIPPLE}/api/v1/channels/{channel_id}",
         json={
             "name": "Nyaa Real Feed — e2e test",
             "field_mapping": field_mapping,
             "title_extraction_method": "llm",
+            "status": "active",
         },
-        timeout=15,
+        timeout=30,
     )
     assert resp.status_code == 200, f"update channel failed: {resp.text}"
 
@@ -179,7 +176,7 @@ def channel(request):
         timeout=30,
     )
     assert resp.status_code == 200
-    fetch_result = _poll_fetch(channel_id, timeout=240)
+    fetch_result = _poll_fetch(channel_id, timeout=600)
 
     return {
         "id": channel_id,
@@ -217,10 +214,14 @@ class TestRealFeedEndToEnd:
         )
 
     def test_fetch_created_resources(self, channel):
-        """At least one FileResource must be created by the fetch."""
+        """At least one FileResource must exist (scheduler may have auto-fetched)."""
         result = channel["fetch_result"]
-        assert result["result"]["new_count"] > 0, (
-            f"Fetch completed but created 0 new resources: {result['result']}"
+        assert result["status"] == "done"
+        # new_count can be 0 if the scheduler auto-fetched before the manual fetch.
+        # Verify resources actually exist via the resources endpoint.
+        resources, total = _resources(channel["id"])
+        assert total > 0, (
+            f"No resources found for channel {channel['id']}"
         )
 
     def test_resources_have_torrent_urls(self, channel):

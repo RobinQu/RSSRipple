@@ -49,7 +49,7 @@ def _create_channel(name: str = "Token Test Channel", url: str = FEED_URL,
             "title_extraction_method": "none",
         },
         headers=headers,
-        timeout=20,
+        timeout=15,
     )
 
 

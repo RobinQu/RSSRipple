@@ -1,0 +1,143 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# RSSRipple integration tests — Distributed (multi-node, external storage)
+#
+#   • PostgreSQL (shared database, no SQLite)
+#   • Redis (shared task queue)
+#   • Two app replicas behind independent health checks
+#
+# Usage:
+#   docker compose -f docker-compose.test-distributed.yml run --rm test-runner
+# ──────────────────────────────────────────────────────────────────────────────
+services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=rssripple
+      - POSTGRES_PASSWORD=rssripple
+      - POSTGRES_DB=rssripple_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rssripple -d rssripple_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Integration test server (RSS feeds + BitTorrent tracker) ───────────────
+  test-server:
+    build:
+      context: .
+      dockerfile: tests/integration/Dockerfile
+    environment:
+      - SERVER_URL=http://test-server:8080
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    restart: unless-stopped
+
+  # ── RSSRipple replica 1 ────────────────────────────────────────────────────
+  app-1:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
+      - QUEUE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 45s
+    restart: unless-stopped
+
+  # ── RSSRipple replica 2 ────────────────────────────────────────────────────
+  app-2:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
+      - QUEUE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Test runner ────────────────────────────────────────────────────────────
+  test-runner:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
+      - TEST_SERVER_URL=http://test-server:8080
+      - RSSRIPPLE_URL=http://app-1:9001
+      - REDIS_APP_URL=http://app-2:9001
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./tests:/app/tests:ro
+    depends_on:
+      app-1:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      test-server:
+        condition: service_healthy
+    command:
+      - "sh"
+      - "-c"
+      - "uv sync --frozen && uv run pytest tests/integration/ -v --tb=short -x --ignore=tests/integration/test_e2e.py --ignore=tests/integration/test_torrent_lifecycle.py --ignore=tests/integration/test_fetch_with_real_feed.py --ignore=tests/integration/test_rss_subscription.py"
+
+  # ── Transmission (torrent lifecycle tests only) ────────────────────────────
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    volumes:
+      - transmission-test-config:/config
+      - ./docker/transmission/custom-cont-init.d:/custom-cont-init.d:ro
+      - test-downloads:/downloads
+      - test-watch:/watch
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PEERPORT=51413
+
+volumes:
+  transmission-test-config:
+  test-downloads:
+  test-watch:

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -35,7 +35,7 @@ class FileResource(Base):
     audio_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)
     subtitle_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     container: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     torrent_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     detail_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

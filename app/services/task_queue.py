@@ -19,8 +19,11 @@ import json
 import logging
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime, UTC
+from datetime import datetime
 from typing import Any, Callable, Awaitable
+
+from app.config import settings
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +104,7 @@ class _MemJob:
         self.status = JobStatus.QUEUED
         self.result: Any = None
         self.error: str | None = None
-        self.queued_at = datetime.now(UTC)
+        self.queued_at = utcnow()
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
 
@@ -171,7 +174,7 @@ class MemoryQueue(BaseQueue):
     async def _run(self, job: _MemJob) -> None:
         async with self._sem:
             job.status = JobStatus.RUNNING
-            job.started_at = datetime.now(UTC)
+            job.started_at = utcnow()
             logger.info("Running %s/%s (job=%s)", job.job_type, job.key[:16], job.job_id)
             try:
                 handler = self._handlers.get(job.job_type)
@@ -185,7 +188,7 @@ class MemoryQueue(BaseQueue):
                 job.error = str(exc)
                 logger.error("Failed %s/%s: %s", job.job_type, job.key[:16], exc)
             finally:
-                job.finished_at = datetime.now(UTC)
+                job.finished_at = utcnow()
                 self._active_keys.discard(job.key)
                 self._queue.task_done()
 
@@ -250,7 +253,7 @@ class RedisQueue(BaseQueue):
     async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
         active_key = f"{_ACTIVE_PFX}{key}"
         job_id = uuid.uuid4().hex[:8]
-        now = datetime.now(UTC).isoformat()
+        now = utcnow().isoformat()
 
         # Atomic SETNX — only one active job per key across all instances
         acquired = await self._redis.set(active_key, job_id, nx=True, ex=self._ttl)
@@ -308,7 +311,7 @@ class RedisQueue(BaseQueue):
                 pipe.hset(redis_key, mapping={
                     "status": JobStatus.FAILED,
                     "error": f"No handler registered for job_type={job_type!r}",
-                    "finished_at": datetime.now(UTC).isoformat(),
+                    "finished_at": utcnow().isoformat(),
                 })
                 pipe.delete(active_key)
                 pipe.expire(redis_key, self._ttl)
@@ -318,7 +321,7 @@ class RedisQueue(BaseQueue):
         async with self._sem:
             await self._redis.hset(redis_key, mapping={
                 "status": JobStatus.RUNNING,
-                "started_at": datetime.now(UTC).isoformat(),
+                "started_at": utcnow().isoformat(),
             })
             logger.info("Running %s/%s", job_type, key[:16])
 
@@ -341,7 +344,7 @@ class RedisQueue(BaseQueue):
             async with self._redis.pipeline(transaction=True) as pipe:
                 pipe.hset(redis_key, mapping={
                     "status": finish_status,
-                    "finished_at": datetime.now(UTC).isoformat(),
+                    "finished_at": utcnow().isoformat(),
                     **finish_extra,
                 })
                 pipe.delete(active_key)

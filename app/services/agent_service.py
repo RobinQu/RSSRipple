@@ -22,6 +22,7 @@ from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.filter_engine import evaluate_filter_config, merge_filters
 from app.utils.download_paths import DownloadPathError, resolve_download_dir
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -52,38 +53,41 @@ async def dispatch_download(
     agent: Agent, resource: FileResource, db: AsyncSession
 ) -> DownloadTask:
     """Create a DownloadTask and attempt to add it to Transmission."""
-    if not agent.downloader_id:
+    from app.models.downloader import DownloaderInstance
+    downloader = await db.get(DownloaderInstance, agent.downloader_id)
+    if not downloader:
         task = DownloadTask(
             agent_id=agent.id,
             file_resource_id=resource.id,
-            downloader_id=None,
+            downloader_id=agent.downloader_id,
+            download_dir=agent.download_subdir or "",
             status="error",
-            error_message="No downloader configured for agent",
+            error_message=f"Downloader {agent.downloader_id} not found",
             max_retries=settings.max_retry_count,
         )
         db.add(task)
         await db.flush()
         return task
 
-    from app.models.downloader import DownloaderInstance
-    downloader = await db.get(DownloaderInstance, agent.downloader_id)
-    download_dir: str | None = None
-    if downloader:
-        try:
-            download_dir = resolve_download_dir(downloader.download_dir, agent.download_subdir)
-        except DownloadPathError as e:
-            task = DownloadTask(
-                agent_id=agent.id,
-                file_resource_id=resource.id,
-                downloader_id=agent.downloader_id,
-                download_dir=None,
-                status="error",
-                error_message=str(e),
-                max_retries=settings.max_retry_count,
-            )
-            db.add(task)
-            await db.flush()
-            return task
+    # Resolve the effective download directory, falling back to the downloader
+    # root directory if subdir resolution fails.
+    download_dir: str
+    try:
+        download_dir = resolve_download_dir(downloader.download_dir, agent.download_subdir)
+    except DownloadPathError as e:
+        download_dir = downloader.download_dir
+        task = DownloadTask(
+            agent_id=agent.id,
+            file_resource_id=resource.id,
+            downloader_id=agent.downloader_id,
+            download_dir=download_dir,
+            status="error",
+            error_message=str(e),
+            max_retries=settings.max_retry_count,
+        )
+        db.add(task)
+        await db.flush()
+        return task
 
     task = DownloadTask(
         agent_id=agent.id,
@@ -95,11 +99,6 @@ async def dispatch_download(
     )
     db.add(task)
     await db.flush()
-
-    if not downloader:
-        task.status = "error"
-        task.error_message = f"Downloader {agent.downloader_id} not found"
-        return task
 
     from app.clients.transmission import TransmissionWrapper
 
@@ -116,7 +115,7 @@ async def dispatch_download(
         )
         task.status = "downloading"
         task.transmission_torrent_id = result["torrent_id"]
-        task.confirmed_at = datetime.now(UTC)
+        task.confirmed_at = utcnow()
     except Exception as e:
         logger.warning("Failed to add torrent for resource %s: %s", resource.id, e)
         task.status = "error"
@@ -190,7 +189,7 @@ async def create_pending_decision(
         reason=reason,
         llm_suggestion=llm,
         status="pending",
-        expires_at=datetime.now(UTC) + timedelta(days=7),
+        expires_at=utcnow() + timedelta(days=7),
     )
     db.add(pd)
     await db.flush()

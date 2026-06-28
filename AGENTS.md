@@ -74,6 +74,7 @@ class FileResource(Base):
     parsed_at: datetime | None           # 字段映射解析完成时间
     metadata_matched_at: datetime | None # metadata 匹配完成时间
     created_at: datetime
+    updated_at: datetime
 ```
 
 资源的 FK 互斥规则：
@@ -111,6 +112,8 @@ class TVSeries(Base):
     episodes: list[Episode]
     file_resources: list[FileResource]
     agent_works: list[AgentWork]
+    raw_title_mappings: list[ChannelRawTitleMapping]
+    pending_decisions: list[PendingDecision]
 ```
 
 ### Movie（电影 - Metadata 缓存）
@@ -175,9 +178,9 @@ class Agent(Base):
     download_subdir: str | None          # 可选：相对 Downloader.download_dir 的子目录
                                          # 示例 "Anime/2026-01"，禁止绝对路径、..、空段逃逸
     task_expire_days: int                # completed 任务自动清理天数，默认 30
-    llm_enabled: bool                    # 是否启用 LLM 辅助决策（影响冲突自动解决建议）
+    llm_enabled: bool                    # 是否启用 LLM 辅助决策（影响冲突自动解决建议），默认 true
     scope_channel_wide: bool             # true=订阅整个频道（仅靠 filter_config 过滤）
-                                         # false=仅订阅 works 中的作品
+                                         # false=仅订阅 works 中的作品，默认 false
     conflict_resolution: str             # 冲突处理策略: "ask" | "auto"，默认 "ask"
                                          # "ask"=多候选时创建 PendingDecision 等待用户
                                          # "auto"=按启发式评分自动选择最优资源
@@ -297,6 +300,7 @@ class PendingDecision(Base):
     expires_at: datetime | None          # 过期时间（默认 7 天）
     created_at: datetime
     decided_at: datetime | None
+    updated_at: datetime
 ```
 
 ### DownloaderInstance（下载器实例）
@@ -314,7 +318,7 @@ class DownloaderInstance(Base):
     download_dir: str                    # 默认下载目录（必填）
                                          # Transmission 下载服务器本地可读写的绝对路径
                                          # 支持该服务器 OS 的路径风格（POSIX/Windows/UNC）
-    status: str                          # "connected" | "disconnected" | "error"
+    status: str                          # "connected" | "disconnected" | "error"，默认 "disconnected"
     last_checked_at: datetime | None     # 上次连通性检查时间
     created_at: datetime
     updated_at: datetime

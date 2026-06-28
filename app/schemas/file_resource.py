@@ -3,7 +3,16 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+def _coerce_file_size(v: int | float | None) -> int | None:
+    """Accept float file_size (e.g. LLM-extracted "10.7 GiB" → 10.7) and truncate to int."""
+    if v is None:
+        return None
+    if isinstance(v, float):
+        return int(v)
+    return v
 
 
 class FileResourceResponse(BaseModel):
@@ -37,6 +46,11 @@ class FileResourceResponse(BaseModel):
     movie: Any | None = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("file_size", mode="before")
+    @classmethod
+    def coerce_file_size(cls, v: Any) -> int | None:
+        return _coerce_file_size(v)
 
 
 class GroupedResource(BaseModel):
