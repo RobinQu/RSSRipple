@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Typography,
   Card,
@@ -43,6 +44,7 @@ const ACTIVE_STATUSES = new Set([
 
 export default function DownloaderDetail() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const { message } = App.useApp();
 
   const [dl, setDl] = useState<DownloaderInstance | null>(null);
@@ -69,7 +71,7 @@ export default function DownloaderDetail() {
       setTorrents(res.data);
       setTorrentError(null);
     } else {
-      setTorrentError(res.error?.message ?? '无法连接到 Transmission');
+      setTorrentError(res.error?.message ?? t('downloaders.transmissionUnreachable'));
     }
     setLoadingTorrents(false);
   }, [id]);
@@ -103,15 +105,19 @@ export default function DownloaderDetail() {
   const handleTest = async () => {
     if (!id) return;
     const res = await downloadersApi.test(id);
-    if (res.success) message.success(res.data.free_space != null ? `连接成功，可用空间 ${formatBytes(res.data.free_space)}` : (res.data.message || '连接成功'));
-    else message.error(res.error?.message || '连接失败');
+    if (res.success) {
+      const freeSpace = res.data.free_space != null ? `, ${formatBytes(res.data.free_space)}` : '';
+      message.success(res.data.message || `${t('downloaders.connectionSuccess')}${freeSpace}`);
+    } else {
+      message.error(res.error?.message || t('downloaders.connectionFailed'));
+    }
     fetchDl();
     fetchTorrents();
   };
 
   const torrentColumns: TableColumnsType<TorrentInfo> = [
     {
-      title: '名称',
+      title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
       ellipsis: true,
@@ -123,21 +129,21 @@ export default function DownloaderDetail() {
         ),
     },
     {
-      title: '目录',
+      title: t('common.directory'),
       dataIndex: 'download_dir',
       key: 'download_dir',
       ellipsis: true,
-      render: (v: string | null) => <Text type="secondary">{v || '—'}</Text>,
+      render: (v: string | null) => <Text type="secondary">{v || t('format.dash')}</Text>,
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 130,
       render: (s: string) => <Tag color={STATUS_COLOR[s] ?? 'default'}>{s}</Tag>,
     },
     {
-      title: '进度',
+      title: t('common.progress'),
       dataIndex: 'percent_done',
       key: 'percent_done',
       width: 160,
@@ -159,30 +165,30 @@ export default function DownloaderDetail() {
       ),
     },
     {
-      title: () => <Space size={4}><ArrowDown size={13} />下载</Space>,
+      title: () => <Space size={4}><ArrowDown size={13} />{t('downloaders.download')}</Space>,
       dataIndex: 'rate_download',
       key: 'rate_download',
       width: 100,
       render: (v: number) =>
-        v > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatSpeed(v)}</span> : <Text type="secondary">—</Text>,
+        v > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatSpeed(v)}</span> : <Text type="secondary">{t('format.dash')}</Text>,
     },
     {
-      title: () => <Space size={4}><ArrowUp size={13} />上传</Space>,
+      title: () => <Space size={4}><ArrowUp size={13} />{t('downloaders.upload')}</Space>,
       dataIndex: 'rate_upload',
       key: 'rate_upload',
       width: 100,
       render: (v: number) =>
-        v > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatSpeed(v)}</span> : <Text type="secondary">—</Text>,
+        v > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatSpeed(v)}</span> : <Text type="secondary">{t('format.dash')}</Text>,
     },
     {
-      title: 'ETA',
+      title: t('downloaders.eta'),
       dataIndex: 'eta_seconds',
       key: 'eta',
       width: 80,
       render: (v: number | null) => <Text type="secondary">{formatEta(v)}</Text>,
     },
     {
-      title: '大小',
+      title: t('downloaders.size'),
       dataIndex: 'total_size',
       key: 'total_size',
       width: 90,
@@ -192,7 +198,7 @@ export default function DownloaderDetail() {
 
   const taskColumns: TableColumnsType<DownloadTask> = [
     {
-      title: '标题',
+      title: t('common.title'),
       key: 'title',
       ellipsis: true,
       render: (_, r) => (
@@ -200,24 +206,24 @@ export default function DownloaderDetail() {
       ),
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 110,
       render: (s: string) => <StatusBadge status={s} />,
     },
     {
-      title: '进度',
+      title: t('common.progress'),
       dataIndex: 'progress',
       key: 'progress',
       width: 180,
       render: (p: number) => <Progress percent={Math.round(p * 100)} size="small" />,
     },
-    { title: '速度', dataIndex: 'download_speed', key: 'speed', width: 110, render: (v: number) => formatSpeed(v) },
+    { title: t('common.speed'), dataIndex: 'download_speed', key: 'speed', width: 110, render: (v: number) => formatSpeed(v) },
   ];
 
   if (loadingDl) return <Spin />;
-  if (!dl) return <Text type="danger">下载器未找到</Text>;
+  if (!dl) return <Text type="danger">{t('downloaders.notFound')}</Text>;
 
   return (
     <div>
@@ -228,41 +234,41 @@ export default function DownloaderDetail() {
         </div>
         <Space>
           <Button icon={<RefreshCw size={14} />} onClick={fetchTorrents} loading={loadingTorrents}>
-            刷新
+            {t('common.refresh')}
           </Button>
           <Button icon={<Zap size={14} />} onClick={handleTest}>
-            测试连接
+            {t('downloaders.testConnection')}
           </Button>
           <Link to={`/downloaders/${id}/edit`}>
-            <Button type="primary" icon={<Edit size={14} />}>编辑</Button>
+            <Button type="primary" icon={<Edit size={14} />}>{t('common.edit')}</Button>
           </Link>
         </Space>
       </div>
 
       <Card style={{ marginBottom: 24 }}>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="URL">{dl.url}</Descriptions.Item>
-          <Descriptions.Item label="默认目录">{dl.download_dir}</Descriptions.Item>
-          <Descriptions.Item label="状态">
+          <Descriptions.Item label={t('common.url')}>{dl.url}</Descriptions.Item>
+          <Descriptions.Item label={t('downloaders.defaultDir')}>{dl.download_dir}</Descriptions.Item>
+          <Descriptions.Item label={t('common.status')}>
             <Tag color={dl.status === 'connected' ? 'success' : dl.status === 'error' ? 'error' : 'default'}>
               {dl.status.toUpperCase()}
             </Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="上次检查">
-            {dl.last_checked_at ? timeAgo(dl.last_checked_at) : '—'}
+          <Descriptions.Item label={t('downloaders.lastCheck')}>
+            {dl.last_checked_at ? timeAgo(dl.last_checked_at) : t('format.dash')}
           </Descriptions.Item>
         </Descriptions>
       </Card>
 
       <Title level={4} style={{ marginBottom: 12 }}>
-        Transmission 种子
+        {t('downloaders.transmissionTorrents')}
         <Text type="secondary" style={{ fontSize: 14, fontWeight: 'normal', marginLeft: 8 }}>
           ({torrents.length})
         </Text>
       </Title>
 
       {torrentError ? (
-        <Alert type="error" message="无法连接 Transmission" description={torrentError} showIcon style={{ marginBottom: 16 }} />
+        <Alert type="error" message={t('downloaders.transmissionUnreachable')} description={torrentError} showIcon style={{ marginBottom: 16 }} />
       ) : (
         <Table
           columns={torrentColumns}
@@ -271,12 +277,12 @@ export default function DownloaderDetail() {
           loading={loadingTorrents}
           size="small"
           pagination={torrents.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}
-          locale={{ emptyText: 'Transmission 中暂无种子' }}
+          locale={{ emptyText: t('downloaders.noTransmissionTorrents') }}
           style={{ marginBottom: 24 }}
         />
       )}
 
-      <Title level={4} style={{ marginBottom: 12 }}>本地任务记录</Title>
+      <Title level={4} style={{ marginBottom: 12 }}>{t('downloaders.localTasks')}</Title>
       <Table
         columns={taskColumns}
         dataSource={tasks}
@@ -289,7 +295,7 @@ export default function DownloaderDetail() {
           onChange: setTaskPage,
           showSizeChanger: false,
         }}
-        locale={{ emptyText: '暂无任务' }}
+        locale={{ emptyText: t('common.noData') }}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Edit, RefreshCw } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty, Spin, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -11,6 +12,7 @@ import type { Channel } from '../types';
 const { Title } = Typography;
 
 export default function Channels() {
+  const { t } = useTranslation();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -60,7 +62,7 @@ export default function Channels() {
           return n;
         });
         loadChannels();
-        done.forEach((_id) => message.success(`频道已更新`));
+        done.forEach((_id) => message.success(t('channels.updated')));
       }
     }, 2000);
     return () => clearInterval(timer);
@@ -68,18 +70,18 @@ export default function Channels() {
 
   const handleDelete = (id: string) => {
     modal.confirm({
-      title: '确定删除该频道？',
-      content: '所有相关资源、Agent 和任务将被级联删除，此操作不可撤销。',
-      okText: '删除',
+      title: t('channels.deleteConfirm'),
+      content: t('channels.deleteWarning'),
+      okText: t('common.delete'),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         const r = await channelsApi.delete(id);
         if (r.success) {
-          message.success('频道已删除');
+          message.success(t('channels.deleted'));
           loadChannels();
         } else {
-          message.error(r.error?.message || '删除失败');
+          message.error(r.error?.message || t('channels.deleteFailed'));
         }
       },
     });
@@ -95,19 +97,19 @@ export default function Channels() {
         n.delete(id);
         return n;
       });
-      message.error(r.error?.message || '抓取失败');
+      message.error(r.error?.message || t('channels.fetchFailed'));
     }
   };
 
   const columns: TableColumnsType<Channel> = [
     {
-      title: '名称',
+      title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
       render: (name: string, record) => <Link to={`/channels/${record.id}`}>{name}</Link>,
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 110,
@@ -115,35 +117,35 @@ export default function Channels() {
         <Space size={4}>
           <StatusBadge status={status} />
           {record.last_fetch_status && record.last_fetch_status === 'failed' && (
-            <Tag color="error" style={{ fontSize: 10 }}>上次失败</Tag>
+            <Tag color="error" style={{ fontSize: 10 }}>{t('channels.lastFailed')}</Tag>
           )}
         </Space>
       ),
     },
     {
-      title: '抓取间隔',
+      title: t('channels.fetchInterval'),
       dataIndex: 'fetch_interval',
       key: 'fetch_interval',
       width: 120,
-      render: (v: number) => `${Math.round(v / 60)} 分钟`,
+      render: (v: number) => t('channels.minutesUnit', { n: Math.round(v / 60) }),
     },
     {
-      title: 'Metadata',
+      title: t('channels.metadataSource'),
       dataIndex: 'metadata_source',
       key: 'metadata_source',
       width: 110,
       render: (v: string) =>
-        v === 'llm' ? <Tag color="blue">LLM 搜索</Tag> : <Tag>本地匹配</Tag>,
+        v === 'llm' ? <Tag color="blue">{t('channels.llmSearch')}</Tag> : <Tag>{t('channels.localMatch')}</Tag>,
     },
     {
-      title: '上次抓取',
+      title: t('channels.lastFetch'),
       dataIndex: 'last_fetched_at',
       key: 'last_fetched_at',
       width: 150,
-      render: (val: string | null) => (val ? timeAgo(val) : '从未'),
+      render: (val: string | null) => (val ? timeAgo(val) : t('common.never')),
     },
     {
-      title: '操作',
+      title: t('common.operation'),
       key: 'actions',
       width: 180,
       align: 'right',
@@ -157,10 +159,10 @@ export default function Channels() {
               disabled={isFetching}
               icon={isFetching ? <Spin size="small" /> : <RefreshCw size={14} />}
               onClick={() => handleFetch(record.id)}
-              title="手动抓取"
+              title={t('channels.fetchNow')}
             />
             <Link to={`/channels/${record.id}/edit`}>
-              <Button type="text" size="small" icon={<Edit size={14} />} title="编辑" />
+              <Button type="text" size="small" icon={<Edit size={14} />} title={t('common.edit')} />
             </Link>
             <Button
               type="text"
@@ -168,7 +170,7 @@ export default function Channels() {
               danger
               icon={<Trash2 size={14} />}
               onClick={() => handleDelete(record.id)}
-              title="删除"
+              title={t('common.delete')}
             />
           </Space>
         );
@@ -187,12 +189,12 @@ export default function Channels() {
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
-          频道
+          {t('channels.title')}
         </Title>
         <Link to="/channels/new">
-          <Button type="primary" icon={<Plus size={14} />}>
-            新建频道
-          </Button>
+            <Button type="primary" icon={<Plus size={14} />}>
+              {t('channels.newChannel')}
+            </Button>
         </Link>
       </div>
 
@@ -202,7 +204,7 @@ export default function Channels() {
         rowKey="id"
         loading={loading}
         locale={{
-          emptyText: <Empty description="还没有频道，点击右上角新建" />,
+          emptyText: <Empty description={t('channels.noChannels')} />,
         }}
         pagination={{
           current: page,

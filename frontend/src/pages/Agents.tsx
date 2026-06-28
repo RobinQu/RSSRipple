@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Play } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -11,6 +12,7 @@ import type { Agent } from '../types';
 const { Title } = Typography;
 
 export default function Agents() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<Agent[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -34,18 +36,18 @@ export default function Agents() {
 
   const handleDelete = (id: string) => {
     modal.confirm({
-      title: '确定删除该 Agent？',
-      content: '相关下载任务将被标记为取消，此操作不可撤销。',
-      okText: '删除',
+      title: t('agents.deleteConfirm'),
+      content: t('agents.deleteWarning'),
+      okText: t('common.delete'),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         const r = await agentsApi.delete(id);
         if (r.success) {
-          message.success('Agent 已删除');
+          message.success(t('agents.deleted'));
           fetchItems();
         } else {
-          message.error(r.error?.message || '删除失败');
+          message.error(r.error?.message || t('agents.deleteFailed'));
         }
       },
     });
@@ -53,19 +55,19 @@ export default function Agents() {
 
   const handleRun = async (id: string) => {
     const r = await agentsApi.run(id);
-    if (r.success) message.success('已触发运行');
-    else message.error(r.error?.message || '触发失败');
+    if (r.success) message.success(t('agents.runTriggered'));
+    else message.error(r.error?.message || t('agents.runFailed'));
   };
 
   const columns: TableColumnsType<Agent> = [
     {
-      title: '名称',
+      title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
       render: (name: string, record) => <Link to={`/agents/${record.id}`}>{name}</Link>,
     },
     {
-      title: '频道',
+      title: t('agents.channel'),
       key: 'channel',
       render: (_, record) =>
         record.channel ? (
@@ -75,50 +77,50 @@ export default function Agents() {
         ),
     },
     {
-      title: '下载器',
+      title: t('agents.downloader'),
       key: 'downloader',
-      render: (_, record) => record.downloader?.name || record.downloader_id?.slice(0, 8) || '—',
+      render: (_, record) => record.downloader?.name || record.downloader_id?.slice(0, 8) || t('format.dash'),
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 100,
       render: (status: string) => <StatusBadge status={status} />,
     },
     {
-      title: '范围',
+      title: t('agents.scope'),
       key: 'scope',
       width: 120,
       render: (_, record) =>
         record.scope_channel_wide ? (
-          <Tag color="purple">整个频道</Tag>
+          <Tag color="purple">{t('agents.channelWide')}</Tag>
         ) : (
-          <Tag color="blue">{record.works?.length || 0} 作品</Tag>
+          <Tag color="blue">{t('agents.worksCount', { n: record.works?.length || 0 })}</Tag>
         ),
     },
     {
-      title: '冲突处理',
+      title: t('agents.conflictResolution'),
       dataIndex: 'conflict_resolution',
       key: 'conflict_resolution',
       width: 120,
-      render: (v: string) => (v === 'auto' ? <Tag>自动</Tag> : <Tag color="gold">询问</Tag>),
+      render: (v: string) => (v === 'auto' ? <Tag>{t('agents.auto')}</Tag> : <Tag color="gold">{t('agents.ask')}</Tag>),
     },
     {
-      title: 'LLM',
+      title: t('agents.llm'),
       key: 'llm',
       width: 80,
-      render: (_, record) => (record.llm_enabled ? <Tag color="blue">开</Tag> : <Tag>关</Tag>),
+      render: (_, record) => (record.llm_enabled ? <Tag color="blue">{t('agents.on')}</Tag> : <Tag>{t('agents.off')}</Tag>),
     },
     {
-      title: '上次运行',
+      title: t('agents.lastRun'),
       dataIndex: 'last_run_at',
       key: 'last_run_at',
       width: 150,
-      render: (val: string | null) => (val ? timeAgo(val) : '从未'),
+      render: (val: string | null) => (val ? timeAgo(val) : t('common.never')),
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'actions',
       width: 140,
       align: 'right',
@@ -129,7 +131,7 @@ export default function Agents() {
             size="small"
             icon={<Play size={14} />}
             onClick={() => handleRun(record.id)}
-            title="立即运行"
+            title={t('agents.runNow')}
           />
           <Button
             type="text"
@@ -137,7 +139,7 @@ export default function Agents() {
             danger
             icon={<Trash2 size={14} />}
             onClick={() => handleDelete(record.id)}
-            title="删除"
+            title={t('common.delete')}
           />
         </Space>
       ),
@@ -148,11 +150,11 @@ export default function Agents() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>
-          Agents
+          {t('agents.title')}
         </Title>
         <Link to="/agents/new">
           <Button type="primary" icon={<Plus size={14} />}>
-            新建 Agent
+            {t('agents.newAgent')}
           </Button>
         </Link>
       </div>
@@ -162,7 +164,7 @@ export default function Agents() {
         dataSource={items}
         rowKey="id"
         loading={loading}
-        locale={{ emptyText: <Empty description="还没有 Agent" /> }}
+        locale={{ emptyText: <Empty description={t('agents.noAgents')} /> }}
         pagination={{
           current: page,
           pageSize: 20,

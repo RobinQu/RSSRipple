@@ -13,6 +13,7 @@ import {
   Descriptions,
 } from 'antd';
 import { Copy, Film, Pencil } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import { formatBytes, formatDate } from '../utils/format';
 import MetadataCorrectionModal from './MetadataCorrectionModal';
@@ -77,6 +78,7 @@ export default function ResourceDetailDrawer({
   onClose,
   onCorrected,
 }: ResourceDetailDrawerProps) {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [meta, setMeta] = useState<LinkedMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
@@ -97,14 +99,14 @@ export default function ResourceDetailDrawer({
           setMeta({
             type: 'series',
             title:
-              d.series.title_cn || d.series.title_en || '未知剧集',
+              d.series.title_cn || d.series.title_en || t('resource.unknownSeries'),
             poster_url: d.series.poster_url,
           });
         } else if (d.movie_id && d.movie) {
           setMeta({
             type: 'movie',
             title:
-              d.movie.title_cn || d.movie.title_en || '未知电影',
+              d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie'),
             poster_url: d.movie.poster_url,
           });
         } else {
@@ -128,41 +130,42 @@ export default function ResourceDetailDrawer({
 
   const copyTorrent = (url: string) => {
     navigator.clipboard.writeText(url).then(
-      () => message.success('磁力链接已复制'),
-      () => message.error('复制失败'),
+      () => message.success(t('resource.magnetCopied')),
+      () => message.error(t('resource.copyFailed')),
     );
   };
 
   const r = resourceData || resource;
   const open = resource !== null;
 
+  const dash = t('format.dash');
   const parsedItems: Array<{ key: string; label: string; children: React.ReactNode }> = r
     ? [
-        { key: 'subtitle_group', label: '字幕组', children: r.subtitle_group || '—' },
+        { key: 'subtitle_group', label: t('resource.subtitleGroup'), children: r.subtitle_group || dash },
         {
           key: 'episode',
-          label: '集数',
-          children: r.episode != null ? (r.season != null ? `S${r.season}E${r.episode}` : `第 ${r.episode} 集`) : '—',
+          label: t('resource.episode'),
+          children: r.episode != null ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode })) : dash,
         },
-        { key: 'resolution', label: '分辨率', children: r.resolution || '—' },
-        { key: 'source', label: '来源', children: r.source || '—' },
-        { key: 'video_codec', label: '视频编码', children: r.video_codec || '—' },
-        { key: 'audio_codec', label: '音频编码', children: r.audio_codec || '—' },
-        { key: 'subtitle_type', label: '字幕类型', children: r.subtitle_type || '—' },
-        { key: 'container', label: '容器格式', children: r.container || '—' },
+        { key: 'resolution', label: t('resource.resolution'), children: r.resolution || dash },
+        { key: 'source', label: t('resource.source'), children: r.source || dash },
+        { key: 'video_codec', label: t('resource.videoCodec'), children: r.video_codec || dash },
+        { key: 'audio_codec', label: t('resource.audioCodec'), children: r.audio_codec || dash },
+        { key: 'subtitle_type', label: t('resource.subtitleType'), children: r.subtitle_type || dash },
+        { key: 'container', label: t('resource.container'), children: r.container || dash },
         {
           key: 'file_size',
-          label: '文件大小',
-          children: r.file_size != null ? formatBytes(r.file_size) : '—',
+          label: t('resource.fileSize'),
+          children: r.file_size != null ? formatBytes(r.file_size) : dash,
         },
         {
           key: 'published_at',
-          label: '发布时间',
-          children: r.published_at ? formatDate(r.published_at) : '—',
+          label: t('resource.publishedAt'),
+          children: r.published_at ? formatDate(r.published_at) : dash,
         },
         {
           key: 'detail_url',
-          label: '详情页',
+          label: t('resource.detailUrl'),
           children: r.detail_url ? (
             <a
               href={r.detail_url}
@@ -170,15 +173,15 @@ export default function ResourceDetailDrawer({
               rel="noreferrer"
               style={{ color: '#1863dc' }}
             >
-              打开
+              {t('resource.open')}
             </a>
           ) : (
-            '—'
+            dash
           ),
         },
         {
           key: 'torrent_url',
-          label: '下载链接',
+          label: t('resource.downloadLink'),
           children: r.torrent_url ? (
             <Space size={4}>
               <Tooltip title={r.torrent_url}>
@@ -199,7 +202,7 @@ export default function ResourceDetailDrawer({
               />
             </Space>
           ) : (
-            '—'
+            dash
           ),
         },
       ]
@@ -208,7 +211,7 @@ export default function ResourceDetailDrawer({
   return (
     <>
       <Drawer
-        title={r ? r.title_cn || r.title_raw : '资源详情'}
+        title={r ? r.title_cn || r.title_raw : t('resource.detail')}
         open={open}
         onClose={onClose}
         width={window.innerWidth < 768 ? '100%' : 520}
@@ -221,7 +224,7 @@ export default function ResourceDetailDrawer({
             icon={<Pencil size={12} />}
             onClick={() => setCorrectionOpen(true)}
           >
-            修正元数据
+            {t('resource.correctMetadata')}
           </Button>
         }
       >
@@ -235,7 +238,7 @@ export default function ResourceDetailDrawer({
             {/* Metadata section */}
             <div style={{ marginBottom: 16 }}>
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
-                元数据
+                {t('resource.metadata')}
               </Text>
               {metaLoading ? (
                 <div style={{ textAlign: 'center', padding: '24px 0' }}>
@@ -257,7 +260,7 @@ export default function ResourceDetailDrawer({
                     <Space size={6} style={{ marginBottom: 6 }}>
                       <Text strong>{meta.title}</Text>
                       <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
-                        {meta.type === 'series' ? '剧集' : '电影'}
+                        {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
                       </Tag>
                     </Space>
                   </div>
@@ -277,7 +280,7 @@ export default function ResourceDetailDrawer({
                     style={{ marginBottom: 8 }}
                   />
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    尚未关联元数据
+                    {t('resource.noMetadata')}
                   </Text>
                   <div style={{ marginTop: 8 }}>
                     <Button
@@ -285,7 +288,7 @@ export default function ResourceDetailDrawer({
                       icon={<Pencil size={12} />}
                       onClick={() => setCorrectionOpen(true)}
                     >
-                      手动修正
+                      {t('resource.manualFix')}
                     </Button>
                   </div>
                 </div>
@@ -296,7 +299,7 @@ export default function ResourceDetailDrawer({
 
             {/* Parsed details */}
             <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
-              解析字段
+              {t('resource.parsedFields')}
             </Text>
             <Descriptions
               column={1}

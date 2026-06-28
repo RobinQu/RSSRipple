@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Zap, Edit } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -20,6 +21,7 @@ export default function Downloaders() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const { t } = useTranslation();
   const { message, modal } = App.useApp();
 
   const fetchItems = async () => {
@@ -40,49 +42,49 @@ export default function Downloaders() {
   const handleTest = async (id: string) => {
     const res = await downloadersApi.test(id);
     if (res.success) message.success(res.data.message);
-    else message.error(res.error?.message || '连接测试失败');
+    else message.error(res.error?.message || t('downloaders.testFailed'));
     fetchItems();
   };
 
   const handleDelete = (id: string) => {
     modal.confirm({
-      title: '确定删除该下载器？',
-      content: '仍有关联 Agent 时不能删除该下载器。',
-      okText: '删除',
+      title: t('downloaders.deleteConfirm'),
+      content: t('downloaders.deleteLinked'),
+      okText: t('common.delete'),
       okButtonProps: { danger: true },
-      cancelText: '取消',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         const r = await downloadersApi.delete(id);
         if (r.success) {
-          message.success('下载器已删除');
+          message.success(t('downloaders.deleted'));
           fetchItems();
-        } else message.error(r.error?.message || '删除失败');
+        } else message.error(r.error?.message || t('downloaders.deleteFailed'));
       },
     });
   };
 
   const columns: TableColumnsType<DownloaderInstance> = [
     {
-      title: '名称',
+      title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
       render: (name: string, r) => <Link to={`/downloaders/${r.id}`}>{name}</Link>,
     },
-    { title: '类型', dataIndex: 'type', key: 'type', width: 120 },
+    { title: t('common.type'), dataIndex: 'type', key: 'type', width: 120 },
     {
-      title: 'URL',
+      title: t('common.url'),
       dataIndex: 'url',
       key: 'url',
       ellipsis: true,
     },
     {
-      title: '默认目录',
+      title: t('downloaders.defaultDir'),
       dataIndex: 'download_dir',
       key: 'download_dir',
       ellipsis: true,
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 120,
@@ -91,14 +93,14 @@ export default function Downloaders() {
       ),
     },
     {
-      title: '上次检查',
+      title: t('downloaders.lastCheck'),
       dataIndex: 'last_checked_at',
       key: 'last_checked_at',
       width: 150,
-      render: (v: string | null) => (v ? timeAgo(v) : '—'),
+      render: (v: string | null) => (v ? timeAgo(v) : t('format.dash')),
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'actions',
       width: 160,
       align: 'right',
@@ -108,18 +110,18 @@ export default function Downloaders() {
             type="text"
             size="small"
             icon={<Zap size={14} />}
-            title="测试连接"
+            title={t('downloaders.testConnection')}
             onClick={() => handleTest(record.id)}
           />
           <Link to={`/downloaders/${record.id}/edit`}>
-            <Button type="text" size="small" icon={<Edit size={14} />} title="编辑" />
+            <Button type="text" size="small" icon={<Edit size={14} />} title={t('common.edit')} />
           </Link>
           <Button
             type="text"
             size="small"
             danger
             icon={<Trash2 size={14} />}
-            title="删除"
+            title={t('common.delete')}
             onClick={() => handleDelete(record.id)}
           />
         </Space>
@@ -130,9 +132,9 @@ export default function Downloaders() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>下载器</Title>
+        <Title level={3} style={{ margin: 0 }}>{t('downloaders.title')}</Title>
         <Link to="/downloaders/new">
-          <Button type="primary" icon={<Plus size={14} />}>添加下载器</Button>
+          <Button type="primary" icon={<Plus size={14} />}>{t('downloaders.addDownloader')}</Button>
         </Link>
       </div>
 
@@ -141,7 +143,7 @@ export default function Downloaders() {
         dataSource={items}
         rowKey="id"
         loading={loading}
-        locale={{ emptyText: <Empty description="还没有下载器" /> }}
+        locale={{ emptyText: <Empty description={t('downloaders.noDownloaders')} /> }}
         pagination={{
           current: page,
           pageSize: 50,

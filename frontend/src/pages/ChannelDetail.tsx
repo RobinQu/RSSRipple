@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft,
   Pencil,
@@ -59,6 +60,7 @@ function groupColor(type: GroupedResource['type']) {
 const PAGE_SIZE = 30;
 
 export default function ChannelDetail() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -142,7 +144,7 @@ export default function ChannelDetail() {
     const r = await channelsApi.fetch(id);
     if (!r.success) {
       setFetchStatus(null);
-      message.error(r.error?.message || '抓取触发失败');
+      message.error(r.error?.message || t('channels.fetchTriggerFailed'));
     }
   };
 
@@ -167,7 +169,7 @@ export default function ChannelDetail() {
   if (loading) {
     return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
   }
-  if (!channel) return <Text type="danger">频道未找到</Text>;
+  if (!channel) return <Text type="danger">{t('channels.notFound')}</Text>;
 
   // Separate unknown group
   const knownGroups = groups.filter((g) => g.type !== 'unknown');
@@ -193,7 +195,7 @@ export default function ChannelDetail() {
               {channel.url}
             </Text>
             <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-              上次抓取：{channel.last_fetched_at ? timeAgo(channel.last_fetched_at) : '从未'}
+               {t('channels.lastFetchPrefix')}{channel.last_fetched_at ? timeAgo(channel.last_fetched_at) : t('common.never')}
               {channel.last_fetch_error && (
                 <span style={{ color: '#b30000', marginLeft: 8 }}>
                   ⚠ {channel.last_fetch_error}
@@ -209,10 +211,10 @@ export default function ChannelDetail() {
             disabled={isFetching}
             loading={isFetching}
           >
-            {isFetching ? '抓取中...' : '手动抓取'}
+            {isFetching ? t('channels.fetching') : t('channels.fetchNow')}
           </Button>
           <Button icon={<Pencil size={14} />} onClick={() => navigate(`/channels/${id}/edit`)}>
-            编辑
+            {t('common.edit')}
           </Button>
         </Space>
       </Space>
@@ -221,19 +223,19 @@ export default function ChannelDetail() {
       <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>抓取间隔</div>
-            <div style={{ fontWeight: 500 }}>{Math.round(channel.fetch_interval / 60)} 分钟</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.fetchInterval')}</div>
+            <div style={{ fontWeight: 500 }}>{channel.fetch_interval}s</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>资源总数</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.resourceCount')}</div>
             <div style={{ fontWeight: 500 }}>{total}</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>作品分组</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.workGroups')}</div>
             <div style={{ fontWeight: 500 }}>{knownGroups.length}</div>
           </Card>
         </Col>
@@ -250,10 +252,10 @@ export default function ChannelDetail() {
           }}
         >
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Text style={{ color: '#003c33' }}>已选 {selectedIds.size} 个资源</Text>
+            <Text style={{ color: '#003c33' }}>{t('common.selected')} {selectedIds.size} {t('channels.resources')}</Text>
             <Space>
               <Button size="small" onClick={() => setSelectedIds(new Set())}>
-                取消选择
+                {t('common.deselect')}
               </Button>
               <Button
                 size="small"
@@ -261,7 +263,7 @@ export default function ChannelDetail() {
                 icon={<Wand2 size={12} />}
                 onClick={() => setFilterModalOpen(true)}
               >
-                生成过滤规则
+                {t('channels.generateFilterRules')}
               </Button>
             </Space>
           </Space>
@@ -273,7 +275,7 @@ export default function ChannelDetail() {
         <Card>
           <Empty
             description={
-              isFetching ? '抓取中...' : '还没有资源，点击"手动抓取"从 RSS 拉取'
+              isFetching ? t('channels.fetching') : t('channels.noResources')
             }
           />
         </Card>
@@ -295,10 +297,10 @@ export default function ChannelDetail() {
                 <Space size={6}>
                   <Text strong>{g.title}</Text>
                   <Tag color={groupColor(g.type)} icon={groupIcon(g.type)}>
-                    {g.type === 'series' ? '剧集' : '电影'}
+                    {g.type === 'series' ? t('dashboard.series') : t('dashboard.movie')}
                   </Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {g.resources.length} 个资源
+                    {g.resources.length}{t('channels.resources')}
                   </Text>
                 </Space>
               </div>
@@ -312,7 +314,7 @@ export default function ChannelDetail() {
                 onChange={(e) => toggleAllInGroup(g, e.target.checked)}
                 onClick={(e) => e.stopPropagation()}
               >
-                全选
+                {t('common.selectAll')}
               </Checkbox>
             </Space>
           ),
@@ -322,11 +324,11 @@ export default function ChannelDetail() {
                 <thead>
                   <tr style={{ color: '#93939f', fontSize: 12 }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px', width: 40 }}></th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>标题</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 70 }}>集</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>分辨率</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 100 }}>字幕组</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 120 }}>发布时间</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('common.title')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 70 }}>{t('channels.episode')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>{t('channels.resolution')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 100 }}>{t('channels.subtitleGroup')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 120 }}>{t('channels.publishedAt')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -379,10 +381,10 @@ export default function ChannelDetail() {
           title={
             <Space>
               <HelpCircle size={14} />
-              <span>未识别资源</span>
+              <span>{t('channels.unidentifiedResources')}</span>
               <Tag>{unknownGroup.resources.length}</Tag>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                点击资源可手动修正元数据
+                {t('channels.clickToCorrect')}
               </Text>
             </Space>
           }
@@ -393,9 +395,9 @@ export default function ChannelDetail() {
             <thead>
               <tr style={{ color: '#93939f', fontSize: 12 }}>
                 <th style={{ textAlign: 'left', padding: '6px 8px', width: 40 }}></th>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>原始标题</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>分辨率</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', width: 100 }}>字幕组</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.rawTitle')}</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>{t('channels.resolution')}</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px', width: 100 }}>{t('channels.subtitleGroup')}</th>
               </tr>
             </thead>
             <tbody>
@@ -430,13 +432,13 @@ export default function ChannelDetail() {
       {total > PAGE_SIZE && (
         <Space style={{ marginTop: 16, justifyContent: 'flex-end', width: '100%' }}>
           <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            上一页
+            {t('common.previous')}
           </Button>
           <Text style={{ fontSize: 12 }}>
             {page} / {totalPages}
           </Text>
           <Button size="small" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-            下一页
+            {t('common.next')}
           </Button>
         </Space>
       )}

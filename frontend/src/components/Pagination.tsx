@@ -1,4 +1,5 @@
 import { Pagination as AntdPagination } from 'antd';
+import { useTranslation } from 'react-i18next';
 
 interface PaginationProps {
   page: number;
@@ -13,6 +14,7 @@ export default function Pagination({
   total,
   onPageChange,
 }: PaginationProps) {
+  const { t } = useTranslation();
   return (
     <AntdPagination
       current={page}
@@ -20,7 +22,7 @@ export default function Pagination({
       pageSize={pageSize}
       onChange={onPageChange}
       showSizeChanger={false}
-      showTotal={(total, range) => `${range[0]}-${range[1]} of ${total} items`}
+      showTotal={(total, range) => t('pagination.range', { from: range[0], to: range[1], total })}
       size="small"
     />
   );

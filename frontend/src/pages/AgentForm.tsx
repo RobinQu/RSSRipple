@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Form,
   Input,
@@ -41,6 +42,7 @@ export default function AgentForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const mode: 'create' | 'edit' = id ? 'edit' : 'create';
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -80,13 +82,13 @@ export default function AgentForm() {
           setFilterConfig(a.filter_config);
           if (a.works) setWorks(a.works);
         } else {
-          message.error('加载 Agent 失败');
+          message.error(t('agents.loadFailed'));
           navigate('/agents');
         }
         setLoading(false);
       });
     }
-  }, [mode, id, form, message, navigate]);
+  }, [mode, id, form, message, navigate, t]);
 
   // Check for prefill (from FilterSummaryModal)
   useEffect(() => {
@@ -109,7 +111,7 @@ export default function AgentForm() {
 
   const handleSubmit = async (values: FormValues) => {
     if (!values.scope_channel_wide && works.length === 0) {
-      message.error('非频道范围模式下至少需要添加 1 个订阅作品');
+      message.error(t('agents.worksRequired'));
       return;
     }
     setSaving(true);
@@ -142,10 +144,10 @@ export default function AgentForm() {
         res = await agentsApi.create(payload);
       }
       if (res.success) {
-        message.success(mode === 'edit' ? '已更新' : '已创建');
+        message.success(t('agents.saved'));
         navigate(`/agents/${res.data.id}`);
       } else {
-        message.error(res.error?.message || '保存失败');
+        message.error(res.error?.message || t('agents.saveFailed'));
       }
     } finally {
       setSaving(false);
@@ -157,7 +159,7 @@ export default function AgentForm() {
   return (
     <div style={{ maxWidth: 820 }}>
       <Title level={3} style={{ marginBottom: 24 }}>
-        {mode === 'create' ? '新建 Agent' : '编辑 Agent'}
+        {mode === 'create' ? t('agents.newAgent') : t('agents.editAgent')}
       </Title>
       <Card>
         <Form
@@ -176,19 +178,19 @@ export default function AgentForm() {
             }
           }}
         >
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="例如：新番自动下载" />
+          <Form.Item name="name" label={t('common.name')} rules={[{ required: true, message: t('agents.pleaseEnterName') }]}>
+            <Input placeholder={t('agents.nameExample')} />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 name="channel_id"
-                label="频道"
-                rules={[{ required: true, message: '请选择频道' }]}
+                label={t('agents.channel')}
+                rules={[{ required: true, message: t('agents.selectChannel') }]}
               >
                 <Select
-                  placeholder="选择频道"
+                  placeholder={t('agents.selectChannel')}
                   options={channels.map((c) => ({ label: c.name, value: c.id }))}
                   disabled={mode === 'edit'}
                 />
@@ -197,11 +199,11 @@ export default function AgentForm() {
             <Col span={12}>
               <Form.Item
                 name="downloader_id"
-                label="下载器"
-                rules={[{ required: true, message: '请选择下载器' }]}
+                label={t('agents.downloader')}
+                rules={[{ required: true, message: t('agents.selectDownloader') }]}
               >
                 <Select
-                  placeholder="选择下载器"
+                  placeholder={t('agents.selectDownloader')}
                   options={downloaders.map((d) => ({ label: d.name, value: d.id }))}
                 />
               </Form.Item>
@@ -210,28 +212,28 @@ export default function AgentForm() {
 
           <Form.Item
             name="download_subdir"
-            label="下载子目录"
+            label={t('agents.downloadSubdir')}
             rules={[
               {
                 pattern: /^(?![\\/])(?![A-Za-z]:[\\/])(?!~)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))(?!.*[\\/]$).*$/,
-                message: '请输入相对目录，不能包含 .. 或绝对路径',
+                message: t('agents.subdirHint'),
               },
             ]}
           >
-            <Input placeholder="Anime/新番" allowClear />
+            <Input placeholder={t('agents.subdirExample')} allowClear />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="task_expire_days" label="任务保留天数">
+              <Form.Item name="task_expire_days" label={t('agents.taskRetention')}>
                 <InputNumber min={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="conflict_resolution" label="冲突处理">
+              <Form.Item name="conflict_resolution" label={t('agents.conflictResolution')}>
                 <Radio.Group>
-                  <Radio value="ask">询问用户</Radio>
-                  <Radio value="auto">自动选择</Radio>
+                  <Radio value="ask">{t('agents.ask')}</Radio>
+                  <Radio value="auto">{t('agents.auto')}</Radio>
                 </Radio.Group>
               </Form.Item>
             </Col>
@@ -241,21 +243,21 @@ export default function AgentForm() {
             <Col span={12}>
               <Form.Item
                 name="llm_enabled"
-                label="启用 LLM 辅助决策"
+                label={t('agents.llmDecision')}
                 valuePropName="checked"
               >
-                <Switch checkedChildren="开" unCheckedChildren="关" />
+                <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
                 name="scope_channel_wide"
-                label="订阅范围"
+                label={t('agents.subscribeScope')}
                 valuePropName="checked"
               >
                 <Switch
-                  checkedChildren="整个频道"
-                  unCheckedChildren="选定作品"
+                  checkedChildren={t('agents.channelWide')}
+                  unCheckedChildren={t('agents.selectedWorks')}
                 />
               </Form.Item>
             </Col>
@@ -263,8 +265,8 @@ export default function AgentForm() {
 
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: -8, marginBottom: 16 }}>
             {channelWide
-              ? '整个频道模式：频道下所有已匹配元数据的资源都会进入过滤流程'
-              : '选定作品模式：仅处理下方订阅列表中的作品'}
+              ? t('agents.scopeChannelWideDesc')
+              : t('agents.scopeWorksDesc')}
           </Text>
 
           <Divider style={{ margin: '12px 0' }} />
@@ -277,10 +279,10 @@ export default function AgentForm() {
 
           <div style={{ marginBottom: 16 }}>
             <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              全局过滤条件
+              {t('agents.globalFilter')}
             </Text>
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-              所有资源都必须通过这些条件，作品级过滤将按 AND 合并
+              {t('agents.globalFilterDesc')}
             </Text>
             <FilterBuilder value={filterConfig} onChange={setFilterConfig} />
           </div>
@@ -288,9 +290,9 @@ export default function AgentForm() {
           <Form.Item style={{ marginTop: 24, marginBottom: 0 }}>
             <Space>
               <Button type="primary" htmlType="submit" loading={saving}>
-                {mode === 'edit' ? '保存更改' : '创建 Agent'}
+                {mode === 'edit' ? t('agents.saveChanges') : t('agents.createAgent')}
               </Button>
-              <Button onClick={() => navigate('/agents')}>取消</Button>
+              <Button onClick={() => navigate('/agents')}>{t('common.cancel')}</Button>
             </Space>
           </Form.Item>
         </Form>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Form,
   Input,
@@ -35,6 +36,7 @@ type SidebarStatus = 'streaming' | 'done' | 'error' | 'idle';
 const { Title, Text } = Typography;
 
 export default function ChannelForm() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const mode: Mode = id ? 'edit' : 'create';
@@ -127,7 +129,7 @@ export default function ChannelForm() {
             fetchPreview(ch.url, null);
           }
         } else {
-          message.error('加载频道失败');
+          message.error(t('channels.loadFailed'));
           navigate('/channels');
         }
         setLoading(false);
@@ -144,12 +146,12 @@ export default function ChannelForm() {
       setUrlStatus('valid');
       setDownloadableCount(res.data.downloadable_count);
       setUrlMessage(
-        `有效 RSS：共 ${res.data.item_count} 条，${res.data.downloadable_count} 条含下载链接`,
+        t('channels.validFeed', { count: res.data.item_count, torrent: res.data.downloadable_count }),
       );
       fetchPreview(url, null);
     } else {
       setUrlStatus('invalid');
-      setUrlMessage(res.data?.message || res.error?.message || 'URL 无效');
+      setUrlMessage(res.data?.message || res.error?.message || t('channels.invalidUrl'));
     }
   };
 
@@ -185,11 +187,11 @@ export default function ChannelForm() {
                 onDone(mapping);
               } else {
                 setSidebarStatus('error');
-                setSidebarError('未生成字段映射，请确认 LLM 配置');
+                setSidebarError(t('channels.noMapping'));
               }
             } else if (data.type === 'error') {
               setSidebarStatus('error');
-              setSidebarError(data.message || '分析失败');
+              setSidebarError(data.message || t('channels.analysisFailed'));
             }
           } catch {
             /* ignore */
@@ -202,7 +204,7 @@ export default function ChannelForm() {
   const handleAnalyze = async () => {
     const url = mode === 'edit' ? form.getFieldValue('url') : form.getFieldValue('url');
     if (!url) {
-      message.warning('请先输入 RSS URL');
+      message.warning(t('channels.enterUrlFirst'));
       return;
     }
     setAnalyzing(true);
@@ -217,7 +219,7 @@ export default function ChannelForm() {
           ? await channelsApi.analyzeStream(id)
           : await channelsApi.analyzeUrlStream(url);
       if (!res.ok) {
-        let err = '请求失败';
+        let err = t('channels.requestFailed');
         try {
           const body = await res.json();
           err = body?.error?.message || err;
@@ -230,12 +232,12 @@ export default function ChannelForm() {
         return;
       }
       await consumeStream(res, (mapping) => {
-        message.success('字段映射已生成');
+        message.success(t('channels.mappingGenerated'));
         fetchPreview(url, mapping);
       });
     } catch {
       setSidebarStatus('error');
-      setSidebarError('分析失败，请检查 LLM 配置');
+      setSidebarError(t('channels.analysisFailed'));
     }
     setAnalyzing(false);
   };
@@ -247,9 +249,9 @@ export default function ChannelForm() {
     setGeneratingRegex(false);
     if (res.success && res.data?.regex) {
       setTitleRegex(res.data.regex);
-      message.success('已生成标题清洗正则');
+      message.success(t('channels.regexGenerated'));
     } else {
-      message.error(res.error?.message || '生成失败');
+      message.error(res.error?.message || t('channels.regexFailed'));
     }
   };
 
@@ -265,13 +267,13 @@ export default function ChannelForm() {
       try {
         fm = JSON.parse(fieldMappingText);
       } catch {
-        message.error('字段映射 JSON 格式错误');
+        message.error(t('channels.mappingJsonError'));
         return;
       }
     }
 
     if (!fm || !fm.field_mappings || Object.keys(fm.field_mappings).length === 0) {
-      message.error('字段映射为必填项，请先完成 AI 自动分析或手动填写 JSON');
+      message.error(t('channels.mappingRequired'));
       return;
     }
 
@@ -285,7 +287,7 @@ export default function ChannelForm() {
     try {
       if (mode === 'create') {
         if (urlStatus === 'invalid') {
-          message.error('RSS URL 校验失败，请修正后再提交');
+          message.error(t('channels.rssValidationFailed'));
           savingRef.current = false;
           setSaving(false);
           return;
@@ -304,10 +306,10 @@ export default function ChannelForm() {
           token ?? undefined,
         );
         if (res.success) {
-          message.success('频道已创建');
+          message.success(t('channels.created'));
           navigate('/channels');
         } else {
-          message.error(res.error?.message || '创建失败');
+          message.error(res.error?.message || t('channels.createFailed'));
           channelsApi.getFormToken().then((r) => {
             if (r.success) formTokenRef.current = r.data.token;
           });
@@ -327,10 +329,10 @@ export default function ChannelForm() {
           token ?? undefined,
         );
         if (res.success) {
-          message.success('频道已更新');
+          message.success(t('channels.updated'));
           navigate(`/channels/${id}`);
         } else {
-          message.error(res.error?.message || '更新失败');
+          message.error(res.error?.message || t('channels.updateFailed'));
           channelsApi.getFormToken().then((r) => {
             if (r.success) formTokenRef.current = r.data.token;
           });
@@ -350,7 +352,7 @@ export default function ChannelForm() {
     <div className="channel-form-layout">
       <div className="channel-form-main">
         <Title level={3} style={{ marginBottom: 24 }}>
-          {mode === 'create' ? '新建频道' : '编辑频道'}
+          {mode === 'create' ? t('channels.newChannel') : t('channels.editChannel')}
         </Title>
 
         <Card>
@@ -364,17 +366,17 @@ export default function ChannelForm() {
           >
             <Form.Item
               name="name"
-              label="名称"
-              rules={[{ required: true, message: '请输入频道名称' }]}
+              label={t('common.name')}
+              rules={[{ required: true, message: t('channels.pleaseEnterName') }]}
             >
-              <Input placeholder="例如：蜜柑计划" />
+              <Input placeholder={t('channels.nameExample')} />
             </Form.Item>
 
             <Form.Item
               name="url"
-              label="RSS URL"
+              label={t('channels.rssUrl')}
               rules={
-                mode === 'create' ? [{ required: true, message: '请输入 RSS URL' }] : []
+                mode === 'create' ? [{ required: true, message: t('channels.enterRssUrl') }] : []
               }
             >
               {mode === 'edit' ? (
@@ -385,7 +387,7 @@ export default function ChannelForm() {
                     placeholder="https://mikanani.me/RSS/..."
                     onChange={() => setUrlStatus('idle')}
                   />
-                  <Button onClick={validateUrl}>验证</Button>
+                  <Button onClick={validateUrl}>{t('channels.validate')}</Button>
                 </Space.Compact>
               )}
             </Form.Item>
@@ -394,7 +396,7 @@ export default function ChannelForm() {
               <div style={{ marginBottom: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
                 <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  正在验证...
+                  {t('channels.validating')}
                 </Text>
               </div>
             )}
@@ -406,7 +408,7 @@ export default function ChannelForm() {
                 </div>
                 {downloadableCount === 0 && (
                   <Text style={{ fontSize: 12, color: '#ff7759' }}>
-                    ⚠ 未找到可下载的资源链接
+                    {t('channels.noTorrentWarning')}
                   </Text>
                 )}
               </div>
@@ -418,16 +420,16 @@ export default function ChannelForm() {
               </div>
             )}
 
-            <Form.Item name="fetch_interval" label="抓取间隔（秒）" rules={[{ required: true }]}>
+            <Form.Item name="fetch_interval" label={t('channels.fetchIntervalSec')} rules={[{ required: true }]}>
               <InputNumber min={60} style={{ width: 180 }} />
             </Form.Item>
 
             {mode === 'edit' && (
-              <Form.Item name="status" label="状态">
+              <Form.Item name="status" label={t('common.status')}>
                 <Select
                   options={[
-                    { value: 'active', label: '活跃' },
-                    { value: 'inactive', label: '停用' },
+                    { value: 'active', label: t('status.active') },
+                    { value: 'inactive', label: t('status.inactive') },
                   ]}
                   style={{ width: 160 }}
                 />
@@ -445,38 +447,38 @@ export default function ChannelForm() {
                 }}
               >
                 <Space size={6}>
-                  <Text strong>自动元数据搜索 (LLM)</Text>
-                  <Tooltip title="本地匹配失败时调用 LLM 联网搜索元数据，会增加抓取延迟">
+                  <Text strong>{t('channels.autoMetadataLLM')}</Text>
+                  <Tooltip title={t('channels.metadataLLMDesc')}>
                     <Info size={13} style={{ color: '#93939f' }} />
                   </Tooltip>
                 </Space>
                 <Switch
                   checked={metadataSource === 'llm'}
                   onChange={(v) => setMetadataSource(v ? 'llm' : 'none')}
-                  checkedChildren="开"
-                  unCheckedChildren="关"
+                  checkedChildren={t('agents.on')}
+                  unCheckedChildren={t('agents.off')}
                 />
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {metadataSource === 'llm'
-                  ? '本地匹配失败时将通过 LLM 联网搜索作品元数据'
-                  : '关闭后不会自动搜索新作品；需要手动设置 metadata 搜索关键字并关联作品'}
+                  ? t('channels.metadataLLMOn')
+                  : t('channels.metadataLLMOff')}
               </Text>
             </div>
 
             {/* Title extraction */}
             <div style={{ marginBottom: 20 }}>
               <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                标题清洗方式
+                {t('channels.titleCleaning')}
               </Text>
               <Select
                 value={titleMethod}
                 onChange={(v) => setTitleMethod(v)}
                 style={{ width: '100%' }}
                 options={[
-                  { value: 'none', label: '不清洗 — 直接使用原始标题匹配' },
-                  { value: 'regex', label: '正则表达式 — 自定义正则提取核心标题' },
-                  { value: 'llm', label: 'LLM — AI 清洗标题（结果缓存）' },
+                  { value: 'none', label: t('channels.titleCleanNone') },
+                  { value: 'regex', label: t('channels.titleCleanRegex') },
+                  { value: 'llm', label: t('channels.titleCleanLLM') },
                 ]}
               />
               {titleMethod === 'regex' && (
@@ -485,7 +487,7 @@ export default function ChannelForm() {
                     <Input
                       value={titleRegex}
                       onChange={(e) => setTitleRegex(e.target.value)}
-                      placeholder="正则表达式，需包含捕获组 1"
+                      placeholder={t('channels.regexPattern')}
                     />
                     {mode === 'edit' && (
                       <Button
@@ -493,12 +495,12 @@ export default function ChannelForm() {
                         loading={generatingRegex}
                         onClick={handleGenerateRegex}
                       >
-                        AI 生成
+                        {t('channels.aiGenerate')}
                       </Button>
                     )}
                   </Space.Compact>
                   <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                    正则第一个捕获组将作为搜索标题
+                    {t('channels.regexHint')}
                   </Text>
                 </div>
               )}
@@ -515,8 +517,8 @@ export default function ChannelForm() {
                 }}
               >
                 <Space size={6}>
-                  <Text strong>字段映射</Text>
-                  <Tooltip title="定义如何从 RSS entry 中提取结构化字段">
+                  <Text strong>{t('channels.fieldMapping')}</Text>
+                  <Tooltip title={t('channels.fieldMappingDesc')}>
                     <Info size={13} style={{ color: '#93939f' }} />
                   </Tooltip>
                 </Space>
@@ -527,7 +529,7 @@ export default function ChannelForm() {
                   onClick={handleAnalyze}
                   disabled={mode === 'create' && urlStatus !== 'valid'}
                 >
-                  {fieldMapping ? '重新分析' : 'AI 自动分析'}
+                  {fieldMapping ? t('channels.reAnalyze') : t('channels.analyze')}
                 </Button>
               </div>
 
@@ -541,7 +543,7 @@ export default function ChannelForm() {
                     fontSize: 12,
                     background: '#ffffff',
                   }}
-                  placeholder="AI 分析后将自动填充，或手动编辑 JSON"
+                  placeholder={t('channels.aiPromptHint')}
                 />
               ) : (
                 <div
@@ -554,8 +556,8 @@ export default function ChannelForm() {
                   }}
                 >
                   {mode === 'create'
-                    ? '请先验证 RSS URL，再使用"AI 自动分析"生成字段映射'
-                    : '尚未配置字段映射，点击"AI 自动分析"生成'}
+                    ? t('channels.validateFirst')
+                    : t('channels.noMappingYet')}
                 </div>
               )}
             </div>
@@ -565,18 +567,18 @@ export default function ChannelForm() {
                 type="warning"
                 showIcon
                 style={{ marginTop: 12 }}
-                message="字段映射为必填项"
-                description="没有字段映射，系统无法解析 RSS 条目，将无法下载任何资源。"
+                message={t('channels.mappingMandatory')}
+                description={t('channels.mappingMandatoryDesc')}
               />
             )}
 
             <Form.Item style={{ marginTop: 24 }}>
               <Space>
                 <Button type="primary" htmlType="submit" loading={saving}>
-                  {mode === 'create' ? '创建频道' : '保存更改'}
+                  {mode === 'create' ? t('channels.createChannel') : t('common.saveChanges')}
                 </Button>
                 <Button onClick={() => navigate(mode === 'edit' ? `/channels/${id}` : '/channels')}>
-                  取消
+                  {t('common.cancel')}
                 </Button>
               </Space>
             </Form.Item>
@@ -600,7 +602,7 @@ export default function ChannelForm() {
             <Space>
               <Wand2 size={14} style={{ color: '#93939f' }} />
               <Text strong style={{ fontSize: 13 }}>
-                AI 分析
+                {t('channels.analyze')}
               </Text>
             </Space>
             <Button
@@ -642,13 +644,13 @@ export default function ChannelForm() {
             {sidebarStatus === 'streaming' && (
               <Space>
                 <Loader2 size={13} style={{ color: '#1863dc', animation: 'spin 1s linear infinite' }} />
-                <Text style={{ fontSize: 12, color: '#1863dc' }}>分析中...</Text>
+                <Text style={{ fontSize: 12, color: '#1863dc' }}>{t('channels.analyzing')}</Text>
               </Space>
             )}
             {sidebarStatus === 'done' && (
               <Space>
                 <CheckCircle size={13} color="#003c33" />
-                <Text style={{ fontSize: 12, color: '#003c33' }}>分析完成</Text>
+                <Text style={{ fontSize: 12, color: '#003c33' }}>{t('channels.analysisDone')}</Text>
               </Space>
             )}
             {sidebarStatus === 'error' && (
@@ -674,11 +676,11 @@ export default function ChannelForm() {
             <Space>
               <Rss size={14} style={{ color: '#93939f' }} />
               <Text strong style={{ fontSize: 13 }}>
-                预览
+                {t('channels.preview')}
               </Text>
               {previewEntries.length > 0 && (
                 <Text style={{ fontSize: 12, color: '#93939f' }}>
-                  {previewEntries.length} 条
+                  {previewEntries.length} {t('channels.entries')}
                 </Text>
               )}
             </Space>
@@ -702,7 +704,7 @@ export default function ChannelForm() {
               </div>
             ) : previewEntries.length === 0 ? (
               <div style={{ padding: 48, textAlign: 'center', color: '#75758a', fontSize: 13 }}>
-                {mode === 'edit' ? '加载中...' : '验证 URL 后预览条目'}
+                {mode === 'edit' ? t('common.loading') : t('channels.enterUrlFirst')}
               </div>
             ) : (
               previewEntries.slice(0, 30).map((entry, i) => {

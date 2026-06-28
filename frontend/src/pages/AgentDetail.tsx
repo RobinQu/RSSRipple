@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Tabs,
   Table,
@@ -52,6 +53,7 @@ const { Title, Text } = Typography;
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
+  const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [tab, setTab] = useState('works');
@@ -184,11 +186,11 @@ export default function AgentDetail() {
     if (!id) return;
     const r = await agentsApi.run(id);
     if (r.success) {
-      message.success('已触发运行');
+      message.success(t('agents.runTriggered'));
       setRunStatus('queued');
       setRunPolling(true);
     } else {
-      message.error(r.error?.message || '运行触发失败');
+      message.error(r.error?.message || t('agents.runFailed'));
     }
   };
 
@@ -206,9 +208,9 @@ export default function AgentDetail() {
   };
   const handleDeleteTask = (tid: string) => {
     modal.confirm({
-      title: '删除下载任务？',
-      content: '已下载的数据不会被删除（如需删除，请在 Transmission 中操作）。',
-      okText: '删除',
+      title: t('agents.deleteTaskConfirm'),
+      content: t('agents.deleteTaskWarning'),
+      okText: t('common.delete'),
       okButtonProps: { danger: true },
       onOk: async () => {
         await tasksApi.delete(tid);
@@ -220,10 +222,10 @@ export default function AgentDetail() {
   const handleConfirm = async (did: string, rid: string) => {
     const r = await decisionsApi.confirm(did, rid);
     if (r.success) {
-      message.success('已确认，开始下载');
+      message.success(t('dashboard.confirmed'));
       loadDecisions();
       loadTasks();
-    } else message.error(r.error?.message || '操作失败');
+    } else message.error(r.error?.message || t('dashboard.failed'));
   };
   const handleSkip = async (did: string) => {
     await decisionsApi.skip(did);
@@ -241,25 +243,23 @@ export default function AgentDetail() {
     });
     setSavingFilter(false);
     if (r.success) {
-      message.success('过滤规则已保存');
+      message.success(t('agents.filterSaved'));
       loadAgent();
-    } else message.error(r.error?.message || '保存失败');
+    } else message.error(r.error?.message || t('agents.saveFailed'));
   };
 
   const handleTestFilters = async () => {
     if (!id) return;
     setTestingFilters(true);
-    // Save current filter first? Per spec, test against current filter_config. Since user may edit, test against local state.
-    // Send filterConfig? The test endpoint uses agent's stored config. So save implicitly? Better test stored config; we warn.
     const r = await agentsApi.testFilters(id);
     setTestingFilters(false);
     if (r.success) setFilterTest(r.data);
-    else message.error(r.error?.message || '测试失败');
+    else message.error(r.error?.message || t('agents.testFailed'));
   };
 
   const taskColumns: TableColumnsType<DownloadTask> = [
     {
-      title: '标题',
+      title: t('agents.taskTitle'),
       dataIndex: ['file_resource', 'title_raw'],
       key: 'title',
       ellipsis: true,
@@ -268,14 +268,14 @@ export default function AgentDetail() {
       ),
     },
     {
-      title: '状态',
+      title: t('agents.taskStatus'),
       dataIndex: 'status',
       key: 'status',
       width: 120,
       render: (status: string) => <StatusBadge status={status} />,
     },
     {
-      title: '进度',
+      title: t('agents.taskProgress'),
       dataIndex: 'progress',
       key: 'progress',
       width: 220,
@@ -291,7 +291,7 @@ export default function AgentDetail() {
       ),
     },
     {
-      title: '速度',
+      title: t('agents.taskSpeed'),
       key: 'speed',
       width: 180,
       render: (_, record) => (
@@ -301,15 +301,15 @@ export default function AgentDetail() {
       ),
     },
     {
-      title: '目录',
+      title: t('agents.taskDir'),
       dataIndex: 'download_dir',
       key: 'download_dir',
       width: 180,
       ellipsis: true,
-      render: (v: string | null) => <Text type="secondary" style={{ fontSize: 12 }}>{v || '—'}</Text>,
+      render: (v: string | null) => <Text type="secondary" style={{ fontSize: 12 }}>{v || t('format.dash')}</Text>,
     },
     {
-      title: '错误',
+      title: t('agents.taskError'),
       dataIndex: 'error_message',
       key: 'err',
       width: 120,
@@ -318,7 +318,7 @@ export default function AgentDetail() {
         v ? <Text type="danger" style={{ fontSize: 11 }}>{v}</Text> : null,
     },
     {
-      title: '操作',
+      title: t('common.actions'),
       key: 'actions',
       width: 160,
       align: 'right',
@@ -354,35 +354,35 @@ export default function AgentDetail() {
         </Title>
         <StatusBadge status={agent.status} />
         <Link to={`/agents/${id}/edit`}>
-          <Button size="small" icon={<Edit size={12} />}>编辑</Button>
+          <Button size="small" icon={<Edit size={12} />}>{t('common.edit')}</Button>
         </Link>
       </Space>
 
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space size="large" wrap>
           <Text type="secondary">
-            频道：
+            {t('agents.channelLabel')}
             <Link to={`/channels/${agent.channel_id}`}>
               <Text>{agent.channel?.name || agent.channel_id.slice(0, 8)}</Text>
             </Link>
           </Text>
           <Text type="secondary">
-            下载器：{agent.downloader?.name || agent.downloader_id?.slice(0, 8)}
+            {t('agents.downloaderLabel')}{agent.downloader?.name || agent.downloader_id?.slice(0, 8)}
           </Text>
           <Text type="secondary">
-            子目录：{agent.download_subdir || '—'}
+            {t('agents.subdirLabel')}{agent.download_subdir || t('format.dash')}
           </Text>
           <Text type="secondary">
-            范围：{agent.scope_channel_wide ? '整个频道' : `${works.length} 个作品`}
+            {t('agents.scopeLabel')}{agent.scope_channel_wide ? t('agents.channelWide') : t('agents.worksCount', { n: works.length })}
           </Text>
           <Text type="secondary">
-            冲突：{agent.conflict_resolution === 'auto' ? '自动' : '询问'}
+            {t('agents.conflictLabel')}{agent.conflict_resolution === 'auto' ? t('agents.auto') : t('agents.ask')}
           </Text>
           <Text type="secondary">
-            LLM：{agent.llm_enabled ? '开' : '关'}
+            {t('agents.llmLabel')}{agent.llm_enabled ? t('agents.on') : t('agents.off')}
           </Text>
           {agent.last_run_at && (
-            <Text type="secondary">上次运行：{timeAgo(agent.last_run_at)}</Text>
+            <Text type="secondary">{t('agents.lastRunLabel')}{timeAgo(agent.last_run_at)}</Text>
           )}
         </Space>
       </Card>
@@ -393,7 +393,7 @@ export default function AgentDetail() {
         items={[
           {
             key: 'works',
-            label: `订阅作品 (${works.length})`,
+            label: `${t('agents.subscribedWorks')} (${works.length})`,
             children: (
               <Card loading={loadingWorks}>
                 <WorkSelector
@@ -402,20 +402,20 @@ export default function AgentDetail() {
                   maxWorks={10}
                 />
                 <Divider />
-                <Alert message="注意：作品增删改将直接通过 API 保存。" />
+                <Alert message={t('agents.worksEditNote')} />
               </Card>
             ),
           },
           {
             key: 'tasks',
-            label: `下载任务 (${taskTotal})`,
+            label: `${t('agents.downloadTasks')} (${taskTotal})`,
             children: (
               <Card>
                 <Space style={{ marginBottom: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>状态筛选：</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{t('agents.statusFilter')}</Text>
                   <Select
                     allowClear
-                    placeholder="全部"
+                    placeholder={t('common.all')}
                     style={{ width: 140 }}
                     value={taskStatus}
                     onChange={(v) => {
@@ -423,12 +423,12 @@ export default function AgentDetail() {
                       setTaskPage(1);
                     }}
                     options={[
-                      { value: 'pending', label: '等待中' },
-                      { value: 'queued', label: '排队中' },
-                      { value: 'downloading', label: '下载中' },
-                      { value: 'paused', label: '暂停' },
-                      { value: 'completed', label: '已完成' },
-                      { value: 'error', label: '错误' },
+                      { value: 'pending', label: t('status.pending') },
+                      { value: 'queued', label: t('status.queued') },
+                      { value: 'downloading', label: t('status.downloading') },
+                      { value: 'paused', label: t('status.paused') },
+                      { value: 'completed', label: t('status.completed') },
+                      { value: 'error', label: t('status.error') },
                     ]}
                   />
                 </Space>
@@ -445,19 +445,19 @@ export default function AgentDetail() {
                     onChange: setTaskPage,
                     showSizeChanger: false,
                   }}
-                  locale={{ emptyText: <Empty description="暂无任务" /> }}
+                  locale={{ emptyText: <Empty description={t('agents.noTasks')} /> }}
                 />
               </Card>
             ),
           },
           {
             key: 'decisions',
-            label: `待决策 (${decTotal})`,
+            label: `${t('dashboard.pendingDecisions')} (${decTotal})`,
             children: (
               <Card>
                 <Spin spinning={loadingDec}>
                   {decisions.length === 0 ? (
-                    <Empty description="暂无待决策项" />
+                    <Empty description={t('dashboard.noPendingDecisions')} />
                   ) : (
                     <Space direction="vertical" style={{ width: '100%' }} size={12}>
                       {decisions.map((d) => (
@@ -473,7 +473,7 @@ export default function AgentDetail() {
                             <div>
                               <Text strong>{d.reason}</Text>
                               <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
-                                {d.candidates.length} 个候选 · {timeAgo(d.created_at)}
+                                {t('agents.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
                               </div>
                               {d.llm_suggestion && (
                                 <div
@@ -487,13 +487,13 @@ export default function AgentDetail() {
                                     color: '#1863dc',
                                   }}
                                 >
-                                  <strong>AI：</strong>
+                                  <strong>{t('dashboard.aiSuggestion')}</strong>
                                   {d.llm_suggestion}
                                 </div>
                               )}
                             </div>
                             <Button size="small" onClick={() => handleSkip(d.id)}>
-                              <SkipForward size={12} /> 跳过
+                              <SkipForward size={12} /> {t('common.skip')}
                             </Button>
                           </div>
                           <Space direction="vertical" style={{ width: '100%' }} size={6}>
@@ -525,7 +525,7 @@ export default function AgentDetail() {
                                       </Space>
                                     </div>
                                   ) : (
-                                    <Text type="secondary" style={{ fontSize: 12 }}>加载中...</Text>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>{t('common.loading')}</Text>
                                   )}
                                   <Button
                                     type="primary"
@@ -533,7 +533,7 @@ export default function AgentDetail() {
                                     icon={<CheckCircle size={12} />}
                                     onClick={() => handleConfirm(d.id, cid)}
                                   >
-                                    确认
+                                    {t('common.confirm')}
                                   </Button>
                                 </div>
                               );
@@ -549,7 +549,7 @@ export default function AgentDetail() {
           },
           {
             key: 'filters',
-            label: '过滤器',
+            label: t('agents.filter'),
             children: (
               <div>
                 <Card style={{ marginBottom: 16 }}>
@@ -561,17 +561,17 @@ export default function AgentDetail() {
                       marginBottom: 12,
                     }}
                   >
-                    <Text strong>全局过滤条件</Text>
+                    <Text strong>{t('agents.globalFilter')}</Text>
                     <Space>
                       <Button
                         icon={<FlaskConical size={14} />}
                         onClick={handleTestFilters}
                         loading={testingFilters}
                       >
-                        测试
+                        {t('agents.test')}
                       </Button>
                       <Button type="primary" onClick={handleSaveFilter} loading={savingFilter}>
-                        保存
+                        {t('common.save')}
                       </Button>
                     </Space>
                   </div>
@@ -579,21 +579,21 @@ export default function AgentDetail() {
                 </Card>
 
                 {filterTest && (
-                  <Card title="测试结果" size="small">
+                  <Card title={t('agents.testResults')} size="small">
                     <Row gutter={16} style={{ marginBottom: 16 }}>
                       <Col span={8}>
-                        <Statistic title="总资源数" value={filterTest.stats.total} />
+                        <Statistic title={t('agents.totalResources')} value={filterTest.stats.total} />
                       </Col>
                       <Col span={8}>
                         <Statistic
-                          title="通过"
+                          title={t('agents.passed')}
                           value={filterTest.stats.passed}
                           valueStyle={{ color: '#003c33' }}
                         />
                       </Col>
                       <Col span={8}>
                         <Statistic
-                          title="未通过"
+                          title={t('agents.failed')}
                           value={filterTest.stats.failed}
                           valueStyle={{ color: '#b30000' }}
                         />
@@ -644,12 +644,12 @@ export default function AgentDetail() {
           },
           {
             key: 'run',
-            label: '运行控制',
+            label: t('agents.runControl'),
             children: (
               <Card>
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
                   <Text type="secondary">
-                    手动触发 Agent 立即处理频道中的新资源。通常系统会在频道抓取后自动运行。
+                    {t('agents.runControlDesc')}
                   </Text>
                   <div>
                     <Button
@@ -659,17 +659,17 @@ export default function AgentDetail() {
                       loading={runPolling}
                       onClick={handleRun}
                     >
-                      立即运行
+                      {t('agents.runNow')}
                     </Button>
                   </div>
                   {runStatus && (
                     <div>
                       <StatusBadge status={runStatus} />
                       <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                        {runStatus === 'queued' && '任务已入队，等待执行...'}
-                        {runStatus === 'running' && '正在处理资源...'}
-                        {runStatus === 'done' && '运行完成'}
-                        {runStatus === 'failed' && '运行失败'}
+                        {runStatus === 'queued' && t('agents.queued')}
+                        {runStatus === 'running' && t('agents.processing')}
+                        {runStatus === 'done' && t('agents.runComplete')}
+                        {runStatus === 'failed' && t('status.failed')}
                       </Text>
                     </div>
                   )}

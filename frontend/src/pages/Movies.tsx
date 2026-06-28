@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Input, Table, Typography, Tag, Empty } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -10,6 +11,7 @@ import { timeAgo } from '../utils/format';
 const { Title } = Typography;
 
 export default function Movies() {
+  const { t } = useTranslation();
   const [list, setList] = useState<Movie[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -17,7 +19,7 @@ export default function Movies() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    const timeout = setTimeout(() => {
       setLoading(true);
       moviesApi.list(page, 20, search.trim() || undefined).then((r) => {
         if (r.success) {
@@ -27,12 +29,12 @@ export default function Movies() {
         setLoading(false);
       });
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timeout);
   }, [page, search]);
 
   const columns: TableColumnsType<Movie> = [
     {
-      title: '海报',
+      title: t('movies.poster'),
       dataIndex: 'poster_url',
       key: 'poster',
       width: 60,
@@ -49,44 +51,44 @@ export default function Movies() {
         ),
     },
     {
-      title: '标题',
+      title: t('movies.name'),
       key: 'title',
       render: (_, r) => (
         <Link to={`/movies/${r.id}`}>
-          {r.title_cn || r.title_en || r.original_title || '未命名'}
+          {r.title_cn || r.title_en || r.original_title || t('movies.unnamed')}
         </Link>
       ),
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 120,
       render: (s: string | null) => (s ? <Tag>{s}</Tag> : '—'),
     },
     {
-      title: '上映日期',
+      title: t('movies.releaseDate'),
       dataIndex: 'release_date',
       key: 'release_date',
       width: 130,
       render: (v: string | null) => v || '—',
     },
     {
-      title: '片长',
+      title: t('movies.runtime'),
       dataIndex: 'runtime',
       key: 'runtime',
       width: 80,
-      render: (v: number | null) => (v ? `${v}分钟` : '—'),
+      render: (v: number | null) => (v ? `${v}${t('movies.runtimeUnit')}` : '—'),
     },
     {
-      title: '评分',
+      title: t('movies.rating'),
       dataIndex: 'rating',
       key: 'rating',
       width: 80,
       render: (v: number | null) => (v != null ? v.toFixed(1) : '—'),
     },
     {
-      title: '更新时间',
+      title: t('movies.updatedAt'),
       dataIndex: 'updated_at',
       key: 'updated',
       width: 150,
@@ -97,10 +99,10 @@ export default function Movies() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>电影</Title>
+        <Title level={3} style={{ margin: 0 }}>{t('movies.title')}</Title>
         <Input
           prefix={<SearchOutlined />}
-          placeholder="搜索..."
+          placeholder={t('movies.search')}
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -115,7 +117,7 @@ export default function Movies() {
         dataSource={list}
         rowKey="id"
         loading={loading}
-        locale={{ emptyText: <Empty description="暂无数据" /> }}
+        locale={{ emptyText: <Empty description={t('common.noData')} /> }}
         pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
       />
     </div>

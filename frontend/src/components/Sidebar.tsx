@@ -1,36 +1,15 @@
 import { useState } from 'react';
-import { Layout, Menu, Typography } from 'antd';
+import { Layout, Menu, Typography, Button, Dropdown } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Rss, HardDrive, Bot } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { LayoutDashboard, Rss, HardDrive, Bot, Languages } from 'lucide-react';
 
 const { Sider } = Layout;
 const { Text } = Typography;
 
-const menuItems: MenuProps['items'] = [
-  {
-    key: '/',
-    icon: <LayoutDashboard size={16} />,
-    label: '仪表盘',
-  },
-  {
-    key: '/channels',
-    icon: <Rss size={16} />,
-    label: '频道',
-  },
-  {
-    key: '/agents',
-    icon: <Bot size={16} />,
-    label: 'Agents',
-  },
-  {
-    key: '/downloaders',
-    icon: <HardDrive size={16} />,
-    label: '下载器',
-  },
-];
-
 export default function Sidebar() {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,6 +22,29 @@ export default function Sidebar() {
     localStorage.setItem('sidebarCollapsed', String(value));
   };
 
+  const menuItems: MenuProps['items'] = [
+    {
+      key: '/',
+      icon: <LayoutDashboard size={16} />,
+      label: t('nav.dashboard'),
+    },
+    {
+      key: '/channels',
+      icon: <Rss size={16} />,
+      label: t('nav.channels'),
+    },
+    {
+      key: '/agents',
+      icon: <Bot size={16} />,
+      label: t('nav.agents'),
+    },
+    {
+      key: '/downloaders',
+      icon: <HardDrive size={16} />,
+      label: t('nav.downloaders'),
+    },
+  ];
+
   const selectedKey = (menuItems as { key: string }[])?.find((item) => {
     const key = item.key;
     if (key === '/') return location.pathname === '/';
@@ -52,6 +54,24 @@ export default function Sidebar() {
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     navigate(key);
   };
+
+  const switchLanguage = (lang: string) => {
+    i18n.changeLanguage(lang);
+    localStorage.setItem('rssripple-lang', lang);
+  };
+
+  const langItems: MenuProps['items'] = [
+    {
+      key: 'zh-CN',
+      label: t('language.zh'),
+      onClick: () => switchLanguage('zh-CN'),
+    },
+    {
+      key: 'en-US',
+      label: t('language.en'),
+      onClick: () => switchLanguage('en-US'),
+    },
+  ];
 
   return (
     <Sider
@@ -104,6 +124,31 @@ export default function Sidebar() {
           v0.2.0
         </div>
       )}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: collapsed ? 16 : 80,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
+        {collapsed ? (
+          <Button
+            type="text"
+            icon={<Languages size={16} />}
+            onClick={() => switchLanguage(i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN')}
+            title={t('language.switch')}
+          />
+        ) : (
+          <Dropdown menu={{ items: langItems }} trigger={['click']}>
+            <Button type="text" icon={<Languages size={16} />}>
+              {t('language.switch')}
+            </Button>
+          </Dropdown>
+        )}
+      </div>
     </Sider>
   );
 }
