@@ -1,0 +1,4 @@
+#!/bin/bash
+# Ensure expected download subdirectories exist before Transmission starts.
+# Primary: pre-created on host via bind mount; this script is a safety net.
+mkdir -p /downloads/complete /downloads/incomplete

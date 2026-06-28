@@ -37,8 +37,9 @@ services:
       - "51413:51413/udp"
     volumes:
       - transmission-config:/config
-      - downloads:/downloads
-      - watch:/watch
+      - ./docker/transmission/custom-cont-init.d:/custom-cont-init.d:ro
+      - ./data/downloads:/downloads
+      - ./data/watch:/watch
     environment:
       - PUID=1000
       - PGID=1000
@@ -48,5 +49,3 @@ services:
 
 volumes:
   transmission-config:
-  downloads:
-  watch:
