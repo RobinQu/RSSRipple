@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Card,
   Select,
@@ -27,44 +28,54 @@ import type {
   StringFilterField,
   StringOperator,
 } from '../types';
+import type { TFunction } from 'i18next';
 
-const STRING_FIELDS: { value: StringFilterField; label: string }[] = [
-  { value: 'subtitle_group', label: '字幕组 (subtitle_group)' },
-  { value: 'resolution', label: '分辨率 (resolution)' },
-  { value: 'source', label: '来源 (source)' },
-  { value: 'video_codec', label: '视频编码 (video_codec)' },
-  { value: 'audio_codec', label: '音频编码 (audio_codec)' },
-  { value: 'subtitle_type', label: '字幕类型 (subtitle_type)' },
-  { value: 'container', label: '容器 (container)' },
-  { value: 'title_cn', label: '中文标题 (title_cn)' },
-  { value: 'title_en', label: '英文标题 (title_en)' },
-  { value: 'search_title', label: '搜索标题 (search_title)' },
-];
+function useFieldOptions(t: TFunction) {
+  const STRING_FIELDS: { value: StringFilterField; label: string }[] = [
+    { value: 'subtitle_group', label: t('filter.subtitleGroup') },
+    { value: 'resolution', label: t('filter.resolution') },
+    { value: 'source', label: t('filter.source') },
+    { value: 'video_codec', label: t('filter.videoCodec') },
+    { value: 'audio_codec', label: t('filter.audioCodec') },
+    { value: 'subtitle_type', label: t('filter.subtitleType') },
+    { value: 'container', label: t('filter.container') },
+    { value: 'title_cn', label: t('filter.titleCn') },
+    { value: 'title_en', label: t('filter.titleEn') },
+    { value: 'search_title', label: t('filter.searchTitle') },
+  ];
 
-const NUMBER_FIELDS: { value: NumberFilterField; label: string }[] = [
-  { value: 'file_size', label: '文件大小 (file_size)' },
-  { value: 'episode', label: '集数 (episode)' },
-  { value: 'season', label: '季数 (season)' },
-];
+  const NUMBER_FIELDS: { value: NumberFilterField; label: string }[] = [
+    { value: 'file_size', label: t('filter.fileSize') },
+    { value: 'episode', label: t('filter.episode') },
+    { value: 'season', label: t('filter.season') },
+  ];
 
-const STRING_OPERATORS: { value: StringOperator; label: string }[] = [
-  { value: 'eq', label: '等于' },
-  { value: 'ne', label: '不等于' },
-  { value: 'contains', label: '包含' },
-  { value: 'fuzzy', label: '模糊匹配' },
-  { value: 'in', label: '属于 (多值)' },
-  { value: 'regex', label: '正则' },
-];
+  const fieldOptions = [
+    { label: t('filter.stringField'), options: STRING_FIELDS },
+    { label: t('filter.numberField'), options: NUMBER_FIELDS },
+  ];
 
-const NUMBER_OPERATORS: { value: NumberOperator; label: string }[] = [
-  { value: 'eq', label: '等于' },
-  { value: 'ne', label: '不等于' },
-  { value: 'gt', label: '大于' },
-  { value: 'gte', label: '大于等于' },
-  { value: 'lt', label: '小于' },
-  { value: 'lte', label: '小于等于' },
-  { value: 'in', label: '属于 (多值)' },
-];
+  const STRING_OPERATORS: { value: StringOperator; label: string }[] = [
+    { value: 'eq', label: t('filter.eq') },
+    { value: 'ne', label: t('filter.ne') },
+    { value: 'contains', label: t('filter.contains') },
+    { value: 'fuzzy', label: t('filter.fuzzy') },
+    { value: 'in', label: t('filter.in') },
+    { value: 'regex', label: t('filter.regex') },
+  ];
+
+  const NUMBER_OPERATORS: { value: NumberOperator; label: string }[] = [
+    { value: 'eq', label: t('filter.eq') },
+    { value: 'ne', label: t('filter.ne') },
+    { value: 'gt', label: t('filter.gt') },
+    { value: 'gte', label: t('filter.gte') },
+    { value: 'lt', label: t('filter.lt') },
+    { value: 'lte', label: t('filter.lte') },
+    { value: 'in', label: t('filter.in') },
+  ];
+
+  return { STRING_FIELDS, NUMBER_FIELDS, fieldOptions, STRING_OPERATORS, NUMBER_OPERATORS };
+}
 
 const isBoolCondition = (node: unknown): node is BoolCondition => {
   return (
@@ -116,6 +127,8 @@ function FieldConditionNode({
   onDelete: () => void;
   nested?: boolean;
 }) {
+  const { t } = useTranslation();
+  const { fieldOptions, STRING_OPERATORS, NUMBER_OPERATORS } = useFieldOptions(t);
   const numField = isNumberField(value.field);
 
   // When switching field types, reset operator/value appropriately
@@ -147,11 +160,6 @@ function FieldConditionNode({
     }
     onChange({ ...value, operator: op, value: val });
   };
-
-  const fieldOptions = [
-    { label: '字符串字段', options: STRING_FIELDS },
-    { label: '数字字段', options: NUMBER_FIELDS },
-  ];
 
   const operators: { value: FilterOperator; label: string }[] = numField
     ? (NUMBER_OPERATORS as { value: FilterOperator; label: string }[])
@@ -190,7 +198,7 @@ function FieldConditionNode({
           style={{ minWidth: 200, flex: 1 }}
           value={Array.isArray(value.value) ? value.value : []}
           onChange={(tags) => onChange({ ...value, value: tags })}
-          placeholder="输入值后回车添加"
+          placeholder={t('filter.enterValue')}
           size="small"
           tokenSeparators={[',']}
         />
@@ -200,13 +208,13 @@ function FieldConditionNode({
           onChange={(n) => onChange({ ...value, value: n ?? 0 })}
           style={{ width: 160 }}
           size="small"
-          placeholder="数值"
+          placeholder={t('filter.numericValue')}
         />
       ) : (
         <Input
           value={typeof value.value === 'string' ? value.value : ''}
           onChange={(e) => onChange({ ...value, value: e.target.value })}
-          placeholder="值"
+          placeholder={t('filter.value')}
           size="small"
           style={{ minWidth: 160, flex: 1 }}
         />
@@ -236,6 +244,8 @@ function BoolConditionNode({
   isRoot?: boolean;
   depth?: number;
 }) {
+  const { t } = useTranslation();
+
   const updateCondition = (idx: number, newVal: BoolCondition | FieldCondition) => {
     const next = cloneFilter(value);
     next.conditions[idx] = newVal;
@@ -286,20 +296,20 @@ function BoolConditionNode({
           size="small"
           style={{ width: 90 }}
           options={[
-            { value: 'and', label: 'AND (全部)' },
-            { value: 'or', label: 'OR (任一)' },
+            { value: 'and', label: t('filter.and') },
+            { value: 'or', label: t('filter.or') },
           ]}
         />
         <Switch
           checked={!!value.is_not}
           onChange={(v) => onChange({ ...value, is_not: v })}
-          checkedChildren="NOT"
-          unCheckedChildren="NOT"
+          checkedChildren={t('filter.not')}
+          unCheckedChildren={t('filter.not')}
           size="small"
         />
         {!isRoot && (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            子条件组
+            {t('filter.subGroup')}
           </Typography.Text>
         )}
         <div style={{ flex: 1 }} />
@@ -326,7 +336,7 @@ function BoolConditionNode({
             borderRadius: 8,
           }}
         >
-          暂无过滤条件，点击下方按钮添加
+          {t('filter.noConditions')}
         </div>
       )}
 
@@ -367,10 +377,10 @@ function BoolConditionNode({
           onClick={addField}
           type={value.conditions.length === 0 ? 'primary' : 'default'}
         >
-          添加条件
+          {t('filter.addCondition')}
         </Button>
         <Button size="small" icon={<GroupOutlined />} onClick={addGroup}>
-          添加条件组
+          {t('filter.addConditionGroup')}
         </Button>
       </Space>
 

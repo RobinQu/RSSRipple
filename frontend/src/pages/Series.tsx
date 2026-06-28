@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Input, Table, Typography, Tag, Empty } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -10,6 +11,7 @@ import { timeAgo } from '../utils/format';
 const { Title } = Typography;
 
 export default function Series() {
+  const { t } = useTranslation();
   const [list, setList] = useState<TVSeries[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -17,7 +19,7 @@ export default function Series() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    const timeout = setTimeout(() => {
       setLoading(true);
       seriesApi.list(page, 20, search.trim() || undefined).then((r) => {
         if (r.success) {
@@ -27,12 +29,12 @@ export default function Series() {
         setLoading(false);
       });
     }, 250);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timeout);
   }, [page, search]);
 
   const columns: TableColumnsType<TVSeries> = [
     {
-      title: '海报',
+      title: t('series.poster'),
       dataIndex: 'poster_url',
       key: 'poster',
       width: 60,
@@ -49,39 +51,39 @@ export default function Series() {
         ),
     },
     {
-      title: '标题',
+      title: t('series.name'),
       key: 'title',
       render: (_, r) => (
         <Link to={`/series/${r.id}`}>
-          {r.title_cn || r.title_en || r.original_title || '未命名'}
+          {r.title_cn || r.title_en || r.original_title || t('series.unnamed')}
         </Link>
       ),
     },
     {
-      title: '状态',
+      title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
       width: 120,
       render: (s: string | null) => (s ? <Tag>{s}</Tag> : '—'),
     },
     {
-      title: '季/集',
+      title: t('series.seasonsEpisodes'),
       key: 'se',
       width: 100,
       render: (_, r) =>
         r.number_of_seasons
-          ? `${r.number_of_seasons}季 ${r.number_of_episodes || '?'}集`
+          ? `${r.number_of_seasons}${t('series.season')} ${r.number_of_episodes || '?'}${t('series.episode')}`
           : '—',
     },
     {
-      title: '评分',
+      title: t('series.rating'),
       dataIndex: 'rating',
       key: 'rating',
       width: 80,
       render: (v: number | null) => (v != null ? v.toFixed(1) : '—'),
     },
     {
-      title: '更新时间',
+      title: t('series.updatedAt'),
       dataIndex: 'updated_at',
       key: 'updated',
       width: 150,
@@ -92,10 +94,10 @@ export default function Series() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>剧集</Title>
+        <Title level={3} style={{ margin: 0 }}>{t('series.title')}</Title>
         <Input
           prefix={<SearchOutlined />}
-          placeholder="搜索..."
+          placeholder={t('series.search')}
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -110,7 +112,7 @@ export default function Series() {
         dataSource={list}
         rowKey="id"
         loading={loading}
-        locale={{ emptyText: <Empty description="暂无数据" /> }}
+        locale={{ emptyText: <Empty description={t('common.noData')} /> }}
         pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
       />
     </div>

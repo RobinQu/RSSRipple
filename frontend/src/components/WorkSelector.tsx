@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Button,
   Card,
@@ -20,6 +21,7 @@ import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
 import FilterBuilder from './FilterBuilder';
 import type { AgentWork, Movie, TVSeries } from '../types';
+import type { TFunction } from 'i18next';
 
 const { Text } = Typography;
 
@@ -42,11 +44,11 @@ function resolvePoster(work: AgentWork): string | null {
   return null;
 }
 
-function resolveTitle(work: AgentWork): string {
+function resolveTitle(work: AgentWork, t: TFunction): string {
   if (work.display_name_override) return work.display_name_override;
-  if (work.series) return work.series.title_cn || work.series.title_en || work.series.original_title || '未知剧集';
-  if (work.movie) return work.movie.title_cn || work.movie.title_en || work.movie.original_title || '未知电影';
-  return '未知作品';
+  if (work.series) return work.series.title_cn || work.series.title_en || work.series.original_title || t('common.unknown');
+  if (work.movie) return work.movie.title_cn || work.movie.title_en || work.movie.original_title || t('common.unknown');
+  return t('common.unknown');
 }
 
 /** Temp id for newly added works before save */
@@ -61,6 +63,7 @@ export default function WorkSelector({
   maxWorks = 10,
   suggestions = [],
 }: WorkSelectorProps) {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [modalOpen, setModalOpen] = useState(false);
   const [tab, setTab] = useState<'tv' | 'movie'>('tv');
@@ -99,21 +102,21 @@ export default function WorkSelector({
 
   useEffect(() => {
     if (!modalOpen) return;
-    const t = setTimeout(() => {
+    const timeout = setTimeout(() => {
       if (search.trim()) searchWorks(search);
     }, 300);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, modalOpen]);
 
   const addWork = (type: 'tv' | 'movie', item: TVSeries | Movie) => {
     if (works.length >= maxWorks) {
-      message.warning(`最多订阅 ${maxWorks} 个作品`);
+      message.warning(t('work.maxHint', { max: maxWorks }));
       return;
     }
     const key = `${type}:${item.id}`;
     if (existingIds.has(key)) {
-      message.info('该作品已在订阅列表中');
+      message.info(t('work.alreadySubscribed'));
       return;
     }
     const newWork: AgentWork = {
@@ -131,7 +134,7 @@ export default function WorkSelector({
       movie: type === 'movie' ? (item as Movie) : undefined,
     };
     onChange([...works, newWork]);
-    message.success(`已添加 ${type === 'tv' ? '剧集' : '电影'}`);
+    message.success(t('work.added', { type: t(type === 'tv' ? 'work.series' : 'work.movie') }));
   };
 
   const removeWork = (id: string) => {
@@ -154,19 +157,19 @@ export default function WorkSelector({
       return (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="输入关键词搜索剧集/电影"
+          description={t('work.searchPlaceholder')}
         />
       );
     }
     if (items.length === 0) {
-      return <Empty description="未找到结果" />;
+      return <Empty description={t('work.noResults')} />;
     }
     return (
       <div style={{ maxHeight: 400, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {items.map((item) => {
           const already = existingIds.has(`${type}:${item.id}`);
           const title =
-            item.title_cn || item.title_en || item.original_title || '未命名';
+            item.title_cn || item.title_en || item.original_title || t('common.unknown');
           const sub =
             item.title_en && item.title_en !== item.title_cn ? item.title_en : item.original_title;
           return (
@@ -232,7 +235,7 @@ export default function WorkSelector({
                 disabled={already}
                 onClick={() => addWork(type, item)}
               >
-                {already ? '已添加' : '添加'}
+                {already ? t('work.added_btn') : t('work.add_btn')}
               </Button>
             </div>
           );
@@ -245,9 +248,9 @@ export default function WorkSelector({
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <Space direction="vertical" size={0}>
-          <Text strong>订阅作品 ({works.length}/{maxWorks})</Text>
+          <Text strong>{t('work.subtitle', { n: works.length, max: maxWorks })}</Text>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            选择该 Agent 负责自动下载的作品
+            {t('work.selectorDesc')}
           </Text>
         </Space>
         <Button
@@ -261,7 +264,7 @@ export default function WorkSelector({
             setMovieList([]);
           }}
         >
-          添加作品
+          {t('work.addWork')}
         </Button>
       </div>
 
@@ -269,7 +272,7 @@ export default function WorkSelector({
       {suggestions.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-            频道未识别资源建议：
+            {t('work.suggestions')}
           </Text>
           <Space wrap size={[8, 8]}>
             {suggestions.slice(0, 6).map((s, i) => (
@@ -298,14 +301,14 @@ export default function WorkSelector({
           }}
         >
           <Text type="secondary" style={{ fontSize: 13 }}>
-            暂未订阅任何作品，点击上方"添加作品"开始
+            {t('work.noWorks')}
           </Text>
         </div>
       ) : (
         <Space direction="vertical" style={{ width: '100%' }} size={10}>
           {works.map((work) => {
             const poster = resolvePoster(work);
-            const title = resolveTitle(work);
+            const title = resolveTitle(work, t);
             const isTv = work.content_type === 'tv';
             return (
               <Card
@@ -350,7 +353,7 @@ export default function WorkSelector({
                         {title}
                       </Text>
                       <Tag color={isTv ? 'blue' : 'green'}>
-                        {isTv ? '剧集' : '电影'}
+                        {t(isTv ? 'work.series' : 'work.movie')}
                       </Tag>
                       <Button
                         type="text"
@@ -369,19 +372,19 @@ export default function WorkSelector({
                           key: 'overrides',
                           label: (
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                              作品设置 {work.filter_overrides ? '(已设独立过滤)' : ''}
+                              {t('work.settingsPrefix')}{work.filter_overrides ? t('work.hasOverride') : ''}
                             </Text>
                           ),
                           children: (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 8 }}>
                               <div>
                                 <Text style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                                  自定义展示名
+                                  {t('work.customName')}
                                 </Text>
                                 <Input
                                   size="small"
                                   value={work.display_name_override || ''}
-                                  placeholder="留空使用作品原名"
+                                  placeholder={t('work.customNameHint')}
                                   onChange={(e) =>
                                     updateWork(work.id, {
                                       display_name_override: e.target.value || null,
@@ -397,7 +400,7 @@ export default function WorkSelector({
                                     justifyContent: 'space-between',
                                   }}
                                 >
-                                  <Text style={{ fontSize: 12 }}>按集数去重</Text>
+                                  <Text style={{ fontSize: 12 }}>{t('work.episodeDedup')}</Text>
                                   <Switch
                                     size="small"
                                     checked={work.enable_episode_dedup}
@@ -409,7 +412,7 @@ export default function WorkSelector({
                               )}
                               <div>
                                 <Text style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-                                  作品级过滤条件（与全局过滤按 AND 合并）
+                                  {t('work.workFilter')}
                                 </Text>
                                 <FilterBuilder
                                   value={work.filter_overrides}
@@ -435,13 +438,13 @@ export default function WorkSelector({
       <Modal
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
-        title="添加订阅作品"
+        title={t('work.addWorkModal')}
         footer={null}
         width={640}
         destroyOnClose
       >
         <Input
-          placeholder="搜索剧集或电影..."
+          placeholder={t('work.searchSeriesOrMovie')}
           prefix={<SearchOutlined />}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -455,12 +458,12 @@ export default function WorkSelector({
           items={[
             {
               key: 'tv',
-              label: '剧集',
+              label: t('work.series'),
               children: renderSearchResult(seriesList, 'tv'),
             },
             {
               key: 'movie',
-              label: '电影',
+              label: t('work.movie'),
               children: renderSearchResult(movieList, 'movie'),
             },
           ]}

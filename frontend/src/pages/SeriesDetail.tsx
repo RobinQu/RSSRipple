@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import {
@@ -12,21 +13,8 @@ import { timeAgo } from '../utils/format';
 
 const { Title, Text } = Typography;
 
-const episodeColumns: TableColumnsType<Episode> = [
-  { title: '季', dataIndex: 'season', key: 'season', width: 60 },
-  { title: '集', dataIndex: 'episode', key: 'episode', width: 60 },
-  { title: '标题', dataIndex: 'title', key: 'title', render: (v: string | null) => v || '—' },
-  { title: '播出日期', dataIndex: 'air_date', key: 'air_date', width: 130, render: (v: string | null) => v || '—' },
-];
-
-const resourceColumns: TableColumnsType<FileResource> = [
-  { title: '标题', dataIndex: 'title_raw', key: 'title', ellipsis: true },
-  { title: '分辨率', dataIndex: 'resolution', key: 'resolution', width: 100, render: (v: string | null) => v ? <Tag>{v}</Tag> : '—' },
-  { title: '字幕组', dataIndex: 'subtitle_group', key: 'subtitle_group', width: 140, render: (v: string | null) => v || '—' },
-  { title: '发布时间', dataIndex: 'published_at', key: 'published_at', width: 160, render: (v: string | null) => (v ? timeAgo(v) : '—') },
-];
-
 export default function SeriesDetail() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const [series, setSeries] = useState<TVSeries | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,8 +27,22 @@ export default function SeriesDetail() {
     });
   }, [id]);
 
+  const episodeColumns: TableColumnsType<Episode> = [
+    { title: t('series.season'), dataIndex: 'season', key: 'season', width: 60 },
+    { title: t('series.episode'), dataIndex: 'episode', key: 'episode', width: 60 },
+    { title: t('series.name'), dataIndex: 'title', key: 'title', render: (v: string | null) => v || '—' },
+    { title: t('series.airDate'), dataIndex: 'air_date', key: 'air_date', width: 130, render: (v: string | null) => v || '—' },
+  ];
+
+  const resourceColumns: TableColumnsType<FileResource> = [
+    { title: t('series.name'), dataIndex: 'title_raw', key: 'title', ellipsis: true },
+    { title: t('series.resolution'), dataIndex: 'resolution', key: 'resolution', width: 100, render: (v: string | null) => v ? <Tag>{v}</Tag> : '—' },
+    { title: t('series.subtitleGroup'), dataIndex: 'subtitle_group', key: 'subtitle_group', width: 140, render: (v: string | null) => v || '—' },
+    { title: t('series.publishedAt'), dataIndex: 'published_at', key: 'published_at', width: 160, render: (v: string | null) => (v ? timeAgo(v) : '—') },
+  ];
+
   if (loading) return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
-  if (!series) return <Text type="danger">未找到</Text>;
+  if (!series) return <Text type="danger">{t('series.notFound')}</Text>;
 
   return (
     <div>
@@ -51,7 +53,7 @@ export default function SeriesDetail() {
         <Title level={3} style={{ margin: 0 }}>
           {series.title_cn || series.title_en || series.original_title}
         </Title>
-        <Tag color="blue">剧集</Tag>
+        <Tag color="blue">{t('series.title')}</Tag>
       </Space>
 
       {/* Metadata card */}
@@ -62,17 +64,17 @@ export default function SeriesDetail() {
           )}
           <div style={{ flex: 1 }}>
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="中文标题">{series.title_cn || '—'}</Descriptions.Item>
-              <Descriptions.Item label="英文标题">{series.title_en || '—'}</Descriptions.Item>
-              <Descriptions.Item label="原始标题">{series.original_title || '—'}</Descriptions.Item>
-              <Descriptions.Item label="评分">{series.rating ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="状态">{series.status || '—'}</Descriptions.Item>
-              <Descriptions.Item label="季/集">
-                {series.number_of_seasons ? `${series.number_of_seasons}季 ${series.number_of_episodes || '?'}集` : '—'}
+              <Descriptions.Item label={t('series.cnTitle')}>{series.title_cn || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('series.enTitle')}>{series.title_en || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('series.originalTitle')}>{series.original_title || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('series.rating')}>{series.rating ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('common.status')}>{series.status || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('series.seasonsEpisodes')}>
+                {series.number_of_seasons ? `${series.number_of_seasons}${t('series.season')} ${series.number_of_episodes || '?'}${t('series.episode')}` : '—'}
               </Descriptions.Item>
-              <Descriptions.Item label="首播">{series.start_date || '—'}</Descriptions.Item>
-              <Descriptions.Item label="完结">{series.end_date || '—'}</Descriptions.Item>
-              <Descriptions.Item label="更新时间">{timeAgo(series.updated_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('series.startDate')}>{series.start_date || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('series.endDate')}>{series.end_date || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('series.updatedAt')}>{timeAgo(series.updated_at)}</Descriptions.Item>
             </Descriptions>
             {series.description && (
               <Text style={{ display: 'block', marginTop: 12, color: '#93939f' }}>
@@ -87,24 +89,24 @@ export default function SeriesDetail() {
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Card size="small">
-            <Statistic title="资源数" value={series.resource_count ?? 0} />
+            <Statistic title={t('series.resourceCount')} value={series.resource_count ?? 0} />
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small">
-            <Statistic title="下载任务" value={series.task_count ?? 0} />
+            <Statistic title={t('series.downloadTasks')} value={series.task_count ?? 0} />
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small">
-            <Statistic title="关联 Agent" value={series.agent_work_count ?? 0} />
+            <Statistic title={t('series.linkedAgents')} value={series.agent_work_count ?? 0} />
           </Card>
         </Col>
       </Row>
 
       {/* Episodes */}
       {series.episodes && series.episodes.length > 0 && (
-        <Card title={`剧集列表 (${series.episodes.length})`} style={{ marginBottom: 16 }} size="small">
+        <Card title={`${t('series.episodeList')} (${series.episodes.length})`} style={{ marginBottom: 16 }} size="small">
           <Table
             columns={episodeColumns}
             dataSource={series.episodes}
@@ -117,7 +119,7 @@ export default function SeriesDetail() {
 
       {/* Resources */}
       {series.resources && series.resources.length > 0 && (
-        <Card title={`最近资源 (${series.resource_count ?? series.resources.length})`} size="small">
+        <Card title={`${t('series.recentResources')} (${series.resource_count ?? series.resources.length})`} size="small">
           <Table
             columns={resourceColumns}
             dataSource={series.resources}

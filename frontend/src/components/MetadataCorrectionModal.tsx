@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Input, Select, Button, Space, Spin, Empty, Typography, App, Tag } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import type { FileResource, MetadataSearchResult } from '../types';
 
@@ -19,6 +20,7 @@ export default function MetadataCorrectionModal({
   onClose,
   onCorrected,
 }: Props) {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [step, setStep] = useState<'search' | 'results'>('search');
   const [searchTitle, setSearchTitle] = useState('');
@@ -46,7 +48,7 @@ export default function MetadataCorrectionModal({
 
   const handleSearch = async () => {
     if (!resourceId || !searchTitle.trim()) {
-      message.warning('请输入搜索词');
+      message.warning(t('metadata.enterSearch'));
       return;
     }
     setLoading(true);
@@ -60,10 +62,10 @@ export default function MetadataCorrectionModal({
         setResults(res.data.results || []);
         setStep('results');
       } else {
-        setError(res.error?.message || '搜索失败');
+        setError(res.error?.message || t('metadata.searchFailed'));
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : '搜索失败');
+      setError(e instanceof Error ? e.message : t('metadata.searchFailed'));
     } finally {
       setLoading(false);
     }
@@ -77,11 +79,11 @@ export default function MetadataCorrectionModal({
         selected_result: { ...result, content_type: contentType },
       });
       if (res.success) {
-        message.success('元数据已关联');
+        message.success(t('metadata.linked'));
         onCorrected?.();
         onClose();
       } else {
-        message.error(res.error?.message || '关联失败');
+        message.error(res.error?.message || t('metadata.linkFailed'));
       }
     } finally {
       setLinking(false);
@@ -92,7 +94,7 @@ export default function MetadataCorrectionModal({
     <Modal
       open={open}
       onCancel={onClose}
-      title="修正元数据"
+      title={t('metadata.correctTitle')}
       footer={null}
       destroyOnClose
       width={640}
@@ -101,13 +103,13 @@ export default function MetadataCorrectionModal({
         {/* Step 1: search */}
         <div>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-            输入标题关键词并选择内容类型，搜索元数据候选
+            {t('metadata.description')}
           </Text>
           <Space.Compact style={{ width: '100%' }}>
             <Input
               value={searchTitle}
               onChange={(e) => setSearchTitle(e.target.value)}
-              placeholder="搜索标题..."
+              placeholder={t('metadata.searchPlaceholder')}
               onPressEnter={handleSearch}
               prefix={<SearchOutlined />}
             />
@@ -116,12 +118,12 @@ export default function MetadataCorrectionModal({
               onChange={(v) => setContentType(v)}
               style={{ width: 120 }}
               options={[
-                { value: 'tv', label: '剧集' },
-                { value: 'movie', label: '电影' },
+                { value: 'tv', label: t('resource.series') },
+                { value: 'movie', label: t('resource.movie') },
               ]}
             />
             <Button type="primary" onClick={handleSearch} loading={loading}>
-              搜索
+              {t('metadata.searchBtn')}
             </Button>
           </Space.Compact>
         </div>
@@ -135,7 +137,7 @@ export default function MetadataCorrectionModal({
           <div style={{ textAlign: 'center', padding: 48 }}>
             <Spin />
             <div style={{ marginTop: 12, color: '#93939f', fontSize: 13 }}>
-              正在搜索...
+              {t('metadata.searching')}
             </div>
           </div>
         )}
@@ -143,7 +145,7 @@ export default function MetadataCorrectionModal({
         {!loading && step === 'results' && (
           <div>
             {results.length === 0 ? (
-              <Empty description="未找到匹配结果，请尝试调整搜索词" />
+              <Empty description={t('metadata.noResults')} />
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 480, overflow: 'auto' }}>
                 {results.map((r, idx) => (
@@ -191,7 +193,7 @@ export default function MetadataCorrectionModal({
                           {r.title_cn || r.title_en || r.original_title}
                         </Text>
                         <Tag color={r.content_type === 'tv' ? 'blue' : 'green'}>
-                          {r.content_type === 'tv' ? '剧集' : '电影'}
+                          {r.content_type === 'tv' ? t('resource.series') : t('resource.movie')}
                         </Tag>
                         {r.year && (
                           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -219,7 +221,7 @@ export default function MetadataCorrectionModal({
                         loading={linking}
                         onClick={() => handleSelect(r)}
                       >
-                        确认选择
+                        {t('metadata.confirmSelection')}
                       </Button>
                     </div>
                   </div>
@@ -232,7 +234,7 @@ export default function MetadataCorrectionModal({
                 size="small"
                 onClick={() => setStep('search')}
               >
-                ← 重新搜索
+                {t('metadata.backToSearch')}
               </Button>
             </div>
           </div>

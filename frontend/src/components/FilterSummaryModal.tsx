@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Modal,
   Button,
@@ -34,6 +35,7 @@ export default function FilterSummaryModal({
   onClose,
   onAgentCreated: _onAgentCreated,
 }: Props) {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -63,14 +65,14 @@ export default function FilterSummaryModal({
           setFilterConfig(filterRes.data.filter_config);
           setExplanation(filterRes.data.explanation || '');
         } else {
-          message.error(filterRes.error?.message || '生成过滤规则失败');
+          message.error(filterRes.error?.message || t('filter.generateFailed'));
         }
         if (agentRes.success) {
           setChannelAgents(agentRes.data.filter((a) => a.channel_id === channelId));
         }
       })
       .finally(() => setLoading(false));
-  }, [open, channelId, selectedIds, form, message]);
+  }, [open, channelId, selectedIds, form, message, t]);
 
   /** Merge two filter configs with AND */
   const mergeFilters = (
@@ -120,10 +122,10 @@ export default function FilterSummaryModal({
         filter_config: merged,
       });
       if (res.success) {
-        message.success('已追加过滤规则到 Agent');
+        message.success(t('filter.appendedToAgent'));
         onClose();
       } else {
-        message.error(res.error?.message || '应用失败');
+        message.error(res.error?.message || t('filter.applyFailed'));
       }
     } finally {
       setApplying(false);
@@ -137,9 +139,9 @@ export default function FilterSummaryModal({
       title={
         <Space>
           <Wand2 />
-          <span>生成过滤规则</span>
+          <span>{t('filter.generate')}</span>
           <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
-            已选 {selectedIds.length} 个资源
+            {t('filter.selectedResources', { n: selectedIds.length })}
           </Typography.Text>
         </Space>
       }
@@ -152,11 +154,11 @@ export default function FilterSummaryModal({
         <div style={{ textAlign: 'center', padding: '48px 0' }}>
           <Spin />
           <div style={{ marginTop: 12, color: '#93939f', fontSize: 13 }}>
-            正在分析 {selectedIds.length} 个资源...
+            {t('filter.analyzing', { n: selectedIds.length })}
           </div>
         </div>
       ) : !filterConfig ? (
-        <Empty description="未发现共同特征" />
+        <Empty description={t('filter.noCommonFeatures')} />
       ) : (
         <div>
           {explanation && (
@@ -170,7 +172,7 @@ export default function FilterSummaryModal({
 
           <div style={{ marginBottom: 16 }}>
             <Typography.Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-              建议过滤规则（可编辑）
+              {t('filter.suggestedRules')}
             </Typography.Text>
             <FilterBuilder value={filterConfig} onChange={setFilterConfig} />
           </div>
@@ -184,7 +186,7 @@ export default function FilterSummaryModal({
                 label: (
                   <Space size={4}>
                     <PlusCircle />
-                    <span>新建 Agent</span>
+                    <span>{t('filter.newAgent')}</span>
                   </Space>
                 ),
                 value: 'create',
@@ -193,7 +195,7 @@ export default function FilterSummaryModal({
                 label: (
                   <Space size={4}>
                     <ListFilter />
-                    <span>应用到已有 Agent</span>
+                    <span>{t('filter.applyToExisting')}</span>
                   </Space>
                 ),
                 value: 'apply',
@@ -206,56 +208,56 @@ export default function FilterSummaryModal({
             <Form form={form} layout="vertical" size="small">
               <Form.Item
                 name="name"
-                label="Agent 名称"
-                rules={[{ required: true, message: '请输入名称' }]}
+                label={t('filter.agentName')}
+                rules={[{ required: true, message: t('filter.agentNamePlaceholder') }]}
               >
-                <Input placeholder="例如：新番 1080p 自动下载" autoFocus />
+                <Input placeholder={t('filter.agentNameExample')} autoFocus />
               </Form.Item>
               <div style={{ textAlign: 'right' }}>
                 <Space>
-                  <Button onClick={onClose}>取消</Button>
+                  <Button onClick={onClose}>{t('common.cancel')}</Button>
                   <Button type="primary" onClick={handleCreateFromHere}>
-                    创建 Agent 并配置
+                    {t('filter.createAgentAndConfig')}
                   </Button>
                 </Space>
               </div>
               <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>
-                将跳转至 Agent 创建页，过滤规则已预填，选择下载器后即可完成创建。
+                {t('filter.createAgentHint')}
               </Typography.Text>
             </Form>
           ) : (
             <div>
               {channelAgents.length === 0 ? (
                 <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                  当前频道下暂无 Agent，请选择"新建 Agent"。
+                  {t('filter.noAgentHint')}
                 </Typography.Text>
               ) : (
                 <>
                   <Typography.Text style={{ fontSize: 12, color: '#93939f', display: 'block', marginBottom: 6 }}>
-                    选择目标 Agent
+                    {t('filter.selectTargetAgent')}
                   </Typography.Text>
                   <Select
                     options={channelAgents.map((a) => ({ label: a.name, value: a.id }))}
                     value={applyAgentId}
                     onChange={setApplyAgentId}
-                    placeholder="选择 Agent..."
+                    placeholder={t('filter.selectAgentPlaceholder')}
                     style={{ width: '100%' }}
                   />
                   {applyAgentId && (
                     <Typography.Text style={{ fontSize: 12, color: '#93939f', display: 'block', marginTop: 8 }}>
-                      新规则将与现有规则按 AND 合并。
+                      {t('filter.mergeHint')}
                     </Typography.Text>
                   )}
                   <div style={{ textAlign: 'right', marginTop: 16 }}>
                     <Space>
-                      <Button onClick={onClose}>取消</Button>
+                      <Button onClick={onClose}>{t('common.cancel')}</Button>
                       <Button
                         type="primary"
                         loading={applying}
                         disabled={!applyAgentId}
                         onClick={handleApply}
                       >
-                        应用规则
+                        {t('filter.applyRules')}
                       </Button>
                     </Space>
                   </div>

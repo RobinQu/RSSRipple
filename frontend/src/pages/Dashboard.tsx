@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Bot, AlertTriangle, Download, Rss } from 'lucide-react';
 import {
   Typography,
@@ -32,6 +33,7 @@ function posterFallback(title: string) {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,17 +78,17 @@ export default function Dashboard() {
   const handleConfirm = async (decisionId: string, resourceId: string) => {
     const r = await decisionsApi.confirm(decisionId, resourceId);
     if (r.success) {
-      message.success('已确认，开始下载');
+      message.success(t('dashboard.confirmed'));
       fetchData();
     } else {
-      message.error(r.error?.message || '操作失败');
+      message.error(r.error?.message || t('dashboard.failed'));
     }
   };
 
   const handleSkip = async (decisionId: string) => {
     const r = await decisionsApi.skip(decisionId);
     if (r.success) {
-      message.success('已跳过');
+      message.success(t('dashboard.skipped'));
       fetchData();
     }
   };
@@ -98,7 +100,7 @@ export default function Dashboard() {
       </div>
     );
   }
-  if (!dashboard) return <Empty description="无法加载数据" />;
+  if (!dashboard) return <Empty description={t('dashboard.failedToLoad')} />;
 
   return (
     <div>
@@ -111,16 +113,16 @@ export default function Dashboard() {
         }}
       >
         <Title level={3} style={{ margin: 0 }}>
-          Dashboard
+          {t('dashboard.title')}
         </Title>
         <Space>
           <Link to="/channels/new">
             <Button type="primary" icon={<Rss size={14} />}>
-              添加频道
+              {t('dashboard.addChannel')}
             </Button>
           </Link>
           <Link to="/agents/new">
-            <Button icon={<Bot size={14} />}>添加 Agent</Button>
+            <Button icon={<Bot size={14} />}>{t('dashboard.addAgent')}</Button>
           </Link>
         </Space>
       </div>
@@ -130,7 +132,7 @@ export default function Dashboard() {
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title="活跃 Agent"
+              title={t('dashboard.activeAgents')}
               value={dashboard.active_agents}
               prefix={<Bot size={18} />}
             />
@@ -139,7 +141,7 @@ export default function Dashboard() {
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title="活跃频道"
+              title={t('dashboard.activeChannels')}
               value={dashboard.active_channels}
               prefix={<Rss size={18} />}
             />
@@ -148,7 +150,7 @@ export default function Dashboard() {
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title="下载中"
+              title={t('dashboard.downloading')}
               value={dashboard.active_download_count}
               prefix={<Download size={18} />}
               valueStyle={{ color: '#1863dc' }}
@@ -158,7 +160,7 @@ export default function Dashboard() {
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title="待决策"
+              title={t('dashboard.pendingDecisions')}
               value={dashboard.pending_decisions.length}
               prefix={<AlertTriangle size={18} />}
               valueStyle={{ color: dashboard.pending_decisions.length > 0 ? '#ff7759' : undefined }}
@@ -169,13 +171,13 @@ export default function Dashboard() {
 
       {/* Active downloads */}
       <Card
-        title="活跃下载"
+        title={t('dashboard.activeDownloads')}
         style={{ marginBottom: 24 }}
         styles={{ body: { padding: 0 } }}
       >
         {dashboard.active_download_groups.length === 0 ? (
           <div style={{ padding: 32 }}>
-            <Empty description="暂无活跃下载" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty description={t('dashboard.noActiveDownloads')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
           </div>
         ) : (
           <List
@@ -202,12 +204,12 @@ export default function Dashboard() {
                     <Space size={8} style={{ marginBottom: 8 }}>
                       <Text strong>{group.title}</Text>
                       <Tag color={group.type === 'series' ? 'blue' : group.type === 'movie' ? 'green' : 'default'}>
-                        {group.type === 'series' ? '剧集' : group.type === 'movie' ? '电影' : '未识别'}
+                        {group.type === 'series' ? t('dashboard.series') : group.type === 'movie' ? t('dashboard.movie') : t('dashboard.unidentified')}
                       </Tag>
                     </Space>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {group.tasks.map((t) => (
-                        <div key={t.task_id}>
+                      {group.tasks.map((task) => (
+                        <div key={task.task_id}>
                           <div
                             style={{
                               display: 'flex',
@@ -218,17 +220,17 @@ export default function Dashboard() {
                             }}
                           >
                             <Text ellipsis style={{ flex: 1, fontSize: 13 }}>
-                              {t.resource_title}
+                              {task.resource_title}
                             </Text>
                             <Space size="small" style={{ color: '#93939f', fontSize: 12, flexShrink: 0 }}>
                               <span>{formatSpeed(0)}</span>
-                              <span>ETA: {formatEta(null)}</span>
-                              <Link to={`/agents/${t.agent_id}`}>
-                                <Text style={{ fontSize: 12 }}>{t.agent_name}</Text>
+                              <span>{t('dashboard.eta')} {formatEta(null)}</span>
+                              <Link to={`/agents/${task.agent_id}`}>
+                                <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>
                               </Link>
                             </Space>
                           </div>
-                          <ProgressBar progress={t.progress} />
+                          <ProgressBar progress={task.progress} />
                         </div>
                       ))}
                     </div>
@@ -241,10 +243,10 @@ export default function Dashboard() {
       </Card>
 
       {/* Pending decisions */}
-      <Card title="待决策" styles={{ body: { padding: 0 } }}>
+      <Card title={t('dashboard.pendingDecisions')} styles={{ body: { padding: 0 } }}>
         {dashboard.pending_decisions.length === 0 ? (
           <div style={{ padding: 32 }}>
-            <Empty description="暂无待决策项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <Empty description={t('dashboard.noPendingDecisions')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
           </div>
         ) : (
           <List
@@ -269,11 +271,11 @@ export default function Dashboard() {
                         <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
                       </Link>
                       {' · '}
-                      {d.candidates.length} 个候选 · {timeAgo(d.created_at)}
+                      {t('dashboard.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
                     </div>
                   </div>
                   <Button size="small" onClick={() => handleSkip(d.id)}>
-                    跳过
+                    {t('common.skip')}
                   </Button>
                 </div>
 
@@ -289,7 +291,7 @@ export default function Dashboard() {
                       marginBottom: 12,
                     }}
                   >
-                    <strong>AI 建议：</strong>
+                    <strong>{t('dashboard.aiSuggestion')}</strong>
                     {d.llm_suggestion}
                   </div>
                 )}
@@ -324,16 +326,16 @@ export default function Dashboard() {
                             </Space>
                           </div>
                         ) : (
-                          <Text ellipsis style={{ flex: 1, fontSize: 12, color: '#93939f' }}>
-                            加载中...
-                          </Text>
+                            <Text ellipsis style={{ flex: 1, fontSize: 12, color: '#93939f' }}>
+                              {t('common.loading')}
+                            </Text>
                         )}
                         <Button
                           type="primary"
                           size="small"
                           onClick={() => handleConfirm(d.id, cid)}
                         >
-                          确认
+                          {t('common.confirm')}
                         </Button>
                       </div>
                     );

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col } from 'antd';
@@ -10,6 +11,7 @@ import { timeAgo } from '../utils/format';
 const { Title, Text } = Typography;
 
 export default function MovieDetail() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const [movie, setMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,11 +25,11 @@ export default function MovieDetail() {
   }, [id]);
 
   if (loading) return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
-  if (!movie) return <Text type="danger">未找到</Text>;
+  if (!movie) return <Text type="danger">{t('movies.notFound')}</Text>;
 
   const resourceColumns: ColumnsType<FileResource> = [
     {
-      title: '原始标题',
+      title: t('series.name'),
       dataIndex: 'title_raw',
       key: 'title_raw',
       ellipsis: true,
@@ -36,7 +38,7 @@ export default function MovieDetail() {
       ),
     },
     {
-      title: '分辨率',
+      title: t('series.resolution'),
       dataIndex: 'resolution',
       key: 'resolution',
       width: 100,
@@ -44,7 +46,7 @@ export default function MovieDetail() {
         val ? <Tag color="blue">{val}</Tag> : <Text type="secondary">—</Text>,
     },
     {
-      title: '字幕组',
+      title: t('series.subtitleGroup'),
       dataIndex: 'subtitle_group',
       key: 'subtitle_group',
       width: 140,
@@ -52,7 +54,7 @@ export default function MovieDetail() {
       render: (val: string | null) => val || <Text type="secondary">—</Text>,
     },
     {
-      title: '发布时间',
+      title: t('series.publishedAt'),
       dataIndex: 'published_at',
       key: 'published_at',
       width: 140,
@@ -73,7 +75,7 @@ export default function MovieDetail() {
         <Title level={3} style={{ margin: 0 }}>
           {movie.title_cn || movie.title_en || movie.original_title}
         </Title>
-        <Tag color="green">电影</Tag>
+        <Tag color="green">{t('movies.title')}</Tag>
       </Space>
 
       <Card>
@@ -83,14 +85,14 @@ export default function MovieDetail() {
           )}
           <div style={{ flex: 1 }}>
             <Descriptions column={1} size="small">
-              <Descriptions.Item label="中文标题">{movie.title_cn || '—'}</Descriptions.Item>
-              <Descriptions.Item label="英文标题">{movie.title_en || '—'}</Descriptions.Item>
-              <Descriptions.Item label="原始标题">{movie.original_title || '—'}</Descriptions.Item>
-              <Descriptions.Item label="评分">{movie.rating ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="状态">{movie.status || '—'}</Descriptions.Item>
-              <Descriptions.Item label="片长">{movie.runtime ? `${movie.runtime}分钟` : '—'}</Descriptions.Item>
-              <Descriptions.Item label="上映日期">{movie.release_date || '—'}</Descriptions.Item>
-              <Descriptions.Item label="更新时间">{timeAgo(movie.updated_at)}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.cnTitle')}>{movie.title_cn || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.enTitle')}>{movie.title_en || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.originalTitle')}>{movie.original_title || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.rating')}>{movie.rating ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('common.status')}>{movie.status || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.runtime')}>{movie.runtime ? `${movie.runtime}${t('movies.runtimeUnit')}` : '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.releaseDate')}>{movie.release_date || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('movies.updatedAt')}>{timeAgo(movie.updated_at)}</Descriptions.Item>
             </Descriptions>
             {movie.description && (
               <Text style={{ display: 'block', marginTop: 12, color: '#93939f' }}>
@@ -106,14 +108,14 @@ export default function MovieDetail() {
         <Row gutter={48}>
           <Col>
             <Statistic
-              title="资源数"
+              title={t('movies.resourceCount')}
               value={movie.resource_count ?? 0}
               valueStyle={{ fontSize: 28, fontWeight: 600, color: '#212121' }}
             />
           </Col>
           <Col>
             <Statistic
-              title="下载任务数"
+              title={t('movies.downloadTasks')}
               value={movie.task_count ?? 0}
               valueStyle={{ fontSize: 28, fontWeight: 600, color: '#212121' }}
             />
@@ -123,7 +125,7 @@ export default function MovieDetail() {
 
       {/* Recent Resources */}
       {movie.resources && movie.resources.length > 0 && (
-        <Card title="最近资源" style={{ marginTop: 16 }}>
+        <Card title={t('series.recentResources')} style={{ marginTop: 16 }}>
           <Table<FileResource>
             columns={resourceColumns}
             dataSource={movie.resources}
