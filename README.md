@@ -111,12 +111,6 @@ cd frontend && npm install && npm run build && cd ..
 uv run uvicorn app.main:app --reload --port 9001
 ```
 
-### With Redis queue backend
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
-```
-
 ## Tests
 
 ### Unit and API tests (fast, local SQLite)
@@ -148,3 +142,35 @@ docker compose -f docker-compose.test.yml run --rm test-runner \
 94 integration tests run against real test RSS feeds served by the test-server container. Tests that exercise LLM features are skipped unless the model is configured in `.env`.
 
 **Note:** `./data` is bind-mounted, so stale SQLite files persist across `docker compose down -v`. Always run `rm -rf data/ && mkdir -p data` before a clean test run.
+
+## Development Collaboration
+
+### Branch Naming
+
+All branches must follow [Conventional Branch](https://conventionalbranch.org/) v1.1.0:
+
+```
+<type>/<description>
+```
+
+- Lowercase letters, digits, and hyphens only. No spaces, underscores, or uppercase.
+- No consecutive or leading/trailing hyphens.
+
+Common prefixes:
+
+| Prefix | Use |
+|---|---|
+| `feature/` / `feat/` | New features |
+| `bugfix/` / `fix/` | Bug fixes |
+| `hotfix/` | Urgent fixes |
+| `release/` | Release preparation |
+| `chore/` | Dependencies, docs, config |
+| `ai/` / `copilot/` / `cursor/` / `claude/` / `codex/` | AI agent-generated branches |
+
+Examples:
+- `feature/i18n-support`
+- `fix/sqlite-lock`
+- `release/v1.0.0`
+- `chore/update-deps`
+
+See [AGENTS.md](AGENTS.md#分支与协作规范) for the full specification with examples of valid and invalid names.
