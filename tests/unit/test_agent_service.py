@@ -181,9 +181,8 @@ class TestDispatchDownload:
         assert task.status == "error"
         assert "not found" in task.error_message
 
-    async def test_no_downloader_id_sets_error(self, db_session, channel, downloader):
-        """When agent.downloader_id is None, task is created with error status."""
-        # Use a real agent to get a valid id, then expunge before mutating
+    async def test_no_downloader_id_sets_error(self, db_session, channel, downloader, monkeypatch):
+        """When DB lookup of the downloader returns None, task is created with error status."""
         agent = Agent(
             id=_uuid(), name="a", channel_id=channel.id,
             downloader_id=downloader.id, status="active",
@@ -194,15 +193,11 @@ class TestDispatchDownload:
         res = _make_resource(channel.id, series_id=None, movie_id=None)
         db_session.add(res)
         await db_session.flush()
-
-        # Detach agent from session so setting downloader_id=None won't trigger UPDATE
-        db_session.expunge(agent)
-        agent.downloader_id = None
-
+        # Mock db.get to return None for DownloaderInstance lookup
+        monkeypatch.setattr(db_session, "get", AsyncMock(return_value=None))
         task = await dispatch_download(agent, res, db_session)
         assert task.status == "error"
-        assert task.downloader_id is None
-        assert "No downloader configured" in task.error_message
+        assert "not found" in task.error_message
 
     async def test_download_path_error_sets_error(self, db_session, channel, downloader):
         """When resolve_download_dir raises DownloadPathError, task gets error status."""
@@ -225,8 +220,9 @@ class TestDispatchDownload:
             task = await dispatch_download(agent, res, db_session)
 
         assert task.status == "error"
-        assert task.download_dir is None
         assert "escapes" in task.error_message
+        # download_dir falls back to the downloader root directory
+        assert task.download_dir == downloader.download_dir
 
 
 # ---------------------------------------------------------------------------

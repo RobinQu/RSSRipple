@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
+from app.utils.time import utcnow
 from app.database import async_session_factory, create_tables
 
 # Import models for SQLAlchemy discovery
@@ -69,7 +70,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 
         run_result = await process_resources(agent, resources, session)
 
-        agent.last_run_at = datetime.now(UTC)
+        agent.last_run_at = utcnow()
         agent.last_run_status = "failed" if run_result.errors else "success"
         try:
             await session.commit()

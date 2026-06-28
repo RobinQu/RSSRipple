@@ -13,6 +13,7 @@ from app.models.file_resource import FileResource
 from app.models.pending_decision import PendingDecision
 from app.schemas.pending_decision import ConfirmDecisionRequest, PendingDecisionResponse
 from app.schemas.common import success_response, paginated_response
+from app.utils.time import utcnow
 
 router = APIRouter()
 
@@ -68,7 +69,7 @@ async def confirm_decision(
         return JSONResponse(status_code=400, content={"success": False, "data": None, "error": {"code": "VALIDATION_ERROR", "message": "Resource not in candidates"}, "meta": {}})
     decision.status = "decided"
     decision.decided_resource_id = body.resource_id
-    decision.decided_at = datetime.now(UTC)
+    decision.decided_at = utcnow()
     await db.flush()
 
     # Dispatch the chosen resource
@@ -88,7 +89,7 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     if not decision:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Decision not found"}, "meta": {}})
     decision.status = "skipped"
-    decision.decided_at = datetime.now(UTC)
+    decision.decided_at = utcnow()
     await db.flush()
     await db.commit()
     await db.refresh(decision)

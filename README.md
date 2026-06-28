@@ -1,4 +1,6 @@
-# RSSRipple
+<p>
+  <img src="docs/assets/rssripple-banner.svg" alt="RSSRipple - RSS subscription downloader" width="596">
+</p>
 
 RSSRipple is an RSS subscription downloader for TV/anime/movie releases. It fetches RSS feeds, parses resources with per-channel field mappings, links resources to local metadata, filters them through Agents, and sends matching torrents to Transmission.
 
@@ -80,14 +82,20 @@ Common environment variables:
 | Variable | Description |
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy database URL |
-| `REDIS_URL` | Optional Redis backend for queue locks |
+| `REDIS_URL` | Optional Redis backend for queue distribution |
+| `QUEUE_BACKEND` | Queue backend: `"memory"` (default) or `"redis"` |
 | `LLM_API_KEY` | API key for LLM features |
 | `LLM_BASE_URL` | OpenAI-compatible base URL |
 | `LLM_MODEL` | Model for feed analysis, title cleaning, regex generation, and suggestions |
 | `LLM_SEARCH_MODEL` | Web-search-capable model for metadata search |
+| `LLM_ENABLE_THINKING` | Pass `enable_thinking` to LLM for chain-of-thought (default `false`) |
 | `POSTER_CACHE_DIR` | Local poster cache mounted at `/posters` |
 | `TRANSMISSION_TIMEOUT` | Transmission RPC timeout |
+| `MAX_RETRY_COUNT` | Max retry attempts for failed downloads (default `3`) |
+| `TASK_EXPIRE_DAYS` | Auto-cleanup completed tasks after N days (default `30`) |
 | `DEV_MODE` | Include stack traces in internal error responses when true |
+| `DEBUG` | Enable debug logging (default `false`) |
+| `LOG_LEVEL` | Logging level: `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"` |
 
 ## Local Development
 

@@ -31,6 +31,7 @@ from thefuzz import fuzz
 import asyncio
 
 from app.config import settings
+from app.utils.time import utcnow
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.movie import Movie
 from app.models.series import TVSeries
@@ -566,7 +567,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             resource.series_id = None
         if mapping.search_title_override:
             resource.search_title = mapping.search_title_override
-        resource.metadata_matched_at = datetime.now(UTC)
+        resource.metadata_matched_at = utcnow()
         return
 
     # Layer 3: local match
@@ -580,13 +581,13 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     # Auto-link only at >=85 ratio
     if series and s_ratio >= AUTO_LINK_THRESHOLD and (movie is None or s_ratio >= m_ratio):
         resource.series_id = series.id
-        resource.metadata_matched_at = datetime.now(UTC)
+        resource.metadata_matched_at = utcnow()
         if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
             pass  # poster already handled if set
         return
     if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
         resource.movie_id = movie.id
-        resource.metadata_matched_at = datetime.now(UTC)
+        resource.metadata_matched_at = utcnow()
         return
 
     # NOTE: 70-84 matches are skipped (too ambiguous) and fall through to LLM layer.
@@ -613,7 +614,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             series_entity = await create_or_update_series_from_external(db, best)
             resource.series_id = series_entity.id
             resource.movie_id = None
-        resource.metadata_matched_at = datetime.now(UTC)
+        resource.metadata_matched_at = utcnow()
     except Exception as e:
         logger.warning("[metadata] Failed to link via LLM for %r: %s", search_title[:60], e)
 
@@ -659,7 +660,7 @@ async def manual_link_metadata(
         movie_id = None
         content_type = "tv"
 
-    resource.metadata_matched_at = datetime.now(UTC)
+    resource.metadata_matched_at = utcnow()
 
     # Upsert ChannelRawTitleMapping
     existing = await db.execute(

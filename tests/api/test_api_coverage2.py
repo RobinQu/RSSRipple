@@ -240,23 +240,38 @@ class TestMoviesMore:
 
 
 class TestTasksMore:
-    async def test_task_pause_no_downloader(self, client, env, db_session_factory):
+    async def test_task_pause_no_downloader(self, client, env, db_session_factory, monkeypatch):
+        """Pause task returns 'failed' when _apply_torrent_action fails (simulating missing downloader)."""
+        from app.api.v1 import tasks as tmod
         rid = await _make_resource(db_session_factory, env.ch_id)
-        tid = await _make_task(db_session_factory, env.aid, rid, None)
+        tid = await _make_task(db_session_factory, env.aid, rid, env.dl_id)
+        async def fake_apply(*args, **kw):
+            return False
+        monkeypatch.setattr(tmod, "_apply_torrent_action", fake_apply)
         r = await client.post(f"/api/v1/tasks/{tid}/pause")
         assert r.status_code == 200
         assert r.json()["data"]["message"] == "failed"
 
-    async def test_task_resume_no_downloader(self, client, env, db_session_factory):
+    async def test_task_resume_no_downloader(self, client, env, db_session_factory, monkeypatch):
+        """Resume task returns 'failed' when _apply_torrent_action fails."""
+        from app.api.v1 import tasks as tmod
         rid = await _make_resource(db_session_factory, env.ch_id)
-        tid = await _make_task(db_session_factory, env.aid, rid, None)
+        tid = await _make_task(db_session_factory, env.aid, rid, env.dl_id)
+        async def fake_apply(*args, **kw):
+            return False
+        monkeypatch.setattr(tmod, "_apply_torrent_action", fake_apply)
         r = await client.post(f"/api/v1/tasks/{tid}/resume")
         assert r.status_code == 200
         assert r.json()["data"]["message"] == "failed"
 
-    async def test_task_retry_no_downloader(self, client, env, db_session_factory):
+    async def test_task_retry_no_downloader(self, client, env, db_session_factory, monkeypatch):
+        """Retry task returns 'failed' when _apply_torrent_action fails."""
+        from app.api.v1 import tasks as tmod
         rid = await _make_resource(db_session_factory, env.ch_id)
-        tid = await _make_task(db_session_factory, env.aid, rid, None)
+        tid = await _make_task(db_session_factory, env.aid, rid, env.dl_id)
+        async def fake_apply(*args, **kw):
+            return False
+        monkeypatch.setattr(tmod, "_apply_torrent_action", fake_apply)
         r = await client.post(f"/api/v1/tasks/{tid}/retry")
         assert r.status_code == 200
         assert r.json()["data"]["message"] == "failed"

@@ -11,6 +11,7 @@ from app.models.download_task import DownloadTask
 from app.schemas.downloader import DownloaderCreate, DownloaderUpdate, DownloaderResponse
 from app.schemas.download_task import DownloadTaskResponse
 from app.schemas.common import success_response, paginated_response
+from app.utils.time import utcnow
 from app.clients.transmission import TransmissionWrapper
 from app.utils.download_paths import DownloadPathError
 from fastapi.responses import JSONResponse
@@ -86,6 +87,7 @@ async def update_downloader(
 @router.delete("/downloaders/{downloader_id}")
 async def delete_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)):
     from app.models.agent import Agent
+    from app.models.download_task import DownloadTask
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
@@ -102,6 +104,13 @@ async def delete_downloader(downloader_id: str, db: AsyncSession = Depends(get_d
             },
             "meta": {},
         })
+    # Cascade-delete associated DownloadTasks before removing the downloader
+    linked_tasks = await db.execute(
+        select(DownloadTask).where(DownloadTask.downloader_id == downloader_id)
+    )
+    for task in linked_tasks.scalars().all():
+        task.status = "cancelled"
+        await db.delete(task)
     await db.delete(dl)
     await db.commit()
     return success_response({"deleted": True})
@@ -167,7 +176,7 @@ async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)
     version = detail if success else None
 
     dl.status = "connected" if success else "error"
-    dl.last_checked_at = datetime.now(timezone.utc)
+    dl.last_checked_at = utcnow()
     free_space = None
     if success:
         try:

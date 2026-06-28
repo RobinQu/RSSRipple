@@ -22,9 +22,9 @@ class DownloadTask(Base):
         String(36), ForeignKey("file_resources.id", ondelete="CASCADE"), nullable=False
     )
     downloader_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("downloader_instances.id", ondelete="SET NULL"), nullable=True
+        String(36), ForeignKey("downloader_instances.id", ondelete="RESTRICT"), nullable=False
     )
-    download_dir: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    download_dir: Mapped[str] = mapped_column(String(1024), nullable=False)
     transmission_torrent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum(

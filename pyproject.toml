@@ -21,6 +21,8 @@ dependencies = [
     "thefuzz[speedup]==0.22.1",
     "openrouter>=0.10.0",
     "redis>=5.0",
+    # Optional database drivers (auto-selected via DATABASE_URL scheme)
+    "asyncpg>=0.30.0",
 ]
 
 [dependency-groups]

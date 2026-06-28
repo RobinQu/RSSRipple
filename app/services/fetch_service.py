@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, UTC
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from app.clients.rss_parser import (
     _extract_download_urls,
     _extract_published_at,
 )
+from app.utils.time import utcnow
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.services.metadata_service import (
@@ -66,7 +67,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
     entries = feed.entries
     logger.debug("[fetch:%s] Feed read: %d entries", channel.id, len(entries))
     if not entries:
-        channel.last_fetched_at = datetime.now(UTC)
+        channel.last_fetched_at = utcnow()
         channel.last_fetch_status = "success"
         channel.status = "active"
         channel.last_fetch_error = None
@@ -125,7 +126,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             torrent_url=torrent_url,
             detail_url=detail_url,
             published_at=published_at_val,
-            parsed_at=datetime.now(UTC),
+            parsed_at=utcnow(),
             title_cn=fm_title_cn,
             title_en=fm_title_en,
             **{k: v for k, v in parsed.items() if k in column_names and k not in _EXPLICIT_RESOURCE_COLS},
@@ -179,7 +180,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         new_count += 1
 
     # Finalize channel status
-    channel.last_fetched_at = datetime.now(UTC)
+    channel.last_fetched_at = utcnow()
     channel.last_fetch_status = "success"
     channel.status = "active"
     channel.last_fetch_error = None

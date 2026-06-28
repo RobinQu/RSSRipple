@@ -64,10 +64,12 @@ def _extract_download_urls(entry) -> tuple[str | None, str | None]:
                 # Generic enclosure — might be a torrent
                 torrent_url = url
 
-    # 2. Check entry link — some feeds put magnet links here
+    # 2. Check entry link — some feeds put magnet links or .torrent URLs here
     link = entry.get("link", "")
     if link.startswith("magnet:") and magnet_url is None:
         magnet_url = link
+    elif ".torrent" in link and torrent_url is None:
+        torrent_url = link
 
     # 3. Search description for magnet links
     if magnet_url is None:
