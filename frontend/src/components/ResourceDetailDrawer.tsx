@@ -12,11 +12,12 @@ import {
   Tooltip,
   Descriptions,
 } from 'antd';
-import { Copy, Film, Pencil } from 'lucide-react';
+import { Copy, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import { formatBytes, formatDate } from '../utils/format';
 import MetadataCorrectionModal from './MetadataCorrectionModal';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { FileResource } from '../types';
 
 const { Text, Paragraph } = Typography;
@@ -33,29 +34,9 @@ interface LinkedMeta {
 }
 
 function PosterBlock({ url }: { url: string | null | undefined }) {
-  if (!url) {
-    return (
-      <div
-        style={{
-          width: 80,
-          height: 120,
-          borderRadius: 6,
-          background: '#eeece7',
-          border: '1px solid #d9d9dd',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#75758a',
-          flexShrink: 0,
-        }}
-      >
-        <Film size={24} />
-      </div>
-    );
-  }
   return (
     <img
-      src={url}
+      src={posterUrl(url)}
       alt="poster"
       style={{
         width: 80,
@@ -66,9 +47,7 @@ function PosterBlock({ url }: { url: string | null | undefined }) {
         background: '#eeece7',
         flexShrink: 0,
       }}
-      onError={(e) => {
-        (e.target as HTMLImageElement).style.display = 'none';
-      }}
+      onError={useDefaultPoster}
     />
   );
 }
@@ -95,7 +74,23 @@ export default function ResourceDetailDrawer({
       if (resRes.success) setResourceData(resRes.data);
       if (metaRes.success && metaRes.data) {
         const d = metaRes.data;
-        if (d.series_id && d.series) {
+        if (d.linked?.type === 'series') {
+          const series = d.linked.entity;
+          setMeta({
+            type: 'series',
+            title:
+              series.title_cn || series.title_en || series.original_title || t('resource.unknownSeries'),
+            poster_url: series.poster_url,
+          });
+        } else if (d.linked?.type === 'movie') {
+          const movie = d.linked.entity;
+          setMeta({
+            type: 'movie',
+            title:
+              movie.title_cn || movie.title_en || movie.original_title || t('resource.unknownMovie'),
+            poster_url: movie.poster_url,
+          });
+        } else if (d.series_id && d.series) {
           setMeta({
             type: 'series',
             title:

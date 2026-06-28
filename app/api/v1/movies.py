@@ -86,6 +86,13 @@ async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
     )
     data["task_count"] = task_cnt.scalar_one() or 0
 
+    # Agent works referencing this movie
+    from app.models.agent_work import AgentWork
+    aw_q = await db.execute(
+        select(AgentWork).where(AgentWork.movie_id == movie_id)
+    )
+    data["agent_work_count"] = len(aw_q.scalars().all())
+
     return success_response(data)
 
 
@@ -113,16 +120,27 @@ async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
     from app.models.pending_decision import PendingDecision
     from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
     from sqlalchemy import update as sql_update
-    from sqlalchemy import select
     movie = await db.get(Movie, movie_id)
     if not movie:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Movie not found"}})
+
+    # Constraint check: block if any AgentWork references this movie
+    aw_cnt = (await db.execute(
+        select(func.count()).select_from(AgentWork).where(AgentWork.movie_id == movie_id)
+    )).scalar_one()
+    if aw_cnt > 0:
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None,
+            "error": {
+                "code": "DELETE_BLOCKED",
+                "message": f"Cannot delete: {aw_cnt} agent(s) reference this movie. Remove the agent work subscriptions first.",
+                "details": {"agent_work_count": aw_cnt},
+            },
+        })
+
     await db.execute(sql_update(FileResource).where(FileResource.movie_id == movie_id).values(movie_id=None))
     await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
     await db.execute(sql_update(ChannelRawTitleMapping).where(ChannelRawTitleMapping.movie_id == movie_id).values(movie_id=None))
-    res = await db.execute(select(AgentWork).where(AgentWork.movie_id == movie_id))
-    for w in res.scalars().all():
-        await db.delete(w)
     await db.delete(movie)
     await db.commit()
     return success_response({"deleted": True})

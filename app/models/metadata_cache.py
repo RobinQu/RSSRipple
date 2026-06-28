@@ -4,7 +4,7 @@ Stores LLM-extracted clean titles keyed by ``(title, source="llm_title")`` so
 that repeated ``clean_title_llm`` calls for the same raw title (e.g. different
 episodes of the same series) only hit the LLM once per process restart.
 
-External metadata (TMDB/TVDB results) is cached in the ``movies`` and
+External metadata (TMDB results) is cached in the ``movies`` and
 ``tv_series`` tables — not here.
 """
 

@@ -1,0 +1,59 @@
+# RSSRipple Dashboard — Core overview tests
+# Validates dashboard stats, download groups, pending decisions, and sidebar navigation.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+
+agent:
+  testId: dashboard-smoke
+  groupName: RSSRipple E2E
+  groupDescription: Dashboard overview and navigation smoke tests
+
+tasks:
+  - name: Dashboard page loads with key statistics
+    flow:
+      - ai: Navigate to the Dashboard page (click "Dashboard" in the left sidebar)
+      - aiWaitFor: The page shows statistics cards including active agents, active channels, downloading count, and pending decisions count
+        timeout: 15000
+
+  - name: Dashboard shows active download groups
+    flow:
+      - aiAssert: The page displays a section for "Active Downloads" or download groups, showing ongoing download tasks grouped by series or movie, each with a poster image and task list
+
+  - name: Dashboard shows pending decisions if any exist
+    flow:
+      - ai: Scroll down to view the pending decisions section
+      - aiAssert: The page has a section that shows pending decisions with candidate resource details and confirm/skip actions, or shows an empty state message if no decisions are pending
+
+  - name: Navigate to Channels via sidebar
+    flow:
+      - ai: Click the "Channels" menu item in the left sidebar
+      - aiWaitFor: The page shows a table of RSS channels with columns like Name, Status, Fetch Interval, and Last Fetch
+        timeout: 10000
+
+  - name: Navigate to Agents via sidebar
+    flow:
+      - ai: Click the "Agents" menu item in the left sidebar
+      - aiWaitFor: The page shows a table of agents with columns like Name, Channel, Downloader, Status, and Works
+        timeout: 10000
+
+  - name: Navigate to Downloaders via sidebar
+    flow:
+      - ai: Click the "Downloaders" menu item in the left sidebar
+      - aiWaitFor: The page shows a table of downloader instances with columns like Name, Type, URL, Status
+        timeout: 10000
+
+  - name: Return to Dashboard
+    flow:
+      - ai: Click the "Dashboard" menu item in the left sidebar
+      - aiWaitFor: The dashboard page loads with statistics cards visible
+        timeout: 10000
+
+  - name: Sidebar collapse and expand
+    flow:
+      - ai: Click the collapse button on the left sidebar (icon with left/right arrows)
+      - sleep: 1000
+      - aiAssert: The sidebar is collapsed showing only icons
+      - ai: Click the expand button to restore sidebar
+      - sleep: 1000
+      - aiAssert: The sidebar shows full menu labels (Dashboard, Channels, Agents, Downloaders)

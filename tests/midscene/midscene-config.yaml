@@ -1,0 +1,15 @@
+# Midscene batch run configuration for RSSRipple E2E tests.
+# Usage: midscene --config ./tests/midscene/midscene-config.yaml
+
+files:
+  - ./tests/midscene/dashboard.yaml
+  - ./tests/midscene/channels-lifecycle.yaml
+  - ./tests/midscene/downloaders-lifecycle.yaml
+  - ./tests/midscene/agents-lifecycle.yaml
+  - ./tests/midscene/resources-metadata.yaml
+  - ./tests/midscene/series-movies.yaml
+
+# Run scripts sequentially (order matters: channels/downloaders before agents)
+concurrent: 1
+continueOnError: true
+retry: 1

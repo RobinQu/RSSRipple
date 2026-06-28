@@ -53,7 +53,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         channel.status = "error"
         channel.last_fetch_status = "failed"
         channel.last_fetch_error = str(e)[:2000]
-        return {"new_resource_ids": [], "new_count": 0, "error": str(e)}
+        return {"status": "error", "new_resource_ids": [], "new_count": 0, "error": str(e)}
 
     if feed.bozo and not feed.entries:
         exc = getattr(feed, "bozo_exception", None)
@@ -62,7 +62,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         channel.status = "error"
         channel.last_fetch_status = "failed"
         channel.last_fetch_error = msg
-        return {"new_resource_ids": [], "new_count": 0, "error": msg}
+        return {"status": "error", "new_resource_ids": [], "new_count": 0, "error": msg}
 
     entries = feed.entries
     logger.debug("[fetch:%s] Feed read: %d entries", channel.id, len(entries))
@@ -71,7 +71,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         channel.last_fetch_status = "success"
         channel.status = "active"
         channel.last_fetch_error = None
-        return {"new_resource_ids": [], "new_count": 0}
+        return {"status": "unchanged", "new_resource_ids": [], "new_count": 0}
 
     # 2. Existing GUIDs for dedup
     result = await db.execute(
@@ -111,7 +111,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         fm_title_en = parsed.pop("title_en", None) or None
 
         torrent_url_auto, _ = _extract_download_urls(entry)
-        torrent_url = fm_torrent_url or torrent_url_auto
+        # Prefer auto-detected download URL (enclosures/magnets) over field-mapped,
+        # because field_mapping may point to a non-download URL (e.g. detail page <link>).
+        torrent_url = torrent_url_auto or fm_torrent_url
         if not torrent_url:
             logger.warning("Skipping entry '%s': no torrent/magnet URL found", guid)
             continue
@@ -202,6 +204,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             logger.warning("Failed to enqueue run_agent for %s: %s", agent.id, e)
 
     return {
+        "status": "success" if new_count > 0 else "unchanged",
         "total": len(entries),
         "new_count": new_count,
         "new_resource_ids": new_resource_ids,

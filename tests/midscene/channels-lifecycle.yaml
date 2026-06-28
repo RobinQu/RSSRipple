@@ -1,0 +1,124 @@
+# RSSRipple Channel Lifecycle — Full CRUD + operations
+# Covers: create channel, view list/detail, manual fetch, edit, generate title regex, summarize filters, delete.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+
+agent:
+  testId: channel-lifecycle
+  groupName: RSSRipple E2E
+  groupDescription: Complete channel management lifecycle tests
+
+tasks:
+  # ── Create Channel ───────────────────────────────────────────────
+  - name: Navigate to channel creation form
+    flow:
+      - ai: Click "Channels" in the left sidebar
+      - aiWaitFor: The channels page loads with a table listing RSS channels
+        timeout: 10000
+
+  - name: Open new channel form
+    flow:
+      - ai: Click the button to create a new channel (look for "New Channel", "Create", or a plus/add icon)
+      - aiWaitFor: A form appears with fields for Name, URL, and other channel settings
+        timeout: 10000
+
+  - name: Fill channel name
+    flow:
+      - aiInput: The "Name" input field in the channel form
+        value: Test RSS Feed
+      - sleep: 500
+
+  - name: Validate RSS URL
+    flow:
+      - aiInput: The "URL" input field for the RSS feed
+        value: https://rss.art19.com/apology-line
+      - sleep: 500
+      - ai: Click the "Validate" button next to the URL field
+      - sleep: 3000
+      - aiAssert: The URL validation shows a success message or the feed is recognized as valid
+
+  - name: Preview RSS feed
+    flow:
+      - ai: Click the "Preview" button to see feed contents
+      - aiWaitFor: A preview panel shows RSS entries with titles or the feed is displayed
+        timeout: 15000
+
+  - name: Set fetch interval and submit
+    flow:
+      - aiInput: The "Fetch Interval" input field
+        value: 1800
+      - sleep: 500
+      - ai: Click the "Save" or "Create" or "Submit" button to save the channel
+      - sleep: 3000
+
+  - name: Verify channel appears in list
+    flow:
+      - aiWaitFor: The channels list table shows "Test RSS Feed" as one of the channels
+        timeout: 10000
+      - aiAssert: The channel "Test RSS Feed" has a status badge visible in the table
+
+  # ── View Channel Detail ─────────────────────────────────────────
+  - name: Open channel detail page
+    flow:
+      - ai: In the channels table, click on the row or name for "Test RSS Feed" to view its detail
+      - aiWaitFor: The channel detail page loads showing channel information like Name, URL, Status, and Fetch Interval
+        timeout: 10000
+      - aiAssert: The page shows the channel name "Test RSS Feed"
+
+  - name: Manual fetch
+    flow:
+      - ai: Click the "Fetch" or "Fetch Now" button to trigger a manual RSS fetch
+      - sleep: 5000
+      - aiAssert: A fetch status indicator appears showing success or a running status message
+
+  - name: View resources grouped by work
+    flow:
+      - ai: Scroll down to the resources section
+      - aiWaitFor: Resources are displayed either grouped by series/movie or showing an empty state
+        timeout: 8000
+
+  # ── Generate Title Regex ───────────────────────────────────────
+  - name: Generate title cleaning regex via LLM
+    flow:
+      - ai: Look for a "Generate Regex" or "Title Regex" button or action related to title extraction
+      - ai: If the button exists, click it
+      - sleep: 8000
+      - aiAssert: Either a regex pattern is displayed, or the feature is unavailable (no error shown)
+
+  # ── Summarize Filters ───────────────────────────────────────────
+  - name: Select resources and generate filter rules
+    flow:
+      - ai: If resources are listed, select one or more resource checkboxes
+      - ai: Look for a "Generate Filter Rules" or "Summarize Filters" button
+      - ai: If the button exists, click it
+      - sleep: 5000
+      - aiAssert: A modal or panel appears showing suggested filter configuration, or a message indicates the feature state
+
+  # ── Edit Channel ────────────────────────────────────────────────
+  - name: Navigate to edit channel
+    flow:
+      - ai: Click the "Edit" button on the channel detail page (pencil icon or "Edit" text)
+      - aiWaitFor: The channel edit form loads with pre-filled values including the name "Test RSS Feed"
+        timeout: 10000
+
+  - name: Update channel name
+    flow:
+      - ai: Clear the channel name field and type a new name
+      - aiInput: The "Name" input field in the channel form
+        value: Test RSS Feed Updated
+      - sleep: 500
+      - ai: Click the "Save" or "Update" button to save changes
+      - sleep: 3000
+      - aiWaitFor: The page shows "Test RSS Feed Updated" confirming the update succeeded
+        timeout: 10000
+
+  # ── Delete Channel ──────────────────────────────────────────────
+  - name: Delete the test channel
+    flow:
+      - ai: Click the "Delete" button on the channel (trash icon or "Delete" text)
+      - sleep: 1500
+      - ai: Confirm the deletion in any confirmation dialog that appears
+      - sleep: 2000
+      - aiWaitFor: The channels list page loads and "Test RSS Feed Updated" is no longer in the table
+        timeout: 10000

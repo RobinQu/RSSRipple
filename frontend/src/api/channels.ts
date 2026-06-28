@@ -1,5 +1,6 @@
 import { api } from './client';
 import type {
+  APIResponse,
   Channel,
   ChannelDetail,
   ChannelStatus,
@@ -8,7 +9,9 @@ import type {
   FilterSuggestionResponse,
   GroupedResource,
   MetadataSearchResult,
+  Movie,
   PreviewEntry,
+  TVSeries,
 } from '../types';
 
 export interface PreviewFeedData {
@@ -38,6 +41,23 @@ export interface ChannelUpdate {
   metadata_source?: 'llm' | 'none';
 }
 
+type ChannelResourcesPayload =
+  | FileResource[]
+  | GroupedResource[]
+  | {
+      groups?: GroupedResource[];
+      resources?: FileResource[];
+    };
+
+function normalizeResourcesPayload(
+  payload: ChannelResourcesPayload,
+  grouped: boolean,
+): FileResource[] | GroupedResource[] {
+  if (Array.isArray(payload)) return payload;
+  if (grouped) return Array.isArray(payload.groups) ? payload.groups : [];
+  return Array.isArray(payload.resources) ? payload.resources : [];
+}
+
 export const channelsApi = {
   list: (page = 1, pageSize = 20) =>
     api.get<Channel[]>(`/channels?page=${page}&page_size=${pageSize}`),
@@ -53,10 +73,16 @@ export const channelsApi = {
     api.get<{ status: string; message?: string; progress?: number }>(
       `/channels/${id}/fetch-status`,
     ),
-  resources: (channelId: string, page = 1, pageSize = 20, grouped = false) =>
-    api.get<FileResource[] | GroupedResource[]>(
+  resources: async (channelId: string, page = 1, pageSize = 20, grouped = false) => {
+    const response = await api.get<ChannelResourcesPayload>(
       `/channels/${channelId}/resources?page=${page}&page_size=${pageSize}${grouped ? '&grouped=true' : ''}`,
-    ),
+    );
+    if (!response.success) return response as APIResponse<FileResource[] | GroupedResource[]>;
+    return {
+      ...response,
+      data: normalizeResourcesPayload(response.data, grouped),
+    } as APIResponse<FileResource[] | GroupedResource[]>;
+  },
   analyze: (id: string) =>
     api.post<{ field_mapping: FieldMapping }>(`/channels/${id}/analyze`),
   analyzeStream: (id: string): Promise<Response> =>
@@ -95,11 +121,17 @@ export const resourcesApi = {
   get: (id: string) => api.get<FileResource>(`/resources/${id}`),
   getMetadata: (id: string) =>
     api.get<{
-      status: string;
+      resource_id?: string;
+      status?: string;
       series_id?: string | null;
       movie_id?: string | null;
       series?: { id: string; title_cn?: string | null; title_en?: string | null; poster_url?: string | null };
       movie?: { id: string; title_cn?: string | null; title_en?: string | null; poster_url?: string | null };
+      linked?: {
+        type: 'series' | 'movie';
+        entity: TVSeries | Movie;
+      } | null;
+      metadata_matched_at?: string | null;
     }>(`/resources/${id}/metadata`),
   searchMetadata: (
     id: string,

@@ -14,6 +14,8 @@ i18n.use(initReactI18next).init({
   fallbackLng: 'zh-CN',
   interpolation: {
     escapeValue: false, // React already escapes
+    prefix: '{',
+    suffix: '}',
   },
 });
 

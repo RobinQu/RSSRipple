@@ -20,17 +20,11 @@ import { dashboardApi, decisionsApi } from '../api/tasks';
 import { usePolling } from '../hooks/usePolling';
 import ProgressBar from '../components/ProgressBar';
 import { formatSpeed, formatEta, timeAgo, formatBytes } from '../utils/format';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { DashboardData, DashboardPendingItem, FileResource } from '../types';
 import { resourcesApi } from '../api/channels';
 
 const { Title, Text } = Typography;
-
-function posterFallback(title: string) {
-  const ch = (title || '?').charAt(0).toUpperCase();
-  return `data:image/svg+xml;utf8,${encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='80' height='120' viewBox='0 0 80 120'><rect width='80' height='120' fill='%231a1a1a'/><text x='40' y='65' text-anchor='middle' fill='%236a6b6c' font-family='sans-serif' font-size='28'>${ch}</text></svg>`,
-  )}`;
-}
 
 export default function Dashboard() {
   const { t } = useTranslation();
@@ -130,22 +124,26 @@ export default function Dashboard() {
       {/* Stats */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={12} md={6}>
-          <Card>
-            <Statistic
-              title={t('dashboard.activeAgents')}
-              value={dashboard.active_agents}
-              prefix={<Bot size={18} />}
-            />
-          </Card>
+          <Link to="/agents" style={{ textDecoration: 'none' }}>
+            <Card hoverable>
+              <Statistic
+                title={t('dashboard.activeAgents')}
+                value={dashboard.active_agents}
+                prefix={<Bot size={18} />}
+              />
+            </Card>
+          </Link>
         </Col>
         <Col xs={12} md={6}>
-          <Card>
-            <Statistic
-              title={t('dashboard.activeChannels')}
-              value={dashboard.active_channels}
-              prefix={<Rss size={18} />}
-            />
-          </Card>
+          <Link to="/channels" style={{ textDecoration: 'none' }}>
+            <Card hoverable>
+              <Statistic
+                title={t('dashboard.activeChannels')}
+                value={dashboard.active_channels}
+                prefix={<Rss size={18} />}
+              />
+            </Card>
+          </Link>
         </Col>
         <Col xs={12} md={6}>
           <Card>
@@ -186,7 +184,7 @@ export default function Dashboard() {
               <List.Item key={`${group.type}-${group.id || 'unknown'}`} style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb' }}>
                 <div style={{ display: 'flex', width: '100%', gap: 16 }}>
                   <img
-                    src={group.poster_url || posterFallback(group.title)}
+                    src={posterUrl(group.poster_url)}
                     alt=""
                     style={{
                       width: 56,
@@ -196,9 +194,7 @@ export default function Dashboard() {
                       flexShrink: 0,
                       background: '#eeece7',
                     }}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = posterFallback(group.title);
-                    }}
+                    onError={useDefaultPoster}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Space size={8} style={{ marginBottom: 8 }}>

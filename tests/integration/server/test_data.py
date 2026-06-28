@@ -110,9 +110,14 @@ ANIME_SERIES = [
         "title_en": "Jujutsu Kaisen",
         "episodes": 23,
     },
+    {
+        "title_cn": "小书痴的下克上",
+        "title_en": "Honzuki no Gekokujou S04",
+        "episodes": 12,
+    },
 ]
 
-SUBTITLE_GROUPS = ["LoliHouse", "ANi", "Skymoon-Raws", "7³ACG", "云光字幕组", "NEST"]
+SUBTITLE_GROUPS = ["LoliHouse", "ANi", "Skymoon-Raws", "7³ACG", "云光字幕组", "NEST", "KitaujiSub", "VCB-Studio"]
 
 
 def generate_anime_releases(
@@ -160,9 +165,12 @@ TV_SHOWS = [
     {"name": "House of the Dragon", "seasons": 2, "episodes_per_season": 10},
     {"name": "Severance", "seasons": 2, "episodes_per_season": 9},
     {"name": "Shogun", "seasons": 1, "episodes_per_season": 10},
+    {"name": "Ace Of The Diamond", "seasons": 4, "episodes_per_season": 13},
 ]
 
-SCENE_GROUPS = ["JFF", "ETHEL", "MeGusta", "FLUX", "NTb"]
+SCENE_GROUPS = ["JFF", "ETHEL", "MeGusta", "FLUX", "NTb", "ION10", "BATV"]
+
+MOVIE_GROUPS = ["YTS", "RARBG", "MeGusta", "JFF", "FLUX"]
 
 
 def generate_tv_releases(
@@ -261,19 +269,20 @@ def generate_all_test_files() -> dict[str, TestFile]:
     """
     files: dict[str, TestFile] = {}
 
-    # Anime: 2 series, 3 episodes each, 3 groups
+    # Anime: first 2 series, 3 episodes each, 3 groups (keep torrent creation lean)
+    # RSS generators can use all series dynamically; torrents only needed for the subset
     for si in range(2):
         for release in generate_anime_releases(series_index=si, episode_count=3):
             if release.file:
                 files[release.file.name] = release.file
 
-    # TV: 2 shows, 3 episodes each, 3 groups
+    # TV: first 2 shows, 3 episodes each, 3 groups
     for si in range(2):
         for release in generate_tv_releases(show_index=si, episode_count=3):
             if release.file:
                 files[release.file.name] = release.file
 
-    # Movies: all 3, 2 groups each
+    # Movies: first 3 movies, 2 groups
     for mi in range(3):
         for release in generate_movie_releases(movie_index=mi):
             if release.file:

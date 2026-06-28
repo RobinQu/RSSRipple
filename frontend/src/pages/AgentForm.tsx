@@ -292,7 +292,7 @@ export default function AgentForm() {
               <Button type="primary" htmlType="submit" loading={saving}>
                 {mode === 'edit' ? t('agents.saveChanges') : t('agents.createAgent')}
               </Button>
-              <Button onClick={() => navigate('/agents')}>{t('common.cancel')}</Button>
+              <Button htmlType="button" onClick={() => navigate('/agents')}>{t('common.cancel')}</Button>
             </Space>
           </Form.Item>
         </Form>

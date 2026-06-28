@@ -41,8 +41,9 @@
   "nav": {
     "brand": "RSSRipple",
     "dashboard": "仪表盘",
+    "repository": "作品仓库",
     "channels": "频道",
-    "agents": "Agents",
+    "agents": "下载代理",
     "downloaders": "下载器"
   },
   "dashboard": {
@@ -157,7 +158,7 @@
     "loadFailed": "加载频道失败"
   },
   "agents": {
-    "title": "Agents",
+    "title": "下载代理",
     "newAgent": "新建 Agent",
     "editAgent": "编辑 Agent",
     "createAgent": "创建 Agent",
@@ -306,7 +307,13 @@
     "downloadTasks": "下载任务",
     "linkedAgents": "关联 Agent",
     "episodeList": "剧集列表",
-    "recentResources": "最近资源"
+    "recentResources": "最近资源",
+    "deleteConfirm": "确定删除该剧集？",
+    "deleteWarning": "所有关联的资源将被解除关联，集数信息将被清除。",
+    "deleteBlockedByAgents": "{n} 个下载代理引用了该剧集，删除操作将被阻止。请先移除相关代理的订阅作品。",
+    "deleteBlocked": "无法删除：下载代理引用了该剧集。",
+    "deleteFailed": "删除失败",
+    "deleted": "剧集已删除"
   },
   "movies": {
     "title": "电影",
@@ -325,7 +332,11 @@
     "enTitle": "英文标题",
     "originalTitle": "原始标题",
     "resourceCount": "资源数",
-    "downloadTasks": "下载任务数"
+    "downloadTasks": "下载任务数",
+    "deleteConfirm": "确定删除该电影？所有关联的资源将被解除关联。",
+    "deleteBlocked": "无法删除：{count} 个下载代理引用了该电影，请先移除相关代理的订阅作品。",
+    "deleteBlockedGeneric": "无法删除：该电影被下载代理引用，请先移除相关代理的订阅作品。",
+    "deleted": "电影已删除"
   },
   "resource": {
     "detail": "资源详情",
@@ -453,6 +464,26 @@
   },
   "pagination": {
     "range": "{from}-{to} / {total}"
+  },
+  "repository": {
+    "title": "作品仓库",
+    "search": "搜索作品...",
+    "all": "全部",
+    "tvSeries": "剧集",
+    "movies": "电影",
+    "noResults": "暂无作品数据",
+    "loading": "加载中..."
+  },
+  "works": {
+    "title": "作品仓库",
+    "searchPlaceholder": "搜索作品...",
+    "all": "全部",
+    "tvSeries": "剧集",
+    "movies": "电影",
+    "noResults": "暂无作品数据",
+    "tv": "剧集",
+    "movie": "电影",
+    "loading": "加载中..."
   },
   "format": {
     "dash": "—",

@@ -29,6 +29,7 @@ import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import { timeAgo } from '../utils/format';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
@@ -38,11 +39,7 @@ import type {
 const { Title, Text } = Typography;
 
 function posterFor(group: GroupedResource) {
-  if (group.poster_url) return group.poster_url;
-  const ch = (group.title || '?').charAt(0).toUpperCase();
-  return `data:image/svg+xml;utf8,${encodeURIComponent(
-    `<svg xmlns='http://www.w3.org/2000/svg' width='60' height='90' viewBox='0 0 60 90'><rect width='60' height='90' fill='%231a1a1a'/><text x='30' y='50' text-anchor='middle' fill='%236a6b6c' font-family='sans-serif' font-size='22'>${ch}</text></svg>`,
-  )}`;
+  return posterUrl(group.poster_url);
 }
 
 function groupIcon(type: GroupedResource['type']) {
@@ -291,7 +288,7 @@ export default function ChannelDetail() {
                 src={posterFor(g)}
                 alt=""
                 style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }}
-                onError={(e) => ((e.target as HTMLImageElement).src = posterFor(g))}
+                onError={useDefaultPoster}
               />
               <div>
                 <Space size={6}>
@@ -320,15 +317,24 @@ export default function ChannelDetail() {
           ),
           children: (
             <div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <div className="resource-table-wrap">
+              <table className="resource-table resource-table-known">
+                <colgroup>
+                  <col style={{ width: 40 }} />
+                  <col />
+                  <col style={{ width: 72 }} />
+                  <col style={{ width: 84 }} />
+                  <col style={{ width: 180 }} />
+                  <col style={{ width: 120 }} />
+                </colgroup>
                 <thead>
                   <tr style={{ color: '#93939f', fontSize: 12 }}>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 40 }}></th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('common.title')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 70 }}>{t('channels.episode')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>{t('channels.resolution')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 100 }}>{t('channels.subtitleGroup')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px', width: 120 }}>{t('channels.publishedAt')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.episode')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -340,6 +346,7 @@ export default function ChannelDetail() {
                       className="resource-row"
                     >
                       <td
+                        className="resource-check-cell"
                         style={{ padding: '6px 8px' }}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -348,27 +355,32 @@ export default function ChannelDetail() {
                           onChange={(e) => toggleResource(r.id, e.target.checked)}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px' }}>
+                      <td className="resource-title-cell" style={{ padding: '6px 8px' }} data-label={t('common.title')}>
                         <Text ellipsis style={{ display: 'block' }}>
                           {r.title_cn || r.title_en || r.title_raw}
                         </Text>
                       </td>
-                      <td style={{ padding: '6px 8px' }}>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.episode')}>
                         {r.episode != null
                           ? r.season != null
                             ? `S${r.season}E${r.episode}`
                             : `E${r.episode}`
                           : '—'}
                       </td>
-                      <td style={{ padding: '6px 8px' }}>{r.resolution || '—'}</td>
-                      <td style={{ padding: '6px 8px' }}>{r.subtitle_group || '—'}</td>
-                      <td style={{ padding: '6px 8px', color: '#93939f' }}>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
+                      <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
+                        <Text ellipsis style={{ display: 'block' }}>
+                          {r.subtitle_group || '—'}
+                        </Text>
+                      </td>
+                      <td style={{ padding: '6px 8px', color: '#93939f' }} data-label={t('channels.publishedAt')}>
                         {r.published_at ? timeAgo(r.published_at) : '—'}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ),
         }))}
@@ -391,13 +403,20 @@ export default function ChannelDetail() {
           style={{ marginTop: 16 }}
           styles={{ body: { padding: 0 } }}
         >
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <div className="resource-table-wrap">
+          <table className="resource-table resource-table-unknown">
+            <colgroup>
+              <col style={{ width: 40 }} />
+              <col />
+              <col style={{ width: 84 }} />
+              <col style={{ width: 180 }} />
+            </colgroup>
             <thead>
               <tr style={{ color: '#93939f', fontSize: 12 }}>
-                <th style={{ textAlign: 'left', padding: '6px 8px', width: 40 }}></th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
                 <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.rawTitle')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>{t('channels.resolution')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', width: 100 }}>{t('channels.subtitleGroup')}</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
+                <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
               </tr>
             </thead>
             <tbody>
@@ -408,23 +427,28 @@ export default function ChannelDetail() {
                   onClick={() => setSelectedResource(r)}
                   className="resource-row"
                 >
-                  <td style={{ padding: '6px 8px' }} onClick={(e) => e.stopPropagation()}>
+                  <td className="resource-check-cell" style={{ padding: '6px 8px' }} onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={selectedIds.has(r.id)}
                       onChange={(e) => toggleResource(r.id, e.target.checked)}
                     />
                   </td>
-                  <td style={{ padding: '6px 8px' }}>
+                  <td className="resource-title-cell" style={{ padding: '6px 8px' }} data-label={t('channels.rawTitle')}>
                     <Text ellipsis style={{ display: 'block' }}>
                       {r.title_raw}
                     </Text>
                   </td>
-                  <td style={{ padding: '6px 8px' }}>{r.resolution || '—'}</td>
-                  <td style={{ padding: '6px 8px' }}>{r.subtitle_group || '—'}</td>
+                  <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
+                  <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
+                    <Text ellipsis style={{ display: 'block' }}>
+                      {r.subtitle_group || '—'}
+                    </Text>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 

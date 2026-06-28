@@ -139,14 +139,25 @@ async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
     series = await db.get(TVSeries, series_id)
     if not series:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Series not found"}})
+
+    # Constraint check: block if any AgentWork references this series
+    aw_cnt = (await db.execute(
+        select(func.count()).select_from(AgentWork).where(AgentWork.series_id == series_id)
+    )).scalar_one()
+    if aw_cnt > 0:
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None,
+            "error": {
+                "code": "DELETE_BLOCKED",
+                "message": f"Cannot delete: {aw_cnt} agent(s) reference this series. Remove the agent work subscriptions first.",
+                "details": {"agent_work_count": aw_cnt},
+            },
+        })
+
     # Nullify FKs
     await db.execute(sql_update(FileResource).where(FileResource.series_id == series_id).values(series_id=None))
     await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
     await db.execute(sql_update(ChannelRawTitleMapping).where(ChannelRawTitleMapping.series_id == series_id).values(series_id=None))
-    # Delete agent_works pointing to this series
-    res = await db.execute(select(AgentWork).where(AgentWork.series_id == series_id))
-    for w in res.scalars().all():
-        await db.delete(w)
     await db.delete(series)
     await db.commit()
     return success_response({"deleted": True})

@@ -184,7 +184,7 @@ async def search_metadata(
     return success_response({"results": [MetadataSearchResult(**r).model_dump() for r in results]})
 
 
-@router.put("/resources/{resource_id}/metadata/link")
+@router.api_route("/resources/{resource_id}/metadata/link", methods=["POST", "PUT"])
 async def link_metadata(
     resource_id: str, body: MetadataLinkRequest, db: AsyncSession = Depends(get_db)
 ):

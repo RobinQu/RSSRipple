@@ -130,7 +130,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run pytest tests/integration/ -v --tb=short -x --ignore=tests/integration/test_e2e.py --ignore=tests/integration/test_torrent_lifecycle.py --ignore=tests/integration/test_fetch_with_real_feed.py --ignore=tests/integration/test_rss_subscription.py"
+      - "uv sync --frozen && uv run pytest tests/integration/ -v --tb=short"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

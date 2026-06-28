@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote_to_bytes
 
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import PlainTextResponse
@@ -25,8 +25,10 @@ from .rss_server import (
     generate_mikanani_feed,
     generate_eztv_feed,
     generate_movie_feed,
+    generate_kisssub_feed,
 )
 from .test_data import (
+    SUBTITLE_GROUPS,
     generate_all_test_files,
     generate_anime_releases,
     generate_tv_releases,
@@ -131,6 +133,68 @@ async def rss_movies():
     return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
 
 
+# ─── Expanded / Alternative Feed Endpoints ────────────────────────────
+
+@app.get("/rss/mikanani-ext")
+async def rss_mikanani_ext():
+    """Expanded mikanani.me-style feed with ALL anime series."""
+    xml = generate_mikanani_feed(
+        releases=None,
+        server_url=SERVER_URL,
+        series_index=None,
+        suffix="ext",
+    )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/eztv-ext")
+async def rss_eztv_ext():
+    """Expanded EZTV-style feed with ALL TV shows."""
+    xml = generate_eztv_feed(
+        releases=None,
+        server_url=SERVER_URL,
+        tracker_url=TRACKER_URL,
+        show_index=None,
+        suffix="ext",
+    )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/kisssub-style")
+async def rss_kisssub_style(series: int = 0):
+    """kisssub.org-style anime RSS feed (.torrent enclosures, HTML descriptions)."""
+    xml = generate_kisssub_feed(
+        series_index=series,
+        server_url=SERVER_URL,
+        suffix="",
+    )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/dmhy-style")
+async def rss_dmhy_style(series: int = 0):
+    """dmhy.org-style anime RSS feed (magnet enclosures, 5 episodes × 3 groups)."""
+    releases = generate_anime_releases(series_index=series, episode_count=5, groups=SUBTITLE_GROUPS[:3])
+    xml = generate_dmhy_feed(
+        releases=releases,
+        server_url=SERVER_URL,
+        tracker_url=TRACKER_URL,
+    )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/movies-all")
+async def rss_movies_all():
+    """Expanded movie RSS feed — ALL movies with ALL groups."""
+    xml = generate_movie_feed(
+        releases=None,
+        server_url=SERVER_URL,
+        tracker_url=TRACKER_URL,
+        all_groups=True,
+    )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
 # ─── BitTorrent Tracker ─────────────────────────────────────────────
 
 @app.get("/announce")
@@ -139,10 +203,10 @@ async def tracker_announce(request: Request):
     params = request.query_params
 
     info_hash_raw = params.get("info_hash", "")
-    # URL-decode the 20-byte binary info_hash
-    info_hash = unquote(info_hash_raw).encode("latin-1").hex()
+    # URL-decode the 20-byte binary info_hash as raw bytes (BEP 3)
+    info_hash = unquote_to_bytes(info_hash_raw).hex()
 
-    peer_id = unquote(params.get("peer_id", "")).encode("latin-1")[:20]
+    peer_id = unquote_to_bytes(params.get("peer_id", ""))[:20]
     port = int(params.get("port", 6881))
     uploaded = int(params.get("uploaded", 0))
     downloaded = int(params.get("downloaded", 0))
@@ -177,7 +241,7 @@ async def tracker_scrape(request: Request):
     info_hashes = []
     for key, value in request.query_params.multi_items():
         if key == "info_hash":
-            ih = unquote(value).encode("latin-1").hex()
+            ih = unquote_to_bytes(value).hex()
             info_hashes.append(ih)
 
     response = tracker.scrape(info_hashes if info_hashes else None)
@@ -355,7 +419,23 @@ async def setup_full_environment():
                 "mikanani": f"{SERVER_URL}/rss/mikanani",
                 "eztv": f"{SERVER_URL}/rss/eztv",
                 "movies": f"{SERVER_URL}/rss/movies",
+                "mikanani_ext": f"{SERVER_URL}/rss/mikanani-ext",
+                "eztv_ext": f"{SERVER_URL}/rss/eztv-ext",
+                "kisssub_style": f"{SERVER_URL}/rss/kisssub-style",
+                "dmhy_style": f"{SERVER_URL}/rss/dmhy-style",
+                "movies_all": f"{SERVER_URL}/rss/movies-all",
             },
+            "feed_urls": [
+                f"{SERVER_URL}/rss/dmhy",
+                f"{SERVER_URL}/rss/mikanani",
+                f"{SERVER_URL}/rss/eztv",
+                f"{SERVER_URL}/rss/movies",
+                f"{SERVER_URL}/rss/mikanani-ext",
+                f"{SERVER_URL}/rss/eztv-ext",
+                f"{SERVER_URL}/rss/kisssub-style",
+                f"{SERVER_URL}/rss/dmhy-style",
+                f"{SERVER_URL}/rss/movies-all",
+            ],
             "tracker": TRACKER_URL,
         },
     }

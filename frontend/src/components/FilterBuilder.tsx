@@ -220,6 +220,7 @@ function FieldConditionNode({
         />
       )}
       <Button
+        htmlType="button"
         type="text"
         size="small"
         danger
@@ -304,7 +305,7 @@ function BoolConditionNode({
           checked={!!value.is_not}
           onChange={(v) => onChange({ ...value, is_not: v })}
           checkedChildren={t('filter.not')}
-          unCheckedChildren={t('filter.not')}
+          unCheckedChildren="--"
           size="small"
         />
         {!isRoot && (
@@ -315,6 +316,7 @@ function BoolConditionNode({
         <div style={{ flex: 1 }} />
         {!isRoot && onDelete && (
           <Button
+            htmlType="button"
             type="text"
             size="small"
             danger
@@ -372,6 +374,7 @@ function BoolConditionNode({
       {/* Add buttons */}
       <Space size={8} style={{ marginTop: 8 }}>
         <Button
+          htmlType="button"
           size="small"
           icon={<PlusOutlined />}
           onClick={addField}
@@ -379,7 +382,7 @@ function BoolConditionNode({
         >
           {t('filter.addCondition')}
         </Button>
-        <Button size="small" icon={<GroupOutlined />} onClick={addGroup}>
+        <Button htmlType="button" size="small" icon={<GroupOutlined />} onClick={addGroup}>
           {t('filter.addConditionGroup')}
         </Button>
       </Space>

@@ -1,0 +1,115 @@
+# RSSRipple Downloader Lifecycle — Full CRUD + operations
+# Covers: create downloader, test connection, view detail/live torrents, edit, delete.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+
+agent:
+  testId: downloader-lifecycle
+  groupName: RSSRipple E2E
+  groupDescription: Complete downloader instance management lifecycle
+
+tasks:
+  # ── Navigate to Downloaders ─────────────────────────────────────
+  - name: Navigate to downloaders list
+    flow:
+      - ai: Click "Downloaders" in the left sidebar
+      - aiWaitFor: The downloaders page loads with a table of downloader instances
+        timeout: 10000
+
+  # ── Create Downloader ───────────────────────────────────────────
+  - name: Open new downloader form
+    flow:
+      - ai: Click the button to add a new downloader ("New Downloader", "Create", or plus icon)
+      - aiWaitFor: A form appears with fields for Name, Type, URL, Username, Password, and Download Directory
+        timeout: 10000
+
+  - name: Fill downloader name and type
+    flow:
+      - aiInput: The "Name" input field
+        value: Test Transmission
+      - sleep: 500
+
+  - name: Fill Transmission RPC URL
+    flow:
+      - aiInput: The "URL" input field for the RPC endpoint
+        value: http://127.0.0.1:9091/transmission/rpc
+      - sleep: 500
+
+  - name: Fill credentials (optional)
+    flow:
+      - aiInput: The "Username" input field if present
+        value: admin
+      - sleep: 300
+      - aiInput: The "Password" input field if present
+        value: password
+      - sleep: 500
+
+  - name: Fill download directory
+    flow:
+      - aiInput: The "Download Directory" input field
+        value: /tmp/rssripple-test-downloads
+      - sleep: 500
+
+  - name: Test connection to Transmission
+    flow:
+      - ai: Click the "Test Connection" button
+      - sleep: 8000
+      - aiAssert: The connection test result is displayed — either a "connected" success message or an error message indicating Transmission is unreachable
+
+  - name: Save downloader
+    flow:
+      - ai: Click the "Save" or "Create" button to save the downloader
+      - sleep: 3000
+      - aiWaitFor: The downloaders list page shows "Test Transmission" in the table
+        timeout: 10000
+
+  # ── View Downloader Detail ──────────────────────────────────────
+  - name: Open downloader detail
+    flow:
+      - ai: In the downloaders table, click on "Test Transmission" to view its detail
+      - aiWaitFor: The downloader detail page loads showing connection status, statistics, or configuration details
+        timeout: 10000
+      - aiAssert: The page displays the downloader name "Test Transmission"
+
+  - name: View live Transmission torrents
+    flow:
+      - ai: Look for a "Torrents" or "Live Torrents" section or tab
+      - ai: Click on the torrents section if available
+      - sleep: 3000
+      - aiAssert: Either a list of torrents is displayed, or an error/empty state is shown (if Transmission is unreachable or has no torrents)
+
+  - name: View local download tasks for this downloader
+    flow:
+      - ai: Look for a "Tasks" section or tab showing download tasks associated with this downloader
+      - ai: Click on the tasks section if available
+      - sleep: 2000
+      - aiAssert: A table or list of download tasks is displayed, or an empty state message is shown
+
+  # ── Edit Downloader ─────────────────────────────────────────────
+  - name: Navigate to edit downloader
+    flow:
+      - ai: Click the "Edit" button on the downloader detail page
+      - aiWaitFor: The downloader edit form loads with pre-filled values including the name "Test Transmission"
+        timeout: 10000
+
+  - name: Update downloader name
+    flow:
+      - ai: Clear the name field
+      - aiInput: The "Name" input field
+        value: Test Transmission Updated
+      - sleep: 500
+      - ai: Click "Save" or "Update" button
+      - sleep: 3000
+      - aiWaitFor: The page shows "Test Transmission Updated" confirming the update
+        timeout: 10000
+
+  # ── Delete Downloader ───────────────────────────────────────────
+  - name: Delete the test downloader
+    flow:
+      - ai: Click the "Delete" button on the downloader (trash icon or "Delete" text)
+      - sleep: 1500
+      - ai: Confirm the deletion in any confirmation dialog
+      - sleep: 2000
+      - aiWaitFor: The downloaders list page loads and "Test Transmission Updated" is removed
+        timeout: 10000

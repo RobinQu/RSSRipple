@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
-import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col } from 'antd';
+import { ArrowLeft, Trash2 } from 'lucide-react';
+import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
 import type { Movie, FileResource } from '../types';
@@ -13,16 +13,48 @@ const { Title, Text } = Typography;
 export default function MovieDetail() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  const { modal, message } = App.useApp();
   const [movie, setMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
-    moviesApi.get(id).then((r) => {
-      if (r.success) setMovie(r.data);
-      setLoading(false);
-    });
+    loadMovie();
   }, [id]);
+
+  async function loadMovie() {
+    const r = await moviesApi.get(id!);
+    if (r.success) setMovie(r.data as Movie);
+    setLoading(false);
+  }
+
+  async function handleDelete() {
+    if (!id) return;
+    const blocked = (movie as any)?.agent_work_count > 0;
+    modal.confirm({
+      title: t('common.delete'),
+      content: blocked
+        ? t('movies.deleteBlocked', { count: (movie as any)?.agent_work_count ?? 0 })
+        : t('movies.deleteConfirm'),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true, disabled: blocked },
+      onOk: async () => {
+        const r = await moviesApi.delete(id);
+        if (r.success) {
+          message.success(t('movies.deleted'));
+          window.location.href = '/works';
+        } else {
+          const code = (r as any).error?.code;
+          if (code === 'DELETE_BLOCKED') {
+            message.error((r as any).error?.message || t('movies.deleteBlockedGeneric'));
+          } else {
+            message.error(t('common.error'));
+          }
+        }
+      },
+    });
+  }
 
   if (loading) return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
   if (!movie) return <Text type="danger">{t('movies.notFound')}</Text>;
@@ -76,6 +108,9 @@ export default function MovieDetail() {
           {movie.title_cn || movie.title_en || movie.original_title}
         </Title>
         <Tag color="green">{t('movies.title')}</Tag>
+        <Button danger type="primary" icon={<Trash2 size={16} />} onClick={handleDelete}>
+          {t('common.delete')}
+        </Button>
       </Space>
 
       <Card>

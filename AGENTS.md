@@ -23,10 +23,10 @@ class Channel(Base):
     field_mapping: dict                  # LLM 生成或用户手动配置的字段映射规则（必填）
                                          # 格式: {list_locator: {source: "entries"},
                                          #        field_mappings: {field: {source, regex?, group?, transform?}}}
-    title_extraction_method: str         # 标题清洗方式: "none" | "regex" | "llm"，默认 "none"
+    title_extraction_method: str         # 标题清洗方式: "llm" | "regex" | "none"，默认 "llm"
     title_extraction_regex: str | None   # 用户填入或 LLM 生成的标题清洗正则
     metadata_source: str                 # 元数据来源策略: "llm" | "none"，默认 "llm"
-                                         # "llm" 表示本地匹配失败时回退到 LLM web-search
+                                         # "llm" 表示本地匹配失败时通过 TMDB → Exa AI Agent 搜索 metadata
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
     last_fetch_error: str | None         # 上次抓取错误信息
@@ -661,6 +661,14 @@ FieldCondition = {
 }
 ```
 
+### 作品仓库（Works）
+
+统一的海报墙 API，合并 TVSeries 和 Movie 两种实体。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie） |
+
 ### TVSeries
 
 | Method | Path | 说明 |
@@ -765,10 +773,11 @@ fetch_and_link_metadata(resource, channel, db)
   │         否则跳过（留 LLM 层处理，避免误匹配）
   │     # Movie 同理
   │
-  ├─ Layer 4: LLM web-search（仅当 channel.metadata_source == "llm" 时执行）
+  ├─ Layer 4: 多源 Metadata 搜索（仅当 channel.metadata_source == "llm" 时执行）
   │     results = search_metadata_via_llm(search_title)
+  │     # 搜索策略：TMDB → Exa AI Agent（回退）
   │     if results 非空:
-  │         best = results[0]  # LLM 已按相关性排序
+  │         best = results[0]  # 已按评分排序
   │         if best.content_type == "tv":
   │             series = create_or_update_series_from_external(db, best)
   │             resource.series_id = series.id
@@ -781,9 +790,9 @@ fetch_and_link_metadata(resource, channel, db)
 ```
 
 `create_or_update_series_from_external(db, data)` 逻辑：
-- 按 `external_id + external_source="llm_search"` 查询是否已存在。
-- 存在 → 更新字段（合并 aliases：新别名 append 去重；poster_url 若本地缺失则下载）。
-- 不存在 → 创建新 TVSeries，`external_source="llm_search"`。
+- 按 `external_id + external_source IN (data.external_source, 'llm_search')` 查询是否已存在。
+- 存在 → 更新字段（合并 aliases：新别名 append 去重；poster_url 若本地缺失则下载）；若原 `external_source="llm_search"` 则迁移为新 source。
+- 不存在 → 创建新实体。
 - 返回实体。
 
 `create_or_update_movie_from_external` 同理。
@@ -992,7 +1001,8 @@ sync_download_progress():
 
 | Route | Page | 内容说明 |
 |-------|------|----------|
-| `/` | Dashboard | 顶部统计卡（活跃 Agent/活跃频道/下载中/待决策）；活跃下载按作品分组卡片（卡片含 poster、作品名、该作品下任务列表；任务行显示资源标题、进度、速度、Agent 与 Channel 链接可点击跳转）；待决策列表，支持快速 confirm/skip |
+| `/` | Dashboard | 顶部统计卡（活跃 Agent/活跃频道/下载中/待决策），统计卡可点击跳转至对应列表页；活跃下载按作品分组卡片（卡片含 poster、作品名、该作品下任务列表；任务行显示资源标题、进度、速度、Agent 与 Channel 链接可点击跳转）；待决策列表，支持快速 confirm/skip |
+| `/works` | WorksPage | 作品仓库海报墙：All/TV/Movie 筛选标签、搜索栏、响应式海报网格，点击跳转至详情页 |
 | `/channels` | ChannelList | 频道列表表格（名称/状态/抓取间隔/上次抓取/资源数/Agent 数）；支持新建、编辑、删除、手动抓取 |
 | `/channels/new` | ChannelForm | 创建频道表单（URL 验证、自动 LLM 分析）；右侧 RSS 预览 |
 | `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；主体资源按作品分组展示（每组可折叠，含 poster、作品名、剧集数、最新更新时间）；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
@@ -1088,7 +1098,7 @@ sync_download_progress():
   - 子目录 API 表达推荐使用 `/` 分隔；后端根据 Downloader 根目录风格拼接，标准化后必须保证最终路径仍在 `DownloaderInstance.download_dir` 下。
   - `DownloadTask.download_dir` 保存创建任务时解析出的最终绝对路径；任务重试沿用该字段。
 - **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
-- **配置项**（环境变量）：`DATABASE_URL`、`REDIS_URL`（可选）、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`（用于 feed 分析、标题清洗、正则生成、PendingDecision 建议）、`LLM_SEARCH_MODEL`（用于 metadata web-search，需支持 web_search 工具，如 perplexity/sonar-pro；与 LLM_MODEL 相同时填同一值）、`POSTER_CACHE_DIR`（默认 `./data/posters`）、`TRANSMISSION_TIMEOUT`、`DEV_MODE`（默认 false）。
+- **配置项**（环境变量）：`DATABASE_URL`、`REDIS_URL`（可选）、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`（用于 feed 分析、标题清洗、正则生成、PendingDecision 建议）、`TMDB_API_KEY`（用于 TMDB metadata 搜索）、`EXA_API_KEY`+`EXA_EFFORT_LEVEL`（用于 Exa AI Agent 搜索回退）、`POSTER_CACHE_DIR`（默认 `./data/posters`）、`TRANSMISSION_TIMEOUT`、`DEV_MODE`（默认 false）。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。

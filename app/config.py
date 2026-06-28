@@ -18,9 +18,14 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_enable_thinking: bool = False  # pass enable_thinking=false to disable chain-of-thought for speed
 
-    # LLM-based metadata search: model with built-in web search (e.g. perplexity/sonar-pro).
-    # Used as a final fallback when local matches fail. Empty string = fall back to llm_model.
-    llm_search_model: str = ""
+    # Multi-source metadata search agent
+    tmdb_api_key: str = ""
+    # Deprecated: replaced by exa_api_key. Kept for backward compat, value ignored.
+    jina_api_key: str = ""
+
+    # Exa AI Agent API (replaces Jina Search as Phase 2 fallback)
+    exa_api_key: str = ""
+    exa_effort_level: str = "low"  # "minimal" | "low" | "medium" | "high" | "xhigh"
 
     # Poster image cache — persist cover art to the local filesystem.
     # When set, poster URLs returned by LLM are downloaded and stored here,

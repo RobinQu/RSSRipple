@@ -96,6 +96,7 @@ export default function Series() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>{t('series.title')}</Title>
         <Input
+          aria-label={t('series.search')}
           prefix={<SearchOutlined />}
           placeholder={t('series.search')}
           value={search}

@@ -146,11 +146,11 @@ export default function DownloaderForm() {
                 {mode === 'edit' ? t('common.saveChanges') : t('downloaders.addDownloader')}
               </Button>
               {mode === 'edit' && id && (
-                <Button icon={<Zap size={14} />} onClick={handleTest} loading={testing}>
+                <Button htmlType="button" icon={<Zap size={14} />} onClick={handleTest} loading={testing}>
                   {t('downloaders.testConnection')}
                 </Button>
               )}
-              <Button onClick={() => navigate(mode === 'edit' ? `/downloaders/${id}` : '/downloaders')}>
+              <Button htmlType="button" onClick={() => navigate(mode === 'edit' ? `/downloaders/${id}` : '/downloaders')}>
                 {t('common.cancel')}
               </Button>
             </Space>

@@ -23,6 +23,7 @@ dependencies = [
     "redis>=5.0",
     # Optional database drivers (auto-selected via DATABASE_URL scheme)
     "asyncpg>=0.30.0",
+    "exa-py>=2.15.0",
 ]
 
 [dependency-groups]
@@ -39,6 +40,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "timeout: mark a test with a timeout (seconds)",
+    "integration: mark a test as an integration test",
+    "asyncio: mark a test as an asyncio test",
+]
 
 [tool.ruff]
 target-version = "py312"
