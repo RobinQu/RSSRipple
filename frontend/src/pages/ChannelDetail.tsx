@@ -32,7 +32,7 @@ import { channelsApi } from '../api/channels';
 import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import FilterSummaryModal from '../components/FilterSummaryModal';
-import { timeAgo, formatBytes } from '../utils/format';
+import { timeAgo } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type {
   ChannelDetail as ChannelDetailData,
@@ -355,7 +355,6 @@ export default function ChannelDetail() {
                   <col style={{ width: 88 }} />
                   <col style={{ width: 84 }} />
                   <col style={{ width: 72 }} />
-                  <col style={{ width: 76 }} />
                   <col style={{ width: 108 }} />
                   <col />
                   <col style={{ width: 120 }} />
@@ -369,7 +368,6 @@ export default function ChannelDetail() {
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.videoCodec')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.audioCodec')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.container')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.fileSize')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleLangs')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
@@ -413,9 +411,6 @@ export default function ChannelDetail() {
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.videoCodec')}>{r.video_codec || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.audioCodec')}>{r.audio_codec || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.container')}>{r.container || '—'}</td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.fileSize')}>
-                        {r.file_size ? formatBytes(r.file_size) : '—'}
-                      </td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.subtitleLangs')}>
                         {(() => {
                           const langs = r.subtitle_langs || [];
