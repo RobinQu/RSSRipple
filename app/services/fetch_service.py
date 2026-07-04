@@ -147,7 +147,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         # the LLM so downstream logic (filtering, dedup) still sees ``is_batch``
         # even when the metadata agent is disabled or fails. The LLM may later
         # refine these values in ``UnifiedMetadataAgent._apply_to_resource``.
-        from app.services.resource_parser import detect_batch
+        from app.services.resource_parser import detect_batch, detect_subtitle_langs
         pre_is_batch, pre_start, pre_end = detect_batch(title)
         if pre_is_batch:
             resource.is_batch = True
@@ -155,6 +155,10 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
                 resource.episode_start = pre_start
             if pre_end is not None:
                 resource.episode_end = pre_end
+        # Subtitle language pre-fill. Store an empty list (rather than None)
+        # once parsed, so downstream code can distinguish "never parsed" from
+        # "no explicit marking".
+        resource.subtitle_langs = detect_subtitle_langs(title)
         db.add(resource)
         await db.flush()
 

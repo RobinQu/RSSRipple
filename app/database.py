@@ -159,6 +159,9 @@ async def _apply_light_migrations(conn) -> None:
          "BOOLEAN NOT NULL DEFAULT 0" if is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("file_resources", "episode_start", "INTEGER"),
         ("file_resources", "episode_end", "INTEGER"),
+        # subtitle_langs: JSON array of BCP-47 language tags. SQLite stores JSON
+        # as TEXT; PostgreSQL has a proper JSONB type.
+        ("file_resources", "subtitle_langs", "TEXT" if is_sqlite else "JSONB"),
     ]
 
     for table, column, ddl in additions:

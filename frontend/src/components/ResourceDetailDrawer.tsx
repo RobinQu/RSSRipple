@@ -153,6 +153,13 @@ export default function ResourceDetailDrawer({
         { key: 'video_codec', label: t('resource.videoCodec'), children: r.video_codec || dash },
         { key: 'audio_codec', label: t('resource.audioCodec'), children: r.audio_codec || dash },
         { key: 'subtitle_type', label: t('resource.subtitleType'), children: r.subtitle_type || dash },
+        {
+          key: 'subtitle_langs',
+          label: t('resource.subtitleLangs'),
+          children: (r.subtitle_langs && r.subtitle_langs.length > 0)
+            ? r.subtitle_langs.map((l) => (l === 'multi' ? t('channels.langMulti') : l)).join(', ')
+            : dash,
+        },
         { key: 'container', label: t('resource.container'), children: r.container || dash },
         {
           key: 'file_size',

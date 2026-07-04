@@ -223,3 +223,51 @@ def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
         return True, None, None
 
     return False, None, None
+
+
+# ---------------------------------------------------------------------------
+# Subtitle language detection
+# ---------------------------------------------------------------------------
+
+# Ordered from most-specific to least-specific so combos like "简繁日" hit
+# before "简繁", and both hit before "简" / "繁" on their own.
+_SUBTITLE_LANG_PATTERNS: list[tuple[re.Pattern[str], list[str]]] = [
+    (re.compile(r"简繁日", re.IGNORECASE), ["zh-CN", "zh-TW", "ja"]),
+    (re.compile(r"简繁英", re.IGNORECASE), ["zh-CN", "zh-TW", "en"]),
+    (re.compile(r"简繁", re.IGNORECASE), ["zh-CN", "zh-TW"]),
+    (re.compile(r"(?:多国字幕|多语言|多語言|Multi[-_ ]?Sub)", re.IGNORECASE), ["multi"]),
+    (re.compile(r"(?:\bCHS\b|简中|简体|GB(?![A-Z]))"), ["zh-CN"]),
+    (re.compile(r"(?:\bCHT\b|繁中|繁体|繁體|BIG5)"), ["zh-TW"]),
+    (re.compile(r"(?:\bJPN?\b|\bJAP\b|日语|日文|Japanese)", re.IGNORECASE), ["ja"]),
+    (re.compile(r"(?:\bENG?\b|英字|英文|English)", re.IGNORECASE), ["en"]),
+]
+
+
+def detect_subtitle_langs(title: str | None) -> list[str]:
+    """Return a de-duplicated list of BCP-47 language tags found in ``title``.
+
+    An empty list means "parsed but no subtitle-language marker present". The
+    caller decides whether to store ``None`` (never parsed) versus ``[]``
+    (parsed, none found).
+
+    Tags are appended in the order patterns match, preserving intent — e.g.
+    ``"[CHS][CHT][ENG]"`` returns ``["zh-CN", "zh-TW", "en"]``.
+
+    The sentinel tag ``"multi"`` is returned only when the title uses
+    "multi-language" style shorthand without spelling out which languages.
+    """
+    if not title:
+        return []
+    seen: list[str] = []
+    remaining = title
+    for pattern, tags in _SUBTITLE_LANG_PATTERNS:
+        if not pattern.search(remaining):
+            continue
+        for tag in tags:
+            if tag not in seen:
+                seen.append(tag)
+        # Blank out matches so more general patterns don't re-fire on the same
+        # substring (e.g. don't hit "CHS" inside a "简繁" span we already
+        # translated to zh-CN + zh-TW).
+        remaining = pattern.sub(" ", remaining)
+    return seen

@@ -242,3 +242,42 @@ def test_detect_batch_ignores_resolution_pairs():
     """1920x1080 must not be mistaken for a batch range."""
     result = detect_batch("[Group] Show - 05 (1920x1080 HEVC AAC)")
     assert result == (False, None, None)
+
+
+# =============================================================================
+# detect_subtitle_langs — BCP-47 tag mapping
+# =============================================================================
+
+
+from app.services.resource_parser import detect_subtitle_langs
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("[LoliHouse] Show - 05 [简体]", ["zh-CN"]),
+        ("[LoliHouse] Show - 05 [CHS]", ["zh-CN"]),
+        ("[LoliHouse] Show - 05 [繁体]", ["zh-TW"]),
+        ("[LoliHouse] Show - 05 [CHT]", ["zh-TW"]),
+        ("[LoliHouse] Show - 05 [简繁内封字幕]", ["zh-CN", "zh-TW"]),
+        ("[LoliHouse] Show - 05 [简繁日内封字幕]", ["zh-CN", "zh-TW", "ja"]),
+        ("[Skymoon-Raws] Show - 05 [CHT][1080p]", ["zh-TW"]),
+        ("[Group] Movie 2024 [CHS][CHT][ENG]", ["zh-CN", "zh-TW", "en"]),
+        # Multi-language sentinel — only "multi", never combined with specifics.
+        ("Witch Hat Atelier S01E01~13 1080p 多国字幕", ["multi"]),
+        ("[Group] Show 1080p Multi-Sub", ["multi"]),
+        # No subtitle marker at all → empty list.
+        ("Some Show S02E05 1080p", []),
+        # Empty / None
+        ("", []),
+        (None, []),
+    ],
+)
+def test_detect_subtitle_langs(title, expected):
+    assert detect_subtitle_langs(title) == expected
+
+
+def test_detect_subtitle_langs_dedupes_repeated_markers():
+    # A pathological title that spells CHS multiple times should still get one
+    # zh-CN back.
+    assert detect_subtitle_langs("[CHS][简体][GB]") == ["zh-CN"]

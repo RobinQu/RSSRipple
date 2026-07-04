@@ -10,7 +10,7 @@ RSSRipple is an RSS subscription downloader for TV/anime/movie releases. It fetc
 - LLM-assisted feed analysis, unified metadata agent (title cleaning + single-source Exa/TMDB/Wikipedia metadata search), and pending-decision suggestions.
 - Local metadata cache for `TVSeries` and `Movie`, populated by manual metadata linking or MetadataAgent search.
 - Agent-based subscriptions with channel-wide or selected-work scope.
-- Bool-query Filter DSL with nested `and`/`or`, field operators, and per-work overrides.
+- Bool-query Filter DSL with nested `and`/`or`, field operators, per-work overrides, and dedicated support for boolean (`is_batch`) and multi-value list (`subtitle_langs` — BCP-47 tags like `zh-CN`, `zh-TW`, `ja`, `en`, plus the `multi` sentinel) fields.
 - Persistent suggestions for resources that cannot be linked to metadata yet.
 - Transmission RPC integration for torrent add/pause/resume/retry/delete, per-downloader default directories, optional per-Agent subdirectories, and progress sync.
 - React dashboard for channels, resources, agents, decisions, download tasks, series, movies, and downloaders.
@@ -139,7 +139,7 @@ uv run uvicorn app.main:app --reload --port 9001
 uv run pytest tests/unit tests/api -v
 ```
 
-541 tests, typically finish in under 60 seconds.
+566 tests, typically finish in under 60 seconds.
 
 ### Integration tests (docker-compose)
 

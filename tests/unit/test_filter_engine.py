@@ -39,6 +39,7 @@ def _res(**overrides):
         is_batch=False,
         episode_start=None,
         episode_end=None,
+        subtitle_langs=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -545,3 +546,68 @@ class TestBatchValidation:
             ]}
         )
         assert not errors
+
+
+# ---------------------------------------------------------------------------
+# List-of-strings field — subtitle_langs
+# ---------------------------------------------------------------------------
+
+
+class TestSubtitleLangs:
+    def test_contains_matches_any_element(self):
+        cond = {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN", "zh-TW"])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["ja"])) is False
+
+    def test_contains_is_case_insensitive(self):
+        cond = {"field": "subtitle_langs", "operator": "contains", "value": "ZH-CN"}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is True
+
+    def test_in_matches_any_value(self):
+        cond = {"field": "subtitle_langs", "operator": "in", "value": ["ja", "en"]}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN", "en"])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is False
+
+    def test_eq_requires_exact_set(self):
+        cond = {"field": "subtitle_langs", "operator": "eq", "value": ["zh-CN", "zh-TW"]}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN", "zh-TW"])) is True
+        # Ordering doesn't matter for set equality
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-TW", "zh-CN"])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is False
+
+    def test_ne(self):
+        cond = {"field": "subtitle_langs", "operator": "ne", "value": ["zh-CN"]}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["ja"])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is False
+
+    def test_none_treated_as_empty(self):
+        # Legacy row with no parsing pass yet
+        cond = {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=None)) is False
+        # `ne` against an expected set passes when the row is empty
+        assert evaluate_field_condition(
+            {"field": "subtitle_langs", "operator": "ne", "value": ["zh-CN"]},
+            _res(subtitle_langs=None),
+        ) is True
+
+    def test_validation_rejects_unsupported_ops(self):
+        errors = validate_filter_config(
+            {"combinator": "and", "conditions": [
+                {"field": "subtitle_langs", "operator": "regex", "value": "zh"}
+            ]}
+        )
+        assert errors
+
+    def test_validation_accepts_supported_ops(self):
+        for op, val in [
+            ("contains", "zh-CN"),
+            ("in", ["zh-CN", "zh-TW"]),
+            ("eq", ["zh-CN"]),
+            ("ne", ["zh-CN"]),
+        ]:
+            errors = validate_filter_config(
+                {"combinator": "and", "conditions": [
+                    {"field": "subtitle_langs", "operator": op, "value": val}
+                ]}
+            )
+            assert not errors, f"op={op} should be valid"

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -44,6 +44,11 @@ class FileResource(Base):
     video_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)
     audio_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)
     subtitle_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # BCP-47 language tags detected on the raw title (best-effort). Sentinel
+    # ``["multi"]`` marks titles that only say "multi-language" without
+    # spelling out which ones. ``None`` = never populated (legacy row);
+    # ``[]`` = parsed but no explicit marking.
+    subtitle_langs: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     container: Mapped[str | None] = mapped_column(String(20), nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     torrent_url: Mapped[str] = mapped_column(String(2048), nullable=False)

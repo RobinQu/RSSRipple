@@ -62,6 +62,7 @@ export interface FileResource {
   video_codec: string | null;
   audio_codec: string | null;
   subtitle_type: string | null;
+  subtitle_langs: string[] | null;
   container: string | null;
   file_size: number | null;
   torrent_url: string;
