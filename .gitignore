@@ -43,3 +43,7 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Local agent / assistant scratch
+.claude/
+.workbuddy/
