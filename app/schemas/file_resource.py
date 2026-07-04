@@ -36,6 +36,7 @@ class FileResourceResponse(BaseModel):
     video_codec: str | None = None
     audio_codec: str | None = None
     subtitle_type: str | None = None
+    subtitle_langs: list[str] | None = None
     container: str | None = None
     file_size: int | None = None
     torrent_url: str

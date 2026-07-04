@@ -60,6 +60,11 @@ class FileResource(Base):
     video_codec: str | None              # 视频编码 (HEVC, HEVC-10bit, AVC, H264...)
     audio_codec: str | None              # 音频编码 (AAC, FLAC, DTS, AC3...)
     subtitle_type: str | None            # 字幕类型 (CHS, CHT, 简繁内封, 外挂...)
+    # BCP-47 language tags detected on the raw title. Sentinel ``["multi"]``
+    # marks titles that only say "多语言"/"多国字幕" without spelling out
+    # which ones. ``None`` = never parsed (legacy row); ``[]`` = parsed with
+    # no subtitle marker present. Populated by pre-parser + MetadataAgent.
+    subtitle_langs: list[str] | None     # e.g. ["zh-CN", "zh-TW", "ja", "en"]
     container: str | None                # 容器格式 (MKV, MP4)
     file_size: int | None                # 文件大小（bytes）
     torrent_url: str                     # 下载链接（magnet:?xt=... 或 .torrent URL）
@@ -403,7 +408,8 @@ FieldCondition = {
   "field": "subtitle_group" | "resolution" | "source" | "video_codec" |
            "audio_codec" | "subtitle_type" | "container" | "file_size" |
            "episode" | "season" | "episode_start" | "episode_end" |
-           "is_batch" | "title_cn" | "title_en" | "search_title",
+           "is_batch" | "subtitle_langs" |
+           "title_cn" | "title_en" | "search_title",
   "operator": "eq" | "ne" | "contains" | "fuzzy" | "in" | "regex" |
               "gt" | "gte" | "lt" | "lte",
   "value": string | number | boolean | string[]
@@ -419,6 +425,10 @@ FieldCondition = {
 - **字段类型与 operator 支持**：
   - 数字字段（`file_size`, `episode`, `season`, `episode_start`, `episode_end`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
   - 布尔字段（`is_batch`）支持：`eq`, `ne`。value 接受原生 bool、数字 `1/0`、字符串 `"true"/"false"/"yes"/"no"/"1"/"0"`。
+  - 列表字段（`subtitle_langs`）支持：`eq`, `ne`, `contains`, `in`。
+    - `contains`：value 是单个 tag，若列表元素包含该 tag（大小写不敏感）则通过。
+    - `in`：value 是 tag 数组，任一元素在列表中即通过。
+    - `eq` / `ne`：视为**集合相等/不等**（忽略顺序）。
   - 字符串字段（其余全部）支持：`eq`, `ne`, `contains`, `fuzzy`, `in`, `regex`。
 - **operator 语义**（字符串比较均忽略大小写）：
   - `eq`：字段值等于 value（字符串去首尾空格后比较）。
@@ -500,6 +510,24 @@ FieldCondition = {
   "conditions": [
     { "field": "is_batch", "operator": "eq", "value": true },
     { "field": "episode_end", "operator": "gte", "value": 8 }
+  ]
+}
+```
+
+**示例 6**：只要含简体或繁体中文字幕。
+
+```json
+{ "field": "subtitle_langs", "operator": "in", "value": ["zh-CN", "zh-TW"] }
+```
+
+**示例 7**：必须同时含简体和日文字幕。
+
+```json
+{
+  "combinator": "and",
+  "conditions": [
+    { "field": "subtitle_langs", "operator": "contains", "value": "zh-CN" },
+    { "field": "subtitle_langs", "operator": "contains", "value": "ja" }
   ]
 }
 ```

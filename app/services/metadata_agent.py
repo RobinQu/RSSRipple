@@ -85,6 +85,10 @@ class ResourceMetadata:
     audio_codec: str | None = None
     subtitle_type: str | None = None
     subtitle_group: str | None = None
+    # BCP-47 language tags: ["zh-CN", "zh-TW", "ja", "en"], or ["multi"] for
+    # titles marked "多语言" / "多国字幕" without specifics. None means the
+    # LLM had nothing to say — pre-parser output is kept.
+    subtitle_langs: list[str] | None = None
     container: str | None = None
 
     # ── Matched entity metadata (upserted into TVSeries or Movie) ──
@@ -130,6 +134,7 @@ class ResourceMetadata:
             audio_codec=data.get("audio_codec"),
             subtitle_type=data.get("subtitle_type"),
             subtitle_group=data.get("subtitle_group"),
+            subtitle_langs=data.get("subtitle_langs"),
             container=data.get("container"),
             matched_entity=entity if entity else None,
             confidence=float(data.get("confidence", 0.0)),
@@ -461,6 +466,7 @@ Example 1 — Chinese anime with season number in brackets and title:
   → clean_title: "小书痴的下克上 领主的养女"
   → content_type: tv, episode: 11, season: 4
   → subtitle_group: "SweetSub&LoliHouse", resolution: "1080p"
+  → subtitle_langs: ["zh-CN", "zh-TW", "ja"]
   → title_cn: "小书痴的下克上 领主的养女", title_en: "Ascendance of a Bookworm"
   → search query: "Ascendance of a Bookworm"
 
@@ -527,6 +533,13 @@ From raw RSS titles, extract:
   are stated; leave them null when the title only says "Batch" / "全集".
 - Quality: resolution (1080p/720p/2160p/4K), source (WebRip/WEB-DL/BDRip),
   codecs (HEVC/AVC/x264/x265, AAC/FLAC), subtitle types, container (MKV/MP4)
+- Subtitle languages: emit ``subtitle_langs`` as a list of BCP-47 tags —
+  ``"zh-CN"`` for 简中/CHS/简体/GB, ``"zh-TW"`` for 繁中/CHT/繁體/BIG5,
+  ``"ja"`` for 日文/JAP/Japanese, ``"en"`` for 英文/ENG/English. Use the
+  sentinel ``"multi"`` (and nothing else) when the title only says
+  "多语言" / "多国字幕" / "Multi-Sub" without spelling out which languages.
+  Emit ``[]`` when the title has no subtitle marker at all; only use
+  ``null`` to mean "I don't know / defer to the pre-parser".
 
 ## SOURCE MODE
 - TMDB mode: use search_tmdb and get_tmdb_details only.
@@ -552,6 +565,7 @@ Always output valid JSON matching:
   "video_codec": "string|null",
   "audio_codec": "string|null",
   "subtitle_type": "string|null",
+  "subtitle_langs": ["zh-CN"|"zh-TW"|"ja"|"en"|"multi", ...] | null,
   "container": "string|null",
   "matched_entity": {
     "external_id": "tmdb:XXXXX",
@@ -929,6 +943,11 @@ class UnifiedMetadataAgent:
             resource.title_cn = resource.title_cn or meta.title_cn
         if meta.title_en:
             resource.title_en = resource.title_en or meta.title_en
+        # LLM output overrides pre-parser only when it actually returned
+        # something. ``[]`` is treated as "LLM saw no marker either", still
+        # useful signal — keep it.
+        if meta.subtitle_langs is not None:
+            resource.subtitle_langs = list(meta.subtitle_langs)
 
         # Link to TVSeries or Movie
         if meta.found and meta.matched_entity:
@@ -991,6 +1010,7 @@ class UnifiedMetadataAgent:
                 "video_codec": meta.video_codec,
                 "audio_codec": meta.audio_codec,
                 "subtitle_type": meta.subtitle_type,
+                "subtitle_langs": meta.subtitle_langs,
                 "container": meta.container,
                 "matched_entity": meta.matched_entity,
                 "confidence": meta.confidence,

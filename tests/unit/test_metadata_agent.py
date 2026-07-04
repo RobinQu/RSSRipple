@@ -63,3 +63,23 @@ def test_resource_metadata_defaults_are_non_batch():
     assert meta.is_batch is False
     assert meta.episode_start is None
     assert meta.episode_end is None
+
+
+def test_resource_metadata_parses_subtitle_langs():
+    meta = ResourceMetadata.from_dict({
+        "clean_title": "Show",
+        "content_type": "tv",
+        "found": True,
+        "subtitle_langs": ["zh-CN", "zh-TW"],
+    })
+    assert meta.subtitle_langs == ["zh-CN", "zh-TW"]
+
+
+def test_resource_metadata_subtitle_langs_absent_is_none():
+    """None means 'LLM had nothing to say' — pre-parser output should stand."""
+    meta = ResourceMetadata.from_dict({
+        "clean_title": "Show",
+        "content_type": "tv",
+        "found": True,
+    })
+    assert meta.subtitle_langs is None

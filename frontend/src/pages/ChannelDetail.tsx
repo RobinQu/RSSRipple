@@ -350,12 +350,13 @@ export default function ChannelDetail() {
               <table className="resource-table resource-table-known">
                 <colgroup>
                   <col style={{ width: 40 }} />
+                  <col style={{ width: 140 }} />
                   <col style={{ width: 84 }} />
                   <col style={{ width: 88 }} />
                   <col style={{ width: 84 }} />
                   <col style={{ width: 72 }} />
                   <col style={{ width: 76 }} />
-                  <col style={{ width: 88 }} />
+                  <col style={{ width: 108 }} />
                   <col />
                   <col style={{ width: 120 }} />
                   <col style={{ width: 76 }} />
@@ -369,6 +370,7 @@ export default function ChannelDetail() {
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.audioCodec')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.container')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.fileSize')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleLangs')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
                     <th style={{ textAlign: 'right', padding: '6px 8px' }}></th>
@@ -392,11 +394,11 @@ export default function ChannelDetail() {
                           onChange={(e) => toggleResource(r.id, e.target.checked)}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.episode')}>
+                      <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} data-label={t('channels.episode')}>
                         {(() => {
                           const ep = formatEpisodeCell(r);
                           return (
-                            <Space size={4}>
+                            <Space size={4} style={{ flexWrap: 'nowrap' }}>
                               <span>{ep.label}</span>
                               {ep.batch && (
                                 <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
@@ -413,6 +415,37 @@ export default function ChannelDetail() {
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.container')}>{r.container || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.fileSize')}>
                         {r.file_size ? formatBytes(r.file_size) : '—'}
+                      </td>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.subtitleLangs')}>
+                        {(() => {
+                          const langs = r.subtitle_langs || [];
+                          if (langs.length === 0) return <span style={{ color: '#93939f' }}>—</span>;
+                          const shown = langs.slice(0, 2);
+                          const rest = langs.length - shown.length;
+                          const inner = (
+                            <Space size={2} style={{ flexWrap: 'nowrap' }}>
+                              {shown.map((l) => (
+                                <Tag key={l} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+                                  {l === 'multi' ? t('channels.langMulti') : l}
+                                </Tag>
+                              ))}
+                              {rest > 0 && (
+                                <Tag style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>+{rest}</Tag>
+                              )}
+                            </Space>
+                          );
+                          return langs.length > shown.length ? (
+                            <Tooltip
+                              title={
+                                <span>
+                                  {langs.map((l) => (l === 'multi' ? t('channels.langMulti') : l)).join(', ')}
+                                </span>
+                              }
+                            >
+                              {inner}
+                            </Tooltip>
+                          ) : inner;
+                        })()}
                       </td>
                       <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
                         <Text ellipsis style={{ display: 'block' }}>

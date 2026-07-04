@@ -18,12 +18,16 @@ STRING_FIELDS = {
 }
 NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end"}
 BOOL_FIELDS = {"is_batch"}
-ALL_FIELDS = STRING_FIELDS | NUMBER_FIELDS | BOOL_FIELDS
+# List-of-string fields — value semantics differ from scalar strings; the
+# operators below act element-wise.
+LIST_STRING_FIELDS = {"subtitle_langs"}
+ALL_FIELDS = STRING_FIELDS | NUMBER_FIELDS | BOOL_FIELDS | LIST_STRING_FIELDS
 
 STRING_OPS = {"eq", "ne", "contains", "fuzzy", "in", "regex"}
 NUMBER_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in"}
 BOOL_OPS = {"eq", "ne"}
-ALL_OPS = STRING_OPS | NUMBER_OPS | BOOL_OPS
+LIST_STRING_OPS = {"eq", "ne", "contains", "in"}
+ALL_OPS = STRING_OPS | NUMBER_OPS | BOOL_OPS | LIST_STRING_OPS
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -101,6 +105,9 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
         if field in BOOL_FIELDS and op not in BOOL_OPS:
             errors.append(f"{path}.operator: operator {op!r} not supported for bool field {field!r}")
             return
+        if field in LIST_STRING_FIELDS and op not in LIST_STRING_OPS:
+            errors.append(f"{path}.operator: operator {op!r} not supported for list field {field!r}")
+            return
         # Validate value types
         if op == "in":
             if isinstance(value, str):
@@ -164,6 +171,29 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
     expected = cond["value"]
 
     raw = get_field_value(resource, field)
+
+    # List-of-strings field short-circuit — element-wise semantics.
+    if field in LIST_STRING_FIELDS:
+        items = [str(x).strip().lower() for x in (raw or []) if str(x).strip()]
+        item_set = set(items)
+        if op == "eq":
+            if isinstance(expected, list):
+                exp_set = {str(v).strip().lower() for v in expected if str(v).strip()}
+            else:
+                exp_set = {str(expected).strip().lower()} if str(expected).strip() else set()
+            return item_set == exp_set
+        if op == "ne":
+            if isinstance(expected, list):
+                exp_set = {str(v).strip().lower() for v in expected if str(v).strip()}
+            else:
+                exp_set = {str(expected).strip().lower()} if str(expected).strip() else set()
+            return item_set != exp_set
+        if op == "contains":
+            return str(expected).strip().lower() in item_set
+        if op == "in":
+            values = [str(v).strip().lower() for v in _coerce_in_list(expected) if str(v).strip()]
+            return any(v in item_set for v in values)
+        return False
 
     # Bool field short-circuit — None → False, then eq/ne against coerced value.
     if field in BOOL_FIELDS:

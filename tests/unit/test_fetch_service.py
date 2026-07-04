@@ -150,6 +150,28 @@ class TestFetchChannelResources:
         )).scalar_one()
         assert count == 1
 
+    async def test_pre_parser_fills_batch_and_subtitle_langs(self, db_session, channel, fake_queue):
+        """Batch flag and subtitle language tags land on the row before the
+        LLM path runs — even with the metadata agent stubbed out."""
+        entries = [
+            _entry("gb", "Show S01E01~13 1080p [简繁内封字幕]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:bbb"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(channel, db_session)
+
+        from sqlalchemy import select
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "gb")
+        )).scalar_one()
+        assert row.is_batch is True
+        assert row.episode_start == 1
+        assert row.episode_end == 13
+        assert row.subtitle_langs == ["zh-CN", "zh-TW"]
+
     async def test_existing_guid_skipped(self, db_session, channel, fake_queue):
         existing = FileResource(
             id=_uuid(), channel_id=channel.id, guid="g1",
