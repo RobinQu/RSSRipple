@@ -25,9 +25,7 @@ export interface ChannelCreate {
   url: string;
   fetch_interval?: number;
   field_mapping: FieldMapping;
-  title_extraction_method?: 'none' | 'regex' | 'llm';
-  title_extraction_regex?: string | null;
-  metadata_source?: 'llm' | 'none';
+  metadata_agent_enabled?: boolean;
 }
 
 export interface ChannelUpdate {
@@ -36,9 +34,7 @@ export interface ChannelUpdate {
   fetch_interval?: number;
   status?: ChannelStatus;
   field_mapping?: FieldMapping;
-  title_extraction_method?: 'none' | 'regex' | 'llm';
-  title_extraction_regex?: string | null;
-  metadata_source?: 'llm' | 'none';
+  metadata_agent_enabled?: boolean;
 }
 
 type ChannelResourcesPayload =
@@ -106,10 +102,6 @@ export const channelsApi = {
       url,
       field_mapping: fieldMapping ?? null,
     }),
-  generateTitleRegex: (id: string) =>
-    api.post<{ regex: string; explanation?: string }>(
-      `/channels/${id}/generate-title-regex`,
-    ),
   summarizeFilters: (channelId: string, resourceIds: string[]) =>
     api.post<FilterSuggestionResponse>(
       `/channels/${channelId}/summarize-filters`,

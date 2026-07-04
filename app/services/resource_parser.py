@@ -152,3 +152,74 @@ def _apply_transform(value: str, transform: str | None) -> Any:
         return value.upper()
 
     return value
+
+
+# ---------------------------------------------------------------------------
+# Multi-episode batch (合集) detection
+# ---------------------------------------------------------------------------
+
+# Ordered pattern list: earlier patterns are tried first. Each pattern returns
+# ``(is_batch, start, end)`` — start/end may be None when the title marks a
+# batch (Season Pack / 全集 / Fin) without explicit boundaries.
+
+_BATCH_PATTERNS: list[tuple[re.Pattern[str], int, int]] = [
+    # SxxEyy~zz  /  SxxEyy-zz  /  SxxEyy–zz  (with optional Exx suffix on rhs)
+    (re.compile(r"S\d+\s*E(\d{1,3})\s*[~\-–]\s*E?(\d{1,3})", re.IGNORECASE), 1, 2),
+    # [01-12 合集] / [01~12 Fin] / [01-12] with batch keyword nearby
+    (re.compile(
+        r"\[\s*(\d{1,3})\s*[~\-–]\s*(\d{1,3})\s*(?:合集|Batch|Fin|完结|全集|完整|Complete)?\s*\]",
+        re.IGNORECASE,
+    ), 1, 2),
+    # 01-12 合集 (no bracket)
+    (re.compile(
+        r"(\d{1,3})\s*[~\-–]\s*(\d{1,3})\s*(?:合集|Batch|Fin|完结|全集|完整|Complete)",
+        re.IGNORECASE,
+    ), 1, 2),
+    # 第01-第12话 / 第01~12話
+    (re.compile(r"第\s*(\d{1,3})\s*[~\-–]\s*第?\s*(\d{1,3})\s*[话話集]"), 1, 2),
+]
+
+_BATCH_KEYWORD_RE = re.compile(
+    r"(?:Season\s*Pack|Full\s*Season|Batch|BD-?BOX|BDBOX|BD\s*Rip\s*Box|"
+    r"全集|全季|合集|完整|完结|Complete\s*Series)",
+    re.IGNORECASE,
+)
+
+
+def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
+    """Heuristically detect whether a raw RSS title represents a multi-episode
+    batch (合集) resource.
+
+    Returns ``(is_batch, episode_start, episode_end)``. When the title marks a
+    batch without explicit boundaries (e.g. "Season Pack", "全集"), the two
+    integers are None but ``is_batch`` is True.
+
+    The MetadataAgent LLM may later refine or overwrite these values; the
+    pre-parser exists so downstream logic stays safe even when the LLM path
+    fails or is disabled.
+    """
+    if not title:
+        return False, None, None
+
+    for pattern, gstart, gend in _BATCH_PATTERNS:
+        m = pattern.search(title)
+        if not m:
+            continue
+        try:
+            start = int(m.group(gstart))
+            end = int(m.group(gend))
+        except (TypeError, ValueError):
+            continue
+        if end < start:
+            start, end = end, start
+        # Filter obvious false positives: ranges that look like resolution
+        # tokens (e.g. "1920x1080") or single-year matches would already be
+        # excluded by the leading anchors, but keep a sanity cap.
+        if end - start > 200 or start < 0 or end > 999:
+            continue
+        return True, start, end
+
+    if _BATCH_KEYWORD_RE.search(title):
+        return True, None, None
+
+    return False, None, None

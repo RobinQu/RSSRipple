@@ -10,11 +10,15 @@ import {
   Typography,
   App,
   Spin,
+  Select,
+  Alert,
 } from 'antd';
 import { Folder, Zap } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
 
 const { Title } = Typography;
+
+type DownloaderType = 'transmission' | 'mock';
 
 export default function DownloaderForm() {
   const navigate = useNavigate();
@@ -26,13 +30,17 @@ export default function DownloaderForm() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');
   const [testing, setTesting] = useState(false);
+  const [type, setType] = useState<DownloaderType>('transmission');
 
   useEffect(() => {
     if (mode !== 'edit' || !id) return;
     (async () => {
       const res = await downloadersApi.get(id);
       if (res.success) {
+        const t = (res.data.type || 'transmission') as DownloaderType;
+        setType(t);
         form.setFieldsValue({
+          type: t,
           name: res.data.name,
           url: res.data.url,
           download_dir: res.data.download_dir,
@@ -57,18 +65,20 @@ export default function DownloaderForm() {
   };
 
   const handleSubmit = async (values: {
+    type?: DownloaderType;
     name: string;
-    url: string;
+    url?: string;
     username?: string;
     password?: string;
-    download_dir: string;
+    download_dir?: string;
   }) => {
     setSaving(true);
+    const activeType = (values.type || type) as DownloaderType;
     const payload = {
       name: values.name,
-      type: 'transmission' as const,
-      url: values.url,
-      download_dir: values.download_dir,
+      type: activeType,
+      url: values.url || (activeType === 'mock' ? 'mock://local' : ''),
+      download_dir: values.download_dir || (activeType === 'mock' ? '/tmp/mock-downloads' : ''),
       username: values.username || undefined,
       password: values.password || undefined,
     };
@@ -92,6 +102,8 @@ export default function DownloaderForm() {
 
   if (loading) return <Spin />;
 
+  const isMock = type === 'mock';
+
   return (
     <div style={{ maxWidth: 560 }}>
       <Title level={3} style={{ marginBottom: 24 }}>
@@ -104,6 +116,26 @@ export default function DownloaderForm() {
           onFinish={handleSubmit}
           initialValues={{ type: 'transmission' }}
         >
+          <Form.Item name="type" label={t('downloaders.type')}>
+            <Select
+              disabled={mode === 'edit'}
+              onChange={(v: DownloaderType) => setType(v)}
+              options={[
+                { value: 'transmission', label: t('downloaders.typeTransmission') },
+                { value: 'mock', label: t('downloaders.typeMock') },
+              ]}
+            />
+          </Form.Item>
+
+          {isMock && (
+            <Alert
+              type="info"
+              showIcon
+              message={t('downloaders.mockDescription')}
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
           <Form.Item
             name="name"
             label={t('common.name')}
@@ -112,33 +144,40 @@ export default function DownloaderForm() {
             <Input placeholder={t('downloaders.nameExample')} />
           </Form.Item>
 
-          <Form.Item
-            name="url"
-            label={t('downloaders.rpcUrl')}
-            rules={[{ required: true, message: t('downloaders.enterRpcUrl') }]}
-          >
-            <Input placeholder="http://127.0.0.1:9091/transmission/rpc" />
-          </Form.Item>
+          {!isMock && (
+            <Form.Item
+              name="url"
+              label={t('downloaders.rpcUrl')}
+              rules={[{ required: true, message: t('downloaders.enterRpcUrl') }]}
+            >
+              <Input placeholder="http://127.0.0.1:9091/transmission/rpc" />
+            </Form.Item>
+          )}
 
           <Form.Item
             name="download_dir"
             label={t('downloaders.defaultDir')}
-            rules={[{ required: true, message: t('downloaders.enterDefaultDir') }]}
+            rules={isMock ? [] : [{ required: true, message: t('downloaders.enterDefaultDir') }]}
           >
-            <Input prefix={<Folder size={14} />} placeholder="/volume1/downloads/rssripple" />
+            <Input
+              prefix={<Folder size={14} />}
+              placeholder={isMock ? '/tmp/mock-downloads' : '/volume1/downloads/rssripple'}
+            />
           </Form.Item>
 
-          <Space style={{ width: '100%' }} size={16}>
-            <Form.Item name="username" label={t('downloaders.username')} style={{ flex: 1 }}>
-              <Input autoComplete="off" />
-            </Form.Item>
-            <Form.Item name="password" label={t('downloaders.password')} style={{ flex: 1 }}>
-              <Input.Password
-                placeholder={mode === 'edit' ? t('downloaders.passwordHint') : undefined}
-                autoComplete="new-password"
-              />
-            </Form.Item>
-          </Space>
+          {!isMock && (
+            <Space style={{ width: '100%' }} size={16}>
+              <Form.Item name="username" label={t('downloaders.username')} style={{ flex: 1 }}>
+                <Input autoComplete="off" />
+              </Form.Item>
+              <Form.Item name="password" label={t('downloaders.password')} style={{ flex: 1 }}>
+                <Input.Password
+                  placeholder={mode === 'edit' ? t('downloaders.passwordHint') : undefined}
+                  autoComplete="new-password"
+                />
+              </Form.Item>
+            </Space>
+          )}
 
           <Form.Item>
             <Space>

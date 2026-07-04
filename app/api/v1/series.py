@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.series import TVSeries
 from app.schemas.series import TVSeriesCreate, TVSeriesUpdate, TVSeriesResponse
 from app.schemas.common import success_response, paginated_response
+from app.services import fts as fts_service
 
 router = APIRouter()
 
@@ -22,21 +23,37 @@ async def list_series(
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * page_size
-    base_q = select(TVSeries)
     if search:
-        pattern = f"%{search}%"
-        base_q = base_q.where(
-            or_(
-                TVSeries.title_cn.ilike(pattern),
-                TVSeries.title_en.ilike(pattern),
-                TVSeries.original_title.ilike(pattern),
+        # Use FTS5 for CJK-aware full-text search
+        candidate_ids = await fts_service.search_series_fts(db, search, limit=200)
+        if candidate_ids:
+            base_q = select(TVSeries).where(TVSeries.id.in_(candidate_ids))
+            total = len(candidate_ids)
+            result = await db.execute(
+                base_q.order_by(TVSeries.created_at.desc()).offset(offset).limit(page_size)
             )
+        else:
+            # Fallback to ILIKE if FTS5 returns nothing
+            pattern = f"%{search}%"
+            base_q = select(TVSeries).where(
+                or_(
+                    TVSeries.title_cn.ilike(pattern),
+                    TVSeries.title_en.ilike(pattern),
+                    TVSeries.original_title.ilike(pattern),
+                )
+            )
+            total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
+            total = total_q.scalar_one()
+            result = await db.execute(
+                base_q.order_by(TVSeries.created_at.desc()).offset(offset).limit(page_size)
+            )
+    else:
+        base_q = select(TVSeries)
+        total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
+        total = total_q.scalar_one()
+        result = await db.execute(
+            base_q.order_by(TVSeries.created_at.desc()).offset(offset).limit(page_size)
         )
-    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
-    total = total_q.scalar_one()
-    result = await db.execute(
-        base_q.order_by(TVSeries.created_at.desc()).offset(offset).limit(page_size)
-    )
     items = result.scalars().all()
     return paginated_response(
         [TVSeriesResponse.model_validate(s).model_dump() for s in items],
@@ -52,6 +69,7 @@ async def create_series(
     series = TVSeries(**body.model_dump())
     db.add(series)
     await db.flush()
+    await fts_service.upsert_series_fts(db, series)
     await db.refresh(series)
     return success_response(TVSeriesResponse.model_validate(series).model_dump())
 
@@ -125,6 +143,7 @@ async def update_series(
     for key, value in update_data.items():
         setattr(series, key, value)
     await db.flush()
+    await fts_service.upsert_series_fts(db, series)
     await db.refresh(series)
     return success_response(TVSeriesResponse.model_validate(series).model_dump())
 
@@ -159,5 +178,6 @@ async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
     await db.execute(sql_update(ChannelRawTitleMapping).where(ChannelRawTitleMapping.series_id == series_id).values(series_id=None))
     await db.delete(series)
+    await fts_service.delete_series_fts(db, series_id)
     await db.commit()
     return success_response({"deleted": True})

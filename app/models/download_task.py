@@ -15,8 +15,14 @@ class DownloadTask(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    agent_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    # ``agent_id`` is nullable + ON DELETE SET NULL so that deleting an Agent
+    # keeps its historical download tasks intact for audit — the delete
+    # handler flips the tasks to ``status='cancelled'`` before the row is
+    # removed, and the FK just detaches. Without ``passive_deletes=True`` on
+    # the Agent side the ORM would also try to null it in-memory, which we
+    # rely on here for both dialects.
+    agent_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     file_resource_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("file_resources.id", ondelete="CASCADE"), nullable=False

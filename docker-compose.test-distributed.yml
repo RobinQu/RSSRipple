@@ -6,9 +6,8 @@
 #   • Two app replicas behind independent health checks
 #
 # Complements docker-compose.test.yml (single-node SQLite/MemoryQueue).
-# Runs all integration tests except those requiring a persistent network
-# client (test_e2e.py, test_torrent_lifecycle.py) and those that are
-# specific to single-node/SQLite setups.
+# Runs all deterministic integration tests. External metadata search/accuracy
+# benchmarks and real-feed tests are excluded from the default compose suite.
 #
 # test_task_queue.py is parametrized over both app-1 and app-2, exercising
 # the Redis-backed queue in a true multi-instance configuration.
@@ -130,7 +129,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run pytest tests/integration/ -v --tb=short"
+      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/test_fetch_with_real_feed.py --ignore=tests/integration/test_metadata_agent_accuracy.py --ignore=tests/integration/test_metadata_search_agent_integration.py --ignore=tests/integration/test_rss_subscription.py --ignore=tests/integration/test_tmdb_dataset.py -v --tb=short"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

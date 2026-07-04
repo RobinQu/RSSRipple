@@ -10,18 +10,40 @@ from __future__ import annotations
 from typing import Any
 import re
 
-from thefuzz import fuzz
+from app.services.text_normalizer import similarity_score
 
 STRING_FIELDS = {
     "subtitle_group", "resolution", "source", "video_codec", "audio_codec",
     "subtitle_type", "container", "title_cn", "title_en", "search_title",
 }
-NUMBER_FIELDS = {"file_size", "episode", "season"}
-ALL_FIELDS = STRING_FIELDS | NUMBER_FIELDS
+NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end"}
+BOOL_FIELDS = {"is_batch"}
+ALL_FIELDS = STRING_FIELDS | NUMBER_FIELDS | BOOL_FIELDS
 
 STRING_OPS = {"eq", "ne", "contains", "fuzzy", "in", "regex"}
 NUMBER_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in"}
-ALL_OPS = STRING_OPS | NUMBER_OPS
+BOOL_OPS = {"eq", "ne"}
+ALL_OPS = STRING_OPS | NUMBER_OPS | BOOL_OPS
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Interpret user-supplied filter values as bool.
+
+    Accepts native ``True/False``, numeric ``1/0``, and the string forms
+    ``"true"``/``"false"``/``"1"``/``"0"``/``"yes"``/``"no"`` (case-insensitive).
+    Anything else falls back to Python truthiness.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "1", "yes", "y", "on"):
+            return True
+        if s in ("false", "0", "no", "n", "off", ""):
+            return False
+    return bool(value)
 
 
 def _is_bool_condition(node: Any) -> bool:
@@ -75,6 +97,9 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
             return
         if field in NUMBER_FIELDS and op not in NUMBER_OPS:
             errors.append(f"{path}.operator: operator {op!r} not supported for number field {field!r}")
+            return
+        if field in BOOL_FIELDS and op not in BOOL_OPS:
+            errors.append(f"{path}.operator: operator {op!r} not supported for bool field {field!r}")
             return
         # Validate value types
         if op == "in":
@@ -140,6 +165,16 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
 
     raw = get_field_value(resource, field)
 
+    # Bool field short-circuit — None → False, then eq/ne against coerced value.
+    if field in BOOL_FIELDS:
+        expected_bool = _coerce_bool(expected)
+        actual_bool = bool(raw) if raw is not None else False
+        if op == "eq":
+            return actual_bool == expected_bool
+        if op == "ne":
+            return actual_bool != expected_bool
+        return False
+
     # Empty handling
     is_empty = raw is None or (isinstance(raw, str) and raw.strip() == "")
 
@@ -202,7 +237,7 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
         return str(expected).strip().lower() in val_l
     if op == "fuzzy":
         target = str(expected).strip().lower()
-        return fuzz.ratio(val_l, target) >= 70
+        return similarity_score(val_l, target) >= 70
     if op == "in":
         values = _coerce_in_list(expected)
         return any(str(v).strip().lower() in val_l for v in values)

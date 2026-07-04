@@ -28,6 +28,9 @@ class FileResourceResponse(BaseModel):
     subtitle_group: str | None = None
     episode: int | None = None
     season: int | None = None
+    is_batch: bool = False
+    episode_start: int | None = None
+    episode_end: int | None = None
     resolution: str | None = None
     source: str | None = None
     video_codec: str | None = None
@@ -64,6 +67,7 @@ class GroupedResource(BaseModel):
 class MetadataSearchRequest(BaseModel):
     search_title: str
     content_type: str = "tv"
+    data_source_type: str | None = None
 
 
 class MetadataSearchResult(BaseModel):

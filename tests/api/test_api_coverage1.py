@@ -28,7 +28,7 @@ async def env(client):
         ch = await client.post("/api/v1/channels", json={
             "name": "C", "type": "rss_feed", "url": "https://x/rss",
             "fetch_interval": 1800, "field_mapping": TEST_FIELD_MAPPING,
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL", "type": "transmission",
@@ -149,14 +149,6 @@ class TestChannelsMore:
         with patch("app.api.v1.channels.get_raw_entries", AsyncMock(return_value=[])):
             res = await client.post("/api/v1/channels/analyze-url-stream",
                                     json={"url": "https://x/rss"})
-        assert res.status_code == 400
-
-    async def test_generate_title_regex_fetch_error(self, client, sample_channel):
-        with patch(
-            "app.api.v1.channels.get_raw_entries",
-            AsyncMock(side_effect=RuntimeError("x")),
-        ):
-            res = await client.post(f"/api/v1/channels/{sample_channel.id}/generate-title-regex")
         assert res.status_code == 400
 
     async def test_preview_feed_fetch_error(self, client):

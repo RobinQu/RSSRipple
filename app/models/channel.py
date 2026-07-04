@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, JSON, String, func
+from sqlalchemy import Boolean, DateTime, Enum, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -27,12 +27,8 @@ class Channel(Base):
         nullable=False,
     )
     field_mapping: Mapped[dict] = mapped_column(JSON, nullable=False)
-    title_extraction_method: Mapped[str] = mapped_column(
-        String(20), default="llm", nullable=False
-    )
-    title_extraction_regex: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    metadata_source: Mapped[str] = mapped_column(
-        String(20), default="llm", nullable=False
+    metadata_agent_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
     )
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_fetch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)

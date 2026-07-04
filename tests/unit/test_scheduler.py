@@ -40,7 +40,7 @@ async def _seed(db_session):
     """Create a channel, downloader, agent, and a couple of resources/tasks."""
     ch = Channel(id=_uuid(), name="ch", type="rss_feed", url="https://x/rss",
                  field_mapping=TEST_FIELD_MAPPING,
-                 metadata_source="none", title_extraction_method="none")
+                 metadata_agent_enabled=False)
     dl = DownloaderInstance(
         id=_uuid(), name="dl", type="transmission",
         url="http://127.0.0.1:9091/transmission/rpc",

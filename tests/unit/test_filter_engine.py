@@ -36,6 +36,9 @@ def _res(**overrides):
         file_size=1_500_000_000,
         episode=3,
         season=1,
+        is_batch=False,
+        episode_start=None,
+        episode_end=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -471,3 +474,74 @@ class TestMergeFilters:
         o = {"combinator": "and", "conditions": [{"field": "b", "operator": "eq", "value": "2"}]}
         merged = merge_filters(g, o)
         assert merged == {"combinator": "and", "conditions": [g, o]}
+
+
+# ---------------------------------------------------------------------------
+# Batch (合集) fields — is_batch bool + episode_start/end numbers
+# ---------------------------------------------------------------------------
+
+
+class TestBatchFields:
+    def test_is_batch_eq_true(self):
+        cond = {"field": "is_batch", "operator": "eq", "value": True}
+        assert evaluate_field_condition(cond, _res(is_batch=True)) is True
+        assert evaluate_field_condition(cond, _res(is_batch=False)) is False
+
+    def test_is_batch_eq_false_excludes_batches(self):
+        cond = {"field": "is_batch", "operator": "eq", "value": False}
+        assert evaluate_field_condition(cond, _res(is_batch=True)) is False
+        assert evaluate_field_condition(cond, _res(is_batch=False)) is True
+
+    def test_is_batch_ne(self):
+        cond = {"field": "is_batch", "operator": "ne", "value": True}
+        assert evaluate_field_condition(cond, _res(is_batch=False)) is True
+        assert evaluate_field_condition(cond, _res(is_batch=True)) is False
+
+    def test_is_batch_accepts_string_and_int(self):
+        assert evaluate_field_condition(
+            {"field": "is_batch", "operator": "eq", "value": "true"},
+            _res(is_batch=True),
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "is_batch", "operator": "eq", "value": 1},
+            _res(is_batch=True),
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "is_batch", "operator": "eq", "value": "no"},
+            _res(is_batch=False),
+        ) is True
+
+    def test_is_batch_missing_field_is_false(self):
+        r = _res()
+        del r.is_batch  # simulate an older row without the column value
+        assert evaluate_field_condition(
+            {"field": "is_batch", "operator": "eq", "value": False}, r
+        ) is True
+
+    def test_episode_start_gte(self):
+        cond = {"field": "episode_start", "operator": "gte", "value": 1}
+        assert evaluate_field_condition(cond, _res(is_batch=True, episode_start=1, episode_end=13)) is True
+        assert evaluate_field_condition(cond, _res(is_batch=True, episode_start=None)) is False
+
+    def test_episode_end_lte(self):
+        cond = {"field": "episode_end", "operator": "lte", "value": 12}
+        assert evaluate_field_condition(cond, _res(is_batch=True, episode_start=1, episode_end=12)) is True
+        assert evaluate_field_condition(cond, _res(is_batch=True, episode_start=1, episode_end=24)) is False
+
+
+class TestBatchValidation:
+    def test_is_batch_only_bool_ops(self):
+        errors = validate_filter_config(
+            {"combinator": "and", "conditions": [
+                {"field": "is_batch", "operator": "contains", "value": True}
+            ]}
+        )
+        assert errors  # "contains" is not a bool op
+
+    def test_is_batch_valid(self):
+        errors = validate_filter_config(
+            {"combinator": "and", "conditions": [
+                {"field": "is_batch", "operator": "eq", "value": True}
+            ]}
+        )
+        assert not errors

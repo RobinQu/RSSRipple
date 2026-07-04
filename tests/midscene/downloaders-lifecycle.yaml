@@ -2,7 +2,7 @@
 # Covers: create downloader, test connection, view detail/live torrents, edit, delete.
 
 web:
-  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
 
 agent:
   testId: downloader-lifecycle

@@ -10,9 +10,9 @@ from typing import Any
 
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from thefuzz import fuzz
 
 from app.config import settings
+from app.services.text_normalizer import partial_similarity_score
 from app.models.agent import Agent
 from app.models.agent_suggestion import AgentSuggestion
 from app.models.download_task import DownloadTask
@@ -100,11 +100,9 @@ async def dispatch_download(
     db.add(task)
     await db.flush()
 
-    from app.clients.transmission import TransmissionWrapper
+    from app.clients.downloader import get_downloader_client
 
-    wrapper = TransmissionWrapper(
-        url=downloader.url, username=downloader.username, password=downloader.password
-    )
+    wrapper = get_downloader_client(downloader)
     try:
         result = await asyncio.wait_for(
             wrapper.add_torrent(
@@ -263,7 +261,7 @@ async def process_resources(
                 grouped = False
                 for existing_key in list(suggestions.keys()):
                     try:
-                        if fuzz.partial_ratio(key, existing_key) >= 80:
+                        if partial_similarity_score(key, existing_key) >= 80:
                             suggestions[existing_key]["resources"].append(resource.id)
                             suggestions[existing_key]["sample_title"] = key
                             grouped = True
@@ -290,6 +288,33 @@ async def process_resources(
 
         if effective_filter is not None and not evaluate_filter_config(effective_filter, resource):
             result.filter_failed += 1
+            continue
+
+        # Batch (合集) resources bypass per-episode dedup and conflict
+        # resolution entirely — per the design agreed with the product owner:
+        # a batch torrent is treated as a distinct payload that the user
+        # opted into via the filter DSL. We still avoid dispatching the same
+        # FileResource twice (crash recovery / re-run).
+        if getattr(resource, "is_batch", False):
+            existing_stmt = select(DownloadTask).where(
+                and_(
+                    DownloadTask.agent_id == agent.id,
+                    DownloadTask.file_resource_id == resource.id,
+                    DownloadTask.status.in_(
+                        ["pending", "queued", "downloading", "paused", "completed"]
+                    ),
+                )
+            )
+            if (await db.execute(existing_stmt)).scalars().first():
+                result.duplicates_skipped += 1
+                continue
+            try:
+                await dispatch_download(agent, resource, db)
+                result.dispatched += 1
+                result.matched += 1
+            except Exception as e:
+                logger.exception("Failed to dispatch batch resource %s: %s", resource.id, e)
+                result.errors.append(str(e))
             continue
 
         # Dedup check

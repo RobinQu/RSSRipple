@@ -38,7 +38,7 @@ def test_extract_download_urls_magnet_enclosure_fallback_to_generic_enclosure():
     entry = _Entry(
         enclosures=[{"url": "magnet:?xt=urn:btih:abc", "type": ""}],
         link="",
-        description="",
+        description=""
     )
     t, m = rss_parser._extract_download_urls(entry)
     assert m == "magnet:?xt=urn:btih:abc"
@@ -49,7 +49,7 @@ def test_extract_download_urls_magnet_in_description():
     entry = _Entry(
         enclosures=[],
         link="",
-        description="download <a href=\"magnet:?xt=urn:btih:deadbeef\">here</a>",
+        description="download <a href=\"magnet:?xt=urn:btih:deadbeef\">here</a>"
     )
     t, m = rss_parser._extract_download_urls(entry)
     assert m and "deadbeef" in m
@@ -60,7 +60,7 @@ def test_extract_download_urls_generic_enclosure_used_as_torrent_url():
     entry = _Entry(
         enclosures=[{"url": "https://x/random", "type": "application/octet-stream"}],
         link="",
-        description="",
+        description=""
     )
     t, _ = rss_parser._extract_download_urls(entry)
     assert t == "https://x/random"
@@ -120,7 +120,7 @@ def test_entry_to_dict_handles_lists_and_scalars():
 async def test_get_raw_entries_converts_to_dicts():
     fake_feed = MagicMock()
     fake_feed.entries = [
-        _Entry(title="t1", link="https://x", id="g1"),
+        _Entry(title="t1", link="https://x", id="g1")
     ]
     with patch("app.clients.rss_parser._parse_feed_sync", return_value=fake_feed):
         entries = await rss_parser.get_raw_entries("https://example.com/rss", limit=5)
@@ -150,7 +150,7 @@ async def test_validate_rss_url_empty_feed():
 @pytest.mark.asyncio
 async def test_validate_rss_url_counts_downloadable():
     entry_magnet = _Entry(
-        enclosures=[], link="magnet:?xt=urn:btih:a", description="",
+        enclosures=[], link="magnet:?xt=urn:btih:a", description=""
     )
     entry_plain = _Entry(enclosures=[], link="https://example.com", description="")
     feed = MagicMock()

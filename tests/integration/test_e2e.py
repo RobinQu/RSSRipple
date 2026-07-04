@@ -76,8 +76,7 @@ class TestE2EFlow:
             "url": f"{TEST_SERVER}/rss/dmhy",
             "fetch_interval": 3600,
             "field_mapping": TEST_FIELD_MAPPING,
-            "metadata_source": "none",
-            "title_extraction_method": "none",
+            "metadata_agent_enabled": False,
         })
         assert ch_res.status_code == 201, f"create channel failed: {ch_res.text}"
         ch_id = ch_res.json()["data"]["id"]

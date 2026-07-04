@@ -55,7 +55,10 @@ class Agent(Base):
         cascade="all, delete-orphan",
     )
     download_tasks = relationship(
-        "DownloadTask", back_populates="agent", lazy="selectin"
+        "DownloadTask",
+        back_populates="agent",
+        lazy="selectin",
+        passive_deletes=True,
     )
     pending_decisions = relationship(
         "PendingDecision",

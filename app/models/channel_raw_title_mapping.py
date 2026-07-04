@@ -12,7 +12,7 @@ from app.database import Base
 class ChannelRawTitleMapping(Base):
     __tablename__ = "channel_raw_title_mappings"
     __table_args__ = (
-        UniqueConstraint("channel_id", "raw_title", name="uq_raw_title_channel"),
+        UniqueConstraint("channel_id", "search_title_key", name="uq_channel_search_key"),
     )
 
     id: Mapped[str] = mapped_column(
@@ -22,6 +22,7 @@ class ChannelRawTitleMapping(Base):
         String(36), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
     )
     raw_title: Mapped[str] = mapped_column(String(1024), nullable=False)
+    search_title_key: Mapped[str] = mapped_column(String(512), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     search_title_override: Mapped[str | None] = mapped_column(String(512), nullable=True)
     series_id: Mapped[str | None] = mapped_column(

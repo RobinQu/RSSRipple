@@ -1,10 +1,7 @@
-"""Multi-source metadata search agent.
+"""Single-source metadata search helpers.
 
-Replaces the single-LLM web-search call in metadata_service with a layered
-search strategy:
-
-1. TMDB API (httpx) — primary, structured, free
-2. Exa AI Agent API — web fallback with structured extraction
+TMDB and Exa Agent are exposed as independent data sources. Callers must choose
+one source explicitly; this module no longer performs layered fallback search.
 
 All sources produce a uniform ``MetadataCandidate`` dict that drops into the
 existing ``create_or_update_*_from_external()`` functions unchanged.
@@ -182,7 +179,18 @@ def _resolve_genre_ids(genre_ids: list[int], api_key: str) -> list[str]:
     if not genre_ids:
         return []
     gmap = _tmdb_genre_map(api_key)
-    return [gmap[gid] for gid in genre_ids if gid in gmap]
+    result: list[str] = []
+    for gid in genre_ids:
+        try:
+            if gid in gmap:
+                result.append(gmap[gid])
+        except TypeError as e:
+            logger = logging.getLogger("rssripple.eval")
+            logger.warning(
+                "[metadata_agent] _resolve_genre_ids: unhashable genre element type=%s value=%r",
+                type(gid).__name__, gid,
+            )
+    return result
 
 
 async def _search_tmdb(title: str) -> list[dict[str, Any]]:
@@ -341,7 +349,7 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
 # Exa AI Agent source
 # ---------------------------------------------------------------------------
 
-_EXA_OUTPUT_SCHEMA: dict[str, Any] = {
+_EXA_CANDIDATE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "content_type": {
@@ -422,59 +430,116 @@ _EXA_OUTPUT_SCHEMA: dict[str, Any] = {
     "required": ["content_type"],
 }
 
+_EXA_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "candidates": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Best matching TV/movie metadata candidates. Return an empty array if no credible work matches.",
+            "items": _EXA_CANDIDATE_SCHEMA,
+        },
+        "reason": {
+            "type": ["string", "null"],
+            "description": "Short explanation of the match quality or why no candidates were found.",
+        },
+    },
+    "required": ["candidates"],
+}
+
 
 async def _search_exa(title: str) -> list[dict[str, Any]]:
     """Search for metadata via Exa AI Agent API."""
     if not settings.exa_api_key:
+        logger.info("[metadata_agent][exa] skipped title=%r: EXA_API_KEY is not configured", title[:120])
         return []
 
     cached = _cache_get("exa", title)
     if cached is not None:
+        logger.info("[metadata_agent][exa] cache hit title=%r candidates=%d", title[:120], len(cached))
         return cached
 
     try:
         from exa_py import AsyncExa
 
+        query = (
+            f'Search for metadata about "{title}". '
+            "Return up to 5 credible candidate works that this RSS title could refer to. "
+            "Determine whether each candidate is a TV series/anime or a movie. "
+            "For each candidate, find Chinese and English titles, original title, a brief description, "
+            "a direct poster image URL (.png or .jpg, not a webpage), release year, rating (0-10 scale), "
+            "genre tags, status, and type-specific information "
+            "(number of episodes/seasons for TV, release date and runtime for movies). "
+            "Prefer authoritative sources such as TMDB, IMDb, Wikipedia, official sites, or major anime databases. "
+            "If there is no credible match, return candidates as an empty array."
+        )
+        logger.info(
+            "[metadata_agent][exa] create run title=%r effort=%s schema=candidates[]",
+            title[:120], settings.exa_effort_level,
+        )
         exa = AsyncExa(api_key=settings.exa_api_key)
         run = await exa.agent.runs.create(
-            query=(
-                f'Search for metadata about "{title}". '
-                f"Determine if this is a TV series/anime or a movie. "
-                f"Find the Chinese and English titles, original title, a brief description, "
-                f"a direct poster image URL (.png or .jpg, not a webpage), release year, "
-                f"rating (0-10 scale), genre tags, status, and type-specific information "
-                f"(number of episodes/seasons for TV, release date and runtime for movies)."
-            ),
+            query=query,
             output_schema=_EXA_OUTPUT_SCHEMA,
             effort=settings.exa_effort_level,
         )
+        logger.info("[metadata_agent][exa] run created id=%s status=%s", getattr(run, "id", None), getattr(run, "status", None))
         polled = await exa.agent.runs.poll_until_finished(
             run.id, poll_interval=4000, timeout_ms=300_000,
         )
+        logger.info(
+            "[metadata_agent][exa] run finished id=%s status=%s stop_reason=%s cost=%s error=%s output=%s",
+            getattr(polled, "id", None),
+            getattr(polled, "status", None),
+            getattr(polled, "stop_reason", None),
+            _compact_obj(getattr(polled, "cost_dollars", None)),
+            _compact_obj(getattr(polled, "error", None)),
+            _compact_obj(getattr(polled, "output", None), max_len=2000),
+        )
 
-        if polled.status == "completed" and polled.output and polled.output.structured:
-            candidate_data = dict(polled.output.structured)
-            candidate_data.setdefault("external_source", "exa")
-            if not candidate_data.get("external_id"):
-                candidate_data["external_id"] = "exa:" + hashlib.md5(
-                    title.lower().encode()
-                ).hexdigest()[:12]
+        structured = _extract_exa_structured(polled)
+        if getattr(polled, "status", None) == "completed" and structured:
+            raw_candidates = _extract_exa_candidates(structured)
+            logger.info(
+                "[metadata_agent][exa] structured extracted title=%r raw_candidates=%d structured=%s",
+                title[:120],
+                len(raw_candidates),
+                _compact_obj(structured, max_len=2000),
+            )
+            candidates: list[dict[str, Any]] = []
+            for idx, raw_candidate in enumerate(raw_candidates):
+                candidate_data = _normalize_exa_candidate(raw_candidate, title, idx)
 
-            # Post-validate poster URL
-            poster = candidate_data.get("poster_url")
-            if poster:
-                candidate_data["poster_url"] = await _validate_poster_url(poster)
+                poster = candidate_data.get("poster_url")
+                if poster:
+                    candidate_data["poster_url"] = await _validate_poster_url(poster)
 
-            if _validate_candidate(candidate_data):
-                _cache_set("exa", title, [candidate_data])
-                return [candidate_data]
+                if _validate_candidate(candidate_data):
+                    candidates.append(candidate_data)
+                    logger.info(
+                        "[metadata_agent][exa] candidate accepted title=%r index=%d candidate=%s",
+                        title[:120], idx, _compact_obj(candidate_data, max_len=1200),
+                    )
+                else:
+                    logger.warning(
+                        "[metadata_agent][exa] candidate rejected title=%r index=%d candidate=%s",
+                        title[:120], idx, _compact_obj(candidate_data, max_len=1200),
+                    )
+
+            _cache_set("exa", title, candidates)
+            logger.info("[metadata_agent][exa] returning title=%r candidates=%d", title[:120], len(candidates))
+            return candidates
 
         # Non-completed or no structured output
+        logger.warning(
+            "[metadata_agent][exa] no usable structured output title=%r status=%s structured=%s",
+            title[:120], getattr(polled, "status", None), _compact_obj(structured, max_len=1200),
+        )
         _cache_set("exa", title, [])
         return []
 
     except Exception as e:
-        logger.warning("[metadata_agent] Exa search failed for %r: %s", title[:60], e)
+        logger.warning("[metadata_agent][exa] search failed title=%r: %s", title[:120], e, exc_info=True)
         _cache_set("exa", title, [])
         return []
 
@@ -482,6 +547,97 @@ async def _search_exa(title: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Validation gate
 # ---------------------------------------------------------------------------
+
+
+def _to_plain_obj(value: Any) -> Any:
+    """Convert Pydantic/SDK objects into plain JSON-like values for logs/parsing."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_to_plain_obj(v) for v in value]
+    if isinstance(value, tuple):
+        return [_to_plain_obj(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _to_plain_obj(v) for k, v in value.items()}
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return model_dump(by_alias=True, exclude_none=True)
+        except TypeError:
+            return model_dump()
+    if hasattr(value, "__dict__"):
+        return {
+            k: _to_plain_obj(v)
+            for k, v in vars(value).items()
+            if not k.startswith("_")
+        }
+    return repr(value)
+
+
+def _compact_obj(value: Any, max_len: int = 800) -> str:
+    """Render a compact, bounded JSON-ish string for verbose eval logs."""
+    import json
+
+    try:
+        text = json.dumps(_to_plain_obj(value), ensure_ascii=False, default=str)
+    except TypeError:
+        text = repr(value)
+    if len(text) > max_len:
+        return text[:max_len] + "...<truncated>"
+    return text
+
+
+def _extract_exa_structured(run: Any) -> dict[str, Any] | list[Any] | None:
+    """Extract output.structured from either exa-py models or plain dicts."""
+    plain = _to_plain_obj(run)
+    if isinstance(plain, dict):
+        output = plain.get("output")
+        if isinstance(output, dict):
+            structured = output.get("structured")
+            if structured:
+                return structured
+
+    output = getattr(run, "output", None)
+    structured = getattr(output, "structured", None) if output is not None else None
+    if structured:
+        return _to_plain_obj(structured)
+    return None
+
+
+def _extract_exa_candidates(structured: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
+    """Normalize Exa structured output to a list of raw candidate dicts."""
+    if isinstance(structured, list):
+        return [c for c in structured if isinstance(c, dict)]
+    if not isinstance(structured, dict):
+        return []
+
+    candidates = structured.get("candidates")
+    if isinstance(candidates, list):
+        return [c for c in candidates if isinstance(c, dict)]
+
+    # Compatibility with the previous schema, where the structured object was a
+    # single candidate instead of {"candidates": [...]}.
+    if any(structured.get(k) for k in ("title_cn", "title_en", "original_title", "external_id")):
+        return [structured]
+    return []
+
+
+def _normalize_exa_candidate(raw: dict[str, Any], title: str, index: int) -> dict[str, Any]:
+    """Fill required compatibility fields for downstream metadata linking."""
+    candidate = dict(raw)
+    content_type = str(candidate.get("content_type") or "").strip().lower()
+    if content_type in {"tv_series", "series", "anime", "show"}:
+        content_type = "tv"
+    elif content_type in {"film"}:
+        content_type = "movie"
+    candidate["content_type"] = content_type if content_type in ("tv", "movie") else candidate.get("content_type")
+    candidate.setdefault("external_source", "exa")
+    if not candidate.get("external_id"):
+        digest = hashlib.md5(f"{title.lower()}:{index}".encode()).hexdigest()[:12]
+        candidate["external_id"] = f"exa:{digest}"
+    if candidate.get("genre") is None:
+        candidate["genre"] = []
+    return candidate
 
 
 def _validate_candidate(c: dict[str, Any]) -> bool:
@@ -545,36 +701,38 @@ async def _validate_poster_url(url: str | None, max_retries: int = 3) -> str | N
 # ---------------------------------------------------------------------------
 
 
-async def search_metadata(title: str) -> list[dict[str, Any]]:
-    """Multi-source metadata search.
+async def search_metadata(
+    title: str,
+    data_source_type: str = "exa",
+) -> list[dict[str, Any]]:
+    """Search one selected metadata source.
 
     Returns a list of candidate dicts (same shape as legacy ``search_metadata_via_llm``)
     so callers in ``metadata_service`` work unchanged.
-
-    Strategy:
-    1. TMDB (always if API key set) — structured, high quality
-    2. Exa AI Agent (if TMDB misses) — web search fallback with structured extraction
     """
     if not title or not title.strip():
         return []
 
-    # Phase 1: TMDB
-    try:
-        merged = await _search_tmdb(title)
-    except Exception as e:
-        logger.warning("[metadata_agent] TMDB search exception: %s", e)
-        merged = []
+    source = (data_source_type or "exa").strip().lower()
+    if source == "combined":
+        source = "exa"
 
-    # Sort by rating descending (if available)
-    def _sort_key(c: dict) -> float:
-        r = c.get("rating")
-        return float(r) if r is not None else 0.0
+    if source == "tmdb":
+        try:
+            merged = await _search_tmdb(title)
+        except Exception as e:
+            logger.warning("[metadata_agent] TMDB search exception: %s", e)
+            return []
 
-    merged.sort(key=_sort_key, reverse=True)
+        def _sort_key(c: dict) -> float:
+            r = c.get("rating")
+            return float(r) if r is not None else 0.0
 
-    # Phase 2: Exa fallback if no structured results
-    if not merged and settings.exa_api_key:
-        exa_results = await _search_exa(title)
-        merged.extend(exa_results)
+        merged.sort(key=_sort_key, reverse=True)
+        return merged
 
-    return merged
+    if source == "exa":
+        return await _search_exa(title)
+
+    logger.warning("[metadata_agent] unsupported metadata_search_agent source=%s", source)
+    return []

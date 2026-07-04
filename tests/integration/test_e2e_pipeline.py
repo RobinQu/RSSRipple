@@ -141,8 +141,7 @@ class TestE2EPipeline:
                 "url": MIKANANI_EXT_URL,
                 "field_mapping": DEFAULT_FIELD_MAPPING,
                 "fetch_interval": 3600,
-                "title_extraction_method": "none",
-                "metadata_source": "none",
+                "metadata_agent_enabled": False,
             },
         )
         assert r.status_code == 201, f"create channel failed: {r.status_code} {r.text}"
@@ -247,7 +246,7 @@ class TestE2EPipeline:
             f"Agent run unexpected status: {result['status']}"
         )
         # "failed" is acceptable — may happen if no resources match filter
-        # or no metadata is linked (since metadata_source="none")
+        # or no metadata is linked (since metadata_agent_enabled=False)
 
         # Fetch tasks for this agent
         r = _api(

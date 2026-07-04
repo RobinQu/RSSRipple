@@ -12,7 +12,7 @@ from app.schemas.downloader import DownloaderCreate, DownloaderUpdate, Downloade
 from app.schemas.download_task import DownloadTaskResponse
 from app.schemas.common import success_response, paginated_response
 from app.utils.time import utcnow
-from app.clients.transmission import TransmissionWrapper
+from app.clients.downloader import get_downloader_client
 from app.utils.download_paths import DownloadPathError
 from fastapi.responses import JSONResponse
 
@@ -153,7 +153,7 @@ async def list_downloader_live_torrents(
     if not dl:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
     try:
-        wrapper = TransmissionWrapper(dl.url, dl.username, dl.password)
+        wrapper = get_downloader_client(dl)
         torrents = await wrapper.list_torrents()
         return success_response(torrents)
     except Exception as e:
@@ -171,7 +171,7 @@ async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)
     if not dl:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
 
-    wrapper = TransmissionWrapper(dl.url, dl.username, dl.password)
+    wrapper = get_downloader_client(dl)
     success, detail = await wrapper.test_connection()
     version = detail if success else None
 

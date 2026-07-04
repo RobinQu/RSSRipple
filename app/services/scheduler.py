@@ -116,7 +116,7 @@ async def _sync_download_progress() -> None:
     from app.database import async_session_factory
     from app.models.download_task import DownloadTask
     from app.models.downloader import DownloaderInstance
-    from app.clients.transmission import TransmissionWrapper
+    from app.clients.downloader import get_downloader_client
     from sqlalchemy import select
 
     async with async_session_factory() as db:
@@ -136,11 +136,7 @@ async def _sync_download_progress() -> None:
                 if not downloader:
                     continue
                 try:
-                    wrapper = TransmissionWrapper(
-                        url=downloader.url,
-                        username=downloader.username,
-                        password=downloader.password,
-                    )
+                    wrapper = get_downloader_client(downloader)
                     torrents = await wrapper.list_torrents()
                     tmap = {t["id"]: t for t in torrents}
                     for task in dl_tasks:
@@ -233,7 +229,7 @@ async def _check_downloader_connections() -> None:
     """Hourly connectivity check for all downloaders."""
     from app.database import async_session_factory
     from app.models.downloader import DownloaderInstance
-    from app.clients.transmission import TransmissionWrapper
+    from app.clients.downloader import get_downloader_client
     from sqlalchemy import select
 
     async with async_session_factory() as db:
@@ -242,7 +238,7 @@ async def _check_downloader_connections() -> None:
             downloaders = result.scalars().all()
             for dl in downloaders:
                 try:
-                    wrapper = TransmissionWrapper(url=dl.url, username=dl.username, password=dl.password)
+                    wrapper = get_downloader_client(dl)
                     ok, _msg = await wrapper.test_connection()
                     dl.status = "connected" if ok else "error"
                 except Exception:

@@ -29,6 +29,9 @@ class Movie(Base):
     release_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     runtime: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    canonical_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    wikipedia_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    wikipedia_page_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

@@ -138,8 +138,7 @@ def _setup_channel():
             "url": MIKANANI_EXT_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "none",
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         },
     )
     if r.status_code != 201:
@@ -335,8 +334,7 @@ def _works_agent():
             "url": MIKANANI_EXT_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "none",
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         },
     )
     if r.status_code != 201:
@@ -493,8 +491,7 @@ def _run_agent():
             "url": MIKANANI_EXT_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "none",
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         },
     )
     if r.status_code != 201:
@@ -588,8 +585,7 @@ def _filter_agent():
             "url": MIKANANI_EXT_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "none",
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         },
     )
     if r.status_code != 201:

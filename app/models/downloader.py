@@ -16,8 +16,12 @@ class DownloaderInstance(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # ``type`` is a plain string with an application-level whitelist rather
+    # than a native SQL enum, so adding a new backend (e.g. ``mock``) is a
+    # code-only change and works on both SQLite and PostgreSQL without a
+    # dedicated migration.
     type: Mapped[str] = mapped_column(
-        Enum("transmission", name="downloader_type"),
+        String(32),
         default="transmission",
         nullable=False,
     )

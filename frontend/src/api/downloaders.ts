@@ -3,7 +3,7 @@ import type { DownloaderInstance, DownloadTask, TorrentInfo } from '../types';
 
 export interface DownloaderCreate {
   name: string;
-  type: 'transmission';
+  type: 'transmission' | 'mock';
   url: string;
   username?: string;
   password?: string;
@@ -12,6 +12,7 @@ export interface DownloaderCreate {
 
 export interface DownloaderUpdate {
   name?: string;
+  type?: 'transmission' | 'mock';
   url?: string;
   username?: string;
   password?: string;

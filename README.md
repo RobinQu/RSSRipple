@@ -7,8 +7,8 @@ RSSRipple is an RSS subscription downloader for TV/anime/movie releases. It fetc
 ## Features
 
 - Multi-source RSS support through required per-channel `field_mapping` rules.
-- LLM-assisted feed analysis, title cleaning, title regex generation, metadata search, and pending-decision suggestions.
-- Local metadata cache for `TVSeries` and `Movie`, populated by manual metadata linking or LLM web search.
+- LLM-assisted feed analysis, unified metadata agent (title cleaning + single-source Exa/TMDB/Wikipedia metadata search), and pending-decision suggestions.
+- Local metadata cache for `TVSeries` and `Movie`, populated by manual metadata linking or MetadataAgent search.
 - Agent-based subscriptions with channel-wide or selected-work scope.
 - Bool-query Filter DSL with nested `and`/`or`, field operators, and per-work overrides.
 - Persistent suggestions for resources that cannot be linked to metadata yet.
@@ -32,21 +32,22 @@ The system is organized around two design documents:
 | Database | SQLite with aiosqlite by default; PostgreSQL-compatible architecture |
 | Queue/Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
-| Metadata/AI | OpenAI-compatible LLM APIs, optional web-search-capable model |
+| Metadata/AI | OpenAI-compatible LLM APIs, Exa Agent API, TMDB API, Wikipedia Python library |
 | Download | Transmission RPC |
 | Frontend | React 18, TypeScript, Vite, Ant Design 5 |
 | Package manager | uv, npm |
 
 ## Key Concepts
 
-- **Channel**: RSS feed configuration. `field_mapping` is required and defines how RSS entries become `FileResource` records. `metadata_source` defaults to `llm`; if set to `none`, automatic web metadata search is disabled and users must manually link metadata.
-- **FileResource**: One parsed RSS release. TV episode numbering uses the `episode` field directly.
+- **Channel**: RSS feed configuration. `field_mapping` is required and defines how RSS entries become `FileResource` records. `metadata_agent_enabled` defaults to `true`; if set to `false`, the unified metadata agent is disabled and only local DB matching is used.
+- **FileResource**: One parsed RSS release. TV episode numbering uses the `episode` field directly. Multi-episode batches (Season Pack / `S01E01~13` / `[01-12 合集]` …) are marked with `is_batch=true` and best-effort `episode_start` / `episode_end`; batches bypass per-episode dedup and never produce PendingDecisions — filter them via the Filter DSL when needed.
 - **TVSeries / Movie**: Local metadata cache. External metadata search results are stored here rather than in a separate search cache.
+- **MetadataAgent**: LangGraph ReAct agent that cleans titles, infers season/episode fields, and searches exactly one selected metadata source. Supported sources are `exa` (default Exa Agent Search), `tmdb`, and `wikipedia`; it does not perform multi-source fallback.
 - **Agent**: Watches one Channel, requires a Downloader, applies Filter DSL, and dispatches matching resources. It may specify a relative `download_subdir` under the Downloader's default directory.
 - **AgentWork**: A selected TV series or movie for scoped Agents, with optional filter overrides.
 - **AgentSuggestion**: Persisted groups of unrecognized resources for later manual metadata linking.
 - **PendingDecision**: Multiple valid candidates for the same movie or episode when `conflict_resolution="ask"`.
-- **DownloaderInstance**: Transmission RPC connection plus a required default `download_dir`, interpreted on the download server where Transmission runs. Its connection test also checks the directory with Transmission's free-space RPC.
+- **DownloaderInstance**: Transmission RPC connection plus a required default `download_dir`, interpreted on the download server where Transmission runs. Its connection test also checks the directory with Transmission's free-space RPC. A second `type="mock"` variant is available for testing — an in-process simulator whose connection test always succeeds and whose accepted tasks complete after a random 1–10 s delay. Both types share the same client interface via `app.clients.downloader.get_downloader_client`.
 - **Download directory resolution**: A task's effective directory is `DownloaderInstance.download_dir` plus `Agent.download_subdir` when set. Agent subdirectories must be relative paths and must not escape the Downloader root.
 
 ## API Overview
@@ -56,7 +57,7 @@ All API routes are under `/api/v1`.
 | Area | Main endpoints |
 | --- | --- |
 | Dashboard | `GET /dashboard` |
-| Channels | CRUD, fetch, fetch-status, analyze/analyze-stream, preview-feed, validate-url, title-regex, summarize-filters |
+| Channels | CRUD, fetch, fetch-status, analyze/analyze-stream, preview-feed, validate-url, summarize-filters |
 | Resources | Channel resources, resource detail, metadata search/link |
 | Agents | CRUD, run/run-status, test-filters, persisted suggestions |
 | Agent Works | CRUD under `/agents/{agent_id}/works` |
@@ -64,6 +65,16 @@ All API routes are under `/api/v1`.
 | Tasks | Detail, pause, resume, retry, delete |
 | Decisions | List, confirm, skip |
 | Series / Movies | CRUD and search/list views |
+
+## Metadata Search
+
+Metadata search is single-source by design. Each MetadataAgent run uses exactly one of:
+
+- `exa` — default, backed by Exa Agent Search.
+- `tmdb` — TMDB API search/detail.
+- `wikipedia` — Wikipedia search/page lookup.
+
+The agent does not chain sources or fall back from one source to another. Eval datasets should be created with an explicit source type and use that source as the dataset-name prefix, such as `exa-eval-...`. The legacy `combined` value is accepted only for old datasets and is normalized to `exa`.
 
 ## Download Directories
 
@@ -86,9 +97,10 @@ Common environment variables:
 | `QUEUE_BACKEND` | Queue backend: `"memory"` (default) or `"redis"` |
 | `LLM_API_KEY` | API key for LLM features |
 | `LLM_BASE_URL` | OpenAI-compatible base URL |
-| `LLM_MODEL` | Model for feed analysis, title cleaning, regex generation, and suggestions |
-| `LLM_SEARCH_MODEL` | Web-search-capable model for metadata search |
-| `LLM_ENABLE_THINKING` | Pass `enable_thinking` to LLM for chain-of-thought (default `false`) |
+| `LLM_MODEL` | Model for feed analysis, metadata agent, and suggestions. The metadata agent uses the same `LLM_MODEL` for title understanding and interpreting the selected metadata source. |
+| `EXA_API_KEY` | API key for default Exa Agent Search metadata source |
+| `EXA_EFFORT_LEVEL` | Exa Agent effort level: `minimal`, `low` (default), `medium`, `high`, or `xhigh` |
+| `TMDB_API_KEY` | Optional API key for the `tmdb` metadata source |
 | `POSTER_CACHE_DIR` | Local poster cache mounted at `/posters` |
 | `TRANSMISSION_TIMEOUT` | Transmission RPC timeout |
 | `MAX_RETRY_COUNT` | Max retry attempts for failed downloads (default `3`) |
@@ -127,7 +139,7 @@ uv run uvicorn app.main:app --reload --port 9001
 uv run pytest tests/unit tests/api -v
 ```
 
-513 tests, typically finish in under 20 seconds.
+541 tests, typically finish in under 60 seconds.
 
 ### Integration tests (docker-compose)
 

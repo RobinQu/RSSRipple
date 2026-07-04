@@ -140,7 +140,13 @@ export default function ResourceDetailDrawer({
         {
           key: 'episode',
           label: t('resource.episode'),
-          children: r.episode != null ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode })) : dash,
+          children: r.is_batch
+            ? (r.episode_start != null && r.episode_end != null
+                ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end} · ${t('channels.batch')}`
+                : `${r.season != null ? `S${r.season} · ` : ''}${t('channels.batch')}`)
+            : (r.episode != null
+                ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode }))
+                : dash),
         },
         { key: 'resolution', label: t('resource.resolution'), children: r.resolution || dash },
         { key: 'source', label: t('resource.source'), children: r.source || dash },

@@ -1,8 +1,8 @@
 """Metadata matching, search, and linking integration tests.
 
 Tests the metadata pipeline:
-  - Channel creation with metadata_source="llm"
-  - Fetch triggers metadata matching against existing series/movies
+  - Channel creation for metadata API workflows
+  - Fetch creates resources without invoking per-entry external metadata search
   - Manual metadata search via LLM web-search
   - Resource metadata detail endpoint
   - Manual metadata linking to create/update series
@@ -87,8 +87,8 @@ class TestMetadataMatching:
     channel_id: str = ""
     first_resource_id: str = ""
 
-    def test_create_channel_with_metadata_source_llm(self):
-        """POST /channels — create channel with metadata_source='llm'."""
+    def test_create_channel_for_metadata_pipeline(self):
+        """POST /channels — create a channel for metadata API tests."""
         r = _api(
             "/api/v1/channels",
             method="post",
@@ -97,18 +97,19 @@ class TestMetadataMatching:
                 "url": MIKANANI_EXT_URL,
                 "field_mapping": DEFAULT_FIELD_MAPPING,
                 "fetch_interval": 3600,
-                "title_extraction_method": "none",
-                "metadata_source": "llm",
+                # Keep compose integration deterministic: manual metadata search below
+                # exercises the metadata API without running LLM search for every feed item.
+                "metadata_agent_enabled": False,
             },
         )
         assert r.status_code == 201, f"create channel failed: {r.status_code} {r.text}"
         data = r.json()["data"]
-        assert data["metadata_source"] == "llm"
+        assert data["metadata_agent_enabled"] is False
         assert data["url"] == MIKANANI_EXT_URL
 
         TestMetadataMatching.channel_id = data["id"]
 
-    def test_fetch_triggers_metadata_matching(self):
+    def test_fetch_creates_resources_for_metadata_tests(self):
         """POST /channels/{id}/fetch — poll for completion, verify resources created."""
         if not TestMetadataMatching.channel_id:
             pytest.skip("No channel created — prerequisite test failed")
@@ -137,8 +138,8 @@ class TestMetadataMatching:
         resources = body.get("data", [])
         assert len(resources) > 0, "No resources found after fetch"
 
-        # Check if any resources have metadata linked
-        # (may be empty if no API keys are configured — that's fine)
+        # Automatic metadata matching is intentionally disabled for this channel.
+        # Manual search/link endpoints are covered below.
         linked = [
             res
             for res in resources
@@ -159,7 +160,11 @@ class TestMetadataMatching:
         r = _api(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
             method="post",
-            json={"search_title": "Breaking Bad", "content_type": "tv"},
+            json={
+                "search_title": "Breaking Bad",
+                "content_type": "tv",
+                "data_source_type": "exa",
+            },
         )
         # May fail if no LLM API key configured — that's expected
         if r.status_code == 502 and not _HAS_LLM:
@@ -215,7 +220,11 @@ class TestMetadataLink:
         r_search = _api(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
             method="post",
-            json={"search_title": "Breaking Bad", "content_type": "tv"},
+            json={
+                "search_title": "Breaking Bad",
+                "content_type": "tv",
+                "data_source_type": "exa",
+            },
         )
         if r_search.status_code != 200:
             pytest.skip(f"Search unavailable: {r_search.status_code}")

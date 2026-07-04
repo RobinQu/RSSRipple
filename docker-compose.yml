@@ -47,5 +47,27 @@ services:
       - PEERPORT=51413
     restart: unless-stopped
 
+  eval:
+    build: .
+    ports:
+      - "9002:9002"
+    volumes:
+      - ./data:/app/data
+      - ./tests:/app/tests
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_dev.db
+      - LOG_LEVEL=DEBUG
+    command: ["uv", "run", "--no-project", "uvicorn", "tests.integration.eval.main:app", "--host", "0.0.0.0", "--port", "9002", "--reload"]
+    develop:
+      watch:
+        - action: sync
+          path: ./tests/integration/eval
+          target: /app/tests/integration/eval
+          ignore:
+            - __pycache__/
+            - "*.pyc"
+    restart: unless-stopped
+
 volumes:
   transmission-config:
