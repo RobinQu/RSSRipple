@@ -63,6 +63,9 @@ async def db_engine():
     enable_sqlite_fk(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Create FTS5 virtual tables for full-text search tests
+        from app.services.fts import ensure_fts_tables
+        await ensure_fts_tables(conn)
     try:
         yield engine
     finally:
@@ -113,8 +116,7 @@ async def sample_channel(db_session: AsyncSession):
         fetch_interval=1800,
         status="active",
         field_mapping=TEST_FIELD_MAPPING,
-        metadata_source="none",
-        title_extraction_method="none",
+        metadata_agent_enabled=False,
     )
     db_session.add(ch)
     await db_session.commit()

@@ -45,8 +45,7 @@ def _create_channel(name: str = "Token Test Channel", url: str = FEED_URL,
                     "torrent_url": {"source": "link"},
                 },
             },
-            "metadata_source": "none",  # avoid per-entry LLM calls that hang in CI
-            "title_extraction_method": "none",
+            "metadata_agent_enabled": False,  # avoid per-entry LLM calls that hang in CI
         },
         headers=headers,
         timeout=15,

@@ -17,13 +17,13 @@ router = APIRouter()
 async def _apply_torrent_action(db, task: DownloadTask, action: str, delete_data: bool = False) -> bool:
     """Call Transmission for pause/resume/retry/delete actions."""
     from app.models.downloader import DownloaderInstance
-    from app.clients.transmission import TransmissionWrapper
+    from app.clients.downloader import get_downloader_client
     if not task.downloader_id:
         return False
     downloader = await db.get(DownloaderInstance, task.downloader_id)
     if not downloader:
         return False
-    wrapper = TransmissionWrapper(url=downloader.url, username=downloader.username, password=downloader.password)
+    wrapper = get_downloader_client(downloader)
     try:
         if action == "pause":
             return await wrapper.pause_torrent(task.transmission_torrent_id)

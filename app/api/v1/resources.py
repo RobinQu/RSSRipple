@@ -46,56 +46,136 @@ async def list_resources(
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}},
         )
     base_q = select(FileResource).where(FileResource.channel_id == channel_id)
-    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
-    total = total_q.scalar_one()
 
     if grouped:
-        result = await db.execute(
-            base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
-            .order_by(FileResource.published_at.desc())
-        )
-        resources = result.scalars().all()
-        groups: dict[tuple, list] = {}
-        unknown_key = ("unknown", None)
-        groups[unknown_key] = []
-        for r in resources:
-            if r.series_id and r.series:
-                key = ("series", r.series_id)
-            elif r.movie_id and r.movie:
-                key = ("movie", r.movie_id)
-            else:
-                groups[unknown_key].append(r)
-                continue
-            groups.setdefault(key, []).append(r)
+        # Paginate by WORK GROUP (not by row). A group is a TVSeries, a Movie,
+        # or the synthetic "unknown" bucket for resources without linked
+        # metadata. Groups are ordered by their most recent
+        # ``published_at`` (or ``created_at`` as a fallback), then paginated;
+        # every resource in a group on the current page is returned so the
+        # frontend can render the whole work without cross-page splitting.
+        pub_col = func.coalesce(FileResource.published_at, FileResource.created_at)
+
+        # Aggregate one row per (series_id / movie_id / unknown) with the max
+        # publish time. We do it in three lightweight queries and merge in
+        # Python — the group count is bounded (# of works in the channel) so
+        # this stays cheap even for feeds with tens of thousands of rows.
+        series_groups = (await db.execute(
+            select(FileResource.series_id, func.max(pub_col))
+            .where(FileResource.channel_id == channel_id, FileResource.series_id.isnot(None))
+            .group_by(FileResource.series_id)
+        )).all()
+        movie_groups = (await db.execute(
+            select(FileResource.movie_id, func.max(pub_col))
+            .where(FileResource.channel_id == channel_id, FileResource.movie_id.isnot(None))
+            .group_by(FileResource.movie_id)
+        )).all()
+        unknown_last = (await db.execute(
+            select(func.max(pub_col), func.count())
+            .where(
+                FileResource.channel_id == channel_id,
+                FileResource.series_id.is_(None),
+                FileResource.movie_id.is_(None),
+            )
+        )).one()
+
+        entries: list[tuple[str, str | None, object]] = []
+        for sid, ts in series_groups:
+            entries.append(("series", sid, ts))
+        for mid, ts in movie_groups:
+            entries.append(("movie", mid, ts))
+        if unknown_last[1] and unknown_last[1] > 0:
+            entries.append(("unknown", None, unknown_last[0]))
+
+        # Sort by last_update desc; None values sink to the end for stability.
+        from datetime import datetime as _dt
+        _EPOCH = _dt.min
+        entries.sort(key=lambda e: e[2] or _EPOCH, reverse=True)
+
+        total_groups = len(entries)
+        offset = (page - 1) * page_size
+        page_entries = entries[offset : offset + page_size]
+
+        # Load resources for the groups on this page (bulk-load per bucket).
+        series_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "series"]
+        movie_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "movie"]
+        has_unknown_on_page = any(typ == "unknown" for typ, _, _ in page_entries)
+
+        resource_by_series: dict[str, list[FileResource]] = {}
+        resource_by_movie: dict[str, list[FileResource]] = {}
+        unknown_resources: list[FileResource] = []
+
+        if series_ids_on_page:
+            rs = (await db.execute(
+                base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
+                .where(FileResource.series_id.in_(series_ids_on_page))
+                .order_by(FileResource.published_at.desc())
+            )).scalars().all()
+            for r in rs:
+                resource_by_series.setdefault(r.series_id, []).append(r)
+        if movie_ids_on_page:
+            rs = (await db.execute(
+                base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
+                .where(FileResource.movie_id.in_(movie_ids_on_page))
+                .order_by(FileResource.published_at.desc())
+            )).scalars().all()
+            for r in rs:
+                resource_by_movie.setdefault(r.movie_id, []).append(r)
+        if has_unknown_on_page:
+            unknown_resources = list((await db.execute(
+                base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
+                .where(FileResource.series_id.is_(None), FileResource.movie_id.is_(None))
+                .order_by(FileResource.published_at.desc())
+            )).scalars().all())
+
+        def _iso(ts) -> str | None:
+            return ts.isoformat() if ts is not None else None
 
         out = []
-        for key, items in groups.items():
-            if key == unknown_key:
-                out.append({
-                    "type": "unknown", "id": None, "title": "未识别",
-                    "poster_url": None,
-                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
-                })
-                continue
-            t, tid = key
-            if t == "series":
+        for typ, tid, last_ts in page_entries:
+            if typ == "series":
+                items = resource_by_series.get(tid, [])
+                if not items:
+                    continue
                 s = items[0].series
                 out.append({
-                    "type": "series", "id": tid,
-                    "title": s.title_cn or s.title_en or s.original_title or tid,
-                    "poster_url": s.poster_url,
+                    "type": "series",
+                    "id": tid,
+                    "title": (s.title_cn or s.title_en or s.original_title or tid) if s else tid,
+                    "poster_url": s.poster_url if s else None,
+                    "last_update": _iso(last_ts),
                     "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
                 })
-            else:
+            elif typ == "movie":
+                items = resource_by_movie.get(tid, [])
+                if not items:
+                    continue
                 m = items[0].movie
                 out.append({
-                    "type": "movie", "id": tid,
-                    "title": m.title_cn or m.title_en or m.original_title or tid,
-                    "poster_url": m.poster_url,
+                    "type": "movie",
+                    "id": tid,
+                    "title": (m.title_cn or m.title_en or m.original_title or tid) if m else tid,
+                    "poster_url": m.poster_url if m else None,
+                    "last_update": _iso(last_ts),
                     "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
                 })
-        return success_response({"groups": out}, meta={"total": total})
+            else:  # unknown
+                out.append({
+                    "type": "unknown",
+                    "id": None,
+                    "title": "未识别",
+                    "poster_url": None,
+                    "last_update": _iso(last_ts),
+                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in unknown_resources],
+                })
 
+        return success_response(
+            {"groups": out},
+            meta={"total": total_groups, "page": page, "page_size": page_size},
+        )
+
+    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
+    total = total_q.scalar_one()
     offset = (page - 1) * page_size
     result = await db.execute(
         base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
@@ -175,7 +255,12 @@ async def search_metadata(
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
     try:
-        results = await manual_search_metadata(db, body.search_title, body.content_type)
+        results = await manual_search_metadata(
+            db,
+            body.search_title,
+            body.content_type,
+            body.data_source_type,
+        )
     except Exception as e:
         return JSONResponse(
             status_code=502,

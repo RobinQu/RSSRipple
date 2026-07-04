@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSSRipple Metadata Eval</title>
+<style>
+  :root {
+    --bg: #f5f5f5;
+    --card-bg: #fff;
+    --border: #d4d4d4;
+    --text: #333;
+    --text-secondary: #666;
+    --text-muted: #999;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accept: #16a34a;
+    --accept-bg: #dcfce7;
+    --edit: #d97706;
+    --edit-bg: #fef3c7;
+    --skip: #9ca3af;
+    --skip-bg: #f3f4f6;
+    --conf-high: #16a34a;
+    --conf-mid: #d97706;
+    --conf-low: #dc2626;
+    --danger: #dc2626;
+    --radius: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .topbar h1 { font-size: 18px; font-weight: 600; margin-right: 8px; white-space: nowrap; }
+  .topbar label { font-size: 13px; color: var(--text-secondary); white-space: nowrap; }
+  .topbar input[type="number"] { width: 70px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
+  .topbar input[type="text"] { padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; width: 140px; }
+  .topbar select {
+    height: 30px; padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 13px; background: var(--card-bg);
+  }
+  .btn {
+    padding: 5px 14px; border: none; border-radius: var(--radius);
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    white-space: nowrap; transition: background .15s, opacity .15s;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-outline { background: none; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover:not(:disabled) { background: #f0f0f0; }
+  .dataset-controls { display: inline-flex; align-items: center; gap: 8px; }
+  .dataset-controls .btn { height: 30px; padding: 4px 12px; display: inline-flex; align-items: center; }
+  #datasetSelect { min-width: 230px; }
+  .feed-checkboxes { display: flex; gap: 10px; font-size: 13px; }
+  .feed-checkboxes label { cursor: pointer; display: flex; align-items: center; gap: 3px; }
+
+  /* ── Stats bar ── */
+  .stats-bar {
+    display: flex; gap: 20px; padding: 10px 20px;
+    background: var(--card-bg); border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .stat { display: flex; align-items: center; gap: 6px; }
+  .stat-val { font-weight: 700; font-size: 16px; }
+  .stat-label { color: var(--text-secondary); font-size: 12px; }
+  .stat-total .stat-val { color: var(--accent); }
+  .stat-pending .stat-val { color: var(--text-secondary); }
+  .stat-accepted .stat-val { color: var(--accept); }
+  .stat-edited .stat-val { color: var(--edit); }
+  .stat-skipped .stat-val { color: var(--skip); }
+
+  /* ── Bottom bar ── */
+  .bottombar {
+    background: var(--card-bg); border-top: 1px solid var(--border);
+    padding: 8px 20px; display: flex; gap: 10px; position: sticky; bottom: 0;
+    z-index: 10; align-items: center;
+  }
+  .bottombar .hint { font-size: 12px; color: var(--text-muted); }
+
+  /* ── Main content ── */
+  .main-content {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+    align-content: start;
+  }
+  .empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 15px;
+  }
+
+  /* ── Card ── */
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 14px 12px 34px;
+    display: flex; flex-direction: column; gap: 8px;
+    transition: box-shadow .15s; position: relative;
+  }
+  .card:hover { box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+  .card.selected { background: #f0f4ff; border-color: var(--accent); }
+  .card.accepted { border-left: 3px solid var(--accept); }
+  .card.edited { border-left: 3px solid var(--edit); }
+  .card.skipped { border-left: 3px solid var(--skip); }
+  .card-checkbox {
+    position: absolute; top: 12px; left: 10px;
+    width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent);
+  }
+  .card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 8px;
+  }
+  .raw-title {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px; line-height: 1.4; color: var(--text);
+    flex: 1; word-break: break-all;
+  }
+  .source-badge {
+    font-size: 10px; padding: 1px 7px; border-radius: 10px;
+    background: #e0e7ff; color: #3730a3; white-space: nowrap;
+    font-weight: 600; text-transform: uppercase;
+  }
+  .agent-fields {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px;
+    font-size: 12px;
+  }
+  .agent-fields .field { display: flex; gap: 4px; }
+  .agent-fields .field-name { color: var(--text-muted); flex-shrink: 0; }
+  .agent-fields .field-value { color: var(--text); word-break: break-all; }
+  .agent-fields .field-value.empty { color: var(--text-muted); font-style: italic; }
+  .metadata-body { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 10px; align-items: start; }
+  .poster {
+    width: 68px; aspect-ratio: 2 / 3; border-radius: var(--radius);
+    border: 1px solid var(--border); background: linear-gradient(135deg, #eef2ff, #f8fafc);
+    object-fit: cover; display: block;
+  }
+  .poster-fallback {
+    width: 68px; aspect-ratio: 2 / 3; border-radius: var(--radius);
+    border: 1px solid var(--border); background: linear-gradient(135deg, #eef2ff, #f8fafc);
+    color: #64748b; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; text-align: center; line-height: 1.2; padding: 6px;
+  }
+  .metadata-main { min-width: 0; }
+  .card-footer {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; margin-top: 2px;
+  }
+  .confidence {
+    font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 10px;
+  }
+  .confidence.high { background: var(--accept-bg); color: var(--conf-high); }
+  .confidence.mid { background: var(--edit-bg); color: var(--conf-mid); }
+  .confidence.low { background: #fee2e2; color: var(--conf-low); }
+  .status-badge {
+    font-size: 10px; font-weight: 600; padding: 1px 8px; border-radius: 10px;
+  }
+  .status-badge.accepted-status { background: var(--accept-bg); color: var(--accept); }
+  .status-badge.edited-status { background: var(--edit-bg); color: var(--edit); }
+  .status-badge.skipped-status { background: var(--skip-bg); color: var(--skip); }
+  .actions { display: flex; gap: 4px; }
+  .btn-sm {
+    padding: 2px 8px; font-size: 11px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--card-bg);
+    cursor: pointer; transition: background .15s;
+  }
+  .btn-sm:hover { background: #f0f0f0; }
+  .btn-sm.btn-primary { background: var(--accent); color: #fff; }
+  .btn-sm.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-sm.accept-btn:hover { background: var(--accept-bg); border-color: var(--accept); color: var(--accept); }
+  .btn-sm.edit-btn:hover { background: var(--edit-bg); border-color: var(--edit); color: var(--edit); }
+  .btn-sm.skip-btn:hover { background: var(--skip-bg); border-color: var(--skip); color: var(--skip); }
+  .btn-sm:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.35); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--card-bg); border-radius: 8px;
+    width: min(600px, 95vw); max-height: 85vh; overflow-y: auto;
+    padding: 20px; box-shadow: 0 8px 30px rgba(0,0,0,.18);
+  }
+  .modal h2 { font-size: 16px; margin-bottom: 14px; }
+  .modal .form-group { margin-bottom: 10px; }
+  .modal label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 3px; font-weight: 500; }
+  .modal input, .modal select {
+    width: 100%; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 13px;
+  }
+  .modal .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .modal .search-section {
+    margin-top: 14px; padding: 12px; background: #f9fafb;
+    border-radius: var(--radius); border: 1px solid var(--border);
+  }
+  .modal .search-row { display: flex; gap: 8px; align-items: flex-end; }
+  .modal .search-row input { flex: 1; }
+  .modal .candidate-list { margin-top: 10px; max-height: 180px; overflow-y: auto; }
+  .modal .candidate-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+    border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer;
+  }
+  .modal .candidate-item:hover { background: #f0f4ff; }
+  .modal .candidate-item input[type="radio"] { width: auto; }
+  .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+
+  /* ── Loading spinner ── */
+  .spinner {
+    display: none; width: 16px; height: 16px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite;
+  }
+  .spinner.active { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card-processing { opacity: 0.6; }
+  .card-spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 4px; }
+  .search-error-note { font-size: 10px; color: var(--danger); margin-top: 2px; }
+  .run-options-list { margin: 10px 0 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.55; }
+  .run-options-list strong { color: var(--text); }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 40px; right: 20px; z-index: 200;
+    padding: 10px 18px; border-radius: var(--radius);
+    font-size: 13px; box-shadow: 0 2px 12px rgba(0,0,0,.15);
+    display: none; max-width: 400px;
+  }
+  .toast.error { background: #fee2e2; color: var(--danger); display: block; }
+  .toast.success { background: var(--accept-bg); color: var(--accept); display: block; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ Top Bar ═══════════════ -->
+<div class="topbar">
+  <h1>🧪 Metadata Eval</h1>
+  <div class="feed-checkboxes">
+    <label><input type="checkbox" value="mikanani" checked> mikanani</label>
+    <label><input type="checkbox" value="kisssub" checked> kisssub</label>
+    <label><input type="checkbox" value="eztv" checked> eztv</label>
+    <label><input type="checkbox" value="dmhy" checked> dmhy</label>
+  </div>
+  <label>Sample: <input type="number" id="sampleSize" value="100" min="0"></label>
+  <button class="btn btn-primary" id="btnLoadTitles">Load Titles</button>
+  <button class="btn btn-primary" id="btnRunAgent" disabled>Run All</button>
+  <button class="btn btn-primary" id="btnRunSelected" disabled>Run Selected</button>
+  <span class="spinner" id="spinnerTop"></span>
+  <span id="selectionHint" style="font-size:12px;color:var(--text-muted);display:none;"></span>
+  <span style="flex:1"></span>
+  <span id="datasetSection" class="dataset-controls" style="display:none">
+    <select id="datasetSelect">
+      <option value="">Select dataset…</option>
+    </select>
+    <button class="btn btn-outline" id="btnNewDataset">New</button>
+    <button class="btn btn-outline" id="btnDeleteDataset" disabled>Delete</button>
+  </span>
+</div>
+
+<!-- ═══════════════ Stats Bar ═══════════════ -->
+<div class="stats-bar">
+  <div class="stat stat-total"><span class="stat-val" id="statTotal">0</span><span class="stat-label">Total</span></div>
+  <div class="stat stat-pending"><span class="stat-val" id="statPending">0</span><span class="stat-label">Pending</span></div>
+  <div class="stat stat-accepted"><span class="stat-val" id="statAccepted">0</span><span class="stat-label">Accepted</span></div>
+  <div class="stat stat-draft"><span class="stat-val" id="statDraft">0</span><span class="stat-label">Draft</span></div>
+  <div class="stat stat-skipped"><span class="stat-val" id="statSkipped">0</span><span class="stat-label">Skipped</span></div>
+  <div class="stat stat-tmdb"><span class="stat-val" id="statTmdbTotal">0</span><span class="stat-label">TMDB</span><span class="stat-val" id="statTmdbFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
+  <div class="stat stat-exa"><span class="stat-val" id="statExaTotal">0</span><span class="stat-label">Exa</span><span class="stat-val" id="statExaFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
+  <div class="stat stat-wiki"><span class="stat-val" id="statWikiTotal">0</span><span class="stat-label">Wiki</span><span class="stat-val" id="statWikiFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
+</div>
+
+<!-- ═══════════════ Main Content ═══════════════ -->
+<div class="main-content" id="cardContainer">
+  <div class="empty-state">Load titles from feeds to begin labeling</div>
+</div>
+
+<!-- ═══════════════ Bottom Bar ═══════════════ -->
+<div class="bottombar">
+  <button class="btn btn-outline" id="btnSelectAll" style="font-size:11px;">☐ Select All</button>
+  <button class="btn btn-primary" id="btnAcceptAllHigh" disabled>✓ Accept All High Confidence (&gt;0.9)</button>
+  <span class="hint">Bulk-accepts all pending items where agent confidence &gt; 0.9</span>
+  <button class="btn btn-primary" id="btnSelectTmdbFailed" disabled style="font-size:11px;background:var(--danger);">☐ TMDB Failed</button>
+  <button class="btn btn-primary" id="btnSelectExaFailed" disabled style="font-size:11px;background:var(--danger);">☐ Exa Failed</button>
+  <button class="btn btn-primary" id="btnSelectWikiFailed" disabled style="font-size:11px;background:var(--danger);">☐ Wiki Failed</button>
+</div>
+
+<!-- ═══════════════ New Dataset Modal ═══════════════ -->
+<div class="modal-overlay" id="newDatasetModal">
+  <div class="modal" style="max-width:420px;">
+    <h2>New Dataset</h2>
+    <div class="form-group">
+      <label>Metadata Search Method</label>
+      <select id="newDatasetSourceType">
+        <option value="exa" selected>Exo Agent Search</option>
+        <option value="tmdb">TMDB Search</option>
+        <option value="wikipedia">Wikipedia Search</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="btnCancelNewDataset">Cancel</button>
+      <button class="btn btn-primary" id="btnCreateDataset">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ Edit Modal ═══════════════ -->
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <h2>Edit Label</h2>
+    <div class="form-group">
+      <label>Raw Title</label>
+      <input id="editRawTitle" disabled style="color:var(--text-muted)">
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Clean Title</label><input id="editCleanTitle"></div>
+      <div class="form-group"><label>Content Type</label><select id="editContentType"><option value="tv">TV</option><option value="movie">Movie</option></select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Episode</label><input type="number" id="editEpisode"></div>
+      <div class="form-group"><label>Season</label><input type="number" id="editSeason"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Title CN</label><input id="editTitleCn"></div>
+      <div class="form-group"><label>Title EN</label><input id="editTitleEn"></div>
+    </div>
+
+    <!-- Search metadata section -->
+    <div class="search-section">
+      <label style="font-weight:600;color:var(--text);margin-bottom:6px;">🔍 Search Metadata</label>
+      <div class="search-row">
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <input id="searchTitle" placeholder="Search title…">
+        </div>
+        <div class="form-group" style="width:100px;margin-bottom:0">
+          <select id="searchType"><option value="tv">TV</option><option value="movie">Movie</option></select>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btnSearch">Search</button>
+        <span class="spinner" id="spinnerSearch"></span>
+      </div>
+      <div class="candidate-list" id="candidateList"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="btnCancelEdit">Cancel</button>
+      <button class="btn btn-primary" id="btnSaveEdit">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ Run Options Modal ═══════════════ -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="max-width:520px;">
+    <h2>Run Metadata Search</h2>
+    <p id="confirmMsg" style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;"></p>
+    <div class="run-options-list" id="confirmDetails"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="btnCancelConfirm">Cancel</button>
+      <button class="btn btn-outline" id="btnSkipExistingConfirm">Skip Existing</button>
+      <button class="btn btn-primary" id="btnProceedConfirm" style="background:var(--edit);">Overwrite &amp; Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ Toast ═══════════════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ──────────────────────────────────────────────
+// State
+// ──────────────────────────────────────────────
+let titles = [];            // loaded from feeds
+let agentResults = {};      // title_id → result
+let reviewStatus = {};      // title_id → "pending"|"draft"|"accepted"|"skipped"
+let edits = {};             // title_id → edited metadata override
+let reviewTimestamps = {};  // title_id → ISO timestamp of last status change
+let editingId = null;       // current modal target
+let processingStatus = {}; // title_id → "processing"
+let selectedIds = new Set(); // currently selected card IDs
+let currentDatasetName = null; // selected dataset that auto-save writes to
+let currentDatasetSourceType = 'exa'; // default metadata search method for datasets
+let isSwitchingDataset = false;
+
+// ──────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────
+function $(sel) { return document.querySelector(sel); }
+function $$(sel) { return document.querySelectorAll(sel); }
+function showToast(msg, cls) {
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'toast ' + cls;
+  setTimeout(() => { t.className = 'toast'; }, 4000);
+}
+function spinner(id, on) { $('#'+id).classList.toggle('active', on); }
+function fmtConf(conf) {
+  const c = typeof conf === 'number' ? conf : parseFloat(conf) || 0;
+  return c.toFixed(2);
+}
+function confClass(conf) {
+  const c = typeof conf === 'number' ? conf : parseFloat(conf) || 0;
+  return c >= 0.9 ? 'high' : c >= 0.7 ? 'mid' : 'low';
+}
+
+// ──────────────────────────────────────────────
+// API calls
+// ──────────────────────────────────────────────
+async function apiLoadTitles(feeds, sample) {
+  const params = new URLSearchParams();
+  if (feeds.length) params.set('feeds', feeds.join(','));
+  if (sample > 0) params.set('sample_size', sample);
+  const r = await fetch('/api/load-titles?' + params, { method: 'POST' });
+  if (!r.ok) throw new Error((await r.json()).detail || 'Load failed');
+  return await r.json();
+}
+async function apiRunAgent(titlesList, concurrency) {
+  const r = await fetch('/api/run-agent?max_concurrency=' + concurrency, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ titles: titlesList, data_source_type: currentDataSourceType() }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail || 'Run failed');
+  return await r.json();
+}
+async function apiJobStatus(jobId) {
+  const r = await fetch('/api/run-agent/' + encodeURIComponent(jobId) + '/status');
+  if (!r.ok) throw new Error((await r.json()).detail || 'Status failed');
+  return await r.json();
+}
+async function apiSaveDataset(name, entries, dataSourceType) {
+  const r = await fetch('/api/datasets', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, entries, data_source_type: dataSourceType || currentDataSourceType() }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail || 'Save failed');
+  return await r.json();
+}
+async function apiSearchMetadata(searchTitle, contentType) {
+  const r = await fetch('/api/search-metadata', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      search_title: searchTitle,
+      content_type: contentType,
+      data_source_type: currentDataSourceType(),
+    }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail || 'Search failed');
+  return await r.json();
+}
+async function apiListDatasets() {
+  const r = await fetch('/api/datasets');
+  if (!r.ok) return { datasets: [] };
+  return await r.json();
+}
+async function apiGetDataset(name) {
+  const r = await fetch('/api/datasets/' + encodeURIComponent(name));
+  if (!r.ok) throw new Error('Not found');
+  return await r.json();
+}
+
+function currentDataSourceType() {
+  const selectedOpt = $('#datasetSelect') ? $('#datasetSelect').options[$('#datasetSelect').selectedIndex] : null;
+  return (selectedOpt && selectedOpt.dataset.sourceType) || currentDatasetSourceType || 'exa';
+}
+
+function rememberCurrentDataset(name) {
+  currentDatasetName = name || null;
+  try {
+    if (currentDatasetName) localStorage.setItem(_storageKey('current_dataset'), currentDatasetName);
+    else localStorage.removeItem(_storageKey('current_dataset'));
+  } catch(e) { /* ignore */ }
+}
+
+function rememberedDatasetName() {
+  try { return localStorage.getItem(_storageKey('current_dataset')); }
+  catch(e) { return null; }
+}
+
+// ──────────────────────────────────────────────
+// Load titles
+// ──────────────────────────────────────────────
+$('#btnLoadTitles').addEventListener('click', async () => {
+  spinner('spinnerTop', true);
+  $('#btnLoadTitles').disabled = true;
+  try {
+    const feeds = [];
+    $$('.feed-checkboxes input[type="checkbox"]:checked').forEach(cb => feeds.push(cb.value));
+    const sample = parseInt($('#sampleSize').value) || 0;
+    const data = await apiLoadTitles(feeds, sample);
+    titles = data.titles;
+    agentResults = {};
+    reviewStatus = {};
+    edits = {};
+    // Restore from any previous review in localStorage (per feed set)
+    loadReviewState();
+    $('#btnRunAgent').disabled = false;
+    $('#datasetSection').style.display = titles.length ? '' : 'none';
+    render();
+    showToast(`Loaded ${titles.length} titles`, 'success');
+  } catch(e) {
+    showToast(e.message, 'error');
+  } finally {
+    spinner('spinnerTop', false);
+    $('#btnLoadTitles').disabled = false;
+  }
+});
+
+// ──────────────────────────────────────────────
+// Run Agent
+// ──────────────────────────────────────────────
+$('#btnRunAgent').addEventListener('click', async () => {
+  const plan = prepareRunPlan(titles);
+  if (await maybeShowRunOptions(plan)) return;
+  await _doRunTitles(titles, { overwriteExisting: true, label: 'titles' });
+});
+
+async function _doRunTitles(runTitles, options = {}) {
+  const overwriteExisting = options.overwriteExisting !== false;
+  const label = options.label || 'titles';
+  if (!runTitles.length) {
+    showToast('No titles to run', 'error');
+    return;
+  }
+  spinner('spinnerTop', true);
+  $('#btnRunAgent').disabled = true;
+  $('#btnRunSelected').disabled = true;
+  for (const t of runTitles) {
+    processingStatus[t.id] = 'processing';
+    if (overwriteExisting) {
+      delete edits[t.id];
+      delete agentResults[t.id];
+      delete reviewStatus[t.id];
+      delete reviewTimestamps[t.id];
+    }
+  }
+  saveReviewState();
+  saveAgentResultsCache();
+  render();
+  try {
+    const data = await apiRunAgent(runTitles, 3);
+    saveJobId(data.job_id);
+    // Polling handles the rest — no blocking await
+    pollJobStatus(data.job_id);
+    showToast(`Started agent job: ${data.total} ${label}`, 'info');
+  } catch(e) {
+    for (const t of runTitles) delete processingStatus[t.id];
+    render();
+    spinner('spinnerTop', false);
+    $('#btnRunAgent').disabled = false;
+    $('#btnRunSelected').disabled = selectedIds.size === 0;
+    showToast(e.message, 'error');
+  }
+}
+
+// ──────────────────────────────────────────────
+// Run Agent options / selected
+// ──────────────────────────────────────────────
+let _pendingRunPlan = null;
+
+function hasMeaningfulMetadata(meta) {
+  if (!meta || typeof meta !== 'object') return false;
+  if (meta.found === false) return false;
+  const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+  const entity = meta.matched_entity && typeof meta.matched_entity === 'object' ? meta.matched_entity : {};
+  const entityFields = ['external_id', 'title_cn', 'title_en', 'original_title', 'canonical_name', 'poster_url'];
+  if (entityFields.some(k => hasValue(entity[k]))) return true;
+  const topFields = ['clean_title', 'title_cn', 'title_en', 'original_title', 'episode', 'season', 'poster_url'];
+  return topFields.some(k => hasValue(meta[k]));
+}
+
+function reviewStatusForMetadata(rawStatus, hasMetadata) {
+  const status = rawStatus === 'edited' ? 'draft' : (rawStatus || 'pending');
+  if (!hasMetadata) {
+    return status === 'accepted' || status === 'skipped' ? status : 'pending';
+  }
+  if (status === 'accepted' || status === 'skipped' || status === 'draft') {
+    return status;
+  }
+  return 'draft';
+}
+
+function titleHasMetadata(id) {
+  const res = agentResults[id];
+  return !!(hasMeaningfulMetadata(edits[id]) || (res && !res.error && hasMeaningfulMetadata(res.resource_metadata)));
+}
+
+function prepareRunPlan(runTitles) {
+  const existing = runTitles.filter(t => titleHasMetadata(t.id));
+  const manualEdited = runTitles.filter(t => hasMeaningfulMetadata(edits[t.id]));
+  const pending = runTitles.filter(t => !titleHasMetadata(t.id));
+  return { titles: runTitles, existing, manualEdited, pending };
+}
+
+async function maybeShowRunOptions(plan) {
+  if (!plan.existing.length) return false;
+  _pendingRunPlan = plan;
+  $('#confirmMsg').textContent =
+    `${plan.existing.length} of ${plan.titles.length} titles already have metadata. Choose how to continue.`;
+  $('#confirmDetails').innerHTML = `
+    <div><strong>Overwrite</strong>: run metadata search again and replace existing agent/manual metadata.</div>
+    <div><strong>Skip Existing</strong>: run only ${plan.pending.length} title${plan.pending.length === 1 ? '' : 's'} without metadata.</div>
+    ${plan.manualEdited.length ? `<div><strong>${plan.manualEdited.length}</strong> selected title${plan.manualEdited.length === 1 ? ' has' : 's have'} manual edits.</div>` : ''}
+  `;
+  $('#btnSkipExistingConfirm').disabled = plan.pending.length === 0;
+  $('#confirmModal').classList.add('active');
+  return true;
+}
+
+$('#btnRunSelected').addEventListener('click', async () => {
+  if (selectedIds.size === 0) return;
+  const selectedTitles = titles.filter(t => selectedIds.has(t.id));
+  const plan = prepareRunPlan(selectedTitles);
+  if (await maybeShowRunOptions(plan)) return;
+  await _doRunTitles(selectedTitles, { overwriteExisting: true, label: 'selected titles' });
+});
+
+$('#btnProceedConfirm').addEventListener('click', async () => {
+  $('#confirmModal').classList.remove('active');
+  if (_pendingRunPlan) {
+    const titlesToRun = _pendingRunPlan.titles;
+    _pendingRunPlan = null;
+    await _doRunTitles(titlesToRun, { overwriteExisting: true, label: 'titles' });
+  }
+});
+
+$('#btnSkipExistingConfirm').addEventListener('click', async () => {
+  $('#confirmModal').classList.remove('active');
+  if (_pendingRunPlan) {
+    const titlesToRun = _pendingRunPlan.pending;
+    _pendingRunPlan = null;
+    await _doRunTitles(titlesToRun, { overwriteExisting: false, label: 'new titles' });
+  }
+});
+
+$('#btnCancelConfirm').addEventListener('click', () => {
+  $('#confirmModal').classList.remove('active');
+  _pendingRunPlan = null;
+});
+
+$('#confirmModal').addEventListener('click', function(e) {
+  if (e.target === this) { $('#confirmModal').classList.remove('active'); _pendingRunPlan = null; }
+});
+
+// ──────────────────────────────────────────────
+// Selection helpers
+// ──────────────────────────────────────────────
+function toggleSelectAll() {
+  const allIds = new Set(titles.map(t => t.id));
+  if (selectedIds.size === allIds.size) {
+    selectedIds.clear();
+  } else {
+    selectedIds = new Set(allIds);
+  }
+  updateSelectionUI();
+  render();
+}
+
+function toggleCardSelection(id) {
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id);
+  } else {
+    selectedIds.add(id);
+  }
+  updateSelectionUI();
+  render();
+}
+
+function updateSelectionUI() {
+  const count = selectedIds.size;
+  $('#btnRunSelected').disabled = count === 0;
+  const hint = $('#selectionHint');
+  if (count > 0) {
+    hint.style.display = 'inline';
+    hint.textContent = `${count} selected`;
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+// ──────────────────────────────────────────────
+// Dataset switching
+// ──────────────────────────────────────────────
+async function loadDatasetByName(name) {
+  if (!name || !titles.length) return;
+  try {
+    const dataset = await apiGetDataset(name);
+    currentDatasetSourceType = dataset.data_source_type || 'exa';
+    const loadedMap = {};
+    for (const e of dataset.entries) {
+      loadedMap[e.id] = e;
+    }
+    for (const t of titles) {
+      if (loadedMap[t.id]) {
+        const e = loadedMap[t.id];
+        const rs = e.review_status || 'pending';
+        const resourceMeta = hasMeaningfulMetadata(e.resource_metadata) ? e.resource_metadata : null;
+        const agentMeta = hasMeaningfulMetadata(e.agent_result) ? e.agent_result : resourceMeta;
+        reviewStatus[t.id] = reviewStatusForMetadata(rs, !!(resourceMeta || agentMeta));
+        reviewTimestamps[t.id] = e.reviewed_at || null;
+        if ((rs === 'draft' || rs === 'edited') && resourceMeta) {
+          edits[t.id] = resourceMeta;
+        } else {
+          delete edits[t.id];
+        }
+        if (!(t.id in agentResults) && agentMeta) {
+          agentResults[t.id] = {
+            title_id: t.id,
+            resource_metadata: agentMeta,
+            latency_ms: null,
+            error: null,
+          };
+        } else if (!agentMeta && !(t.id in processingStatus)) {
+          delete agentResults[t.id];
+        }
+      } else {
+        delete reviewStatus[t.id];
+        delete edits[t.id];
+        delete reviewTimestamps[t.id];
+      }
+    }
+    rememberCurrentDataset(name);
+    saveReviewState();
+    render();
+    showToast(`Loaded dataset: ${name}`, 'success');
+  } catch(e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function saveCurrentDatasetIfNeeded() {
+  const name = currentDatasetName || $('#datasetSelect').value;
+  if (!name || !titles.length) return;
+  await apiSaveDataset(name, buildEntries(), currentDataSourceType());
+}
+
+$('#datasetSelect').addEventListener('change', async function() {
+  if (isSwitchingDataset) return;
+  const nextName = this.value;
+  $('#btnDeleteDataset').disabled = !nextName;
+  if (!nextName) {
+    rememberCurrentDataset(null);
+    return;
+  }
+  isSwitchingDataset = true;
+  spinner('spinnerTop', true);
+  try {
+    await saveCurrentDatasetIfNeeded();
+    await loadDatasetByName(nextName);
+  } finally {
+    spinner('spinnerTop', false);
+    isSwitchingDataset = false;
+  }
+});
+
+$('#btnNewDataset').addEventListener('click', async () => {
+  $('#newDatasetSourceType').value = 'exa';
+  $('#newDatasetModal').classList.add('active');
+});
+
+$('#btnCancelNewDataset').addEventListener('click', () => {
+  $('#newDatasetModal').classList.remove('active');
+});
+
+$('#newDatasetModal').addEventListener('click', function(e) {
+  if (e.target === this) $('#newDatasetModal').classList.remove('active');
+});
+
+$('#btnCreateDataset').addEventListener('click', async () => {
+  $('#newDatasetModal').classList.remove('active');
+  try {
+    await saveCurrentDatasetIfNeeded();
+  } catch(e) { /* silent */ }
+  // Auto-generate name: {source}-eval-YYYYMMDD-HHMMSS-XXXX
+  const now = new Date();
+  const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+  const rnd = Math.random().toString(36).slice(2, 6);
+  const sourceType = $('#newDatasetSourceType').value || 'exa';
+  currentDatasetSourceType = sourceType;
+  const newName = `${sourceType}-eval-${ts}-${rnd}`;
+  try {
+    const entries = buildEntries();
+    await apiSaveDataset(newName, entries, sourceType);
+    await refreshDatasetList(newName);
+    $('#datasetSelect').value = newName;
+    $('#btnDeleteDataset').disabled = false;
+    rememberCurrentDataset(newName);
+    showToast(`Created dataset: ${newName} (${entries.length} entries)`, 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+});
+
+$('#btnDeleteDataset').addEventListener('click', async () => {
+  const name = $('#datasetSelect').value;
+  if (!name) return;
+  if (!confirm('Delete dataset "' + name + '"? This cannot be undone.')) return;
+  try {
+    const r = await fetch('/api/datasets/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Delete failed');
+    await refreshDatasetList();
+    const sel = $('#datasetSelect');
+    if (sel.options.length > 1) {
+      sel.selectedIndex = 1;
+      $('#btnDeleteDataset').disabled = false;
+      await loadDatasetByName(sel.value);
+    } else {
+      const now = new Date();
+      const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+      const rnd = Math.random().toString(36).slice(2, 6);
+      const sourceType = currentDataSourceType() || 'exa';
+      const newName = `${sourceType}-eval-${ts}-${rnd}`;
+      await apiSaveDataset(newName, buildEntries(), sourceType);
+      await refreshDatasetList(newName);
+      sel.value = newName;
+      $('#btnDeleteDataset').disabled = false;
+      rememberCurrentDataset(newName);
+    }
+    showToast('Deleted dataset: ' + name, 'success');
+  } catch(e) { showToast(e.message, 'error'); }
+});
+
+async function refreshDatasetList(preferredName) {
+  const sel = $('#datasetSelect');
+  const previous = preferredName || sel.value || currentDatasetName || rememberedDatasetName();
+  sel.innerHTML = '<option value="">Select dataset…</option>';
+  try {
+    const data = await apiListDatasets();
+    for (const ds of data.datasets) {
+      const opt = document.createElement('option');
+      opt.value = ds.name;
+      opt.dataset.sourceType = ds.data_source_type || 'combined';
+      opt.textContent = `${ds.name} · ${ds.data_source_type || 'combined'} (${ds.total_entries} entries)`;
+      sel.appendChild(opt);
+    }
+    if (previous && Array.from(sel.options).some(o => o.value === previous)) {
+      sel.value = previous;
+    }
+    const selectedOpt = sel.options[sel.selectedIndex];
+    if (selectedOpt && selectedOpt.dataset.sourceType) {
+      currentDatasetSourceType = selectedOpt.dataset.sourceType;
+    }
+    $('#btnDeleteDataset').disabled = !sel.value;
+  } catch(e) { /* ignore */ }
+}
+
+// ──────────────────────────────────────────────
+// Edit modal
+// ──────────────────────────────────────────────
+$('#btnSaveEdit').addEventListener('click', () => {
+  if (!editingId) return;
+  const meta = {
+    clean_title: $('#editCleanTitle').value,
+    content_type: $('#editContentType').value,
+    episode: $('#editEpisode').value ? parseInt($('#editEpisode').value) : null,
+    season: $('#editSeason').value ? parseInt($('#editSeason').value) : null,
+    title_cn: $('#editTitleCn').value || null,
+    title_en: $('#editTitleEn').value || null,
+  };
+  edits[editingId] = meta;
+  reviewStatus[editingId] = 'draft';
+  reviewTimestamps[editingId] = new Date().toISOString();
+  closeModal();
+  render();
+  saveReviewState();
+  autoSaveDataset();
+});
+
+$('#btnCancelEdit').addEventListener('click', closeModal);
+$('#editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+function closeModal() {
+  $('#editModal').classList.remove('active');
+  editingId = null;
+}
+
+$('#btnSearch').addEventListener('click', async () => {
+  const title = $('#searchTitle').value.trim();
+  const type = $('#searchType').value;
+  if (!title) { showToast('Enter a search title', 'error'); return; }
+  spinner('spinnerSearch', true);
+  $('#btnSearch').disabled = true;
+  try {
+    const data = await apiSearchMetadata(title, type);
+    renderCandidates(data.candidates || []);
+  } catch(e) {
+    showToast(e.message, 'error');
+  } finally {
+    spinner('spinnerSearch', false);
+    $('#btnSearch').disabled = false;
+  }
+});
+
+function renderCandidates(candidates) {
+  const list = $('#candidateList');
+  if (!candidates.length) {
+    list.innerHTML = '<div style="padding:8px;color:var(--text-muted);font-size:12px;">No results</div>';
+    return;
+  }
+  list.innerHTML = candidates.map((c, i) => `
+    <label class="candidate-item">
+      <input type="radio" name="candidate" value="${i}">
+      <span>
+        <strong>${h(c.title_cn || c.title_en || c.original_title || '?')}</strong>
+        <span style="color:var(--text-muted);margin-left:6px;font-size:11px;">${c.content_type || ''} ${c.year ? '('+c.year+')' : ''} ${c.external_id || ''}</span>
+        <br><span style="font-size:11px;color:var(--text-secondary);">${h(c.overview || c.description || '').slice(0,120)}</span>
+      </span>
+    </label>
+  `).join('');
+
+  // When a candidate is selected, fill the edit form
+  list.querySelectorAll('input[type="radio"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+      const idx = parseInt(this.value);
+      const c = candidates[idx];
+      if (c) {
+        $('#editCleanTitle').value = c.title_cn || c.title_en || '';
+        $('#editContentType').value = c.content_type === 'movie' ? 'movie' : 'tv';
+        $('#editTitleCn').value = c.title_cn || '';
+        $('#editTitleEn').value = c.title_en || '';
+      }
+    });
+  });
+}
+
+function h(s) {
+  return s == null ? '' : String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function posterUrl(meta) {
+  if (!meta) return null;
+  const entity = meta.matched_entity || {};
+  return entity.poster_url || meta.poster_url || null;
+}
+
+function defaultPosterHtml() {
+  return '<div class="poster-fallback">No<br>Poster</div>';
+}
+
+function posterHtml(meta) {
+  const url = posterUrl(meta);
+  if (!url) return defaultPosterHtml();
+  return `<img class="poster" src="${h(url)}" alt="Poster" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className:'poster-fallback', innerHTML:'No<br>Poster'}))">`;
+}
+
+function openEditModal(id) {
+  editingId = id;
+  const t = titles.find(x => x.id === id);
+  const res = agentResults[id];
+  const meta = res ? res.resource_metadata : null;
+  const edited = edits[id] || null;
+  const current = edited || meta || {};
+
+  $('#editRawTitle').value = t ? t.raw_title : '';
+  $('#editCleanTitle').value = current.clean_title || '';
+  $('#editContentType').value = current.content_type || 'tv';
+  $('#editEpisode').value = current.episode != null ? current.episode : '';
+  $('#editSeason').value = current.season != null ? current.season : '';
+  $('#editTitleCn').value = current.title_cn || '';
+  $('#editTitleEn').value = current.title_en || '';
+  $('#searchTitle').value = current.clean_title || '';
+  $('#searchType').value = current.content_type || 'tv';
+  $('#candidateList').innerHTML = '';
+
+  $('#editModal').classList.add('active');
+}
+
+// ──────────────────────────────────────────────
+// Accept / Skip / Revert
+// ──────────────────────────────────────────────
+function acceptTitle(id) {
+  reviewStatus[id] = 'accepted';
+  reviewTimestamps[id] = new Date().toISOString();
+  delete edits[id];
+  render();
+  saveReviewState();
+  autoSaveDataset();
+}
+function skipTitle(id) {
+  reviewStatus[id] = 'skipped';
+  reviewTimestamps[id] = new Date().toISOString();
+  render();
+  saveReviewState();
+  autoSaveDataset();
+}
+function unacceptTitle(id) {
+  reviewStatus[id] = 'draft';
+  reviewTimestamps[id] = new Date().toISOString();
+  render();
+  saveReviewState();
+  autoSaveDataset();
+}
+function unskipTitle(id) {
+  reviewStatus[id] = 'draft';
+  reviewTimestamps[id] = new Date().toISOString();
+  render();
+  saveReviewState();
+  autoSaveDataset();
+}
+async function autoSaveDataset() {
+  const dsName = currentDatasetName || $('#datasetSelect').value;
+  if (!dsName) return;
+  try {
+    const entries = buildEntries();
+    await apiSaveDataset(dsName, entries, currentDataSourceType());
+    refreshDatasetList();
+  } catch(e) { /* silent */ }
+}
+
+// ──────────────────────────────────────────────
+// Bulk accept high confidence
+// ──────────────────────────────────────────────
+$('#btnSelectAll').addEventListener('click', toggleSelectAll);
+
+$('#btnAcceptAllHigh').addEventListener('click', () => {
+  let count = 0;
+  for (const t of titles) {
+    const s = reviewStatus[t.id] || 'pending';
+    if (s === 'draft') {
+      const res = agentResults[t.id];
+      if (res && !res.error && hasMeaningfulMetadata(res.resource_metadata)) {
+        const conf = parseFloat(res.resource_metadata.confidence) || 0;
+        if (conf > 0.9) {
+          reviewStatus[t.id] = 'accepted';
+          reviewTimestamps[t.id] = new Date().toISOString();
+          count++;
+        }
+      }
+    }
+  }
+  render();
+  saveReviewState();
+  if (count > 0) showToast(`Accepted ${count} high-confidence items`, 'success');
+  else showToast('No pending high-confidence items found', 'error');
+});
+
+$('#btnSelectTmdbFailed').addEventListener('click', () => {
+  selectFailedTitles('tmdb');
+});
+$('#btnSelectExaFailed').addEventListener('click', () => {
+  selectFailedTitles('exa');
+});
+$('#btnSelectWikiFailed').addEventListener('click', () => {
+  selectFailedTitles('wikipedia');
+});
+
+function selectFailedTitles(method) {
+  selectedIds = new Set(
+    titles.filter(t => {
+      const res = agentResults[t.id];
+      if (!res || !res.resource_metadata || res.error) return false;
+      const meta = res.resource_metadata;
+      return sourceMethods(meta).includes(method) && hasSourceError(meta, method);
+    }).map(t => t.id)
+  );
+  updateSelectionUI();
+  render();
+  showToast(`Selected ${selectedIds.size} ${methodLabel(method)} failed titles`, selectedIds.size > 0 ? 'success' : 'error');
+}
+
+function sourceMethods(meta) {
+  if (Array.isArray(meta.data_sources_used) && meta.data_sources_used.length) {
+    return meta.data_sources_used;
+  }
+  return String(meta.search_method || '').split('|').filter(Boolean);
+}
+
+function methodLabel(method) {
+  if (method === 'wikipedia') return 'Wiki';
+  if (method === 'exa') return 'Exa';
+  return method.toUpperCase();
+}
+
+function hasSourceError(meta, method) {
+  if (meta.source_errors && meta.source_errors[method]) return true;
+  if (method === 'tmdb') return !!meta.search_error;
+  return false;
+}
+
+// ──────────────────────────────────────────────
+// Render
+// ──────────────────────────────────────────────
+function render() {
+  const container = $('#cardContainer');
+  if (!titles.length) {
+    container.innerHTML = '<div class="empty-state">Load titles from feeds to begin labeling</div>';
+    updateStats();
+    return;
+  }
+
+  container.innerHTML = titles.map(t => {
+    const id = t.id;
+    const status = reviewStatus[id] || 'pending';
+    const res = agentResults[id];
+    const edited = edits[id] || null;
+    let meta = null;
+    if (edited) {
+      // Merge: base fields from agent, overridden by edit
+      meta = { ...(res ? res.resource_metadata || {} : {}), ...edited };
+    } else if (res && !res.error) {
+      meta = res.resource_metadata;
+    }
+
+    const hasResult = hasMeaningfulMetadata(meta);
+    const conf = meta ? (parseFloat(meta.confidence) || 0) : 0;
+    const confStr = fmtConf(conf);
+
+    let statusHtml = '';
+    if (status === 'draft') statusHtml = '<span class="status-badge edited-status">Draft</span>';
+    else if (status === 'accepted') statusHtml = '<span class="status-badge accepted-status">Accepted</span>';
+    else if (status === 'skipped') statusHtml = '<span class="status-badge skipped-status">Skipped</span>';
+
+    let fieldsHtml = '';
+    if (processingStatus[id] === 'processing') {
+      fieldsHtml = '<div style="font-size:11px;color:var(--text-muted);"><span class="card-spinner"></span> Processing...</div>';
+    } else if (hasResult) {
+      fieldsHtml = `
+        <div class="metadata-body">
+          ${posterHtml(meta)}
+          <div class="metadata-main">
+            <div class="agent-fields">
+              <div class="field"><span class="field-name">Clean:</span><span class="field-value">${h(meta.clean_title || '') || '<span class="empty">—</span>'}</span></div>
+              <div class="field"><span class="field-name">Type:</span><span class="field-value">${h(meta.content_type || '') || '<span class="empty">—</span>'}</span></div>
+              <div class="field"><span class="field-name">Ep:</span><span class="field-value">${meta.episode != null ? meta.episode : '<span class="empty">—</span>'}</span></div>
+              <div class="field"><span class="field-name">S:</span><span class="field-value">${meta.season != null ? meta.season : '<span class="empty">—</span>'}</span></div>
+              <div class="field"><span class="field-name">CN:</span><span class="field-value">${h(meta.title_cn || '') || '<span class="empty">—</span>'}</span></div>
+              <div class="field"><span class="field-name">EN:</span><span class="field-value">${h(meta.title_en || '') || '<span class="empty">—</span>'}</span></div>
+            </div>
+            ${meta.search_error ? `<div class="search-error-note">⚠ ${h(meta.search_error)}</div>` : ''}
+          </div>
+        </div>
+      `;
+    } else if (res && res.error) {
+      fieldsHtml = `<div style="font-size:11px;color:var(--danger);">Error: ${h(res.error)}</div>`;
+    } else if (res && res.resource_metadata && res.resource_metadata.search_error) {
+      fieldsHtml = `<div style="font-size:11px;color:var(--danger);">Search error: ${h(res.resource_metadata.search_error)}</div>`;
+    } else {
+      fieldsHtml = `<div style="font-size:11px;color:var(--text-muted);">Not processed yet</div>`;
+    }
+
+    const selectedClass = selectedIds.has(id) ? ' selected' : '';
+    const checkedAttr = selectedIds.has(id) ? ' checked' : '';
+
+    return `
+      <div class="card ${status}${selectedClass}${processingStatus[id] === 'processing' ? ' card-processing' : ''}" data-id="${id}">
+        <input type="checkbox" class="card-checkbox" data-id="${id}" ${checkedAttr} onclick="event.stopPropagation(); toggleCardSelection('${id}')">
+        <div class="card-header">
+          <span class="raw-title" title="${h(t.raw_title)}">${h(t.raw_title.length > 80 ? t.raw_title.slice(0,80) + '…' : t.raw_title)}</span>
+          <span class="source-badge">${h(t.source_feed)}</span>
+        </div>
+        ${fieldsHtml}
+        <div class="card-footer">
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${hasResult ? `<span class="confidence ${confClass(conf)}">${confStr}</span>` : ''}
+            ${statusHtml}
+          </div>
+          <div class="actions">
+            ${status === 'draft' ? `<button class="btn-sm accept-btn" onclick="acceptTitle('${id}')">✓ Accept</button>` : ''}
+            ${status === 'accepted' ? `<button class="btn-sm edit-btn" onclick="unacceptTitle('${id}')">↩ Un-accept</button>` : ''}
+            ${status === 'skipped' ? `<button class="btn-sm edit-btn" onclick="unskipTitle('${id}')">↩ Un-skip</button>` : ''}
+            ${status !== 'accepted' && status !== 'skipped' ? `<button class="btn-sm edit-btn" onclick="openEditModal('${id}')">✎ Edit</button>` : ''}
+            ${status === 'draft' ? `<button class="btn-sm skip-btn" onclick="skipTitle('${id}')">⊘ Skip</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  updateStats();
+  computeSearchStats();
+  updateSelectionUI();
+
+  // Update select-all button text
+  const allIds = new Set(titles.map(t => t.id));
+  $('#btnSelectAll').textContent = selectedIds.size === allIds.size && allIds.size > 0 ? '☑ Deselect All' : '☐ Select All';
+
+  // Enable/disable accept all button
+  const hasPendingHigh = titles.some(t => {
+    if ((reviewStatus[t.id] || 'pending') !== 'draft') return false;
+    const res = agentResults[t.id];
+    return res && !res.error && hasMeaningfulMetadata(res.resource_metadata) && (parseFloat(res.resource_metadata.confidence) || 0) > 0.9;
+  });
+  $('#btnAcceptAllHigh').disabled = !hasPendingHigh;
+  $('#btnSelectTmdbFailed').disabled = !titles.some(t => {
+    const res = agentResults[t.id];
+    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('tmdb') && hasSourceError(res.resource_metadata, 'tmdb');
+  });
+  $('#btnSelectExaFailed').disabled = !titles.some(t => {
+    const res = agentResults[t.id];
+    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('exa') && hasSourceError(res.resource_metadata, 'exa');
+  });
+  $('#btnSelectWikiFailed').disabled = !titles.some(t => {
+    const res = agentResults[t.id];
+    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('wikipedia') && hasSourceError(res.resource_metadata, 'wikipedia');
+  });
+}
+
+function computeSearchStats() {
+  const stats = {
+    tmdb: { total: 0, fail: 0 },
+    exa: { total: 0, fail: 0 },
+    wikipedia: { total: 0, fail: 0 },
+  };
+  for (const t of titles) {
+    const res = agentResults[t.id];
+    if (!res || !res.resource_metadata || res.error) continue;
+    const meta = res.resource_metadata;
+    for (const method of sourceMethods(meta)) {
+      if (!stats[method]) continue;
+      stats[method].total++;
+      if (hasSourceError(meta, method)) stats[method].fail++;
+    }
+  }
+  $('#statTmdbTotal').textContent = stats.tmdb.total;
+  $('#statTmdbFail').textContent = stats.tmdb.fail > 0 ? '(' + stats.tmdb.fail + ' fail)' : '';
+  $('#statExaTotal').textContent = stats.exa.total;
+  $('#statExaFail').textContent = stats.exa.fail > 0 ? '(' + stats.exa.fail + ' fail)' : '';
+  $('#statWikiTotal').textContent = stats.wikipedia.total;
+  $('#statWikiFail').textContent = stats.wikipedia.fail > 0 ? '(' + stats.wikipedia.fail + ' fail)' : '';
+}
+
+function updateStats() {
+  const t = titles.length;
+  let pending = 0, draft = 0, accepted = 0, skipped = 0;
+  for (const item of titles) {
+    const s = reviewStatus[item.id] || 'pending';
+    if (s === 'pending') pending++;
+    else if (s === 'draft') draft++;
+    else if (s === 'accepted') accepted++;
+    else if (s === 'skipped') skipped++;
+  }
+  $('#statTotal').textContent = t;
+  $('#statPending').textContent = pending;
+  $('#statDraft').textContent = draft;
+  $('#statAccepted').textContent = accepted;
+  $('#statSkipped').textContent = skipped;
+}
+
+// ──────────────────────────────────────────────
+// LocalStorage persistence (feed-scoped)
+// ──────────────────────────────────────────────
+function _storageKey(suffix) {
+  const feeds = Array.from(document.querySelectorAll('.feed-checkboxes input[type="checkbox"]:checked'))
+    .map(cb => cb.value).sort().join(',');
+  return `rssripple_eval_${feeds}_${suffix}`;
+}
+function saveReviewState() {
+  try {
+    const state = { reviewStatus, edits, reviewTimestamps };
+    localStorage.setItem(_storageKey('review'), JSON.stringify(state));
+  } catch(e) { /* ignore quota */ }
+}
+function loadReviewState() {
+  try {
+    const raw = localStorage.getItem(_storageKey('review'));
+    if (raw) {
+      const state = JSON.parse(raw);
+      if (state.reviewStatus) reviewStatus = state.reviewStatus;
+      if (state.edits) {
+        edits = Object.fromEntries(
+          Object.entries(state.edits).filter(([, meta]) => hasMeaningfulMetadata(meta))
+        );
+      }
+      if (state.reviewTimestamps) reviewTimestamps = state.reviewTimestamps;
+    }
+  } catch(e) { /* ignore */ }
+}
+function saveAgentResultsCache() {
+  try {
+    const cache = {};
+    for (const [id, res] of Object.entries(agentResults)) {
+      if (res && !res.error && hasMeaningfulMetadata(res.resource_metadata)) cache[id] = res;
+    }
+    localStorage.setItem(_storageKey('agent'), JSON.stringify(cache));
+  } catch(e) { /* ignore quota */ }
+}
+function restoreAgentResultsCache() {
+  try {
+    const raw = localStorage.getItem(_storageKey('agent'));
+    if (raw) {
+      const cache = JSON.parse(raw);
+      for (const t of titles) {
+        if (cache[t.id] && hasMeaningfulMetadata(cache[t.id].resource_metadata)) {
+          agentResults[t.id] = cache[t.id];
+        }
+      }
+    }
+  } catch(e) { /* ignore */ }
+}
+
+// ──────────────────────────────────────────────
+// Background job polling (survives page refresh)
+// ──────────────────────────────────────────────
+let _pollTimer = null;
+
+function saveJobId(jobId) {
+  if (jobId) localStorage.setItem(_storageKey('job'), jobId);
+  else localStorage.removeItem(_storageKey('job'));
+}
+
+function applyJobResults(job) {
+  const jobTitleIds = new Set(job.title_ids || Object.keys(job.results || {}));
+  let changed = 0;
+  for (const [tid, res] of Object.entries(job.results || {})) {
+    if (!jobTitleIds.has(tid)) continue;
+    const prev = agentResults[tid];
+    const prevSerialized = prev ? JSON.stringify(prev) : null;
+    const nextSerialized = JSON.stringify(res);
+    agentResults[tid] = res;
+    delete processingStatus[tid];
+    if (prevSerialized !== nextSerialized) changed++;
+  }
+  return changed;
+}
+
+async function pollJobStatus(jobId) {
+  if (_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(async () => {
+    try {
+      const job = await apiJobStatus(jobId);
+      // Apply partial results as they arrive
+      const changedCount = applyJobResults(job);
+      if (changedCount > 0) render();
+
+      if (job.status === 'completed' || job.status === 'failed') {
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+        saveJobId(null);
+
+        // Finalize review status
+        for (const t of titles) {
+          const hasMeta = !!(agentResults[t.id] && !agentResults[t.id].error && hasMeaningfulMetadata(agentResults[t.id].resource_metadata));
+          reviewStatus[t.id] = reviewStatusForMetadata(reviewStatus[t.id], hasMeta);
+          if (!(t.id in reviewStatus)) reviewStatus[t.id] = 'pending';
+        }
+        saveAgentResultsCache();
+        saveReviewState();
+        render();
+        spinner('spinnerTop', false);
+        $('#btnRunAgent').disabled = false;
+        $('#btnRunSelected').disabled = selectedIds.size === 0;
+
+        const count = Object.keys(job.results).length;
+        if (job.status === 'failed') {
+          showToast(`Agent failed: ${job.error || 'unknown error'}`, 'error');
+        } else {
+          showToast(`Agent completed: ${count} titles`, 'success');
+        }
+
+        // Auto-save dataset
+        const dsName = currentDatasetName || $('#datasetSelect').value;
+        if (dsName) {
+          try {
+            const entries = buildEntries();
+            await apiSaveDataset(dsName, entries, currentDataSourceType());
+            refreshDatasetList();
+          } catch(e) { showToast('Auto-save failed: ' + e.message, 'error'); }
+        }
+      }
+    } catch(e) {
+      // 404 = server restarted, job lost
+      clearInterval(_pollTimer);
+      _pollTimer = null;
+      saveJobId(null);
+      for (const t of titles) delete processingStatus[t.id];
+      render();
+      spinner('spinnerTop', false);
+      $('#btnRunAgent').disabled = false;
+      $('#btnRunSelected').disabled = selectedIds.size === 0;
+      showToast('Background job lost (server may have restarted)', 'error');
+    }
+  }, 2000);
+}
+
+async function restoreActiveJob() {
+  const jobId = localStorage.getItem(_storageKey('job'));
+  if (!jobId) return false;
+
+  try {
+    const job = await apiJobStatus(jobId);
+    if (job.status === 'running') {
+      // Restore processing state for titles not yet completed
+      const completedIds = new Set(Object.keys(job.results));
+      for (const tid of (job.title_ids || [])) {
+        if (!completedIds.has(tid) && !agentResults[tid] && !hasMeaningfulMetadata(edits[tid])) {
+          processingStatus[tid] = 'processing';
+        }
+      }
+      // Apply any partial results that arrived while page was closed
+      applyJobResults(job);
+      render();
+      spinner('spinnerTop', true);
+      $('#btnRunAgent').disabled = true;
+      $('#btnRunSelected').disabled = true;
+      pollJobStatus(jobId);
+      showToast('Resumed background agent job', 'info');
+      return true;
+    } else {
+      // Job completed while page was away — apply all results
+      applyJobResults(job);
+      for (const t of titles) {
+        const hasMeta = !!(agentResults[t.id] && !agentResults[t.id].error && hasMeaningfulMetadata(agentResults[t.id].resource_metadata));
+        reviewStatus[t.id] = reviewStatusForMetadata(reviewStatus[t.id], hasMeta);
+        if (!(t.id in reviewStatus)) reviewStatus[t.id] = 'pending';
+      }
+      saveAgentResultsCache();
+      saveReviewState();
+      saveJobId(null);
+      render();
+      showToast(`Restored ${Object.keys(job.results).length} results from background job`, 'success');
+      return true;
+    }
+  } catch(e) {
+    // Job not found (server restarted)
+    saveJobId(null);
+    return false;
+  }
+}
+
+// ──────────────────────────────────────────────
+// Build entries for export
+// ──────────────────────────────────────────────
+function buildEntries() {
+  return titles.map(t => {
+    const id = t.id;
+    const status = reviewStatus[id] || 'pending';
+    const res = agentResults[id];
+    const edited = edits[id] || null;
+
+    // Ground truth: agent output merged with manual edits
+    let meta = null;
+    if (hasMeaningfulMetadata(edited)) {
+      meta = { ...(res ? res.resource_metadata || {} : {}), ...edited };
+    } else if (res && !res.error && hasMeaningfulMetadata(res.resource_metadata)) {
+      meta = res.resource_metadata;
+    }
+
+    // Original agent output (unmodified by human edits)
+    let agentResult = null;
+    if (res && !res.error && res.resource_metadata) {
+      agentResult = res.resource_metadata;
+    }
+
+    return {
+      id,
+      raw_title: t.raw_title,
+      source_feed: t.source_feed,
+      data_source_type: currentDataSourceType(),
+      resource_metadata: meta,
+      agent_result: agentResult,
+      review_status: status,
+      reviewed_at: reviewTimestamps[id] || null,
+      notes: null,
+    };
+  });
+}
+
+// ──────────────────────────────────────────────
+// Init
+// ──────────────────────────────────────────────
+refreshDatasetList();
+
+// Auto-load titles on page load
+(async function autoLoad() {
+  const feeds = [];
+  $$('.feed-checkboxes input[type="checkbox"]:checked').forEach(cb => feeds.push(cb.value));
+  const sample = parseInt($('#sampleSize').value) || 0;
+  try {
+    $('#btnLoadTitles').disabled = true;
+    const data = await apiLoadTitles(feeds, sample);
+    titles = data.titles;
+    agentResults = {};
+    reviewStatus = {};
+    edits = {};
+    reviewTimestamps = {};
+    loadReviewState();
+    restoreAgentResultsCache();
+    $('#btnRunAgent').disabled = false;
+    $('#datasetSection').style.display = titles.length ? '' : 'none';
+    // Auto-load or auto-create dataset
+    await refreshDatasetList();
+    const sel = $('#datasetSelect');
+    if (sel.options.length > 1) {
+      if (!sel.value) sel.selectedIndex = 1;
+      $('#btnDeleteDataset').disabled = false;
+      await loadDatasetByName(sel.value);
+    } else {
+      // No dataset exists — auto-create one
+      const now = new Date();
+      const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+      const rnd = Math.random().toString(36).slice(2, 6);
+      const sourceType = currentDataSourceType();
+      const newName = `${sourceType}-eval-${ts}-${rnd}`;
+      try {
+        const entries = buildEntries();
+        await apiSaveDataset(newName, entries, sourceType);
+        await refreshDatasetList(newName);
+        sel.value = newName;
+        $('#btnDeleteDataset').disabled = false;
+        rememberCurrentDataset(newName);
+      } catch(e) { /* silent */ }
+    }
+    render();
+    // Restore any active background job (survives page refresh)
+    await restoreActiveJob();
+  } catch(e) {
+    showToast('Auto-load failed: ' + e.message, 'error');
+  } finally {
+    $('#btnLoadTitles').disabled = false;
+  }
+})();
+</script>
+</body>
+</html>

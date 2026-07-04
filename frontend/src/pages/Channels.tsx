@@ -131,11 +131,11 @@ export default function Channels() {
     },
     {
       title: t('channels.metadataSource'),
-      dataIndex: 'metadata_source',
-      key: 'metadata_source',
+      dataIndex: 'metadata_agent_enabled',
+      key: 'metadata_agent_enabled',
       width: 110,
-      render: (v: string) =>
-        v === 'llm' ? <Tag color="blue">{t('channels.llmSearch')}</Tag> : <Tag>{t('channels.localMatch')}</Tag>,
+      render: (v: boolean) =>
+        v ? <Tag color="blue">{t('channels.agent')}</Tag> : <Tag>{t('agents.off')}</Tag>,
     },
     {
       title: t('channels.lastFetch'),

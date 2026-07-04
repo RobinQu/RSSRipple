@@ -44,7 +44,7 @@ TEST_FIELD_MAPPING = {
 async def channel(db_session):
     ch = Channel(
         id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
-        field_mapping=TEST_FIELD_MAPPING, metadata_source="none", status="active",
+        field_mapping=TEST_FIELD_MAPPING, metadata_agent_enabled=False, status="active",
     )
     db_session.add(ch)
     await db_session.flush()
@@ -585,6 +585,75 @@ class TestProcessResources:
         assert result.duplicates_skipped == 0
         assert result.matched == 1
         assert result.dispatched == 1
+
+    async def test_batch_resource_bypasses_dedup(
+        self, db_session, channel, downloader, series
+    ):
+        """Batch resource dispatches directly, ignoring the (series_id, episode)
+        conflict aggregation."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, episode=None,
+            is_batch=True, episode_start=1, episode_end=13,
+        )
+        db_session.add(r)
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.matched == 1
+        assert result.dispatched == 1
+        assert result.pending_decisions == 0
+
+    async def test_batch_and_single_do_not_conflict(
+        self, db_session, channel, downloader, series
+    ):
+        """A batch and a single-episode resource in the same run both get
+        dispatched without triggering a PendingDecision — the batch bypasses
+        the per-episode conflict aggregation entirely."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        batch = _make_resource(
+            channel.id, series_id=series.id, episode=None,
+            is_batch=True, episode_start=1, episode_end=13, guid=_uuid(),
+        )
+        single = _make_resource(
+            channel.id, series_id=series.id, episode=5, guid=_uuid(),
+        )
+        db_session.add_all([batch, single])
+        await db_session.flush()
+
+        result = await process_resources(agent, [batch, single], db_session)
+        # Both get dispatched, no PendingDecision.
+        assert result.dispatched == 2
+        assert result.pending_decisions == 0
+        assert result.matched == 2
+
+    async def test_batch_same_resource_not_redispatched(
+        self, db_session, channel, downloader, series
+    ):
+        """A batch resource with an active/completed task is not re-dispatched
+        for the same FileResource (protects against re-runs / crash recovery)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, episode=None,
+            is_batch=True, episode_start=1, episode_end=12,
+        )
+        db_session.add(r)
+        await db_session.flush()
+        db_session.add(DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=r.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="downloading",
+        ))
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.dispatched == 0
+        assert result.duplicates_skipped == 1
 
 
 # ---------------------------------------------------------------------------

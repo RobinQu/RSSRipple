@@ -35,7 +35,7 @@ def _mock_feed(entries):
 
 
 def _entry(guid, title, link=None, enclosures=None, description=None, published=None):
-    """Create a feedparser-like entry object supporting .keys(), .get(), [key],
+    """Create a feedparser-like entry object supporting .keys(), .get(), [key]
     attribute access, plus the enclosures/published_parsed fields used by
     fetch_service / rss_parser helpers."""
     base = {
@@ -76,8 +76,7 @@ async def channel(db_session):
     ch = Channel(
         id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
         field_mapping=TEST_FIELD_MAPPING,
-        metadata_source="none", status="active",
-        title_extraction_method="none",
+        metadata_agent_enabled=False, status="active",
     )
     db_session.add(ch)
     await db_session.commit()
@@ -116,7 +115,7 @@ class TestFetchChannelResources:
     async def test_feed_fetch_failure_marks_channel_error(self, db_session, channel, fake_queue):
         with patch(
             "app.services.fetch_service._parse_feed_sync",
-            side_effect=Exception("network error"),
+            side_effect=Exception("network error")
         ):
             res = await fs.fetch_channel_resources(channel, db_session)
         assert res["new_count"] == 0
@@ -138,7 +137,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa", "type": "application/x-bittorrent"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -160,10 +159,10 @@ class TestFetchChannelResources:
         await db_session.flush()
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
-                {"url": "magnet:?xt=urn:btih:aaa"}
+                {"url": "magnet:?xt=urn:btih:aaa"},
             ]),
             _entry("g2", "[Group] Show - 02 [1080p]", enclosures=[
-                {"url": "magnet:?xt=urn:btih:bbb"}
+                {"url": "magnet:?xt=urn:btih:bbb"},
             ]),
         ]
         feed = _mock_feed(entries)
@@ -231,7 +230,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa", "type": "application/x-bittorrent"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -242,58 +241,52 @@ class TestFetchChannelResources:
         assert res["new_count"] == 1
 
     # ------------------------------------------------------------------
-    # Title extraction exception handling (lines 147-151)
+    # Metadata agent exception handling
     # ------------------------------------------------------------------
-    async def test_title_extraction_exception_uses_base_title(self, db_session, channel, fake_queue):
-        """When apply_title_extraction raises, search_title falls back to base_title."""
+    async def test_metadata_agent_exception_uses_fallback(self, db_session, channel, fake_queue):
+        """When metadata agent raises, search_title falls back to _simple_title_clean."""
+        channel.metadata_agent_enabled = True
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
-             patch("app.services.fetch_service.apply_title_extraction",
-                   new_callable=AsyncMock, side_effect=Exception("llm timeout")), \
-             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+             patch("app.services.metadata_agent.UnifiedMetadataAgent.process",
+                   new_callable=AsyncMock, side_effect=Exception("llm timeout")):
             res = await fs.fetch_channel_resources(channel, db_session)
         assert res["new_count"] == 1
-        # Verify search_title was set to the base_title (not None)
         from sqlalchemy import select as sa_select
         row = (await db_session.execute(
             sa_select(FileResource).where(FileResource.channel_id == channel.id)
         )).scalar_one()
-        # base_title is derived from extract_search_title(resource); it should be non-None
+        # _simple_title_clean should produce a search_title from the raw title
         assert row.search_title is not None
 
-    async def test_title_extraction_empty_base_title_sets_none(self, db_session, channel, fake_queue):
-        """When extract_search_title returns empty string, search_title is set to None."""
+    async def test_metadata_agent_disabled_uses_local_match(self, db_session, channel, fake_queue):
+        """When metadata_agent_enabled=False, only local DB match runs."""
+        channel.metadata_agent_enabled = False
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
-             patch("app.services.fetch_service.extract_search_title", return_value=""), \
              patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
             res = await fs.fetch_channel_resources(channel, db_session)
         assert res["new_count"] == 1
-        from sqlalchemy import select as sa_select
-        row = (await db_session.execute(
-            sa_select(FileResource).where(FileResource.channel_id == channel.id)
-        )).scalar_one()
-        assert row.search_title is None
 
     # ------------------------------------------------------------------
-    # Metadata linking exception handling (lines 156-157)
+    # Metadata linking exception handling
     # ------------------------------------------------------------------
     async def test_metadata_linking_exception_swallowed(self, db_session, channel, fake_queue):
         """When fetch_and_link_metadata raises, the resource is still created."""
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -313,7 +306,7 @@ class TestFetchChannelResources:
 
         series = TVSeries(
             id=_uuid(), title_cn="Test", title_en="Test",
-            poster_url="https://example.com/poster.jpg",
+            poster_url="https://example.com/poster.jpg"
         )
         db_session.add(series)
         await db_session.flush()
@@ -324,7 +317,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -346,7 +339,7 @@ class TestFetchChannelResources:
 
         series = TVSeries(
             id=_uuid(), title_cn="Test", title_en="Test",
-            poster_url="/posters/already_local.jpg",
+            poster_url="/posters/already_local.jpg"
         )
         db_session.add(series)
         await db_session.flush()
@@ -357,7 +350,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -377,7 +370,7 @@ class TestFetchChannelResources:
         original_url = "https://example.com/poster.jpg"
         series = TVSeries(
             id=_uuid(), title_cn="Test", title_en="Test",
-            poster_url=original_url,
+            poster_url=original_url
         )
         db_session.add(series)
         await db_session.flush()
@@ -388,7 +381,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -409,7 +402,7 @@ class TestFetchChannelResources:
 
         series = TVSeries(
             id=_uuid(), title_cn="Test", title_en="Test",
-            poster_url=None,
+            poster_url=None
         )
         db_session.add(series)
         await db_session.flush()
@@ -420,7 +413,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Show - 01 [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -442,7 +435,7 @@ class TestFetchChannelResources:
 
         movie = Movie(
             id=_uuid(), title_cn="Test Movie", title_en="Test Movie",
-            poster_url="https://example.com/movie_poster.jpg",
+            poster_url="https://example.com/movie_poster.jpg"
         )
         db_session.add(movie)
         await db_session.flush()
@@ -453,7 +446,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Movie Title [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -474,7 +467,7 @@ class TestFetchChannelResources:
 
         movie = Movie(
             id=_uuid(), title_cn="Test Movie", title_en="Test Movie",
-            poster_url="/posters/local_movie.jpg",
+            poster_url="/posters/local_movie.jpg"
         )
         db_session.add(movie)
         await db_session.flush()
@@ -485,7 +478,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Movie Title [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
@@ -505,7 +498,7 @@ class TestFetchChannelResources:
         original_url = "https://example.com/movie_poster.jpg"
         movie = Movie(
             id=_uuid(), title_cn="Test Movie", title_en="Test Movie",
-            poster_url=original_url,
+            poster_url=original_url
         )
         db_session.add(movie)
         await db_session.flush()
@@ -516,7 +509,7 @@ class TestFetchChannelResources:
         entries = [
             _entry("g1", "[Group] Movie Title [1080p]", enclosures=[
                 {"url": "magnet:?xt=urn:btih:aaa"}
-            ]),
+            ])
         ]
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \

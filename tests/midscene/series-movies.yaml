@@ -3,7 +3,7 @@
 # movies list with search, movie detail.
 
 web:
-  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
 
 agent:
   testId: series-movies

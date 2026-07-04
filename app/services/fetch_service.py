@@ -16,14 +16,20 @@ from app.clients.rss_parser import (
 from app.utils.time import utcnow
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
-from app.services.metadata_service import (
-    apply_title_extraction,
-    extract_search_title,
-    fetch_and_link_metadata,
-)
+from app.services.metadata_service import fetch_and_link_metadata
 from app.services.resource_parser import parse_entry
 
 logger = logging.getLogger(__name__)
+
+
+def _simple_title_clean(raw: str) -> str | None:
+    """Minimal title cleanup: strip leading bracket group and episode tail."""
+    if not raw:
+        return None
+    import re
+    cleaned = re.sub(r"^\[[^\]]*\]\s*", "", raw)
+    cleaned = re.sub(r"\s*-\s*\d+\b.*$", "", cleaned)
+    return cleaned.strip() or raw.strip()
 
 # Columns that are set explicitly in the FileResource(...) constructor.
 _EXPLICIT_RESOURCE_COLS = frozenset({
@@ -41,6 +47,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
     """
     channel.last_fetch_status = "running"
     channel.last_fetch_error = None
+    await db.commit()
 
     # 1. Fetch RSS (30s timeout enforced by asyncio.wait_for)
     try:
@@ -53,6 +60,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         channel.status = "error"
         channel.last_fetch_status = "failed"
         channel.last_fetch_error = str(e)[:2000]
+        await db.commit()
         return {"status": "error", "new_resource_ids": [], "new_count": 0, "error": str(e)}
 
     if feed.bozo and not feed.entries:
@@ -62,6 +70,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         channel.status = "error"
         channel.last_fetch_status = "failed"
         channel.last_fetch_error = msg
+        await db.commit()
         return {"status": "error", "new_resource_ids": [], "new_count": 0, "error": msg}
 
     entries = feed.entries
@@ -71,6 +80,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         channel.last_fetch_status = "success"
         channel.status = "active"
         channel.last_fetch_error = None
+        await db.commit()
         return {"status": "unchanged", "new_resource_ids": [], "new_count": 0}
 
     # 2. Existing GUIDs for dedup
@@ -133,31 +143,38 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             title_en=fm_title_en,
             **{k: v for k, v in parsed.items() if k in column_names and k not in _EXPLICIT_RESOURCE_COLS},
         )
+        # Pre-parser: heuristic batch detection from the raw title. Runs before
+        # the LLM so downstream logic (filtering, dedup) still sees ``is_batch``
+        # even when the metadata agent is disabled or fails. The LLM may later
+        # refine these values in ``UnifiedMetadataAgent._apply_to_resource``.
+        from app.services.resource_parser import detect_batch
+        pre_is_batch, pre_start, pre_end = detect_batch(title)
+        if pre_is_batch:
+            resource.is_batch = True
+            if pre_start is not None:
+                resource.episode_start = pre_start
+            if pre_end is not None:
+                resource.episode_end = pre_end
         db.add(resource)
         await db.flush()
 
-        # Title backfill
-        base_title = extract_search_title(resource)
-        if base_title:
+        # Unified metadata agent (title cleaning + metadata search in one call)
+        if channel.metadata_agent_enabled:
             try:
-                cleaned = await apply_title_extraction(
-                    base_title,
-                    channel.title_extraction_method,
-                    channel.title_extraction_regex,
-                    db,
-                )
-                resource.search_title = cleaned or base_title
+                from app.services.metadata_agent import get_agent
+                agent = get_agent()
+                await agent.process(resource, channel, db)
             except Exception as e:
-                logger.warning("Title extraction failed for %s: %s", resource.id, e)
+                logger.warning("MetadataAgent failed for %s: %s", resource.id, e)
+                # Fallback: extract a basic search_title and try local match
+                base_title = _simple_title_clean(resource.title_raw)
                 resource.search_title = base_title
         else:
-            resource.search_title = None
-
-        # Metadata linking
-        try:
-            await fetch_and_link_metadata(db, resource, channel)
-        except Exception as e:
-            logger.warning("Metadata linking failed for %s: %s", resource.id, e)
+            # metadata_agent_enabled=False: only local DB match
+            try:
+                await fetch_and_link_metadata(db, resource, channel)
+            except Exception as e:
+                logger.warning("Metadata linking failed for %s: %s", resource.id, e)
 
         # Poster download for newly-linked entities
         if resource.series_id:
@@ -180,6 +197,14 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         existing_guids.add(guid)
         new_resource_ids.append(resource.id)
         new_count += 1
+        await db.commit()
+        logger.debug(
+            "[fetch:%s] Committed resource %s (%d/%d new so far)",
+            channel.id,
+            resource.id,
+            new_count,
+            len(entries),
+        )
 
     # Finalize channel status
     channel.last_fetched_at = utcnow()
@@ -187,7 +212,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
     channel.status = "active"
     channel.last_fetch_error = None
 
-    await db.flush()
+    await db.commit()
 
     # Enqueue agent runs (fire-and-forget)
     from app.services.task_queue import task_queue

@@ -4,7 +4,8 @@ Matching flow for a FileResource (per AGENTS.md "Metadata 匹配流程"):
 1. Already linked (movie_id / series_id set) → return.
 2. ChannelRawTitleMapping exact match by (channel_id, raw_title).
 3. Local DB match: exact (title_cn/title_en) then fuzzy (ratio >= 70; auto-link at >=85).
-4. LLM web-search fallback (channel.metadata_source == "llm").
+4. Unified MetadataAgent (ReAct agent) — uses one selected metadata source
+   (channel.metadata_agent_enabled == True).
 5. Link FileResource.movie_id or FileResource.series_id.
 
 Poster caching: poster URLs returned by LLM are downloaded to POSTER_CACHE_DIR
@@ -25,18 +26,83 @@ from urllib.parse import urlparse
 import httpx
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from thefuzz import fuzz
 
 from app.config import settings
 from app.utils.time import utcnow
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.services.text_normalizer import normalize_title, similarity_score
+from app.services import fts as fts_service
 
 logger = logging.getLogger(__name__)
 
 FUZZY_THRESHOLD = 70
 AUTO_LINK_THRESHOLD = 85
+
+
+# ---------------------------------------------------------------------------
+# external_id canonicalization
+#
+# Exa Agent Search returns TMDB ids in inconsistent shapes:
+#   "TMDB:82684", "TMDB 82684", "TMDB TV 82684 / season 4", "82684"
+# All of them refer to the same TMDB work, but our naive `external_id`
+# lookup would treat each shape as a separate row and keep spawning
+# duplicate TVSeries/Movie entities on every fetch.
+# The canonicalizer collapses those shapes into a single canonical form
+# (e.g. ``tmdb:82684``) so upserts converge.
+# ---------------------------------------------------------------------------
+
+_TMDB_DIGITS_RE = re.compile(r"tmdb[^0-9]*(\d{2,10})", re.IGNORECASE)
+_LEADING_DIGITS_RE = re.compile(r"^\s*(\d{2,10})\s*$")
+
+
+def canonicalize_external_id(
+    raw_id: str | None,
+    source: str | None,
+    content_type: str | None = None,
+) -> str | None:
+    """Return a stable canonical form of ``raw_id`` for upsert matching.
+
+    Rules:
+      * Any string containing ``tmdb`` and digits → ``tmdb:{digits}``.
+      * ``source == "tmdb"`` combined with a pure-digit id → ``tmdb:{digits}``.
+      * IMDb ids (``tt`` + digits) → ``imdb:{tt…}``.
+      * Otherwise: lowercase + collapse whitespace, and drop known clutter
+        such as ``/ season N`` tails.
+
+    Never fabricates an id; returns None only when the input is falsy.
+    """
+    if raw_id is None:
+        return None
+    s = str(raw_id).strip()
+    if not s:
+        return None
+
+    # Strip trailing "/ season N" or similar decoration.
+    s_clean = re.sub(r"[\s/,;|]+season[\s#:_-]*\d+\s*$", "", s, flags=re.IGNORECASE)
+    s_clean = re.sub(r"\s+", " ", s_clean).strip()
+
+    lower = s_clean.lower()
+    # TMDB detection — any "tmdb" prefix or when source declares tmdb.
+    if "tmdb" in lower:
+        m = _TMDB_DIGITS_RE.search(lower)
+        if m:
+            return f"tmdb:{m.group(1)}"
+    if (source or "").strip().lower() == "tmdb":
+        m = _LEADING_DIGITS_RE.match(lower)
+        if m:
+            return f"tmdb:{m.group(1)}"
+        m = re.search(r"(\d{2,10})", lower)
+        if m:
+            return f"tmdb:{m.group(1)}"
+
+    # IMDb ids
+    m = re.match(r"^(tt\d{5,})$", lower)
+    if m:
+        return f"imdb:{m.group(1)}"
+
+    return lower or None
 
 
 # ---------------------------------------------------------------------------
@@ -65,41 +131,12 @@ def extract_search_title(resource: Any) -> str:
     if not raw.strip():
         return raw
 
-    try:
-        from app.services.title_parser import parse_title
-        parsed = parse_title(raw)
-        t = parsed.title_cn or parsed.title_en
-        if t and t.strip():
-            return t.strip()
-    except Exception:
-        pass
-
     cleaned = _LEADING_BRACKET_RE.sub("", raw)
     cleaned = _EPISODE_TAIL_RE.sub("", cleaned)
     cleaned = _SEASON_EPISODE_RE.sub("", cleaned)
     cleaned = _TRAILING_BRACKET_RE.sub("", cleaned)
     cleaned = cleaned.strip()
     return cleaned or raw.strip()
-
-
-async def apply_title_extraction(
-    title: str,
-    method: str,
-    regex_pattern: str | None,
-    db: AsyncSession | None = None,
-) -> str:
-    """Apply the channel's title extraction method to a base title."""
-    if not title:
-        return title
-
-    if method == "regex" and regex_pattern:
-        from app.services.title_cleaner import clean_title_regex
-        return clean_title_regex(title, regex_pattern)
-    if method == "llm" and db:
-        from app.services.title_cleaner import clean_title_llm
-        return await clean_title_llm(title, db)
-
-    return title
 
 
 # ---------------------------------------------------------------------------
@@ -164,10 +201,18 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries | None, int]:
-    """Find best matching TVSeries in local DB. Returns (entity, ratio)."""
+    """Find best matching TVSeries in local DB. Returns (entity, score 0-100).
+
+    Uses FTS5 trigram search for candidate retrieval (no full-table scan),
+    then computes bigram Dice similarity for precise ranking.
+    """
     if not title:
         return None, 0
-    # Exact
+    norm = normalize_title(title)
+    if not norm:
+        return None, 0
+
+    # 1. Exact match on original title_cn/title_en (fast SQL index lookup)
     result = await db.execute(
         select(TVSeries).where(
             or_(
@@ -180,26 +225,43 @@ async def match_series_by_title(db: AsyncSession, title: str) -> tuple[TVSeries 
     if series:
         return series, 100
 
-    # Fuzzy
-    all_result = await db.execute(select(TVSeries))
+    # 2. FTS5 candidate retrieval + similarity scoring
+    candidate_ids = await fts_service.search_series_fts(db, title, limit=30)
+    if candidate_ids:
+        result = await db.execute(select(TVSeries).where(TVSeries.id.in_(candidate_ids)))
+        candidates = result.scalars().all()
+    else:
+        # FTS index may be empty/out of sync — fall back to full-table scan
+        result = await db.execute(select(TVSeries))
+        candidates = result.scalars().all()
+
     best: TVSeries | None = None
     best_score = 0
-    title_l = title.lower()
-    for s in all_result.scalars().all():
-        candidates = [c for c in [s.title_cn, s.title_en, *(s.aliases or [])] if c]
-        score = max((fuzz.ratio(title_l, c.lower()) for c in candidates), default=0)
+    for s in candidates:
+        titles = [s.title_cn, s.title_en, *(s.aliases or [])]
+        score = max((similarity_score(norm, t) for t in titles if t), default=0)
         if score > best_score:
             best_score = score
             best = s
+
     if best_score >= FUZZY_THRESHOLD:
         return best, best_score
     return None, 0
 
 
 async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | None, int]:
-    """Find best matching Movie in local DB. Returns (entity, ratio)."""
+    """Find best matching Movie in local DB. Returns (entity, score 0-100).
+
+    Uses FTS5 trigram search for candidate retrieval, then bigram Dice
+    similarity for precise ranking.
+    """
     if not title:
         return None, 0
+    norm = normalize_title(title)
+    if not norm:
+        return None, 0
+
+    # 1. Exact match
     result = await db.execute(
         select(Movie).where(
             or_(
@@ -212,35 +274,77 @@ async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | No
     if movie:
         return movie, 100
 
-    all_result = await db.execute(select(Movie))
+    # 2. FTS5 candidate retrieval + similarity scoring
+    candidate_ids = await fts_service.search_movie_fts(db, title, limit=30)
+    if candidate_ids:
+        result = await db.execute(select(Movie).where(Movie.id.in_(candidate_ids)))
+        candidates = result.scalars().all()
+    else:
+        # FTS index may be empty/out of sync — fall back to full-table scan
+        result = await db.execute(select(Movie))
+        candidates = result.scalars().all()
+
     best: Movie | None = None
     best_score = 0
-    title_l = title.lower()
-    for m in all_result.scalars().all():
-        candidates = [c for c in [m.title_cn, m.title_en, *(m.aliases or [])] if c]
-        score = max((fuzz.ratio(title_l, c.lower()) for c in candidates), default=0)
+    for m in candidates:
+        titles = [m.title_cn, m.title_en, *(m.aliases or [])]
+        score = max((similarity_score(norm, t) for t in titles if t), default=0)
         if score > best_score:
             best_score = score
             best = m
+
     if best_score >= FUZZY_THRESHOLD:
         return best, best_score
     return None, 0
 
 
 # ---------------------------------------------------------------------------
-# Multi-source metadata search (delegates to metadata_search_agent)
+# Metadata search (delegates to UnifiedMetadataAgent)
 # ---------------------------------------------------------------------------
 
 
-async def search_metadata_via_llm(title: str) -> list[dict]:
-    """Search for metadata using the multi-source search agent.
+async def search_metadata_via_llm(
+    title: str,
+    data_source_type: str | None = None,
+) -> list[dict]:
+    """Search for metadata using the unified metadata agent.
 
-    Replaces the single-LLM web-search with TMDB → Exa → LLM fallback.
+    Delegates to ``UnifiedMetadataAgent.process_title_only()`` for title cleaning
+    and metadata search via one selected source.
     Returns a list of candidate dicts (same shape as before) so callers work unchanged.
     """
-    # Delegate to the multi-source agent (app/services/metadata_search_agent.py)
-    from app.services.metadata_search_agent import search_metadata as agent_search
-    return await agent_search(title)
+    from app.services.metadata_agent import get_agent
+
+    try:
+        logger.info(
+            "[metadata] agent search start title=%r data_source_type=%s",
+            title[:160], data_source_type,
+        )
+        result = await get_agent().process_title_only(title, data_source_type)
+    except Exception as e:
+        logger.warning("[metadata] Agent search failed for %r: %s", title[:60], e)
+        return []
+
+    if not result.found:
+        if result.ambiguous and result.ambiguous_candidates:
+            return result.ambiguous_candidates
+        return []
+
+    candidates: list[dict] = []
+    if result.matched_entity:
+        candidates.append(result.matched_entity)
+    if result.ambiguous and result.ambiguous_candidates:
+        candidates.extend(result.ambiguous_candidates)
+
+    logger.info(
+        "[metadata] agent search done title=%r data_source_type=%s found=%s candidates=%d error=%s",
+        title[:160],
+        data_source_type,
+        result.found,
+        len(candidates),
+        result.search_error,
+    )
+    return candidates
 
 
 # ---------------------------------------------------------------------------
@@ -281,20 +385,65 @@ def _parse_date(val: Any) -> date | None:
 
 
 async def create_or_update_series_from_external(db: AsyncSession, data: dict) -> TVSeries:
-    """Upsert a TVSeries by (external_id, external_source='llm_search')."""
-    result = await db.execute(
-        select(TVSeries).where(
-            TVSeries.external_id == data.get("external_id"),
-            TVSeries.external_source.in_([data.get("external_source"), "llm_search"]),
-        )
-    )
-    series = result.scalars().first()
+    """Upsert a TVSeries by canonicalized external_id, then by exact title fallback.
+
+    External sources (especially Exa Agent) can return the same TMDB id in
+    inconsistent shapes on subsequent fetches; naive equality on ``external_id``
+    would then keep inserting duplicate rows. We normalize the id via
+    :func:`canonicalize_external_id` for the primary lookup, and, if that
+    still misses, fall back to an exact case-sensitive match on
+    ``title_cn`` / ``title_en`` / ``original_title`` — the strong signal that
+    a fresh Exa response describes an already-known work.
+    """
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    content_type = data.get("content_type")
+    canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
+
+    # Primary lookup — canonical id preferred, but keep matching legacy rows
+    # written before canonicalization existed. ``llm_search`` is a legacy
+    # source label kept for compatibility.
+    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
+    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+
+    series: TVSeries | None = None
+    if lookup_ids:
+        stmt = select(TVSeries).where(TVSeries.external_id.in_(lookup_ids))
+        if lookup_sources:
+            stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
+        result = await db.execute(stmt)
+        series = result.scalars().first()
+
+    # Fallback: same work returned with a fresh external_id shape. Match by
+    # any of the canonical title columns (case-sensitive; titles are already
+    # normalized by upstream extraction).
+    if series is None:
+        title_candidates = [
+            t for t in (
+                data.get("title_cn"),
+                data.get("title_en"),
+                data.get("original_title"),
+            ) if t
+        ]
+        if title_candidates:
+            title_result = await db.execute(
+                select(TVSeries).where(
+                    or_(
+                        TVSeries.title_cn.in_(title_candidates),
+                        TVSeries.title_en.in_(title_candidates),
+                        TVSeries.original_title.in_(title_candidates),
+                    )
+                )
+            )
+            series = title_result.scalars().first()
 
     if series:
-        # Migrate from llm_search to new source if applicable
-        if series.external_source == "llm_search" and data.get("external_source") != "llm_search":
-            series.external_source = data.get("external_source")
-            series.external_id = data.get("external_id")
+        # Migrate legacy/inconsistent identifiers to the canonical form so the
+        # next upsert converges even faster.
+        if canonical_id:
+            series.external_id = canonical_id
+        if raw_source and raw_source != "llm_search":
+            series.external_source = raw_source
         series.description = data.get("description") or series.description
         if data.get("rating") is not None:
             series.rating = data.get("rating")
@@ -330,6 +479,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             local_url = await download_and_cache_poster(remote_poster)
             series.poster_url = local_url or remote_poster
         series.content_type = "tv"
+        await fts_service.upsert_series_fts(db, series)
         return series
 
     # Create
@@ -346,7 +496,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         title_en=title_en,
         original_title=data.get("original_title"),
         aliases=aliases or None,
-        external_id=data.get("external_id"),
+        external_id=canonical_id or raw_external_id,
         external_source=data.get("external_source", "llm_search"),
         description=data.get("description"),
         poster_url=local_url or remote_poster,
@@ -361,24 +511,56 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     )
     db.add(series)
     await db.flush()
+    await fts_service.upsert_series_fts(db, series)
     return series
 
 
 async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
-    """Upsert a Movie by (external_id, external_source='llm_search')."""
-    result = await db.execute(
-        select(Movie).where(
-            Movie.external_id == data.get("external_id"),
-            Movie.external_source.in_([data.get("external_source"), "llm_search"]),
-        )
-    )
-    movie = result.scalars().first()
+    """Upsert a Movie by canonicalized external_id, then by exact title fallback.
+
+    See :func:`create_or_update_series_from_external` for the rationale.
+    """
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    content_type = data.get("content_type")
+    canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
+
+    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
+    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+
+    movie: Movie | None = None
+    if lookup_ids:
+        stmt = select(Movie).where(Movie.external_id.in_(lookup_ids))
+        if lookup_sources:
+            stmt = stmt.where(Movie.external_source.in_(lookup_sources))
+        result = await db.execute(stmt)
+        movie = result.scalars().first()
+
+    if movie is None:
+        title_candidates = [
+            t for t in (
+                data.get("title_cn"),
+                data.get("title_en"),
+                data.get("original_title"),
+            ) if t
+        ]
+        if title_candidates:
+            title_result = await db.execute(
+                select(Movie).where(
+                    or_(
+                        Movie.title_cn.in_(title_candidates),
+                        Movie.title_en.in_(title_candidates),
+                        Movie.original_title.in_(title_candidates),
+                    )
+                )
+            )
+            movie = title_result.scalars().first()
 
     if movie:
-        # Migrate from llm_search to new source if applicable
-        if movie.external_source == "llm_search" and data.get("external_source") != "llm_search":
-            movie.external_source = data.get("external_source")
-            movie.external_id = data.get("external_id")
+        if canonical_id:
+            movie.external_id = canonical_id
+        if raw_source and raw_source != "llm_search":
+            movie.external_source = raw_source
         movie.description = data.get("description") or movie.description
         if data.get("rating") is not None:
             movie.rating = data.get("rating")
@@ -409,6 +591,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             local_url = await download_and_cache_poster(remote_poster)
             movie.poster_url = local_url or remote_poster
         movie.content_type = "movie"
+        await fts_service.upsert_movie_fts(db, movie)
         return movie
 
     remote_poster = data.get("poster_url")
@@ -424,7 +607,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
         title_en=title_en,
         original_title=data.get("original_title"),
         aliases=aliases or None,
-        external_id=data.get("external_id"),
+        external_id=canonical_id or raw_external_id,
         external_source=data.get("external_source", "llm_search"),
         description=data.get("description"),
         poster_url=local_url or remote_poster,
@@ -437,6 +620,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     )
     db.add(movie)
     await db.flush()
+    await fts_service.upsert_movie_fts(db, movie)
     return movie
 
 
@@ -454,13 +638,26 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         return
 
     # Layer 2: ChannelRawTitleMapping
-    mapping_result = await db.execute(
-        select(ChannelRawTitleMapping).where(
-            ChannelRawTitleMapping.channel_id == channel.id,
-            ChannelRawTitleMapping.raw_title == resource.title_raw,
+    # Primary lookup: by normalized search_title_key (handles episode/resolution variations)
+    search_key = normalize_title(extract_search_title(resource))
+    mapping = None
+    if search_key:
+        mapping_result = await db.execute(
+            select(ChannelRawTitleMapping).where(
+                ChannelRawTitleMapping.channel_id == channel.id,
+                ChannelRawTitleMapping.search_title_key == search_key,
+            )
         )
-    )
-    mapping = mapping_result.scalars().first()
+        mapping = mapping_result.scalars().first()
+    # Fallback: by exact raw_title (compatibility with pre-search_key mappings)
+    if not mapping:
+        mapping_result = await db.execute(
+            select(ChannelRawTitleMapping).where(
+                ChannelRawTitleMapping.channel_id == channel.id,
+                ChannelRawTitleMapping.raw_title == resource.title_raw,
+            )
+        )
+        mapping = mapping_result.scalars().first()
     if mapping:
         if mapping.series_id:
             resource.series_id = mapping.series_id
@@ -495,12 +692,14 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
 
     # NOTE: 70-84 matches are skipped (too ambiguous) and fall through to LLM layer.
 
-    # Layer 4: Multi-source metadata search
-    if channel.metadata_source != "llm":
+    # Layer 4: selected-source metadata search
+    if not channel.metadata_agent_enabled:
         return
 
     try:
-        results = await search_metadata_via_llm(search_title)
+        from app.services.metadata_agent import DEFAULT_METADATA_SOURCE
+
+        results = await search_metadata_via_llm(search_title, DEFAULT_METADATA_SOURCE)
     except Exception as e:
         logger.warning("[metadata] LLM search failed for %r: %s", search_title[:60], e)
         return
@@ -526,14 +725,123 @@ async def manual_search_metadata(
     db: AsyncSession,
     search_title: str,
     content_type: str,
+    data_source_type: str | None = None,
 ) -> list[dict]:
-    """Run LLM search for the manual-search endpoint. No persistence."""
-    results = await search_metadata_via_llm(search_title)
+    """Search for metadata candidates. No persistence.
+
+    When ``data_source_type == "local"``, searches the local TVSeries/Movie
+    library via FTS5 instead of calling the LLM agent. This allows users to
+    match resources against already-known works without external API calls.
+    """
+    logger.info(
+        "[metadata] manual_search start title=%r content_type=%s data_source_type=%s",
+        search_title[:160], content_type, data_source_type,
+    )
+
+    # Local library data source — search existing TVSeries/Movie via FTS5
+    if data_source_type == "local":
+        results = await _search_local_library(db, search_title, content_type)
+        logger.info(
+            "[metadata] manual_search (local) done title=%r candidates=%d",
+            search_title[:160], len(results),
+        )
+        return results
+
+    results = await search_metadata_via_llm(search_title, data_source_type)
+    normalized: list[dict] = []
+    for result in results:
+        item = dict(result)
+        if item.get("content_type") not in ("tv", "movie"):
+            item["content_type"] = content_type if content_type in ("tv", "movie") else "tv"
+        normalized.append(item)
+    results = normalized
     if content_type in ("tv", "movie"):
         # Prefer content type but don't strictly filter — return all candidates
         preferred = [r for r in results if r.get("content_type") == content_type]
         if preferred:
+            logger.info(
+                "[metadata] manual_search done title=%r preferred_candidates=%d total_candidates=%d",
+                search_title[:160], len(preferred), len(results),
+            )
             return preferred
+    logger.info(
+        "[metadata] manual_search done title=%r candidates=%d",
+        search_title[:160], len(results),
+    )
+    return results
+
+
+async def _search_local_library(
+    db: AsyncSession,
+    search_title: str,
+    content_type: str,
+) -> list[dict]:
+    """Search the local TVSeries/Movie library via FTS5.
+
+    Returns candidates in the same dict shape as LLM search results so the
+    frontend can reuse the same selection UI.
+    """
+    results: list[dict] = []
+    norm = normalize_title(search_title)
+
+    if content_type != "movie":
+        # Search TV series
+        candidate_ids = await fts_service.search_series_fts(db, search_title, limit=20)
+        if candidate_ids:
+            from sqlalchemy import select as sa_select
+            res = await db.execute(sa_select(TVSeries).where(TVSeries.id.in_(candidate_ids)))
+            for s in res.scalars().all():
+                titles = [s.title_cn, s.title_en, *(s.aliases or [])]
+                score = max((similarity_score(norm, t) for t in titles if t), default=0)
+                if score < FUZZY_THRESHOLD:
+                    continue
+                results.append({
+                    "content_type": "tv",
+                    "title_cn": s.title_cn,
+                    "title_en": s.title_en,
+                    "original_title": s.original_title,
+                    "external_id": s.external_id,
+                    "external_source": s.external_source or "local_match",
+                    "description": s.description,
+                    "poster_url": s.poster_url,
+                    "rating": s.rating,
+                    "genre": s.genre,
+                    "status": s.status,
+                    "content_type_detail": "tv",
+                    "_local_id": s.id,
+                    "_score": score,
+                })
+
+    if content_type != "tv":
+        # Search movies
+        candidate_ids = await fts_service.search_movie_fts(db, search_title, limit=20)
+        if candidate_ids:
+            from sqlalchemy import select as sa_select
+            res = await db.execute(sa_select(Movie).where(Movie.id.in_(candidate_ids)))
+            for m in res.scalars().all():
+                titles = [m.title_cn, m.title_en, *(m.aliases or [])]
+                score = max((similarity_score(norm, t) for t in titles if t), default=0)
+                if score < FUZZY_THRESHOLD:
+                    continue
+                results.append({
+                    "content_type": "movie",
+                    "title_cn": m.title_cn,
+                    "title_en": m.title_en,
+                    "original_title": m.original_title,
+                    "external_id": m.external_id,
+                    "external_source": m.external_source or "local_match",
+                    "description": m.description,
+                    "poster_url": m.poster_url,
+                    "rating": m.rating,
+                    "genre": m.genre,
+                    "status": m.status,
+                    "content_type_detail": "movie",
+                    "_local_id": m.id,
+                    "_score": score,
+                })
+
+    # Sort by score descending
+    results.sort(key=lambda r: r.get("_score", 0), reverse=True)
     return results
 
 
@@ -566,26 +874,54 @@ async def manual_link_metadata(
     resource.metadata_matched_at = utcnow()
 
     # Upsert ChannelRawTitleMapping
-    existing = await db.execute(
-        select(ChannelRawTitleMapping).where(
-            ChannelRawTitleMapping.channel_id == channel.id,
-            ChannelRawTitleMapping.raw_title == resource.title_raw,
+    # Use search_title_key so future resources from the same work (different
+    # episode/resolution) also auto-link.
+    search_key = normalize_title(extract_search_title(resource))
+    if search_key:
+        existing = await db.execute(
+            select(ChannelRawTitleMapping).where(
+                ChannelRawTitleMapping.channel_id == channel.id,
+                ChannelRawTitleMapping.search_title_key == search_key,
+            )
         )
-    )
-    mapping = existing.scalars().first()
-    if mapping:
-        mapping.series_id = series_id
-        mapping.movie_id = movie_id
-        mapping.content_type = content_type
+        mapping = existing.scalars().first()
+        if mapping:
+            mapping.series_id = series_id
+            mapping.movie_id = movie_id
+            mapping.content_type = content_type
+        else:
+            mapping = ChannelRawTitleMapping(
+                channel_id=channel.id,
+                raw_title=resource.title_raw,
+                search_title_key=search_key,
+                content_type=content_type,
+                series_id=series_id,
+                movie_id=movie_id,
+            )
+            db.add(mapping)
     else:
-        mapping = ChannelRawTitleMapping(
-            channel_id=channel.id,
-            raw_title=resource.title_raw,
-            content_type=content_type,
-            series_id=series_id,
-            movie_id=movie_id,
+        # Fallback: use raw_title as key when extraction yields nothing
+        existing = await db.execute(
+            select(ChannelRawTitleMapping).where(
+                ChannelRawTitleMapping.channel_id == channel.id,
+                ChannelRawTitleMapping.raw_title == resource.title_raw,
+            )
         )
-        db.add(mapping)
+        mapping = existing.scalars().first()
+        if mapping:
+            mapping.series_id = series_id
+            mapping.movie_id = movie_id
+            mapping.content_type = content_type
+        else:
+            mapping = ChannelRawTitleMapping(
+                channel_id=channel.id,
+                raw_title=resource.title_raw,
+                search_title_key=resource.title_raw,
+                content_type=content_type,
+                series_id=series_id,
+                movie_id=movie_id,
+            )
+            db.add(mapping)
 
     await db.flush()
     return entity

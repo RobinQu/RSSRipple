@@ -78,8 +78,7 @@ def _create_channel(
         "url": url,
         "fetch_interval": 3600,
         "field_mapping": field_mapping or DEFAULT_FIELD_MAPPING,
-        "metadata_source": "none",
-        "title_extraction_method": "none",
+        "metadata_agent_enabled": False,
     }
     payload.update(extra)
     return _api("/api/v1/channels", method="post", json=payload)
@@ -218,7 +217,7 @@ class TestChannelFetchGroundTruth:
     """Test fetch against a mikanani-ext feed and verify ground truth."""
 
     def test_fetch_creates_resources(self, mikanani_ext_channel_id):
-        """Create channel with mikanani-ext feed, POST /fetch, poll,
+        """Create channel with mikanani-ext feed, POST /fetch, poll
         verify result['result']['new_count'] > 0."""
         r = _api(
             f"/api/v1/channels/{mikanani_ext_channel_id}/fetch", method="post"
@@ -382,7 +381,7 @@ class TestChannelFieldMapping:
     """Test different field_mapping configurations."""
 
     def test_create_with_custom_field_mapping(self):
-        """Create channel with field_mapping extracting title_raw from title,
+        """Create channel with field_mapping extracting title_raw from title
         resolution from description, subtitle_group from title."""
         custom_mapping = {
             "list_locator": {"source": "entries"},

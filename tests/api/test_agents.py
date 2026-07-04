@@ -29,7 +29,7 @@ async def channel_and_dl(client, api_mocks):
             "name": "C", "type": "rss_feed",
             "url": "https://example.com/rss", "fetch_interval": 1800,
             "field_mapping": TEST_FIELD_MAPPING,
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL", "type": "transmission",

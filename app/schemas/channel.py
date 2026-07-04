@@ -16,9 +16,7 @@ class ChannelCreate(BaseModel):
     fetch_interval: int = 1800
     status: str = "active"
     field_mapping: dict
-    title_extraction_method: str = "none"
-    title_extraction_regex: str | None = None
-    metadata_source: str = "llm"
+    metadata_agent_enabled: bool = True
 
 
 class ChannelUpdate(BaseModel):
@@ -27,9 +25,7 @@ class ChannelUpdate(BaseModel):
     fetch_interval: int | None = None
     status: str | None = None
     field_mapping: dict | None = None
-    title_extraction_method: str | None = None
-    title_extraction_regex: str | None = None
-    metadata_source: str | None = None
+    metadata_agent_enabled: bool | None = None
 
 
 class ChannelResponse(ORMModel):
@@ -40,9 +36,7 @@ class ChannelResponse(ORMModel):
     fetch_interval: int
     status: str
     field_mapping: dict
-    title_extraction_method: str = "none"
-    title_extraction_regex: str | None = None
-    metadata_source: str = "llm"
+    metadata_agent_enabled: bool = True
     last_fetched_at: datetime | None = None
     last_fetch_status: str | None = None
     last_fetch_error: str | None = None

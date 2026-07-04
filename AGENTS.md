@@ -23,10 +23,7 @@ class Channel(Base):
     field_mapping: dict                  # LLM 生成或用户手动配置的字段映射规则（必填）
                                          # 格式: {list_locator: {source: "entries"},
                                          #        field_mappings: {field: {source, regex?, group?, transform?}}}
-    title_extraction_method: str         # 标题清洗方式: "llm" | "regex" | "none"，默认 "llm"
-    title_extraction_regex: str | None   # 用户填入或 LLM 生成的标题清洗正则
-    metadata_source: str                 # 元数据来源策略: "llm" | "none"，默认 "llm"
-                                         # "llm" 表示本地匹配失败时通过 TMDB → Exa AI Agent 搜索 metadata
+    metadata_agent_enabled: bool         # 是否启用统一 metadata agent（默认 true）
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
     last_fetch_error: str | None         # 上次抓取错误信息
@@ -68,6 +65,10 @@ class FileResource(Base):
     torrent_url: str                     # 下载链接（magnet:?xt=... 或 .torrent URL）
     detail_url: str | None               # 详情页链接
     published_at: datetime | None        # RSS 发布时间
+    # 合集（多集打包）标识 —— 由 pre-parser 与 MetadataAgent 联合判定
+    is_batch: bool                       # 该资源是否为多集合集，默认 False
+    episode_start: int | None            # 合集起始集，尽力而为（标题里可能没有）
+    episode_end: int | None              # 合集结束集，尽力而为（标题里可能没有）
     # Metadata 关联（series/movie 用于定位作品；episode 字段用于定位剧集集数）
     series_id: str | None → TVSeries     # 关联剧集系列 FK
     movie_id: str | None → Movie         # 关联电影 FK
@@ -82,6 +83,13 @@ class FileResource(Base):
 - 若为电影资源，`movie_id` 非空，`series_id` 必须为空。
 - 未识别资源两个 FK 均为空。
 
+**合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分两层：
+
+1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。
+2. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end`；LLM 输出的非空值覆盖 pre-parser 结果。
+
+合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
+
 ### TVSeries（剧集系列 - Metadata 缓存）
 
 ```python
@@ -93,8 +101,8 @@ class TVSeries(Base):
     title_en: str | None                 # 英文标题
     original_title: str | None           # 原始标题（原名）
     aliases: list[str] | None            # 别名列表，自动积累合并（去重）
-    external_id: str | None              # 外部 ID（LLM 搜索时返回的参考 ID，如 TMDB ID）
-    external_source: str | None          # 枚举字符串: "llm_search" | "manual" | "local_match"
+    external_id: str | None              # 外部 ID（MetadataAgent 返回的参考 ID，如 TMDB/MAL/IMDb/Wikipedia ID）
+    external_source: str | None          # 枚举字符串: "exa" | "tmdb" | "wikipedia" | "manual" | "local_match" | "llm_search"（旧版遗留）
     description: str | None              # 简介
     poster_url: str | None               # 海报本地缓存路径，格式 /posters/{hash}.jpg
     rating: float | None                 # 评分（0-10）
@@ -128,7 +136,7 @@ class Movie(Base):
     original_title: str | None
     aliases: list[str] | None
     external_id: str | None
-    external_source: str | None          # 枚举: "llm_search" | "manual" | "local_match"
+    external_source: str | None          # 枚举: "exa" | "tmdb" | "wikipedia" | "manual" | "local_match" | "llm_search"（旧版遗留）
     description: str | None
     poster_url: str | None
     rating: float | None
@@ -311,13 +319,19 @@ class DownloaderInstance(Base):
 
     id: str                              # UUID
     name: str                            # 下载器名称
-    type: str                            # 枚举: "transmission"（当前唯一支持）
+    type: str                            # 枚举: "transmission" | "mock"
+                                         #   transmission: 真实 Transmission RPC
+                                         #   mock: 本地内存模拟器，用于测试 Agent 流程
+                                         #        （所有连接测试通过；每个 add_torrent
+                                         #         的任务在随机 1-10 秒后自动完成）
     url: str                             # Transmission RPC URL（如 http://127.0.0.1:9091/transmission/rpc）
+                                         # mock 类型可省略，默认为 "mock://local"
     username: str | None                 # RPC 用户名
     password: str | None                 # RPC 密码
     download_dir: str                    # 默认下载目录（必填）
                                          # Transmission 下载服务器本地可读写的绝对路径
                                          # 支持该服务器 OS 的路径风格（POSIX/Windows/UNC）
+                                         # mock 类型可省略，默认为 "/tmp/mock-downloads"
     status: str                          # "connected" | "disconnected" | "error"，默认 "disconnected"
     last_checked_at: datetime | None     # 上次连通性检查时间
     created_at: datetime
@@ -326,16 +340,20 @@ class DownloaderInstance(Base):
 
 ### ChannelRawTitleMapping（频道原始标题映射）
 
-用户手动修正 metadata 后，将原始标题与作品的映射落库；后续抓取同一频道相同原始标题的资源时直接查表，避免重复匹配。
+用户手动修正 metadata 后，将原始标题与作品的映射落库；后续抓取同一频道**同一作品不同集数/画质**的资源时自动匹配。
+匹配 key 使用 `search_title_key`（`normalize_title(extract_search_title(raw_title))`），而非 raw_title 本身，
+从而解决同一作品因集数/分辨率不同而无法匹配的问题。
 
 ```python
 class ChannelRawTitleMapping(Base):
     __tablename__ = "channel_raw_title_mappings"
-    __table_args__ = (UniqueConstraint("channel_id", "raw_title"),)
+    __table_args__ = (UniqueConstraint("channel_id", "search_title_key"),)
 
     id: str                              # UUID
     channel_id: str → Channel            # 所属频道 FK
-    raw_title: str                       # RSS 原始标题（精确匹配 key）
+    raw_title: str                       # RSS 原始标题（留存审计用）
+    search_title_key: str                # 匹配 key：normalize_title(extract_search_title(raw_title))
+                                         # 剥离字幕组前缀、集数后缀、分辨率等可变部分
     content_type: str | None             # "tv" | "movie"（可空，空时以 series_id/movie_id 为准）
     search_title_override: str | None    # 可选：覆盖默认 search_title（用户自定义清洗结果）
     series_id: str | None → TVSeries     # 映射到的剧集 FK
@@ -344,9 +362,11 @@ class ChannelRawTitleMapping(Base):
     updated_at: datetime
 ```
 
+**兼容性**：旧数据使用 `raw_title` 精确匹配作为 fallback，保证已有 mapping 不失效。
+
 ### MetadataCache（元数据缓存）
 
-仅用于 LLM 标题清洗缓存，不缓存 metadata 搜索结果（搜索结果直接落到 TVSeries/Movie 表）。
+缓存统一 MetadataAgent 的处理结果，避免对同一标题重复执行 LangGraph ReAct 循环。`source="llm_title"` 为旧版遗留标识。
 
 ```python
 class MetadataCache(Base):
@@ -355,9 +375,9 @@ class MetadataCache(Base):
 
     id: str                              # UUID
     title: str                           # 缓存 key：原始（未清洗）标题
-    source: str                          # 来源标识，固定为 "llm_title"
-    content_type: str | None             # LLM 判断的内容类型
-    metadata_json: dict                  # 缓存内容，格式 {"clean_title": "...", "content_type": "..."}
+    source: str                          # 来源标识: "metadata_agent"（当前主要） | "llm_title"（旧版遗留）
+    content_type: str | None             # 判断的内容类型: "tv" | "movie"
+    metadata_json: dict                  # 缓存内容，格式 {"clean_title": "...", "content_type": "...", "episode": ..., "season": ..., ...}
     created_at: datetime
     updated_at: datetime
 ```
@@ -382,10 +402,11 @@ BoolCondition = {
 FieldCondition = {
   "field": "subtitle_group" | "resolution" | "source" | "video_codec" |
            "audio_codec" | "subtitle_type" | "container" | "file_size" |
-           "episode" | "season" | "title_cn" | "title_en" | "search_title",
+           "episode" | "season" | "episode_start" | "episode_end" |
+           "is_batch" | "title_cn" | "title_en" | "search_title",
   "operator": "eq" | "ne" | "contains" | "fuzzy" | "in" | "regex" |
               "gt" | "gte" | "lt" | "lte",
-  "value": string | number | string[]
+  "value": string | number | boolean | string[]
 }
 ```
 
@@ -396,7 +417,8 @@ FieldCondition = {
   - `combinator="or"`：`conditions` 中任一子条件通过时，本组通过。
   - `is_not=true`：对最终结果取反。
 - **字段类型与 operator 支持**：
-  - 数字字段（`file_size`, `episode`, `season`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
+  - 数字字段（`file_size`, `episode`, `season`, `episode_start`, `episode_end`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
+  - 布尔字段（`is_batch`）支持：`eq`, `ne`。value 接受原生 bool、数字 `1/0`、字符串 `"true"/"false"/"yes"/"no"/"1"/"0"`。
   - 字符串字段（其余全部）支持：`eq`, `ne`, `contains`, `fuzzy`, `in`, `regex`。
 - **operator 语义**（字符串比较均忽略大小写）：
   - `eq`：字段值等于 value（字符串去首尾空格后比较）。
@@ -464,6 +486,24 @@ FieldCondition = {
 }
 ```
 
+**示例 4**：只要单集（排除合集）。
+
+```json
+{ "field": "is_batch", "operator": "eq", "value": false }
+```
+
+**示例 5**：只要覆盖 8 集以上的合集。
+
+```json
+{
+  "combinator": "and",
+  "conditions": [
+    { "field": "is_batch", "operator": "eq", "value": true },
+    { "field": "episode_end", "operator": "gte", "value": 8 }
+  ]
+}
+```
+
 ---
 
 ## API 端点设计
@@ -514,13 +554,12 @@ FieldCondition = {
 | POST | `/channels` | 创建频道（服务端校验 RSS URL 可达与格式合法性） |
 | GET | `/channels/form-token` | 获取表单防重复提交 Token（一次有效，存服务端 Cache） |
 | GET | `/channels/{id}` | 频道详情（含最近 20 条 FileResource 预览） |
-| PUT | `/channels/{id}` | 更新频道（含 field_mapping/title_extraction/metadata_source 等所有字段，一次性保存） |
+| PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存） |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
 | POST | `/channels/{id}/fetch` | 手动触发抓取（入队，返回 task_id） |
 | GET | `/channels/{id}/fetch-status` | 轮询抓取任务状态（running/success/failed + 进度信息） |
 | POST | `/channels/{id}/analyze` | 非流式 LLM 分析 RSS，返回 field_mapping（阻塞等待直到完成或超时） |
 | POST | `/channels/{id}/analyze-stream` | SSE 流式 LLM 分析（delta/done/error 事件） |
-| POST | `/channels/{id}/generate-title-regex` | LLM 根据若干已解析资源样例生成标题清洗正则 |
 | POST | `/channels/{id}/summarize-filters` | 给定若干资源 ID，统计特征并生成 FilterConfig 片段建议 |
 | POST | `/channels/validate-url` | 验证 RSS URL 可达性与格式（创建前校验） |
 | POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
@@ -642,20 +681,29 @@ FieldCondition = {
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/channels/{channel_id}/resources` | 频道资源列表（分页；`?grouped=true` 时按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组） |
+| GET | `/channels/{channel_id}/resources` | 频道资源列表。默认（`grouped=false`）按 `published_at` 倒序、按行分页返回。`grouped=true` 时按 **作品分组**分页——每一页返回若干个 group（TVSeries / Movie / 未识别），每个 group 内包含该作品全部资源（不跨页拆分），group 顺序按各自最新资源的 `published_at` 倒序；`meta.total` 表示 group 总数。 |
 | GET | `/resources/{id}` | 资源详情 |
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询） |
-| POST | `/resources/{id}/metadata/search` | 手动 LLM 搜索：`{ "search_title": "...", "content_type": "tv"|"movie" }` → 返回候选列表 |
+| POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"? }` → 返回候选列表 |
 | PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤 |
 
-`POST /resources/{id}/metadata/search` 响应 `data`：
+`POST /resources/{id}/metadata/search` 请求体示例：
+```json
+{
+  "search_title": "Ascendance of a Bookworm",
+  "content_type": "tv",
+  "data_source_type": "exa"
+}
+```
+
+响应 `data`：
 ```json
 {
   "results": [
     {
       "title_cn": "...", "title_en": "...", "original_title": "...",
       "description": "...", "poster_url": "https://...", "year": 2024,
-      "external_id": "...", "content_type": "tv"
+      "external_id": "...", "external_source": "exa", "content_type": "tv"
     }
   ]
 }
@@ -710,15 +758,13 @@ fetch_channel_resources(channel, db)
   │     ├─ b. parse_entry(entry, channel.field_mapping) → 解析出各字段
   │     ├─ c. 兜底提取 torrent_url：从 enclosure/link 中找 magnet 或 .torrent
   │     ├─ d. 创建 FileResource 对象（parsed_at = now）
-  │     ├─ e. 标题清洗 backfill_titles(resource):
-  │     │     search_title = extract_search_title(resource)  # 去字幕组/分辨率/编码等尾缀
-  │     │     if method == "regex" and regex:
-  │     │         search_title = clean_title_regex(search_title, regex)
-  │     │     elif method == "llm":
-  │     │         查 MetadataCache(source="llm_title", title=title_raw)
-  │     │         命中 → 取 clean_title
-  │     │         未命中 → 调 LLM → 写缓存 → 取 clean_title
-  │     │     resource.search_title = search_title
+  │     ├─ e. 统一 Metadata Agent（通过 LangGraph ReAct 循环，单次调用完成标题清洗 + 单数据源 metadata 搜索）
+  │     │     agent = UnifiedMetadataAgent()
+  │     │     await agent.process(resource, channel, db)
+  │     │     # Agent 内部完成：标题清洗 → episode/season 推断 → 选择唯一数据源搜索
+  │     │     # 生产抓取默认使用 Exa Agent Search；评测/手动搜索可选择 exa/tmdb/wikipedia
+  │     │     # 结果写入 resource.search_title, episode, season, series_id/movie_id
+  │     │     # 并通过 MetadataCache(source="metadata_agent") 缓存
   │     ├─ f. fetch_and_link_metadata(resource, channel)  # 详见 Metadata 匹配流程
   │     ├─ g. 若 LLM 返回 poster_url 且为 http(s) URL → 下载到 POSTER_CACHE_DIR
   │     │     文件名: {sha256(url)[:16]}.{ext}，保存路径相对于 POSTER_CACHE_DIR
@@ -741,10 +787,15 @@ fetch_and_link_metadata(resource, channel, db)
   ├─ Layer 1: 已链接 → 直接返回
   │     if resource.series_id or resource.movie_id: return
   │
-  ├─ Layer 2: ChannelRawTitleMapping 精确匹配
+  ├─ Layer 2: ChannelRawTitleMapping（search_title_key 优先，raw_title fallback）
+  │     search_key = normalize_title(extract_search_title(resource))
   │     mapping = db.query(ChannelRawTitleMapping).filter_by(
-  │         channel_id=channel.id, raw_title=resource.title_raw
+  │         channel_id=channel.id, search_title_key=search_key
   │     ).first()
+  │     if not mapping:  # 兼容旧数据
+  │         mapping = db.query(ChannelRawTitleMapping).filter_by(
+  │             channel_id=channel.id, raw_title=resource.title_raw
+  │         ).first()
   │     if mapping:
   │         写入 resource.series_id/movie_id
   │         若 mapping.search_title_override: resource.search_title = 覆盖值
@@ -773,18 +824,11 @@ fetch_and_link_metadata(resource, channel, db)
   │         否则跳过（留 LLM 层处理，避免误匹配）
   │     # Movie 同理
   │
-  ├─ Layer 4: 多源 Metadata 搜索（仅当 channel.metadata_source == "llm" 时执行）
-  │     results = search_metadata_via_llm(search_title)
-  │     # 搜索策略：TMDB → Exa AI Agent（回退）
-  │     if results 非空:
-  │         best = results[0]  # 已按评分排序
-  │         if best.content_type == "tv":
-  │             series = create_or_update_series_from_external(db, best)
-  │             resource.series_id = series.id
-  │         else:
-  │             movie = create_or_update_movie_from_external(db, best)
-  │             resource.movie_id = movie.id
-  │         return
+  ├─ Layer 4: 统一 MetadataAgent（仅当 channel.metadata_agent_enabled == True 时执行）
+  │     调用 UnifiedMetadataAgent.process() — ReAct 循环
+  │     数据源：默认 Exa Agent Search；评测/手动搜索可显式选择 exa/tmdb/wikipedia
+  │     单次执行只允许调用所选数据源的工具，不做 TMDB→Exa→Wikipedia 级联或 fallback
+  │     结果直接写入 resource.series_id/movie_id 并写 MetadataCache
   │
   └─ 全部失败 → resource 保持未链接（series_id/movie_id 均为 null）
 ```
@@ -796,6 +840,20 @@ fetch_and_link_metadata(resource, channel, db)
 - 返回实体。
 
 `create_or_update_movie_from_external` 同理。
+
+### Metadata Search Agent 数据源策略
+
+MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必须选择且只选择一个数据源，由 LLM 基于该数据源返回的证据做标题理解、集数/季数推断和最终结构化输出。
+
+支持的数据源：
+- `exa`：Exa Agent Search，默认数据源。通过 Exa Agent API 创建 run，传入结构化 `output_schema`，轮询完成后读取 `output.structured.candidates`。适合 Web 证据覆盖面更广的标题搜索与评测。
+- `tmdb`：TMDB Search。仅使用 TMDB API 的搜索/详情工具，适合结构化影视库匹配。
+- `wikipedia`：Wikipedia Search。仅使用 Wikipedia 搜索与页面工具，适合以百科页面为唯一证据的评测。
+
+兼容规则：
+- `combined` 仅作为旧评测数据集值保留；运行时归一化为默认 `exa`，不得作为新数据集或新搜索任务的数据源类型。
+- 生产 RSS 抓取当前默认使用 `exa`。若未来为 Channel 增加可配置数据源字段，也必须保持"单次只使用一个数据源"的约束。
+- eval 标注平台的新建 Dataset 必须人工选择 `exa` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `exa-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
 
 ### Agent 过滤流程（agent_service）
 
@@ -836,7 +894,12 @@ process_resources(agent, resources, db)
   │     ├─ c. 评估 effective_filter（evaluate_filter_config）
   │     │     if not passes → continue
   │     │
-  │     ├─ d. 去重检查:
+  │     ├─ c'. 合集分支（若 resource.is_batch=True）：
+  │     │     合集资源不参与 (series_id, episode) 聚合、不参与 PendingDecision。
+  │     │     检查是否已有该 FileResource 的 active/completed 下载任务；
+  │     │     若无，则直接 dispatch_download 派发本条资源，continue。
+  │     │
+  │     ├─ d. 去重检查（仅单集资源经过本步骤）:
   │     │     if resource.movie_id:  # 电影
   │     │         exists = db.query(DownloadTask).filter(
   │     │             DownloadTask.agent_id == agent.id,
@@ -845,7 +908,7 @@ process_resources(agent, resources, db)
   │     │         ).first()
   │     │         if exists → continue
   │     │         key = ("movie", resource.movie_id, None)
-  │     │     else:  # TV
+  │     │     else:  # TV 单集
   │     │         dedup = work.enable_episode_dedup if work else True
   │     │         if dedup and resource.episode is not None:
   │     │             exists = db.query(DownloadTask).filter(
@@ -898,7 +961,9 @@ process_resources(agent, resources, db)
   ├─ 1. 用户输入 search_title、选择 content_type (tv/movie)
   │
   ├─ 2. 前端 POST /resources/{id}/metadata/search
-  │     后端调 LLM web-search → 返回候选列表（不含本地落库）
+  │     body = { search_title, content_type, data_source_type? }
+  │     data_source_type 可选值: "exa"（默认）, "tmdb", "wikipedia"
+  │     后端调用 MetadataAgent.process_title_only()，仅使用所选数据源 → 返回候选列表（不含本地落库）
   │
   ├─ 3. 用户选择一个候选并确认
   │
@@ -911,8 +976,9 @@ process_resources(agent, resources, db)
   │              movie = create_or_update_movie_from_external(db, selected_result)
   │              resource.movie_id = movie.id; resource.series_id = null
   │       b. 若有海报 URL → 异步下载海报到本地
-  │       c. 写入 ChannelRawTitleMapping（upsert by channel_id+raw_title）:
+  │       c. 写入 ChannelRawTitleMapping（upsert by channel_id+search_title_key）:
   │              raw_title = resource.title_raw
+  │              search_title_key = normalize_title(extract_search_title(resource))
   │              content_type = selected_result.content_type
   │              series_id / movie_id = 对应实体 id
   │       d. resource.metadata_matched_at = now
@@ -995,6 +1061,20 @@ sync_download_progress():
   └─ 3. db.commit()
 ```
 
+### Mock Downloader（用于测试）
+
+`DownloaderInstance.type = "mock"` 提供一个纯内存模拟器，行为如下：
+
+- **连接测试**：`test_connection()` 总是返回成功（`"Mock Downloader 1.0"`），`free_space` 返回 1 TB。
+- **add_torrent**：立即返回 `torrent_id`，同时把该"下载"记入内存 registry。
+- **进度模拟**：每个 torrent 分配 `random.uniform(1, 10)` 秒的完成周期；`list_torrents/get_torrent` 按 wall-clock 计算 `percent_done`，到期后 `is_finished=True`；scheduler 的 `sync_download_progress` 因此能观测到进度增长并把 DownloadTask 标记为 `completed`。
+- **pause/resume/remove** 均支持；pause 冻结 elapsed 计时，resume 继续。
+- **状态存储**：模块级 `_STATE` dict，进程重启即清空——这正是测试所需的行为。
+
+通过统一工厂 `app.clients.downloader.get_downloader_client(downloader)` 根据 `downloader.type` 分派到 `TransmissionWrapper` 或 `MockDownloaderWrapper`；两者共享同一异步接口（`test_connection` / `add_torrent` / `list_torrents` / `get_torrent` / `pause_torrent` / `resume_torrent` / `remove_torrent` / `free_space`），所有 Agent / scheduler / API 调用点均无需感知具体类型。
+
+Mock downloader 面向本地开发和自动化测试；生产环境应使用 `transmission` 类型。
+
 ---
 
 ## 前端路由与页面设计
@@ -1006,7 +1086,7 @@ sync_download_progress():
 | `/channels` | ChannelList | 频道列表表格（名称/状态/抓取间隔/上次抓取/资源数/Agent 数）；支持新建、编辑、删除、手动抓取 |
 | `/channels/new` | ChannelForm | 创建频道表单（URL 验证、自动 LLM 分析）；右侧 RSS 预览 |
 | `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；主体资源按作品分组展示（每组可折叠，含 poster、作品名、剧集数、最新更新时间）；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
-| `/channels/:id/edit` | ChannelForm | 编辑频道表单，包含 field_mapping 可视化编辑器、标题清洗正则测试器、metadata_source 开关 |
+| `/channels/:id/edit` | ChannelForm | 编辑频道表单，包含 field_mapping 可视化编辑器、metadata_agent_enabled 开关 |
 | `/agents` | AgentList | Agent 列表（名称/频道/下载器/状态/作品数/任务数） |
 | `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；可视化 Filter DSL 编辑器；订阅作品选择器（从频道的已识别作品中多选，最多 10 个） |
 | `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表/新增/移除/编辑 per-work 覆盖）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete）；待决策 Tab（confirm/skip 操作）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run、状态轮询） |
@@ -1098,7 +1178,7 @@ sync_download_progress():
   - 子目录 API 表达推荐使用 `/` 分隔；后端根据 Downloader 根目录风格拼接，标准化后必须保证最终路径仍在 `DownloaderInstance.download_dir` 下。
   - `DownloadTask.download_dir` 保存创建任务时解析出的最终绝对路径；任务重试沿用该字段。
 - **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
-- **配置项**（环境变量）：`DATABASE_URL`、`REDIS_URL`（可选）、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`（用于 feed 分析、标题清洗、正则生成、PendingDecision 建议）、`TMDB_API_KEY`（用于 TMDB metadata 搜索）、`EXA_API_KEY`+`EXA_EFFORT_LEVEL`（用于 Exa AI Agent 搜索回退）、`POSTER_CACHE_DIR`（默认 `./data/posters`）、`TRANSMISSION_TIMEOUT`、`DEV_MODE`（默认 false）。
+- **配置项**（环境变量）：`DATABASE_URL`、`REDIS_URL`（可选）、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`（用于 feed 分析、统一 MetadataAgent、PendingDecision 建议）、`EXA_API_KEY`（用于默认 Exa Agent Search）、`EXA_EFFORT_LEVEL`（Exa Agent effort，默认 `low`）、`TMDB_API_KEY`（用于 TMDB Search）、`POSTER_CACHE_DIR`（默认 `./data/posters`）、`TRANSMISSION_TIMEOUT`、`DEV_MODE`（默认 false）。MetadataAgent 通过 `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` 配置推理模型。Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。

@@ -10,7 +10,7 @@ class DownloadTaskResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    agent_id: str
+    agent_id: str | None = None
     file_resource_id: str
     downloader_id: str | None = None
     download_dir: str | None = None

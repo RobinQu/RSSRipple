@@ -154,9 +154,8 @@ class TestTestServerFeeds:
 def basic_channel_id():
     """Create a channel pointing at the mikanani-1 fixture.
 
-    title_extraction_method='none' skips LLM title backfill so the basic
     fetch test finishes quickly without hitting rate limits.
-    metadata_source='none' skips LLM metadata search for each of the 100
+    metadata_agent_enabled=False skips LLM metadata search for each of the 100
     entries, which would otherwise hang when using models that don't support
     the Responses API web_search tool.
     Shared across all tests in TestCreateChannelBasic.
@@ -168,8 +167,7 @@ def basic_channel_id():
             "url": MIKANANI_1_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "none",
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         },
         timeout=15,
     )
@@ -262,7 +260,7 @@ def channel_with_mapping(analyzed_mapping):
     """
     # Create channel — disable LLM title extraction so the 87-entry fetch
     # finishes quickly (title extraction is tested in test_fetch_with_real_feed.py).
-    # metadata_source='none' avoids per-entry LLM metadata search hangs.
+    # metadata_agent_enabled=False avoids per-entry LLM metadata search hangs.
     resp = httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
         json={
@@ -270,8 +268,7 @@ def channel_with_mapping(analyzed_mapping):
             "url": MIKANANI_1_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "none",
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         },
         timeout=15,
     )

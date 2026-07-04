@@ -65,7 +65,7 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
         s.add_all([
             Channel(id=ch_id, name="DCh", type="rss_feed", url="https://x/rss",
                     status="active", field_mapping=TEST_FIELD_MAPPING,
-                    metadata_source="none", title_extraction_method="none"),
+                    metadata_agent_enabled=False),
             DownloaderInstance(id=dl_id, name="DDl", type="transmission",
                                url="http://127.0.0.1:9091/transmission/rpc",
                                download_dir="/downloads/rssripple"),

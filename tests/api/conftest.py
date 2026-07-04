@@ -117,6 +117,8 @@ async def db_engine():
     enable_sqlite_fk(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        from app.services.fts import ensure_fts_tables
+        await ensure_fts_tables(conn)
     try:
         yield engine
     finally:
@@ -209,8 +211,7 @@ async def sample_channel(db_session: AsyncSession):
         fetch_interval=1800,
         status="active",
         field_mapping=TEST_FIELD_MAPPING,
-        metadata_source="none",
-        title_extraction_method="none",
+        metadata_agent_enabled=False,
     )
     db_session.add(ch)
     await db_session.flush()
@@ -276,8 +277,8 @@ def api_mocks(monkeypatch):
     from app.api.v1 import channels as channels_mod
     from app.services import feed_analyzer as fa_mod
 
-    validate = AsyncMock(return_value=(True, "valid", 5, 5))
-    get_entries = AsyncMock(return_value=[{"title": "[G] T - 01 [1080p]"}])
+    validate = AsyncMock(return_value=(True, "valid", 5, 5)),
+    get_entries = AsyncMock(return_value=[{"title": "[G] T - 01 [1080p]"}]),
     analyze = AsyncMock(return_value={
         "field_mapping": {
             "list_locator": {"source": "entries"},

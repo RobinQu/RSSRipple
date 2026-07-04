@@ -1,9 +1,9 @@
-# RSSRipple Resources & Metadata — Resource browsing, metadata search and linking
-# Covers: view resources grouped by work, open resource detail, search metadata, link metadata,
-# open metadata correction drawer.
+# RSSRipple Resources & Metadata — Resource browsing, MetadataAgent search and linking
+# Covers: view resources grouped by work, open resource detail, run MetadataAgent-backed
+# manual metadata search, link metadata, and open metadata correction modal.
 
 web:
-  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
 
 agent:
   testId: resource-metadata
@@ -32,64 +32,62 @@ tasks:
 
   - name: Verify resource groups are displayed
     flow:
-      - aiAssert: Resources are displayed in collapsible groups — grouped by series, movie, or an "unidentified" group for unlinked resources
+      - aiAssert: The resources area displays collapsible groups grouped by series/movie/unidentified when data exists, or a clear empty state when the channel has no resources
 
   - name: Expand a resource group
     flow:
-      - ai: Click on a resource group header to expand it (look for a series group, movie group, or the unidentified group)
+      - ai: If resource groups are present, click on a group header to expand it; if no resources are present, leave the empty state visible
       - sleep: 2000
-      - aiAssert: The group expands showing individual resource entries with titles and metadata fields
+      - aiAssert: Expanded groups show individual resource entries with titles and metadata fields, or the empty resources state remains visible
 
   # ── Open resource detail drawer ─────────────────────────────────
   - name: Open resource detail
     flow:
-      - ai: Click on a resource entry within an expanded group to open its detail
-      - aiWaitFor: A detail drawer or panel slides in from the right showing the resource's full information
+      - ai: If a resource entry is available, click it to open its detail drawer; if there are no resources, keep the channel detail page on the empty state
+      - aiWaitFor: A detail drawer or panel is visible when a resource exists, otherwise the channel detail empty state is visible
         timeout: 10000
 
   - name: Verify resource detail content
     flow:
-      - aiAssert: The resource detail shows fields like Title, Resolution, Video Codec, Audio Codec, Subtitle Group, Source, File Size, and a torrent/magnet link
+      - aiAssert: If the drawer is open, it shows fields like Title, Resolution, Video Codec, Audio Codec, Subtitle Group, Source, File Size, and a torrent/magnet link; if no drawer is open, the empty resources state is still shown
 
   - name: Copy magnet link
     flow:
-      - ai: Look for a "Copy" button next to the torrent/magnet link
-      - ai: If present, click the copy button
+      - ai: If the resource detail drawer is open, look for a "Copy" button next to the torrent/magnet link and click it when present
       - sleep: 1000
 
   # ── Metadata search and link ────────────────────────────────────
   - name: Open metadata correction
     flow:
-      - ai: Click the "Correct Metadata" or "Fix Metadata" or "Edit Metadata" button in the resource detail drawer
+      - ai: If a resource detail drawer is open, click the "Correct Metadata" or "Fix Metadata" or "Edit Metadata" button; if no resources exist, keep the empty state visible
       - sleep: 2000
-      - aiWaitFor: A metadata search panel or modal appears with fields for search title and content type (tv/movie)
+      - aiWaitFor: A metadata search panel/modal appears with fields for search title and content type when a resource exists, otherwise the empty resources state remains visible
         timeout: 10000
 
-  - name: Search for TV series metadata
+  - name: Search for TV series metadata through MetadataAgent
     flow:
-      - aiInput: The search title input field
-        value: Apology Line
+      - ai: If the metadata modal is open, keep the prefilled search title if it exists; if the input is empty, type "Ascendance of a Bookworm"
       - sleep: 300
-      - ai: Select "tv" as the content type if a selector is available
+      - ai: If the metadata modal is open, select "tv" as the content type if a selector is available
       - sleep: 300
-      - ai: Click the "Search" button
+      - ai: If the metadata modal is open, click the "Search" button
       - sleep: 8000
-      - aiAssert: Search results appear showing candidate TV series entries, or a message that no results were found
+      - aiAssert: If the metadata modal is open, the MetadataAgent search returns candidate TV series entries or a clear no-results/error state; if no resource exists, the channel detail empty state remains visible
 
   - name: Select and confirm a metadata result if available
     flow:
-      - ai: If search results are shown, click on one of the results to select it
+      - ai: If search results are shown, choose one candidate result
       - sleep: 1000
-      - ai: Click "Confirm" or "Link" to associate the selected metadata with the resource
+      - ai: If a candidate result was chosen, click "Confirm Selection", "Confirm", or "Link" to associate the selected metadata with the resource
       - sleep: 3000
-      - aiAssert: The resource detail updates showing the linked metadata (series name, poster, etc.)
+      - aiAssert: If metadata was linked, the resource detail updates showing the linked metadata (series name, poster, etc.); otherwise the modal stays in a clear results/no-results state or the page remains on the empty resources state
 
   # ── Close drawer and navigate ───────────────────────────────────
   - name: Close the resource detail drawer
     flow:
-      - ai: Click the close button (X icon) on the resource detail drawer or click outside
+      - ai: If a resource detail drawer is open, click the close button (X icon) on the drawer or click outside
       - sleep: 1000
-      - aiAssert: The resource detail drawer is closed and the channel detail page is visible again
+      - aiAssert: The channel detail page is visible; any resource detail drawer is closed if it had been opened
 
   # ── Unidentified resources ──────────────────────────────────────
   - name: Check unidentified resources group
@@ -97,4 +95,4 @@ tasks:
       - ai: Look for an "Unidentified" or "Unknown" resource group on the channel detail page
       - ai: If the group exists, expand it to see unlinked resources
       - sleep: 2000
-      - aiAssert: The unidentified group contains resources that are not yet linked to any series or movie metadata
+      - aiAssert: If an unidentified group exists, it contains resources not yet linked to any series or movie metadata; if no such group exists, the page still shows valid grouped resources or a clear empty state

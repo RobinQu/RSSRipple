@@ -264,6 +264,7 @@ The target fields to extract are:
 - title_en (str): English title/name
 - subtitle_group (str): Release group name (often in brackets at the start)
 - episode (int): Episode number
+- season (int): Season number
 - resolution (str): Video resolution (e.g., "1080p", "720p")
 - source (str): Source type (e.g., "WebRip", "WEB-DL", "BDRip")
 - video_codec (str): Video codec (e.g., "HEVC", "AVC", "H264")
@@ -468,7 +469,7 @@ async def call_llm(messages: list[dict]) -> str:
     """Call the configured LLM and return the text response.
 
     Public wrapper around the internal ``_call_openrouter`` / ``_call_openai``
-    functions. Used by other services (e.g. ``title_cleaner``) that need
+    functions. Used by other services (e.g. ``metadata_agent``) that need
     LLM access without re-implementing the provider-detection logic.
     """
     if _is_openrouter():

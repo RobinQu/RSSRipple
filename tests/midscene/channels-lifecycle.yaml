@@ -1,8 +1,8 @@
 # RSSRipple Channel Lifecycle — Full CRUD + operations
-# Covers: create channel, view list/detail, manual fetch, edit, generate title regex, summarize filters, delete.
+# Covers: create channel, view list/detail, manual fetch, edit, metadata agent setting, summarize filters, delete.
 
 web:
-  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
 
 agent:
   testId: channel-lifecycle
@@ -49,6 +49,7 @@ tasks:
       - aiInput: The "Fetch Interval" input field
         value: 1800
       - sleep: 500
+      - ai: Verify the Metadata Agent option is enabled if the form shows a metadata agent toggle
       - ai: Click the "Save" or "Create" or "Submit" button to save the channel
       - sleep: 3000
 
@@ -78,13 +79,12 @@ tasks:
       - aiWaitFor: Resources are displayed either grouped by series/movie or showing an empty state
         timeout: 8000
 
-  # ── Generate Title Regex ───────────────────────────────────────
-  - name: Generate title cleaning regex via LLM
+  # ── Metadata Agent Setting ─────────────────────────────────────
+  - name: Verify metadata agent setting is shown
     flow:
-      - ai: Look for a "Generate Regex" or "Title Regex" button or action related to title extraction
-      - ai: If the button exists, click it
-      - sleep: 8000
-      - aiAssert: Either a regex pattern is displayed, or the feature is unavailable (no error shown)
+      - ai: Look at the channel summary area for a metadata agent indicator or tag
+      - sleep: 1000
+      - aiAssert: The channel detail makes it clear whether Metadata Agent processing is enabled; no deprecated title-regex generation control is shown
 
   # ── Summarize Filters ───────────────────────────────────────────
   - name: Select resources and generate filter rules

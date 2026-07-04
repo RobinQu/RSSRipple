@@ -18,8 +18,7 @@ def _channel_payload(**overrides):
             "list_locator": {"source": "entries"},
             "field_mappings": {"torrent_url": {"source": "link"}},
         },
-        "metadata_source": "none",
-        "title_extraction_method": "none",
+        "metadata_agent_enabled": False,
     }
     base.update(overrides)
     return base
@@ -141,31 +140,6 @@ class TestChannelActions:
     async def test_analyze_channel_404(self, client):
         res = await client.post("/api/v1/channels/nope/analyze")
         assert res.status_code == 404
-
-    async def test_generate_title_regex(self, client, sample_channel):
-        from unittest.mock import AsyncMock
-        with patch(
-            "app.api.v1.channels.get_raw_entries",
-            AsyncMock(return_value=[{"title": "[G] T - 01"}]),
-        ), patch(
-            "app.services.title_cleaner.generate_title_regex",
-            AsyncMock(return_value=r"^(.+?)\s*-"),
-        ):
-            res = await client.post(f"/api/v1/channels/{sample_channel.id}/generate-title-regex")
-        assert res.status_code == 200
-        assert "regex" in res.json()["data"]
-
-    async def test_generate_title_regex_llm_failure(self, client, sample_channel):
-        from unittest.mock import AsyncMock
-        with patch(
-            "app.api.v1.channels.get_raw_entries",
-            AsyncMock(return_value=[{"title": "[G] T - 01"}]),
-        ), patch(
-            "app.services.title_cleaner.generate_title_regex",
-            AsyncMock(return_value=None),
-        ):
-            res = await client.post(f"/api/v1/channels/{sample_channel.id}/generate-title-regex")
-        assert res.status_code == 502
 
     async def test_preview_feed(self, client):
         from unittest.mock import AsyncMock

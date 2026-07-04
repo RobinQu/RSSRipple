@@ -16,9 +16,7 @@ export interface Channel {
   fetch_interval: number;
   status: ChannelStatus;
   field_mapping: FieldMapping;
-  title_extraction_method: 'none' | 'regex' | 'llm';
-  title_extraction_regex: string | null;
-  metadata_source: 'llm' | 'none';
+  metadata_agent_enabled: boolean;
   last_fetched_at: string | null;
   last_fetch_status: string | null;
   last_fetch_error: string | null;
@@ -56,6 +54,9 @@ export interface FileResource {
   subtitle_group: string | null;
   episode: number | null;
   season: number | null;
+  is_batch: boolean;
+  episode_start: number | null;
+  episode_end: number | null;
   resolution: string | null;
   source: string | null;
   video_codec: string | null;
@@ -346,7 +347,7 @@ export type DownloaderStatus = 'connected' | 'disconnected' | 'error';
 export interface DownloaderInstance {
   id: string;
   name: string;
-  type: 'transmission';
+  type: 'transmission' | 'mock';
   url: string;
   username: string | null;
   password: string | null;

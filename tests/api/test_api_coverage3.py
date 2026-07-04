@@ -28,7 +28,7 @@ async def env(client):
         ch = await client.post("/api/v1/channels", json={
             "name": "C3", "type": "rss_feed", "url": "https://x/rss",
             "fetch_interval": 1800, "field_mapping": TEST_FIELD_MAPPING,
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL3", "type": "transmission",
@@ -240,8 +240,7 @@ class TestDashboardPopulatedFull:
             s.add_all([
                 Channel(id=ch_id, name="DC", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
-                        metadata_source="none",
-                        title_extraction_method="none"),
+                        metadata_agent_enabled=False),
                 DownloaderInstance(id=dl_id, name="DD", type="transmission", url="u", download_dir="/downloads/rssripple"),
                 Agent(id=a_id, name="DA", channel_id=ch_id, downloader_id=dl_id,
                       scope_channel_wide=True, status="active"),

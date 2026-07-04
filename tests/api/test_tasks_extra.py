@@ -42,7 +42,7 @@ async def setup(client, mock_transmission, db_session_factory):
             "name": "CT", "type": "rss_feed",
             "url": "https://example.com/rss", "fetch_interval": 1800,
             "field_mapping": TEST_FIELD_MAPPING,
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DLT", "type": "transmission",

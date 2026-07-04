@@ -12,7 +12,7 @@ import {
   Pagination,
 } from 'antd';
 import { worksApi } from '../api/works';
-import { posterUrl } from '../utils/poster';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { Work } from '../types';
 
 const { Title, Text } = Typography;
@@ -22,35 +22,6 @@ type ContentType = (typeof CONTENT_TYPES)[number];
 
 function getDisplayTitle(w: Work): string {
   return w.title_cn || w.title_en || w.original_title || '—';
-}
-
-function PosterFallback({ title }: { title: string }) {
-  const letter = (title[0] || '?').toUpperCase();
-  return (
-    <svg
-      width="180"
-      height="270"
-      viewBox="0 0 180 270"
-      style={{ display: 'block' }}
-      aria-label="Default poster"
-    >
-      <rect width="180" height="270" rx="10" fill="#1f1f1f" />
-      <rect x="6" y="6" width="168" height="258" rx="8" fill="#2a2a2a" stroke="#3a3a3a" strokeWidth="1" />
-      <text
-        x="90"
-        y="150"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill="#5a5a5a"
-        fontFamily="system-ui, -apple-system, sans-serif"
-        fontSize="56"
-        fontWeight="700"
-        letterSpacing="-2"
-      >
-        {letter}
-      </text>
-    </svg>
-  );
 }
 
 export default function WorksPage() {
@@ -165,7 +136,6 @@ export default function WorksPage() {
           >
             {works.map((w) => {
               const displayTitle = getDisplayTitle(w);
-              const hasPoster = !!w.poster_url;
               return (
                 <div
                   key={w.id}
@@ -203,30 +173,18 @@ export default function WorksPage() {
                       background: '#141414',
                     }}
                   >
-                    {hasPoster ? (
-                      <img
-                        src={posterUrl(w.poster_url)}
-                        alt={displayTitle}
-                        loading="lazy"
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                          display: 'block',
-                        }}
-                        onError={(e) => {
-                          const el = e.currentTarget;
-                          if (el.dataset.retried) return;
-                          el.dataset.retried = '1';
-                          el.style.display = 'none';
-                          const placeholder = el.nextElementSibling as HTMLElement | null;
-                          if (placeholder) placeholder.style.display = 'block';
-                        }}
-                      />
-                    ) : null}
-                    <div style={{ display: hasPoster ? 'none' : 'block' }}>
-                      <PosterFallback title={displayTitle} />
-                    </div>
+                    <img
+                      src={posterUrl(w.poster_url)}
+                      alt={displayTitle}
+                      loading="lazy"
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        display: 'block',
+                      }}
+                      onError={useDefaultPoster}
+                    />
                   </div>
 
                   {/* Info */}

@@ -336,27 +336,6 @@ async def analyze_channel_stream(channel_id: str, db: AsyncSession = Depends(get
     )
 
 
-@router.post("/channels/{channel_id}/generate-title-regex")
-async def generate_title_regex(channel_id: str, db: AsyncSession = Depends(get_db)):
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        return _not_found()
-    try:
-        entries = await get_raw_entries(channel.url, limit=10)
-    except Exception as e:
-        return JSONResponse(status_code=400, content={
-            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
-        })
-    from app.services.title_cleaner import generate_title_regex as _gen
-    regex = await _gen(entries)
-    if not regex:
-        return JSONResponse(status_code=502, content={
-            "success": False, "data": None,
-            "error": {"code": "LLM_ERROR", "message": "LLM failed to generate regex"}, "meta": {},
-        })
-    return success_response({"regex": regex})
-
-
 @router.post("/channels/{channel_id}/summarize-filters")
 async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: AsyncSession = Depends(get_db)):
     from app.models.file_resource import FileResource

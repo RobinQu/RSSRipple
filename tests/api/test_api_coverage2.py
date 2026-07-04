@@ -28,7 +28,7 @@ async def env(client):
         ch = await client.post("/api/v1/channels", json={
             "name": "C2", "type": "rss_feed", "url": "https://x/rss",
             "fetch_interval": 1800, "field_mapping": TEST_FIELD_MAPPING,
-            "metadata_source": "none",
+            "metadata_agent_enabled": False,
         })
     dl = await client.post("/api/v1/downloaders", json={
         "name": "DL2", "type": "transmission",
@@ -134,8 +134,7 @@ class TestSeriesMore:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
-                        metadata_source="none",
-                        title_extraction_method="none"),
+                        metadata_agent_enabled=False),
                 FileResource(id=rid, channel_id=ch_id, guid="g", title_raw="r",
                              torrent_url="m:", series_id=sid, search_title="r"),
             ])
@@ -160,7 +159,7 @@ class TestSeriesMore:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
-                        metadata_source="none", title_extraction_method="none"),
+                        metadata_agent_enabled=False),
                 DownloaderInstance(id=dl_id, name="d", type="transmission",
                                    url="u", download_dir="/downloads/rssripple"),
                 Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,
@@ -201,8 +200,7 @@ class TestMoviesMore:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
-                        metadata_source="none",
-                        title_extraction_method="none"),
+                        metadata_agent_enabled=False),
                 FileResource(id=rid, channel_id=ch_id, guid="g", title_raw="r",
                              torrent_url="m:", movie_id=mid, search_title="r"),
             ])
@@ -227,7 +225,7 @@ class TestMoviesMore:
             ss.add_all([
                 Channel(id=ch_id, name="c", type="rss_feed", url="u",
                         status="active", field_mapping=TEST_FIELD_MAPPING,
-                        metadata_source="none", title_extraction_method="none"),
+                        metadata_agent_enabled=False),
                 DownloaderInstance(id=dl_id, name="d", type="transmission",
                                    url="u", download_dir="/downloads/rssripple"),
                 Agent(id=a_id, name="a", channel_id=ch_id, downloader_id=dl_id,

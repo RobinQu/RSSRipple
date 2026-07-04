@@ -18,7 +18,9 @@ from app.services.metadata_search_agent import (
     _fmt_date,
     _tmdb_poster_url,
     _validate_poster_url,
-    search_metadata,
+    _extract_exa_candidates,
+    _extract_exa_structured,
+    _normalize_exa_candidate,
 )
 
 # ---------------------------------------------------------------------------
@@ -86,6 +88,46 @@ def test_tmdb_poster_url():
     assert _tmdb_poster_url("/abc.jpg", base) == "https://image.tmdb.org/t/p/w500/abc.jpg"
     assert _tmdb_poster_url(None) is None
     assert _tmdb_poster_url("") is None
+
+
+def test_extract_exa_candidates_from_candidates_array():
+    structured = {
+        "candidates": [
+            {"content_type": "tv", "title_en": "Breaking Bad"},
+            {"content_type": "movie", "title_en": "El Camino"},
+        ],
+        "reason": "two matches",
+    }
+    assert _extract_exa_candidates(structured) == structured["candidates"]
+
+
+def test_extract_exa_candidates_supports_legacy_single_candidate():
+    structured = {"content_type": "tv", "title_en": "Breaking Bad"}
+    assert _extract_exa_candidates(structured) == [structured]
+
+
+def test_extract_exa_structured_from_sdk_like_model():
+    class Output:
+        structured = {"candidates": [{"content_type": "tv", "title_en": "Breaking Bad"}]}
+
+    class Run:
+        output = Output()
+
+    assert _extract_exa_structured(Run()) == {
+        "candidates": [{"content_type": "tv", "title_en": "Breaking Bad"}]
+    }
+
+
+def test_normalize_exa_candidate_adds_external_fields_and_type_alias():
+    candidate = _normalize_exa_candidate(
+        {"content_type": "anime", "title_en": "Frieren", "genre": None},
+        "[Subs] Frieren - 01",
+        0,
+    )
+    assert candidate["content_type"] == "tv"
+    assert candidate["external_source"] == "exa"
+    assert candidate["external_id"].startswith("exa:")
+    assert candidate["genre"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -332,167 +374,7 @@ EXA_STRUCTURED_RESULT = {
     "runtime": None,
 }
 
-
-@pytest.mark.asyncio
-async def test_exa_search_returns_result(monkeypatch):
-    """Test Exa Agent search returns structured metadata."""
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.exa_api_key", "test_key")
-    from app.services.metadata_search_agent import _search_exa, _cache
-    _cache.clear()
-
-    import app.services.metadata_search_agent as agent_mod
-
-    # Mock AsyncExa
-    class MockRun:
-        id = "run-123"
-
-    class MockOutput:
-        structured = EXA_STRUCTURED_RESULT
-
-    class MockResult:
-        status = "completed"
-        output = MockOutput()
-
-    class MockExaAgentRuns:
-        async def create(self, query, output_schema, effort):
-            return MockRun()
-        async def poll_until_finished(self, run_id, **kwargs):
-            return MockResult()
-
-    class MockExaAgent:
-        def __init__(self):
-            self.runs = MockExaAgentRuns()
-
-    class MockExa:
-        def __init__(self, api_key=None):
-            self.agent = MockExaAgent()
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *args):
-            pass
-
-    monkeypatch.setattr("exa_py.AsyncExa", MockExa)
-    # Also mock poster validation to pass through
-    async def _mock_validate(url, **kw):
-        return url
-    monkeypatch.setattr(agent_mod, "_validate_poster_url", _mock_validate)
-
-    results = await _search_exa("Breaking Bad")
-    assert len(results) == 1
-    r = results[0]
-    assert r["content_type"] == "tv"
-    assert r["title_en"] == "Breaking Bad"
-    assert r["title_cn"] == "绝命毒师"
-    assert r["external_source"] == "exa"
-    assert r["external_id"] == "tt0903747"
-
-
-@pytest.mark.asyncio
-async def test_exa_no_api_key_returns_empty():
-    """Exa returns empty list when no API key configured."""
-    from app.services.metadata_search_agent import _search_exa, _cache
-    _cache.clear()
-    import app.services.metadata_search_agent as agent_mod
-    agent_mod.settings.exa_api_key = ""
-    results = await _search_exa("Breaking Bad")
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_exa_failed_run_returns_empty(monkeypatch):
-    """Failed Exa run returns empty list gracefully."""
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.exa_api_key", "test_key")
-    from app.services.metadata_search_agent import _search_exa, _cache
-    _cache.clear()
-
-    class MockRun:
-        id = "run-fail"
-
-    class MockResult:
-        status = "failed"
-        output = None
-        stop_reason = "error"
-
-    class MockExaAgentRuns:
-        async def create(self, *a, **kw):
-            return MockRun()
-        async def poll_until_finished(self, *a, **kw):
-            return MockResult()
-
-    class MockExaAgent:
-        def __init__(self):
-            self.runs = MockExaAgentRuns()
-
-    class MockExa:
-        def __init__(self, api_key=None):
-            self.agent = MockExaAgent()
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *args):
-            pass
-
-    monkeypatch.setattr("exa_py.AsyncExa", MockExa)
-    results = await _search_exa("Unknown Title")
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_validate_poster_url():
-    """Test poster URL validation (sync helper on known URLs)."""
-    # None should return None
-    assert await _validate_poster_url(None) is None
-    assert await _validate_poster_url("") is None
-
-
-# ---------------------------------------------------------------------------
-# Full agent: search_metadata orchestration
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_search_metadata_empty_title_returns_empty():
-    assert await search_metadata("") == []
-    assert await search_metadata("   ") == []
-
-
-@pytest.mark.asyncio
-async def test_search_metadata_all_sources_fail_returns_empty(monkeypatch):
-    """When no API keys are set, all sources fail gracefully."""
-    import app.services.metadata_search_agent as agent_mod
-    agent_mod.settings.tmdb_api_key = ""
-    agent_mod.settings.exa_api_key = ""
-    agent_mod.settings.llm_api_key = ""
-
-    results = await search_metadata("Breaking Bad")
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_search_metadata_handles_source_exception(monkeypatch):
-    """When TMDB throws, agent continues to other sources."""
-    import app.services.metadata_search_agent as agent_mod
-    agent_mod.settings.tmdb_api_key = "k"
-    agent_mod.settings.exa_api_key = ""
-    agent_mod.settings.llm_api_key = ""
-
-    agent_mod._cache.clear()
-
-    # Make TMDB throw
-    async def broken_tmdb(title):
-        raise RuntimeError("TMDB down")
-    monkeypatch.setattr(agent_mod, "_search_tmdb", broken_tmdb)
-
-    results = await search_metadata("Breaking Bad")
-    assert results == []  # No source succeeded
-
-
-@pytest.mark.asyncio
-async def test_search_metadata_returns_empty_when_no_llm_fallback(monkeypatch):
-    """When all structured sources fail and no LLM fallback exists, returns empty."""
-    import app.services.metadata_search_agent as agent_mod
-    agent_mod.settings.tmdb_api_key = ""
-    agent_mod.settings.exa_api_key = ""
-    agent_mod._cache.clear()
-
-    results = await search_metadata("Unknown Obscure Title")
-    assert results == []
+# NOTE: search_metadata() is now only a single-source compatibility dispatcher.
+# Exa/TMDB/Wikipedia orchestration lives in UnifiedMetadataAgent
+# (app/services/metadata_agent.py). See tests/unit/test_metadata_agent.py for
+# source-restricted agent tests.

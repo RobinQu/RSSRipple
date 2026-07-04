@@ -2,7 +2,7 @@
 # Validates dashboard stats, download groups, pending decisions, and sidebar navigation.
 
 web:
-  url: ${RSSRIPPLE_URL:-http://localhost:5173}
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
 
 agent:
   testId: dashboard-smoke

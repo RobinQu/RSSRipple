@@ -95,8 +95,7 @@ def make_channel(app_url: str, name_suffix: str = "") -> str:
         json={
             "name": f"QueueTest-{uuid.uuid4().hex[:6]}{name_suffix}",
             "url": f"{TEST_SERVER}/rss/mikanani",
-            "metadata_source": "none",
-            "title_extraction_method": "none",
+            "metadata_agent_enabled": False,
             "field_mapping": DEFAULT_FIELD_MAPPING,
         },
         timeout=45,

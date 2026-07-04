@@ -1,6 +1,6 @@
 """Unit tests for the dynamic resource parser (app.services.resource_parser).
 
-Tests parse_entry() with various field_mapping formats, regex patterns,
+Tests parse_entry() with various field_mapping formats, regex patterns
 transforms, nested source paths, and edge cases.
 """
 
@@ -84,7 +84,7 @@ def test_parse_entry_with_regex():
         "field_mappings": {
             "subtitle_group": {"source": "title", "regex": "^\\[([^\\]]+)\\]", "group": 1},
             "title_cn": {"source": "title", "regex": "\\]\\s*(.+?)\\s*-", "group": 1},
-        }
+        },
     }
 
     result = parse_entry(SAMPLE_ENTRY, mapping)
@@ -100,7 +100,7 @@ class TestTransforms:
     def test_int_transform(self):
         mapping = {
             "field_mappings": {
-                "file_size": {"source": "enclosures[0].length", "transform": "int"},
+                "file_size": {"source": "enclosures[0].length", "transform": "int"}
             }
         }
         result = parse_entry(SAMPLE_ENTRY, mapping)
@@ -111,7 +111,7 @@ class TestTransforms:
         entry = {"rating": "9.5"}
         mapping = {
             "field_mappings": {
-                "rating": {"source": "rating", "transform": "float"},
+                "rating": {"source": "rating", "transform": "float"}
             }
         }
         result = parse_entry(entry, mapping)
@@ -122,7 +122,7 @@ class TestTransforms:
         entry = {"format": "MKV"}
         mapping = {
             "field_mappings": {
-                "container": {"source": "format", "transform": "lowercase"},
+                "container": {"source": "format", "transform": "lowercase"}
             }
         }
         result = parse_entry(entry, mapping)
@@ -132,7 +132,7 @@ class TestTransforms:
         entry = {"format": "mkv"}
         mapping = {
             "field_mappings": {
-                "container": {"source": "format", "transform": "uppercase"},
+                "container": {"source": "format", "transform": "uppercase"}
             }
         }
         result = parse_entry(entry, mapping)
@@ -141,7 +141,7 @@ class TestTransforms:
     def test_iso_datetime_transform(self):
         mapping = {
             "field_mappings": {
-                "published_at": {"source": "published", "transform": "iso_datetime"},
+                "published_at": {"source": "published", "transform": "iso_datetime"}
             }
         }
         result = parse_entry(SAMPLE_ENTRY, mapping)
@@ -158,7 +158,7 @@ def test_parse_entry_nested_source():
         "field_mappings": {
             "torrent_url": {"source": "enclosures[0].url"},
             "detail": {"source": "link"},
-        }
+        },
     }
     result = parse_entry(SAMPLE_ENTRY, mapping)
     assert result["torrent_url"] == "https://example.com/test.torrent"
@@ -171,7 +171,7 @@ def test_parse_entry_nested_source():
 def test_parse_entry_missing_source():
     mapping = {
         "field_mappings": {
-            "nonexistent_field": {"source": "does_not_exist"},
+            "nonexistent_field": {"source": "does_not_exist"}
         }
     }
     result = parse_entry(SAMPLE_ENTRY, mapping)
@@ -184,8 +184,61 @@ def test_parse_entry_missing_source():
 def test_parse_entry_regex_no_match():
     mapping = {
         "field_mappings": {
-            "season": {"source": "title", "regex": "Season\\s+(\\d+)", "group": 1},
+            "season": {"source": "title", "regex": "Season\\s+(\\d+)", "group": 1}
         }
     }
     result = parse_entry(SAMPLE_ENTRY, mapping)
     assert result["season"] is None
+
+
+# =============================================================================
+# detect_batch — multi-episode (合集) heuristic
+# =============================================================================
+
+
+import pytest
+from app.services.resource_parser import detect_batch
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        # SxxEyy~zz
+        (
+            "魔法帽的工作室「とんがり帽子のアトリエ」Witch Hat Atelier S01E01~13 1080p 多国字幕",
+            (True, 1, 13),
+        ),
+        # [01-12 合集]
+        (
+            "[LoliHouse] 异世界悠闲农家 2 / Isekai Nonbiri Nouka 2 [01-12 合集][WebRip 1080p HEVC-10bit AAC][简繁内封字幕][Fin]",
+            (True, 1, 12),
+        ),
+        # [01-16 合集]
+        (
+            "[LoliHouse] 欢迎来到实力至上主义的教室 第四季 / Youkoso Jitsuryoku Shijou Shugi no Kyoushitsu e S4 [01-16 合集][WebRip 1080p HEVC-10bit AAC][简繁内封字幕][Fin]",
+            (True, 1, 16),
+        ),
+        # SxxEyy-zz (with dash)
+        ("Some Show S02E01-24 1080p BluRay", (True, 1, 24)),
+        # Batch keyword only
+        ("[SubGroup] Show S02 Season Pack 1080p", (True, None, None)),
+        ("Anime Title 全集 1080p", (True, None, None)),
+        # 第01-第12话
+        ("番剧 第01-第12话 1080p 全", (True, 1, 12)),
+        # Not a batch — single episode
+        ("[LoliHouse] Show S04 - 05 [WebRip 1080p]", (False, None, None)),
+        # Not a batch — random text
+        ("random_bytes_xyz123 1080p", (False, None, None)),
+        # Empty
+        ("", (False, None, None)),
+        (None, (False, None, None)),
+    ],
+)
+def test_detect_batch(title, expected):
+    assert detect_batch(title) == expected
+
+
+def test_detect_batch_ignores_resolution_pairs():
+    """1920x1080 must not be mistaken for a batch range."""
+    result = detect_batch("[Group] Show - 05 (1920x1080 HEVC AAC)")
+    assert result == (False, None, None)

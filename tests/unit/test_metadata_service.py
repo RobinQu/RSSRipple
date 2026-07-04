@@ -37,7 +37,7 @@ async def channel(db_session):
     ch = Channel(
         id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
         field_mapping=TEST_FIELD_MAPPING,
-        metadata_source="none", title_extraction_method="none",
+        metadata_agent_enabled=False,
     )
     db_session.add(ch)
     await db_session.flush()
@@ -85,13 +85,16 @@ async def test_raw_title_mapping_links_series(db_session, channel):
     db_session.add(s)
     await db_session.flush()
     raw = "[G] Title - 01 [1080p]"
+    # search_title_key = normalize_title(extract_search_title(raw)) = "title"
     mapping = ChannelRawTitleMapping(
         id=_uuid(), channel_id=channel.id, raw_title=raw,
+        search_title_key="title",
         content_type="tv", series_id=s.id, movie_id=None,
     )
     db_session.add(mapping)
     await db_session.flush()
-    res = _resource(channel.id, title_raw=raw, search_title="junk")
+    # Different episode — same search_title_key should still match
+    res = _resource(channel.id, title_raw="[G] Title - 02 [1080p]", search_title="junk")
     db_session.add(res)
     await db_session.flush()
     await ms.fetch_and_link_metadata(db_session, res, channel)
@@ -104,14 +107,17 @@ async def test_raw_title_mapping_links_movie(db_session, channel):
     db_session.add(m)
     await db_session.flush()
     raw = "[G] Movie 2024"
+    # search_title_key = normalize_title(extract_search_title(raw)) = "movie 2024"
     mapping = ChannelRawTitleMapping(
         id=_uuid(), channel_id=channel.id, raw_title=raw,
+        search_title_key="movie 2024",
         content_type="movie", movie_id=m.id,
         search_title_override="clean",
     )
     db_session.add(mapping)
     await db_session.flush()
-    res = _resource(channel.id, title_raw=raw)
+    # Different format — same search_title_key should still match
+    res = _resource(channel.id, title_raw="[G] Movie 2024 [2160p]")
     db_session.add(res)
     await db_session.flush()
     await ms.fetch_and_link_metadata(db_session, res, channel)
@@ -182,22 +188,6 @@ async def test_local_fuzzy_high_ratio_autolinks(db_session, channel):
     await ms.fetch_and_link_metadata(db_session, res, channel)
     assert res.series_id == s.id
 
-
-async def test_apply_title_extraction_regex_method():
-    out = await ms.apply_title_extraction("Show Season 2", "regex", r"^(.+?)\s*Season")
-    assert out == "Show"
-
-
-async def test_apply_title_extraction_llm_method_calls_cleaner(db_session):
-    from unittest.mock import AsyncMock, patch
-    with patch("app.services.title_cleaner.clean_title_llm", new_callable=AsyncMock, return_value="CLEAN"):
-        out = await ms.apply_title_extraction("messy", "llm", None, db=db_session)
-    assert out == "CLEAN"
-
-
-async def test_apply_title_extraction_none_returns_title():
-    assert await ms.apply_title_extraction("Title", "none", None) == "Title"
-    assert await ms.apply_title_extraction("", "regex", "x") == ""
 
 
 async def test_create_or_update_movie_from_external(db_session):
@@ -352,8 +342,8 @@ async def test_manual_link_updates_existing_mapping(db_session, channel):
 # ---------------------------------------------------------------------------
 
 
-async def test_llm_fallback_when_metadata_source_llm(db_session, channel):
-    channel.metadata_source = "llm"
+async def test_llm_fallback_when_metadata_agent_enabled(db_session, channel):
+    channel.metadata_agent_enabled = True
     fake_results = [{
         "content_type": "tv",
         "title_cn": "搜索剧",
@@ -380,8 +370,8 @@ async def test_llm_fallback_when_metadata_source_llm(db_session, channel):
     assert s.title_en == "Searched Show"
 
 
-async def test_llm_fallback_skipped_when_metadata_source_none(db_session, channel):
-    channel.metadata_source = "none"
+async def test_llm_fallback_skipped_when_metadata_agent_disabled(db_session, channel):
+    channel.metadata_agent_enabled = False
     res = _resource(channel.id, search_title="unknown thing")
     db_session.add(res)
     await db_session.flush()
@@ -528,3 +518,126 @@ async def test_create_or_update_series_merges_aliases(db_session):
     await db_session.flush()
     assert s1.id == s2.id
     assert "剧A别名" in (s2.aliases or [])
+
+
+# ---------------------------------------------------------------------------
+# canonicalize_external_id — Exa's inconsistent shapes must collapse
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "raw_id,source,expected",
+    [
+        ("TMDB:82684", "exa", "tmdb:82684"),
+        ("TMDB 82684", "exa", "tmdb:82684"),
+        ("TMDB TV 82684 / season 4", "exa", "tmdb:82684"),
+        ("tmdb:82684", "exa", "tmdb:82684"),
+        ("82684", "tmdb", "tmdb:82684"),
+        ("tt31889371", "exa", "imdb:tt31889371"),
+        (None, "exa", None),
+        ("", "exa", None),
+    ],
+)
+def test_canonicalize_external_id(raw_id, source, expected):
+    assert ms.canonicalize_external_id(raw_id, source) == expected
+
+
+# ---------------------------------------------------------------------------
+# create_or_update_series_from_external — dedup by canonical external_id
+# ---------------------------------------------------------------------------
+
+
+async def test_create_or_update_series_dedups_by_canonical_external_id(db_session):
+    """Exa returning different string shapes of the same TMDB id must upsert
+    into a single row, not spawn duplicates."""
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        s1 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "关于我转生变成史莱姆这档事 第四季",
+            "title_en": "That Time I Got Reincarnated as a Slime Season 4",
+            "original_title": "転生したらスライムだった件 第4期",
+            "external_id": "TMDB:82684",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+
+        s2 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "关于我转生变成史莱姆这档事 第四季",
+            "title_en": "That Time I Got Reincarnated as a Slime Season 4",
+            "original_title": "転生したらスライムだった件 第4期",
+            "external_id": "TMDB 82684",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+
+        s3 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "关于我转生变成史莱姆这档事 第四季",
+            "title_en": "That Time I Got Reincarnated as a Slime Season 4",
+            "original_title": "転生したらスライムだった件 第4期",
+            "external_id": "TMDB TV 82684 / season 4",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+
+    assert s1.id == s2.id == s3.id
+    assert s3.external_id == "tmdb:82684"  # canonicalized
+
+
+async def test_create_or_update_series_dedups_by_title_fallback(db_session):
+    """When external_id shapes don't overlap at all but titles match, still
+    reuse the existing row (Exa returned a fresh id but same work)."""
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        s1 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "杖与剑的魔剑谭 第二季",
+            "title_en": "Wistoria: Wand and Sword Season 2",
+            "external_id": "TMDB 245842",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+
+        # Different external_id entirely (e.g. Exa hashed it), same titles
+        s2 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "杖与剑的魔剑谭 第二季",
+            "title_en": "Wistoria: Wand and Sword Season 2",
+            "external_id": "59983",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+
+    assert s1.id == s2.id
+
+
+async def test_create_or_update_movie_dedups_by_canonical_external_id(db_session):
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        m1 = await ms.create_or_update_movie_from_external(db_session, {
+            "content_type": "movie",
+            "title_cn": "某电影",
+            "title_en": "Some Movie",
+            "external_id": "TMDB:12345",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+        m2 = await ms.create_or_update_movie_from_external(db_session, {
+            "content_type": "movie",
+            "title_cn": "某电影",
+            "title_en": "Some Movie",
+            "external_id": "TMDB 12345",
+            "external_source": "exa",
+        })
+        await db_session.flush()
+
+    assert m1.id == m2.id
+    assert m2.external_id == "tmdb:12345"

@@ -4,7 +4,7 @@ Full workflow with a real public RSS feed and live LLM:
   1. Validate the real feed is reachable
   2. Create a channel (no mapping yet)
   3. Call analyze-stream to auto-generate field mappings via LLM
-  4. Save the generated mapping back to the channel (LLM title extraction enabled)
+  4. Save the generated mapping back to the channel
   5. Trigger a channel fetch
   6. Verify FileResources are created with correct fields
   7. Re-fetch and verify deduplication (no new resources)
@@ -35,9 +35,10 @@ import pytest
 
 RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 
-# Targeted Nyaa.si query so the result set is small (≈5-15 entries) and
-# all entries share the same show title → LLM title cache fires after the
-# first call, keeping the overall runtime manageable.
+# Targeted Nyaa.si query so the result set is small enough for live-feed
+# structure checks. Metadata matching is disabled below; dedicated metadata
+# integration tests cover the agent path without turning this test into a
+# batch of external metadata searches.
 REAL_FEED_URL = "https://nyaa.si/?page=rss&c=1_2&f=0&q=spy+x+family+1080p"
 
 # Skip is handled inside the fixture (more reliable than module-level pytestmark
@@ -120,7 +121,7 @@ def channel(request):
     if not os.getenv("LLM_API_KEY"):
         pytest.skip("LLM_API_KEY not set — skipping real-feed integration test")
 
-    # 2. Create channel with LLM title extraction, initially inactive
+    # 2. Create channel with metadata matching disabled, initially inactive
     # to prevent the scheduler from auto-fetching while we set up mappings.
     resp = httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
@@ -129,8 +130,8 @@ def channel(request):
             "url": REAL_FEED_URL,
             "field_mapping": DEFAULT_FIELD_MAPPING,
             "fetch_interval": 3600,
-            "title_extraction_method": "llm",
             "status": "inactive",
+            "metadata_agent_enabled": False,
         },
         timeout=30,
     )
@@ -163,8 +164,8 @@ def channel(request):
         json={
             "name": "Nyaa Real Feed — e2e test",
             "field_mapping": field_mapping,
-            "title_extraction_method": "llm",
             "status": "active",
+            "metadata_agent_enabled": False,
         },
         timeout=30,
     )
@@ -237,41 +238,6 @@ class TestRealFeedEndToEnd:
         assert total > 0
         blank = [r["id"] for r in resources if not r.get("title_raw")]
         assert not blank, f"{len(blank)} resource(s) have blank title_raw"
-
-    def test_resources_have_search_titles(self, channel):
-        """Resources should have search_title set by LLM title extraction.
-
-        LLM title cache means only the first unique base title triggers a real
-        LLM call.  For a targeted query like spy+x+family all entries share the
-        same show, so almost all should have search_title after the first call.
-        """
-        resources, total = _resources(channel["id"])
-        assert total > 0
-        with_search_title = [r for r in resources if r.get("search_title")]
-        ratio = len(with_search_title) / total
-        assert ratio >= 0.5, (
-            f"Only {len(with_search_title)}/{total} resources have search_title "
-            "after LLM extraction — title backfill may have failed"
-        )
-
-    def test_search_title_is_clean(self, channel):
-        """search_title should not contain typical noise markers."""
-        resources, total = _resources(channel["id"])
-        noise = ["[", "]", "1080p", "720p", "WEB-DL", "WebRip", " - "]
-        dirty = []
-        for r in resources:
-            st = r.get("search_title") or ""
-            if not st:
-                continue
-            if any(marker in st for marker in noise):
-                dirty.append((r["id"], st))
-        # Allow up to 20% noisy titles (LLM is non-deterministic)
-        if dirty:
-            ratio = len(dirty) / total
-            assert ratio < 0.2, (
-                f"{len(dirty)}/{total} search_titles still contain noise: "
-                + ", ".join(f"'{t}'" for _, t in dirty[:3])
-            )
 
     def test_no_duplicate_resources_on_refetch(self, channel):
         """Re-fetching the same feed must not create duplicate FileResources."""

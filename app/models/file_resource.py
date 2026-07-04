@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -29,6 +29,16 @@ class FileResource(Base):
     subtitle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
     episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ── Multi-episode batch (合集) support ──
+    # ``is_batch`` marks a torrent that contains multiple episodes (S01E01~13,
+    # [01-12 合集], "Season Pack", 全集 …). Batch resources bypass Agent-level
+    # per-episode dedup — the current design lets users decide via the filter
+    # DSL whether they want singles, batches, or both.
+    # ``episode_start`` / ``episode_end`` are best-effort — the raw title may
+    # omit the boundaries (e.g. "Batch", "Full Season").
+    is_batch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    episode_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    episode_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     resolution: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     video_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)

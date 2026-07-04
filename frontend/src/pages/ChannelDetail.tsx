@@ -9,6 +9,9 @@ import {
   Film,
   Tv,
   HelpCircle,
+  Info,
+  Copy,
+  Package,
 } from 'lucide-react';
 import {
   Typography,
@@ -23,12 +26,13 @@ import {
   Collapse,
   Tag,
   Empty,
+  Tooltip,
 } from 'antd';
 import { channelsApi } from '../api/channels';
 import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import FilterSummaryModal from '../components/FilterSummaryModal';
-import { timeAgo } from '../utils/format';
+import { timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type {
   ChannelDetail as ChannelDetailData,
@@ -52,6 +56,22 @@ function groupColor(type: GroupedResource['type']) {
   if (type === 'series') return 'blue';
   if (type === 'movie') return 'green';
   return 'default';
+}
+
+function formatEpisodeCell(r: FileResource): { label: string; batch: boolean } {
+  if (r.is_batch) {
+    const seasonPart = r.season != null ? `S${r.season} · ` : '';
+    if (r.episode_start != null && r.episode_end != null) {
+      return { label: `${seasonPart}E${r.episode_start}-${r.episode_end}`, batch: true };
+    }
+    if (r.episode_start != null) {
+      return { label: `${seasonPart}E${r.episode_start}+`, batch: true };
+    }
+    return { label: `${seasonPart || ''}Batch`.trim() || 'Batch', batch: true };
+  }
+  if (r.episode == null) return { label: '—', batch: false };
+  if (r.season != null) return { label: `S${r.season}E${r.episode}`, batch: false };
+  return { label: `E${r.episode}`, batch: false };
 }
 
 const PAGE_SIZE = 30;
@@ -161,6 +181,15 @@ export default function ChannelDetail() {
     });
   };
 
+  const copyRawTitle = async (raw: string) => {
+    try {
+      await navigator.clipboard.writeText(raw);
+      message.success(t('channels.rawTitleCopied'));
+    } catch {
+      message.error(t('channels.copyFailed'));
+    }
+  };
+
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   if (loading) {
@@ -186,7 +215,7 @@ export default function ChannelDetail() {
                 {channel.name}
               </Title>
               <StatusBadge status={channel.status} />
-              {channel.metadata_source === 'llm' && <Tag color="blue">LLM</Tag>}
+              {channel.metadata_agent_enabled && <Tag color="blue">Agent</Tag>}
             </Space>
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
               {channel.url}
@@ -321,20 +350,28 @@ export default function ChannelDetail() {
               <table className="resource-table resource-table-known">
                 <colgroup>
                   <col style={{ width: 40 }} />
-                  <col />
-                  <col style={{ width: 72 }} />
                   <col style={{ width: 84 }} />
-                  <col style={{ width: 180 }} />
+                  <col style={{ width: 88 }} />
+                  <col style={{ width: 84 }} />
+                  <col style={{ width: 72 }} />
+                  <col style={{ width: 76 }} />
+                  <col style={{ width: 88 }} />
+                  <col />
                   <col style={{ width: 120 }} />
+                  <col style={{ width: 76 }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: '#93939f', fontSize: 12 }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('common.title')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.episode')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.videoCodec')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.audioCodec')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.container')}</th>
+                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.fileSize')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
+                    <th style={{ textAlign: 'right', padding: '6px 8px' }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -355,19 +392,28 @@ export default function ChannelDetail() {
                           onChange={(e) => toggleResource(r.id, e.target.checked)}
                         />
                       </td>
-                      <td className="resource-title-cell" style={{ padding: '6px 8px' }} data-label={t('common.title')}>
-                        <Text ellipsis style={{ display: 'block' }}>
-                          {r.title_cn || r.title_en || r.title_raw}
-                        </Text>
-                      </td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.episode')}>
-                        {r.episode != null
-                          ? r.season != null
-                            ? `S${r.season}E${r.episode}`
-                            : `E${r.episode}`
-                          : '—'}
+                        {(() => {
+                          const ep = formatEpisodeCell(r);
+                          return (
+                            <Space size={4}>
+                              <span>{ep.label}</span>
+                              {ep.batch && (
+                                <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
+                                  {t('channels.batch')}
+                                </Tag>
+                              )}
+                            </Space>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.videoCodec')}>{r.video_codec || '—'}</td>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.audioCodec')}>{r.audio_codec || '—'}</td>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.container')}>{r.container || '—'}</td>
+                      <td style={{ padding: '6px 8px' }} data-label={t('channels.fileSize')}>
+                        {r.file_size ? formatBytes(r.file_size) : '—'}
+                      </td>
                       <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
                         <Text ellipsis style={{ display: 'block' }}>
                           {r.subtitle_group || '—'}
@@ -375,6 +421,34 @@ export default function ChannelDetail() {
                       </td>
                       <td style={{ padding: '6px 8px', color: '#93939f' }} data-label={t('channels.publishedAt')}>
                         {r.published_at ? timeAgo(r.published_at) : '—'}
+                      </td>
+                      <td
+                        style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Space size={2}>
+                          <Tooltip
+                            title={<span style={{ wordBreak: 'break-all' }}>{r.title_raw}</span>}
+                            placement="topRight"
+                            styles={{ root: { maxWidth: 480 } }}
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<Info size={14} />}
+                              aria-label={t('channels.showRawTitle')}
+                            />
+                          </Tooltip>
+                          <Tooltip title={t('channels.copyRawTitle')}>
+                            <Button
+                              type="text"
+                              size="small"
+                              icon={<Copy size={14} />}
+                              aria-label={t('channels.copyRawTitle')}
+                              onClick={() => copyRawTitle(r.title_raw)}
+                            />
+                          </Tooltip>
+                        </Space>
                       </td>
                     </tr>
                   ))}

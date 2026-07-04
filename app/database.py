@@ -118,4 +118,143 @@ async def create_tables() -> None:
             # WAL mode allows concurrent reads alongside a single writer and
             # dramatically reduces "database is locked" errors under load.
             await conn.execute(text("PRAGMA journal_mode=WAL"))
+            await conn.run_sync(Base.metadata.create_all)
+            # Create FTS5 virtual tables for CJK-aware full-text search
+            from app.services.fts import ensure_fts_tables
+            await ensure_fts_tables(conn)
+            await _apply_light_migrations(conn)
+            return
+
+        if "postgresql" in settings.database_url:
+            # Multiple distributed app replicas can start at the same time.
+            # PostgreSQL enum DDL is not race-free under concurrent create_all().
+            await conn.execute(text("SELECT pg_advisory_lock(72057594037927937)"))
+            try:
+                await conn.run_sync(Base.metadata.create_all)
+                await _apply_light_migrations(conn)
+            finally:
+                await conn.execute(text("SELECT pg_advisory_unlock(72057594037927937)"))
+            return
+
         await conn.run_sync(Base.metadata.create_all)
+        await _apply_light_migrations(conn)
+
+
+async def _apply_light_migrations(conn) -> None:
+    """Idempotent ``ADD COLUMN`` migrations for schema evolutions that we don't
+    manage via a proper migration tool yet.
+
+    ``Base.metadata.create_all`` only creates missing *tables*; it never ALTERs
+    existing ones. This helper adds columns that have appeared on model classes
+    since the local database was first created. Each entry is safe to run
+    repeatedly: we probe the current columns and skip when the target is
+    already there.
+    """
+    is_sqlite = "sqlite" in settings.database_url
+    is_postgres = "postgresql" in settings.database_url
+
+    # Column additions: (table, column_name, ddl_type_and_default)
+    additions: list[tuple[str, str, str]] = [
+        ("file_resources", "is_batch",
+         "BOOLEAN NOT NULL DEFAULT 0" if is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("file_resources", "episode_start", "INTEGER"),
+        ("file_resources", "episode_end", "INTEGER"),
+    ]
+
+    for table, column, ddl in additions:
+        if is_sqlite:
+            info = (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
+            existing = {row[1] for row in info}
+        elif is_postgres:
+            info = (await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :t"
+            ), {"t": table})).fetchall()
+            existing = {row[0] for row in info}
+        else:
+            # Best-effort for other dialects: just try the ADD and swallow errors.
+            existing = set()
+        if column in existing:
+            continue
+        try:
+            await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+            logger.info("[migrate] added column %s.%s", table, column)
+        except Exception as e:
+            # Non-fatal — race with another replica or dialect quirk.
+            logger.warning("[migrate] failed to add %s.%s: %s", table, column, e)
+
+    # ── downloader_type enum widening ────────────────────────────────────
+    # Older DBs may have a CHECK constraint restricting
+    # ``downloader_instances.type`` to just ``'transmission'``. We now allow
+    # ``'mock'`` as well (and the column has been widened to a plain String
+    # in the ORM). Rewrite the CHECK / native enum in place.
+    try:
+        if is_sqlite:
+            row = (await conn.execute(text(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='downloader_instances'"
+            ))).first()
+            if row and row[0] and "'transmission'" in row[0] and "CHECK" in row[0].upper():
+                # Rewrite the CHECK to a no-op via writable_schema. Safer than a
+                # full table rebuild for this specific narrow change.
+                new_sql = row[0].replace(
+                    "CHECK (type IN ('transmission'))",
+                    "CHECK (type IN ('transmission', 'mock'))",
+                )
+                if new_sql != row[0]:
+                    await conn.execute(text("PRAGMA writable_schema = 1"))
+                    await conn.execute(text(
+                        "UPDATE sqlite_master SET sql = :sql "
+                        "WHERE type = 'table' AND name = 'downloader_instances'"
+                    ), {"sql": new_sql})
+                    await conn.execute(text("PRAGMA writable_schema = 0"))
+                    logger.info("[migrate] widened downloader_instances.type CHECK to accept 'mock'")
+        elif is_postgres:
+            # Idempotent: succeeds silently if the value is already there.
+            await conn.execute(text(
+                "ALTER TYPE downloader_type ADD VALUE IF NOT EXISTS 'mock'"
+            ))
+    except Exception as e:
+        logger.warning("[migrate] downloader_type widening skipped: %s", e)
+
+    # ── download_tasks.agent_id → nullable + ON DELETE SET NULL ────────────
+    # Older DBs created the column as ``NOT NULL`` with ``ON DELETE CASCADE``.
+    # We now want to keep tasks after an Agent is deleted (marked cancelled)
+    # so ``agent_id`` must be nullable. SQLite can't ALTER column nullability
+    # in-place, so rebuild the table when we detect the old shape.
+    try:
+        if is_sqlite:
+            info = (await conn.execute(text("PRAGMA table_info(download_tasks)"))).fetchall()
+            agent_col = next((row for row in info if row[1] == "agent_id"), None)
+            # row: (cid, name, type, notnull, dflt, pk)
+            if agent_col is not None and agent_col[3] == 1:
+                logger.info("[migrate] rebuilding download_tasks to make agent_id nullable")
+                await conn.execute(text("PRAGMA foreign_keys = OFF"))
+                await conn.execute(text("ALTER TABLE download_tasks RENAME TO _download_tasks_old"))
+                # Recreate with the new schema (Base.metadata knows the new shape).
+                await conn.run_sync(Base.metadata.tables["download_tasks"].create)
+                # Copy rows over (column order matches: id, agent_id, ...).
+                await conn.execute(text(
+                    "INSERT INTO download_tasks SELECT * FROM _download_tasks_old"
+                ))
+                await conn.execute(text("DROP TABLE _download_tasks_old"))
+                await conn.execute(text("PRAGMA foreign_keys = ON"))
+        elif is_postgres:
+            await conn.execute(text(
+                "ALTER TABLE download_tasks ALTER COLUMN agent_id DROP NOT NULL"
+            ))
+            # Best-effort: drop the old CASCADE FK if it exists, then re-add
+            # SET NULL. Names come from create_all so may differ across
+            # environments — swallow errors.
+            try:
+                await conn.execute(text(
+                    "ALTER TABLE download_tasks DROP CONSTRAINT IF EXISTS download_tasks_agent_id_fkey"
+                ))
+                await conn.execute(text(
+                    "ALTER TABLE download_tasks "
+                    "ADD CONSTRAINT download_tasks_agent_id_fkey "
+                    "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL"
+                ))
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("[migrate] download_tasks.agent_id widening skipped: %s", e)
