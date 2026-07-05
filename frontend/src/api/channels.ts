@@ -69,6 +69,11 @@ export const channelsApi = {
     api.get<{ status: string; message?: string; progress?: number }>(
       `/channels/${id}/fetch-status`,
     ),
+  fieldValues: (channelId: string, field: string, q = '', limit = 10) => {
+    const params = new URLSearchParams({ field, limit: String(limit) });
+    if (q) params.set('q', q);
+    return api.get<string[]>(`/channels/${channelId}/field-values?${params}`);
+  },
   resources: async (channelId: string, page = 1, pageSize = 20, grouped = false) => {
     const response = await api.get<ChannelResourcesPayload>(
       `/channels/${channelId}/resources?page=${page}&page_size=${pageSize}${grouped ? '&grouped=true' : ''}`,

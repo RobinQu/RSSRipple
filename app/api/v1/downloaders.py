@@ -91,16 +91,25 @@ async def delete_downloader(downloader_id: str, db: AsyncSession = Depends(get_d
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
         return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
-    linked_agents = await db.execute(
-        select(func.count()).select_from(Agent).where(Agent.downloader_id == downloader_id)
-    )
-    if linked_agents.scalar_one() > 0:
+    # Surface the specific agents still bound to this downloader so the
+    # frontend can offer a "jump to agent" affordance instead of just a
+    # generic 409.
+    linked_agents = (await db.execute(
+        select(Agent.id, Agent.name).where(Agent.downloader_id == downloader_id)
+    )).all()
+    if linked_agents:
+        agents_payload = [{"id": aid, "name": name} for aid, name in linked_agents]
+        agent_names = ", ".join(a["name"] for a in agents_payload)
         return JSONResponse(status_code=409, content={
             "success": False,
             "data": None,
             "error": {
                 "code": "CONFLICT",
-                "message": "Downloader is still used by one or more agents",
+                "message": (
+                    f"Downloader is still used by {len(agents_payload)} "
+                    f"agent(s): {agent_names}"
+                ),
+                "details": {"agents": agents_payload},
             },
             "meta": {},
         })

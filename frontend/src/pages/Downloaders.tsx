@@ -58,7 +58,34 @@ export default function Downloaders() {
         if (r.success) {
           message.success(t('downloaders.deleted'));
           fetchItems();
-        } else message.error(r.error?.message || t('downloaders.deleteFailed'));
+          return;
+        }
+        // Surface the specific agents keeping the downloader alive (409
+        // response now carries `details.agents = [{id, name}]`). Offer a
+        // one-click jump to each agent so the user can unbind before
+        // retrying.
+        const agents = (r.error?.details as { agents?: { id: string; name: string }[] } | undefined)?.agents;
+        if (r.error?.code === 'CONFLICT' && agents && agents.length > 0) {
+          modal.error({
+            title: t('downloaders.deleteBlockedTitle'),
+            content: (
+              <div>
+                <p style={{ marginBottom: 12 }}>
+                  {t('downloaders.deleteBlockedBody', { count: agents.length })}
+                </p>
+                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                  {agents.map((a) => (
+                    <li key={a.id} style={{ marginBottom: 4 }}>
+                      <Link to={`/agents/${a.id}`}>{a.name}</Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ),
+          });
+          return;
+        }
+        message.error(r.error?.message || t('downloaders.deleteFailed'));
       },
     });
   };

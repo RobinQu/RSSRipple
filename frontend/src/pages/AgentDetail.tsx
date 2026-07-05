@@ -400,6 +400,9 @@ export default function AgentDetail() {
                   value={works}
                   onChange={(w) => setWorks(w)}
                   maxWorks={10}
+                  channelId={agent.channel_id}
+                  persistMode="inline"
+                  agentId={agent.id}
                 />
                 <Divider />
                 <Alert message={t('agents.worksEditNote')} />

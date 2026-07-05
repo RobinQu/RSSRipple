@@ -2,7 +2,7 @@
 export interface APIResponse<T> {
   success: boolean;
   data: T;
-  error: { code: string; message: string; stack?: string } | null;
+  error: { code: string; message: string; stack?: string; details?: unknown } | null;
   meta?: { page: number; page_size: number; total: number };
 }
 
@@ -183,15 +183,21 @@ export type FilterField =
   | 'file_size'
   | 'episode'
   | 'season'
+  | 'episode_start'
+  | 'episode_end'
+  | 'is_batch'
+  | 'subtitle_langs'
   | 'title_cn'
   | 'title_en'
   | 'search_title';
 
 export type StringFilterField = Exclude<
   FilterField,
-  'file_size' | 'episode' | 'season'
+  'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'is_batch' | 'subtitle_langs'
 >;
-export type NumberFilterField = 'file_size' | 'episode' | 'season';
+export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end';
+export type BoolFilterField = 'is_batch';
+export type ListFilterField = 'subtitle_langs';
 
 export type FilterOperator =
   | 'eq'
@@ -207,11 +213,13 @@ export type FilterOperator =
 
 export type StringOperator = 'eq' | 'ne' | 'contains' | 'fuzzy' | 'in' | 'regex';
 export type NumberOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in';
+export type BoolOperator = 'eq' | 'ne';
+export type ListOperator = 'eq' | 'ne' | 'contains' | 'in';
 
 export interface FieldCondition {
   field: FilterField;
   operator: FilterOperator;
-  value: string | number | string[];
+  value: string | number | boolean | string[];
 }
 
 export interface BoolCondition {
