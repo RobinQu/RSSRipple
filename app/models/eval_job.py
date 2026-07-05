@@ -7,7 +7,7 @@ uncompleted jobs survive server restarts and can be automatically resumed.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, JSON, func
+from sqlalchemy import JSON, DateTime, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

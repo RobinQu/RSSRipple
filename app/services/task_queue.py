@@ -19,10 +19,10 @@ import json
 import logging
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Callable, Awaitable
+from typing import Any
 
-from app.config import settings
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)

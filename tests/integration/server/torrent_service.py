@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -164,7 +163,7 @@ class TorrentService:
         ses = self._get_seed_session()
 
         ti = lt.torrent_info(str(torrent_path))
-        h = ses.add_torrent({
+        ses.add_torrent({
             "ti": ti,
             "save_path": str(self.files_dir),
             "flags": lt.torrent_flags.seed_mode,

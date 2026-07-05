@@ -5,8 +5,6 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 
 def _channel_payload(**overrides):
     base = {
@@ -178,7 +176,6 @@ class TestChannelActions:
     async def test_summarize_filters_with_resources(self, client, sample_channel, db_session_factory):
         # Create resources directly
         from app.models.file_resource import FileResource
-        import uuid
         rid = str(uuid.uuid4())
         async with db_session_factory() as s:
             r = FileResource(

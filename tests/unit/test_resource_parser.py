@@ -8,7 +8,6 @@ import pytest
 
 from app.services.resource_parser import parse_entry
 
-
 SAMPLE_ENTRY = {
     "title": "[LoliHouse] Spy x Family - 12 [WebRip 1080p HEVC-10bit AAC][CHT].mkv",
     "description": "Some description",
@@ -196,7 +195,6 @@ def test_parse_entry_regex_no_match():
 # =============================================================================
 
 
-import pytest
 from app.services.resource_parser import detect_batch
 
 

@@ -8,8 +8,8 @@ Tests:
 """
 
 import time
+
 import httpx
-import pytest
 
 TEST_SERVER = "http://test-server:8080"
 

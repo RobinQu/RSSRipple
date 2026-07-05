@@ -22,8 +22,8 @@ Idempotent: running it twice does nothing on the second pass.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession

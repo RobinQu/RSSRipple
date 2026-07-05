@@ -59,6 +59,20 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests are intentionally looser than app/: allow compact fixtures,
+# post-sys.path imports, long sample payloads, mock-class idioms.
+"tests/**/*.py" = [
+    "E501",  # long lines in fixtures / sample RSS/torrent payloads
+    "E402",  # imports intentionally placed after sys.path / env setup
+    "E702",  # compact fixture setup: `ch_id = _uuid(); rid = _uuid()`
+    "N805",  # `self_inner` in nested `class _Ctx` async ctx-managers
+    "N806",  # PascalCase mock-patch aliases (`MockCls`)
+]
+# LLM prompt templates hold few-shot example strings verbatim; line-length
+# rewraps would corrupt the samples passed to the model.
+"app/services/metadata_agent.py" = ["E501"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 

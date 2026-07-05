@@ -1,10 +1,10 @@
 """Agent Pydantic schemas."""
 
+import json as _json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
-import json as _json
+from pydantic import BaseModel, model_validator
 
 from app.schemas.common import ORMModel
 from app.utils.download_paths import validate_download_subdir

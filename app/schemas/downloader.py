@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict
 
 from app.utils.download_paths import validate_download_root
 
-
 DownloaderType = Literal["transmission", "mock"]
 
 

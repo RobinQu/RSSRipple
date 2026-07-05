@@ -22,20 +22,20 @@ _SERVER_DIR = Path(__file__).parent
 
 from .rss_server import (
     generate_dmhy_feed,
-    generate_mikanani_feed,
     generate_eztv_feed,
-    generate_movie_feed,
     generate_kisssub_feed,
+    generate_mikanani_feed,
+    generate_movie_feed,
 )
 from .test_data import (
     SUBTITLE_GROUPS,
     generate_all_test_files,
     generate_anime_releases,
-    generate_tv_releases,
     generate_movie_releases,
+    generate_tv_releases,
 )
-from .tracker import Tracker
 from .torrent_service import TorrentService
+from .tracker import Tracker
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -264,7 +264,6 @@ async def serve_torrent(info_hash: str):
 @app.get("/files/{file_path:path}")
 async def serve_file(file_path: str):
     """Serve a test file by path."""
-    from pathlib import Path
     full_path = torrent_service.files_dir / file_path
     if not full_path.exists() or not full_path.is_file():
         return PlainTextResponse("File not found", status_code=404)

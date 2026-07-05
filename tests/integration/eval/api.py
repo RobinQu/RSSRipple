@@ -18,15 +18,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from tests.integration.eval.dataset import (
+    DEFAULT_DATA_SOURCE_TYPE,
+    db_delete_dataset,
     db_list_datasets,
     db_load_entries,
     db_save_entries,
-    db_delete_dataset,
     export_parquet,
     list_json_datasets,
     load_json,
     new_dataset,
-    DEFAULT_DATA_SOURCE_TYPE,
     normalize_data_source_type,
     save_json,
 )
@@ -115,7 +115,7 @@ def _parse_feed_xml(path: Path, source_name: str) -> list[dict[str, Any]]:
                 break
 
         titles.append({
-            "id": hashlib.sha256(f"{source_name}:{raw_title}".encode("utf-8")).hexdigest()[:16],
+            "id": hashlib.sha256(f"{source_name}:{raw_title}".encode()).hexdigest()[:16],
             "raw_title": raw_title,
             "source_feed": source_name,
             "enclosure_url": enclosure_url,
@@ -225,7 +225,7 @@ async def _run_agent_background(
     that don't have results yet.
     """
     from tests.integration.eval.agent_runner import _process_single
-    from tests.integration.eval.job_store import update_job_result, set_job_status
+    from tests.integration.eval.job_store import set_job_status, update_job_result
 
     try:
         logger.info(
@@ -364,8 +364,8 @@ async def api_get_dataset(name: str, db=Depends(_get_db)):
 
 
 async def _get_dataset_version() -> str:
-    from tests.integration.eval.dataset import DATASET_VERSION as _v
-    return _v
+    from tests.integration.eval.dataset import DATASET_VERSION
+    return DATASET_VERSION
 
 
 DATASET_VERSION = "1.0"

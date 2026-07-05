@@ -312,7 +312,7 @@ class TestAgentCRUD:
 
         # Confirm gone
         r2 = _api(f"/api/v1/agents/{agent_id}")
-        assert r2.status_code == 404, f"Agent still exists after delete"
+        assert r2.status_code == 404, "Agent still exists after delete"
 
 
 # =========================================================================
@@ -468,7 +468,7 @@ class TestAgentWorksManagement:
             json={"content_type": "tv", "series_id": series["id"]},
         )
         assert r.status_code in (400, 422), (
-            "Expected 400/422 for 11th work, got %d: %s" % (r.status_code, r.text[:200])
+            f"Expected 400/422 for 11th work, got {r.status_code}: {r.text[:200]}"
         )
 
 

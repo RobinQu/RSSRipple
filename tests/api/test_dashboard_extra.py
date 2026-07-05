@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -47,14 +46,14 @@ class TestDashboardPopulated:
 
 @pytest.fixture
 async def setup_with_task_and_decision(client, db_session_factory, mock_transmission):
-    from app.models.channel import Channel
-    from app.models.downloader import DownloaderInstance
     from app.models.agent import Agent
-    from app.models.file_resource import FileResource
-    from app.models.series import TVSeries
-    from app.models.movie import Movie
+    from app.models.channel import Channel
     from app.models.download_task import DownloadTask
+    from app.models.downloader import DownloaderInstance
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
     from app.models.pending_decision import PendingDecision
+    from app.models.series import TVSeries
 
     ch_id = _uuid()
     dl_id = _uuid()

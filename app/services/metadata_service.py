@@ -18,22 +18,22 @@ import asyncio
 import hashlib
 import logging
 import re
-from datetime import date, datetime, UTC
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.utils.time import utcnow
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.movie import Movie
 from app.models.series import TVSeries
-from app.services.text_normalizer import normalize_title, similarity_score
 from app.services import fts as fts_service
+from app.services.text_normalizer import normalize_title, similarity_score
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 

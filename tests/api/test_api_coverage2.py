@@ -123,9 +123,10 @@ class TestDownloadersMore:
 
 class TestSeriesMore:
     async def test_delete_series_cascade(self, client, db_session_factory):
-        from app.models.file_resource import FileResource
-        from app.models.channel import Channel
         from sqlalchemy import select
+
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
 
         s = await client.post("/api/v1/series", json={"title_cn": "剧D", "title_en": "SD"})
         sid = s.json()["data"]["id"]
@@ -147,9 +148,9 @@ class TestSeriesMore:
 
     async def test_delete_series_blocked_by_agent_work(self, client, db_session_factory):
         """Deletion must return 409 when AgentWork references exist."""
+        from app.models.agent import Agent
         from app.models.agent_work import AgentWork
         from app.models.channel import Channel
-        from app.models.agent import Agent
         from app.models.downloader import DownloaderInstance
 
         s = await client.post("/api/v1/series", json={"title_cn": "剧E", "title_en": "SE"})
@@ -189,9 +190,10 @@ class TestSeriesMore:
 
 class TestMoviesMore:
     async def test_delete_movie_cascade(self, client, db_session_factory):
-        from app.models.file_resource import FileResource
-        from app.models.channel import Channel
         from sqlalchemy import select
+
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
 
         m = await client.post("/api/v1/movies", json={"title_cn": "电影D", "title_en": "MD"})
         mid = m.json()["data"]["id"]
@@ -213,9 +215,9 @@ class TestMoviesMore:
 
     async def test_delete_movie_blocked_by_agent_work(self, client, db_session_factory):
         """Deletion must return 409 when AgentWork references exist."""
+        from app.models.agent import Agent
         from app.models.agent_work import AgentWork
         from app.models.channel import Channel
-        from app.models.agent import Agent
         from app.models.downloader import DownloaderInstance
 
         m = await client.post("/api/v1/movies", json={"title_cn": "电影E", "title_en": "ME"})

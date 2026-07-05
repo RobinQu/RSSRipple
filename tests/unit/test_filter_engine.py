@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from app.services.filter_engine import (
     evaluate_field_condition,
     evaluate_filter_config,
@@ -13,7 +11,6 @@ from app.services.filter_engine import (
     merge_filters,
     validate_filter_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

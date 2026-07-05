@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
 
     # Ensure all models are imported before create_all
     import app.models  # noqa: F401 — triggers model registration
-    from app.database import engine, Base
+    from app.database import Base, engine
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

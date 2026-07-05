@@ -1,8 +1,11 @@
 """Async SQLAlchemy database setup."""
 
 import asyncio
+import contextlib
 import logging
+import random
 from collections.abc import AsyncGenerator
+from typing import AsyncIterator
 
 from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError
@@ -22,16 +25,27 @@ logger = logging.getLogger(__name__)
 #
 # We mitigate this with:
 #
-# 1. **Retry-with-backoff for write operations** — a utility function
-#    ``retry_on_lock`` that wraps a coroutine and retries up to 5× with
-#    exponential backoff when it hits "database is locked".  Used at the
-#    endpoint/handler level for short write operations.
+# 1. **Retry-with-backoff at request/transaction boundary** — a FastAPI
+#    middleware and a context manager that automatically retry on lock errors,
+#    so API handlers and background jobs don't need to know about SQLite.
 #
-# 2. **busy_timeout + WAL mode** — kept as a second line of defence.
+# 2. **busy_timeout + WAL + NORMAL sync** — better concurrency defaults.
 # ---------------------------------------------------------------------------
 
 _MAX_DB_RETRIES = 5
 _DB_RETRY_BASE_S = 0.125  # 125 ms initial backoff
+
+
+def _is_sqlite_lock_error(exc: Exception) -> bool:
+    """Check if an exception is a SQLite "database is locked" error."""
+    if not isinstance(exc, OperationalError):
+        return False
+    return "database is locked" in str(exc)
+
+
+def _backoff_delay(attempt: int) -> float:
+    """Calculate exponential backoff delay for the given attempt (0-indexed)."""
+    return _DB_RETRY_BASE_S * (2 ** attempt) * (1 + random.random() * 0.5)
 
 
 async def retry_on_lock(coro_factory) -> object:
@@ -44,21 +58,109 @@ async def retry_on_lock(coro_factory) -> object:
     The *coro_factory* is called fresh on each retry so that a new session
     / connection is used.  (A stale session that already holds a lock
     conflict would fail forever on retry.)
+
+    Prefer using ``committed_session()`` or the auto-retry middleware
+    instead of this function directly — it's kept for backward compatibility.
     """
-    import random
     for attempt in range(_MAX_DB_RETRIES):
         try:
             return await coro_factory()
         except OperationalError as e:
-            if "database is locked" not in str(e):
+            if not _is_sqlite_lock_error(e):
                 raise
             if attempt == _MAX_DB_RETRIES - 1:
                 raise
-            delay = _DB_RETRY_BASE_S * (2 ** attempt) * (1 + random.random() * 0.5)
+            delay = _backoff_delay(attempt)
             logger.debug("database is locked — retrying in %.0f ms (attempt %d/%d)",
                          delay * 1000, attempt + 1, _MAX_DB_RETRIES)
             await asyncio.sleep(delay)
     raise AssertionError("unreachable")
+
+
+@contextlib.asynccontextmanager
+async def committed_session() -> AsyncIterator[AsyncSession]:
+    """Async context manager for a transactional session with automatic retry.
+
+    Yields an async session, commits on normal exit, rolls back on exception.
+    On SQLite, retries the entire block on "database is locked" errors.
+    On PostgreSQL, behaves like a plain session (no retry).
+
+    Usage::
+
+        async with committed_session() as session:
+            obj = Model(...)
+            session.add(obj)
+            await session.flush()
+            # commit automatically happens on exit; rollback on exception
+    """
+    if "sqlite" not in settings.database_url:
+        # Fast path: no retry needed for PostgreSQL/etc.
+        async with async_session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+        return
+
+    # SQLite: retry on lock errors
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_DB_RETRIES):
+        async with async_session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+                return
+            except OperationalError as e:
+                await session.rollback()
+                last_exc = e
+                if not _is_sqlite_lock_error(e):
+                    raise
+                if attempt == _MAX_DB_RETRIES - 1:
+                    raise
+                delay = _backoff_delay(attempt)
+                logger.debug("database is locked in committed_session — retrying in %.0f ms (attempt %d/%d)",
+                             delay * 1000, attempt + 1, _MAX_DB_RETRIES)
+                await asyncio.sleep(delay)
+            except Exception:
+                await session.rollback()
+                raise
+    raise last_exc or AssertionError("unreachable")
+
+
+def install_db_retry_middleware(app):
+    """Install a FastAPI middleware that retries requests on SQLite lock errors.
+
+    On PostgreSQL, this is a no-op. On SQLite, the middleware catches
+    "database is locked" OperationalErrors and retries the entire request
+    with a fresh session (5 attempts with exponential backoff).
+    """
+    if "sqlite" not in settings.database_url:
+        return app
+
+    from fastapi import Request, Response
+
+    @app.middleware("http")
+    async def _db_lock_retry_middleware(request: Request, call_next):
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_DB_RETRIES):
+            try:
+                response: Response = await call_next(request)
+                return response
+            except OperationalError as e:
+                last_exc = e
+                if not _is_sqlite_lock_error(e):
+                    raise
+                if attempt == _MAX_DB_RETRIES - 1:
+                    raise
+                delay = _backoff_delay(attempt)
+                logger.debug("database is locked in request — retrying in %.0f ms (attempt %d/%d)",
+                             delay * 1000, attempt + 1, _MAX_DB_RETRIES)
+                await asyncio.sleep(delay)
+        raise last_exc or AssertionError("unreachable")
+
+    return app
 
 
 def _engine_connect_args() -> dict:
@@ -69,7 +171,7 @@ def _engine_connect_args() -> dict:
 
 
 def enable_sqlite_fk(async_engine) -> None:
-    """Enable foreign key enforcement for a SQLite async engine."""
+    """Enable foreign key enforcement and good concurrency defaults for SQLite."""
     if "sqlite" not in str(async_engine.url):
         return
 
@@ -78,6 +180,9 @@ def enable_sqlite_fk(async_engine) -> None:
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys = ON")
         cursor.execute("PRAGMA busy_timeout = 15000")  # wait up to 15s before raising "database is locked"
+        cursor.execute("PRAGMA journal_mode = WAL")    # concurrent reads with writers
+        cursor.execute("PRAGMA synchronous = NORMAL")  # safe under WAL, much faster writes
+        cursor.execute("PRAGMA wal_autocheckpoint = 1000")  # keep WAL size manageable
         cursor.close()
 
 

@@ -47,3 +47,5 @@ htmlcov/
 # Local agent / assistant scratch
 .claude/
 .workbuddy/
+.mcp.json
+.opencode/

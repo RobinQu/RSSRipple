@@ -11,11 +11,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("rssripple.eval")
@@ -121,6 +121,7 @@ async def db_delete_dataset(db: AsyncSession, dataset_name: str) -> int:
 async def db_list_datasets(db: AsyncSession) -> list[dict]:
     """List distinct dataset names from the database with entry counts."""
     from sqlalchemy import func as sa_func
+
     from app.models.ground_truth import GroundTruthEntry
 
     result = await db.execute(
@@ -249,7 +250,7 @@ def _json_path(name: str) -> Path:
 
 def _public_entry_id(source_feed: str, raw_title: str) -> str:
     """Return the browser/title id used by /load-titles."""
-    return hashlib.sha256(f"{source_feed}:{raw_title}".encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(f"{source_feed}:{raw_title}".encode()).hexdigest()[:16]
 
 
 def _db_entry_id(dataset_name: str, entry: dict[str, Any]) -> str:
@@ -263,7 +264,7 @@ def _db_entry_id(dataset_name: str, entry: dict[str, Any]) -> str:
         entry.get("source_feed", ""),
         entry.get("raw_title", ""),
     )
-    return hashlib.sha256(f"{dataset_name}:{public_id}".encode("utf-8")).hexdigest()[:36]
+    return hashlib.sha256(f"{dataset_name}:{public_id}".encode()).hexdigest()[:36]
 
 
 def _infer_data_source_type(
@@ -297,7 +298,7 @@ def new_dataset(name: str, data_source_type: str = DEFAULT_DATA_SOURCE_TYPE) -> 
         "version": DATASET_VERSION,
         "name": name,
         "data_source_type": source_type,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "total_entries": 0,
         "entries": [],
     }

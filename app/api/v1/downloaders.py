@@ -1,20 +1,20 @@
 """DownloaderInstance API routes."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import get_db
-from app.models.downloader import DownloaderInstance
-from app.models.download_task import DownloadTask
-from app.schemas.downloader import DownloaderCreate, DownloaderUpdate, DownloaderResponse
-from app.schemas.download_task import DownloadTaskResponse
-from app.schemas.common import success_response, paginated_response
-from app.utils.time import utcnow
 from app.clients.downloader import get_downloader_client
+from app.database import get_db
+from app.models.download_task import DownloadTask
+from app.models.downloader import DownloaderInstance
+from app.schemas.common import paginated_response, success_response
+from app.schemas.download_task import DownloadTaskResponse
+from app.schemas.downloader import DownloaderCreate, DownloaderResponse, DownloaderUpdate
 from app.utils.download_paths import DownloadPathError
-from fastapi.responses import JSONResponse
+from app.utils.time import utcnow
 
 router = APIRouter()
 
@@ -46,7 +46,15 @@ async def create_downloader(
     try:
         payload = body.model_dump(exclude={"password"})
     except DownloadPathError as e:
-        return JSONResponse(status_code=422, content={"success": False, "data": None, "error": {"code": "VALIDATION_ERROR", "message": str(e)}, "meta": {}})
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "VALIDATION_ERROR", "message": str(e)},
+                "meta": {},
+            },
+        )
     dl = DownloaderInstance(**payload)
     if body.password:
         dl.password = body.password
@@ -60,7 +68,14 @@ async def create_downloader(
 async def get_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)):
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+            },
+        )
     return success_response(DownloaderResponse.model_validate(dl).model_dump())
 
 
@@ -72,11 +87,26 @@ async def update_downloader(
 ):
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+            },
+        )
     try:
         update_data = body.model_dump(exclude_unset=True)
     except DownloadPathError as e:
-        return JSONResponse(status_code=422, content={"success": False, "data": None, "error": {"code": "VALIDATION_ERROR", "message": str(e)}, "meta": {}})
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "VALIDATION_ERROR", "message": str(e)},
+                "meta": {},
+            },
+        )
     for key, value in update_data.items():
         setattr(dl, key, value)
     await db.flush()
@@ -90,7 +120,14 @@ async def delete_downloader(downloader_id: str, db: AsyncSession = Depends(get_d
     from app.models.download_task import DownloadTask
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+            },
+        )
     # Surface the specific agents still bound to this downloader so the
     # frontend can offer a "jump to agent" affordance instead of just a
     # generic 409.
@@ -134,7 +171,14 @@ async def list_downloader_tasks(
 ):
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+            },
+        )
     offset = (page - 1) * page_size
     base_q = select(DownloadTask).where(DownloadTask.downloader_id == downloader_id)
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
@@ -160,7 +204,14 @@ async def list_downloader_live_torrents(
     """Return the live torrent list directly from the Transmission daemon."""
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+            },
+        )
     try:
         wrapper = get_downloader_client(dl)
         torrents = await wrapper.list_torrents()
@@ -174,11 +225,17 @@ async def list_downloader_live_torrents(
 
 @router.post("/downloaders/{downloader_id}/test")
 async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)):
-    from datetime import datetime, timezone
 
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Downloader not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+            },
+        )
 
     wrapper = get_downloader_client(dl)
     success, detail = await wrapper.test_connection()
@@ -198,4 +255,6 @@ async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)
 
     if success:
         return success_response({"success": True, "message": detail, "version": version, "free_space": free_space})
-    return success_response({"success": False, "message": detail or "Connection failed", "version": version, "free_space": free_space})
+    return success_response(
+        {"success": False, "message": detail or "Connection failed", "version": version, "free_space": free_space}
+    )

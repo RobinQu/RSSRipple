@@ -203,7 +203,7 @@ async def test_cleanup_expired_expires_decisions_and_deletes_tasks(db_session, _
 
     await db_session.refresh(pd)
     await db_session.refresh(pd_active)
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     count = (await db_session.execute(
         select(func.count()).select_from(DownloadTask).where(DownloadTask.id == _seed.t_done.id)
     )).scalar_one()

@@ -2,25 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 from app.services.metadata_search_agent import (
-    MetadataCandidate,
-    _validate_candidate,
     _cache_get,
-    _cache_set,
     _cache_key,
-    _parse_year,
-    _fmt_date,
-    _tmdb_poster_url,
-    _validate_poster_url,
+    _cache_set,
     _extract_exa_candidates,
     _extract_exa_structured,
+    _fmt_date,
     _normalize_exa_candidate,
+    _parse_year,
+    _tmdb_poster_url,
+    _validate_candidate,
 )
 
 # ---------------------------------------------------------------------------
@@ -249,7 +243,7 @@ async def test_tmdb_search_returns_merged_results(monkeypatch):
     """Test that zh-CN + en-US results are merged by TMDB ID."""
     monkeypatch.setattr("app.services.metadata_search_agent.settings.tmdb_api_key", "test_key")
     monkeypatch.setattr("app.services.metadata_search_agent._tmdb_image_base", lambda key: "https://image.tmdb.org/t/p/")
-    from app.services.metadata_search_agent import _search_tmdb, _cache
+    from app.services.metadata_search_agent import _cache, _search_tmdb
     _cache.clear()
 
     import httpx as httpx_mod
@@ -305,7 +299,7 @@ async def test_tmdb_filters_out_person_results(monkeypatch):
     """Test that 'person' media_type is filtered out."""
     monkeypatch.setattr("app.services.metadata_search_agent.settings.tmdb_api_key", "test_key")
     monkeypatch.setattr("app.services.metadata_search_agent._tmdb_image_base", lambda key: "https://image.tmdb.org/t/p/")
-    from app.services.metadata_search_agent import _search_tmdb, _cache
+    from app.services.metadata_search_agent import _cache, _search_tmdb
     _cache.clear()
 
     import httpx as httpx_mod
@@ -340,7 +334,7 @@ async def test_tmdb_filters_out_person_results(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tmdb_no_api_key_returns_empty():
-    from app.services.metadata_search_agent import _search_tmdb, _cache
+    from app.services.metadata_search_agent import _cache, _search_tmdb
     _cache.clear()
     # Settings.tmdb_api_key is "" by default
     # We need to ensure it's unset

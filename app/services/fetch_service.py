@@ -2,22 +2,21 @@
 
 import asyncio
 import logging
-from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rss_parser import (
-    _parse_feed_sync,
     _entry_to_dict,
     _extract_download_urls,
     _extract_published_at,
+    _parse_feed_sync,
 )
-from app.utils.time import utcnow
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.services.metadata_service import fetch_and_link_metadata
 from app.services.resource_parser import parse_entry
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 

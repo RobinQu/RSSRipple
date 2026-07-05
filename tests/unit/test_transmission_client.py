@@ -1,11 +1,11 @@
 """Unit tests for TransmissionWrapper — no real Transmission daemon required."""
 
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.clients.transmission import TransmissionWrapper, _parse_url
-
 
 # ---------------------------------------------------------------------------
 # URL parsing
@@ -190,8 +190,7 @@ class TestListTorrents:
                       percent_done=0.5, rate_dl=1024, rate_ul=512,
                       eta_seconds=300, total_size=1_000_000, have_valid=500_000,
                       is_finished=False, error=0, left_until_done=0):
-        from unittest.mock import PropertyMock
-        from datetime import timedelta, datetime, timezone
+        from datetime import datetime, timedelta
         t = MagicMock()
         t.id = id
         t.name = name
@@ -206,7 +205,7 @@ class TestListTorrents:
         t.isFinished = is_finished
         t.error = error
         t.leftUntilDone = left_until_done
-        t.addedDate = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        t.addedDate = datetime(2024, 1, 1, tzinfo=UTC)
         t.fields = {"errorString": "", "peersConnected": 3}
         return t
 

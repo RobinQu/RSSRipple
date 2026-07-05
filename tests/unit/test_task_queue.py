@@ -12,8 +12,8 @@ Tests are grouped by backend and cover:
 
 import asyncio
 
-import pytest
 import fakeredis
+import pytest
 
 from app.services.task_queue import (
     BaseQueue,
@@ -22,7 +22,6 @@ from app.services.task_queue import (
     RedisQueue,
     create_queue,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers

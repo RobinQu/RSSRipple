@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, patch
-
-import pytest
 
 
 def _uuid():
@@ -85,11 +82,11 @@ class TestSeriesCRUD:
 
     async def test_get_series_detail(self, client, db_session, sample_series, sample_channel, sample_downloader):
         """GET /api/v1/series/{id} returns episodes, resources, task_count, agent_work_count."""
-        from app.models.episode import Episode
-        from app.models.file_resource import FileResource
         from app.models.agent import Agent
         from app.models.agent_work import AgentWork
         from app.models.download_task import DownloadTask
+        from app.models.episode import Episode
+        from app.models.file_resource import FileResource
 
         sid = sample_series.id
 

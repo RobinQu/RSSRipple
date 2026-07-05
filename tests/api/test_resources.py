@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
-
-import pytest
 
 
 def _uuid():
@@ -15,7 +12,6 @@ def _uuid():
 
 
 async def _make_resource(db_session_factory, channel_id, **overrides):
-    from datetime import timezone
     from app.models.file_resource import FileResource
     rid = overrides.pop("id", _uuid())
     defaults = dict(
@@ -25,7 +21,7 @@ async def _make_resource(db_session_factory, channel_id, **overrides):
         title_raw="[Group] Show - 01 [1080p]",
         torrent_url="magnet:?xt=urn:btih:abc",
         search_title="Show",
-        parsed_at=datetime.now(timezone.utc),
+        parsed_at=datetime.now(UTC),
     )
     defaults.update(overrides)
     async with db_session_factory() as s:

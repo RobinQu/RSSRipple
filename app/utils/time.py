@@ -1,6 +1,6 @@
 """Time helpers — naive UTC for PostgreSQL compatibility."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def utcnow() -> datetime:
@@ -10,4 +10,4 @@ def utcnow() -> datetime:
     timezone-aware values when mixed with naive values in the
     same INSERT statement.
     """
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)

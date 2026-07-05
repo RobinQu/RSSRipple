@@ -8,7 +8,7 @@ Entries are grouped into named datasets (e.g., "v1", "v2").
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, JSON, Index, func
+from sqlalchemy import JSON, DateTime, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

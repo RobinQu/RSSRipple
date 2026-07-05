@@ -6,11 +6,10 @@ and dataset delete endpoint + metadata source tracking.
 
 from __future__ import annotations
 
-import json
-
 import os
-import pytest
+
 import httpx
+import pytest
 
 EVAL_URL = os.environ.get("EVAL_URL", "http://localhost:8090")
 

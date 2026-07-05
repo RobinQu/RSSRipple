@@ -16,6 +16,10 @@ from __future__ import annotations
 import logging
 import re
 import unicodedata
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from opencc import OpenCC
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +27,11 @@ logger = logging.getLogger(__name__)
 # OpenCC — lazy singleton (import-time failure should not crash the module)
 # ---------------------------------------------------------------------------
 
-_cc: "OpenCC | None" = None  # type: ignore[valid-type]
+_cc: OpenCC | None = None  # type: ignore[valid-type]
 _cc_loaded = False
 
 
-def _get_cc() -> "OpenCC | None":  # type: ignore[valid-type]
+def _get_cc() -> OpenCC | None:  # type: ignore[valid-type]
     global _cc, _cc_loaded
     if not _cc_loaded:
         _cc_loaded = True

@@ -10,9 +10,7 @@ from app.models.agent import Agent
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.file_resource import FileResource
-from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
-from app.models.series import TVSeries
 from app.schemas.common import success_response
 
 router = APIRouter()

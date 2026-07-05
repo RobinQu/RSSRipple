@@ -4,8 +4,8 @@ Uses the new field_mapping format with list_locator + field_mappings.
 Backward compatible with the old flat dict format.
 """
 
-import re
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
