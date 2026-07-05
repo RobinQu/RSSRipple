@@ -11,6 +11,8 @@ import {
   App,
   Tooltip,
   Descriptions,
+  Popover,
+  InputNumber,
 } from 'antd';
 import { Copy, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -63,6 +65,10 @@ export default function ResourceDetailDrawer({
   const [metaLoading, setMetaLoading] = useState(false);
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [resourceData, setResourceData] = useState<FileResource | null>(null);
+  const [episodeEditOpen, setEpisodeEditOpen] = useState(false);
+  const [episodeDraft, setEpisodeDraft] = useState<number | null>(null);
+  const [absoluteDraft, setAbsoluteDraft] = useState<number | null>(null);
+  const [savingEpisode, setSavingEpisode] = useState(false);
 
   const loadMeta = async (rid: string) => {
     setMetaLoading(true);
@@ -130,6 +136,35 @@ export default function ResourceDetailDrawer({
     );
   };
 
+  const openEpisodeEditor = () => {
+    if (!resourceData && !resource) return;
+    const src = resourceData || resource;
+    setEpisodeDraft(src?.episode ?? null);
+    setAbsoluteDraft(src?.absolute_episode ?? null);
+    setEpisodeEditOpen(true);
+  };
+
+  const saveEpisode = async () => {
+    const rid = (resourceData || resource)?.id;
+    if (!rid) return;
+    setSavingEpisode(true);
+    const res = await resourcesApi.correctEpisode(rid, {
+      episode: episodeDraft,
+      // Only send absolute_episode when the user actually typed one; backend
+      // preserves the prior value when we omit it, per PATCH semantics.
+      ...(absoluteDraft != null ? { absolute_episode: absoluteDraft } : {}),
+    });
+    setSavingEpisode(false);
+    if (res.success) {
+      setResourceData(res.data);
+      setEpisodeEditOpen(false);
+      message.success(t('resource.episodeSaved'));
+      onCorrected?.();
+    } else {
+      message.error(res.error?.message || t('resource.episodeSaveFailed'));
+    }
+  };
+
   const r = resourceData || resource;
   const open = resource !== null;
 
@@ -140,13 +175,78 @@ export default function ResourceDetailDrawer({
         {
           key: 'episode',
           label: t('resource.episode'),
-          children: r.is_batch
-            ? (r.episode_start != null && r.episode_end != null
-                ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end} · ${t('channels.batch')}`
-                : `${r.season != null ? `S${r.season} · ` : ''}${t('channels.batch')}`)
-            : (r.episode != null
-                ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode }))
-                : dash),
+          children: (
+            <Space size={4}>
+              <span>
+                {r.is_batch
+                  ? (r.episode_start != null && r.episode_end != null
+                      ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end} · ${t('channels.batch')}`
+                      : `${r.season != null ? `S${r.season} · ` : ''}${t('channels.batch')}`)
+                  : (r.episode != null
+                      ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode }))
+                      : dash)}
+              </span>
+              {/* Only expose the manual editor for single-episode TV rows.
+                  Batches don't have a single episode number to correct, and
+                  movies don't carry episode metadata. */}
+              {!r.is_batch && r.movie_id == null && (
+                <Popover
+                  open={episodeEditOpen}
+                  onOpenChange={(vis) => {
+                    if (vis) openEpisodeEditor();
+                    else setEpisodeEditOpen(false);
+                  }}
+                  trigger="click"
+                  placement="bottomLeft"
+                  destroyOnHidden
+                  title={t('resource.episodeCorrectionTitle')}
+                  content={
+                    <div style={{ minWidth: 240 }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                          {t('resource.episodePerSeasonLabel')}
+                        </Text>
+                        <InputNumber
+                          value={episodeDraft}
+                          onChange={(v) => setEpisodeDraft(typeof v === 'number' ? v : null)}
+                          size="small"
+                          min={0}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 12 }}>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                          {t('resource.absoluteEpisodePlaceholder')}
+                        </Text>
+                        <InputNumber
+                          value={absoluteDraft}
+                          onChange={(v) => setAbsoluteDraft(typeof v === 'number' ? v : null)}
+                          size="small"
+                          min={0}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
+                      <Space size={4} style={{ justifyContent: 'flex-end', width: '100%' }}>
+                        <Button size="small" onClick={() => setEpisodeEditOpen(false)}>
+                          {t('common.cancel')}
+                        </Button>
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={savingEpisode}
+                          onClick={saveEpisode}
+                        >
+                          {t('common.save')}
+                        </Button>
+                      </Space>
+                    </div>
+                  }
+                >
+                  <Button type="text" size="small" icon={<Pencil size={12} />} />
+                </Popover>
+              )}
+            </Space>
+          ),
         },
         // Absolute episode + confidence — only render when the reconciliation
         // pipeline had something to say. Keeps the drawer clean for the

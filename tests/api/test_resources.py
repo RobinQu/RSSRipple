@@ -213,3 +213,50 @@ class TestResourceSearchLink:
         res = await client.put("/api/v1/resources/nope/metadata/link",
                                json={"selected_result": {"content_type": "tv", "external_id": "x"}})
         assert res.status_code == 404
+
+
+class TestEpisodeCorrection:
+    """PATCH /resources/{id}/episode — user manually confirms the per-season
+    episode number for ambiguous / reconciled resources."""
+
+    async def test_marks_manual_and_preserves_absolute(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=200, absolute_episode=200, episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 13, "absolute_episode": 85},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["episode"] == 13
+        assert body["absolute_episode"] == 85
+        assert body["episode_confidence"] == "manual"
+
+    async def test_preserves_prior_absolute_when_omitted(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=200, absolute_episode=200, episode_confidence="ambiguous",
+        )
+        # User only wants to change the per-season episode; leave absolute alone.
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 13},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["episode"] == 13
+        assert body["absolute_episode"] == 200  # untouched
+        assert body["episode_confidence"] == "manual"
+
+    async def test_404(self, client):
+        res = await client.patch(
+            "/api/v1/resources/nope/episode",
+            json={"episode": 5},
+        )
+        assert res.status_code == 404

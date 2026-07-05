@@ -15,6 +15,7 @@ from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.schemas.file_resource import (
+    EpisodeCorrectionRequest,
     FileResourceResponse,
     GroupedResource,
     MetadataSearchRequest,
@@ -395,6 +396,68 @@ async def link_metadata(
     resource = (await db.execute(
         select(FileResource)
         .where(FileResource.id == resource.id)
+        .options(selectinload(FileResource.series), selectinload(FileResource.movie))
+    )).scalar_one()
+    return success_response(FileResourceResponse.model_validate(resource).model_dump())
+
+
+@router.patch("/resources/{resource_id}/episode")
+async def correct_episode(
+    resource_id: str,
+    body: EpisodeCorrectionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Record a user's manual episode number correction.
+
+    Overwrites ``episode`` (per-season) and, when provided,
+    ``absolute_episode`` (cross-season audit copy). Sets
+    ``episode_confidence="manual"`` so downstream logic knows the value is
+    hand-vetted — the metadata agent will not re-reconcile on the next run,
+    and the Filter DSL can distinguish manual corrections via
+    ``episode_confidence eq manual``.
+
+    Re-runs the channel's active agents so a previously-ambiguous resource
+    can be picked up immediately after correction.
+    """
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+        )
+
+    resource.episode = body.episode
+    # Only touch absolute_episode when the caller explicitly sent it. That
+    # lets a user fix the per-season number without wiping the original
+    # absolute value we captured during reconciliation.
+    if body.absolute_episode is not None:
+        resource.absolute_episode = body.absolute_episode
+    resource.episode_confidence = "manual"
+
+    await db.flush()
+
+    # Re-trigger active agents on this channel so the corrected resource
+    # can now be dispatched (or the ambiguous-suggestion cleared).
+    channel = await db.get(Channel, resource.channel_id, options=[
+        selectinload(Channel.agents),
+    ])
+    if channel:
+        for agent in channel.agents:
+            if agent.status == "active":
+                try:
+                    await task_queue.enqueue(
+                        "run_agent", f"agent:{agent.id}", {"agent_id": agent.id}
+                    )
+                except Exception:
+                    pass
+
+    await db.commit()
+
+    # Re-fetch with relationships so Pydantic can serialize without lazy IO.
+    resource = (await db.execute(
+        select(FileResource)
+        .where(FileResource.id == resource_id)
         .options(selectinload(FileResource.series), selectinload(FileResource.movie))
     )).scalar_one()
     return success_response(FileResourceResponse.model_validate(resource).model_dump())
