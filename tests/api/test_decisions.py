@@ -56,7 +56,7 @@ async def _create_resource(db_session_factory, ch_id, title_raw, **kw):
     return {"id": rid, "title_raw": title_raw}
 
 
-async def _make_decision(db_session_factory, agent_id, r1_id, r2_id):
+async def _make_decision(db_session_factory, agent_id, r1_id, r2_id, *, series_id=None, movie_id=None):
     from app.models.pending_decision import PendingDecision
     async with db_session_factory() as s:
         pd = PendingDecision(
@@ -64,10 +64,30 @@ async def _make_decision(db_session_factory, agent_id, r1_id, r2_id):
             candidates=[r1_id, r2_id],
             reason="冲突",
             expires_at=datetime.now(UTC) + timedelta(days=7),
+            series_id=series_id,
+            movie_id=movie_id,
         )
         s.add(pd)
         await s.commit()
         return pd.id
+
+
+async def _create_series(db_session_factory):
+    from app.models.series import TVSeries
+    sid = _uuid()
+    async with db_session_factory() as s:
+        s.add(TVSeries(id=sid, title_en="Test Series", content_type="tv"))
+        await s.commit()
+    return sid
+
+
+async def _create_movie(db_session_factory):
+    from app.models.movie import Movie
+    mid = _uuid()
+    async with db_session_factory() as s:
+        s.add(Movie(id=mid, title_en="Test Movie", content_type="movie"))
+        await s.commit()
+    return mid
 
 
 class TestDecisions:
@@ -126,3 +146,40 @@ class TestDecisions:
         assert res.json()["data"]["status"] == "decided"
         # confirm should have dispatched download; add_torrent was called
         mock_transmission.add_torrent.assert_awaited()
+
+    async def test_confirm_with_series_does_not_lazy_load(self, client, setup, db_session_factory, mock_transmission):
+        """Regression: serializing a confirmed decision eagerly loads the
+        ``series`` relationship instead of triggering an async lazy load
+        (MissingGreenlet) when series_id is set.
+        """
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] SA - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] SA - 01")
+        sid = await _create_series(db_session_factory)
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"], series_id=sid)
+        res = await client.post(f"/api/v1/decisions/{did}/confirm",
+                                json={"resource_id": r1["id"]})
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["status"] == "decided"
+        assert data["series_id"] == sid
+        assert data["series"] is not None
+        assert data["series"]["id"] == sid
+
+    async def test_skip_with_movie_does_not_lazy_load(self, client, setup, db_session_factory):
+        """Regression: serializing a skipped decision eagerly loads the
+        ``movie`` relationship instead of triggering an async lazy load
+        (MissingGreenlet) when movie_id is set.
+        """
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] MA - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] MA - 01")
+        mid = await _create_movie(db_session_factory)
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"], movie_id=mid)
+        res = await client.post(f"/api/v1/decisions/{did}/skip")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["status"] == "skipped"
+        assert data["movie_id"] == mid
+        assert data["movie"] is not None
+        assert data["movie"]["id"] == mid

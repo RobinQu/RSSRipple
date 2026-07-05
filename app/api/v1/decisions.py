@@ -17,6 +17,26 @@ from app.utils.time import utcnow
 router = APIRouter()
 
 
+async def _load_decision_for_response(
+    db: AsyncSession, decision_id: str
+) -> PendingDecision | None:
+    """Fetch a PendingDecision with series/movie eagerly loaded.
+
+    Required before serializing with PendingDecisionResponse, whose ``series``
+    and ``movie`` fields trigger lazy loads that fail under async
+    (MissingGreenlet) unless the relationships are preloaded.
+    """
+    result = await db.execute(
+        select(PendingDecision)
+        .options(
+            selectinload(PendingDecision.series),
+            selectinload(PendingDecision.movie),
+        )
+        .where(PendingDecision.id == decision_id)
+    )
+    return result.scalars().first()
+
+
 @router.get("/agents/{agent_id}/decisions")
 async def list_decisions(
     agent_id: str,
@@ -94,7 +114,9 @@ async def confirm_decision(
         await dispatch_download(agent, resource, db)
 
     await db.commit()
-    await db.refresh(decision)
+    # Re-fetch with eager-loaded relationships; db.refresh() reloads columns
+    # only, leaving series/movie to lazy-load (fails under async).
+    decision = await _load_decision_for_response(db, decision_id)
     return success_response(PendingDecisionResponse.model_validate(decision).model_dump())
 
 
@@ -115,5 +137,7 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     decision.decided_at = utcnow()
     await db.flush()
     await db.commit()
-    await db.refresh(decision)
+    # Re-fetch with eager-loaded relationships; db.refresh() reloads columns
+    # only, leaving series/movie to lazy-load (fails under async).
+    decision = await _load_decision_for_response(db, decision_id)
     return success_response(PendingDecisionResponse.model_validate(decision).model_dump())
