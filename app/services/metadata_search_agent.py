@@ -407,6 +407,25 @@ _EXA_CANDIDATE_SCHEMA: dict[str, Any] = {
             "type": ["integer", "null"],
             "description": "Total number of seasons (TV only)",
         },
+        "seasons": {
+            "type": ["array", "null"],
+            "description": (
+                "Per-season episode counts (TV only). Used to distinguish "
+                "titles that number episodes absolutely (e.g. 'S04 - 84') "
+                "from per-season numbering. Include one entry per aired "
+                "season with `episode_count` if known; skip specials "
+                "(season_number = 0). Omit or leave empty when unsure."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "season_number": {"type": "integer"},
+                    "episode_count": {"type": ["integer", "null"]},
+                    "name": {"type": ["string", "null"]},
+                },
+                "required": ["season_number"],
+            },
+        },
         "start_date": {
             "type": ["string", "null"],
             "format": "date",
