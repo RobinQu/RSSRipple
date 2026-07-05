@@ -281,3 +281,35 @@ def test_detect_subtitle_langs_dedupes_repeated_markers():
     # A pathological title that spells CHS multiple times should still get one
     # zh-CN back.
     assert detect_subtitle_langs("[CHS][简体][GB]") == ["zh-CN"]
+
+
+# =============================================================================
+# detect_absolute_episode — NN(MM) double-labeled episode parsing (P2)
+# =============================================================================
+
+from app.services.resource_parser import detect_absolute_episode
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        # Canonical fansub form — S4 Ep 13, absolute 85 across all seasons.
+        ("[豌豆字幕组&LoliHouse] 关于我转生变成史莱姆这档事 第四季 - 13(85) [WebRip 1080p]", (13, 85)),
+        # Same form, mainland-style bracket
+        ("[Group] Show S04 - 13 (85) [1080p]", (13, 85)),
+        # Small gap between numbers → NOT the absolute-episode pattern; likely
+        # a runtime or part indicator ("13(15)"). We stay conservative.
+        ("[Group] Show - 13(15) [1080p]", (None, None)),
+        # Absolute smaller than per-season → not the pattern.
+        ("[Group] Show - 85(13) [1080p]", (None, None)),
+        # Missing parens
+        ("[Group] Show - 13 85 [1080p]", (None, None)),
+        # No episode marker
+        ("Random title 1080p", (None, None)),
+        # Empty / None
+        ("", (None, None)),
+        (None, (None, None)),
+    ],
+)
+def test_detect_absolute_episode(title, expected):
+    assert detect_absolute_episode(title) == expected

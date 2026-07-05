@@ -655,6 +655,28 @@ class TestProcessResources:
         assert result.dispatched == 0
         assert result.duplicates_skipped == 1
 
+    async def test_ambiguous_episode_routes_to_suggestion(
+        self, db_session, channel, downloader, series
+    ):
+        """Resources whose episode_confidence=='ambiguous' must not be
+        dispatched — they're routed to the AgentSuggestion bucket instead,
+        so the user can confirm the correct number before download."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, episode=200,
+            episode_confidence="ambiguous",
+        )
+        db_session.add(r)
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.dispatched == 0
+        assert result.unrecognized == 1
+        assert result.pending_decisions == 0
+        assert len(result.suggestions) == 1
+        assert "集号不确定" in result.suggestions[0].get("reason", "")
+
 
 # ---------------------------------------------------------------------------
 # create_pending_decision

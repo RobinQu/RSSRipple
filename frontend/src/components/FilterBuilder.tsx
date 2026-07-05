@@ -42,6 +42,9 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   audio_codec: 'string',
   subtitle_type: 'string',
   container: 'string',
+  // episode_confidence is stored as a plain string on the backend but the UI
+  // treats it as an enum so users pick from a fixed value list.
+  episode_confidence: 'string',
   title_cn: 'string',
   title_en: 'string',
   search_title: 'string',
@@ -50,6 +53,7 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   season: 'number',
   episode_start: 'number',
   episode_end: 'number',
+  absolute_episode: 'number',
   is_batch: 'bool',
   subtitle_langs: 'list',
 };
@@ -74,12 +78,20 @@ const AUTOCOMPLETE_OPERATORS = new Set<FilterOperator>([
 // pre-parser + MetadataAgent. Users can still type a custom tag.
 const SUBTITLE_LANG_OPTIONS = ['zh-CN', 'zh-TW', 'ja', 'en', 'multi'];
 
+// Enum-string fields have a fixed value set and skip the free-text
+// autocomplete path so users can't accidentally type an unknown value.
+const ENUM_FIELDS: Record<string, string[]> = {
+  episode_confidence: ['raw', 'reconciled', 'ambiguous', 'manual'],
+};
+
 const STRING_OPERATORS: FilterOperator[] = ['eq', 'ne', 'contains', 'fuzzy', 'in', 'regex'];
 const NUMBER_OPERATORS: FilterOperator[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in'];
 const BOOL_OPERATORS: FilterOperator[] = ['eq', 'ne'];
 const LIST_OPERATORS: FilterOperator[] = ['contains', 'in', 'eq', 'ne'];
+const ENUM_OPERATORS: FilterOperator[] = ['eq', 'ne', 'in'];
 
 function operatorsFor(field: FilterField): FilterOperator[] {
+  if (field in ENUM_FIELDS) return ENUM_OPERATORS;
   switch (FIELD_TYPES[field]) {
     case 'string': return STRING_OPERATORS;
     case 'number': return NUMBER_OPERATORS;
@@ -94,10 +106,11 @@ function useFieldOptions(t: TFunction) {
     'subtitle_type', 'container', 'title_cn', 'title_en', 'search_title',
   ];
   const number_fields: FilterField[] = [
-    'file_size', 'episode', 'season', 'episode_start', 'episode_end',
+    'file_size', 'episode', 'season', 'episode_start', 'episode_end', 'absolute_episode',
   ];
   const bool_fields: FilterField[] = ['is_batch'];
   const list_fields: FilterField[] = ['subtitle_langs'];
+  const enum_fields: FilterField[] = ['episode_confidence'];
 
   const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });
 
@@ -106,6 +119,7 @@ function useFieldOptions(t: TFunction) {
     { label: t('filter.numberField'), options: number_fields.map(toOption) },
     { label: t('filter.boolField'), options: bool_fields.map(toOption) },
     { label: t('filter.listField'), options: list_fields.map(toOption) },
+    { label: t('filter.enumField'), options: enum_fields.map(toOption) },
   ];
 
   const operatorLabel = (op: FilterOperator) => t(`filter.${op}`);
@@ -322,7 +336,31 @@ function FieldConditionNode({
       />
 
       {/* --- Value input, varies by (fieldType, operator) --- */}
-      {value.operator === 'in' && fieldType === 'list' ? (
+      {value.field in ENUM_FIELDS && value.operator === 'in' ? (
+        <Select
+          mode="multiple"
+          style={{ minWidth: 200, flex: 1 }}
+          value={Array.isArray(value.value) ? (value.value as string[]) : []}
+          onChange={(tags) => onChange({ ...value, value: tags })}
+          size="small"
+          options={(ENUM_FIELDS[value.field] || []).map((v) => ({
+            value: v,
+            label: t(`filter.enumValue_${v}` as never, { defaultValue: v }),
+          }))}
+        />
+      ) : value.field in ENUM_FIELDS ? (
+        <Select
+          style={{ minWidth: 200, flex: 1 }}
+          value={typeof value.value === 'string' ? value.value : ''}
+          onChange={(v) => onChange({ ...value, value: v })}
+          size="small"
+          allowClear
+          options={(ENUM_FIELDS[value.field] || []).map((v) => ({
+            value: v,
+            label: t(`filter.enumValue_${v}` as never, { defaultValue: v }),
+          }))}
+        />
+      ) : value.operator === 'in' && fieldType === 'list' ? (
         <Select
           mode="tags"
           style={{ minWidth: 200, flex: 1 }}

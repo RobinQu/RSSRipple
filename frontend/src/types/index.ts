@@ -57,6 +57,8 @@ export interface FileResource {
   is_batch: boolean;
   episode_start: number | null;
   episode_end: number | null;
+  absolute_episode: number | null;
+  episode_confidence: 'raw' | 'reconciled' | 'ambiguous' | 'manual' | null;
   resolution: string | null;
   source: string | null;
   video_codec: string | null;
@@ -185,17 +187,19 @@ export type FilterField =
   | 'season'
   | 'episode_start'
   | 'episode_end'
+  | 'absolute_episode'
   | 'is_batch'
   | 'subtitle_langs'
+  | 'episode_confidence'
   | 'title_cn'
   | 'title_en'
   | 'search_title';
 
 export type StringFilterField = Exclude<
   FilterField,
-  'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'is_batch' | 'subtitle_langs'
+  'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
 >;
-export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end';
+export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode';
 export type BoolFilterField = 'is_batch';
 export type ListFilterField = 'subtitle_langs';
 

@@ -40,6 +40,8 @@ def _res(**overrides):
         episode_start=None,
         episode_end=None,
         subtitle_langs=None,
+        episode_confidence=None,
+        absolute_episode=None,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -611,3 +613,40 @@ class TestSubtitleLangs:
                 ]}
             )
             assert not errors, f"op={op} should be valid"
+
+
+# ---------------------------------------------------------------------------
+# episode_confidence enum-string field (P3)
+# ---------------------------------------------------------------------------
+
+
+class TestEpisodeConfidence:
+    def test_eq_matches_only_specified_value(self):
+        cond = {"field": "episode_confidence", "operator": "eq", "value": "reconciled"}
+        assert evaluate_field_condition(cond, _res(episode_confidence="reconciled")) is True
+        assert evaluate_field_condition(cond, _res(episode_confidence="raw")) is False
+
+    def test_ne_excludes_ambiguous(self):
+        # Canonical "avoid the ambiguous ones" filter from the docs.
+        cond = {"field": "episode_confidence", "operator": "ne", "value": "ambiguous"}
+        assert evaluate_field_condition(cond, _res(episode_confidence="raw")) is True
+        assert evaluate_field_condition(cond, _res(episode_confidence="manual")) is True
+        assert evaluate_field_condition(cond, _res(episode_confidence="ambiguous")) is False
+
+    def test_in_matches_subset(self):
+        cond = {"field": "episode_confidence", "operator": "in", "value": ["reconciled", "manual"]}
+        assert evaluate_field_condition(cond, _res(episode_confidence="reconciled")) is True
+        assert evaluate_field_condition(cond, _res(episode_confidence="manual")) is True
+        assert evaluate_field_condition(cond, _res(episode_confidence="raw")) is False
+
+    def test_none_treated_as_empty_for_positive_ops(self):
+        # Legacy row without the column populated — positive ops fail and
+        # ne passes (existing string-field semantics from filter_engine.py).
+        r = _res()
+        r.episode_confidence = None
+        assert evaluate_field_condition(
+            {"field": "episode_confidence", "operator": "eq", "value": "raw"}, r
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "episode_confidence", "operator": "ne", "value": "ambiguous"}, r
+        ) is True

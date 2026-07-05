@@ -317,6 +317,18 @@ async def process_resources(
                     suggestions[key] = {"sample_title": key, "resources": [resource.id]}
             continue
 
+        # Ambiguous episode number — MetadataAgent had seasons evidence but
+        # couldn't decide whether the raw number is per-season or absolute.
+        # Route to AgentSuggestion so the user can pick before we dispatch;
+        # never auto-download something we're unsure about.
+        if getattr(resource, "episode_confidence", None) == "ambiguous":
+            result.unrecognized += 1
+            key = (resource.search_title or resource.title_raw or f"ambiguous-{resource.id}")
+            group = suggestions.setdefault(key, {"sample_title": key, "resources": []})
+            group.setdefault("reason", "集号不确定，需要人工确认")
+            group["resources"].append(resource.id)
+            continue
+
         # Work scope
         work = None
         if not agent.scope_channel_wide:
