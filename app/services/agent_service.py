@@ -156,7 +156,13 @@ async def create_pending_decision(
     candidates: list[FileResource],
     db: AsyncSession,
 ) -> PendingDecision:
-    """Create a PendingDecision for multiple conflicting candidates."""
+    """Upsert a PendingDecision for multiple conflicting candidates.
+
+    Same ``(agent, series_id | movie_id, episode)`` triple must always map to
+    a single row in ``status='pending'``. Repeated agent runs re-merge new
+    candidate ids into the existing row instead of piling up duplicates
+    (which used to cause the 76-rows-for-4-episodes explosion).
+    """
     type_, target_id, episode = key
     series_id = target_id if type_ == "series" else None
     movie_id = target_id if type_ == "movie" else None
@@ -176,6 +182,45 @@ async def create_pending_decision(
     else:
         reason = f"多个资源匹配电影 {title}"
 
+    # Look for an existing pending row for the same key. ``episode`` may be
+    # None (movies) — treat that as a proper NULL match.
+    stmt = select(PendingDecision).where(
+        PendingDecision.agent_id == agent.id,
+        PendingDecision.status == "pending",
+    )
+    if series_id is not None:
+        stmt = stmt.where(PendingDecision.series_id == series_id)
+    else:
+        stmt = stmt.where(PendingDecision.series_id.is_(None))
+    if movie_id is not None:
+        stmt = stmt.where(PendingDecision.movie_id == movie_id)
+    else:
+        stmt = stmt.where(PendingDecision.movie_id.is_(None))
+    if episode is not None:
+        stmt = stmt.where(PendingDecision.episode == episode)
+    else:
+        stmt = stmt.where(PendingDecision.episode.is_(None))
+    existing = (await db.execute(stmt)).scalars().first()
+
+    new_candidate_ids = [c.id for c in candidates]
+    if existing is not None:
+        # Merge candidates preserving order — new ones appended, duplicates
+        # dropped. Refresh reason + expiry so a re-run of an ageing decision
+        # bumps its TTL.
+        merged: list[str] = list(existing.candidates or [])
+        for cid in new_candidate_ids:
+            if cid not in merged:
+                merged.append(cid)
+        existing.candidates = merged
+        existing.reason = reason
+        existing.expires_at = utcnow() + timedelta(days=7)
+        # Only re-generate LLM suggestion if the candidate set actually
+        # changed (skip the LLM call on no-op re-runs).
+        if merged != (existing.candidates or []) or not existing.llm_suggestion:
+            existing.llm_suggestion = await _generate_llm_suggestion(agent, candidates, key)
+        await db.flush()
+        return existing
+
     llm = await _generate_llm_suggestion(agent, candidates, key)
 
     pd = PendingDecision(
@@ -183,7 +228,7 @@ async def create_pending_decision(
         series_id=series_id,
         movie_id=movie_id,
         episode=episode,
-        candidates=[c.id for c in candidates],
+        candidates=new_candidate_ids,
         reason=reason,
         llm_suggestion=llm,
         status="pending",

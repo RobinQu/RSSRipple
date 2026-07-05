@@ -52,6 +52,10 @@ export default function AgentForm() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');
   const [channelWide, setChannelWide] = useState(false);
+  // Watch the selected channel id so the Filter DSL editor (which does
+  // channel-scoped autocomplete) always sees the current value even before
+  // the form is submitted.
+  const channelId = Form.useWatch('channel_id', form) as string | undefined;
 
   useEffect(() => {
     Promise.all([channelsApi.list(1, 100), downloadersApi.list(1, 100)]).then(
@@ -273,7 +277,7 @@ export default function AgentForm() {
 
           {!channelWide && (
             <div style={{ marginBottom: 20 }}>
-              <WorkSelector value={works} onChange={setWorks} maxWorks={10} />
+              <WorkSelector value={works} onChange={setWorks} maxWorks={10} channelId={channelId} />
             </div>
           )}
 
@@ -284,7 +288,7 @@ export default function AgentForm() {
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
               {t('agents.globalFilterDesc')}
             </Text>
-            <FilterBuilder value={filterConfig} onChange={setFilterConfig} />
+            <FilterBuilder value={filterConfig} onChange={setFilterConfig} channelId={channelId} />
           </div>
 
           <Form.Item style={{ marginTop: 24, marginBottom: 0 }}>
