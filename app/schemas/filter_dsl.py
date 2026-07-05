@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 
 Combinator = Literal["and", "or"]
 FieldName = Literal[
@@ -17,7 +16,7 @@ Operator = Literal[
     "eq", "ne", "contains", "fuzzy", "in", "regex",
     "gt", "gte", "lt", "lte",
 ]
-FieldValue = Union[str, int, float, List[Union[str, int, float]]]
+FieldValue = str | int | float | list[str | int | float]
 
 
 class FieldCondition(BaseModel):
@@ -36,7 +35,7 @@ class BoolCondition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     combinator: Combinator = "and"
-    conditions: List[Union["BoolCondition", FieldCondition]] = Field(default_factory=list)
+    conditions: list[BoolCondition | FieldCondition] = Field(default_factory=list)
     is_not: bool = False
 
     @model_validator(mode="before")

@@ -20,7 +20,6 @@ from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.agent_service import (
-    RunResult,
     _generate_llm_suggestion,
     create_pending_decision,
     dispatch_download,
@@ -750,7 +749,8 @@ async def test_create_pending_decision_is_idempotent(db_session, channel, downlo
     """Same (agent, series, episode) key must upsert into one row instead of
     piling up duplicates across re-runs. Regression coverage for the 76-rows-
     for-4-episodes bug seen with the bangumi-2026S2 agent."""
-    from sqlalchemy import func, select as sql_select
+    from sqlalchemy import func
+    from sqlalchemy import select as sql_select
     agent = Agent(
         id=_uuid(), name="a", channel_id=channel.id,
         downloader_id=downloader.id, scope_channel_wide=True,
@@ -778,7 +778,8 @@ async def test_create_pending_decision_is_idempotent(db_session, channel, downlo
 
 async def test_create_pending_decision_idempotent_movie(db_session, channel, downloader, movie):
     """Same idempotency guarantee for movie-typed decisions (episode=None)."""
-    from sqlalchemy import func, select as sql_select
+    from sqlalchemy import func
+    from sqlalchemy import select as sql_select
     agent = Agent(
         id=_uuid(), name="a", channel_id=channel.id,
         downloader_id=downloader.id, scope_channel_wide=True,

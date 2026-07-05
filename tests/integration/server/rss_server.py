@@ -9,13 +9,12 @@ Generates mock RSS feeds in 3 formats:
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
-from xml.etree.ElementTree import Element, SubElement, tostring
+from datetime import UTC, datetime, timedelta
 
 from .test_data import (
     ANIME_SERIES,
-    MOVIES,
     MOVIE_GROUPS,
+    MOVIES,
     TV_SHOWS,
     AnimeRelease,
     MovieRelease,
@@ -66,7 +65,7 @@ def generate_dmhy_feed(
     if releases is None:
         releases = generate_anime_releases(series_index=series_index, episode_count=3)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     xml_parts = [
         '<?xml version="1.0" encoding="utf-8"?>',
@@ -131,7 +130,7 @@ def generate_mikanani_feed(
         else:
             releases = generate_anime_releases(series_index=series_index, episode_count=3)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     xml_parts = [
         '<?xml version="1.0" encoding="utf-8"?>',
@@ -155,7 +154,7 @@ def generate_mikanani_feed(
             f"<link>{server_url}/Home/Episode/{ep_hash}</link>",
             f"<title>{title}</title>",
             f"<description>{title}[{file_size / 1024 / 1024:.1f}MB]</description>",
-            f'<torrent xmlns="https://mikanani.me/0.1/">',
+            '<torrent xmlns="https://mikanani.me/0.1/">',
             f"<link>{server_url}/Home/Episode/{ep_hash}</link>",
             f"<contentLength>{file_size}</contentLength>",
             f"<pubDate>{_iso8601(pub_date)}</pubDate>",
@@ -198,7 +197,7 @@ def generate_eztv_feed(
         else:
             releases = generate_tv_releases(show_index=show_index, episode_count=3)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     xml_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -262,7 +261,7 @@ def generate_movie_feed(
         for mi in range(len(MOVIES)):
             releases.extend(generate_movie_releases(movie_index=mi, groups=groups))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     xml_parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -327,7 +326,7 @@ def generate_kisssub_feed(
         groups=groups,
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     feed_label = f" KissSub{suffix}" if suffix else " KissSub"
 
     xml_parts = [

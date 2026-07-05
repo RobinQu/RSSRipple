@@ -13,12 +13,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.config import settings
-from app.utils.time import utcnow
-from app.database import async_session_factory, create_tables
-
 # Import models for SQLAlchemy discovery
 import app.models  # noqa: F401
+from app.config import settings
+from app.database import async_session_factory, committed_session, create_tables, install_db_retry_middleware
+from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -34,28 +33,23 @@ async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
     from app.services.fetch_service import fetch_channel_resources
 
     channel_id: str = payload["channel_id"]
-    async with async_session_factory() as session:
+    async with committed_session() as session:
         ch = await session.get(Channel, channel_id)
         if not ch:
             raise RuntimeError(f"Channel {channel_id} not found")
-        try:
-            result = await fetch_channel_resources(ch, session)
-            await session.commit()
-            return result
-        except Exception:
-            await session.rollback()
-            raise
+        result = await fetch_channel_resources(ch, session)
+        return result
 
 
 async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
-    from datetime import datetime, UTC
+    from sqlalchemy import select
+
     from app.models.agent import Agent
     from app.models.file_resource import FileResource
     from app.services.agent_service import process_resources
-    from sqlalchemy import select
 
     agent_id: str = payload["agent_id"]
-    async with async_session_factory() as session:
+    async with committed_session() as session:
         agent = await session.get(Agent, agent_id)
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
@@ -80,11 +74,6 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             agent.last_run_status = "pending_decisions"
         else:
             agent.last_run_status = "success"
-        try:
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
 
         return {
             "agent_id": agent_id,
@@ -121,7 +110,10 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     # Ensure data dir exists for sqlite
     db_url = settings.database_url
     if db_url.startswith("sqlite"):
-        db_path_str = db_url.split("sqlite:///", 1)[-1] if "sqlite:///" in db_url else db_url.split("sqlite:", 1)[-1].lstrip("/")
+        if "sqlite:///" in db_url:
+            db_path_str = db_url.split("sqlite:///", 1)[-1]
+        else:
+            db_path_str = db_url.split("sqlite:", 1)[-1].lstrip("/")
         db_path = Path(db_path_str)
         try:
             if db_path.parent and str(db_path.parent) != "":
@@ -252,8 +244,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Install DB lock retry middleware (SQLite-only, no-op on PostgreSQL)
+install_db_retry_middleware(app)
+
 # API routers
-from app.api.v1 import channels, agents, downloaders, tasks, decisions, dashboard, resources, series, movies, works  # noqa: E402
+from app.api.v1 import (  # noqa: E402
+    agents,
+    channels,
+    dashboard,
+    decisions,
+    downloaders,
+    movies,
+    resources,
+    series,
+    tasks,
+    works,
+)
 
 app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])

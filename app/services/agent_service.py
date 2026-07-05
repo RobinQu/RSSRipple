@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.services.text_normalizer import partial_similarity_score
 from app.models.agent import Agent
 from app.models.agent_suggestion import AgentSuggestion
 from app.models.download_task import DownloadTask
@@ -21,6 +20,7 @@ from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.filter_engine import evaluate_filter_config, merge_filters
+from app.services.text_normalizer import partial_similarity_score
 from app.utils.download_paths import DownloadPathError, resolve_download_dir
 from app.utils.time import utcnow
 

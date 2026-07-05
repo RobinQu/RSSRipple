@@ -1,15 +1,15 @@
 """TVSeries API routes."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select, func
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.models.series import TVSeries
-from app.schemas.series import TVSeriesCreate, TVSeriesUpdate, TVSeriesResponse
-from app.schemas.common import success_response, paginated_response
+from app.schemas.common import paginated_response, success_response
+from app.schemas.series import TVSeriesCreate, TVSeriesResponse, TVSeriesUpdate
 from app.services import fts as fts_service
 
 router = APIRouter()
@@ -76,20 +76,25 @@ async def create_series(
 
 @router.get("/series/{series_id}")
 async def get_series(series_id: str, db: AsyncSession = Depends(get_db)):
-    from app.models.episode import Episode
-    from app.models.file_resource import FileResource
-    from app.models.download_task import DownloadTask
     from app.models.agent_work import AgentWork
+    from app.models.download_task import DownloadTask
+    from app.models.file_resource import FileResource
     from app.schemas.episode import EpisodeResponse
     from app.schemas.file_resource import FileResourceResponse
-    from app.schemas.download_task import DownloadTaskResponse
 
     series = await db.get(
         TVSeries, series_id,
         options=[selectinload(TVSeries.episodes)],
     )
     if not series:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Series not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Series not found"},
+            },
+        )
     data = TVSeriesResponse.model_validate(series).model_dump()
 
     # Episodes
@@ -133,7 +138,14 @@ async def update_series(
 ):
     series = await db.get(TVSeries, series_id)
     if not series:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Series not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Series not found"},
+            },
+        )
     update_data = body.model_dump(exclude_unset=True)
     # Aliases merge: append new aliases without dedup (per AGENTS.md spec)
     if "aliases" in update_data and update_data["aliases"]:
@@ -150,33 +162,52 @@ async def update_series(
 
 @router.delete("/series/{series_id}")
 async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
-    from app.models.file_resource import FileResource
-    from app.models.agent_work import AgentWork
-    from app.models.pending_decision import PendingDecision
-    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
     from sqlalchemy import update as sql_update
+
+    from app.models.agent_work import AgentWork
+    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+    from app.models.file_resource import FileResource
+    from app.models.pending_decision import PendingDecision
     series = await db.get(TVSeries, series_id)
     if not series:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Series not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Series not found"},
+            },
+        )
 
     # Constraint check: block if any AgentWork references this series
     aw_cnt = (await db.execute(
         select(func.count()).select_from(AgentWork).where(AgentWork.series_id == series_id)
     )).scalar_one()
     if aw_cnt > 0:
-        return JSONResponse(status_code=409, content={
-            "success": False, "data": None,
-            "error": {
-                "code": "DELETE_BLOCKED",
-                "message": f"Cannot delete: {aw_cnt} agent(s) reference this series. Remove the agent work subscriptions first.",
-                "details": {"agent_work_count": aw_cnt},
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "DELETE_BLOCKED",
+                    "message": (
+                        f"Cannot delete: {aw_cnt} agent(s) reference this series. "
+                        "Remove the agent work subscriptions first."
+                    ),
+                    "details": {"agent_work_count": aw_cnt},
+                },
             },
-        })
+        )
 
     # Nullify FKs
     await db.execute(sql_update(FileResource).where(FileResource.series_id == series_id).values(series_id=None))
     await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
-    await db.execute(sql_update(ChannelRawTitleMapping).where(ChannelRawTitleMapping.series_id == series_id).values(series_id=None))
+    await db.execute(
+        sql_update(ChannelRawTitleMapping)
+        .where(ChannelRawTitleMapping.series_id == series_id)
+        .values(series_id=None)
+    )
     await db.delete(series)
     await fts_service.delete_series_fts(db, series_id)
     await db.commit()

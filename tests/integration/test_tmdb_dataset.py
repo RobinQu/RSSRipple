@@ -41,7 +41,7 @@ TMDB_CBC_DATASET: list[tuple[str, int, str]] = [
 class TestTMDBDataset:
     @pytest.mark.parametrize("title,expected_id,expected_ct", TMDB_CBC_DATASET)
     async def test_tmdb_matches_cbc_title(self, title, expected_id, expected_ct):
-        from app.services.metadata_search_agent import _search_tmdb, _cache
+        from app.services.metadata_search_agent import _cache, _search_tmdb
 
         _cache.clear()
         results = await _search_tmdb(title)
@@ -59,7 +59,7 @@ class TestTMDBDataset:
 
     async def test_dataset_success_rate(self):
         """At least 80% of titles should be found."""
-        from app.services.metadata_search_agent import _search_tmdb, _cache
+        from app.services.metadata_search_agent import _cache, _search_tmdb
 
         _cache.clear()
         success = 0

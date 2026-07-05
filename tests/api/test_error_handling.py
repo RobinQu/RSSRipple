@@ -7,9 +7,6 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
-from app.main import app as fastapi_app
-from app.database import get_db
-
 # ---------------------------------------------------------------------------
 # Fixture: client that does NOT re-raise app-level exceptions.
 # Needed for 500-path tests because Starlette's ServerErrorMiddleware re-raises
@@ -183,10 +180,12 @@ async def test_channel_create_db_error_returns_500_json(error_client):
         with patch("sqlalchemy.ext.asyncio.AsyncSession.flush",
                    new_callable=AsyncMock,
                    side_effect=OperationalError("database is locked", None, None)):
-            res = await error_client.post(
-                "/api/v1/channels",
-                json={"name": "newchan", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
-            )
+            # Patch _is_sqlite_lock_error to not recognize this as a retryable error
+            with patch("app.database._is_sqlite_lock_error", return_value=False):
+                res = await error_client.post(
+                    "/api/v1/channels",
+                    json={"name": "newchan", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
+                )
     assert res.status_code == 500
     body = res.json()
     assert body["success"] is False

@@ -1,6 +1,5 @@
 """Unit tests for source isolation in UnifiedMetadataAgent."""
 
-import pytest
 
 from app.services.metadata_agent import (
     ResourceMetadata,

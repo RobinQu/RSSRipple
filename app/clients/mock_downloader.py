@@ -17,7 +17,6 @@ fine (and expected) for the dev/testing use case.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import random

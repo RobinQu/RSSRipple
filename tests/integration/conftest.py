@@ -1,8 +1,9 @@
 """Pytest fixtures for integration tests."""
 
 import os
-import pytest
+
 import httpx
+import pytest
 
 TEST_SERVER_URL = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
 RSSRIPPLE_URL = os.environ.get("RSSRIPPLE_URL", "http://app:9001")

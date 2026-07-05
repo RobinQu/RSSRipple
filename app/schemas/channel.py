@@ -4,7 +4,7 @@ import json as _json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, model_validator
 
 from app.schemas.common import ORMModel
 

@@ -1,10 +1,10 @@
 """Agent API routes."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.models.agent import Agent
@@ -13,15 +13,21 @@ from app.models.agent_work import AgentWork
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.schemas.agent import (
-    AgentCreate, AgentUpdate, AgentResponse, AgentListItem,
-    AgentWorkCreate, AgentWorkUpdate, AgentWorkResponse,
-    TestFilterResult, TestFilterResourceResult, SuggestionGroup,
-    RunResponse, RunStatusResponse,
+    AgentCreate,
+    AgentResponse,
+    AgentUpdate,
+    AgentWorkCreate,
+    AgentWorkResponse,
+    AgentWorkUpdate,
+    RunStatusResponse,
+    SuggestionGroup,
+    TestFilterResourceResult,
+    TestFilterResult,
 )
-from app.schemas.common import success_response, paginated_response
-from app.services.agent_service import process_resources
+from app.schemas.common import paginated_response, success_response
 from app.services.filter_engine import (
-    evaluate_filter_config, merge_filters, validate_filter_config,
+    evaluate_filter_config,
+    validate_filter_config,
 )
 
 router = APIRouter()
@@ -212,8 +218,9 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
     # Cancel tasks
-    from app.models.download_task import DownloadTask
     from sqlalchemy import update as sql_update
+
+    from app.models.download_task import DownloadTask
     await db.execute(
         sql_update(DownloadTask)
         .where(DownloadTask.agent_id == agent_id)

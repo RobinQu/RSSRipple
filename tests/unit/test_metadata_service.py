@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -270,7 +270,6 @@ async def test_download_poster_existing_file_returns_cached(tmp_path):
 
 async def test_search_metadata_via_llm_delegates_to_agent(monkeypatch):
     """search_metadata_via_llm now delegates to the multi-source agent."""
-    from app.services.metadata_search_agent import search_metadata as agent_search
 
     async def fake_agent_search(title: str):
         return [{"content_type": "tv", "title_en": "AgentResult", "external_id": "a1", "external_source": "tmdb"}]
@@ -327,7 +326,7 @@ async def test_manual_link_updates_existing_mapping(db_session, channel):
     await db_session.flush()
     assert res.series_id == e2.id
     # Mapping row should point to the new series (no duplicates)
-    from sqlalchemy import select, func
+    from sqlalchemy import func, select
     count = (await db_session.execute(
         select(func.count()).select_from(ChannelRawTitleMapping).where(
             ChannelRawTitleMapping.channel_id == channel.id,

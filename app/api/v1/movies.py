@@ -1,17 +1,16 @@
 """Movie API routes."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select, func
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from fastapi.responses import JSONResponse
+from sqlalchemy import func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.movie import Movie
-from app.models.file_resource import FileResource
 from app.models.download_task import DownloadTask
-from app.schemas.movie import MovieCreate, MovieUpdate, MovieResponse
-from app.schemas.common import success_response, paginated_response
+from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.schemas.common import paginated_response, success_response
+from app.schemas.movie import MovieCreate, MovieResponse, MovieUpdate
 from app.services import fts as fts_service
 
 router = APIRouter()
@@ -82,7 +81,14 @@ async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
 
     movie = await db.get(Movie, movie_id)
     if not movie:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Movie not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Movie not found"},
+            },
+        )
     data = MovieResponse.model_validate(movie).model_dump()
 
     # Resources
@@ -122,7 +128,14 @@ async def update_movie(
 ):
     movie = await db.get(Movie, movie_id)
     if not movie:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Movie not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Movie not found"},
+            },
+        )
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(movie, key, value)
@@ -134,32 +147,51 @@ async def update_movie(
 
 @router.delete("/movies/{movie_id}")
 async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
-    from app.models.file_resource import FileResource
-    from app.models.agent_work import AgentWork
-    from app.models.pending_decision import PendingDecision
-    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
     from sqlalchemy import update as sql_update
+
+    from app.models.agent_work import AgentWork
+    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+    from app.models.file_resource import FileResource
+    from app.models.pending_decision import PendingDecision
     movie = await db.get(Movie, movie_id)
     if not movie:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Movie not found"}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Movie not found"},
+            },
+        )
 
     # Constraint check: block if any AgentWork references this movie
     aw_cnt = (await db.execute(
         select(func.count()).select_from(AgentWork).where(AgentWork.movie_id == movie_id)
     )).scalar_one()
     if aw_cnt > 0:
-        return JSONResponse(status_code=409, content={
-            "success": False, "data": None,
-            "error": {
-                "code": "DELETE_BLOCKED",
-                "message": f"Cannot delete: {aw_cnt} agent(s) reference this movie. Remove the agent work subscriptions first.",
-                "details": {"agent_work_count": aw_cnt},
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "DELETE_BLOCKED",
+                    "message": (
+                        f"Cannot delete: {aw_cnt} agent(s) reference this movie. "
+                        "Remove the agent work subscriptions first."
+                    ),
+                    "details": {"agent_work_count": aw_cnt},
+                },
             },
-        })
+        )
 
     await db.execute(sql_update(FileResource).where(FileResource.movie_id == movie_id).values(movie_id=None))
     await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
-    await db.execute(sql_update(ChannelRawTitleMapping).where(ChannelRawTitleMapping.movie_id == movie_id).values(movie_id=None))
+    await db.execute(
+        sql_update(ChannelRawTitleMapping)
+        .where(ChannelRawTitleMapping.movie_id == movie_id)
+        .values(movie_id=None)
+    )
     await db.delete(movie)
     await fts_service.delete_movie_fts(db, movie_id)
     await db.commit()

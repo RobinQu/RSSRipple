@@ -75,7 +75,7 @@ class TestDecisions:
         ch, dl, aid = setup
         r1 = await _create_resource(db_session_factory, ch, "[G] ShowA - 01")
         r2 = await _create_resource(db_session_factory, ch, "[G2] ShowA - 01")
-        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
         res = await client.get(f"/api/v1/agents/{aid}/decisions")
         assert res.status_code == 200
         assert res.json()["meta"]["total"] >= 1

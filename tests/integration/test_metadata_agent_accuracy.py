@@ -60,8 +60,10 @@ def _load_entries() -> list[dict[str, Any]]:
     # 3. DB (only in integration test environment)
     try:
         import asyncio
-        from app.database import async_session_factory
+
         from sqlalchemy import select
+
+        from app.database import async_session_factory
         from app.models.ground_truth import GroundTruthEntry
 
         async def _load():

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,7 +13,6 @@ from app.models.channel import Channel
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.services import fetch_service as fs
-from app.services import task_queue as tq_mod
 
 
 def _uuid():
@@ -213,7 +211,6 @@ class TestFetchChannelResources:
         db_session.add(inactive)
         await db_session.commit()
         # Eager-load agents collection onto the channel instance
-        from sqlalchemy.orm import selectinload
         await db_session.refresh(channel, attribute_names=["agents", "file_resources"])
 
         entries = [_entry("g1", "[G] S - 01", enclosures=[
@@ -222,7 +219,7 @@ class TestFetchChannelResources:
         feed = _mock_feed(entries)
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
              patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
-            res = await fs.fetch_channel_resources(channel, db_session)
+            await fs.fetch_channel_resources(channel, db_session)
         assert q.enqueue.await_count == 1
         args = q.enqueue.await_args.args
         assert args[0] == "run_agent"

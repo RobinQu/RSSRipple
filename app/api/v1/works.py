@@ -1,15 +1,13 @@
 """Unified Metadata Repository API — poster wall for both TVSeries and Movie."""
 
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi.responses import JSONResponse
 
 from app.database import get_db
-from app.models.series import TVSeries
 from app.models.movie import Movie
+from app.models.series import TVSeries
 from app.schemas.common import paginated_response
 
 router = APIRouter()

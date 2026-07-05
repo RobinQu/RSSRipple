@@ -1,23 +1,23 @@
 """DownloadTask API routes."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.models.download_task import DownloadTask
+from app.schemas.common import paginated_response, success_response
 from app.schemas.download_task import DownloadTaskResponse, TaskActionResponse
-from app.schemas.common import success_response, paginated_response
 
 router = APIRouter()
 
 
 async def _apply_torrent_action(db, task: DownloadTask, action: str, delete_data: bool = False) -> bool:
     """Call Transmission for pause/resume/retry/delete actions."""
-    from app.models.downloader import DownloaderInstance
     from app.clients.downloader import get_downloader_client
+    from app.models.downloader import DownloaderInstance
     if not task.downloader_id:
         return False
     downloader = await db.get(DownloaderInstance, task.downloader_id)
@@ -83,7 +83,15 @@ async def get_task(task_id: str, db: AsyncSession = Depends(get_db)):
         options=[selectinload(DownloadTask.file_resource), selectinload(DownloadTask.agent)],
     )
     if not task:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Task not found"}, "meta": {}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Task not found"},
+                "meta": {},
+            },
+        )
     return success_response(DownloadTaskResponse.model_validate(task).model_dump())
 
 
@@ -91,37 +99,67 @@ async def get_task(task_id: str, db: AsyncSession = Depends(get_db)):
 async def pause_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Task not found"}, "meta": {}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Task not found"},
+                "meta": {},
+            },
+        )
     ok = await _apply_torrent_action(db, task, "pause")
     if ok:
         task.status = "paused"
     await db.flush()
     await db.commit()
-    return success_response(TaskActionResponse(id=task.id, status=task.status, message="paused" if ok else "failed").model_dump())
+    return success_response(
+        TaskActionResponse(id=task.id, status=task.status, message="paused" if ok else "failed").model_dump()
+    )
 
 
 @router.post("/tasks/{task_id}/resume")
 async def resume_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Task not found"}, "meta": {}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Task not found"},
+                "meta": {},
+            },
+        )
     ok = await _apply_torrent_action(db, task, "resume")
     if ok:
         task.status = "queued"
     await db.flush()
     await db.commit()
-    return success_response(TaskActionResponse(id=task.id, status=task.status, message="resumed" if ok else "failed").model_dump())
+    return success_response(
+        TaskActionResponse(id=task.id, status=task.status, message="resumed" if ok else "failed").model_dump()
+    )
 
 
 @router.post("/tasks/{task_id}/retry")
 async def retry_task(task_id: str, db: AsyncSession = Depends(get_db)):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Task not found"}, "meta": {}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Task not found"},
+                "meta": {},
+            },
+        )
     ok = await _apply_torrent_action(db, task, "retry")
     await db.flush()
     await db.commit()
-    return success_response(TaskActionResponse(id=task.id, status=task.status, message="retried" if ok else "failed").model_dump())
+    return success_response(
+        TaskActionResponse(id=task.id, status=task.status, message="retried" if ok else "failed").model_dump()
+    )
 
 
 @router.delete("/tasks/{task_id}")
@@ -132,7 +170,15 @@ async def delete_task(
 ):
     task = await db.get(DownloadTask, task_id)
     if not task:
-        return JSONResponse(status_code=404, content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Task not found"}, "meta": {}})
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Task not found"},
+                "meta": {},
+            },
+        )
     if task.transmission_torrent_id:
         await _apply_torrent_action(db, task, "remove", delete_data=delete_data)
     task.status = "cancelled"

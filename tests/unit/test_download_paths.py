@@ -2,7 +2,12 @@
 
 import pytest
 
-from app.utils.download_paths import DownloadPathError, resolve_download_dir, validate_download_root, validate_download_subdir
+from app.utils.download_paths import (
+    DownloadPathError,
+    resolve_download_dir,
+    validate_download_root,
+    validate_download_subdir,
+)
 
 
 def test_validate_posix_root():

@@ -8,9 +8,7 @@ Tests:
 5. Verify filter matching against resources
 """
 
-import time
 import httpx
-import pytest
 
 TEST_SERVER = "http://test-server:8080"
 RSSRIPPLE = "http://app:9001"

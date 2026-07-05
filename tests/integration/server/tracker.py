@@ -6,7 +6,6 @@ Tracks peers per info_hash and returns peer lists on announce.
 
 from __future__ import annotations
 
-import hashlib
 import struct
 import time
 from dataclasses import dataclass, field

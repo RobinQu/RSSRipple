@@ -923,7 +923,7 @@ def test_async_openai_constructor_no_proxies_error():
     from openai import AsyncOpenAI as _AsyncOpenAI
 
     try:
-        client = _AsyncOpenAI(
+        _AsyncOpenAI(
             api_key="test",
             base_url="https://example.com/v1",
             timeout=httpx.Timeout(10.0),

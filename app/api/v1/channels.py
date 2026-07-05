@@ -10,12 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rss_parser import get_raw_entries, validate_rss_url
-from app.database import get_db, retry_on_lock
+from app.database import get_db
 from app.models.channel import Channel
 from app.schemas.channel import (
     ChannelCreate,
-    ChannelUpdate,
     ChannelResponse,
+    ChannelUpdate,
     PreviewFeedRequest,
     SummarizeFiltersRequest,
     ValidateURLRequest,
@@ -38,7 +38,12 @@ def _not_found(message: str = "Channel not found"):
 def _already_running(existing_job: dict | None = None):
     return JSONResponse(
         status_code=409,
-        content={"success": False, "data": existing_job, "error": {"code": "ALREADY_RUNNING", "message": "A job is already running for this channel"}, "meta": {}},
+        content={
+            "success": False,
+            "data": existing_job,
+            "error": {"code": "ALREADY_RUNNING", "message": "A job is already running for this channel"},
+            "meta": {},
+        },
     )
 
 
@@ -113,20 +118,10 @@ async def create_channel(
             "error": {"code": "INVALID_FEED", "message": feed_msg}, "meta": {},
         })
 
-    async def _create_channel_in_db() -> Channel:
-        """Create channel in DB — wrapped in retry_on_lock for SQLite."""
-        nonlocal db
-        channel = Channel(**body.model_dump())
-        db.add(channel)
-        try:
-            await db.flush()
-            await db.refresh(channel)
-        except Exception:
-            await db.rollback()
-            raise
-        return channel
-
-    channel = await retry_on_lock(_create_channel_in_db)
+    channel = Channel(**body.model_dump())
+    db.add(channel)
+    await db.flush()
+    await db.refresh(channel)
 
     # Schedule the channel if active
     try:
@@ -149,9 +144,10 @@ async def get_form_token():
 
 @router.get("/channels/{channel_id}")
 async def get_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy.orm import selectinload
+
     from app.models.file_resource import FileResource
     from app.schemas.file_resource import FileResourceResponse
-    from sqlalchemy.orm import selectinload
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
@@ -353,8 +349,16 @@ async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: 
     conditions = []
     explanation_parts = []
     n = len(resources)
-    EXACT_FIELDS = ["subtitle_group", "resolution", "video_codec", "audio_codec", "container", "subtitle_type", "source"]
-    for field in EXACT_FIELDS:
+    exact_fields = [
+        "subtitle_group",
+        "resolution",
+        "video_codec",
+        "audio_codec",
+        "container",
+        "subtitle_type",
+        "source",
+    ]
+    for field in exact_fields:
         values = [getattr(r, field) for r in resources if getattr(r, field)]
         if not values:
             continue

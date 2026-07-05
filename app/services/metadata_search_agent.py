@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import date, datetime, UTC
 from functools import lru_cache
 from typing import Any, TypedDict
 
@@ -184,7 +183,7 @@ def _resolve_genre_ids(genre_ids: list[int], api_key: str) -> list[str]:
         try:
             if gid in gmap:
                 result.append(gmap[gid])
-        except TypeError as e:
+        except TypeError:
             logger = logging.getLogger("rssripple.eval")
             logger.warning(
                 "[metadata_agent] _resolve_genre_ids: unhashable genre element type=%s value=%r",
@@ -393,7 +392,10 @@ _EXA_CANDIDATE_SCHEMA: dict[str, Any] = {
         },
         "status": {
             "type": ["string", "null"],
-            "description": "For TV: 'Returning Series'/'Ended'/'Canceled' etc. For movie: 'Released'/'Post Production' etc.",
+            "description": (
+                "For TV: 'Returning Series'/'Ended'/'Canceled' etc. "
+                "For movie: 'Released'/'Post Production' etc."
+            ),
         },
         "external_id": {
             "type": ["string", "null"],
@@ -455,7 +457,10 @@ _EXA_OUTPUT_SCHEMA: dict[str, Any] = {
         "candidates": {
             "type": "array",
             "maxItems": 5,
-            "description": "Best matching TV/movie metadata candidates. Return an empty array if no credible work matches.",
+            "description": (
+                "Best matching TV/movie metadata candidates. "
+                "Return an empty array if no credible work matches."
+            ),
             "items": _EXA_CANDIDATE_SCHEMA,
         },
         "reason": {
@@ -502,7 +507,11 @@ async def _search_exa(title: str) -> list[dict[str, Any]]:
             output_schema=_EXA_OUTPUT_SCHEMA,
             effort=settings.exa_effort_level,
         )
-        logger.info("[metadata_agent][exa] run created id=%s status=%s", getattr(run, "id", None), getattr(run, "status", None))
+        logger.info(
+            "[metadata_agent][exa] run created id=%s status=%s",
+            getattr(run, "id", None),
+            getattr(run, "status", None),
+        )
         polled = await exa.agent.runs.poll_until_finished(
             run.id, poll_interval=4000, timeout_ms=300_000,
         )

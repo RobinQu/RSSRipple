@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-
 
 def _uuid():
     return str(uuid.uuid4())
@@ -79,9 +77,9 @@ class TestMoviesCRUD:
 
     async def test_get_movie_detail(self, client, db_session, sample_movie, sample_channel, sample_downloader):
         """GET /api/v1/movies/{id} returns resources, resource_count, task_count."""
-        from app.models.file_resource import FileResource
         from app.models.agent import Agent
         from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
 
         mid = sample_movie.id
 

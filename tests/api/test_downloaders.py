@@ -4,9 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
-
 TEST_FIELD_MAPPING = {
     "list_locator": {"source": "entries"},
     "field_mappings": {"torrent_url": {"source": "link"}},

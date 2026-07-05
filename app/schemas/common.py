@@ -13,7 +13,7 @@ class ErrorDetail(BaseModel):
     details: dict | None = None
 
 
-class APIResponse(BaseModel, Generic[T]):
+class APIResponse(BaseModel, Generic[T]):  # noqa: UP046 — Pydantic v2 doesn't support PEP-695 generics
     success: bool = True
     data: T | None = None
     error: ErrorDetail | None = None

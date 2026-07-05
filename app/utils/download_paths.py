@@ -6,7 +6,6 @@ import ntpath
 import posixpath
 import re
 
-
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _WINDOWS_DRIVE_ABS = re.compile(r"^[a-zA-Z]:[\\/]")
 

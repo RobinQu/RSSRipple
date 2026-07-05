@@ -7,7 +7,6 @@ import os
 import time
 
 import httpx
-import pytest
 
 RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")

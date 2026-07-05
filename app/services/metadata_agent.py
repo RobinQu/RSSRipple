@@ -114,7 +114,7 @@ class ResourceMetadata:
     search_error: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ResourceMetadata":
+    def from_dict(cls, data: dict) -> ResourceMetadata:
         """Construct from the finalize tool's JSON output."""
         entity = data.get("matched_entity") or {}
         return cls(
@@ -266,7 +266,7 @@ async def _execute_search_tmdb(query: str) -> dict:
 
 async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
     """Fetch full TMDB details including season/episode structure."""
-    from app.services.metadata_search_agent import _tmdb_image_base, _resolve_genre_ids
+    from app.services.metadata_search_agent import _resolve_genre_ids, _tmdb_image_base
 
     api_key = settings.tmdb_api_key
     if not api_key:
@@ -912,7 +912,7 @@ class UnifiedMetadataAgent:
 
     def _extract_finalize_result(self, messages: list) -> dict:
         """Extract the JSON payload from the finalize tool call."""
-        from langchain_core.messages import ToolMessage, AIMessage
+        from langchain_core.messages import AIMessage, ToolMessage
 
         # Walk backwards to find the last finalize call
         for msg in reversed(messages):
@@ -1102,6 +1102,7 @@ class UnifiedMetadataAgent:
 
     async def _get_cache(self, raw_title: str, db: AsyncSession) -> ResourceMetadata | None:
         from sqlalchemy import select
+
         from app.models.metadata_cache import MetadataCache
 
         result = await db.execute(
@@ -1116,8 +1117,9 @@ class UnifiedMetadataAgent:
         return None
 
     async def _set_cache(self, raw_title: str, meta: ResourceMetadata, db: AsyncSession) -> None:
-        from app.models.metadata_cache import MetadataCache
         import uuid
+
+        from app.models.metadata_cache import MetadataCache
 
         cache_entry = MetadataCache(
             id=str(uuid.uuid4()),

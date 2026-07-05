@@ -7,8 +7,8 @@ fields supporting combinators (and/or), negation, and per-field operators
 
 from __future__ import annotations
 
-from typing import Any
 import re
+from typing import Any
 
 from app.services.text_normalizer import similarity_score
 

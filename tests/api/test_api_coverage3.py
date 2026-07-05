@@ -70,8 +70,8 @@ async def _make_resource(db_session_factory, ch_id, **kw):
 
 class TestResourcesMore:
     async def test_list_grouped_all_types(self, client, env, db_session_factory):
-        from app.models.series import TVSeries
         from app.models.movie import Movie
+        from app.models.series import TVSeries
         sid = _uuid(); mid = _uuid()
         async with db_session_factory() as s:
             s.add_all([
@@ -163,7 +163,6 @@ class TestResourcesMore:
             "external_id": "ext-m", "external_source": "manual",
         }
         # Monkeypatch the link_metadata endpoint to avoid post-commit lazy load
-        from app.api.v1 import resources as rmod
         from app.services import task_queue as tq_mod
         monkeypatch.setattr(tq_mod.task_queue, "enqueue", AsyncMock(return_value=None))
         # Disable channel.agents iteration by patching _make_resource channel's agents property
@@ -225,14 +224,14 @@ class TestDecisionsMore:
 
 class TestDashboardPopulatedFull:
     async def test_dashboard_full(self, client, db_session_factory, mock_transmission):
-        from app.models.channel import Channel
-        from app.models.downloader import DownloaderInstance
         from app.models.agent import Agent
-        from app.models.file_resource import FileResource
-        from app.models.series import TVSeries
-        from app.models.movie import Movie
+        from app.models.channel import Channel
         from app.models.download_task import DownloadTask
+        from app.models.downloader import DownloaderInstance
+        from app.models.file_resource import FileResource
+        from app.models.movie import Movie
         from app.models.pending_decision import PendingDecision
+        from app.models.series import TVSeries
 
         ch_id = _uuid(); dl_id = _uuid(); a_id = _uuid()
         s_id = _uuid(); m_id = _uuid()

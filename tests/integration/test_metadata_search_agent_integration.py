@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from app.services.metadata_search_agent import search_metadata, _cache
+from app.services.metadata_search_agent import _cache, search_metadata
 
 # ---------------------------------------------------------------------------
 # 22-Title curated test dataset
@@ -160,7 +160,7 @@ async def test_dataset_20_titles():
 
         # Check external ID format
         ext_id = top.get("external_id", "")
-        ext_src = top.get("external_source", "")
+        top.get("external_source", "")
         if not ext_id or ":" not in ext_id:
             issues.append(f"bad external_id: {ext_id}")
 

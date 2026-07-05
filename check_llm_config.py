@@ -12,6 +12,7 @@ import time
 
 async def main():
     import httpx
+
     from app.config import settings
 
     print("=== LLM Config Check ===")

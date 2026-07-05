@@ -297,7 +297,12 @@ Example output for a typical anime RSS feed:
     "title_en": {"source": "title", "regex": "/\\\\s*(.+?)\\\\s*-", "group": 1},
     "subtitle_group": {"source": "title", "regex": "^\\\\[([^\\\\]]+)\\\\]", "group": 1},
     "episode": {"source": "title", "regex": "-\\\\s*(\\\\d+)\\\\b", "group": 1, "transform": "int"},
-    "resolution": {"source": "title", "regex": "\\\\b(1080p|720p|480p|2160p|4K)\\\\b", "group": 1, "transform": "lowercase"},
+    "resolution": {
+        "source": "title",
+        "regex": "\\\\b(1080p|720p|480p|2160p|4K)\\\\b",
+        "group": 1,
+        "transform": "lowercase",
+    },
     "torrent_url": {"source": "enclosures[0].url"},
     "file_size": {"source": "enclosures[0].length", "transform": "int"},
     "published_at": {"source": "published", "transform": "iso_datetime"}

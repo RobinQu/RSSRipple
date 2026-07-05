@@ -1,32 +1,28 @@
 """FileResource API routes."""
 
 from collections import Counter
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func
+from fastapi.responses import JSONResponse
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from fastapi.responses import JSONResponse
 
 from app.database import get_db
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
-from app.models.movie import Movie
-from app.models.series import TVSeries
+from app.schemas.common import paginated_response, success_response
 from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
     FileResourceResponse,
-    GroupedResource,
+    MetadataLinkRequest,
     MetadataSearchRequest,
     MetadataSearchResult,
-    MetadataLinkRequest,
 )
-from app.schemas.common import success_response, paginated_response
 from app.services.metadata_service import (
     fetch_and_link_metadata,
-    manual_search_metadata,
     manual_link_metadata,
+    manual_search_metadata,
 )
 from app.services.task_queue import task_queue
 
@@ -91,8 +87,8 @@ async def list_resources(
 
         # Sort by last_update desc; None values sink to the end for stability.
         from datetime import datetime as _dt
-        _EPOCH = _dt.min
-        entries.sort(key=lambda e: e[2] or _EPOCH, reverse=True)
+        _epoch = _dt.min
+        entries.sort(key=lambda e: e[2] or _epoch, reverse=True)
 
         total_groups = len(entries)
         offset = (page - 1) * page_size
@@ -373,7 +369,7 @@ async def link_metadata(
         )
     channel = await db.get(Channel, resource.channel_id)
     try:
-        entity = await manual_link_metadata(db, resource, channel, body.selected_result)
+        await manual_link_metadata(db, resource, channel, body.selected_result)
         await db.commit()
     except Exception as e:
         await db.rollback()

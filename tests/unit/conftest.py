@@ -51,8 +51,8 @@ def event_loop_policy():
 # Import Base/models after setting DATABASE_URL.
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
-from app.database import Base, enable_sqlite_fk  # noqa: E402
 import app.models  # noqa: E402, F401  (register models)
+from app.database import Base, enable_sqlite_fk  # noqa: E402
 
 
 @pytest_asyncio.fixture
@@ -106,6 +106,7 @@ TEST_FIELD_MAPPING = {
 async def sample_channel(db_session: AsyncSession):
     """Create and persist a minimal active Channel."""
     from sqlalchemy.orm import selectinload
+
     from app.models.channel import Channel
 
     ch = Channel(

@@ -13,7 +13,6 @@ import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -36,13 +35,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from starlette.exceptions import HTTPException as StarletteHTTPException  # noqa: E402
 
-from app.database import Base, enable_sqlite_fk, get_db  # noqa: E402
 import app.models  # noqa: E402, F401
-from app.main import (  # noqa: E402
-    http_exception_handler,
-    unhandled_exception_handler,
-    validation_exception_handler,
-)
 
 # Import routers directly (avoid pulling in lifespan)
 from app.api.v1 import (  # noqa: E402
@@ -56,7 +49,12 @@ from app.api.v1 import (  # noqa: E402
     series,
     tasks,
 )
-
+from app.database import Base, enable_sqlite_fk, get_db, install_db_retry_middleware  # noqa: E402
+from app.main import (  # noqa: E402
+    http_exception_handler,
+    unhandled_exception_handler,
+    validation_exception_handler,
+)
 
 _TMP_DB_DIR: tempfile.TemporaryDirectory[str] | None = None
 _TMP_DB_PATH: Path | None = None
@@ -76,6 +74,9 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
     test_app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     test_app.add_exception_handler(RequestValidationError, validation_exception_handler)
     test_app.add_exception_handler(Exception, unhandled_exception_handler)
+
+    # Install DB lock retry middleware (SQLite-only, no-op on PostgreSQL)
+    install_db_retry_middleware(test_app)
 
     # Mount a no-op static files directory for /posters
     from fastapi.staticfiles import StaticFiles
@@ -273,8 +274,8 @@ async def sample_movie(db_session: AsyncSession):
 @pytest.fixture
 def api_mocks(monkeypatch):
     """Provide a namespace of common external-call mocks used across API tests."""
-    from app.clients import rss_parser as rss_mod
     from app.api.v1 import channels as channels_mod
+    from app.clients import rss_parser as rss_mod
     from app.services import feed_analyzer as fa_mod
 
     validate = AsyncMock(return_value=(True, "valid", 5, 5)),
