@@ -71,7 +71,15 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         run_result = await process_resources(agent, resources, session)
 
         agent.last_run_at = utcnow()
-        agent.last_run_status = "failed" if run_result.errors else "success"
+        # More granular status so the UI can badge "待决策" instead of a
+        # deceptively-green "success" when the run generated PDs but
+        # dispatched nothing.
+        if run_result.errors:
+            agent.last_run_status = "failed"
+        elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
+            agent.last_run_status = "pending_decisions"
+        else:
+            agent.last_run_status = "success"
         try:
             await session.commit()
         except Exception:

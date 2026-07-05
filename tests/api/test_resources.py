@@ -65,6 +65,73 @@ class TestResourceList:
         assert res.status_code == 404
 
 
+class TestChannelFieldValues:
+    """Autocomplete endpoint used by the Filter DSL editor."""
+
+    async def test_top_string_values_by_frequency(
+        self, client, sample_channel, db_session_factory,
+    ):
+        # Two 1080p rows + one 720p — expect 1080p first.
+        for _ in range(2):
+            await _make_resource(
+                db_session_factory, sample_channel.id, resolution="1080p",
+            )
+        await _make_resource(
+            db_session_factory, sample_channel.id, resolution="720p",
+        )
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=resolution"
+        )
+        assert res.status_code == 200
+        values = res.json()["data"]
+        assert values[0] == "1080p"
+        assert set(values) == {"1080p", "720p"}
+
+    async def test_prefix_filter(self, client, sample_channel, db_session_factory):
+        await _make_resource(db_session_factory, sample_channel.id, resolution="1080p")
+        await _make_resource(db_session_factory, sample_channel.id, resolution="2160p")
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=resolution&q=10"
+        )
+        assert res.status_code == 200
+        assert res.json()["data"] == ["1080p"]
+
+    async def test_subtitle_langs_unnest(self, client, sample_channel, db_session_factory):
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            subtitle_langs=["zh-CN", "zh-TW"],
+        )
+        await _make_resource(
+            db_session_factory, sample_channel.id, subtitle_langs=["zh-CN", "ja"],
+        )
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=subtitle_langs"
+        )
+        assert res.status_code == 200
+        values = res.json()["data"]
+        # zh-CN appears twice → sorts first; the other tags follow.
+        assert values[0] == "zh-CN"
+        assert set(values) == {"zh-CN", "zh-TW", "ja"}
+
+    async def test_unsupported_field_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=file_size"
+        )
+        assert res.status_code == 422
+
+    async def test_unknown_channel_404(self, client):
+        res = await client.get(
+            "/api/v1/channels/nope/field-values?field=resolution"
+        )
+        assert res.status_code == 404
+
+
 class TestResourceMetadata:
     async def test_metadata_404(self, client):
         res = await client.get("/api/v1/resources/nope/metadata")

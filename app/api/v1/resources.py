@@ -1,5 +1,6 @@
 """FileResource API routes."""
 
+from collections import Counter
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -187,6 +188,96 @@ async def list_resources(
         [FileResourceResponse.model_validate(r).model_dump() for r in resources],
         total=total, page=page, page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Field values — powers autocomplete for Filter DSL eq/ne inputs
+# ---------------------------------------------------------------------------
+
+# Only columns we actually let users filter on via the DSL are allowed. Numeric
+# fields don't offer autocomplete (values are unbounded), and the JSON list
+# column ``subtitle_langs`` needs a per-dialect unnest so we handle it below.
+_AUTOCOMPLETE_STRING_FIELDS = {
+    "subtitle_group", "resolution", "source", "video_codec", "audio_codec",
+    "subtitle_type", "container", "title_cn", "title_en", "search_title",
+}
+_AUTOCOMPLETE_LIST_FIELDS = {"subtitle_langs"}
+_AUTOCOMPLETE_ALL = _AUTOCOMPLETE_STRING_FIELDS | _AUTOCOMPLETE_LIST_FIELDS
+
+
+@router.get("/channels/{channel_id}/field-values")
+async def list_channel_field_values(
+    channel_id: str,
+    field: str = Query(..., description="FileResource column to enumerate"),
+    q: str = Query("", description="Case-insensitive prefix filter"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the top-N distinct values of ``field`` for this channel.
+
+    Powers the Filter DSL editor's autocomplete on ``eq/ne/contains/fuzzy``
+    inputs so users can pick from real values in the feed while still typing
+    anything they want. Whitelist-guarded to prevent leaking arbitrary
+    columns. Ordered by frequency descending so the most common option (e.g.
+    ``1080p``) surfaces first.
+    """
+    ch = await db.get(Channel, channel_id)
+    if not ch:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Channel not found"}},
+        )
+    if field not in _AUTOCOMPLETE_ALL:
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "data": None,
+                     "error": {"code": "VALIDATION_ERROR",
+                               "message": f"unsupported field {field!r}"}},
+        )
+
+    prefix = (q or "").strip().lower()
+
+    if field in _AUTOCOMPLETE_STRING_FIELDS:
+        col = getattr(FileResource, field)
+        stmt = (
+            select(col, func.count().label("cnt"))
+            .where(
+                FileResource.channel_id == channel_id,
+                col.isnot(None),
+                col != "",
+            )
+        )
+        if prefix:
+            stmt = stmt.where(func.lower(col).like(f"{prefix}%"))
+        stmt = stmt.group_by(col).order_by(func.count().desc()).limit(limit)
+        rows = (await db.execute(stmt)).all()
+        return success_response([r[0] for r in rows])
+
+    # subtitle_langs — JSON array column. SQLite and PostgreSQL disagree on
+    # how to unnest, so pull the JSON blobs and aggregate in Python. The
+    # per-channel volume is small (thousands at most), so a fetch-and-count
+    # in memory is fine and avoids dialect-specific SQL.
+    stmt = select(FileResource.subtitle_langs).where(
+        FileResource.channel_id == channel_id,
+        FileResource.subtitle_langs.isnot(None),
+    )
+    rows = (await db.execute(stmt)).all()
+    counter: Counter[str] = Counter()
+    for (val,) in rows:
+        if not val:
+            continue
+        for tag in val:
+            if not isinstance(tag, str):
+                continue
+            t = tag.strip()
+            if not t:
+                continue
+            if prefix and not t.lower().startswith(prefix):
+                continue
+            counter[t] += 1
+    top = [tag for tag, _cnt in counter.most_common(limit)]
+    return success_response(top)
 
 
 @router.get("/resources/{resource_id}")

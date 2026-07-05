@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Card,
@@ -17,65 +17,105 @@ import {
   DeleteOutlined,
   GroupOutlined,
 } from '@ant-design/icons';
+import { channelsApi } from '../api/channels';
 import type {
   BoolCondition,
   FieldCondition,
   FilterConfig,
   FilterField,
   FilterOperator,
-  NumberFilterField,
-  NumberOperator,
-  StringFilterField,
-  StringOperator,
 } from '../types';
 import type { TFunction } from 'i18next';
 
-function useFieldOptions(t: TFunction) {
-  const STRING_FIELDS: { value: StringFilterField; label: string }[] = [
-    { value: 'subtitle_group', label: t('filter.subtitleGroup') },
-    { value: 'resolution', label: t('filter.resolution') },
-    { value: 'source', label: t('filter.source') },
-    { value: 'video_codec', label: t('filter.videoCodec') },
-    { value: 'audio_codec', label: t('filter.audioCodec') },
-    { value: 'subtitle_type', label: t('filter.subtitleType') },
-    { value: 'container', label: t('filter.container') },
-    { value: 'title_cn', label: t('filter.titleCn') },
-    { value: 'title_en', label: t('filter.titleEn') },
-    { value: 'search_title', label: t('filter.searchTitle') },
-  ];
+// ---------------------------------------------------------------------------
+// Field & operator metadata — kept in one place so future additions only
+// need to touch this section. Backed by ``filter_engine.py`` on the server.
+// ---------------------------------------------------------------------------
 
-  const NUMBER_FIELDS: { value: NumberFilterField; label: string }[] = [
-    { value: 'file_size', label: t('filter.fileSize') },
-    { value: 'episode', label: t('filter.episode') },
-    { value: 'season', label: t('filter.season') },
+type FieldType = 'string' | 'number' | 'bool' | 'list';
+
+const FIELD_TYPES: Record<FilterField, FieldType> = {
+  subtitle_group: 'string',
+  resolution: 'string',
+  source: 'string',
+  video_codec: 'string',
+  audio_codec: 'string',
+  subtitle_type: 'string',
+  container: 'string',
+  title_cn: 'string',
+  title_en: 'string',
+  search_title: 'string',
+  file_size: 'number',
+  episode: 'number',
+  season: 'number',
+  episode_start: 'number',
+  episode_end: 'number',
+  is_batch: 'bool',
+  subtitle_langs: 'list',
+};
+
+// Fields with a bounded, meaningful autocomplete set. Autocomplete is only
+// worth doing for eq/ne/contains/fuzzy on string columns; list/bool/number
+// use their own dedicated inputs.
+const AUTOCOMPLETE_FIELDS: Set<FilterField> = new Set([
+  'subtitle_group',
+  'resolution',
+  'source',
+  'video_codec',
+  'audio_codec',
+  'subtitle_type',
+  'container',
+]);
+const AUTOCOMPLETE_OPERATORS = new Set<FilterOperator>([
+  'eq', 'ne', 'contains', 'fuzzy',
+]);
+
+// Static tag set for subtitle_langs — BCP-47 tags used by the backend
+// pre-parser + MetadataAgent. Users can still type a custom tag.
+const SUBTITLE_LANG_OPTIONS = ['zh-CN', 'zh-TW', 'ja', 'en', 'multi'];
+
+const STRING_OPERATORS: FilterOperator[] = ['eq', 'ne', 'contains', 'fuzzy', 'in', 'regex'];
+const NUMBER_OPERATORS: FilterOperator[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in'];
+const BOOL_OPERATORS: FilterOperator[] = ['eq', 'ne'];
+const LIST_OPERATORS: FilterOperator[] = ['contains', 'in', 'eq', 'ne'];
+
+function operatorsFor(field: FilterField): FilterOperator[] {
+  switch (FIELD_TYPES[field]) {
+    case 'string': return STRING_OPERATORS;
+    case 'number': return NUMBER_OPERATORS;
+    case 'bool': return BOOL_OPERATORS;
+    case 'list': return LIST_OPERATORS;
+  }
+}
+
+function useFieldOptions(t: TFunction) {
+  const string_fields: FilterField[] = [
+    'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
+    'subtitle_type', 'container', 'title_cn', 'title_en', 'search_title',
   ];
+  const number_fields: FilterField[] = [
+    'file_size', 'episode', 'season', 'episode_start', 'episode_end',
+  ];
+  const bool_fields: FilterField[] = ['is_batch'];
+  const list_fields: FilterField[] = ['subtitle_langs'];
+
+  const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });
 
   const fieldOptions = [
-    { label: t('filter.stringField'), options: STRING_FIELDS },
-    { label: t('filter.numberField'), options: NUMBER_FIELDS },
+    { label: t('filter.stringField'), options: string_fields.map(toOption) },
+    { label: t('filter.numberField'), options: number_fields.map(toOption) },
+    { label: t('filter.boolField'), options: bool_fields.map(toOption) },
+    { label: t('filter.listField'), options: list_fields.map(toOption) },
   ];
 
-  const STRING_OPERATORS: { value: StringOperator; label: string }[] = [
-    { value: 'eq', label: t('filter.eq') },
-    { value: 'ne', label: t('filter.ne') },
-    { value: 'contains', label: t('filter.contains') },
-    { value: 'fuzzy', label: t('filter.fuzzy') },
-    { value: 'in', label: t('filter.in') },
-    { value: 'regex', label: t('filter.regex') },
-  ];
+  const operatorLabel = (op: FilterOperator) => t(`filter.${op}`);
 
-  const NUMBER_OPERATORS: { value: NumberOperator; label: string }[] = [
-    { value: 'eq', label: t('filter.eq') },
-    { value: 'ne', label: t('filter.ne') },
-    { value: 'gt', label: t('filter.gt') },
-    { value: 'gte', label: t('filter.gte') },
-    { value: 'lt', label: t('filter.lt') },
-    { value: 'lte', label: t('filter.lte') },
-    { value: 'in', label: t('filter.in') },
-  ];
-
-  return { STRING_FIELDS, NUMBER_FIELDS, fieldOptions, STRING_OPERATORS, NUMBER_OPERATORS };
+  return { fieldOptions, operatorLabel };
 }
+
+// ---------------------------------------------------------------------------
+// Type guards & defaults
+// ---------------------------------------------------------------------------
 
 const isBoolCondition = (node: unknown): node is BoolCondition => {
   return (
@@ -95,12 +135,6 @@ const isFieldCondition = (node: unknown): node is FieldCondition => {
   );
 };
 
-const NUMBER_FIELD_SET = new Set<FilterField>(['file_size', 'episode', 'season']);
-
-function isNumberField(field: FilterField | undefined): boolean {
-  return !!field && NUMBER_FIELD_SET.has(field);
-}
-
 function emptyBool(): BoolCondition {
   return { combinator: 'and', conditions: [] };
 }
@@ -109,61 +143,155 @@ function emptyField(): FieldCondition {
   return { field: 'subtitle_group', operator: 'eq', value: '' };
 }
 
-/** Deep clone a filter node */
+function defaultValueFor(field: FilterField, op: FilterOperator): string | number | boolean | string[] {
+  const type = FIELD_TYPES[field];
+  if (op === 'in') return [];
+  switch (type) {
+    case 'number': return 0;
+    case 'bool': return true;
+    case 'list': return '';
+    default: return '';
+  }
+}
+
 function cloneFilter<T>(v: T): T {
   if (v === null || v === undefined) return v;
   return JSON.parse(JSON.stringify(v));
 }
 
-/** Field condition editor */
+// ---------------------------------------------------------------------------
+// Autocomplete Select — server-side prefix search on the current channel
+// ---------------------------------------------------------------------------
+
+interface AutocompleteSelectProps {
+  channelId?: string;
+  field: FilterField;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}
+
+function AutocompleteSelect({
+  channelId,
+  field,
+  value,
+  onChange,
+  placeholder,
+}: AutocompleteSelectProps) {
+  const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestSeq = useRef(0);
+
+  const load = useCallback(
+    async (q: string) => {
+      if (!channelId) return;
+      const seq = ++requestSeq.current;
+      setLoading(true);
+      const r = await channelsApi.fieldValues(channelId, field, q, 10);
+      // Only apply the most recent response — stale keystrokes are dropped.
+      if (seq !== requestSeq.current) return;
+      if (r.success) {
+        setOptions((r.data || []).map((v: string) => ({ value: v, label: v })));
+      }
+      setLoading(false);
+    },
+    [channelId, field],
+  );
+
+  useEffect(() => {
+    // Warm the dropdown once on mount so the user sees candidate values as
+    // soon as they open the Select — before typing anything.
+    load('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, field]);
+
+  const handleSearch = (q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => load(q), 200);
+  };
+
+  return (
+    <Select
+      showSearch
+      allowClear
+      // ``mode="tags"`` keeps free-text entries — the user can still type
+      // "1080P" (case variant) or a value that isn't in the channel yet.
+      mode="tags"
+      maxCount={1}
+      style={{ minWidth: 200, flex: 1 }}
+      size="small"
+      value={value ? [value] : []}
+      onChange={(tags) => onChange(Array.isArray(tags) ? (tags[tags.length - 1] ?? '') : (tags as string))}
+      onSearch={handleSearch}
+      options={options}
+      placeholder={placeholder}
+      loading={loading}
+      filterOption={false}
+      notFoundContent={loading ? '…' : null}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FieldConditionNode — the leaf editor
+// ---------------------------------------------------------------------------
+
 function FieldConditionNode({
   value,
   onChange,
   onDelete,
+  channelId,
   nested = false,
 }: {
   value: FieldCondition;
   onChange: (v: FieldCondition) => void;
   onDelete: () => void;
+  channelId?: string;
   nested?: boolean;
 }) {
   const { t } = useTranslation();
-  const { fieldOptions, STRING_OPERATORS, NUMBER_OPERATORS } = useFieldOptions(t);
-  const numField = isNumberField(value.field);
+  const { fieldOptions, operatorLabel } = useFieldOptions(t);
+  const fieldType = FIELD_TYPES[value.field];
 
-  // When switching field types, reset operator/value appropriately
   const handleFieldChange = (field: FilterField) => {
-    const willBeNum = isNumberField(field);
+    const newType = FIELD_TYPES[field];
+    // Coerce operator to a legal one for the new field type.
     let op: FilterOperator = value.operator;
-    let val: string | number | string[] = value.value;
-    if (willBeNum) {
-      if (!['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in'].includes(op)) op = 'eq';
-      if (op === 'in') val = [];
-      else val = 0;
-    } else {
-      if (!['eq', 'ne', 'contains', 'fuzzy', 'in', 'regex'].includes(op))
-        op = 'contains';
-      if (op === 'in') val = [];
-      else val = '';
+    if (!operatorsFor(field).includes(op)) {
+      op = operatorsFor(field)[0];
     }
-    onChange({ ...value, field, operator: op, value: val });
+    onChange({ ...value, field, operator: op, value: defaultValueFor(field, op) });
+    void newType; // keep types quiet
   };
 
   const handleOperatorChange = (op: FilterOperator) => {
-    let val: string | number | string[] = value.value;
+    // Value type may change when switching to/from 'in' or between
+    // number/string; normalize.
+    let v: string | number | boolean | string[] = value.value as never;
+    const type = FIELD_TYPES[value.field];
     if (op === 'in') {
-      val = Array.isArray(value.value) ? value.value : [];
-    } else if (isNumberField(value.field)) {
-      val = typeof value.value === 'number' ? value.value : 0;
+      v = Array.isArray(value.value) ? (value.value as string[]) : [];
+    } else if (type === 'number') {
+      v = typeof value.value === 'number' ? value.value : 0;
+    } else if (type === 'bool') {
+      v = typeof value.value === 'boolean' ? value.value : true;
     } else {
-      val = typeof value.value === 'string' ? value.value : '';
+      v = typeof value.value === 'string' ? value.value : '';
     }
-    onChange({ ...value, operator: op, value: val });
+    onChange({ ...value, operator: op, value: v });
   };
 
-  const operators: { value: FilterOperator; label: string }[] = numField
-    ? (NUMBER_OPERATORS as { value: FilterOperator; label: string }[])
-    : (STRING_OPERATORS as { value: FilterOperator; label: string }[]);
+  const operators = operatorsFor(value.field).map((op) => ({
+    value: op,
+    label: operatorLabel(op),
+  }));
+
+  const showAutocomplete =
+    fieldType === 'string' &&
+    AUTOCOMPLETE_FIELDS.has(value.field) &&
+    AUTOCOMPLETE_OPERATORS.has(value.operator) &&
+    !!channelId;
 
   return (
     <div
@@ -192,23 +320,71 @@ function FieldConditionNode({
         style={{ width: 130 }}
         size="small"
       />
-      {value.operator === 'in' ? (
+
+      {/* --- Value input, varies by (fieldType, operator) --- */}
+      {value.operator === 'in' && fieldType === 'list' ? (
         <Select
           mode="tags"
           style={{ minWidth: 200, flex: 1 }}
-          value={Array.isArray(value.value) ? value.value : []}
+          value={Array.isArray(value.value) ? (value.value as string[]) : []}
+          onChange={(tags) => onChange({ ...value, value: tags })}
+          placeholder={t('filter.enterValue')}
+          options={SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }))}
+          size="small"
+          tokenSeparators={[',']}
+        />
+      ) : value.operator === 'in' ? (
+        <Select
+          mode="tags"
+          style={{ minWidth: 200, flex: 1 }}
+          value={Array.isArray(value.value) ? (value.value as string[]) : []}
           onChange={(tags) => onChange({ ...value, value: tags })}
           placeholder={t('filter.enterValue')}
           size="small"
           tokenSeparators={[',']}
         />
-      ) : numField ? (
+      ) : fieldType === 'bool' ? (
+        <Select
+          value={value.value === true || value.value === 'true' ? 'true' : 'false'}
+          onChange={(v) => onChange({ ...value, value: v === 'true' })}
+          size="small"
+          style={{ width: 130 }}
+          options={[
+            { value: 'true', label: t('filter.true') },
+            { value: 'false', label: t('filter.false') },
+          ]}
+        />
+      ) : fieldType === 'list' ? (
+        // Single-value operators on list field: use the same tags dropdown but
+        // pinned to one selection so we still get autocomplete on the fixed
+        // set of language codes.
+        <Select
+          showSearch
+          allowClear
+          mode="tags"
+          maxCount={1}
+          style={{ minWidth: 200, flex: 1 }}
+          value={typeof value.value === 'string' && value.value ? [value.value] : []}
+          onChange={(tags) => onChange({ ...value, value: Array.isArray(tags) ? (tags[tags.length - 1] ?? '') : (tags as string) })}
+          size="small"
+          options={SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }))}
+          placeholder={t('filter.value')}
+        />
+      ) : fieldType === 'number' ? (
         <InputNumber
           value={typeof value.value === 'number' ? value.value : 0}
           onChange={(n) => onChange({ ...value, value: n ?? 0 })}
           style={{ width: 160 }}
           size="small"
           placeholder={t('filter.numericValue')}
+        />
+      ) : showAutocomplete ? (
+        <AutocompleteSelect
+          channelId={channelId}
+          field={value.field}
+          value={typeof value.value === 'string' ? value.value : ''}
+          onChange={(v) => onChange({ ...value, value: v })}
+          placeholder={t('filter.value')}
         />
       ) : (
         <Input
@@ -219,6 +395,7 @@ function FieldConditionNode({
           style={{ minWidth: 160, flex: 1 }}
         />
       )}
+
       <Button
         htmlType="button"
         type="text"
@@ -231,19 +408,24 @@ function FieldConditionNode({
   );
 }
 
-/** Bool condition editor (recursive) */
+// ---------------------------------------------------------------------------
+// BoolConditionNode (recursive)
+// ---------------------------------------------------------------------------
+
 function BoolConditionNode({
   value,
   onChange,
   onDelete,
   isRoot = false,
   depth = 0,
+  channelId,
 }: {
   value: BoolCondition;
   onChange: (v: BoolCondition) => void;
   onDelete?: () => void;
   isRoot?: boolean;
   depth?: number;
+  channelId?: string;
 }) {
   const { t } = useTranslation();
 
@@ -281,7 +463,6 @@ function BoolConditionNode({
         position: 'relative',
       }}
     >
-      {/* Toolbar */}
       <div
         style={{
           display: 'flex',
@@ -326,7 +507,6 @@ function BoolConditionNode({
         )}
       </div>
 
-      {/* Conditions */}
       {value.conditions.length === 0 && isRoot && (
         <div
           style={{
@@ -353,6 +533,7 @@ function BoolConditionNode({
                 depth={depth + 1}
                 onChange={(v) => updateCondition(idx, v)}
                 onDelete={() => removeCondition(idx)}
+                channelId={channelId}
               />
             );
           }
@@ -364,6 +545,7 @@ function BoolConditionNode({
                 nested={!isRoot}
                 onChange={(v) => updateCondition(idx, v)}
                 onDelete={() => removeCondition(idx)}
+                channelId={channelId}
               />
             );
           }
@@ -371,7 +553,6 @@ function BoolConditionNode({
         })}
       </div>
 
-      {/* Add buttons */}
       <Space size={8} style={{ marginTop: 8 }}>
         <Button
           htmlType="button"
@@ -397,18 +578,20 @@ export interface FilterBuilderProps {
   onChange: (v: BoolCondition | null) => void;
   /** Compact mode - renders inside a smaller container */
   compact?: boolean;
+  /** Channel context — enables autocomplete of real values on eq/ne. */
+  channelId?: string;
 }
 
 export default function FilterBuilder({
   value,
   onChange,
   compact = false,
+  channelId,
 }: FilterBuilderProps) {
   const root = value ?? emptyBool();
 
   const handleChange = useCallback(
     (v: BoolCondition) => {
-      // If completely empty, signal null? Keep a minimum structure for usability.
       onChange(v);
     },
     [onChange],
@@ -416,7 +599,7 @@ export default function FilterBuilder({
 
   if (compact) {
     return (
-      <BoolConditionNode value={root} onChange={handleChange} isRoot />
+      <BoolConditionNode value={root} onChange={handleChange} isRoot channelId={channelId} />
     );
   }
 
@@ -426,18 +609,16 @@ export default function FilterBuilder({
       styles={{ body: { padding: 16 } }}
       style={{ background: 'transparent' }}
     >
-      <BoolConditionNode value={root} onChange={handleChange} isRoot />
+      <BoolConditionNode value={root} onChange={handleChange} isRoot channelId={channelId} />
     </Card>
   );
 }
 
-/** Helper to normalize a possibly null filter to a valid root */
 export function normalizeFilter(v: FilterConfig | null | undefined): BoolCondition {
   if (isBoolCondition(v)) return v as BoolCondition;
   return emptyBool();
 }
 
-/** Helper to check if a filter is effectively empty (no conditions anywhere) */
 export function isFilterEmpty(v: FilterConfig | null | undefined): boolean {
   if (!v) return true;
   if (!isBoolCondition(v)) return true;
