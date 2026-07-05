@@ -31,6 +31,8 @@ class FileResourceResponse(BaseModel):
     is_batch: bool = False
     episode_start: int | None = None
     episode_end: int | None = None
+    absolute_episode: int | None = None
+    episode_confidence: str | None = None
     resolution: str | None = None
     source: str | None = None
     video_codec: str | None = None

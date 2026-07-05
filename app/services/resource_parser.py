@@ -226,6 +226,49 @@ def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
 
 
 # ---------------------------------------------------------------------------
+# Cross-season episode reconciliation — pre-parser
+# ---------------------------------------------------------------------------
+
+# ``NN(MM)`` — per-season NN with an absolute MM in parens. Common on Chinese
+# fansub packs, e.g. "13(85)" means "S4 episode 13, cumulative episode 85".
+# The regex only matches when the inner number is ≥ the outer one, which is
+# the shape that makes sense (absolute count is ≥ per-season count).
+_EPISODE_NN_MM_RE = re.compile(
+    r"(?<!\d)"           # not part of a larger number
+    r"(\d{1,3})"          # per-season NN
+    r"\s*\(\s*"
+    r"(\d{2,4})"          # absolute MM (usually 2+ digits so we don't match
+                          # runtimes like (24) accidentally — see filter below)
+    r"\s*\)"
+)
+
+
+def detect_absolute_episode(title: str | None) -> tuple[int | None, int | None]:
+    """Best-effort ``NN(MM)`` extraction from ``title``.
+
+    Returns ``(per_season_ep, absolute_ep)``. Both are ``None`` when the
+    title doesn't use the double-labeled form. When we do get a hit we
+    require ``absolute > per_season`` and ``absolute - per_season ≥ 10`` —
+    otherwise the parenthesized number is very likely a runtime, part
+    number, or resolution decorator rather than an absolute episode count.
+    """
+    if not title:
+        return None, None
+    for m in _EPISODE_NN_MM_RE.finditer(title):
+        try:
+            per_season = int(m.group(1))
+            absolute = int(m.group(2))
+        except (TypeError, ValueError):
+            continue
+        # Sanity check — a real "13(85)" jump implies at least ~10 episodes
+        # of earlier seasons. Small gaps (13(15)) are almost always something
+        # else (e.g. resolution "1080p (15GB)" shreds).
+        if absolute > per_season and absolute - per_season >= 10:
+            return per_season, absolute
+    return None, None
+
+
+# ---------------------------------------------------------------------------
 # Subtitle language detection
 # ---------------------------------------------------------------------------
 

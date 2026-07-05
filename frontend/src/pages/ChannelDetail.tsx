@@ -58,20 +58,32 @@ function groupColor(type: GroupedResource['type']) {
   return 'default';
 }
 
-function formatEpisodeCell(r: FileResource): { label: string; batch: boolean } {
+function formatEpisodeCell(r: FileResource): {
+  label: string;
+  batch: boolean;
+  confidence: FileResource['episode_confidence'];
+  absoluteEpisode: number | null;
+} {
+  const confidence = r.episode_confidence ?? null;
+  const absoluteEpisode = r.absolute_episode ?? null;
   if (r.is_batch) {
     const seasonPart = r.season != null ? `S${r.season} · ` : '';
     if (r.episode_start != null && r.episode_end != null) {
-      return { label: `${seasonPart}E${r.episode_start}-${r.episode_end}`, batch: true };
+      return {
+        label: `${seasonPart}E${r.episode_start}-${r.episode_end}`,
+        batch: true,
+        confidence,
+        absoluteEpisode,
+      };
     }
     if (r.episode_start != null) {
-      return { label: `${seasonPart}E${r.episode_start}+`, batch: true };
+      return { label: `${seasonPart}E${r.episode_start}+`, batch: true, confidence, absoluteEpisode };
     }
-    return { label: `${seasonPart || ''}Batch`.trim() || 'Batch', batch: true };
+    return { label: `${seasonPart || ''}Batch`.trim() || 'Batch', batch: true, confidence, absoluteEpisode };
   }
-  if (r.episode == null) return { label: '—', batch: false };
-  if (r.season != null) return { label: `S${r.season}E${r.episode}`, batch: false };
-  return { label: `E${r.episode}`, batch: false };
+  if (r.episode == null) return { label: '—', batch: false, confidence, absoluteEpisode };
+  const perSeason = r.season != null ? `S${r.season}E${r.episode}` : `E${r.episode}`;
+  return { label: perSeason, batch: false, confidence, absoluteEpisode };
 }
 
 const PAGE_SIZE = 30;
@@ -395,12 +407,40 @@ export default function ChannelDetail() {
                       <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} data-label={t('channels.episode')}>
                         {(() => {
                           const ep = formatEpisodeCell(r);
+                          // Confidence indicators — only render when the
+                          // metadata agent flagged the number, so the common
+                          // "raw" case stays visually quiet.
+                          const showReconciled = ep.confidence === 'reconciled';
+                          const showAmbiguous = ep.confidence === 'ambiguous';
+                          const showManual = ep.confidence === 'manual';
+                          const reconciledTip = ep.absoluteEpisode != null
+                            ? t('channels.episodeReconciledFrom', { n: ep.absoluteEpisode })
+                            : t('channels.episodeReconciled');
                           return (
                             <Space size={4} style={{ flexWrap: 'nowrap' }}>
                               <span>{ep.label}</span>
                               {ep.batch && (
                                 <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
                                   {t('channels.batch')}
+                                </Tag>
+                              )}
+                              {showReconciled && (
+                                <Tooltip title={reconciledTip}>
+                                  <Tag color="blue" style={{ marginRight: 0 }}>
+                                    {t('channels.episodeReconciledTag')}
+                                  </Tag>
+                                </Tooltip>
+                              )}
+                              {showAmbiguous && (
+                                <Tooltip title={t('channels.episodeAmbiguousTip')}>
+                                  <Tag color="warning" style={{ marginRight: 0 }}>
+                                    {t('channels.episodeAmbiguousTag')}
+                                  </Tag>
+                                </Tooltip>
+                              )}
+                              {showManual && (
+                                <Tag color="green" style={{ marginRight: 0 }}>
+                                  {t('channels.episodeManualTag')}
                                 </Tag>
                               )}
                             </Space>

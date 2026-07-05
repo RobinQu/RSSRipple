@@ -147,7 +147,11 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         # the LLM so downstream logic (filtering, dedup) still sees ``is_batch``
         # even when the metadata agent is disabled or fails. The LLM may later
         # refine these values in ``UnifiedMetadataAgent._apply_to_resource``.
-        from app.services.resource_parser import detect_batch, detect_subtitle_langs
+        from app.services.resource_parser import (
+            detect_absolute_episode,
+            detect_batch,
+            detect_subtitle_langs,
+        )
         pre_is_batch, pre_start, pre_end = detect_batch(title)
         if pre_is_batch:
             resource.is_batch = True
@@ -159,6 +163,16 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         # once parsed, so downstream code can distinguish "never parsed" from
         # "no explicit marking".
         resource.subtitle_langs = detect_subtitle_langs(title)
+        # NN(MM) double-labeled episode. When the title spells out both the
+        # per-season number and the absolute count (e.g. "13(85)"), take the
+        # per-season one and stash the absolute for audit / manual review.
+        # This runs before the LLM so the MetadataAgent never sees the
+        # ambiguity — see _reconcile_episode for the LLM-driven case.
+        pre_ep, pre_abs = detect_absolute_episode(title)
+        if pre_ep is not None:
+            resource.episode = pre_ep
+            resource.absolute_episode = pre_abs
+            resource.episode_confidence = "reconciled"
         db.add(resource)
         await db.flush()
 

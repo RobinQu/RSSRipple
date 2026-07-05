@@ -57,6 +57,8 @@ export interface FileResource {
   is_batch: boolean;
   episode_start: number | null;
   episode_end: number | null;
+  absolute_episode: number | null;
+  episode_confidence: 'raw' | 'reconciled' | 'ambiguous' | 'manual' | null;
   resolution: string | null;
   source: string | null;
   video_codec: string | null;

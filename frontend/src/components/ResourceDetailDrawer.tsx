@@ -148,6 +148,25 @@ export default function ResourceDetailDrawer({
                 ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode }))
                 : dash),
         },
+        // Absolute episode + confidence — only render when the reconciliation
+        // pipeline had something to say. Keeps the drawer clean for the
+        // vast majority of resources that don't need this metadata.
+        ...(r.absolute_episode != null || r.episode_confidence
+          ? [{
+              key: 'episode_confidence',
+              label: t('resource.episodeConfidence'),
+              children: (() => {
+                const parts: string[] = [];
+                if (r.absolute_episode != null) {
+                  parts.push(t('resource.absoluteEpisodeLabel', { n: r.absolute_episode }));
+                }
+                if (r.episode_confidence) {
+                  parts.push(t(`resource.confidence_${r.episode_confidence}` as never, { defaultValue: r.episode_confidence }));
+                }
+                return parts.join(' · ');
+              })(),
+            }]
+          : []),
         { key: 'resolution', label: t('resource.resolution'), children: r.resolution || dash },
         { key: 'source', label: t('resource.source'), children: r.source || dash },
         { key: 'video_codec', label: t('resource.videoCodec'), children: r.video_codec || dash },

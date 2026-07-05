@@ -74,6 +74,9 @@ class FileResource(Base):
     is_batch: bool                       # 该资源是否为多集合集，默认 False
     episode_start: int | None            # 合集起始集，尽力而为（标题里可能没有）
     episode_end: int | None              # 合集结束集，尽力而为（标题里可能没有）
+    # 跨季集号 reconciliation
+    absolute_episode: int | None         # 当 episode 由绝对集号换算得到时，保存原始绝对集号
+    episode_confidence: str | None       # "raw" | "reconciled" | "ambiguous" | "manual" | None
     # Metadata 关联（series/movie 用于定位作品；episode 字段用于定位剧集集数）
     series_id: str | None → TVSeries     # 关联剧集系列 FK
     movie_id: str | None → Movie         # 关联电影 FK
@@ -94,6 +97,13 @@ class FileResource(Base):
 2. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end`；LLM 输出的非空值覆盖 pre-parser 结果。
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
+
+**跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
+
+- **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。
+- **只标了 MM**（如 `S04 - 84`）——`reconcile_episode()` 检查 `raw_episode ≤ season_count + tolerance(2)`：符合就保留（`raw`）；否则减去前几季累计集数得到 candidate；candidate 落在 `[1, season_count + tolerance]` → 记为 `reconciled`（写回 `absolute_episode`），否则记为 `ambiguous`。
+- `ambiguous` 的资源**不参与派发**，`agent_service` 会将其归入 `AgentSuggestion`，reason 标记 "集号不确定，需要人工确认"，等待用户在前端修正。
+- `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
 ### TVSeries（剧集系列 - Metadata 缓存）
 
