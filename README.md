@@ -139,7 +139,7 @@ uv run uvicorn app.main:app --reload --port 9001
 uv run pytest tests/unit tests/api -v
 ```
 
-566 tests, typically finish in under 60 seconds.
+573 tests, typically finish in under 60 seconds.
 
 ### Integration tests (docker-compose)
 

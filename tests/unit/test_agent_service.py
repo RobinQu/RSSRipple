@@ -724,6 +724,58 @@ async def test_create_pending_decision_series_no_episode(db_session, channel, do
     assert "剧集A" in pd.reason or "Series A" in pd.reason
 
 
+async def test_create_pending_decision_is_idempotent(db_session, channel, downloader, series):
+    """Same (agent, series, episode) key must upsert into one row instead of
+    piling up duplicates across re-runs. Regression coverage for the 76-rows-
+    for-4-episodes bug seen with the bangumi-2026S2 agent."""
+    from sqlalchemy import func, select as sql_select
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+
+    r1 = _make_resource(channel.id, series_id=series.id, episode=5, guid=_uuid())
+    r2 = _make_resource(channel.id, series_id=series.id, episode=5, guid=_uuid())
+    r3 = _make_resource(channel.id, series_id=series.id, episode=5, guid=_uuid())
+    db_session.add_all([r1, r2, r3])
+    await db_session.flush()
+
+    pd1 = await create_pending_decision(agent, ("series", series.id, 5), [r1, r2], db_session)
+    pd2 = await create_pending_decision(agent, ("series", series.id, 5), [r2, r3], db_session)
+    # Same row reused
+    assert pd1.id == pd2.id
+    # Candidates merged (r1, r2, r3), order preserved
+    assert pd2.candidates == [r1.id, r2.id, r3.id]
+    total = (await db_session.execute(
+        sql_select(func.count()).select_from(PendingDecision)
+    )).scalar_one()
+    assert total == 1
+
+
+async def test_create_pending_decision_idempotent_movie(db_session, channel, downloader, movie):
+    """Same idempotency guarantee for movie-typed decisions (episode=None)."""
+    from sqlalchemy import func, select as sql_select
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    r1 = _make_resource(channel.id, movie_id=movie.id, episode=None, season=None, guid=_uuid())
+    r2 = _make_resource(channel.id, movie_id=movie.id, episode=None, season=None, guid=_uuid())
+    db_session.add_all([r1, r2])
+    await db_session.flush()
+
+    await create_pending_decision(agent, ("movie", movie.id, None), [r1], db_session)
+    await create_pending_decision(agent, ("movie", movie.id, None), [r1, r2], db_session)
+    total = (await db_session.execute(
+        sql_select(func.count()).select_from(PendingDecision)
+    )).scalar_one()
+    assert total == 1
+
+
 # ---------------------------------------------------------------------------
 # process_resources – edge cases
 # ---------------------------------------------------------------------------

@@ -200,7 +200,11 @@ class Agent(Base):
     filter_config: dict | None           # 过滤规则 DSL 树（BoolCondition 根节点，详见 Filter DSL 章节）
     status: str                          # "active" | "paused" | "error"
     last_run_at: datetime | None         # 上次运行时间
-    last_run_status: str | None          # 上次运行状态
+    last_run_status: str | None          # 上次运行状态:
+                                         # "success" | "failed"
+                                         # | "pending_decisions"（当 dispatched=0
+                                         #   且 pending_decisions>0 时使用；UI 据此
+                                         #   显示"待决策"徽标而不是绿色 success）
     created_at: datetime
     updated_at: datetime
 
@@ -295,6 +299,8 @@ class AgentSuggestion(Base):
 ### PendingDecision（待决策项）
 
 当同一作品的同一剧集（或同一电影）出现多个符合条件的候选资源，且 `conflict_resolution="ask"` 时创建。
+
+**幂等性保证**：同一 `(agent_id, series_id | movie_id, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`，不会像 v1 那样堆积重复记录。
 
 ```python
 class PendingDecision(Base):
@@ -658,7 +664,7 @@ FieldCondition = {
 | POST | `/downloaders` | 创建下载器 |
 | GET | `/downloaders/{id}` | 下载器详情 |
 | PUT | `/downloaders/{id}` | 更新下载器 |
-| DELETE | `/downloaders/{id}` | 删除下载器（若仍有关联 Agent，则返回 409，需先修改/删除 Agent） |
+| DELETE | `/downloaders/{id}` | 删除下载器；若仍有关联 Agent 返回 `409 CONFLICT` 并在 `error.details.agents` 中带出 `[{id, name}]` 列表，UI 可据此指引用户先解绑/删除这些 Agent |
 | POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录，更新 status |
 | GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表 |
 | GET | `/downloaders/{id}/torrents` | Transmission 实时种子列表（直连 RPC 返回） |
@@ -710,6 +716,7 @@ FieldCondition = {
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/channels/{channel_id}/resources` | 频道资源列表。默认（`grouped=false`）按 `published_at` 倒序、按行分页返回。`grouped=true` 时按 **作品分组**分页——每一页返回若干个 group（TVSeries / Movie / 未识别），每个 group 内包含该作品全部资源（不跨页拆分），group 顺序按各自最新资源的 `published_at` 倒序；`meta.total` 表示 group 总数。 |
+| GET | `/channels/{channel_id}/field-values` | Filter DSL 编辑器的自动补全数据源。Query 参数 `field`（必填，仅支持字符串字段与 `subtitle_langs`）、`q`（可选，忽略大小写的前缀匹配）、`limit`（默认 10，最大 50）。返回该频道下 top-N 出现频率最高的候选值数组。数值型字段被拒绝（422）。|
 | GET | `/resources/{id}` | 资源详情 |
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询） |
 | POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"? }` → 返回候选列表 |
@@ -1116,8 +1123,8 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 | `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；主体资源按作品分组展示（每组可折叠，含 poster、作品名、剧集数、最新更新时间）；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
 | `/channels/:id/edit` | ChannelForm | 编辑频道表单，包含 field_mapping 可视化编辑器、metadata_agent_enabled 开关 |
 | `/agents` | AgentList | Agent 列表（名称/频道/下载器/状态/作品数/任务数） |
-| `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；可视化 Filter DSL 编辑器；订阅作品选择器（从频道的已识别作品中多选，最多 10 个） |
-| `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表/新增/移除/编辑 per-work 覆盖）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete）；待决策 Tab（confirm/skip 操作）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run、状态轮询） |
+| `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；可视化 Filter DSL 编辑器；订阅作品选择器（点击"添加作品"打开对话框，默认展示最新 20 部作品，键入即触发搜索；从频道的已识别作品中多选，最多 10 个） |
+| `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表 / 新增 / 移除 / 编辑 per-work 覆盖；**inline 持久化** —— 新增/移除立即调用 `/agents/{id}/works` 接口，per-work 编辑（filter_overrides / enable_episode_dedup / display_name_override）通过每条作品右下角的"保存"按钮显式提交，脏状态用 `Unsaved changes` 提示）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete）；待决策 Tab（confirm/skip 操作）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run、状态轮询） |
 | `/downloaders` | DownloaderList | 下载器列表 |
 | `/downloaders/new` | DownloaderForm | 创建 Transmission 实例，填写默认下载目录，含测试连接按钮 |
 | `/downloaders/:id` | DownloaderDetail | 连接状态；实时速度与总量统计；Transmission 种子列表（直连 RPC 实时刷新）；本地 DownloadTask 分页 |
@@ -1129,7 +1136,7 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 
 ### 关键交互说明
 
-- **Filter DSL 编辑器**：前端使用树形 UI，支持 AND/OR 节点嵌套、添加/删除/拖拽条件节点；每个字段条件提供字段名下拉、operator 下拉（根据字段类型动态展示可用 operator）、value 输入（in 模式下多标签输入）；提供"测试"按钮调用 `/agents/{id}/test-filters` 实时预览当前频道资源匹配情况。
+- **Filter DSL 编辑器**：前端使用树形 UI，支持 AND/OR 节点嵌套、添加/删除/拖拽条件节点；每个字段条件提供字段名下拉（分组展示 String / Number / Bool / List 四类）、operator 下拉（根据字段类型动态展示可用 operator）、value 输入。字符串字段 + `eq/ne/contains/fuzzy` 会通过 `GET /channels/{id}/field-values?field=&q=` 提供服务端 top-10 频率排序 + 前缀搜索的候选值下拉（保留自由输入），列表字段（`subtitle_langs`）预填 BCP-47 语言代码，布尔字段用 `是/否` Select。提供"测试"按钮调用 `/agents/{id}/test-filters` 实时预览当前频道资源匹配情况。
 - **Channel 详情多选生成规则**：用户在资源表格勾选若干符合预期的资源，点击"生成过滤规则"，前端将选中 resource_ids 发送到后端 `summarize-filters`，后端统计这些资源的字幕组/分辨率/编码/来源等字段的共同特征，生成建议 FilterConfig 返回；前端展示 JSON/可视化两种视图供用户微调，然后选择新建 Agent 或追加到现有 Agent 的 filter_config（追加时用 and 包装）。
 - **资源详情抽屉**：Channel 详情点击资源行打开右侧抽屉，展示 poster（若有）、metadata（作品名、集数）、解析字段明细、磁力链接复制按钮、"修正 metadata"按钮；点击修正进入手动 metadata 流程：输入搜索词+选择类型→查看 LLM 候选→确认→自动刷新该资源及其相关分组。
 - **待决策卡片**：Dashboard 和 Agent 详情的待决策项展示候选资源的核心字段对比（字幕组/分辨率/编码/体积/发布时间），llm_enabled 时展示 LLM 推荐理由；点击候选选中，点击"确认"提交。

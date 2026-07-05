@@ -19,6 +19,7 @@ import { PlusOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons'
 import { Film, Tv } from 'lucide-react';
 import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
+import { agentsApi } from '../api/agents';
 import FilterBuilder from './FilterBuilder';
 import type { AgentWork, Movie, TVSeries } from '../types';
 import type { TFunction } from 'i18next';
@@ -36,6 +37,12 @@ interface WorkSelectorProps {
   onChange: (works: AgentWork[]) => void;
   maxWorks?: number;
   suggestions?: SuggestionShortcut[];
+  /** Persist changes as-they-happen against the given agent id. When
+   *  ``inline``, add/remove/update calls hit the backend immediately and
+   *  the caller doesn't need to save at the form level. Defaults to
+   *  ``buffered`` (existing behaviour used by AgentForm on create). */
+  persistMode?: 'inline' | 'buffered';
+  agentId?: string;
 }
 
 function resolvePoster(work: AgentWork): string | null {
@@ -62,6 +69,9 @@ export default function WorkSelector({
   onChange,
   maxWorks = 10,
   suggestions = [],
+  channelId,
+  persistMode = 'buffered',
+  agentId,
 }: WorkSelectorProps) {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -71,6 +81,12 @@ export default function WorkSelector({
   const [seriesList, setSeriesList] = useState<TVSeries[]>([]);
   const [movieList, setMovieList] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
+  // Per-work UI flags — track buffered edits so the "Save" button only
+  // appears when there's something to persist, and to show a spinner while
+  // the API call is in flight.
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const inline = persistMode === 'inline' && !!agentId;
 
   const existingIds = useMemo(() => {
     const s = new Set<string>();
@@ -82,16 +98,15 @@ export default function WorkSelector({
   }, [works]);
 
   const searchWorks = async (q: string) => {
-    if (!q.trim()) {
-      setSeriesList([]);
-      setMovieList([]);
-      return;
-    }
     setLoading(true);
     try {
+      // Empty query = latest 20 rows (API default sort is created_at desc).
+      // Backing endpoints already treat missing `title` as "no filter", so
+      // we get a useful default view instead of an empty modal.
+      const term = q.trim() || undefined;
       const [sRes, mRes] = await Promise.all([
-        seriesApi.list(1, 20, q.trim()),
-        moviesApi.list(1, 20, q.trim()),
+        seriesApi.list(1, 20, term),
+        moviesApi.list(1, 20, term),
       ]);
       if (sRes.success) setSeriesList(sRes.data);
       if (mRes.success) setMovieList(mRes.data);
@@ -102,14 +117,21 @@ export default function WorkSelector({
 
   useEffect(() => {
     if (!modalOpen) return;
+    // First open: fetch immediately so the user sees the latest works
+    // without having to type. Typed queries still go through the same
+    // 300ms debounce path below.
+    if (!search.trim()) {
+      searchWorks('');
+      return;
+    }
     const timeout = setTimeout(() => {
-      if (search.trim()) searchWorks(search);
+      searchWorks(search);
     }, 300);
     return () => clearTimeout(timeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, modalOpen]);
 
-  const addWork = (type: 'tv' | 'movie', item: TVSeries | Movie) => {
+  const addWork = async (type: 'tv' | 'movie', item: TVSeries | Movie) => {
     if (works.length >= maxWorks) {
       message.warning(t('work.maxHint', { max: maxWorks }));
       return;
@@ -121,7 +143,7 @@ export default function WorkSelector({
     }
     const newWork: AgentWork = {
       id: tmpId(),
-      agent_id: '',
+      agent_id: agentId ?? '',
       content_type: type,
       series_id: type === 'tv' ? item.id : null,
       movie_id: type === 'movie' ? item.id : null,
@@ -133,16 +155,81 @@ export default function WorkSelector({
       series: type === 'tv' ? (item as TVSeries) : undefined,
       movie: type === 'movie' ? (item as Movie) : undefined,
     };
-    onChange([...works, newWork]);
+    if (inline && agentId) {
+      // Inline mode: hit the API right away and replace the tmp row with
+      // the server's version (so subsequent edits target a real id).
+      const r = await agentsApi.addWork(agentId, {
+        content_type: type,
+        series_id: type === 'tv' ? item.id : null,
+        movie_id: type === 'movie' ? item.id : null,
+        enable_episode_dedup: type === 'tv',
+        filter_overrides: null,
+      });
+      if (!r.success) {
+        message.error(r.error?.message || t('work.addFailed'));
+        return;
+      }
+      const persisted: AgentWork = {
+        ...r.data,
+        // Antd shows the poster/title from local metadata; the server
+        // response omits the full series/movie payload, so keep the copy
+        // from the search result.
+        series: newWork.series,
+        movie: newWork.movie,
+      };
+      onChange([...works, persisted]);
+    } else {
+      onChange([...works, newWork]);
+    }
     message.success(t('work.added', { type: t(type === 'tv' ? 'work.series' : 'work.movie') }));
   };
 
-  const removeWork = (id: string) => {
+  const removeWork = async (id: string) => {
+    const target = works.find((w) => w.id === id);
+    if (inline && agentId && target && !id.startsWith('tmp_')) {
+      const r = await agentsApi.removeWork(agentId, id);
+      if (!r.success) {
+        message.error(r.error?.message || t('work.removeFailed'));
+        return;
+      }
+    }
     onChange(works.filter((w) => w.id !== id));
+    setDirty((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const updateWork = (id: string, patch: Partial<AgentWork>) => {
     onChange(works.map((w) => (w.id === id ? { ...w, ...patch } : w)));
+    if (inline) setDirty((prev) => ({ ...prev, [id]: true }));
+  };
+
+  const saveWork = async (id: string) => {
+    if (!inline || !agentId) return;
+    const target = works.find((w) => w.id === id);
+    if (!target || id.startsWith('tmp_')) return;
+    setSavingId(id);
+    try {
+      const r = await agentsApi.updateWork(agentId, id, {
+        enable_episode_dedup: target.enable_episode_dedup,
+        filter_overrides: target.filter_overrides,
+        display_name_override: target.display_name_override,
+      });
+      if (!r.success) {
+        message.error(r.error?.message || t('work.saveFailed'));
+        return;
+      }
+      setDirty((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      message.success(t('work.saved'));
+    } finally {
+      setSavingId(null);
+    }
   };
 
   const renderSearchResult = (items: (TVSeries | Movie)[], type: 'tv' | 'movie') => {
@@ -154,14 +241,12 @@ export default function WorkSelector({
       );
     }
     if (!search.trim()) {
-      return (
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={t('work.searchPlaceholder')}
-        />
-      );
-    }
-    if (items.length === 0) {
+      // Latest-20 default view; if the initial fetch hasn't populated
+      // anything (empty repo), show the neutral placeholder.
+      if (items.length === 0) {
+        return <Empty description={t('work.searchPlaceholder')} />;
+      }
+    } else if (items.length === 0) {
       return <Empty description={t('work.noResults')} />;
     }
     return (
@@ -420,11 +505,31 @@ export default function WorkSelector({
                                 <FilterBuilder
                                   value={work.filter_overrides}
                                   compact
+                                  channelId={channelId}
                                   onChange={(v) =>
                                     updateWork(work.id, { filter_overrides: v })
                                   }
                                 />
                               </div>
+                              {inline && (
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                                  {dirty[work.id] && (
+                                    <Text type="warning" style={{ fontSize: 11, alignSelf: 'center' }}>
+                                      {t('work.unsavedChanges')}
+                                    </Text>
+                                  )}
+                                  <Button
+                                    htmlType="button"
+                                    type="primary"
+                                    size="small"
+                                    disabled={!dirty[work.id]}
+                                    loading={savingId === work.id}
+                                    onClick={() => saveWork(work.id)}
+                                  >
+                                    {t('common.save')}
+                                  </Button>
+                                </div>
+                              )}
                             </div>
                           ),
                         },

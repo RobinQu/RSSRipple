@@ -102,13 +102,25 @@ class TestDownloaderActions:
                 "field_mapping": TEST_FIELD_MAPPING,
             })
         ch_id = ch.json()["data"]["id"]
-        await client.post("/api/v1/agents", json={
+        agent_res = await client.post("/api/v1/agents", json={
             "name": "DA", "channel_id": ch_id, "downloader_id": sample_downloader.id,
             "scope_channel_wide": True,
         })
+        agent_id = agent_res.json()["data"]["id"]
         # Delete downloader
         res = await client.delete(f"/api/v1/downloaders/{sample_downloader.id}")
         assert res.status_code == 409
+        body = res.json()
+        assert body["success"] is False
+        # F1: response must include the specific agents blocking the delete
+        # so the UI can offer a "jump to agent" link. Verify both id and
+        # human-readable name appear.
+        details = body["error"].get("details") or {}
+        agents = details.get("agents") or []
+        assert len(agents) == 1
+        assert agents[0]["id"] == agent_id
+        assert agents[0]["name"] == "DA"
+        assert "DA" in body["error"]["message"]
 
     async def test_test_404(self, client):
         res = await client.post("/api/v1/downloaders/nope/test")
