@@ -39,6 +39,23 @@ class FileResource(Base):
     is_batch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     episode_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     episode_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # ── Cross-season episode reconciliation ──
+    # RSS titles sometimes number episodes absolutely across all seasons
+    # (e.g. ``S04 - 84`` where 84 = cumulative count across seasons 1-4)
+    # rather than per-season. When the MetadataAgent recognizes this via
+    # TMDB/Exa ``seasons: [{season_number, episode_count}]`` evidence, it
+    # rewrites ``episode`` to the per-season number and preserves the
+    # original in ``absolute_episode`` for audit.
+    # ``episode_confidence`` records where the value came from:
+    #   "raw"          – untouched (title was already per-season, or no
+    #                    evidence available).
+    #   "reconciled"   – converted from absolute → per-season by the agent.
+    #   "ambiguous"    – agent has evidence but couldn't converge; resource
+    #                    is routed to AgentSuggestion for manual review.
+    #   "manual"       – user corrected via ``PATCH /resources/{id}/episode``.
+    #   None           – legacy row created before this column existed.
+    absolute_episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    episode_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     resolution: Mapped[str | None] = mapped_column(String(50), nullable=True)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     video_codec: Mapped[str | None] = mapped_column(String(100), nullable=True)

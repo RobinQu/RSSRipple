@@ -82,5 +82,11 @@ export const api = {
       body: data ? JSON.stringify(data) : undefined,
       headers: extraHeaders,
     }),
+  patch: <T>(url: string, data?: unknown, extraHeaders?: Record<string, string>) =>
+    request<T>(url, {
+      method: 'PATCH',
+      body: data ? JSON.stringify(data) : undefined,
+      headers: extraHeaders,
+    }),
   delete: <T>(url: string) => request<T>(url, { method: 'DELETE' }),
 };

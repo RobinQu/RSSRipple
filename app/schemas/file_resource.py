@@ -31,6 +31,8 @@ class FileResourceResponse(BaseModel):
     is_batch: bool = False
     episode_start: int | None = None
     episode_end: int | None = None
+    absolute_episode: int | None = None
+    episode_confidence: str | None = None
     resolution: str | None = None
     source: str | None = None
     video_codec: str | None = None
@@ -93,3 +95,18 @@ class MetadataSearchResult(BaseModel):
 
 class MetadataLinkRequest(BaseModel):
     selected_result: dict
+
+
+class EpisodeCorrectionRequest(BaseModel):
+    """Payload for PATCH /resources/{id}/episode — manual episode fix.
+
+    ``episode`` is the per-season number the user confirms. ``absolute_episode``
+    is optional and lets the user record the raw cross-season number
+    (e.g. 85) so future reconciliation logic sees the same evidence. Setting
+    ``episode`` to null clears the value and unmarks the confidence tag.
+    """
+
+    episode: int | None
+    absolute_episode: int | None = None
+    note: str | None = None
+

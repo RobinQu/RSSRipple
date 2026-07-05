@@ -162,6 +162,11 @@ async def _apply_light_migrations(conn) -> None:
         # subtitle_langs: JSON array of BCP-47 language tags. SQLite stores JSON
         # as TEXT; PostgreSQL has a proper JSONB type.
         ("file_resources", "subtitle_langs", "TEXT" if is_sqlite else "JSONB"),
+        # Episode reconciliation (P2): stores the original absolute-numbering
+        # value when the agent converts "S04 - 84" → per-season 13; and a
+        # confidence tag noting where the final episode value came from.
+        ("file_resources", "absolute_episode", "INTEGER"),
+        ("file_resources", "episode_confidence", "VARCHAR(16)"),
     ]
 
     for table, column, ddl in additions:

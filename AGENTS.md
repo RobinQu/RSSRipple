@@ -74,6 +74,9 @@ class FileResource(Base):
     is_batch: bool                       # 该资源是否为多集合集，默认 False
     episode_start: int | None            # 合集起始集，尽力而为（标题里可能没有）
     episode_end: int | None              # 合集结束集，尽力而为（标题里可能没有）
+    # 跨季集号 reconciliation
+    absolute_episode: int | None         # 当 episode 由绝对集号换算得到时，保存原始绝对集号
+    episode_confidence: str | None       # "raw" | "reconciled" | "ambiguous" | "manual" | None
     # Metadata 关联（series/movie 用于定位作品；episode 字段用于定位剧集集数）
     series_id: str | None → TVSeries     # 关联剧集系列 FK
     movie_id: str | None → Movie         # 关联电影 FK
@@ -94,6 +97,13 @@ class FileResource(Base):
 2. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end`；LLM 输出的非空值覆盖 pre-parser 结果。
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
+
+**跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
+
+- **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。
+- **只标了 MM**（如 `S04 - 84`）——`reconcile_episode()` 检查 `raw_episode ≤ season_count + tolerance(2)`：符合就保留（`raw`）；否则减去前几季累计集数得到 candidate；candidate 落在 `[1, season_count + tolerance]` → 记为 `reconciled`（写回 `absolute_episode`），否则记为 `ambiguous`。
+- `ambiguous` 的资源**不参与派发**，`agent_service` 会将其归入 `AgentSuggestion`，reason 标记 "集号不确定，需要人工确认"，等待用户在前端修正。
+- `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
 ### TVSeries（剧集系列 - Metadata 缓存）
 
@@ -414,7 +424,8 @@ FieldCondition = {
   "field": "subtitle_group" | "resolution" | "source" | "video_codec" |
            "audio_codec" | "subtitle_type" | "container" | "file_size" |
            "episode" | "season" | "episode_start" | "episode_end" |
-           "is_batch" | "subtitle_langs" |
+           "absolute_episode" | "is_batch" | "subtitle_langs" |
+           "episode_confidence" |
            "title_cn" | "title_en" | "search_title",
   "operator": "eq" | "ne" | "contains" | "fuzzy" | "in" | "regex" |
               "gt" | "gte" | "lt" | "lte",
@@ -429,12 +440,13 @@ FieldCondition = {
   - `combinator="or"`：`conditions` 中任一子条件通过时，本组通过。
   - `is_not=true`：对最终结果取反。
 - **字段类型与 operator 支持**：
-  - 数字字段（`file_size`, `episode`, `season`, `episode_start`, `episode_end`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
+  - 数字字段（`file_size`, `episode`, `season`, `episode_start`, `episode_end`, `absolute_episode`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
   - 布尔字段（`is_batch`）支持：`eq`, `ne`。value 接受原生 bool、数字 `1/0`、字符串 `"true"/"false"/"yes"/"no"/"1"/"0"`。
   - 列表字段（`subtitle_langs`）支持：`eq`, `ne`, `contains`, `in`。
     - `contains`：value 是单个 tag，若列表元素包含该 tag（大小写不敏感）则通过。
     - `in`：value 是 tag 数组，任一元素在列表中即通过。
     - `eq` / `ne`：视为**集合相等/不等**（忽略顺序）。
+  - 枚举字段（`episode_confidence`）在存储层是普通字符串，走字符串字段求值路径；UI 限制取值为 `"raw" | "reconciled" | "ambiguous" | "manual"`。
   - 字符串字段（其余全部）支持：`eq`, `ne`, `contains`, `fuzzy`, `in`, `regex`。
 - **operator 语义**（字符串比较均忽略大小写）：
   - `eq`：字段值等于 value（字符串去首尾空格后比较）。
@@ -536,6 +548,12 @@ FieldCondition = {
     { "field": "subtitle_langs", "operator": "contains", "value": "ja" }
   ]
 }
+```
+
+**示例 8**：排除集号 ambiguous 的资源（仅下载 raw / reconciled / manual）。
+
+```json
+{ "field": "episode_confidence", "operator": "ne", "value": "ambiguous" }
 ```
 
 ---
@@ -721,6 +739,7 @@ FieldCondition = {
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询） |
 | POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"? }` → 返回候选列表 |
 | PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤 |
+| PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`，重新入队关联 Agent。省略 `absolute_episode` 时保留原值。 |
 
 `POST /resources/{id}/metadata/search` 请求体示例：
 ```json
@@ -1136,9 +1155,9 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 
 ### 关键交互说明
 
-- **Filter DSL 编辑器**：前端使用树形 UI，支持 AND/OR 节点嵌套、添加/删除/拖拽条件节点；每个字段条件提供字段名下拉（分组展示 String / Number / Bool / List 四类）、operator 下拉（根据字段类型动态展示可用 operator）、value 输入。字符串字段 + `eq/ne/contains/fuzzy` 会通过 `GET /channels/{id}/field-values?field=&q=` 提供服务端 top-10 频率排序 + 前缀搜索的候选值下拉（保留自由输入），列表字段（`subtitle_langs`）预填 BCP-47 语言代码，布尔字段用 `是/否` Select。提供"测试"按钮调用 `/agents/{id}/test-filters` 实时预览当前频道资源匹配情况。
+- **Filter DSL 编辑器**：前端使用树形 UI，支持 AND/OR 节点嵌套、添加/删除/拖拽条件节点；每个字段条件提供字段名下拉（分组展示 String / Number / Bool / List / Enum 五类）、operator 下拉（根据字段类型动态展示可用 operator）、value 输入。字符串字段 + `eq/ne/contains/fuzzy` 会通过 `GET /channels/{id}/field-values?field=&q=` 提供服务端 top-10 频率排序 + 前缀搜索的候选值下拉（保留自由输入），列表字段（`subtitle_langs`）预填 BCP-47 语言代码，布尔字段用 `是/否` Select，枚举字段（`episode_confidence`）从固定 `raw/reconciled/ambiguous/manual` 中选择。提供"测试"按钮调用 `/agents/{id}/test-filters` 实时预览当前频道资源匹配情况。
 - **Channel 详情多选生成规则**：用户在资源表格勾选若干符合预期的资源，点击"生成过滤规则"，前端将选中 resource_ids 发送到后端 `summarize-filters`，后端统计这些资源的字幕组/分辨率/编码/来源等字段的共同特征，生成建议 FilterConfig 返回；前端展示 JSON/可视化两种视图供用户微调，然后选择新建 Agent 或追加到现有 Agent 的 filter_config（追加时用 and 包装）。
-- **资源详情抽屉**：Channel 详情点击资源行打开右侧抽屉，展示 poster（若有）、metadata（作品名、集数）、解析字段明细、磁力链接复制按钮、"修正 metadata"按钮；点击修正进入手动 metadata 流程：输入搜索词+选择类型→查看 LLM 候选→确认→自动刷新该资源及其相关分组。
+- **资源详情抽屉**：Channel 详情点击资源行打开右侧抽屉，展示 poster（若有）、metadata（作品名、集数）、解析字段明细、磁力链接复制按钮、"修正 metadata"按钮；点击修正进入手动 metadata 流程：输入搜索词+选择类型→查看 LLM 候选→确认→自动刷新该资源及其相关分组。TV 单集资源在集号行右侧提供铅笔按钮，弹出 Popover 手动修正 `episode` / `absolute_episode`，保存后 `episode_confidence="manual"` 并重新触发 Agent 过滤。
 - **待决策卡片**：Dashboard 和 Agent 详情的待决策项展示候选资源的核心字段对比（字幕组/分辨率/编码/体积/发布时间），llm_enabled 时展示 LLM 推荐理由；点击候选选中，点击"确认"提交。
 
 ---
