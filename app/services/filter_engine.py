@@ -15,8 +15,12 @@ from app.services.text_normalizer import similarity_score
 STRING_FIELDS = {
     "subtitle_group", "resolution", "source", "video_codec", "audio_codec",
     "subtitle_type", "container", "title_cn", "title_en", "search_title",
+    # ``episode_confidence`` is stored as a plain string with a whitelisted
+    # value set. Reusing the string-field machinery keeps the filter engine
+    # small; the UI restricts the input to the enum's valid values.
+    "episode_confidence",
 }
-NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end"}
+NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end", "absolute_episode"}
 BOOL_FIELDS = {"is_batch"}
 # List-of-string fields — value semantics differ from scalar strings; the
 # operators below act element-wise.

@@ -187,17 +187,19 @@ export type FilterField =
   | 'season'
   | 'episode_start'
   | 'episode_end'
+  | 'absolute_episode'
   | 'is_batch'
   | 'subtitle_langs'
+  | 'episode_confidence'
   | 'title_cn'
   | 'title_en'
   | 'search_title';
 
 export type StringFilterField = Exclude<
   FilterField,
-  'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'is_batch' | 'subtitle_langs'
+  'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
 >;
-export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end';
+export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode';
 export type BoolFilterField = 'is_batch';
 export type ListFilterField = 'subtitle_langs';
 

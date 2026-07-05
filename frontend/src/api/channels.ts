@@ -142,4 +142,8 @@ export const resourcesApi = {
     id: string,
     body: { selected_result: MetadataSearchResult & { content_type: 'tv' | 'movie' } },
   ) => api.post<FileResource>(`/resources/${id}/metadata/link`, body),
+  correctEpisode: (
+    id: string,
+    body: { episode: number | null; absolute_episode?: number | null; note?: string },
+  ) => api.patch<FileResource>(`/resources/${id}/episode`, body),
 };
