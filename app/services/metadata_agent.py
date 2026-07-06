@@ -35,6 +35,79 @@ logger = logging.getLogger(__name__)
 DEFAULT_METADATA_SOURCE = "exa"
 SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}
 
+# User-selectable external metadata sources (ordered as presented in the UI).
+# ``key`` is the credential attr on Settings; sources without a key
+# (wikipedia) are considered configured whenever their enable switch is on.
+_EXTERNAL_SOURCE_DEFS: tuple[dict[str, str], ...] = (
+    {"value": "exa", "label": "Exa Agent", "key": "exa_api_key",
+     "description": "Structured web-agent search; broad evidence coverage."},
+    {"value": "jina", "label": "Jina Search + Reader", "key": "jina_api_key",
+     "description": "Cheap web-native search with strong CJK coverage."},
+    {"value": "wikipedia", "label": "Wikipedia", "key": "",
+     "description": "Wikipedia REST search; no API key required."},
+    {"value": "tmdb", "label": "TMDB", "key": "tmdb_api_key",
+     "description": "The Movie Database; best for TV/movie ID matching."},
+)
+
+
+def is_metadata_source_configured(source: str) -> bool:
+    """Whether the credentials for *source* are present (key set)."""
+    for d in _EXTERNAL_SOURCE_DEFS:
+        if d["value"] == source:
+            return True if not d["key"] else bool(getattr(settings, d["key"], ""))
+    return False
+
+
+def is_metadata_source_enabled(source: str) -> bool:
+    """Whether the enable switch for *source* is on."""
+    flag = {
+        "exa": settings.exa_enabled,
+        "jina": settings.jina_enabled,
+        "tmdb": settings.tmdb_enabled,
+        "wikipedia": settings.wikipedia_enabled,
+    }.get(source)
+    return bool(flag)
+
+
+def is_metadata_source_available(source: str) -> bool:
+    """A source is an selectable candidate when enabled AND configured."""
+    return is_metadata_source_enabled(source) and is_metadata_source_configured(source)
+
+
+def get_metadata_source_catalog() -> list[dict[str, Any]]:
+    """Return all external metadata sources with their availability flags.
+
+    Each entry: ``{value, label, description, enabled, configured, available}``.
+    The frontend offers only ``available`` sources in the channel form.
+    """
+    catalog: list[dict[str, Any]] = []
+    for d in _EXTERNAL_SOURCE_DEFS:
+        value = d["value"]
+        catalog.append({
+            "value": value,
+            "label": d["label"],
+            "description": d["description"],
+            "enabled": is_metadata_source_enabled(value),
+            "configured": is_metadata_source_configured(value),
+            "available": is_metadata_source_available(value),
+        })
+    return catalog
+
+
+def get_available_metadata_sources() -> list[dict[str, Any]]:
+    """Return only the currently-selectable external metadata sources."""
+    return [s for s in get_metadata_source_catalog() if s["available"]]
+
+
+def resolve_metadata_source(value: str | None) -> str:
+    """Resolve a channel's stored source to a runnable source.
+
+    Returns the normalized source if it is supported, else the default. Callers
+    that need an *available* source should additionally check
+    :func:`is_metadata_source_available` and fall back.
+    """
+    return normalize_metadata_source_type(value)
+
 
 def normalize_metadata_source_type(value: str | None) -> str:
     """Normalize a caller-provided metadata source.
@@ -854,8 +927,17 @@ class UnifiedMetadataAgent:
             await self._apply_to_resource(cached, resource, channel, db)
             return cached
 
-        # 1. Build context
-        data_source_type = DEFAULT_METADATA_SOURCE
+        # 1. Build context — use the channel's chosen external source, falling
+        # back to the default when unset. If the chosen source's credentials are
+        # missing/disabled, we still run its graph (the per-source search helper
+        # no-ops on missing keys) but log a warning so it is debuggable.
+        data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
+        if not is_metadata_source_available(data_source_type) and data_source_type != "local":
+            logger.warning(
+                "[metadata_agent] channel %s source=%r is not available (disabled or "
+                "missing credentials); search will return no external candidates",
+                getattr(channel, "id", "?"), data_source_type,
+            )
         message = self._build_production_message(resource, channel, data_source_type)
 
         # 2. Run ReAct

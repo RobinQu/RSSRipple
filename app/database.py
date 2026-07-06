@@ -278,6 +278,9 @@ async def _apply_light_migrations(conn) -> None:
         ("agents", "llm_prompt", "TEXT"),
         # The candidate the LLM picked for a PendingDecision (resource id).
         ("pending_decisions", "llm_picked_resource_id", "VARCHAR(36)"),
+        # Per-channel external metadata source (tmdb/exa/wikipedia/jina/local).
+        # NULL → fall back to the default source at runtime.
+        ("channels", "metadata_source", "VARCHAR(32)"),
     ]
 
     for table, column, ddl in additions:

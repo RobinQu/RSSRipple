@@ -4,7 +4,7 @@ import json as _json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.schemas.common import ORMModel
 
@@ -17,6 +17,12 @@ class ChannelCreate(BaseModel):
     status: str = "active"
     field_mapping: dict
     metadata_agent_enabled: bool = True
+    metadata_source: str | None = None
+
+    @field_validator("metadata_source")
+    @classmethod
+    def _validate_source(cls, v: str | None) -> str | None:
+        return _normalize_source(v)
 
 
 class ChannelUpdate(BaseModel):
@@ -26,6 +32,12 @@ class ChannelUpdate(BaseModel):
     status: str | None = None
     field_mapping: dict | None = None
     metadata_agent_enabled: bool | None = None
+    metadata_source: str | None = None
+
+    @field_validator("metadata_source")
+    @classmethod
+    def _validate_source(cls, v: str | None) -> str | None:
+        return _normalize_source(v)
 
 
 class ChannelResponse(ORMModel):
@@ -37,11 +49,26 @@ class ChannelResponse(ORMModel):
     status: str
     field_mapping: dict
     metadata_agent_enabled: bool = True
+    metadata_source: str | None = None
     last_fetched_at: datetime | None = None
     last_fetch_status: str | None = None
     last_fetch_error: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+def _normalize_source(value: str | None) -> str | None:
+    """Lowercase + validate a metadata source. Empty/None passes through."""
+    from app.services.metadata_agent import SUPPORTED_METADATA_SOURCES
+
+    if value is None:
+        return None
+    v = value.strip().lower()
+    if not v:
+        return None
+    if v not in SUPPORTED_METADATA_SOURCES:
+        raise ValueError(f"unsupported metadata_source: {value!r}")
+    return v
 
 
 class ChannelListItem(ChannelResponse):

@@ -216,3 +216,84 @@ class TestFormToken:
         res = await client.get("/api/v1/channels/form-token")
         assert res.status_code == 200
         assert res.json()["data"]["token"] == "test-token"
+
+
+class TestMetadataSources:
+    async def test_list_metadata_sources(self, client):
+        res = await client.get("/api/v1/channels/metadata-sources")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        values = [s["value"] for s in data["sources"]]
+        # All four external sources are exposed.
+        assert {"exa", "jina", "wikipedia", "tmdb"} <= set(values)
+        assert data["default"] == "exa"
+        # Each entry carries the availability flags.
+        for s in data["sources"]:
+            assert set(s.keys()) >= {"value", "label", "available", "enabled", "configured"}
+            assert s["available"] == (s["enabled"] and s["configured"])
+
+    async def test_create_channel_with_metadata_source(self, client):
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 3, 3)),
+        ):
+            res = await client.post(
+                "/api/v1/channels",
+                json=_channel_payload(metadata_source="wikipedia"),
+            )
+        assert res.status_code == 201
+        data = res.json()["data"]
+        assert data["metadata_source"] == "wikipedia"
+        # Round-trips through GET.
+        got = await client.get(f"/api/v1/channels/{data['id']}")
+        assert got.json()["data"]["metadata_source"] == "wikipedia"
+
+    async def test_create_channel_rejects_invalid_source(self, client):
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 3, 3)),
+        ):
+            res = await client.post(
+                "/api/v1/channels",
+                json=_channel_payload(metadata_source="bogus"),
+            )
+        assert res.status_code == 422
+
+    async def test_update_channel_metadata_source(self, client, sample_channel):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"metadata_source": "tmdb"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["metadata_source"] == "tmdb"
+
+
+class TestCreateAutoFetch:
+    async def test_create_enqueues_initial_fetch(self, client):
+        """Creating a channel auto-triggers a fetch_channel job."""
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post("/api/v1/channels", json=_channel_payload())
+        assert res.status_code == 201
+        # The fake queue returns a truthy job dict → fetch_triggered is True.
+        assert res.json()["meta"]["fetch_triggered"] is True
+
+    async def test_create_still_succeeds_when_fetch_dedup(self, client, monkeypatch):
+        """If the initial fetch is deduped (None), create still succeeds."""
+        from app.services import task_queue as tq_mod
+
+        fake = MagicMock()
+        fake.enqueue = AsyncMock(return_value=None)  # already-running / dedup
+        fake.status = AsyncMock(return_value=None)
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post("/api/v1/channels", json=_channel_payload())
+        assert res.status_code == 201
+        assert res.json()["meta"]["fetch_triggered"] is False
+        fake.enqueue.assert_awaited_once()
+        assert fake.enqueue.call_args.args[0] == "fetch_channel"

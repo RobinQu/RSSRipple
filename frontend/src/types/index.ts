@@ -8,6 +8,7 @@ export interface APIResponse<T> {
 
 // Channel
 export type ChannelStatus = 'active' | 'inactive' | 'error';
+export type MetadataSource = 'exa' | 'jina' | 'wikipedia' | 'tmdb' | 'local';
 export interface Channel {
   id: string;
   name: string;
@@ -17,6 +18,7 @@ export interface Channel {
   status: ChannelStatus;
   field_mapping: FieldMapping;
   metadata_agent_enabled: boolean;
+  metadata_source: MetadataSource | null;
   last_fetched_at: string | null;
   last_fetch_status: string | null;
   last_fetch_error: string | null;

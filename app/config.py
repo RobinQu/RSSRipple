@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     exa_api_key: str = ""
     exa_effort_level: str = "low"  # "minimal" | "low" | "medium" | "high" | "xhigh"
 
+    # Metadata source enable switches. A source is offered as a candidate in the
+    # channel form only when its switch is on AND its credentials are configured
+    # (wikipedia needs no API key). Turning a switch off hides an otherwise
+    # configured source without clearing its key. Env vars: EXA_ENABLED,
+    # JINA_ENABLED, TMDB_ENABLED, WIKIPEDIA_ENABLED.
+    exa_enabled: bool = True
+    jina_enabled: bool = True
+    tmdb_enabled: bool = True
+    wikipedia_enabled: bool = True
+
     # Poster image cache — persist cover art to the local filesystem.
     # When set, poster URLs returned by LLM are downloaded and stored here,
     # and the DB pointer is updated to the local /posters/<file> path.
