@@ -47,7 +47,9 @@ async def _ai_pick_and_dispatch(
         )).scalars().all()
         if not cands:
             return False, "No candidates to pick from"
-        picked_id, _reason = await _generate_llm_pick(agent, list(cands), ("series", decision.series_id, decision.episode))
+        picked_id, _reason = await _generate_llm_pick(
+            agent, list(cands), ("series", decision.series_id, decision.episode)
+        )
         decision.llm_picked_resource_id = picked_id
         if not picked_id:
             return False, "AI 未能给出选择，请手动确认"

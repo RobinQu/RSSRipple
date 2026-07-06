@@ -277,8 +277,9 @@ class TestAgentsCRUD:
         # The selected resource must have been dispatched (add_torrent called).
         mock_transmission.add_torrent.assert_awaited()
         # And a DownloadTask row exists for it.
-        from app.models.download_task import DownloadTask
         from sqlalchemy import select
+
+        from app.models.download_task import DownloadTask
         task = (await db_session.execute(
             select(DownloadTask).where(DownloadTask.file_resource_id == r.id)
         )).scalars().first()

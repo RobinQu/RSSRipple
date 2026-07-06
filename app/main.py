@@ -17,7 +17,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import app.models  # noqa: F401
 from app.config import settings
 from app.database import async_session_factory, committed_session, create_tables, install_db_retry_middleware
-from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 

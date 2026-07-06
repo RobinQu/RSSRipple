@@ -4,8 +4,7 @@ import asyncio
 import contextlib
 import logging
 import random
-from collections.abc import AsyncGenerator
-from typing import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 
 from sqlalchemy import event, text
 from sqlalchemy.exc import OperationalError

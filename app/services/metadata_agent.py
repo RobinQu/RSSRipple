@@ -33,7 +33,7 @@ from app.utils.time import utcnow
 logger = logging.getLogger(__name__)
 
 DEFAULT_METADATA_SOURCE = "exa"
-SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "local"}
+SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}
 
 
 def normalize_metadata_source_type(value: str | None) -> str:
@@ -430,6 +430,44 @@ async def _execute_search_exa_agent(query: str) -> dict:
         return {"success": False, "data": [], "error": str(e)}
 
 
+async def _execute_search_jina(query: str) -> dict:
+    """Search the web via Jina Search (s.jina.ai) — SERP hits with full content."""
+    from app.services.metadata_search_agent import _search_jina
+
+    try:
+        logger.info("[metadata_agent][jina_tool] search_jina query=%r", query[:200])
+        results = await _search_jina(query)
+        logger.info(
+            "[metadata_agent][jina_tool] search_jina done query=%r hits=%d",
+            query[:200], len(results),
+        )
+        return {"success": True, "data": results}
+    except Exception as e:
+        logger.warning(
+            "[metadata_agent] search_jina failed for query=%s: %s",
+            query, e, exc_info=True,
+        )
+        return {"success": False, "data": [], "error": str(e)}
+
+
+async def _execute_read_jina_url(url: str, with_links: bool = False) -> dict:
+    """Fetch a single URL's full content via Jina Reader (r.jina.ai)."""
+    from app.services.metadata_search_agent import _read_jina_url
+
+    try:
+        logger.info("[metadata_agent][jina_tool] read_jina_url url=%r", url[:200])
+        data = await _read_jina_url(url, with_links=with_links)
+        if not data:
+            return {"success": False, "data": {}, "error": "no content returned"}
+        return {"success": True, "data": data}
+    except Exception as e:
+        logger.warning(
+            "[metadata_agent] read_jina_url failed for url=%s: %s",
+            url, e, exc_info=True,
+        )
+        return {"success": False, "data": {}, "error": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # LangChain tools
 # ---------------------------------------------------------------------------
@@ -522,6 +560,46 @@ async def search_exa_agent(query: str) -> str:
         original_title, description, external_id, external_source, ...}]}
     """
     result = await _execute_search_exa_agent(query)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@tool
+async def search_jina(query: str) -> str:
+    """Search the web via Jina Search for pages about a work.
+
+    Available only in Jina source mode. Returns SERP hits, each with the full
+    markdown ``content`` of the top pages — scan titles/URLs for the work, then
+    read the content for canonical names, years, and external IDs. Prefer
+    authoritative URLs: TMDB, IMDb, Wikipedia, Wikidata, Fandom, MyAnimeList,
+    AniList. If the best URL was not in the top results, call ``read_jina_url``
+    on it to fetch its content directly.
+
+    Args:
+        query: Search query (try Chinese, romanized Japanese, or English variants)
+
+    Returns:
+        JSON: {"success": true, "data": [{title, url, description, content}]}
+    """
+    result = await _execute_search_jina(query)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@tool
+async def read_jina_url(url: str) -> str:
+    """Fetch a single URL's full content via Jina Reader.
+
+    Use in Jina source mode when ``search_jina`` did not surface a promising
+    page, or to read a specific TMDB/IMDb/Wikipedia URL in full. Returns the
+    page's markdown content; extract the canonical title, year, external ID,
+    and poster URL from it.
+
+    Args:
+        url: Absolute URL to read (e.g. a TMDB/IMDb/Wikipedia page URL)
+
+    Returns:
+        JSON: {"success": true, "data": {title, url, description, content, links}}
+    """
+    result = await _execute_read_jina_url(url)
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -637,10 +715,24 @@ From raw RSS titles, extract:
   Emit ``[]`` when the title has no subtitle marker at all; only use
   ``null`` to mean "I don't know / defer to the pre-parser".
 
+## SEARCH QUERY VARIANTS (Jina mode only)
+
+When the title spans multiple languages (Chinese/Japanese/English), try these
+variants in order and combine evidence across them:
+  1. Chinese title (title_cn) — best for Chinese release info, Baidu/Douban
+  2. Romanized Japanese — for anime, use the romaji title
+  3. English title — for TMDB/IMDb-style databases
+Search each with ``search_jina`` at most once. Prefer TMDB / IMDb / Wikipedia /
+Wikidata / MyAnimeList / AniList URLs in the results.
+
 ## SOURCE MODE
 - TMDB mode: use search_tmdb and get_tmdb_details only.
 - Exa mode: use search_exa_agent only.
 - Wikipedia mode: use search_wikipedia and get_wikipedia_page only.
+- Jina mode: use search_jina and read_jina_url only. Cap at 3 tool calls before
+  finalize. When evidence comes from a TMDB/IMDb page reached via Jina, emit
+  external_id in canonical form (tmdb:XXXXX / imdb:ttXXXXXXX) — Jina is the
+  route, TMDB/IMDb is the identifier source.
 
 ## finalize SCHEMA
 Always output valid JSON matching:
@@ -665,7 +757,7 @@ Always output valid JSON matching:
   "container": "string|null",
   "matched_entity": {
     "external_id": "tmdb:XXXXX",
-    "external_source": "tmdb",
+    "external_source": "tmdb",  # tmdb|exa|wikipedia|jina — canonical ID source
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "poster_url": "...",
     "rating": float, "genre": [...],
@@ -678,7 +770,7 @@ Always output valid JSON matching:
   } | null,
   "ambiguous": true/false,
   "ambiguous_candidates": [],
-  "data_sources_used": ["tmdb"|"exa"|"wikipedia"],
+  "data_sources_used": ["tmdb"|"exa"|"wikipedia"|"jina"],
   "confidence": 0.0-1.0,
   "reason": "explanation"
 }
@@ -723,6 +815,8 @@ class UnifiedMetadataAgent:
             return [search_tmdb, get_tmdb_details, finalize]
         if source == "wikipedia":
             return [search_wikipedia, get_wikipedia_page, finalize]
+        if source == "jina":
+            return [search_jina, read_jina_url, finalize]
         return [search_exa_agent, finalize]
 
     def _agent_for_source(self, data_source_type: str) -> Any:
@@ -838,6 +932,14 @@ class UnifiedMetadataAgent:
             ),
             "wikipedia": (
                 "Source mode: Wikipedia Search. Use Wikipedia metadata only."
+            ),
+            "jina": (
+                "Source mode: Jina Search + Reader. Use search_jina to find pages, "
+                "read_jina_url to fetch a specific page in full. Prefer TMDB / IMDb / "
+                "Wikipedia / Wikidata / Fandom / MyAnimeList URLs. Cap of 3 tool calls "
+                "before finalize. When the evidence references a TMDB or IMDb page, emit "
+                "external_id as tmdb:XXXXX / imdb:ttXXXXXXX (Jina is the route, TMDB/IMDb "
+                "the identifier source)."
             ),
         }[source]
         return f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
@@ -960,6 +1062,10 @@ class UnifiedMetadataAgent:
                         methods_used.add("wikipedia")
                     elif name == "get_wikipedia_page":
                         methods_used.add("wikipedia")
+                    elif name == "search_jina":
+                        methods_used.add("jina")
+                    elif name == "read_jina_url":
+                        methods_used.add("jina")
             elif isinstance(msg, ToolMessage):
                 if msg.name == "search_tmdb":
                     try:
@@ -1001,6 +1107,18 @@ class UnifiedMetadataAgent:
                                 source_errors.setdefault("wikipedia", content.get("error", "no results"))
                             elif msg.name == "search_wikipedia" and not content.get("data"):
                                 source_errors.setdefault("wikipedia", "no results")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                elif msg.name in ("search_jina", "read_jina_url"):
+                    try:
+                        content = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+                        if isinstance(content, dict):
+                            if not content.get("success"):
+                                source_errors.setdefault("jina", content.get("error", "no results"))
+                                search_error = search_error or f"Jina: {content.get('error', 'no results')}"
+                            elif msg.name == "search_jina" and not content.get("data"):
+                                source_errors.setdefault("jina", "no results")
+                                search_error = search_error or "Jina: no results"
                     except (json.JSONDecodeError, TypeError):
                         pass
 

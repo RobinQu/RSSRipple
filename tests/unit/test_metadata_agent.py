@@ -2,6 +2,7 @@
 
 
 from app.services.metadata_agent import (
+    SUPPORTED_METADATA_SOURCES,
     ResourceMetadata,
     UnifiedMetadataAgent,
     _seasons_map_from,
@@ -37,6 +38,21 @@ def test_tools_are_restricted_to_selected_source():
     assert _tool_names(agent, "wikipedia") == {
         "search_wikipedia",
         "get_wikipedia_page",
+        "finalize",
+    }
+
+
+def test_jina_source_is_supported_and_normalized():
+    assert "jina" in SUPPORTED_METADATA_SOURCES
+    assert normalize_metadata_source_type("jina") == "jina"
+    assert normalize_metadata_source_type("JINA") == "jina"
+
+
+def test_tools_are_restricted_to_jina_source():
+    agent = UnifiedMetadataAgent()
+    assert _tool_names(agent, "jina") == {
+        "search_jina",
+        "read_jina_url",
         "finalize",
     }
 
@@ -166,3 +182,71 @@ class TestReconcileEpisode:
         # ambiguous rather than a wild conversion.
         r = reconcile_episode(raw_episode=99, raw_season=1, seasons_map={1: 12})
         assert r == (99, None, "ambiguous")
+
+
+# ---------------------------------------------------------------------------
+# Jina source — _extract_search_info wiring
+# ---------------------------------------------------------------------------
+
+
+def _ai_message(tool_name: str, args: dict):
+    from langchain_core.messages import AIMessage
+
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": tool_name, "args": args, "id": tool_name}],
+    )
+
+
+def _tool_message(name: str, content: dict, call_id: str):
+    import json as _json
+
+    from langchain_core.messages import ToolMessage
+
+    return ToolMessage(content=_json.dumps(content), name=name, tool_call_id=call_id)
+
+
+def test_extract_search_info_picks_up_jina_tool_calls():
+    messages = [
+        _ai_message("search_jina", {"query": "Breaking Bad"}),
+        _tool_message(
+            "search_jina",
+            {"success": True, "data": [{"title": "Breaking Bad", "url": "https://en.wikipedia.org/wiki/Breaking_Bad"}]},
+            "search_jina",
+        ),
+        _ai_message("read_jina_url", {"url": "https://www.imdb.com/title/tt0903747/"}),
+        _tool_message(
+            "read_jina_url",
+            {"success": True, "data": {"title": "Breaking Bad", "url": "https://www.imdb.com/title/tt0903747/", "content": "..."}},
+            "read_jina_url",
+        ),
+    ]
+    info = UnifiedMetadataAgent._extract_search_info(messages)
+    assert "jina" in info["data_sources_used"]
+    assert info["method"] == "jina"
+    assert info["source_errors"] == {}
+
+
+def test_extract_search_info_tracks_jina_errors():
+    messages = [
+        _ai_message("search_jina", {"query": "Unknown Show"}),
+        _tool_message(
+            "search_jina",
+            {"success": False, "data": [], "error": "JINA_API_KEY not configured"},
+            "search_jina",
+        ),
+    ]
+    info = UnifiedMetadataAgent._extract_search_info(messages)
+    assert "jina" in info["data_sources_used"]
+    assert info["source_errors"]["jina"] == "JINA_API_KEY not configured"
+    assert info["error"] and "Jina" in info["error"]
+
+
+def test_extract_search_info_tracks_jina_empty_results():
+    messages = [
+        _ai_message("search_jina", {"query": "No Match"}),
+        _tool_message("search_jina", {"success": True, "data": []}, "search_jina"),
+    ]
+    info = UnifiedMetadataAgent._extract_search_info(messages)
+    assert info["source_errors"]["jina"] == "no results"
+    assert info["error"] and "Jina" in info["error"]

@@ -20,10 +20,12 @@ class Settings(BaseSettings):
 
     # Multi-source metadata search agent
     tmdb_api_key: str = ""
-    # Deprecated: replaced by exa_api_key. Kept for backward compat, value ignored.
+    # Jina Search + Reader API: https://jina.ai/api-dashboard/
+    # Used by the "jina" metadata source — cheap web-native search with strong
+    # CJK/JA/EN coverage. Empty string disables the jina source at runtime.
     jina_api_key: str = ""
 
-    # Exa AI Agent API (replaces Jina Search as Phase 2 fallback)
+    # Exa AI Agent API (deeper, structured-agent web metadata source)
     exa_api_key: str = ""
     exa_effort_level: str = "low"  # "minimal" | "low" | "medium" | "high" | "xhigh"
 

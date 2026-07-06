@@ -372,3 +372,235 @@ EXA_STRUCTURED_RESULT = {
 # Exa/TMDB/Wikipedia orchestration lives in UnifiedMetadataAgent
 # (app/services/metadata_agent.py). See tests/unit/test_metadata_agent.py for
 # source-restricted agent tests.
+
+
+# ---------------------------------------------------------------------------
+# Jina Search + Reader source (mocked httpx)
+# ---------------------------------------------------------------------------
+
+JINA_SEARCH_RESPONSE = {
+    "code": 200,
+    "status": 200,
+    "data": [
+        {
+            "title": "Breaking Bad — Wikipedia",
+            "url": "https://en.wikipedia.org/wiki/Breaking_Bad",
+            "description": "American crime drama TV series",
+            "content": "# Breaking Bad\n\nBreaking Bad is an American crime drama...",
+        },
+        {
+            "title": "Breaking Bad (TV Series 2008–2013) — IMDb",
+            "url": "https://www.imdb.com/title/tt0903747/",
+            "description": "Created by Vince Gilligan.",
+            "content": "# Breaking Bad\n\nIMDb Rating: 9.5",
+        },
+        {
+            "title": "Breaking Bad — Fandom",
+            "url": "https://breakingbad.fandom.com/wiki/Breaking_Bad",
+            "description": "Fandom wiki.",
+            "content": "# Breaking Bad Wiki",
+        },
+        {
+            "title": "Breaking Bad Season 1 — Fandom",
+            "url": "https://breakingbad.fandom.com/wiki/Season_1",
+            "description": "Season 1.",
+            "content": "# Season 1",
+        },
+        {
+            "title": "Breaking Bad Season 2 — Fandom",
+            "url": "https://breakingbad.fandom.com/wiki/Season_2",
+            "description": "Season 2.",
+            "content": "# Season 2",
+        },
+    ],
+}
+
+JINA_READER_RESPONSE = {
+    "code": 200,
+    "status": 200,
+    "data": {
+        "title": "Breaking Bad",
+        "url": "https://www.imdb.com/title/tt0903747/",
+        "description": "IMDb page",
+        "content": "# Breaking Bad\n\nRating: 9.5",
+        "links": [{"url": "https://www.imdb.com/title/tt0903747/fullcredits", "text": "full cast"}],
+    },
+}
+
+
+class _JinaCaptured:
+    """Records the last POST call's url/headers/json for assertions."""
+
+    def __init__(self) -> None:
+        self.url: str | None = None
+        self.headers: dict | None = None
+        self.json: dict | None = None
+
+
+def _make_jina_post_client(response_body, captured: _JinaCaptured):
+    class FakeResponse:
+        def __init__(self, body):
+            self._body = body
+            self.status_code = 200
+
+        def json(self):
+            return self._body
+
+        def raise_for_status(self):
+            pass
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, headers=None, json=None, **kwargs):
+            captured.url = url
+            captured.headers = headers or {}
+            captured.json = json
+            return FakeResponse(response_body)
+
+    return MockClient
+
+
+@pytest.mark.asyncio
+async def test_jina_search_parses_envelope_and_caps_per_hostname(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    from app.services.metadata_search_agent import _cache, _search_jina
+
+    _cache.clear()
+
+    import httpx as httpx_mod
+
+    captured = _JinaCaptured()
+    monkeypatch.setattr(httpx_mod, "AsyncClient", _make_jina_post_client(JINA_SEARCH_RESPONSE, captured))
+
+    results = await _search_jina("Breaking Bad")
+
+    # 5 raw hits: wiki + imdb + 3 fandom. keep_k_per_hostname(k=2) drops the
+    # 3rd fandom entry → 4 results, fandom capped at 2.
+    assert len(results) == 4
+    assert results[0]["url"] == "https://en.wikipedia.org/wiki/Breaking_Bad"
+    assert results[1]["url"] == "https://www.imdb.com/title/tt0903747/"
+    fandom = [r for r in results if "fandom.com" in r["url"]]
+    assert len(fandom) == 2
+
+    # HTTP call shape
+    assert captured.url == "https://s.jina.ai/"
+    assert captured.headers["Authorization"] == "Bearer jina_test_key"
+    assert captured.headers["X-Preset"] == "agent"
+    assert captured.headers["X-Engine"] == "auto"
+    assert captured.headers["Accept"] == "application/json"
+    assert captured.json == {"q": "Breaking Bad", "num": 3, "gl": "us", "hl": "en"}
+
+
+@pytest.mark.asyncio
+async def test_jina_search_cache_hit_skips_http(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    from app.services.metadata_search_agent import _cache, _cache_set, _search_jina
+
+    _cache.clear()
+    _cache_set("jina", "Breaking Bad", [{"title": "cached", "url": "https://example.com", "description": None, "content": "x"}])
+
+    import httpx as httpx_mod
+
+    class MockClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+        async def post(self, *a, **k):
+            raise AssertionError("HTTP should not be called on cache hit")
+
+    monkeypatch.setattr(httpx_mod, "AsyncClient", MockClient)
+
+    results = await _search_jina("Breaking Bad")
+    assert len(results) == 1
+    assert results[0]["title"] == "cached"
+
+
+@pytest.mark.asyncio
+async def test_jina_search_empty_data_returns_empty(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    from app.services.metadata_search_agent import _cache, _search_jina
+
+    _cache.clear()
+
+    import httpx as httpx_mod
+
+    captured = _JinaCaptured()
+    monkeypatch.setattr(
+        httpx_mod,
+        "AsyncClient",
+        _make_jina_post_client({"code": 200, "status": 200, "data": []}, captured),
+    )
+
+    results = await _search_jina("Nothing Matches")
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_jina_search_no_api_key_returns_empty(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "")
+    from app.services.metadata_search_agent import _cache, _search_jina
+
+    _cache.clear()
+    results = await _search_jina("Breaking Bad")
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_jina_read_parses_envelope(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    import httpx as httpx_mod
+
+    from app.services.metadata_search_agent import _read_jina_url
+
+    captured = _JinaCaptured()
+    monkeypatch.setattr(httpx_mod, "AsyncClient", _make_jina_post_client(JINA_READER_RESPONSE, captured))
+
+    data = await _read_jina_url("https://www.imdb.com/title/tt0903747/")
+    assert data["title"] == "Breaking Bad"
+    assert data["url"] == "https://www.imdb.com/title/tt0903747/"
+    assert "Rating: 9.5" in data["content"]
+    # with_links defaults to False → no links summary requested/returned
+    assert data["links"] is None
+
+    assert captured.url == "https://r.jina.ai/"
+    assert captured.headers["Authorization"] == "Bearer jina_test_key"
+    assert "X-With-Links-Summary" not in captured.headers
+    assert captured.json == {"url": "https://www.imdb.com/title/tt0903747/"}
+
+
+@pytest.mark.asyncio
+async def test_jina_read_with_links_sends_header(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    import httpx as httpx_mod
+
+    from app.services.metadata_search_agent import _read_jina_url
+
+    captured = _JinaCaptured()
+    monkeypatch.setattr(httpx_mod, "AsyncClient", _make_jina_post_client(JINA_READER_RESPONSE, captured))
+
+    data = await _read_jina_url("https://www.imdb.com/title/tt0903747/", with_links=True)
+    assert data["links"] == [{"url": "https://www.imdb.com/title/tt0903747/fullcredits", "text": "full cast"}]
+    assert captured.headers["X-With-Links-Summary"] == "true"
+
+
+@pytest.mark.asyncio
+async def test_jina_read_no_api_key_returns_empty(monkeypatch):
+    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "")
+    from app.services.metadata_search_agent import _read_jina_url
+
+    data = await _read_jina_url("https://example.com")
+    assert data == {}

@@ -289,6 +289,7 @@
   <div class="stat stat-tmdb"><span class="stat-val" id="statTmdbTotal">0</span><span class="stat-label">TMDB</span><span class="stat-val" id="statTmdbFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
   <div class="stat stat-exa"><span class="stat-val" id="statExaTotal">0</span><span class="stat-label">Exa</span><span class="stat-val" id="statExaFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
   <div class="stat stat-wiki"><span class="stat-val" id="statWikiTotal">0</span><span class="stat-label">Wiki</span><span class="stat-val" id="statWikiFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
+  <div class="stat stat-jina"><span class="stat-val" id="statJinaTotal">0</span><span class="stat-label">Jina</span><span class="stat-val" id="statJinaFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
 </div>
 
 <!-- ═══════════════ Main Content ═══════════════ -->
@@ -304,6 +305,7 @@
   <button class="btn btn-primary" id="btnSelectTmdbFailed" disabled style="font-size:11px;background:var(--danger);">☐ TMDB Failed</button>
   <button class="btn btn-primary" id="btnSelectExaFailed" disabled style="font-size:11px;background:var(--danger);">☐ Exa Failed</button>
   <button class="btn btn-primary" id="btnSelectWikiFailed" disabled style="font-size:11px;background:var(--danger);">☐ Wiki Failed</button>
+  <button class="btn btn-primary" id="btnSelectJinaFailed" disabled style="font-size:11px;background:var(--danger);">☐ Jina Failed</button>
 </div>
 
 <!-- ═══════════════ New Dataset Modal ═══════════════ -->
@@ -316,6 +318,7 @@
         <option value="exa" selected>Exo Agent Search</option>
         <option value="tmdb">TMDB Search</option>
         <option value="wikipedia">Wikipedia Search</option>
+        <option value="jina">Jina Search + Reader</option>
       </select>
     </div>
     <div class="modal-actions">
@@ -1066,6 +1069,9 @@ $('#btnSelectExaFailed').addEventListener('click', () => {
 $('#btnSelectWikiFailed').addEventListener('click', () => {
   selectFailedTitles('wikipedia');
 });
+$('#btnSelectJinaFailed').addEventListener('click', () => {
+  selectFailedTitles('jina');
+});
 
 function selectFailedTitles(method) {
   selectedIds = new Set(
@@ -1091,6 +1097,7 @@ function sourceMethods(meta) {
 function methodLabel(method) {
   if (method === 'wikipedia') return 'Wiki';
   if (method === 'exa') return 'Exa';
+  if (method === 'jina') return 'Jina';
   return method.toUpperCase();
 }
 
@@ -1216,6 +1223,10 @@ function render() {
     const res = agentResults[t.id];
     return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('wikipedia') && hasSourceError(res.resource_metadata, 'wikipedia');
   });
+  $('#btnSelectJinaFailed').disabled = !titles.some(t => {
+    const res = agentResults[t.id];
+    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('jina') && hasSourceError(res.resource_metadata, 'jina');
+  });
 }
 
 function computeSearchStats() {
@@ -1223,6 +1234,7 @@ function computeSearchStats() {
     tmdb: { total: 0, fail: 0 },
     exa: { total: 0, fail: 0 },
     wikipedia: { total: 0, fail: 0 },
+    jina: { total: 0, fail: 0 },
   };
   for (const t of titles) {
     const res = agentResults[t.id];
@@ -1240,6 +1252,8 @@ function computeSearchStats() {
   $('#statExaFail').textContent = stats.exa.fail > 0 ? '(' + stats.exa.fail + ' fail)' : '';
   $('#statWikiTotal').textContent = stats.wikipedia.total;
   $('#statWikiFail').textContent = stats.wikipedia.fail > 0 ? '(' + stats.wikipedia.fail + ' fail)' : '';
+  $('#statJinaTotal').textContent = stats.jina.total;
+  $('#statJinaFail').textContent = stats.jina.fail > 0 ? '(' + stats.jina.fail + ' fail)' : '';
 }
 
 function updateStats() {

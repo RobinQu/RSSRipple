@@ -21,7 +21,6 @@ from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.agent_service import (
     RuleSet,
-    _build_rule_set,
     _generate_llm_pick,
     _parse_llm_pick,
     _resource_matches_rules,
