@@ -66,6 +66,7 @@ export default function ResourceDetailDrawer({
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [resourceData, setResourceData] = useState<FileResource | null>(null);
   const [episodeEditOpen, setEpisodeEditOpen] = useState(false);
+  const [seasonDraft, setSeasonDraft] = useState<number | null>(null);
   const [episodeDraft, setEpisodeDraft] = useState<number | null>(null);
   const [absoluteDraft, setAbsoluteDraft] = useState<number | null>(null);
   const [savingEpisode, setSavingEpisode] = useState(false);
@@ -139,6 +140,7 @@ export default function ResourceDetailDrawer({
   const openEpisodeEditor = () => {
     if (!resourceData && !resource) return;
     const src = resourceData || resource;
+    setSeasonDraft(src?.season ?? null);
     setEpisodeDraft(src?.episode ?? null);
     setAbsoluteDraft(src?.absolute_episode ?? null);
     setEpisodeEditOpen(true);
@@ -150,8 +152,10 @@ export default function ResourceDetailDrawer({
     setSavingEpisode(true);
     const res = await resourcesApi.correctEpisode(rid, {
       episode: episodeDraft,
-      // Only send absolute_episode when the user actually typed one; backend
-      // preserves the prior value when we omit it, per PATCH semantics.
+      // Only send season/absolute_episode when the user actually typed one;
+      // the backend preserves the prior value when we omit it, per PATCH
+      // semantics.
+      ...(seasonDraft != null ? { season: seasonDraft } : {}),
       ...(absoluteDraft != null ? { absolute_episode: absoluteDraft } : {}),
     });
     setSavingEpisode(false);
@@ -202,6 +206,18 @@ export default function ResourceDetailDrawer({
                   title={t('resource.episodeCorrectionTitle')}
                   content={
                     <div style={{ minWidth: 240 }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                          {t('resource.seasonLabel')}
+                        </Text>
+                        <InputNumber
+                          value={seasonDraft}
+                          onChange={(v) => setSeasonDraft(typeof v === 'number' ? v : null)}
+                          size="small"
+                          min={0}
+                          style={{ width: '100%' }}
+                        />
+                      </div>
                       <div style={{ marginBottom: 8 }}>
                         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
                           {t('resource.episodePerSeasonLabel')}
