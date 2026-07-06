@@ -144,6 +144,6 @@ export const resourcesApi = {
   ) => api.post<FileResource>(`/resources/${id}/metadata/link`, body),
   correctEpisode: (
     id: string,
-    body: { episode: number | null; absolute_episode?: number | null; note?: string },
+    body: { episode: number | null; season?: number | null; absolute_episode?: number | null; note?: string },
   ) => api.patch<FileResource>(`/resources/${id}/episode`, body),
 };

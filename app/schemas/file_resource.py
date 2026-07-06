@@ -100,13 +100,16 @@ class MetadataLinkRequest(BaseModel):
 class EpisodeCorrectionRequest(BaseModel):
     """Payload for PATCH /resources/{id}/episode — manual episode fix.
 
-    ``episode`` is the per-season number the user confirms. ``absolute_episode``
-    is optional and lets the user record the raw cross-season number
-    (e.g. 85) so future reconciliation logic sees the same evidence. Setting
-    ``episode`` to null clears the value and unmarks the confidence tag.
+    ``episode`` is the per-season number the user confirms. ``season`` is
+    optional and lets the user fix the season number alongside the episode.
+    ``absolute_episode`` is optional and lets the user record the raw
+    cross-season number (e.g. 85) so future reconciliation logic sees the
+    same evidence. Setting ``episode`` to null clears the value and unmarks
+    the confidence tag.
     """
 
     episode: int | None
+    season: int | None = None
     absolute_episode: int | None = None
     note: str | None = None
 
