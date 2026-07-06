@@ -405,7 +405,7 @@ async def correct_episode(
 ):
     """Record a user's manual episode number correction.
 
-    Overwrites ``episode`` (per-season) and, when provided,
+    Overwrites ``episode`` (per-season) and, when provided, ``season`` and
     ``absolute_episode`` (cross-season audit copy). Sets
     ``episode_confidence="manual"`` so downstream logic knows the value is
     hand-vetted — the metadata agent will not re-reconcile on the next run,
@@ -424,6 +424,11 @@ async def correct_episode(
         )
 
     resource.episode = body.episode
+    # Only touch season when the caller explicitly sent it. That lets a user
+    # fix the episode number without wiping the parsed season, mirroring the
+    # preserve-when-omitted semantics used for absolute_episode below.
+    if body.season is not None:
+        resource.season = body.season
     # Only touch absolute_episode when the caller explicitly sent it. That
     # lets a user fix the per-season number without wiping the original
     # absolute value we captured during reconciliation.
