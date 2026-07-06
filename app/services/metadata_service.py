@@ -625,6 +625,144 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
 
 
 # ---------------------------------------------------------------------------
+# Work metadata refresh (works-page "fill missing fields" action)
+# ---------------------------------------------------------------------------
+
+
+def _first_present(*values: Any) -> Any:
+    """Return the first value that is not None/empty, else None."""
+    for v in values:
+        if v not in (None, "", [], ()):
+            return v
+    return None
+
+
+def _safe_float(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(v: Any) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+async def refresh_work_metadata(
+    db: AsyncSession,
+    work_id: str,
+    content_type: str,
+    source: str | None,
+) -> dict:
+    """Re-search metadata for an existing TVSeries/Movie and fill missing fields.
+
+    Uses the work's existing titles as the search query against *source* (one
+    of the external metadata sources). Only fields that are currently empty on
+    the work are filled — existing user/agent values are preserved. Posters are
+    downloaded and cached locally like the initial ingestion path.
+
+    Returns a summary dict: ``{found, filled, source, message}``.
+    """
+    is_movie = (content_type or "").lower() == "movie"
+    work = await db.get(Movie if is_movie else TVSeries, work_id)
+    if not work:
+        return {"found": False, "filled": [], "source": source, "message": "work not found"}
+
+    search_title = _first_present(work.title_en, work.title_cn, work.original_title)
+    if not search_title:
+        return {
+            "found": True,
+            "filled": [],
+            "source": source,
+            "message": "no title available to search",
+        }
+
+    candidates = await search_metadata_via_llm(search_title, source)
+    if not candidates:
+        return {
+            "found": True,
+            "filled": [],
+            "source": source,
+            "message": "no candidates returned by source",
+        }
+
+    # Prefer a candidate whose content_type matches the work.
+    best = next((c for c in candidates if c.get("content_type") == content_type), None)
+    if best is None:
+        best = candidates[0]
+
+    filled: list[str] = []
+
+    def fill(attr: str, key: str, cast: Any = lambda x: x) -> None:
+        cur = getattr(work, attr)
+        if cur in (None, "", [], ()):
+            val = best.get(key)
+            if val not in (None, ""):
+                setattr(work, attr, cast(val))
+                filled.append(attr)
+
+    fill("description", "description")
+    fill("rating", "rating", _safe_float)
+    fill("status", "status")
+    fill("original_title", "original_title")
+    fill("title_cn", "title_cn")
+    fill("title_en", "title_en")
+
+    if not work.genre:
+        g = best.get("genre")
+        if g:
+            work.genre = g if isinstance(g, list) else [g]
+            filled.append("genre")
+
+    if is_movie:
+        fill("release_date", "release_date", _parse_date)
+        fill("runtime", "runtime", _safe_int)
+    else:
+        fill("number_of_episodes", "number_of_episodes", _safe_int)
+        fill("number_of_seasons", "number_of_seasons", _safe_int)
+        fill("start_date", "start_date", _parse_date)
+        fill("end_date", "end_date", _parse_date)
+
+    # Poster: download + cache, like the initial ingestion path.
+    remote_poster = best.get("poster_url")
+    if remote_poster and not (work.poster_url or "").startswith("/posters/"):
+        local_url = await download_and_cache_poster(remote_poster)
+        work.poster_url = local_url or remote_poster
+        filled.append("poster_url")
+
+    if not work.external_id and best.get("external_id"):
+        work.external_id = best["external_id"]
+        filled.append("external_id")
+    if not work.external_source and best.get("external_source"):
+        work.external_source = best["external_source"]
+        filled.append("external_source")
+
+    await db.flush()
+    if is_movie:
+        await fts_service.upsert_movie_fts(db, work)
+    else:
+        await fts_service.upsert_series_fts(db, work)
+    await db.commit()
+
+    label = best.get("title_cn") or best.get("title_en") or best.get("original_title") or ""
+    return {
+        "found": True,
+        "filled": filled,
+        "source": source,
+        "message": f"matched: {label}" if label else "matched",
+        "candidate": {
+            "title_cn": best.get("title_cn"),
+            "title_en": best.get("title_en"),
+            "external_id": best.get("external_id"),
+            "external_source": best.get("external_source"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main entry points
 # ---------------------------------------------------------------------------
 

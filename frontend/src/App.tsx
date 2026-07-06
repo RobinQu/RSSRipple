@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Channels from './pages/Channels';
@@ -10,9 +10,7 @@ import DownloaderDetail from './pages/DownloaderDetail';
 import Agents from './pages/Agents';
 import AgentForm from './pages/AgentForm';
 import AgentDetail from './pages/AgentDetail';
-import Series from './pages/Series';
 import SeriesDetail from './pages/SeriesDetail';
-import Movies from './pages/Movies';
 import MovieDetail from './pages/MovieDetail';
 import WorksPage from './pages/WorksPage';
 import PageErrorBoundary from './components/PageErrorBoundary';
@@ -36,9 +34,12 @@ function App() {
           <Route path="agents/new" element={<AgentForm />} />
           <Route path="agents/:id/edit" element={<AgentForm />} />
           <Route path="agents/:id" element={<AgentDetail />} />
-          <Route path="series" element={<Series />} />
+          {/* The works library (/works) is the single work list page; the old
+              /series and /movies list pages were removed. Detail routes stay,
+              and stale list links redirect to /works. */}
+          <Route path="series" element={<Navigate to="/works" replace />} />
           <Route path="series/:id" element={<SeriesDetail />} />
-          <Route path="movies" element={<Movies />} />
+          <Route path="movies" element={<Navigate to="/works" replace />} />
           <Route path="movies/:id" element={<MovieDetail />} />
         </Route>
       </Routes>

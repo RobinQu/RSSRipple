@@ -146,6 +146,30 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         }
 
 
+async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no cover
+    """Background job: refresh metadata for a batch of works sequentially."""
+    from app.services.metadata_service import refresh_work_metadata
+
+    items: list[dict] = payload.get("items", []) or []
+    source: str | None = payload.get("source")
+    results: list[dict] = []
+    async with committed_session() as session:
+        for item in items:
+            work_id = item.get("id")
+            content_type = item.get("content_type")
+            try:
+                r = await refresh_work_metadata(session, work_id, content_type, source)
+                results.append({"id": work_id, "content_type": content_type, **r})
+            except Exception as e:  # noqa: BLE001 — keep processing the rest
+                logger.warning(
+                    "[refresh_works] failed for %s/%s: %s", content_type, work_id, e
+                )
+                results.append(
+                    {"id": work_id, "content_type": content_type, "found": False, "error": str(e)}
+                )
+    return {"status": "done", "processed": len(results), "results": results}
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -204,6 +228,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
 
     queue.register("fetch_channel", _handle_fetch_channel)
     queue.register("run_agent", _handle_run_agent)
+    queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
 
     await queue.start()
     try:

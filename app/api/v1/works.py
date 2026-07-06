@@ -1,16 +1,123 @@
 """Unified Metadata Repository API — poster wall for both TVSeries and Movie."""
 
 
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.movie import Movie
 from app.models.series import TVSeries
-from app.schemas.common import paginated_response
+from app.schemas.common import paginated_response, success_response
+from app.services.metadata_agent import (
+    DEFAULT_METADATA_SOURCE,
+    SUPPORTED_METADATA_SOURCES,
+    get_metadata_source_catalog,
+)
+from app.services.metadata_service import refresh_work_metadata
+from app.services.settings_service import (
+    SETTING_DEFAULT_METADATA_SOURCE,
+    get_setting,
+    resolve_default_metadata_source,
+    set_setting,
+)
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Metadata refresh config + actions
+# ---------------------------------------------------------------------------
+
+
+class MetadataConfigUpdate(BaseModel):
+    default_source: str | None = None
+
+    @field_validator("default_source")
+    @classmethod
+    def _validate_source(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if not v:
+            return None
+        if v not in SUPPORTED_METADATA_SOURCES:
+            raise ValueError(f"unsupported metadata_source: {v!r}")
+        return v
+
+
+class RefreshItem(BaseModel):
+    id: str
+    content_type: str  # "tv" | "movie"
+
+
+class RefreshMetadataRequest(RefreshItem):
+    source: str | None = None
+
+
+class BatchRefreshMetadataRequest(BaseModel):
+    items: list[RefreshItem]
+    source: str | None = None
+
+
+@router.get("/works/metadata-config")
+async def get_metadata_config(db: AsyncSession = Depends(get_db)):
+    """Return the default metadata search source + the source catalog."""
+    default_source = await get_setting(db, SETTING_DEFAULT_METADATA_SOURCE)
+    return success_response({
+        "default_source": default_source,
+        "sources": get_metadata_source_catalog(),
+        "default": DEFAULT_METADATA_SOURCE,
+    })
+
+
+@router.put("/works/metadata-config")
+async def put_metadata_config(
+    body: MetadataConfigUpdate, db: AsyncSession = Depends(get_db)
+):
+    """Set the default metadata search source used by the refresh actions."""
+    await set_setting(db, SETTING_DEFAULT_METADATA_SOURCE, body.default_source)
+    await db.commit()
+    return success_response({"default_source": body.default_source})
+
+
+@router.post("/works/refresh-metadata")
+async def refresh_single_metadata(
+    body: RefreshMetadataRequest, db: AsyncSession = Depends(get_db)
+):
+    """Refresh a single work's missing metadata fields from the selected source."""
+    source = await resolve_default_metadata_source(db, body.source)
+    result = await refresh_work_metadata(db, body.id, body.content_type, source)
+    return success_response(result)
+
+
+@router.post("/works/batch-refresh-metadata")
+async def batch_refresh_metadata(
+    body: BatchRefreshMetadataRequest, db: AsyncSession = Depends(get_db)
+):
+    """Enqueue a background job to refresh metadata for many works at once.
+
+    Each work is processed sequentially against the same source. Returns the
+    job descriptor so the client can poll status.
+    """
+    if not body.items:
+        return success_response({"job": None, "count": 0, "source": None})
+    source = await resolve_default_metadata_source(db, body.source)
+    from app.services.task_queue import task_queue
+
+    job = await task_queue.enqueue(
+        "refresh_works_metadata",
+        f"refresh_works:{uuid4().hex}",
+        {
+            "items": [item.model_dump() for item in body.items],
+            "source": source,
+        },
+    )
+    return success_response({"job": job, "count": len(body.items), "source": source})
+
 
 
 def _year_from_date(val: object) -> int | None:

@@ -48,6 +48,7 @@ from app.api.v1 import (  # noqa: E402
     resources,
     series,
     tasks,
+    works,
 )
 from app.database import Base, enable_sqlite_fk, get_db, install_db_retry_middleware  # noqa: E402
 from app.main import (  # noqa: E402
@@ -94,6 +95,7 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
         resources.router,
         series.router,
         movies.router,
+        works.router,
     ):
         test_app.include_router(router, prefix="/api/v1")
 

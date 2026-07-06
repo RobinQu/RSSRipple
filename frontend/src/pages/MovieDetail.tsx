@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw } from 'lucide-react';
 import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
+import { worksApi } from '../api/works';
 import type { Movie, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
 
@@ -16,6 +17,7 @@ export default function MovieDetail() {
   const { modal, message } = App.useApp();
   const [movie, setMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -26,6 +28,25 @@ export default function MovieDetail() {
     const r = await moviesApi.get(id!);
     if (r.success) setMovie(r.data as Movie);
     setLoading(false);
+  }
+
+  async function handleRefreshMetadata() {
+    if (!id) return;
+    setRefreshing(true);
+    try {
+      const r = await worksApi.refreshMetadata(id, 'movie');
+      if (r.success) {
+        const filled = r.data.filled?.length ?? 0;
+        message.success(
+          filled > 0 ? t('works.refreshFilled', { n: filled }) : t('works.refreshNoChange'),
+        );
+        await loadMovie();
+      } else {
+        message.error(r.error?.message || t('works.refreshFailed'));
+      }
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function handleDelete() {
@@ -101,13 +122,20 @@ export default function MovieDetail() {
   return (
     <div>
       <Space style={{ marginBottom: 24 }}>
-        <Link to="/movies">
+        <Link to="/works">
           <Button type="text" icon={<ArrowLeft size={18} />} />
         </Link>
         <Title level={3} style={{ margin: 0 }}>
           {movie.title_cn || movie.title_en || movie.original_title}
         </Title>
         <Tag color="green">{t('movies.title')}</Tag>
+        <Button
+          icon={<RefreshCw size={16} />}
+          loading={refreshing}
+          onClick={handleRefreshMetadata}
+        >
+          {t('works.refreshMetadata')}
+        </Button>
         <Button danger type="primary" icon={<Trash2 size={16} />} onClick={handleDelete}>
           {t('common.delete')}
         </Button>

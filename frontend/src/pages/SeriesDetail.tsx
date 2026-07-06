@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw } from 'lucide-react';
 import {
   Typography, Spin, Card, Button, Space, Tag, Descriptions,
   Row, Col, Statistic, Table, Modal, App,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { seriesApi } from '../api/series';
+import { worksApi } from '../api/works';
 import type { TVSeries, Episode, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
 
@@ -20,14 +21,50 @@ export default function SeriesDetail() {
   const { message } = App.useApp();
   const [series, setSeries] = useState<TVSeries | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadSeries = useCallback(async () => {
+    if (!id) return;
+    const r = await seriesApi.get(id);
+    if (r.success) setSeries(r.data);
+  }, [id]);
 
   useEffect(() => {
     if (!id) return;
-    seriesApi.get(id).then((r) => {
-      if (r.success) setSeries(r.data);
-      setLoading(false);
-    });
+    let active = true;
+    seriesApi
+      .get(id)
+      .then((r) => {
+        if (active && r.success) setSeries(r.data);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [id]);
+
+  const handleRefreshMetadata = async () => {
+    if (!id) return;
+    setRefreshing(true);
+    try {
+      const r = await worksApi.refreshMetadata(id, 'tv');
+      if (r.success) {
+        const filled = r.data.filled?.length ?? 0;
+        message.success(
+          filled > 0
+            ? t('works.refreshFilled', { n: filled })
+            : t('works.refreshNoChange'),
+        );
+        await loadSeries();
+      } else {
+        message.error(r.error?.message || t('works.refreshFailed'));
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleDelete = () => {
     if (!series) return;
@@ -93,7 +130,7 @@ export default function SeriesDetail() {
   return (
     <div>
       <Space style={{ marginBottom: 24 }}>
-        <Link to="/series">
+        <Link to="/works">
           <Button type="text" icon={<ArrowLeft size={18} />} />
         </Link>
         <Title level={3} style={{ margin: 0 }}>
@@ -101,11 +138,18 @@ export default function SeriesDetail() {
         </Title>
         <Tag color="blue">{t('series.title')}</Tag>
         <Button
+          icon={<RefreshCw size={14} />}
+          loading={refreshing}
+          onClick={handleRefreshMetadata}
+          style={{ marginLeft: 8 }}
+        >
+          {t('works.refreshMetadata')}
+        </Button>
+        <Button
           type="default"
           danger
           icon={<Trash2 size={14} />}
           onClick={handleDelete}
-          style={{ marginLeft: 8 }}
         >
           {t('common.delete')}
         </Button>
