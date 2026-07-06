@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Library, Search } from 'lucide-react';
+import { Library, Search, Settings2, RefreshCw, CheckCircle } from 'lucide-react';
 import {
   Typography,
   Input,
@@ -9,56 +9,157 @@ import {
   Empty,
   Tag,
   Segmented,
-  Pagination,
+  Button,
+  Space,
+  App,
 } from 'antd';
 import { worksApi } from '../api/works';
+import type { RefreshItem } from '../api/works';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { Work } from '../types';
+import MetadataConfigModal from '../components/MetadataConfigModal';
 
 const { Title, Text } = Typography;
 
-const CONTENT_TYPES = ['all', 'tv', 'movie'] as const;
-type ContentType = (typeof CONTENT_TYPES)[number];
+type ContentType = 'all' | 'tv' | 'movie';
+const PAGE_SIZE = 20;
 
 function getDisplayTitle(w: Work): string {
   return w.title_cn || w.title_en || w.original_title || '—';
 }
 
+function workKey(w: Work): string {
+  return `${w.content_type}:${w.id}`;
+}
+
 export default function WorksPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { message } = App.useApp();
 
   const [works, setWorks] = useState<Work[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [search, setSearch] = useState('');
   const [contentType, setContentType] = useState<ContentType>('all');
 
-  const fetchWorks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const ct = contentType === 'all' ? undefined : contentType;
-      const r = await worksApi.list(page, 20, search.trim() || undefined, ct);
-      if (r.success) {
-        setWorks(r.data);
-        if (r.meta) setTotal(r.meta.total);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, contentType]);
+  // Selection + batch refresh
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchRefreshing, setBatchRefreshing] = useState(false);
+
+  // Configurator modal
+  const [configOpen, setConfigOpen] = useState(false);
+
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
 
   useEffect(() => {
-    const timeout = setTimeout(fetchWorks, 300);
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+  useEffect(() => {
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
+
+  const fetchPage = useCallback(
+    async (p: number, ct: ContentType, q: string, replace: boolean) => {
+      if (replace) setLoading(true);
+      else setLoadingMore(true);
+      try {
+        const ctParam = ct === 'all' ? undefined : ct;
+        const r = await worksApi.list(p, PAGE_SIZE, q.trim() || undefined, ctParam);
+        if (r.success) {
+          setWorks((prev) => (replace ? r.data : [...prev, ...r.data]));
+          const total = r.meta?.total ?? 0;
+          setHasMore(r.data.length === PAGE_SIZE && p * PAGE_SIZE < total);
+        }
+      } finally {
+        if (replace) setLoading(false);
+        else setLoadingMore(false);
+      }
+    },
+    [],
+  );
+
+  // Initial / filter-change load (page 1).
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      fetchPage(1, contentType, search, true);
+      setPage(1);
+      setHasMore(true);
+    }, 300);
     return () => clearTimeout(timeout);
-  }, [fetchWorks]);
+  }, [contentType, search, fetchPage]);
+
+  // Infinite scroll: load next page when the sentinel enters the viewport.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
+          setPage((prev) => {
+            const next = prev + 1;
+            fetchPage(next, contentType, search, false);
+            return next;
+          });
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [contentType, search, fetchPage]);
 
   const handleCardClick = (w: Work) => {
-    if (w.content_type === 'movie') {
-      navigate(`/movies/${w.id}`);
-    } else {
-      navigate(`/series/${w.id}`);
+    if (selectMode) {
+      const key = workKey(w);
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      return;
+    }
+    if (w.content_type === 'movie') navigate(`/movies/${w.id}`);
+    else navigate(`/series/${w.id}`);
+  };
+
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      if (prev.size >= works.length) return new Set();
+      return new Set(works.map(workKey));
+    });
+  };
+
+  const selectedItems: RefreshItem[] = useMemo(() => {
+    const set = selected;
+    return works
+      .filter((w) => set.has(workKey(w)) && (w.content_type === 'tv' || w.content_type === 'movie'))
+      .map((w) => ({ id: w.id, content_type: w.content_type as 'tv' | 'movie' }));
+  }, [selected, works]);
+
+  const handleBatchRefresh = async () => {
+    if (selectedItems.length === 0) return;
+    setBatchRefreshing(true);
+    try {
+      const r = await worksApi.batchRefreshMetadata(selectedItems);
+      if (r.success) {
+        message.success(t('works.batchRefreshStarted', { n: r.data.count }));
+        setSelectMode(false);
+        setSelected(new Set());
+        // Reload the first page so refreshed posters/titles appear.
+        fetchPage(1, contentType, search, true);
+        setPage(1);
+      } else {
+        message.error(r.error?.message || t('works.batchRefreshFailed'));
+      }
+    } finally {
+      setBatchRefreshing(false);
     }
   };
 
@@ -79,7 +180,7 @@ export default function WorksPage() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 24,
+          marginBottom: 16,
           flexWrap: 'wrap',
           gap: 12,
         }}
@@ -90,13 +191,13 @@ export default function WorksPage() {
             {t('works.title')}
           </Title>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Segmented
             options={segmentedOptions}
             value={contentType}
             onChange={(v) => {
               setContentType(v as ContentType);
-              setPage(1);
+              setSelected(new Set());
             }}
           />
           <Input
@@ -105,16 +206,68 @@ export default function WorksPage() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
-              setPage(1);
+              setSelected(new Set());
             }}
-            style={{ width: 240 }}
+            style={{ width: 220 }}
             allowClear
           />
+          <Button icon={<Settings2 size={14} />} onClick={() => setConfigOpen(true)}>
+            {t('works.configButton')}
+          </Button>
+          <Button
+            type={selectMode ? 'primary' : 'default'}
+            icon={<CheckCircle size={14} />}
+            onClick={() => {
+              setSelectMode((v) => !v);
+              setSelected(new Set());
+            }}
+          >
+            {t('works.select')}
+          </Button>
         </div>
       </div>
 
+      {/* Selection action bar */}
+      {selectMode && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginBottom: 16,
+            padding: '8px 12px',
+            background: '#1f1f24',
+            border: '1px solid #2a2a2a',
+            borderRadius: 8,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Space>
+            <Text style={{ color: '#d9d9dd' }}>
+              {t('works.selectedCount', { n: selected.size })}
+            </Text>
+            <Button size="small" type="link" onClick={toggleSelectAll}>
+              {selected.size >= works.length ? t('common.deselect') : t('common.selectAll')}
+            </Button>
+          </Space>
+          <Space>
+            <Button
+              size="small"
+              type="primary"
+              icon={<RefreshCw size={13} />}
+              loading={batchRefreshing}
+              disabled={selectedItems.length === 0}
+              onClick={handleBatchRefresh}
+            >
+              {t('works.batchRefresh')}
+            </Button>
+          </Space>
+        </div>
+      )}
+
       {/* Content */}
-      {loading ? (
+      {loading && works.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
           <Spin size="large" />
         </div>
@@ -136,9 +289,11 @@ export default function WorksPage() {
           >
             {works.map((w) => {
               const displayTitle = getDisplayTitle(w);
+              const key = workKey(w);
+              const isSelected = selected.has(key);
               return (
                 <div
-                  key={w.id}
+                  key={key}
                   role="button"
                   tabIndex={0}
                   onClick={() => handleCardClick(w)}
@@ -149,21 +304,44 @@ export default function WorksPage() {
                     cursor: 'pointer',
                     borderRadius: 10,
                     overflow: 'hidden',
-                    border: '1px solid #2a2a2a',
+                    border: isSelected ? '2px solid #1863dc' : '1px solid #2a2a2a',
                     background: '#1a1a1a',
                     transition: 'border-color 0.2s, transform 0.2s, box-shadow 0.2s',
+                    position: 'relative',
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#1863dc';
+                    if (!isSelected) e.currentTarget.style.borderColor = '#1863dc';
                     e.currentTarget.style.transform = 'translateY(-2px)';
                     e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.4)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#2a2a2a';
+                    if (!isSelected) e.currentTarget.style.borderColor = '#2a2a2a';
                     e.currentTarget.style.transform = 'translateY(0)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
                 >
+                  {/* Selection checkbox */}
+                  {selectMode && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 6,
+                        zIndex: 2,
+                        width: 22,
+                        height: 22,
+                        borderRadius: 6,
+                        background: isSelected ? '#1863dc' : 'rgba(0,0,0,0.6)',
+                        border: isSelected ? 'none' : '1px solid #d9d9dd',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {isSelected && <CheckCircle size={16} color="#fff" />}
+                    </div>
+                  )}
+
                   {/* Poster */}
                   <div
                     style={{
@@ -189,7 +367,6 @@ export default function WorksPage() {
 
                   {/* Info */}
                   <div style={{ padding: '10px 12px 12px' }}>
-                    {/* Badges row */}
                     <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
                       <Tag
                         color={w.content_type === 'movie' ? 'green' : 'blue'}
@@ -198,10 +375,7 @@ export default function WorksPage() {
                         {w.content_type === 'movie' ? t('works.movie') : t('works.tv')}
                       </Tag>
                       {w.rating != null && (
-                        <Tag
-                          color="gold"
-                          style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}
-                        >
+                        <Tag color="gold" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
                           ★ {w.rating.toFixed(1)}
                         </Tag>
                       )}
@@ -210,7 +384,6 @@ export default function WorksPage() {
                       )}
                     </div>
 
-                    {/* Title */}
                     <Text
                       ellipsis={{ tooltip: displayTitle }}
                       style={{
@@ -224,15 +397,7 @@ export default function WorksPage() {
                       {displayTitle}
                     </Text>
 
-                    {/* Sub-info */}
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        color: '#616161',
-                        display: 'block',
-                        marginTop: 2,
-                      }}
-                    >
+                    <Text style={{ fontSize: 11, color: '#616161', display: 'block', marginTop: 2 }}>
                       {w.content_type === 'movie'
                         ? w.release_date || '—'
                         : w.number_of_seasons
@@ -245,20 +410,24 @@ export default function WorksPage() {
             })}
           </div>
 
-          {/* Pagination */}
-          {total > 20 && (
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <Pagination
-                current={page}
-                pageSize={20}
-                total={total}
-                onChange={setPage}
-                showSizeChanger={false}
-              />
+          {/* Infinite scroll sentinel */}
+          <div ref={sentinelRef} style={{ height: 1 }} />
+          {loadingMore && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
+              <Spin />
+            </div>
+          )}
+          {!hasMore && works.length > 0 && (
+            <div style={{ textAlign: 'center', padding: 16 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('works.noMore')}
+              </Text>
             </div>
           )}
         </>
       )}
+
+      <MetadataConfigModal open={configOpen} onClose={() => setConfigOpen(false)} />
     </div>
   );
 }
