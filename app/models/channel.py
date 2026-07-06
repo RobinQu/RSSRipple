@@ -30,6 +30,10 @@ class Channel(Base):
     metadata_agent_enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
+    # External metadata source used when metadata_agent_enabled is true.
+    # One of SUPPORTED_METADATA_SOURCES (tmdb/exa/wikipedia/jina/local), or
+    # None to fall back to the default source at runtime.
+    metadata_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_fetch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_fetch_error: Mapped[str | None] = mapped_column(String(2048), nullable=True)

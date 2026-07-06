@@ -9,6 +9,7 @@ import type {
   FilterSuggestionResponse,
   GroupedResource,
   MetadataSearchResult,
+  MetadataSource,
   Movie,
   PreviewEntry,
   TVSeries,
@@ -19,6 +20,20 @@ export interface PreviewFeedData {
   parsed: Record<string, unknown>[];
 }
 
+export interface MetadataSourceOption {
+  value: MetadataSource;
+  label: string;
+  description: string;
+  enabled: boolean;
+  configured: boolean;
+  available: boolean;
+}
+
+export interface MetadataSourcesResponse {
+  sources: MetadataSourceOption[];
+  default: MetadataSource;
+}
+
 export interface ChannelCreate {
   name: string;
   type: 'rss_feed';
@@ -26,6 +41,7 @@ export interface ChannelCreate {
   fetch_interval?: number;
   field_mapping: FieldMapping;
   metadata_agent_enabled?: boolean;
+  metadata_source?: MetadataSource | null;
 }
 
 export interface ChannelUpdate {
@@ -35,6 +51,7 @@ export interface ChannelUpdate {
   status?: ChannelStatus;
   field_mapping?: FieldMapping;
   metadata_agent_enabled?: boolean;
+  metadata_source?: MetadataSource | null;
 }
 
 type ChannelResourcesPayload =
@@ -59,6 +76,7 @@ export const channelsApi = {
     api.get<Channel[]>(`/channels?page=${page}&page_size=${pageSize}`),
   get: (id: string) => api.get<ChannelDetail>(`/channels/${id}`),
   getFormToken: () => api.get<{ token: string }>('/channels/form-token'),
+  metadataSources: () => api.get<MetadataSourcesResponse>('/channels/metadata-sources'),
   create: (data: ChannelCreate, formToken?: string) =>
     api.post<Channel>('/channels', data, formToken ? { 'X-Form-Token': formToken } : undefined),
   update: (id: string, data: ChannelUpdate, formToken?: string) =>

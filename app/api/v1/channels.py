@@ -130,9 +130,28 @@ async def create_channel(
     except Exception:
         logger.debug("Scheduler not ready; skipping schedule for new channel", exc_info=True)
 
+    # Auto-trigger an initial fetch so the new channel starts pulling data
+    # immediately instead of waiting for the first scheduler tick. Fire-and-
+    # forget: a failure here must not fail the create.
+    fetch_triggered = False
+    try:
+        from app.services.task_queue import task_queue
+        job = await task_queue.enqueue(
+            "fetch_channel", f"channel:{channel.id}", {"channel_id": channel.id}
+        )
+        fetch_triggered = job is not None
+    except Exception:
+        logger.warning(
+            "Failed to enqueue initial fetch for channel %s", channel.id, exc_info=True
+        )
+
     return success_response(
         ChannelResponse.model_validate(channel).model_dump(),
-        meta={"feed_items": item_count, "downloadable": downloadable_count},
+        meta={
+            "feed_items": item_count,
+            "downloadable": downloadable_count,
+            "fetch_triggered": fetch_triggered,
+        },
     )
 
 
@@ -140,6 +159,23 @@ async def create_channel(
 async def get_form_token():
     from app.services.submission_guard import submission_guard
     return success_response({"token": await submission_guard.issue()})
+
+
+@router.get("/channels/metadata-sources")
+async def list_metadata_sources():
+    """Return the external metadata source catalog for the channel form.
+
+    Each source carries ``enabled``/``configured``/``available`` flags. The
+    form should offer only ``available`` sources as selectable candidates.
+    """
+    from app.services.metadata_agent import (
+        DEFAULT_METADATA_SOURCE,
+        get_metadata_source_catalog,
+    )
+    return success_response({
+        "sources": get_metadata_source_catalog(),
+        "default": DEFAULT_METADATA_SOURCE,
+    })
 
 
 @router.get("/channels/{channel_id}")

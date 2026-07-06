@@ -36,7 +36,9 @@
     "previous": "Previous",
     "next": "Next",
     "selected": "Selected",
-    "noResults": "No results found"
+    "noResults": "No results found",
+    "on": "On",
+    "off": "Off"
   },
   "nav": {
     "brand": "RSSRipple",
@@ -155,6 +157,19 @@
     "inactive": "Inactive",
     "autoMetadataLLM": "Auto Metadata Search (Metadata Agent)",
     "metadataLLMDesc": "When local matching fails, Metadata Agent searches the configured source and uses LLM reasoning to resolve work metadata. May add fetch delay.",
+    "metadataSourceLabel": "Metadata Source",
+    "metadataSourceDesc": "External data source the Metadata Agent uses to search work metadata. Only enabled and configured sources are shown.",
+    "metadataSourcePlaceholder": "Select a source (blank uses default)",
+    "metadataSourceNone": "No data sources available",
+    "metadataSourceNoneDesc": "No external data source is enabled and configured. Set the relevant API key in .env and keep its switch on, or turn off metadata search to use local matching only.",
+    "sourceUnavailable": "unavailable",
+    "sources": {
+      "exa": "Exa Agent",
+      "jina": "Jina Search + Reader",
+      "wikipedia": "Wikipedia",
+      "tmdb": "TMDB",
+      "local": "Local library"
+    },
     "metadataLLMOn": "When local matching fails, Metadata Agent will search for work metadata",
     "metadataLLMOff": "When disabled, new works will not be automatically searched",
     "titleCleaning": "Title Cleaning Method",

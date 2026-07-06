@@ -36,7 +36,9 @@
     "previous": "上一页",
     "next": "下一页",
     "selected": "已选",
-    "noResults": "未找到结果"
+    "noResults": "未找到结果",
+    "on": "开",
+    "off": "关"
   },
   "nav": {
     "brand": "RSSRipple",
@@ -155,6 +157,19 @@
     "inactive": "停用",
     "autoMetadataLLM": "自动元数据搜索 (Metadata Agent)",
     "metadataLLMDesc": "本地匹配失败时调用 Metadata Agent，通过当前配置的数据源搜索并推理作品元数据，会增加抓取延迟",
+    "metadataSourceLabel": "元数据数据源",
+    "metadataSourceDesc": "选择 Metadata Agent 抓取元数据时使用的外部数据源；仅展示已启用且已配置的数据源",
+    "metadataSourcePlaceholder": "选择数据源（留空使用默认）",
+    "metadataSourceNone": "没有可用的数据源",
+    "metadataSourceNoneDesc": "未启用或未配置任何外部数据源。请在 .env 中配置对应 API Key 并保持开关开启，或关闭元数据搜索仅使用本地匹配。",
+    "sourceUnavailable": "不可用",
+    "sources": {
+      "exa": "Exa Agent",
+      "jina": "Jina Search + Reader",
+      "wikipedia": "Wikipedia",
+      "tmdb": "TMDB",
+      "local": "本地库"
+    },
     "metadataLLMOn": "本地匹配失败时将通过 Metadata Agent 搜索作品元数据",
     "metadataLLMOff": "关闭后不会自动搜索新作品，仅使用本地缓存和手动匹配",
     "titleCleaning": "标题清洗方式",

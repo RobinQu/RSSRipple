@@ -229,6 +229,13 @@ export default function ChannelDetail() {
               </Title>
               <StatusBadge status={channel.status} />
               {channel.metadata_agent_enabled && <Tag color="blue">Agent</Tag>}
+              {channel.metadata_agent_enabled && channel.metadata_source && (
+                <Tag color="geekblue">
+                  {t(`channels.sources.${channel.metadata_source}`, {
+                    defaultValue: channel.metadata_source,
+                  })}
+                </Tag>
+              )}
             </Space>
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4 }}>
               {channel.url}
