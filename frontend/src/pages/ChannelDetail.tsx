@@ -12,6 +12,7 @@ import {
   Info,
   Copy,
   Package,
+  ExternalLink,
 } from 'lucide-react';
 import {
   Typography,
@@ -324,7 +325,7 @@ export default function ChannelDetail() {
         items={knownGroups.map((g) => ({
           key: g.id || g.title,
           label: (
-            <Space>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
               <img
                 src={posterFor(g)}
                 alt=""
@@ -354,7 +355,17 @@ export default function ChannelDetail() {
               >
                 {t('common.selectAll')}
               </Checkbox>
-            </Space>
+              {g.id && (g.type === 'series' || g.type === 'movie') && (
+                <Tooltip title={t('channels.openWorkDetail')}>
+                  <Link
+                    to={g.type === 'series' ? `/series/${g.id}` : `/movies/${g.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Button type="text" size="small" icon={<ExternalLink size={14} />} />
+                  </Link>
+                </Tooltip>
+              )}
+            </div>
           ),
           children: (
             <div>
@@ -367,7 +378,7 @@ export default function ChannelDetail() {
                   <col style={{ width: 88 }} />
                   <col style={{ width: 84 }} />
                   <col style={{ width: 72 }} />
-                  <col style={{ width: 108 }} />
+                  <col style={{ width: 150 }} />
                   <col />
                   <col style={{ width: 120 }} />
                   <col style={{ width: 76 }} />

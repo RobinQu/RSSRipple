@@ -250,6 +250,41 @@ class TestEpisodeCorrection:
         assert body["absolute_episode"] == 200  # untouched
         assert body["episode_confidence"] == "manual"
 
+    async def test_updates_season_when_provided(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            season=1, episode=3, episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 5, "season": 2},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["episode"] == 5
+        assert body["season"] == 2
+        assert body["episode_confidence"] == "manual"
+
+    async def test_preserves_prior_season_when_omitted(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            season=3, episode=10, episode_confidence="ambiguous",
+        )
+        # User only corrects the episode; season should be left untouched.
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 11},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["episode"] == 11
+        assert body["season"] == 3  # untouched
+        assert body["episode_confidence"] == "manual"
+
     async def test_404(self, client):
         res = await client.patch(
             "/api/v1/resources/nope/episode",
