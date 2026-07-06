@@ -15,16 +15,26 @@ from app.models.file_resource import FileResource
 from app.schemas.agent import (
     AgentCreate,
     AgentResponse,
+    AgentRunResponse,
     AgentUpdate,
     AgentWorkCreate,
     AgentWorkResponse,
     AgentWorkUpdate,
+    RulesPreviewRequest,
+    RulesPreviewResource,
+    RulesPreviewResponse,
     RunStatusResponse,
     SuggestionGroup,
     TestFilterResourceResult,
     TestFilterResult,
 )
 from app.schemas.common import paginated_response, success_response
+from app.services.agent_service import (
+    RuleSet,
+    _build_rule_set,
+    compute_rule_diff,
+    process_resources,
+)
 from app.services.filter_engine import (
     evaluate_filter_config,
     validate_filter_config,
@@ -37,6 +47,54 @@ def _not_found(entity: str) -> dict:
     return {"success": False, "data": None,
             "error": {"code": "NOT_FOUND", "message": f"{entity} not found"},
             "meta": {}}
+
+
+def _rule_set_from_request(body) -> RuleSet:
+    """Build a RuleSet from proposed (not-yet-persisted) rules.
+
+    ``AgentWorkCreate`` objects already expose ``filter_overrides``, so they
+    can stand in for ``AgentWork`` rows in :func:`_resource_matches_rules`.
+    """
+    by_series: dict[str, object] = {}
+    by_movie: dict[str, object] = {}
+    for w in body.works:
+        if w.content_type == "tv" and w.series_id:
+            by_series[w.series_id] = w
+        elif w.content_type == "movie" and w.movie_id:
+            by_movie[w.movie_id] = w
+    return RuleSet(
+        scope_channel_wide=body.scope_channel_wide,
+        filter_config=body.filter_config,
+        work_by_series_id=by_series,
+        work_by_movie_id=by_movie,
+    )
+
+
+async def _apply_backfill(
+    agent: Agent, resource_ids: list[str], db: AsyncSession
+) -> None:
+    """Dispatch the user-selected backfill resources (scenario ② commit) and
+    advance the agent's watermark past every existing channel resource so
+    subsequent delta runs only see truly new resources."""
+    from app.utils.time import utcnow
+
+    if resource_ids:
+        rows = (await db.execute(
+            select(FileResource).where(
+                FileResource.channel_id == agent.channel_id,
+                FileResource.id.in_(resource_ids),
+            )
+        )).scalars().all()
+        if rows:
+            await process_resources(agent, list(rows), db)
+    # Advance watermark to the channel's current max created_at (or now if the
+    # channel is empty) so the next delta run doesn't re-scan old resources.
+    max_created = (await db.execute(
+        select(func.max(FileResource.created_at)).where(
+            FileResource.channel_id == agent.channel_id
+        )
+    )).scalar_one()
+    agent.last_consumed_at = max_created or utcnow()
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +114,10 @@ async def list_agents(
     result = await db.execute(
         select(Agent)
         .options(
-            selectinload(Agent.channel), selectinload(Agent.downloader),
-            selectinload(Agent.works),
+            selectinload(Agent.channel),
+            selectinload(Agent.downloader),
+            selectinload(Agent.works).selectinload(AgentWork.series),
+            selectinload(Agent.works).selectinload(AgentWork.movie),
         )
         .order_by(Agent.created_at.desc())
         .offset(offset).limit(page_size)
@@ -113,7 +173,7 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
             "error": {"code": "VALIDATION_ERROR", "message": "Maximum 10 works"},
             "meta": {},
         })
-    payload = body.model_dump(exclude={"works"})
+    payload = body.model_dump(exclude={"works", "dispatch_resource_ids"})
     agent = Agent(**payload)
     db.add(agent)
     await db.flush()
@@ -131,6 +191,15 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
             continue
         db.add(AgentWork(agent_id=agent.id, **w_data))
     await db.flush()
+    # Ensure agent.works is populated for _apply_backfill (see update_agent).
+    await db.refresh(agent, ["works"])
+
+    # If the save went through the rules-preview flow (dispatch_resource_ids
+    # is not None), dispatch the user-selected backfill resources and advance
+    # the watermark so future delta runs only see truly new resources.
+    if body.dispatch_resource_ids is not None:
+        await _apply_backfill(agent, body.dispatch_resource_ids, db)
+
     await db.commit()
     # Refetch with relationships eager-loaded
     cur = await db.execute(
@@ -169,6 +238,7 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
         return JSONResponse(status_code=404, content=_not_found("Agent"))
     data = body.model_dump(exclude_unset=True)
     new_works = data.pop("works", None)
+    dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
     if data.get("status") == "active" and data.get("downloader_id") is None and not agent.downloader_id:
         return JSONResponse(status_code=422, content={
             "success": False, "data": None,
@@ -199,7 +269,19 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
             if has_series == has_movie:
                 continue
             db.add(AgentWork(agent_id=agent.id, **w_data))
-    await db.flush()
+        await db.flush()
+        # ``agent.works`` was set to [] above and the new rows added via
+        # db.add don't flow back into the in-memory collection. Refresh the
+        # relationship so _apply_backfill → process_resources → _build_rule_set
+        # sees the new works; otherwise every backfill resource fails the
+        # work-scope check and nothing dispatches.
+        await db.refresh(agent, ["works"])
+
+    # If the save went through the rules-preview flow, dispatch the user-
+    # selected backfill resources and advance the watermark.
+    if dispatch_resource_ids is not None:
+        await _apply_backfill(agent, dispatch_resource_ids, db)
+
     await db.commit()
     cur = await db.execute(
         select(Agent).where(Agent.id == agent_id).options(
@@ -267,6 +349,51 @@ async def get_run_status(agent_id: str, db: AsyncSession = Depends(get_db)):
         started_at=st.get("started_at") if st else None,
         finished_at=st.get("finished_at") if st else None,
     ).model_dump())
+
+
+@router.get("/agents/{agent_id}/runs")
+async def list_agent_runs(
+    agent_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run history: one row per agent execution with counts, status, and the
+    list of resources that matched (passed work-scope + filter) that run."""
+    from app.models.agent_run import AgentRun
+
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        return JSONResponse(status_code=404, content=_not_found("Agent"))
+    base_q = select(AgentRun).where(AgentRun.agent_id == agent_id)
+    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
+    total = total_q.scalar_one()
+    rows = (await db.execute(
+        base_q.order_by(AgentRun.started_at.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    )).scalars().all()
+
+    # Eager-load the matched resource summaries (dedup ids across the page).
+    res_ids: set[str] = set()
+    for r in rows:
+        res_ids.update(r.matched_resource_ids or [])
+    res_by_id: dict[str, FileResource] = {}
+    if res_ids:
+        res_rows = (await db.execute(
+            select(FileResource).where(FileResource.id.in_(res_ids))
+        )).scalars().all()
+        res_by_id = {r.id: r for r in res_rows}
+
+    items = []
+    for r in rows:
+        data = AgentRunResponse.model_validate(r).model_dump()
+        data["matched_resources"] = [
+            RulesPreviewResource.model_validate(res_by_id[rid]).model_dump()
+            for rid in (r.matched_resource_ids or [])
+            if rid in res_by_id
+        ]
+        items.append(data)
+    return paginated_response(items, total=total, page=page, page_size=page_size)
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +468,62 @@ async def test_filters(
 
     return success_response(TestFilterResult(
         resources=items, total=len(items), passed=passed_count,
+    ).model_dump())
+
+
+@router.post("/agents/rules-preview")
+async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(get_db)):
+    """Preview the match diff before committing a subscription rule change.
+
+    Scenario ②: when an agent's rules (scope/filter/works) change, compute
+    which channel resources are newly-matching (backfill candidates, excluding
+    those already tasked) and which are no-longer-matching (informational;
+    in-queue tasks are never revoked). The frontend shows the newly-matching
+    list for the user to select; the selection is then sent via
+    ``dispatch_resource_ids`` on the create/update call.
+    """
+    if body.filter_config is not None:
+        errs = validate_filter_config(body.filter_config)
+        if errs:
+            return JSONResponse(status_code=422, content={
+                "success": False, "data": None,
+                "error": {"code": "VALIDATION_ERROR", "message": "; ".join(errs)},
+                "meta": {},
+            })
+
+    channel_id: str | None = body.channel_id
+    old = RuleSet(scope_channel_wide=False, filter_config=None)
+    if body.agent_id:
+        agent = (await db.execute(
+            select(Agent).where(Agent.id == body.agent_id).options(
+                selectinload(Agent.works),
+            )
+        )).scalar_one_or_none()
+        if not agent:
+            return JSONResponse(status_code=404, content=_not_found("Agent"))
+        old = _build_rule_set(agent)
+        channel_id = agent.channel_id
+    if not channel_id:
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "channel_id is required when agent_id is absent"},
+            "meta": {},
+        })
+
+    new = _rule_set_from_request(body)
+    resources = (await db.execute(
+        select(FileResource).where(FileResource.channel_id == channel_id)
+    )).scalars().all()
+    diff = await compute_rule_diff(old, new, list(resources), db)
+    return success_response(RulesPreviewResponse(
+        newly_matching=[
+            RulesPreviewResource.model_validate(r) for r in diff["newly_matching"]
+        ],
+        no_longer_matching=[
+            RulesPreviewResource.model_validate(r) for r in diff["no_longer_matching"]
+        ],
+        in_queue_skipped=diff["in_queue_skipped"],
     ).model_dump())
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -54,6 +55,26 @@ class TestAgentsCRUD:
         assert data["name"] == "My Agent"
         assert data["scope_channel_wide"] is True
         assert data["status"] == "active"
+
+    async def test_create_agent_defaults_conflict_resolution_to_auto(self, client, channel_and_dl):
+        """Omitting conflict_resolution now defaults to 'auto'."""
+        ch_id, dl_id = channel_and_dl
+        res = await client.post("/api/v1/agents", json={
+            "name": "Auto", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["conflict_resolution"] == "auto"
+
+    async def test_create_agent_persists_llm_prompt(self, client, channel_and_dl):
+        ch_id, dl_id = channel_and_dl
+        res = await client.post("/api/v1/agents", json={
+            "name": "P", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True, "llm_enabled": True,
+            "llm_prompt": "Prefer LoliHouse HEVC releases.",
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["llm_prompt"] == "Prefer LoliHouse HEVC releases."
 
     async def test_create_agent_with_download_subdir(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl
@@ -127,6 +148,173 @@ class TestAgentsCRUD:
         res = await client.get(f"/api/v1/agents/{aid}")
         assert res.status_code == 200
         assert res.json()["data"]["id"] == aid
+
+    async def test_rules_preview_diff(self, client, channel_and_dl, db_session):
+        """rules-preview returns newly/no_longer matching for a rule change."""
+        from app.models.file_resource import FileResource
+        from app.models.series import TVSeries
+
+        ch_id, dl_id = channel_and_dl
+        s = TVSeries(id=_uuid(), title_cn="S")
+        db_session.add(s)
+        await db_session.flush()
+        r_keep = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] S - 01", torrent_url="magnet:?xt=urn:btih:x",
+            series_id=s.id, episode=1, subtitle_group="NewSub",
+        )
+        r_drop = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] S - 02", torrent_url="magnet:?xt=urn:btih:y",
+            series_id=s.id, episode=2, subtitle_group="OldSub",
+        )
+        db_session.add_all([r_keep, r_drop])
+        await db_session.commit()
+
+        # Existing agent subscribes to the series with filter subtitle_group=OldSub.
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": False,
+            "works": [{"content_type": "tv", "series_id": s.id}],
+            "filter_config": {"combinator": "and", "conditions": [
+                {"field": "subtitle_group", "operator": "eq", "value": "OldSub"},
+            ]},
+        })
+        aid = create.json()["data"]["id"]
+
+        # Propose switching the filter to NewSub.
+        res = await client.post("/api/v1/agents/rules-preview", json={
+            "agent_id": aid,
+            "scope_channel_wide": False,
+            "filter_config": {"combinator": "and", "conditions": [
+                {"field": "subtitle_group", "operator": "eq", "value": "NewSub"},
+            ]},
+            "works": [{"content_type": "tv", "series_id": s.id}],
+        })
+        assert res.status_code == 200
+        data = res.json()["data"]
+        newly_ids = {r["id"] for r in data["newly_matching"]}
+        no_longer_ids = {r["id"] for r in data["no_longer_matching"]}
+        assert newly_ids == {r_keep.id}
+        assert no_longer_ids == {r_drop.id}
+
+    async def test_rules_preview_requires_channel_for_create(self, client):
+        """Without agent_id, channel_id is required (create-mode preview)."""
+        res = await client.post("/api/v1/agents/rules-preview", json={
+            "scope_channel_wide": True,
+        })
+        assert res.status_code == 422
+
+    async def test_update_agent_advances_watermark_on_backfill(
+        self, client, channel_and_dl, db_session
+    ):
+        """Saving with dispatch_resource_ids (even empty) advances the
+        consumption watermark to the channel's max created_at."""
+        from app.models.file_resource import FileResource
+
+        ch_id, dl_id = channel_and_dl
+        r = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] X - 01", torrent_url="magnet:?xt=urn:btih:z",
+            series_id=None, movie_id=None,
+        )
+        db_session.add(r)
+        await db_session.commit()
+        max_created = r.created_at
+
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        # Plain create (no dispatch_resource_ids) leaves watermark null.
+        assert create.json()["data"]["last_consumed_at"] is None
+
+        upd = await client.put(f"/api/v1/agents/{aid}", json={
+            "name": "A2",
+            "dispatch_resource_ids": [],
+        })
+        assert upd.status_code == 200
+        wm = upd.json()["data"]["last_consumed_at"]
+        assert wm is not None
+        # Watermark is at least the resource's created_at.
+        assert wm >= max_created.isoformat()
+
+    async def test_update_with_works_and_dispatch_backfill_dispatches(
+        self, client, channel_and_dl, db_session, mock_transmission
+    ):
+        """Regression: saving a works change + dispatch_resource_ids must
+        actually dispatch the selected resources. Previously agent.works was
+        stale (set to [] during replace) so process_resources saw no
+        subscribed works and silently dispatched nothing."""
+        from app.models.file_resource import FileResource
+        from app.models.series import TVSeries
+
+        ch_id, dl_id = channel_and_dl
+        s = TVSeries(id=_uuid(), title_cn="S")
+        db_session.add(s)
+        await db_session.flush()
+        r = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] S - 01", torrent_url="magnet:?xt=urn:btih:bk",
+            series_id=s.id, episode=1, subtitle_group="G",
+        )
+        db_session.add(r)
+        await db_session.commit()
+
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": False, "works": [],
+        })
+        aid = create.json()["data"]["id"]
+
+        upd = await client.put(f"/api/v1/agents/{aid}", json={
+            "name": "A",
+            "works": [{"content_type": "tv", "series_id": s.id}],
+            "dispatch_resource_ids": [r.id],
+        })
+        assert upd.status_code == 200
+        # The selected resource must have been dispatched (add_torrent called).
+        mock_transmission.add_torrent.assert_awaited()
+        # And a DownloadTask row exists for it.
+        from app.models.download_task import DownloadTask
+        from sqlalchemy import select
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.file_resource_id == r.id)
+        )).scalars().first()
+        assert task is not None
+
+    async def test_list_agent_runs_returns_history(self, client, channel_and_dl, db_session):
+        """GET /agents/{id}/runs returns persisted run records with matched
+        resource summaries."""
+        from app.models.agent_run import AgentRun
+        from app.models.file_resource import FileResource
+
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        r = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] R - 01", torrent_url="magnet:?xt=urn:btih:r",
+        )
+        db_session.add(r)
+        await db_session.commit()
+        async with db_session.begin():
+            db_session.add(AgentRun(
+                agent_id=aid, status="success", started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC), total_resources=1, matched=1,
+                dispatched=1, matched_resource_ids=[r.id],
+            ))
+        res = await client.get(f"/api/v1/agents/{aid}/runs")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert len(data) == 1
+        assert data[0]["status"] == "success"
+        assert data[0]["matched_resource_ids"] == [r.id]
+        assert data[0]["matched_resources"][0]["id"] == r.id
 
     async def test_delete_agent(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl

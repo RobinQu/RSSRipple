@@ -38,9 +38,127 @@ class RunResult:
     unrecognized: int = 0
     suggestions: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # Resource ids that matched the agent's rules this run (passed work-scope
+    # + filter). Populated for run-history display.
+    matched_resource_ids: list[str] = field(default_factory=list)
 
 
 _RESOLUTION_SCORE = {"2160p": 3, "4k": 3, "1080p": 2, "720p": 1}
+
+
+# Reason prefix used for ambiguous-episode PendingDecisions. The cleanup
+# pass in process_resources identifies these decisions by this prefix and
+# resolves them once the user has manually corrected the episode number
+# (episode_confidence becomes "manual"). Keep the prefix stable.
+_AMBIGUOUS_EPISODE_REASON = "集号不确定，需要人工确认集号: {title}"
+
+
+@dataclass
+class RuleSet:
+    """A snapshot of the subscription rules used to test resource matching.
+
+    Captured separately from the ``Agent`` ORM object so the diff logic can
+    evaluate old vs new rules without mutating the persisted agent.
+    """
+    scope_channel_wide: bool
+    filter_config: dict | None
+    work_by_series_id: dict[str, Any] = field(default_factory=dict)
+    work_by_movie_id: dict[str, Any] = field(default_factory=dict)
+
+
+def _build_rule_set(agent: Agent) -> RuleSet:
+    by_series: dict[str, Any] = {}
+    by_movie: dict[str, Any] = {}
+    for w in (agent.works or []):
+        if w.series_id:
+            by_series[w.series_id] = w
+        if w.movie_id:
+            by_movie[w.movie_id] = w
+    return RuleSet(
+        scope_channel_wide=agent.scope_channel_wide,
+        filter_config=agent.filter_config,
+        work_by_series_id=by_series,
+        work_by_movie_id=by_movie,
+    )
+
+
+def _resource_matches_rules(
+    resource: FileResource, rules: RuleSet
+) -> tuple[bool, Any]:
+    """Filter-level match: does ``resource`` fall under this rule set?
+
+    Returns ``(matched, work)`` where ``work`` is the subscribed AgentWork the
+    resource resolved to (None for channel-wide). Matched is True when the
+    resource is in scope (subscribed work, or channel-wide) AND passes the
+    merged effective filter. This is intentionally *not* a dispatch decision
+    — dedup / ambiguous / conflict handling are runtime concerns layered on
+    top in ``process_resources``.
+    """
+    work = None
+    if not rules.scope_channel_wide:
+        if resource.series_id and resource.series_id in rules.work_by_series_id:
+            work = rules.work_by_series_id[resource.series_id]
+        elif resource.movie_id and resource.movie_id in rules.work_by_movie_id:
+            work = rules.work_by_movie_id[resource.movie_id]
+        else:
+            return False, None
+    effective = merge_filters(
+        rules.filter_config, work.filter_overrides if work else None
+    )
+    if effective is not None and not evaluate_filter_config(effective, resource):
+        return False, work
+    return True, work
+
+
+async def compute_rule_diff(
+    old: RuleSet,
+    new: RuleSet,
+    resources: list[FileResource],
+    db: AsyncSession,
+) -> dict:
+    """Diff resource matching between two rule sets over ``resources``.
+
+    Used by the rules-preview endpoint (scenario ②): when subscription rules
+    change, the user sees newly-matching resources (backfill candidates) and
+    no-longer-matching ones (informational; in-queue tasks are never revoked).
+
+    - ``newly_matching``: matches new rules, did NOT match old rules, and has
+      no active DownloadTask → eligible for user-selected backfill.
+    - ``no_longer_matching``: matched old rules, does NOT match new rules.
+    - ``in_queue_skipped``: count of newly-matching resources skipped because
+      they already have an active DownloadTask.
+    """
+    res_ids = [r.id for r in resources]
+    tasked: set[str] = set()
+    if res_ids:
+        rows = (await db.execute(
+            select(DownloadTask.file_resource_id).where(
+                DownloadTask.file_resource_id.in_(res_ids),
+                DownloadTask.status.in_(
+                    ["pending", "queued", "downloading", "paused", "completed"]
+                ),
+            )
+        )).all()
+        tasked = {row[0] for row in rows}
+
+    newly_matching: list[FileResource] = []
+    no_longer_matching: list[FileResource] = []
+    in_queue_skipped = 0
+    for r in resources:
+        old_m, _ = _resource_matches_rules(r, old)
+        new_m, _ = _resource_matches_rules(r, new)
+        if new_m and not old_m:
+            if r.id in tasked:
+                in_queue_skipped += 1
+            else:
+                newly_matching.append(r)
+        elif old_m and not new_m:
+            no_longer_matching.append(r)
+    return {
+        "newly_matching": newly_matching,
+        "no_longer_matching": no_longer_matching,
+        "in_queue_skipped": in_queue_skipped,
+    }
 
 
 def _resolution_score(resolution: str | None) -> int:
@@ -122,32 +240,89 @@ async def dispatch_download(
     return task
 
 
-async def _generate_llm_suggestion(
+_DEFAULT_LLM_PICK_PROMPT = (
+    "从以下候选中为同一集挑选最佳资源。优先级：metadata 字段最完整 > "
+    "清晰度最高（2160p>1080p>720p）> 带字幕（subtitle_langs 非空）> "
+    "发布时间最新。"
+)
+
+
+def _parse_llm_pick(text: str, candidate_count: int) -> tuple[int | None, str | None]:
+    """Extract a 1-based candidate index + reason from an LLM text response.
+
+    Tries JSON first (``{"pick": <n>, "reason": "..."}``), then falls back to
+    a leading integer. Returns ``(None, reason)`` when no valid pick is found.
+    """
+    if not text:
+        return None, None
+    import json as _json
+    import re
+
+    m = re.search(r"\{[^{}]*\}", text)
+    if m:
+        try:
+            obj = _json.loads(m.group(0))
+            pick = obj.get("pick")
+            reason = obj.get("reason")
+            if isinstance(pick, int) and 1 <= pick <= candidate_count:
+                return pick, (reason if isinstance(reason, str) else None)
+        except Exception:
+            pass
+
+    m = re.match(r"\s*(?:pick[:\s]*)?(\d+)", text, re.IGNORECASE)
+    if m:
+        pick = int(m.group(1))
+        if 1 <= pick <= candidate_count:
+            return pick, text.strip() or None
+    return None, text.strip() or None
+
+
+async def _generate_llm_pick(
     agent: Agent,
     candidates: list[FileResource],
     key: tuple,
-) -> str | None:
-    """Best-effort LLM suggestion for conflict resolution."""
-    if not agent.llm_enabled or not settings.llm_api_key:
-        return None
+) -> tuple[str | None, str | None]:
+    """Ask the LLM to pick the best candidate.
+
+    Returns ``(picked_resource_id, reason)``. ``picked_resource_id`` is None
+    when the LLM is disabled, unreachable, or didn't return a valid pick.
+    Uses ``agent.llm_prompt`` when set, else the built-in default prompt.
+    """
+    if not agent.llm_enabled or not settings.llm_api_key or not candidates:
+        return None, None
     try:
         from app.services.feed_analyzer import call_llm
-        lines = ["Multiple resources matched the same item. Pick the best one:"]
+
+        instruction = (agent.llm_prompt or "").strip() or _DEFAULT_LLM_PICK_PROMPT
+        lines = [instruction, ""]
         for i, c in enumerate(candidates, 1):
+            meta_fields = sum(
+                1 for v in (
+                    c.subtitle_group, c.resolution, c.source, c.video_codec,
+                    c.audio_codec, c.subtitle_type, c.container, c.file_size,
+                ) if v not in (None, "", [])
+            )
+            has_sub = bool(getattr(c, "subtitle_langs", None)) or bool(c.subtitle_type)
             lines.append(
                 f"{i}. subtitle_group={c.subtitle_group} resolution={c.resolution} "
                 f"source={c.source} video_codec={c.video_codec} audio_codec={c.audio_codec} "
-                f"size={c.file_size} published={c.published_at}"
+                f"size={c.file_size} subtitle_langs={getattr(c, 'subtitle_langs', None)} "
+                f"has_subtitle={has_sub} meta_completeness={meta_fields}/8 "
+                f"published={c.published_at}"
             )
-        lines.append("Respond with the candidate number and a brief reason (one line).")
+        lines.append("")
+        lines.append('只返回 JSON：{"pick": <候选编号>, "reason": "<一句话理由>"}。')
         messages = [
             {"role": "system", "content": "You help choose the best media release from multiple candidates."},
             {"role": "user", "content": "\n".join(lines)},
         ]
-        return await call_llm(messages)
+        raw = await call_llm(messages)
+        pick_idx, reason = _parse_llm_pick(raw or "", len(candidates))
+        picked_id = candidates[pick_idx - 1].id if pick_idx else None
+        return picked_id, reason
     except Exception as e:
-        logger.debug("LLM suggestion failed: %s", e)
-        return None
+        logger.debug("LLM pick failed: %s", e)
+        return None, None
 
 
 async def create_pending_decision(
@@ -155,6 +330,9 @@ async def create_pending_decision(
     key: tuple,
     candidates: list[FileResource],
     db: AsyncSession,
+    *,
+    reason_override: str | None = None,
+    skip_llm: bool = False,
 ) -> PendingDecision:
     """Upsert a PendingDecision for multiple conflicting candidates.
 
@@ -162,6 +340,11 @@ async def create_pending_decision(
     a single row in ``status='pending'``. Repeated agent runs re-merge new
     candidate ids into the existing row instead of piling up duplicates
     (which used to cause the 76-rows-for-4-episodes explosion).
+
+    ``reason_override`` lets callers reuse this upsert for non-conflict
+    decisions — notably ambiguous-episode resources that need manual episode
+    confirmation rather than candidate picking. When set, the LLM suggestion
+    (which is about choosing among candidates) is skipped via ``skip_llm``.
     """
     type_, target_id, episode = key
     series_id = target_id if type_ == "series" else None
@@ -175,7 +358,9 @@ async def create_pending_decision(
         m = await db.get(Movie, target_id) if target_id else None
         title = (m.title_cn or m.title_en or "") if m else ""
 
-    if type_ == "series" and episode is not None:
+    if reason_override is not None:
+        reason = reason_override.format(title=title) if "{" in reason_override else reason_override
+    elif type_ == "series" and episode is not None:
         reason = f"多个资源匹配 {title} 第{episode:02d}集"
     elif type_ == "series":
         reason = f"多个资源匹配 {title}"
@@ -214,14 +399,22 @@ async def create_pending_decision(
         existing.candidates = merged
         existing.reason = reason
         existing.expires_at = utcnow() + timedelta(days=7)
-        # Only re-generate LLM suggestion if the candidate set actually
-        # changed (skip the LLM call on no-op re-runs).
-        if merged != (existing.candidates or []) or not existing.llm_suggestion:
-            existing.llm_suggestion = await _generate_llm_suggestion(agent, candidates, key)
+        # Only re-generate the LLM pick if the candidate set actually changed
+        # (skip the LLM call on no-op re-runs). Ambiguous-episode decisions
+        # carry no "pick the best candidate" semantics, so the LLM is skipped.
+        if not skip_llm and (
+            merged != (existing.candidates or []) or not existing.llm_picked_resource_id
+        ):
+            picked_id, reason_txt = await _generate_llm_pick(agent, candidates, key)
+            existing.llm_picked_resource_id = picked_id
+            existing.llm_suggestion = reason_txt
         await db.flush()
         return existing
 
-    llm = await _generate_llm_suggestion(agent, candidates, key)
+    if skip_llm:
+        picked_id, reason_txt = None, None
+    else:
+        picked_id, reason_txt = await _generate_llm_pick(agent, candidates, key)
 
     pd = PendingDecision(
         agent_id=agent.id,
@@ -230,7 +423,8 @@ async def create_pending_decision(
         episode=episode,
         candidates=new_candidate_ids,
         reason=reason,
-        llm_suggestion=llm,
+        llm_suggestion=reason_txt,
+        llm_picked_resource_id=picked_id,
         status="pending",
         expires_at=utcnow() + timedelta(days=7),
     )
@@ -284,14 +478,7 @@ async def process_resources(
     """Process a list of resources through filtering, dedup, and dispatch."""
     result = RunResult()
 
-    work_by_series_id: dict[str, Any] = {}
-    work_by_movie_id: dict[str, Any] = {}
-    for w in (agent.works or []):
-        if w.series_id:
-            work_by_series_id[w.series_id] = w
-        if w.movie_id:
-            work_by_movie_id[w.movie_id] = w
-
+    rule_set = _build_rule_set(agent)
     candidates_by_key: dict[tuple, list[FileResource]] = {}
     suggestions: dict[str, dict] = {}
 
@@ -317,34 +504,41 @@ async def process_resources(
                     suggestions[key] = {"sample_title": key, "resources": [resource.id]}
             continue
 
-        # Ambiguous episode number — MetadataAgent had seasons evidence but
-        # couldn't decide whether the raw number is per-season or absolute.
-        # Route to AgentSuggestion so the user can pick before we dispatch;
-        # never auto-download something we're unsure about.
-        if getattr(resource, "episode_confidence", None) == "ambiguous":
-            result.unrecognized += 1
-            key = (resource.search_title or resource.title_raw or f"ambiguous-{resource.id}")
-            group = suggestions.setdefault(key, {"sample_title": key, "resources": []})
-            group.setdefault("reason", "集号不确定，需要人工确认")
-            group["resources"].append(resource.id)
+        # Work scope + filter (filter-level match).
+        matched, work = _resource_matches_rules(resource, rule_set)
+        if not matched:
+            # Distinguish "in scope but filter failed" from "out of scope" for
+            # the filter_failed counter; out-of-scope is silently skipped.
+            if (
+                rule_set.scope_channel_wide
+                or (resource.series_id and resource.series_id in rule_set.work_by_series_id)
+                or (resource.movie_id and resource.movie_id in rule_set.work_by_movie_id)
+            ):
+                result.filter_failed += 1
             continue
 
-        # Work scope
-        work = None
-        if not agent.scope_channel_wide:
-            if resource.series_id and resource.series_id in work_by_series_id:
-                work = work_by_series_id[resource.series_id]
-            elif resource.movie_id and resource.movie_id in work_by_movie_id:
-                work = work_by_movie_id[resource.movie_id]
-            else:
-                continue
-
-        effective_filter = merge_filters(
-            agent.filter_config, work.filter_overrides if work else None
-        )
-
-        if effective_filter is not None and not evaluate_filter_config(effective_filter, resource):
-            result.filter_failed += 1
+        # Ambiguous episode number — MetadataAgent had seasons evidence but
+        # couldn't decide whether the raw number is per-season or absolute.
+        # Route to a PendingDecision (not a dispatch, not a suggestion) so the
+        # user can manually confirm the per-season episode number before we
+        # download — never auto-download something we're unsure about. This
+        # runs AFTER work-scope + filter so we only ask about resources the
+        # agent would actually download.
+        if getattr(resource, "episode_confidence", None) == "ambiguous":
+            try:
+                await create_pending_decision(
+                    agent,
+                    ("series", resource.series_id, resource.episode),
+                    [resource],
+                    db,
+                    reason_override=_AMBIGUOUS_EPISODE_REASON,
+                    skip_llm=True,
+                )
+                result.pending_decisions += 1
+                result.unrecognized += 1
+            except Exception as e:
+                logger.exception("Failed to create ambiguous-episode decision for %s: %s", resource.id, e)
+                result.errors.append(str(e))
             continue
 
         # Batch (合集) resources bypass per-episode dedup and conflict
@@ -369,6 +563,7 @@ async def process_resources(
                 await dispatch_download(agent, resource, db)
                 result.dispatched += 1
                 result.matched += 1
+                result.matched_resource_ids.append(resource.id)
             except Exception as e:
                 logger.exception("Failed to dispatch batch resource %s: %s", resource.id, e)
                 result.errors.append(str(e))
@@ -409,6 +604,7 @@ async def process_resources(
 
         candidates_by_key.setdefault(key, []).append(resource)
         result.matched += 1
+        result.matched_resource_ids.append(resource.id)
 
     for key, cands in candidates_by_key.items():
         try:
@@ -427,6 +623,43 @@ async def process_resources(
             logger.exception("Failed to process candidates for %s: %s", key, e)
             result.errors.append(str(e))
 
+    # Cleanup: resolve ambiguous-episode PendingDecisions whose candidate the
+    # user has already corrected (episode_confidence != "ambiguous"). Once the
+    # episode is hand-confirmed, the resource re-enters the normal
+    # filter→dispatch flow on this run, so the stale "please confirm episode"
+    # decision is no longer relevant. Mark it "decided" so it leaves the
+    # pending queue.
+    await _resolve_corrected_ambiguous_decisions(agent, db)
+
     result.suggestions = list(suggestions.values())
     await _persist_suggestions(agent.id, result.suggestions, db)
     return result
+
+
+async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession) -> None:
+    """Mark pending ambiguous-episode decisions as decided once their
+    candidate resource is no longer ambiguous (user ran correct_episode)."""
+    pd_rows = (await db.execute(
+        select(PendingDecision).where(
+            PendingDecision.agent_id == agent.id,
+            PendingDecision.status == "pending",
+        )
+    )).scalars().all()
+    for pd in pd_rows:
+        if not (pd.reason or "").startswith("集号不确定"):
+            continue
+        cand_ids = list(pd.candidates or [])
+        if not cand_ids:
+            pd.status = "decided"
+            continue
+        cand_rows = (await db.execute(
+            select(FileResource).where(FileResource.id.in_(cand_ids))
+        )).scalars().all()
+        # Resolve only when every candidate has been corrected away from
+        # "ambiguous" (typically to "manual"). If any candidate is still
+        # ambiguous the decision stays pending for the user to act on.
+        if cand_rows and all(
+            getattr(c, "episode_confidence", None) != "ambiguous" for c in cand_rows
+        ):
+            pd.status = "decided"
+    await db.flush()

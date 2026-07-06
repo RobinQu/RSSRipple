@@ -42,6 +42,21 @@ export const decisionsApi = {
       resource_id: resourceId,
     }),
   skip: (id: string) => api.post<PendingDecision>(`/decisions/${id}/skip`),
+  aiPick: (id: string) =>
+    api.post<{ id: string; status: string; decided_resource_id: string | null }>(
+      `/decisions/${id}/ai-pick`,
+    ),
+  batch: (agentId: string, decisionIds: string[], action: 'skip' | 'ai') =>
+    api.post<{
+      processed: number;
+      dispatched: number;
+      skipped: number;
+      failed: number;
+      errors: string[];
+    }>(`/agents/${agentId}/decisions/batch`, {
+      decision_ids: decisionIds,
+      action,
+    }),
 };
 
 export const dashboardApi = {

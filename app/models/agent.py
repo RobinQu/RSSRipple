@@ -27,8 +27,13 @@ class Agent(Base):
     llm_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     scope_channel_wide: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     conflict_resolution: Mapped[str] = mapped_column(
-        String(20), default="ask", nullable=False
+        String(20), default="auto", nullable=False
     )
+    # Optional user-supplied instruction for the LLM candidate picker. When
+    # empty the built-in default prompt is used (prefer most-complete
+    # metadata, highest resolution, subtitles, newest). Applies to both the
+    # "auto" conflict-resolution path and the suggestion shown in "ask" mode.
+    llm_prompt: Mapped[str | None] = mapped_column(String(4000), nullable=True)
     filter_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("active", "paused", "error", name="agent_status"),
@@ -37,6 +42,14 @@ class Agent(Base):
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_run_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Consumption watermark: the latest ``FileResource.created_at`` timestamp
+    # this agent has already considered. Delta runs (fetch-triggered / manual)
+    # only process resources with ``created_at > last_consumed_at``; rule-change
+    # saves advance it to the channel's current max so subsequent delta runs
+    # only see truly new resources. Null = never run (treated as "process
+    # nothing, set to now" to avoid silently auto-dispatching backfill —
+    # backfill must go through the rules-preview selection flow).
+    last_consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -71,4 +84,10 @@ class Agent(Base):
         back_populates="agent",
         lazy="selectin",
         cascade="all, delete-orphan",
+    )
+    runs = relationship(
+        "AgentRun",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

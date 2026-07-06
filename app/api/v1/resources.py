@@ -431,11 +431,22 @@ async def correct_episode(
         resource.absolute_episode = body.absolute_episode
     resource.episode_confidence = "manual"
 
+    # Capture the channel id before commit (the ORM object may be expired
+    # after commit and ``resource`` is about to be re-fetched below).
+    channel_id = resource.channel_id
     await db.flush()
+    # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
+    # session and only sees committed data. Enqueuing first creates a race
+    # where the worker reads the pre-correction ``episode_confidence`` and
+    # re-creates the stale ambiguous PendingDecision instead of dispatching.
+    await db.commit()
 
-    # Re-trigger active agents on this channel so the corrected resource
-    # can now be dispatched (or the ambiguous-suggestion cleared).
-    channel = await db.get(Channel, resource.channel_id, options=[
+    # Re-trigger active agents on this channel so the corrected resource can
+    # now be dispatched (or the ambiguous PendingDecision cleared). Pass the
+    # resource id explicitly so run_agent does a *targeted* run against the
+    # agent's current rules — bypassing the consumption watermark, since the
+    # corrected resource may be old. The watermark is not advanced.
+    channel = await db.get(Channel, channel_id, options=[
         selectinload(Channel.agents),
     ])
     if channel:
@@ -443,12 +454,12 @@ async def correct_episode(
             if agent.status == "active":
                 try:
                     await task_queue.enqueue(
-                        "run_agent", f"agent:{agent.id}", {"agent_id": agent.id}
+                        "run_agent",
+                        f"agent:{agent.id}",
+                        {"agent_id": agent.id, "resource_ids": [resource_id]},
                     )
                 except Exception:
                     pass
-
-    await db.commit()
 
     # Re-fetch with relationships so Pydantic can serialize without lazy IO.
     resource = (await db.execute(

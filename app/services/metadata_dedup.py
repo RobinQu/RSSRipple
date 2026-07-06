@@ -59,13 +59,17 @@ def _title_keys(entity: TVSeries | Movie) -> set[str]:
     """Normalized title keys used to link related entities together.
 
     An entity may be reachable via any of ``title_cn`` / ``title_en`` /
-    ``original_title``; two entities are considered the same work if they share
-    any of these keys (union-find style). This catches cases like
-    ``"第四季"`` vs ``"第 4 季"`` where ``title_cn`` differs but ``title_en``
-    is identical.
+    ``original_title`` **or any alias**; two entities are considered the same
+    work if they share any of these keys (union-find style). Including
+    aliases is essential: metadata agents routinely accumulate aliases that
+    span the alternate title formats another row was created under (e.g.
+    ``"第四季"`` vs ``"第 4 季"`` with a colon), so without aliases two rows
+    for the same real series never cluster.
     """
     keys: set[str] = set()
-    for raw in (entity.title_cn, entity.title_en, entity.original_title):
+    raw_titles: list[str | None] = [entity.title_cn, entity.title_en, entity.original_title]
+    raw_titles.extend(entity.aliases or [])
+    for raw in raw_titles:
         n = normalize_title(raw)
         if n:
             keys.add(n)

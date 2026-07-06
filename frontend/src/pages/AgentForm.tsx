@@ -23,7 +23,17 @@ import { channelsApi } from '../api/channels';
 import { downloadersApi } from '../api/downloaders';
 import FilterBuilder from '../components/FilterBuilder';
 import WorkSelector from '../components/WorkSelector';
-import type { Agent, AgentWork, BoolCondition, Channel, DownloaderInstance } from '../types';
+import BackfillPreviewModal from '../components/BackfillPreviewModal';
+import type {
+  Agent,
+  AgentCreate,
+  AgentWork,
+  BoolCondition,
+  Channel,
+  DownloaderInstance,
+  RulesPreviewRequest,
+  RulesPreviewResponse,
+} from '../types';
 
 const { Title, Text } = Typography;
 
@@ -34,6 +44,7 @@ interface FormValues {
   download_subdir?: string;
   task_expire_days: number;
   llm_enabled: boolean;
+  llm_prompt?: string;
   scope_channel_wide: boolean;
   conflict_resolution: 'ask' | 'auto';
 }
@@ -52,10 +63,18 @@ export default function AgentForm() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');
   const [channelWide, setChannelWide] = useState(false);
+  // Rules-preview selection modal (scenario ②). When the proposed rules have
+  // newly-matching resources, the save is deferred until the user picks which
+  // to backfill; the chosen ids are sent as dispatch_resource_ids.
+  const [preview, setPreview] = useState<RulesPreviewResponse | null>(null);
+  const [previewSelected, setPreviewSelected] = useState<Record<string, boolean>>({});
+  const [pendingPayload, setPendingPayload] = useState<AgentCreate | null>(null);
+  const [previewSaving, setPreviewSaving] = useState(false);
   // Watch the selected channel id so the Filter DSL editor (which does
   // channel-scoped autocomplete) always sees the current value even before
   // the form is submitted.
   const channelId = Form.useWatch('channel_id', form) as string | undefined;
+  const llmEnabled = Form.useWatch('llm_enabled', form) as boolean | undefined;
 
   useEffect(() => {
     Promise.all([channelsApi.list(1, 100), downloadersApi.list(1, 100)]).then(
@@ -79,6 +98,7 @@ export default function AgentForm() {
             download_subdir: a.download_subdir ?? '',
             task_expire_days: a.task_expire_days,
             llm_enabled: a.llm_enabled,
+            llm_prompt: a.llm_prompt ?? '',
             scope_channel_wide: a.scope_channel_wide,
             conflict_resolution: a.conflict_resolution,
           });
@@ -113,51 +133,106 @@ export default function AgentForm() {
     }
   }, [mode, form]);
 
+  const buildPayload = (values: FormValues, dispatchResourceIds: string[] | null): AgentCreate => ({
+    name: values.name,
+    channel_id: values.channel_id,
+    downloader_id: values.downloader_id,
+    download_subdir: values.download_subdir?.trim() || null,
+    task_expire_days: values.task_expire_days,
+    llm_enabled: values.llm_enabled,
+    llm_prompt: values.llm_prompt?.trim() || null,
+    scope_channel_wide: values.scope_channel_wide,
+    conflict_resolution: values.conflict_resolution,
+    filter_config: filterConfig,
+    works: values.scope_channel_wide
+      ? []
+      : works.map((w) => ({
+          content_type: w.content_type,
+          series_id: w.series_id,
+          movie_id: w.movie_id,
+          enable_episode_dedup: w.enable_episode_dedup,
+          filter_overrides: w.filter_overrides,
+          display_name_override: w.display_name_override,
+        })),
+    dispatch_resource_ids: dispatchResourceIds,
+  });
+
+  const buildPreviewRequest = (values: FormValues): RulesPreviewRequest => ({
+    agent_id: mode === 'edit' && id ? id : undefined,
+    channel_id: values.channel_id,
+    scope_channel_wide: values.scope_channel_wide,
+    filter_config: filterConfig,
+    works: values.scope_channel_wide
+      ? []
+      : works.map((w) => ({
+          content_type: w.content_type,
+          series_id: w.series_id,
+          movie_id: w.movie_id,
+          enable_episode_dedup: w.enable_episode_dedup,
+          filter_overrides: w.filter_overrides,
+        })),
+  });
+
+  const doSave = async (payload: AgentCreate) => {
+    let res;
+    if (mode === 'edit' && id) {
+      res = await agentsApi.update(id, payload);
+    } else {
+      res = await agentsApi.create(payload);
+    }
+    if (res.success) {
+      message.success(t('agents.saved'));
+      navigate(`/agents/${res.data.id}`);
+    } else {
+      message.error(res.error?.message || t('agents.saveFailed'));
+    }
+  };
+
   const handleSubmit = async (values: FormValues) => {
     if (!values.scope_channel_wide && works.length === 0) {
       message.error(t('agents.worksRequired'));
       return;
     }
     setSaving(true);
-    const payload = {
-      name: values.name,
-      channel_id: values.channel_id,
-      downloader_id: values.downloader_id,
-      download_subdir: values.download_subdir?.trim() || null,
-      task_expire_days: values.task_expire_days,
-      llm_enabled: values.llm_enabled,
-      scope_channel_wide: values.scope_channel_wide,
-      conflict_resolution: values.conflict_resolution,
-      filter_config: filterConfig,
-      works: values.scope_channel_wide
-        ? []
-        : works.map((w) => ({
-            content_type: w.content_type,
-            series_id: w.series_id,
-            movie_id: w.movie_id,
-            enable_episode_dedup: w.enable_episode_dedup,
-            filter_overrides: w.filter_overrides,
-            display_name_override: w.display_name_override,
-          })),
-    };
     try {
-      let res;
-      if (mode === 'edit' && id) {
-        res = await agentsApi.update(id, payload);
-      } else {
-        res = await agentsApi.create(payload);
+      // Scenario ②: preview the rule diff before committing. Show the modal
+      // whenever the change has any impact (newly-matching OR no-longer-
+      // matching) so the user sees the明细 and can opt into backfill — no
+      // silent mass-dispatch, and no silent save when matches changed.
+      const pv = await agentsApi.rulesPreview(buildPreviewRequest(values));
+      if (!pv.success) {
+        message.error(pv.error?.message || t('agents.previewFailed'));
+        return;
       }
-      if (res.success) {
-        message.success(t('agents.saved'));
-        navigate(`/agents/${res.data.id}`);
-      } else {
-        message.error(res.error?.message || t('agents.saveFailed'));
+      const newly = pv.data.newly_matching;
+      const noLonger = pv.data.no_longer_matching;
+      if (newly.length > 0 || noLonger.length > 0) {
+        const initSel: Record<string, boolean> = {};
+        newly.forEach((r) => { initSel[r.id] = true; });
+        setPreview(pv.data);
+        setPreviewSelected(initSel);
+        setPendingPayload(buildPayload(values, null));
+        return;
       }
+      // No impact on matching: commit directly with an empty backfill list
+      // (still advances the watermark since rules may have changed).
+      await doSave(buildPayload(values, []));
     } finally {
       setSaving(false);
     }
   };
 
+  const handlePreviewConfirm = async (dispatchIds: string[]) => {
+    if (!pendingPayload) return;
+    setPreviewSaving(true);
+    try {
+      await doSave({ ...pendingPayload, dispatch_resource_ids: dispatchIds });
+      setPreview(null);
+      setPendingPayload(null);
+    } finally {
+      setPreviewSaving(false);
+    }
+  };
   if (loading) return <Spin />;
 
   return (
@@ -173,8 +248,9 @@ export default function AgentForm() {
           initialValues={{
             task_expire_days: 30,
             llm_enabled: true,
+            llm_prompt: '',
             scope_channel_wide: false,
-            conflict_resolution: 'ask' as const,
+            conflict_resolution: 'auto' as const,
           }}
           onValuesChange={(changed) => {
             if (changed.scope_channel_wide !== undefined) {
@@ -267,6 +343,20 @@ export default function AgentForm() {
             </Col>
           </Row>
 
+          {llmEnabled && (
+            <Form.Item
+              name="llm_prompt"
+              label={t('agents.llmPrompt')}
+              tooltip={t('agents.llmPromptHint')}
+            >
+              <Input.TextArea
+                placeholder={t('agents.llmPromptPlaceholder')}
+                autoSize={{ minRows: 2, maxRows: 6 }}
+                allowClear
+              />
+            </Form.Item>
+          )}
+
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: -8, marginBottom: 16 }}>
             {channelWide
               ? t('agents.scopeChannelWideDesc')
@@ -301,6 +391,18 @@ export default function AgentForm() {
           </Form.Item>
         </Form>
       </Card>
+
+      <BackfillPreviewModal
+        open={!!preview}
+        data={preview}
+        selected={previewSelected}
+        onSelectedChange={setPreviewSelected}
+        onCancel={() => { setPreview(null); setPendingPayload(null); }}
+        onConfirm={(ids) => handlePreviewConfirm(ids)}
+        onSkip={() => handlePreviewConfirm([])}
+        saving={previewSaving}
+      />
     </div>
   );
 }
+

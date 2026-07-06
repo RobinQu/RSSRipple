@@ -185,7 +185,10 @@ async def list_downloader_tasks(
     total = total_q.scalar_one()
     result = await db.execute(
         base_q
-        .options(selectinload(DownloadTask.file_resource))
+        .options(
+            selectinload(DownloadTask.file_resource),
+            selectinload(DownloadTask.agent),
+        )
         .order_by(DownloadTask.created_at.desc())
         .offset(offset).limit(page_size)
     )

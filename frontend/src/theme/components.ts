@@ -29,6 +29,11 @@ export const componentTokens: ThemeConfig['components'] = {
     headerSplitColor: raycastColors.hairline,
     borderColor: raycastColors.hairline,
     rowHoverBg: raycastColors['surface-card'],
+    // The global colorPrimary is near-black (#17171c), whose derived
+    // rowSelectedBg is a muddy dark gray — dark titles on that background
+    // become unreadable. Pin selected rows to a light blue tint instead.
+    rowSelectedBg: raycastColors['accent-blue-soft'],
+    rowSelectedHoverBg: '#e0eaff',
     colorBgContainer: raycastColors.surface,
     headerBorderRadius: raycastRadius.md,
   },

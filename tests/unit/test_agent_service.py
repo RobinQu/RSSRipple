@@ -20,7 +20,12 @@ from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.agent_service import (
-    _generate_llm_suggestion,
+    RuleSet,
+    _build_rule_set,
+    _generate_llm_pick,
+    _parse_llm_pick,
+    _resource_matches_rules,
+    compute_rule_diff,
     create_pending_decision,
     dispatch_download,
     process_resources,
@@ -225,13 +230,13 @@ class TestDispatchDownload:
 
 
 # ---------------------------------------------------------------------------
-# _generate_llm_suggestion
+# _generate_llm_pick
 # ---------------------------------------------------------------------------
 
 
-class TestGenerateLlmSuggestion:
+class TestGenerateLlmPick:
     async def test_returns_none_when_llm_disabled(self, db_session, channel, downloader):
-        """When agent.llm_enabled is False, returns None immediately."""
+        """When agent.llm_enabled is False, returns (None, None) immediately."""
         agent = Agent(
             id=_uuid(), name="a", channel_id=channel.id,
             downloader_id=downloader.id, scope_channel_wide=True,
@@ -240,11 +245,11 @@ class TestGenerateLlmSuggestion:
         db_session.add(agent)
         await db_session.flush()
         res = _make_resource(channel.id)
-        result = await _generate_llm_suggestion(agent, [res], ("series", "x", 1))
-        assert result is None
+        result = await _generate_llm_pick(agent, [res], ("series", "x", 1))
+        assert result == (None, None)
 
     async def test_returns_none_when_no_api_key(self, db_session, channel, downloader, monkeypatch):
-        """When settings.llm_api_key is empty, returns None."""
+        """When settings.llm_api_key is empty, returns (None, None)."""
         agent = Agent(
             id=_uuid(), name="a", channel_id=channel.id,
             downloader_id=downloader.id, scope_channel_wide=True,
@@ -256,11 +261,11 @@ class TestGenerateLlmSuggestion:
 
         from app.config import settings
         monkeypatch.setattr(settings, "llm_api_key", "")
-        result = await _generate_llm_suggestion(agent, [res], ("series", "x", 1))
-        assert result is None
+        result = await _generate_llm_pick(agent, [res], ("series", "x", 1))
+        assert result == (None, None)
 
     async def test_returns_none_when_llm_call_fails(self, db_session, channel, downloader, monkeypatch):
-        """When call_llm raises an exception, returns None gracefully."""
+        """When call_llm raises an exception, returns (None, None) gracefully."""
         agent = Agent(
             id=_uuid(), name="a", channel_id=channel.id,
             downloader_id=downloader.id, scope_channel_wide=True,
@@ -278,11 +283,11 @@ class TestGenerateLlmSuggestion:
             new_callable=AsyncMock,
             side_effect=RuntimeError("LLM API timeout"),
         ):
-            result = await _generate_llm_suggestion(agent, [res], ("series", "x", 1))
-        assert result is None
+            result = await _generate_llm_pick(agent, [res], ("series", "x", 1))
+        assert result == (None, None)
 
-    async def test_returns_suggestion_on_success(self, db_session, channel, downloader, monkeypatch):
-        """When call_llm succeeds, returns the suggestion string."""
+    async def test_returns_pick_and_reason_on_success(self, db_session, channel, downloader, monkeypatch):
+        """When call_llm returns JSON, returns (picked_id, reason)."""
         agent = Agent(
             id=_uuid(), name="a", channel_id=channel.id,
             downloader_id=downloader.id, scope_channel_wide=True,
@@ -290,7 +295,10 @@ class TestGenerateLlmSuggestion:
         )
         db_session.add(agent)
         await db_session.flush()
-        res = _make_resource(channel.id)
+        r1 = _make_resource(channel.id, episode=1)
+        r2 = _make_resource(channel.id, episode=2)
+        db_session.add_all([r1, r2])
+        await db_session.flush()
 
         from app.config import settings
         monkeypatch.setattr(settings, "llm_api_key", "test-key-123")
@@ -298,10 +306,32 @@ class TestGenerateLlmSuggestion:
         with patch(
             "app.services.feed_analyzer.call_llm",
             new_callable=AsyncMock,
-            return_value="Pick #2 because it has higher resolution.",
+            return_value='{"pick": 2, "reason": "higher resolution"}',
         ):
-            result = await _generate_llm_suggestion(agent, [res], ("series", "x", 1))
-        assert result == "Pick #2 because it has higher resolution."
+            picked_id, reason = await _generate_llm_pick(agent, [r1, r2], ("series", "x", 1))
+        assert picked_id == r2.id
+        assert reason == "higher resolution"
+
+
+def test_parse_llm_pick_json():
+    assert _parse_llm_pick('{"pick": 1, "reason": "best"}', 2) == (1, "best")
+
+
+def test_parse_llm_pick_markdown_wrapped():
+    assert _parse_llm_pick('```json\n{"pick": 2, "reason": "ok"}\n```', 2) == (2, "ok")
+
+
+def test_parse_llm_pick_leading_number_fallback():
+    """When no JSON, a leading 'pick N' still parses."""
+    assert _parse_llm_pick("Pick 2 because higher res", 2)[0] == 2
+
+
+def test_parse_llm_pick_out_of_range_returns_none_pick():
+    assert _parse_llm_pick('{"pick": 5, "reason": "x"}', 2)[0] is None
+
+
+def test_parse_llm_pick_garbage():
+    assert _parse_llm_pick("no idea", 2) == (None, "no idea")
 
 
 # ---------------------------------------------------------------------------
@@ -654,12 +684,12 @@ class TestProcessResources:
         assert result.dispatched == 0
         assert result.duplicates_skipped == 1
 
-    async def test_ambiguous_episode_routes_to_suggestion(
+    async def test_ambiguous_episode_routes_to_pending_decision(
         self, db_session, channel, downloader, series
     ):
         """Resources whose episode_confidence=='ambiguous' must not be
-        dispatched — they're routed to the AgentSuggestion bucket instead,
-        so the user can confirm the correct number before download."""
+        dispatched — they're routed to a PendingDecision so the user can
+        confirm the correct per-season episode number before download."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -671,10 +701,49 @@ class TestProcessResources:
         await db_session.flush()
         result = await process_resources(agent, [r], db_session)
         assert result.dispatched == 0
-        assert result.unrecognized == 1
-        assert result.pending_decisions == 0
-        assert len(result.suggestions) == 1
-        assert "集号不确定" in result.suggestions[0].get("reason", "")
+        assert result.pending_decisions == 1
+        assert len(result.suggestions) == 0
+        pds = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalars().all()
+        assert len(pds) == 1
+        assert pds[0].status == "pending"
+        assert "集号不确定" in pds[0].reason
+        assert r.id in (pds[0].candidates or [])
+        # Ambiguous decisions carry no "pick the best candidate" semantics,
+        # so the LLM suggestion must be skipped.
+        assert pds[0].llm_suggestion is None
+
+    async def test_ambiguous_decision_resolved_after_correction(
+        self, db_session, channel, downloader, series
+    ):
+        """Once the user corrects the episode (confidence='manual'), the next
+        run resolves the stale ambiguous PendingDecision and dispatches."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, episode=12,
+            episode_confidence="ambiguous",
+        )
+        db_session.add(r)
+        await db_session.flush()
+        # First run: ambiguous → PD created, nothing dispatched.
+        first = await process_resources(agent, [r], db_session)
+        assert first.pending_decisions == 1
+        assert first.dispatched == 0
+        # User corrects the episode via PATCH /resources/{id}/episode.
+        r.episode_confidence = "manual"
+        await db_session.flush()
+        # Second run: resource passes the ambiguous gate, dispatches; the
+        # stale ambiguous PD is marked decided by the cleanup pass.
+        second = await process_resources(agent, [r], db_session)
+        assert second.dispatched == 1
+        pds = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalars().all()
+        assert len(pds) == 1
+        assert pds[0].status == "decided"
 
 
 # ---------------------------------------------------------------------------
@@ -1039,3 +1108,89 @@ class TestProcessResourcesEdgeCases:
         result = await process_resources(agent, [r], db_session)
         assert result.unrecognized == 1
         assert len(result.suggestions) == 0
+
+
+# ---------------------------------------------------------------------------
+# Rule diff (scenario ② preview) + watermark helpers
+# ---------------------------------------------------------------------------
+
+
+async def test_compute_rule_diff_newly_and_no_longer_matching(
+    db_session, channel, downloader, series
+):
+    """Diff correctly partitions resources into newly / no-longer matching.
+
+    old rules: subscribe to ``series`` with filter subtitle_group=OldSub.
+    new rules: subscribe to ``series`` with filter subtitle_group=NewSub.
+    → r_keep (NewSub) is newly_matching; r_drop (OldSub) is no_longer_matching.
+    """
+    _W = type("W", (), {"filter_overrides": None})
+    r_keep = _make_resource(channel.id, series_id=series.id, episode=1, subtitle_group="NewSub")
+    r_drop = _make_resource(channel.id, series_id=series.id, episode=2, subtitle_group="OldSub")
+    db_session.add_all([r_keep, r_drop])
+    await db_session.flush()
+
+    def _filter(val: str) -> dict:
+        return {"combinator": "and", "conditions": [
+            {"field": "subtitle_group", "operator": "eq", "value": val},
+        ]}
+
+    old = RuleSet(
+        scope_channel_wide=False, filter_config=_filter("OldSub"),
+        work_by_series_id={series.id: _W()},
+    )
+    new = RuleSet(
+        scope_channel_wide=False, filter_config=_filter("NewSub"),
+        work_by_series_id={series.id: _W()},
+    )
+    diff = await compute_rule_diff(old, new, [r_keep, r_drop], db_session)
+    assert [r.id for r in diff["newly_matching"]] == [r_keep.id]
+    assert [r.id for r in diff["no_longer_matching"]] == [r_drop.id]
+    assert diff["in_queue_skipped"] == 0
+
+
+async def test_compute_rule_diff_excludes_tasked_from_newly_matching(
+    db_session, channel, downloader, series
+):
+    """A newly-matching resource that already has a DownloadTask is excluded
+    from the backfill candidates (counted in in_queue_skipped instead)."""
+    from app.models.download_task import DownloadTask
+
+    r = _make_resource(channel.id, series_id=series.id, episode=1, subtitle_group="G")
+    db_session.add(r)
+    await db_session.flush()
+    db_session.add(DownloadTask(
+        agent_id=None, file_resource_id=r.id, downloader_id=downloader.id,
+        download_dir="/tmp", status="completed", progress=1.0,
+    ))
+    await db_session.flush()
+
+    old = RuleSet(scope_channel_wide=False, filter_config=None)
+    new = RuleSet(
+        scope_channel_wide=True,  # channel-wide so the resource is in scope
+        filter_config=None,
+    )
+    diff = await compute_rule_diff(old, new, [r], db_session)
+    assert diff["newly_matching"] == []
+    assert diff["in_queue_skipped"] == 1
+
+
+def test_resource_matches_rules_channel_wide_no_filter():
+    """Channel-wide + no filter matches any resource with metadata."""
+    r = _make_resource("ch", series_id="s1", episode=1)
+    rules = RuleSet(scope_channel_wide=True, filter_config=None)
+    matched, work = _resource_matches_rules(r, rules)
+    assert matched is True
+    assert work is None
+
+
+def test_resource_matches_rules_unsubscribed_series_no_match():
+    """Non-channel-wide agent with no matching work → no match."""
+    r = _make_resource("ch", series_id="s1", episode=1)
+    rules = RuleSet(
+        scope_channel_wide=False, filter_config=None,
+        work_by_series_id={"other": type("W", (), {"filter_overrides": None})()},
+    )
+    matched, _ = _resource_matches_rules(r, rules)
+    assert matched is False
+

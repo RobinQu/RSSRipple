@@ -56,13 +56,14 @@ async def _create_resource(db_session_factory, ch_id, title_raw, **kw):
     return {"id": rid, "title_raw": title_raw}
 
 
-async def _make_decision(db_session_factory, agent_id, r1_id, r2_id):
+async def _make_decision(db_session_factory, agent_id, r1_id, r2_id, picked_id=None):
     from app.models.pending_decision import PendingDecision
     async with db_session_factory() as s:
         pd = PendingDecision(
             id=_uuid(), agent_id=agent_id, status="pending",
             candidates=[r1_id, r2_id],
             reason="冲突",
+            llm_picked_resource_id=picked_id,
             expires_at=datetime.now(UTC) + timedelta(days=7),
         )
         s.add(pd)
@@ -126,3 +127,65 @@ class TestDecisions:
         assert res.json()["data"]["status"] == "decided"
         # confirm should have dispatched download; add_torrent was called
         mock_transmission.add_torrent.assert_awaited()
+
+    async def test_ai_pick_dispatches_picked(self, client, setup, db_session_factory, mock_transmission):
+        """ai-pick uses the cached llm_picked_resource_id and dispatches it."""
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] AI1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] AI1 - 01")
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"], picked_id=r1["id"])
+        res = await client.post(f"/api/v1/decisions/{did}/ai-pick")
+        assert res.status_code == 200
+        assert res.json()["data"]["status"] == "decided"
+        assert res.json()["data"]["decided_resource_id"] == r1["id"]
+        mock_transmission.add_torrent.assert_awaited()
+
+    async def test_ai_pick_no_pick_returns_400(self, client, setup, db_session_factory, mock_transmission):
+        """When there's no cached pick and the LLM can't decide, returns 400."""
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] AI2 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] AI2 - 01")
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"], picked_id=None)
+        # Agent created via setup has llm_enabled=False → _generate_llm_pick returns (None, None).
+        res = await client.post(f"/api/v1/decisions/{did}/ai-pick")
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "LLM_NO_PICK"
+
+    async def test_batch_skip(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] BS1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] BS1 - 01")
+        r3 = await _create_resource(db_session_factory, ch, "[G] BS2 - 01")
+        r4 = await _create_resource(db_session_factory, ch, "[G2] BS2 - 01")
+        d1 = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        d2 = await _make_decision(db_session_factory, aid, r3["id"], r4["id"])
+        res = await client.post(f"/api/v1/agents/{aid}/decisions/batch", json={
+            "decision_ids": [d1, d2], "action": "skip",
+        })
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["processed"] == 2
+        assert data["skipped"] == 2
+
+    async def test_batch_ai_dispatches(self, client, setup, db_session_factory, mock_transmission):
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] BA1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] BA1 - 01")
+        r3 = await _create_resource(db_session_factory, ch, "[G] BA2 - 01")
+        r4 = await _create_resource(db_session_factory, ch, "[G2] BA2 - 01")
+        d1 = await _make_decision(db_session_factory, aid, r1["id"], r2["id"], picked_id=r1["id"])
+        d2 = await _make_decision(db_session_factory, aid, r3["id"], r4["id"], picked_id=r3["id"])
+        res = await client.post(f"/api/v1/agents/{aid}/decisions/batch", json={
+            "decision_ids": [d1, d2], "action": "ai",
+        })
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["dispatched"] == 2
+        assert data["failed"] == 0
+
+    async def test_batch_rejects_bad_action(self, client, setup):
+        ch, dl, aid = setup
+        res = await client.post(f"/api/v1/agents/{aid}/decisions/batch", json={
+            "decision_ids": [], "action": "bogus",
+        })
+        assert res.status_code == 422

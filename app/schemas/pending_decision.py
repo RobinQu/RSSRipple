@@ -17,6 +17,7 @@ class PendingDecisionResponse(BaseModel):
     candidates: list[str]
     reason: str
     llm_suggestion: str | None = None
+    llm_picked_resource_id: str | None = None
     decided_resource_id: str | None = None
     status: str
     expires_at: datetime | None = None
@@ -32,8 +33,21 @@ class ConfirmDecisionRequest(BaseModel):
     resource_id: str
 
 
+class BatchDecisionRequest(BaseModel):
+    decision_ids: list[str]
+    action: str  # "skip" | "ai"
+
+
 class DecisionActionResponse(BaseModel):
     id: str
     status: str
     decided_resource_id: str | None = None
     decided_at: datetime | None = None
+
+
+class BatchDecisionResponse(BaseModel):
+    processed: int = 0
+    dispatched: int = 0
+    skipped: int = 0
+    failed: int = 0
+    errors: list[str] = []

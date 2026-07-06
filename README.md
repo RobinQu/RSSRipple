@@ -43,10 +43,11 @@ The system is organized around two design documents:
 - **FileResource**: One parsed RSS release. TV episode numbering uses the `episode` field directly. Multi-episode batches (Season Pack / `S01E01~13` / `[01-12 合集]` …) are marked with `is_batch=true` and best-effort `episode_start` / `episode_end`; batches bypass per-episode dedup and never produce PendingDecisions — filter them via the Filter DSL when needed.
 - **TVSeries / Movie**: Local metadata cache. External metadata search results are stored here rather than in a separate search cache.
 - **MetadataAgent**: LangGraph ReAct agent that cleans titles, infers season/episode fields, and searches exactly one selected metadata source. Supported sources are `exa` (default Exa Agent Search), `tmdb`, and `wikipedia`; it does not perform multi-source fallback.
-- **Agent**: Watches one Channel, requires a Downloader, applies Filter DSL, and dispatches matching resources. It may specify a relative `download_subdir` under the Downloader's default directory.
+- **Agent**: Watches one Channel, requires a Downloader, applies Filter DSL, and dispatches matching resources. It may specify a relative `download_subdir` under the Downloader's default directory. Runs are incremental (a `last_consumed_at` watermark; replaces the old latest-200 scan); rule changes go through a rules-preview/backfill flow so historical resources are never silently auto-dispatched.
 - **AgentWork**: A selected TV series or movie for scoped Agents, with optional filter overrides.
 - **AgentSuggestion**: Persisted groups of unrecognized resources for later manual metadata linking.
-- **PendingDecision**: Multiple valid candidates for the same movie or episode when `conflict_resolution="ask"`.
+- **PendingDecision**: Multiple valid candidates for the same movie or episode (when `conflict_resolution="ask"`, the default is `"auto"`). Also carries ambiguous-episode resources that need manual episode confirmation. When `llm_enabled`, the LLM picks a candidate (`llm_picked_resource_id`) which can be accepted via one-click "AI auto-handle".
+- **AgentRun**: A persisted record of each agent execution — counts (matched / dispatched / pending / filtered / skipped), status, and the list of matched resources — shown in the agent's run-history tab.
 - **DownloaderInstance**: Transmission RPC connection plus a required default `download_dir`, interpreted on the download server where Transmission runs. Its connection test also checks the directory with Transmission's free-space RPC. A second `type="mock"` variant is available for testing — an in-process simulator whose connection test always succeeds and whose accepted tasks complete after a random 1–10 s delay. Both types share the same client interface via `app.clients.downloader.get_downloader_client`.
 - **Download directory resolution**: A task's effective directory is `DownloaderInstance.download_dir` plus `Agent.download_subdir` when set. Agent subdirectories must be relative paths and must not escape the Downloader root.
 
@@ -59,11 +60,11 @@ All API routes are under `/api/v1`.
 | Dashboard | `GET /dashboard` |
 | Channels | CRUD, fetch, fetch-status, analyze/analyze-stream, preview-feed, validate-url, summarize-filters |
 | Resources | Channel resources, resource detail, metadata search/link |
-| Agents | CRUD, run/run-status, test-filters, persisted suggestions |
+| Agents | CRUD, run/run-status, test-filters, rules-preview, persisted suggestions, run history |
 | Agent Works | CRUD under `/agents/{agent_id}/works` |
 | Downloaders | CRUD with required default download directory, connection test, local tasks, live Transmission torrents |
 | Tasks | Detail, pause, resume, retry, delete |
-| Decisions | List, confirm, skip |
+| Decisions | List, confirm, skip, AI auto-handle (`ai-pick`), batch skip/AI |
 | Series / Movies | CRUD and search/list views |
 
 ## Metadata Search

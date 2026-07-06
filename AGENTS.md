@@ -102,7 +102,7 @@ class FileResource(Base):
 
 - **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。
 - **只标了 MM**（如 `S04 - 84`）——`reconcile_episode()` 检查 `raw_episode ≤ season_count + tolerance(2)`：符合就保留（`raw`）；否则减去前几季累计集数得到 candidate；candidate 落在 `[1, season_count + tolerance]` → 记为 `reconciled`（写回 `absolute_episode`），否则记为 `ambiguous`。
-- `ambiguous` 的资源**不参与派发**，`agent_service` 会将其归入 `AgentSuggestion`，reason 标记 "集号不确定，需要人工确认"，等待用户在前端修正。
+- `ambiguous` 的资源**不参与派发**。`agent_service` 在通过 work-scope + filter 之后，将其创建为一条 PendingDecision（reason 以 `"集号不确定，需要人工确认集号: {title}"` 标记、`candidates` 仅含该资源本身、跳过 LLM 候选选择），等待用户在前端手动修正集号；**不再**归入 `AgentSuggestion`。用户修正集号（`episode_confidence` 变为 `manual`）后，下一次运行会自动把这条过期决策标记为 `decided`，资源重新进入正常 filter→派发流程。
 - `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
 ### TVSeries（剧集系列 - Metadata 缓存）
@@ -204,9 +204,13 @@ class Agent(Base):
     llm_enabled: bool                    # 是否启用 LLM 辅助决策（影响冲突自动解决建议），默认 true
     scope_channel_wide: bool             # true=订阅整个频道（仅靠 filter_config 过滤）
                                          # false=仅订阅 works 中的作品，默认 false
-    conflict_resolution: str             # 冲突处理策略: "ask" | "auto"，默认 "ask"
+    conflict_resolution: str             # 冲突处理策略: "ask" | "auto"，默认 "auto"
                                          # "ask"=多候选时创建 PendingDecision 等待用户
                                          # "auto"=按启发式评分自动选择最优资源
+    llm_prompt: str | None               # 可选：LLM 候选选择器的自定义指令（最多 4000 字符）
+                                         # 为空时使用内置默认 prompt（metadata 字段最完整 >
+                                         # 清晰度最高 > 带字幕 > 发布时间最新）。同时影响
+                                         # "auto" 自动选择路径与 "ask" 模式下展示的 LLM 建议
     filter_config: dict | None           # 过滤规则 DSL 树（BoolCondition 根节点，详见 Filter DSL 章节）
     status: str                          # "active" | "paused" | "error"
     last_run_at: datetime | None         # 上次运行时间
@@ -215,6 +219,14 @@ class Agent(Base):
                                          # | "pending_decisions"（当 dispatched=0
                                          #   且 pending_decisions>0 时使用；UI 据此
                                          #   显示"待决策"徽标而不是绿色 success）
+    last_consumed_at: datetime | None    # 消费水位线：本 Agent 已处理过的最新
+                                         # FileResource.created_at 时间戳。增量运行
+                                         # （fetch 触发 / 手动 run）只处理 created_at >
+                                         # last_consumed_at 的资源；规则变更保存时水位
+                                         # 推进到频道当前最大值，使后续增量运行只看到真正
+                                         # 的新资源。Null=从未运行（按"推进到 now、不处理
+                                         # 任何资源"处理，避免静默自动派发历史回填——回填
+                                         # 必须经 rules-preview 选择流程）
     created_at: datetime
     updated_at: datetime
 
@@ -225,6 +237,7 @@ class Agent(Base):
     suggestions: list[AgentSuggestion]   # 未识别资源建议分组（持久化）
     download_tasks: list[DownloadTask]
     pending_decisions: list[PendingDecision]
+    runs: list[AgentRun]                 # 执行历史记录（每次 run 一条，cascade 删除）
 ```
 
 ### AgentWork（订阅作品）
@@ -308,9 +321,11 @@ class AgentSuggestion(Base):
 
 ### PendingDecision（待决策项）
 
-当同一作品的同一剧集（或同一电影）出现多个符合条件的候选资源，且 `conflict_resolution="ask"` 时创建。
+两种场景创建 PendingDecision：
+1. 同一作品的同一剧集（或同一电影）出现多个符合条件的候选资源，且 `conflict_resolution="ask"` 时创建（候选选择类）。
+2. `episode_confidence="ambiguous"` 的资源（集号无法判定是单季集号还是绝对集号）创建，等待用户手动确认集号——此时 `candidates` 只含该资源本身，reason 以 `"集号不确定"` 前缀标记，且**跳过 LLM 候选选择**（无"挑最优候选"语义）。
 
-**幂等性保证**：同一 `(agent_id, series_id | movie_id, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`，不会像 v1 那样堆积重复记录。
+**幂等性保证**：同一 `(agent_id, series_id | movie_id, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`，不会像 v1 那样堆积重复记录。`reason_override` 参数支持非冲突类决策（如集号不确定）复用同一 upsert 路径，并通过 `skip_llm` 跳过 LLM 调用。
 
 ```python
 class PendingDecision(Base):
@@ -322,14 +337,49 @@ class PendingDecision(Base):
     movie_id: str | None → Movie         # 电影 FK（电影非空）
     episode: int | None                  # 集数（TV 作品）
     candidates: list[str]                # 候选 FileResource ID 列表（按匹配度预排序）
-    reason: str                          # 需要决策的原因（如："多个资源匹配第03集"）
-    llm_suggestion: str | None           # LLM 对候选的推荐与理由（llm_enabled=true 时填充）
-    decided_resource_id: str | None      # 用户最终选择的资源 ID
+    reason: str                          # 需要决策的原因（如："多个资源匹配第03集"；
+                                         #   集号不确定类以 "集号不确定" 前缀标记）
+    llm_suggestion: str | None           # LLM 对候选的推荐理由（llm_enabled=true 时填充；
+                                         #   集号不确定类决策跳过 LLM，为 None）
+    llm_picked_resource_id: str | None   # LLM 选中的候选资源 ID（llm_enabled=true 时填充）。
+                                         # 驱动 "AI 自动处理" 动作与决策 UI 中的高亮行；
+                                         # 集号不确定类决策为 None
+    decided_resource_id: str | None      # 用户最终选择的资源 ID（或 AI 自动处理选中的资源）
     status: str                          # "pending" | "decided" | "expired" | "skipped"
     expires_at: datetime | None          # 过期时间（默认 7 天）
     created_at: datetime
     decided_at: datetime | None
     updated_at: datetime
+```
+
+### AgentRun（Agent 执行记录）
+
+每次 Agent 运行（`run_agent`）持久化一条记录，用于运行历史展示与审计。运行开始时即插入 `status="running"` 行（即使 handler 崩溃也有迹可循），运行结束时回填计数与状态。
+
+```python
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id: str                              # UUID
+    agent_id: str → Agent                # 所属 Agent FK（cascade 删除）
+    started_at: datetime                 # 运行开始时间
+    finished_at: datetime | None         # 运行结束时间
+    status: str                          # "running" | "success" | "failed" | "pending_decisions"
+                                         #（与 Agent.last_run_status 同语义）
+    total_resources: int                 # 本次处理的资源总数
+    matched: int                         # 通过 work-scope + filter 的资源数
+    dispatched: int                      # 实际派发下载数
+    pending_decisions: int               # 本次创建/更新的待决策数
+    filter_failed: int                   # 在订阅范围内但未通过 filter 的资源数
+    duplicates_skipped: int              # 因去重跳过的资源数
+    unrecognized: int                    # 未识别 metadata（含集号不确定）的资源数
+    matched_resource_ids: list[str]      # 本次通过 work-scope + filter 的资源 ID 列表
+                                         #（供运行历史抽屉展示"匹配资源"明细）
+    errors: list[str]                    # 本次运行捕获的错误信息列表
+    created_at: datetime
+
+    # Relationships
+    agent: Agent
 ```
 
 ### DownloaderInstance（下载器实例）
@@ -624,14 +674,16 @@ FieldCondition = {
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/agents` | Agent 列表（分页） |
-| POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个） |
+| POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `dispatch_resource_ids`（规则预览回填提交） |
 | GET | `/agents/{id}` | Agent 详情（含 works、统计信息） |
 | PUT | `/agents/{id}` | 更新 Agent（整体替换，含 works 列表） |
-| DELETE | `/agents/{id}` | 删除 Agent（级联删除其 works、pending_decisions；tasks 标记 cancelled） |
+| DELETE | `/agents/{id}` | 删除 Agent（级联删除其 works、pending_decisions、runs；tasks 标记 cancelled） |
 | POST | `/agents/{id}/run` | 手动触发处理（入队处理该 Agent 频道下未处理资源） |
 | GET | `/agents/{id}/run-status` | 轮询处理状态 |
 | POST | `/agents/{id}/test-filters` | 给定资源或全部资源测试 filter_config 匹配情况，返回匹配结果明细 |
 | GET | `/agents/{id}/suggestions` | 读取持久化的未识别资源建议分组，供用户一键添加为订阅作品 |
+| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表 |
+| POST | `/agents/rules-preview` | 提交拟变更的订阅规则，预览匹配差异（新增匹配 / 不再匹配 / 已在队列跳过），供用户选择回填资源 |
 
 `POST /agents` 请求体示例：
 ```json
@@ -641,16 +693,41 @@ FieldCondition = {
   "downloader_id": "...",
   "download_subdir": "Anime/新番",
   "scope_channel_wide": false,
-  "conflict_resolution": "ask",
+  "conflict_resolution": "auto",
   "llm_enabled": true,
+  "llm_prompt": "优先选择内封简繁日字幕的 2160p HEVC 资源",
   "filter_config": { "combinator": "and", "conditions": [ { "field": "resolution", "operator": "in", "value": ["1080p","2160p"] } ] },
   "works": [
     { "content_type": "tv", "series_id": "...", "enable_episode_dedup": true, "filter_overrides": null }
-  ]
+  ],
+  "dispatch_resource_ids": null
 }
 ```
 
+`dispatch_resource_ids` 语义：
+- `null`（默认）：普通保存，不回填、不改动水位线（用于非规则编辑）。
+- 数组（可为空 `[]`）：表示本次保存经过 rules-preview 流程。后端会派发数组中选中的资源，并将 Agent 的 `last_consumed_at` 推进到频道当前最大 `created_at`，使后续增量运行只看到真正的新资源。空数组 = 不回填任何资源但推进水位线。
+
 `POST /agents/{id}/test-filters` 请求体：`{ "resource_ids": ["..."]? }`（不传则测试最近 50 条资源）；响应返回每条资源是否通过及每个条件的命中情况。
+
+`POST /agents/rules-preview` 请求体：
+```json
+{
+  "agent_id": "uuid | null",      // 已有 Agent 时传，old rules 从 DB 读取；新建时不传
+  "channel_id": "uuid | null",    // agent_id 缺省时必填，old rules 视为空（全部为新增匹配）
+  "scope_channel_wide": false,
+  "filter_config": { "...BoolCondition..." },
+  "works": [ { "content_type": "tv", "series_id": "...", ... } ]
+}
+```
+响应 `data`：
+```json
+{
+  "newly_matching": [ { "...RulesPreviewResource..." } ],     // 新增匹配且无活跃 DownloadTask → 可选回填
+  "no_longer_matching": [ { "...RulesPreviewResource..." } ], // 不再匹配（仅展示，不撤销已入队任务）
+  "in_queue_skipped": 0                                        // 新增匹配但已有活跃任务的跳过数
+}
+```
 
 ### Agent Works（子资源）
 
@@ -726,8 +803,17 @@ FieldCondition = {
 | GET | `/agents/{agent_id}/decisions` | 待决策列表（分页，可按 status 查询） |
 | POST | `/decisions/{id}/confirm` | 确认选择某个候选资源 → 推送下载 |
 | POST | `/decisions/{id}/skip` | 跳过本次决策（标记 skipped） |
+| POST | `/decisions/{id}/ai-pick` | AI 自动处理：让 LLM 选中最优候选（优先复用缓存的 `llm_picked_resource_id`，否则即时调用 LLM）并派发下载 |
+| POST | `/agents/{agent_id}/decisions/batch` | 批量处理：对多条 pending 决策统一执行 `skip` 或 `ai` 动作 |
 
 `POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。
+
+`POST /decisions/{id}/ai-pick` 无请求体。决策非 `pending` 状态返回 `400 NOT_PENDING`；LLM 未能给出选择返回 `400 LLM_NO_PICK`（需手动确认）。响应 `data`：`{ "id", "status", "decided_resource_id", "decided_at" }`。
+
+`POST /agents/{agent_id}/decisions/batch` 请求体：`{ "decision_ids": ["..."], "action": "skip" | "ai" }`。仅处理 `status="pending"` 的决策；响应 `data`：
+```json
+{ "processed": 10, "dispatched": 7, "skipped": 2, "failed": 1, "errors": ["<decision_id>: <原因>"] }
+```
 
 ### File Resources
 
@@ -739,7 +825,7 @@ FieldCondition = {
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询） |
 | POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"? }` → 返回候选列表 |
 | PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤 |
-| PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`，重新入队关联 Agent。省略 `absolute_episode` 时保留原值。 |
+| PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
 
 `POST /resources/{id}/metadata/search` 请求体示例：
 ```json
@@ -909,94 +995,101 @@ MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必
 - 生产 RSS 抓取当前默认使用 `exa`。若未来为 Channel 增加可配置数据源字段，也必须保持"单次只使用一个数据源"的约束。
 - eval 标注平台的新建 Dataset 必须人工选择 `exa` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `exa-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
 
+### Agent 运行生命周期（run_agent）
+
+入口：task queue worker `_handle_run_agent(payload)`（`app/main.py`），payload 为 `{"agent_id", "resource_ids"?}`。每次运行持久化一条 `AgentRun` 记录（开始即插入 `status="running"`，结束回填计数与状态）。三种运行模式：
+
+| 模式 | 触发条件 | 处理范围 | 水位线 |
+|------|----------|----------|--------|
+| **增量运行**（scenario ①） | `resource_ids` 缺省（fetch 触发 / 手动 run） | `FileResource.created_at > agent.last_consumed_at` 的资源，按 `created_at` 升序 | 运行后推进到所处理资源的最大 `created_at`；水位线为 null 时置为 now 且不处理任何资源（避免静默回填） |
+| **定向运行**（scenario ③） | `resource_ids` 非空（如 `correct_episode`） | 只处理指定的资源，按当前规则评估 | **绕过**水位线、**不推进**水位线（资源可能较旧，推进会跳过其邻居） |
+| **回填提交**（scenario ②） | rules-preview 后保存 Agent，`dispatch_resource_ids` 非 null | 派发用户选中的资源，并把水位线推进到频道当前最大 `created_at` | 推进到频道 max（或 now） |
+
+> 旧实现的 `limit(200)`（按 `published_at` 取最近 200 条）已废弃——它会在高频频道上静默丢弃更早的资源。增量水位线保证每条资源都被且只被处理一次。
+
 ### Agent 过滤流程（agent_service）
 
-入口：`process_resources(agent: Agent, channel: Channel, db)`，处理该 channel 下最近未处理或全部 pending 的新资源。
+入口：`process_resources(agent: Agent, resources: list[FileResource], db)`，对**已由 run_agent 选定**的资源列表执行过滤、去重、冲突处理与派发。`resources` 的筛选（增量/定向）在上层完成，本函数只关心单次处理逻辑。
 
 ```
 process_resources(agent, resources, db)
   │
-  ├─ 1. 加载 agent.works → active_works
-  │     work_by_series_id = { w.series_id: w for w in active_works if w.series_id }
-  │     work_by_movie_id = { w.movie_id: w for w in active_works if w.movie_id }
+  ├─ 1. 构造规则快照 rule_set = _build_rule_set(agent)
+  │     含 scope_channel_wide / filter_config / work_by_series_id / work_by_movie_id。
+  │     独立于 Agent ORM 对象，使 rules-preview 能比较 old vs new 规则而不改动持久化数据。
   │
-  ├─ 2. 初始化:
+  ├─ 2. 初始化 RunResult:
   │     candidates_by_key: dict[(type, id, episode?), list[FileResource]] = defaultdict(list)
-  │     suggestions: list[未识别资源分组] = []
+  │     suggestions: dict[search_title, 分组] = {}
+  │     matched_resource_ids: list[str] = []   # 本次通过 work-scope + filter 的资源
   │
   ├─ 3. 对每个 resource:
-    │     │
-    │     ├─ a. Metadata 前置检查:
-    │     │     无论 scope_channel_wide 是否为 true，若 resource 未链接 metadata
-    │     │     （series_id 和 movie_id 均为 null），则不参与过滤/下载，
-    │     │     归入 suggestions bucket，等待用户手动修正。
-    │     │
-    │     ├─ b. Work 范围判定:
-    │     │     if not agent.scope_channel_wide:
-    │     │         if resource.series_id in work_by_series_id:
-    │     │             work = work_by_series_id[resource.series_id]
-    │     │         elif resource.movie_id in work_by_movie_id:
-    │     │             work = work_by_movie_id[resource.movie_id]
-    │     │         else:
-    │     │             continue  # 不在订阅作品列表内，跳过
-    │     │     else:
-    │     │         work = None  # channel-wide 模式，所有已链接 metadata 的资源都进入下一步过滤
   │     │
-  │     ├─ b. 构造有效 filter_config:
-  │     │     effective_filter = merge_filter(agent.filter_config, work.filter_overrides if work else None)
+  │     ├─ a. Metadata 前置检查:
+  │     │     若 resource 未链接 metadata（series_id 和 movie_id 均为 null），
+  │     │     不参与过滤/下载，归入 suggestions bucket（unrecognized++），等待用户手动修正。
   │     │
-  │     ├─ c. 评估 effective_filter（evaluate_filter_config）
-  │     │     if not passes → continue
+  │     ├─ b. work-scope + filter 评估（_resource_matches_rules）:
+  │     │     matched, work = _resource_matches_rules(resource, rule_set)
+  │     │     # scope=false 时需命中订阅作品；再与 effective_filter（全局 filter_config
+  │     │     #   AND work.filter_overrides）求值
+  │     │     if not matched:
+  │     │         # 区分"在订阅范围内但 filter 未通过"与"不在范围内"
+  │     │         if 在订阅范围内（scope_channel_wide 或命中 work）: filter_failed++
+  │     │         continue
   │     │
-  │     ├─ c'. 合集分支（若 resource.is_batch=True）：
+  │     ├─ c. 集号不确定分支（episode_confidence == "ambiguous"）:
+  │     │     在通过 work-scope + filter 之后才判定——只对 Agent 真会下载的资源询问。
+  │     │     创建 PendingDecision（reason_override="集号不确定，需要人工确认集号: {title}"、
+  │     │     candidates=[该资源]、skip_llm=True），pending_decisions++ 且 unrecognized++，
+  │     │     continue。绝不自动下载集号不确定的资源。
+  │     │
+  │     ├─ d. 合集分支（resource.is_batch=True）:
   │     │     合集资源不参与 (series_id, episode) 聚合、不参与 PendingDecision。
   │     │     检查是否已有该 FileResource 的 active/completed 下载任务；
-  │     │     若无，则直接 dispatch_download 派发本条资源，continue。
+  │     │     若无 → dispatch_download 派发本条资源（dispatched++、matched++、
+  │     │     matched_resource_ids 记录），continue。
   │     │
-  │     ├─ d. 去重检查（仅单集资源经过本步骤）:
-  │     │     if resource.movie_id:  # 电影
-  │     │         exists = db.query(DownloadTask).filter(
-  │     │             DownloadTask.agent_id == agent.id,
-  │     │             DownloadTask.status.in_(["pending","queued","downloading","paused","completed"]),
-  │     │             DownloadTask.file_resource.has(movie_id=resource.movie_id)
-  │     │         ).first()
-  │     │         if exists → continue
-  │     │         key = ("movie", resource.movie_id, None)
-  │     │     else:  # TV 单集
-  │     │         dedup = work.enable_episode_dedup if work else True
-  │     │         if dedup and resource.episode is not None:
-  │     │             exists = db.query(DownloadTask).filter(
-  │     │                 DownloadTask.agent_id == agent.id,
-  │     │                 DownloadTask.status.in_(["pending","queued","downloading","paused","completed"]),
-  │     │                 DownloadTask.file_resource.has(
-  │     │                     series_id=resource.series_id,
-  │     │                     episode=resource.episode
-  │     │                 )
-  │     │             ).first()
-  │     │             if exists → continue
-  │     │         key = ("series", resource.series_id, resource.episode)
+  │     ├─ e. 去重检查（仅单集资源）:
+  │     │     电影：按 movie_id 查询 active DownloadTask，存在则跳过；key=("movie", movie_id, None)
+  │     │     TV 单集：dedup = work.enable_episode_dedup if work else True
+  │     │             dedup 且 episode 非空时按 (series_id, episode) 查询 active 任务，存在则跳过
+  │     │             key=("series", series_id, episode)
   │     │
-  │     └─ e. candidates_by_key[key].append(resource)
+  │     └─ f. candidates_by_key[key].append(resource)；matched++；
+  │           matched_resource_ids.append(resource.id)
   │
   ├─ 4. 候选聚合处理:
   │     for key, candidates in candidates_by_key.items():
   │         if len(candidates) == 1:
-  │             dispatch_download(agent, candidates[0])
+  │             dispatch_download(agent, candidates[0])  # dispatched++
   │         else:
   │             if agent.conflict_resolution == "ask":
-  │                 创建 PendingDecision(candidates=[...], reason="...")
+  │                 create_pending_decision(agent, key, candidates, db)
+  │                 # upsert 同一 (agent, target, episode, pending) 行；合并 candidates；
+  │                 # llm_enabled 时调用 _generate_llm_pick 填充 llm_picked_resource_id
+  │                 # 与 llm_suggestion（用户可点 "AI 自动处理" 一键采纳）
   │             else:  # "auto"
   │                 chosen = score_and_pick(candidates, agent, work)
-  │                 # 启发式评分：命中 filter_overrides 字段多的 > 分辨率高（2160p>1080p>720p）
-  │                 #         > 文件体积大 > 发布时间新；llm_enabled 时可请 LLM 给出建议
+  │                 # 评分：命中 filter_overrides 字段多 > 分辨率高（2160p>1080p>720p）
+  │                 #       > 文件体积大 > 发布时间新；llm_enabled 时 _generate_llm_pick
+  │                 #       给出选择（agent.llm_prompt 优先，否则内置默认 prompt）
   │                 dispatch_download(agent, chosen)
   │
-  ├─ 5. Suggestions 聚合:
-  │     将未识别但标题有意义的资源按 search_title 模糊聚类，
+  ├─ 5. 清理过期集号不确定决策（_resolve_corrected_ambiguous_decisions）:
+  │     遍历本 Agent 的 pending 决策，凡 reason 以 "集号不确定" 开头、且其候选资源
+  │     已被用户修正（episode_confidence != "ambiguous"，通常为 "manual"）的，标记为
+  │     "decided"——资源已在本次或上次运行中重新进入正常 filter→派发流程。
+  │
+  ├─ 6. Suggestions 聚合: 将未识别但标题有意义的资源按 search_title 模糊聚类，
   │     保存到 AgentSuggestion 表，供前端一键添加作品
   │
-  └─ 6. 返回 RunResult（新下载数、待决策数、跳过数、建议数）
+  └─ 7. 返回 RunResult（dispatched / pending_decisions / filter_failed /
+        duplicates_skipped / unrecognized / suggestions / errors / matched_resource_ids）
+        ——run_agent 据此回填 AgentRun 记录与 Agent.last_run_status
 ```
+
+**LLM 候选选择器**（`_generate_llm_pick`）：`conflict_resolution="auto"` 多候选自动选择、`"ask"` 模式下的 LLM 建议、以及 `POST /decisions/{id}/ai-pick` 共用同一逻辑。返回 `(picked_resource_id, reason)`：使用 `agent.llm_prompt`（若非空）否则内置默认 prompt（metadata 字段最完整 > 清晰度最高 > 带字幕 > 发布时间最新），要求 LLM 返回 JSON `{"pick": <候选编号>, "reason": "<一句话理由>"}`，`_parse_llm_pick` 兼容 markdown 包裹与裸数字兜底。LLM 未启用 / 无 API key / 调用失败 / 未给出有效选择时返回 `(None, None)`，`"auto"` 回退到纯启发式评分。结果缓存在 `PendingDecision.llm_picked_resource_id`，AI 自动处理优先复用缓存值。
 
 `dispatch_download(agent, resource)`：
 1. 创建 `DownloadTask(status="pending")`，写入 db。
@@ -1073,6 +1166,10 @@ startup:
   └─ 5. 全局每日任务:
         cleanup_expired_tasks()  # 删除 completed 且 completed_at < now - task_expire_days 的任务
         expire_pending_decisions()  # 过期 pending decision → status="expired"
+        _dedup_metadata()  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
+                            # 防止 metadata agent 偶尔为同一作品新建第二行）。聚类 key 基于
+                            # 共享的 title_cn/title_en/original_title **+ aliases**，
+                            # 只折叠可证明为同一作品的行；幂等
 ```
 
 任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），用于承载手动触发的 fetch/run；APScheduler 定时任务也通过 enqueue 投递到同一队列，保证同一 Channel/Agent 的任务串行执行（分布式锁，避免重复运行）。
@@ -1142,8 +1239,8 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 | `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；主体资源按作品分组展示（每组可折叠，含 poster、作品名、剧集数、最新更新时间）；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
 | `/channels/:id/edit` | ChannelForm | 编辑频道表单，包含 field_mapping 可视化编辑器、metadata_agent_enabled 开关 |
 | `/agents` | AgentList | Agent 列表（名称/频道/下载器/状态/作品数/任务数） |
-| `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；可视化 Filter DSL 编辑器；订阅作品选择器（点击"添加作品"打开对话框，默认展示最新 20 部作品，键入即触发搜索；从频道的已识别作品中多选，最多 10 个） |
-| `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表 / 新增 / 移除 / 编辑 per-work 覆盖；**inline 持久化** —— 新增/移除立即调用 `/agents/{id}/works` 接口，per-work 编辑（filter_overrides / enable_episode_dedup / display_name_override）通过每条作品右下角的"保存"按钮显式提交，脏状态用 `Unsaved changes` 提示）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete）；待决策 Tab（confirm/skip 操作）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run、状态轮询） |
+| `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；conflict_resolution（默认 `auto`）；`llm_enabled` 开启时显示 `llm_prompt` 自定义指令输入框；可视化 Filter DSL 编辑器；订阅作品选择器（点击"添加作品"打开对话框，默认展示最新 20 部作品，键入即触发搜索；从频道的已识别作品中多选，最多 10 个）。保存前先调 `/agents/rules-preview` 预览匹配差异，若有新增/不再匹配资源则弹出 **BackfillPreviewModal** 供用户勾选回填资源（选中 id 作为 `dispatch_resource_ids` 提交）；无匹配影响时直接保存（空回填列表，仍推进水位线） |
+| `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表 / 新增 / 移除 / 编辑 per-work 覆盖；**inline 持久化** —— 新增/移除立即调用 `/agents/{id}/works` 接口，per-work 编辑（filter_overrides / enable_episode_dedup / display_name_override）通过每条作品右下角的"保存"按钮显式提交，脏状态用 `Unsaved changes` 提示；列表级"保存"批量替换 works 时同样走 rules-preview 回填弹窗）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete）；待决策 Tab（confirm/skip/**AI 自动处理** 操作，支持多选批量 skip/ai）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run、状态轮询、**运行历史**：分页列出每次 run 的计数/状态，点击单条弹出抽屉展示该次匹配的资源明细） |
 | `/downloaders` | DownloaderList | 下载器列表 |
 | `/downloaders/new` | DownloaderForm | 创建 Transmission 实例，填写默认下载目录，含测试连接按钮 |
 | `/downloaders/:id` | DownloaderDetail | 连接状态；实时速度与总量统计；Transmission 种子列表（直连 RPC 实时刷新）；本地 DownloadTask 分页 |
@@ -1158,7 +1255,7 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 - **Filter DSL 编辑器**：前端使用树形 UI，支持 AND/OR 节点嵌套、添加/删除/拖拽条件节点；每个字段条件提供字段名下拉（分组展示 String / Number / Bool / List / Enum 五类）、operator 下拉（根据字段类型动态展示可用 operator）、value 输入。字符串字段 + `eq/ne/contains/fuzzy` 会通过 `GET /channels/{id}/field-values?field=&q=` 提供服务端 top-10 频率排序 + 前缀搜索的候选值下拉（保留自由输入），列表字段（`subtitle_langs`）预填 BCP-47 语言代码，布尔字段用 `是/否` Select，枚举字段（`episode_confidence`）从固定 `raw/reconciled/ambiguous/manual` 中选择。提供"测试"按钮调用 `/agents/{id}/test-filters` 实时预览当前频道资源匹配情况。
 - **Channel 详情多选生成规则**：用户在资源表格勾选若干符合预期的资源，点击"生成过滤规则"，前端将选中 resource_ids 发送到后端 `summarize-filters`，后端统计这些资源的字幕组/分辨率/编码/来源等字段的共同特征，生成建议 FilterConfig 返回；前端展示 JSON/可视化两种视图供用户微调，然后选择新建 Agent 或追加到现有 Agent 的 filter_config（追加时用 and 包装）。
 - **资源详情抽屉**：Channel 详情点击资源行打开右侧抽屉，展示 poster（若有）、metadata（作品名、集数）、解析字段明细、磁力链接复制按钮、"修正 metadata"按钮；点击修正进入手动 metadata 流程：输入搜索词+选择类型→查看 LLM 候选→确认→自动刷新该资源及其相关分组。TV 单集资源在集号行右侧提供铅笔按钮，弹出 Popover 手动修正 `episode` / `absolute_episode`，保存后 `episode_confidence="manual"` 并重新触发 Agent 过滤。
-- **待决策卡片**：Dashboard 和 Agent 详情的待决策项展示候选资源的核心字段对比（字幕组/分辨率/编码/体积/发布时间），llm_enabled 时展示 LLM 推荐理由；点击候选选中，点击"确认"提交。
+- **待决策卡片**：Dashboard 和 Agent 详情的待决策项展示候选资源的核心字段对比（字幕组/分辨率/编码/体积/发布时间），llm_enabled 时展示 LLM 推荐理由并高亮 `llm_picked_resource_id` 对应行；点击候选选中，点击"确认"提交。每条决策可点"AI 自动处理"（`POST /decisions/{id}/ai-pick`）一键采纳 LLM 选择；列表支持多选后批量 skip / AI 处理（`POST /agents/{id}/decisions/batch`）。集号不确定类决策（reason 以"集号不确定"开头）不展示候选对比，引导用户去资源详情修正集号。
 
 ---
 

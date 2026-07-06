@@ -2,12 +2,15 @@ import { api } from './client';
 import type {
   Agent,
   AgentCreate,
+  AgentRun,
   AgentUpdate,
   AgentWork,
   AgentWorkCreate,
   AgentSuggestionGroup,
   BoolCondition,
   FilterTestResponse,
+  RulesPreviewRequest,
+  RulesPreviewResponse,
 } from '../types';
 
 export const agentsApi = {
@@ -24,6 +27,10 @@ export const agentsApi = {
     ),
   testFilters: (id: string, body?: { resource_ids?: string[] }) =>
     api.post<FilterTestResponse>(`/agents/${id}/test-filters`, body ?? {}),
+  rulesPreview: (body: RulesPreviewRequest) =>
+    api.post<RulesPreviewResponse>('/agents/rules-preview', body),
+  listRuns: (agentId: string, page = 1, pageSize = 20) =>
+    api.get<AgentRun[]>(`/agents/${agentId}/runs?page=${page}&page_size=${pageSize}`),
   suggestions: (id: string) =>
     api.get<{ scope_channel_wide: boolean; suggestions: AgentSuggestionGroup[] }>(
       `/agents/${id}/suggestions`,

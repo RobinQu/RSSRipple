@@ -272,6 +272,13 @@ async def _apply_light_migrations(conn) -> None:
         # confidence tag noting where the final episode value came from.
         ("file_resources", "absolute_episode", "INTEGER"),
         ("file_resources", "episode_confidence", "VARCHAR(16)"),
+        # Agent consumption watermark (P4): latest FileResource.created_at the
+        # agent has considered. Delta runs scan only newer resources.
+        ("agents", "last_consumed_at", "DATETIME"),
+        # Optional user-supplied LLM candidate-picker instruction.
+        ("agents", "llm_prompt", "TEXT"),
+        # The candidate the LLM picked for a PendingDecision (resource id).
+        ("pending_decisions", "llm_picked_resource_id", "VARCHAR(36)"),
     ]
 
     for table, column, ddl in additions:
@@ -371,3 +378,20 @@ async def _apply_light_migrations(conn) -> None:
                 pass
     except Exception as e:
         logger.warning("[migrate] download_tasks.agent_id widening skipped: %s", e)
+
+    # ── agents.last_consumed_at backfill ─────────────────────────────────
+    # Existing agents get their watermark set to the channel's current max
+    # FileResource.created_at so the first delta run after upgrade does NOT
+    # silently auto-dispatch every historical matching resource (backfill must
+    # be a deliberate, user-selected action via the rules-preview flow). Only
+    # touches rows where the column is still NULL.
+    try:
+        await conn.execute(text(
+            "UPDATE agents SET last_consumed_at = COALESCE("
+            "  (SELECT MAX(fr.created_at) FROM file_resources fr "
+            "   WHERE fr.channel_id = agents.channel_id),"
+            "  CURRENT_TIMESTAMP"
+            ") WHERE last_consumed_at IS NULL"
+        ))
+    except Exception as e:
+        logger.warning("[migrate] agents.last_consumed_at backfill skipped: %s", e)

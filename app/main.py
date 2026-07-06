@@ -45,24 +45,69 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from sqlalchemy import select
 
     from app.models.agent import Agent
+    from app.models.agent_run import AgentRun
     from app.models.file_resource import FileResource
     from app.services.agent_service import process_resources
+    from app.utils.time import utcnow
 
     agent_id: str = payload["agent_id"]
+    resource_ids: list[str] | None = payload.get("resource_ids")
     async with committed_session() as session:
         agent = await session.get(Agent, agent_id)
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
 
-        result = await session.execute(
-            select(FileResource)
-            .where(FileResource.channel_id == agent.channel_id)
-            .order_by(FileResource.published_at.desc())
-            .limit(200)
-        )
-        resources = result.scalars().all()
+        # Persist a run record up front so a "running" row exists even if the
+        # handler crashes; finalised at the end with counts + matched ids.
+        run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
+        session.add(run)
+        await session.flush()
 
-        run_result = await process_resources(agent, resources, session)
+        if resource_ids:
+            # Targeted run (scenario ③, e.g. correct_episode): process exactly
+            # the given resources against the agent's *current* rules. Bypasses
+            # the watermark and does NOT advance it — the resource may be old,
+            # and advancing would skip its neighbours.
+            result = await session.execute(
+                select(FileResource)
+                .where(
+                    FileResource.channel_id == agent.channel_id,
+                    FileResource.id.in_(resource_ids),
+                )
+                .order_by(FileResource.created_at.asc())
+            )
+            resources = result.scalars().all()
+            run_result = await process_resources(agent, resources, session)
+        else:
+            # Delta run (scenario ①): only resources newer than the agent's
+            # consumption watermark. Replaces the old hard-coded ``limit(200)``
+            # which silently dropped anything beyond the latest 200.
+            wm = agent.last_consumed_at
+            if wm is None:
+                # No watermark yet (e.g. migration skipped this row): treat as
+                # "caught up to now" and process nothing, so we never silently
+                # auto-dispatch historical backfill — that must go through the
+                # rules-preview selection flow.
+                agent.last_consumed_at = utcnow()
+                resources = []
+            else:
+                result = await session.execute(
+                    select(FileResource)
+                    .where(
+                        FileResource.channel_id == agent.channel_id,
+                        FileResource.created_at > wm,
+                    )
+                    .order_by(FileResource.created_at.asc())
+                )
+                resources = result.scalars().all()
+            run_result = await process_resources(agent, resources, session)
+
+            # Advance the watermark past everything we just considered (delta
+            # run only). Targeted runs leave it untouched.
+            if resources:
+                agent.last_consumed_at = max(r.created_at for r in resources)
+            elif agent.last_consumed_at is None:
+                agent.last_consumed_at = utcnow()
 
         agent.last_run_at = utcnow()
         # More granular status so the UI can badge "待决策" instead of a
@@ -75,8 +120,22 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         else:
             agent.last_run_status = "success"
 
+        # Finalise the run record.
+        run.status = agent.last_run_status
+        run.finished_at = utcnow()
+        run.total_resources = run_result.total_resources
+        run.matched = run_result.matched
+        run.dispatched = run_result.dispatched
+        run.pending_decisions = run_result.pending_decisions
+        run.filter_failed = run_result.filter_failed
+        run.duplicates_skipped = run_result.duplicates_skipped
+        run.unrecognized = run_result.unrecognized
+        run.matched_resource_ids = list(run_result.matched_resource_ids)
+        run.errors = list(run_result.errors)
+
         return {
             "agent_id": agent_id,
+            "run_id": run.id,
             "total_resources": run_result.total_resources,
             "matched": run_result.matched,
             "dispatched": run_result.dispatched,

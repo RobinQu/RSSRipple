@@ -41,6 +41,12 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
     )
     _scheduler.add_job(
+        _dedup_metadata,
+        trigger=CronTrigger(hour=4, minute=0),
+        id="daily_dedup",
+        replace_existing=True,
+    )
+    _scheduler.add_job(
         _check_downloader_connections,
         trigger=IntervalTrigger(hours=1),
         id="check_downloaders",
@@ -237,3 +243,30 @@ async def _check_downloader_connections() -> None:
             except Exception:
                 dl.status = "error"
             dl.last_checked_at = utcnow()
+
+
+async def _dedup_metadata() -> None:
+    """Daily: merge duplicate TVSeries/Movie rows.
+
+    Safety net for the metadata agents occasionally creating a second row for
+    an already-known work (e.g. when a channel's LLM matches via a different
+    external source). Clustering keys on shared titles + aliases, so this only
+    collapses rows that are provably the same work. Idempotent.
+    """
+    from app.database import committed_session
+    from app.services.metadata_dedup import merge_duplicate_metadata
+
+    async with committed_session() as db:
+        try:
+            report = await merge_duplicate_metadata(db)
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.warning("Metadata dedup failed: %s", e)
+            return
+    if report.series_removed or report.movies_removed:
+        logger.info(
+            "Metadata dedup: removed %d series, %d movie duplicates",
+            report.series_removed,
+            report.movies_removed,
+        )

@@ -137,7 +137,8 @@ APScheduler / 手动触发
   │     ├─ 海报下载: 若 poster_url 是 http(s) → 下载到 POSTER_CACHE_DIR
   │     └─ db.commit()
   ├─ 4. channel 状态更新: last_fetched_at, success, active
-  └─ 5. 为该 channel 下所有 active Agent enqueue run_agent
+  └─ 5. 为该 channel 下所有 active Agent enqueue run_agent（增量运行：只处理
+        created_at > agent.last_consumed_at 的资源，运行后推进水位线；替代旧的 limit(200)）
 ```
 
 **关键实现细节**：

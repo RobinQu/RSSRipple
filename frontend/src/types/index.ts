@@ -263,6 +263,7 @@ export interface Agent {
   llm_enabled: boolean;
   scope_channel_wide: boolean;
   conflict_resolution: 'ask' | 'auto';
+  llm_prompt: string | null;
   filter_config: BoolCondition | null;
   status: AgentStatus;
   last_run_at: string | null;
@@ -283,11 +284,79 @@ export interface AgentCreate {
   llm_enabled?: boolean;
   scope_channel_wide?: boolean;
   conflict_resolution?: 'ask' | 'auto';
+  llm_prompt?: string | null;
+  filter_config?: BoolCondition | null;
+  works?: AgentWorkCreate[];
+  /** Resource ids selected from the rules-preview diff to backfill. Present
+   *  (possibly empty) when the save went through the preview flow; null for
+   *  plain non-rule edits. */
+  dispatch_resource_ids?: string[] | null;
+}
+
+export interface AgentUpdate extends AgentCreate {}
+
+export interface RulesPreviewRequest {
+  agent_id?: string;
+  channel_id?: string;
+  scope_channel_wide: boolean;
   filter_config?: BoolCondition | null;
   works?: AgentWorkCreate[];
 }
 
-export interface AgentUpdate extends AgentCreate {}
+export interface RulesPreviewResource {
+  id: string;
+  title_raw: string;
+  title_cn?: string | null;
+  subtitle_group?: string | null;
+  resolution?: string | null;
+  source?: string | null;
+  video_codec?: string | null;
+  audio_codec?: string | null;
+  subtitle_type?: string | null;
+  subtitle_langs?: string[] | null;
+  container?: string | null;
+  file_size?: number | null;
+  episode?: number | null;
+  season?: number | null;
+  episode_confidence?: string | null;
+  published_at?: string | null;
+  series_id?: string | null;
+  movie_id?: string | null;
+}
+
+export interface RulesPreviewResponse {
+  newly_matching: RulesPreviewResource[];
+  no_longer_matching: RulesPreviewResource[];
+  in_queue_skipped: number;
+}
+
+export interface AgentRunResource {
+  id: string;
+  title_raw: string;
+  title_cn?: string | null;
+  subtitle_group?: string | null;
+  resolution?: string | null;
+  episode?: number | null;
+  season?: number | null;
+}
+
+export interface AgentRun {
+  id: string;
+  agent_id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  total_resources: number;
+  matched: number;
+  dispatched: number;
+  pending_decisions: number;
+  filter_failed: number;
+  duplicates_skipped: number;
+  unrecognized: number;
+  matched_resource_ids: string[];
+  errors: string[];
+  matched_resources: RulesPreviewResource[];
+}
 
 export interface AgentWorkCreate {
   content_type: 'tv' | 'movie';
@@ -343,6 +412,7 @@ export interface PendingDecision {
   candidates: string[];
   reason: string;
   llm_suggestion: string | null;
+  llm_picked_resource_id: string | null;
   decided_resource_id: string | null;
   status: DecisionStatus;
   expires_at: string | null;

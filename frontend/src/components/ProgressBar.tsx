@@ -8,7 +8,7 @@ interface ProgressBarProps {
 export default function ProgressBar({ progress }: ProgressBarProps) {
   return (
     <Progress
-      percent={Math.min(100, Math.max(0, progress))}
+      percent={Math.min(100, Math.max(0, progress * 100))}
       size="small"
       strokeColor="#1863dc"
       trailColor="#d9d9dd"

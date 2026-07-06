@@ -34,6 +34,7 @@ function App() {
           <Route path="downloaders/:id" element={<DownloaderDetail />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/new" element={<AgentForm />} />
+          <Route path="agents/:id/edit" element={<AgentForm />} />
           <Route path="agents/:id" element={<AgentDetail />} />
           <Route path="series" element={<Series />} />
           <Route path="series/:id" element={<SeriesDetail />} />

@@ -28,6 +28,9 @@ class PendingDecision(Base):
     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # The candidate the LLM picked (resource id), if any. Drives the
+    # "AI auto-handle" action and the highlighted row in the decisions UI.
+    llm_picked_resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     decided_resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("pending", "decided", "expired", "skipped", name="decision_status"),
