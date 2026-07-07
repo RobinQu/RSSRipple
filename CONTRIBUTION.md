@@ -74,6 +74,19 @@ feature/issue-123-new-login
 3. 进行开发并确保所有测试通过
 4. 提交 Pull Request
 
+## CI/CD 与发布流程
+
+本项目通过 GitHub Actions 实现持续集成与持续交付：
+
+- **CI Fast Gate**（`ci-fast.yml`）：`feature/`、`fix/`、`ai/` 等开发分支及其 PR 的快速门禁（lint + 单元/API 测试）。
+- **CI Strict Gate**（`ci-strict.yml`）：`main`、`develop`、`release/**` 分支及其 PR 的严格门禁（lint + 单元/API + 集成测试）。
+- **Docker Publish**（`docker-publish.yml`）：推送到 `main` 或打 `v*` 标签时，构建 **amd64 + arm64** 双架构镜像并发布到 `ghcr.io/robinqu/rssripple`。
+  - 推送 `main` → 生成 `:latest`、`:main`、`:sha-<短哈希>` 标签
+  - 打标签 `v1.2.3` → 生成 `:1.2.3`、`:1.2`、`:1` 标签
+  - 构建前先跑 lint + 单元/API 测试作为门禁，避免发布破损镜像。
+
+发布新版本的标准流程：在 `release/v1.2.0` 分支上准备发布 → 合并到 `main` → 在合并提交上打 `v1.2.0` 标签触发版本镜像发布。
+
 ## 测试
 
 ```bash
