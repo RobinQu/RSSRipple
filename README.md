@@ -2,129 +2,46 @@
   <img src="docs/assets/rssripple-banner.svg" alt="RSSRipple - RSS subscription downloader" width="596">
 </p>
 
-RSSRipple is an RSS subscription downloader for TV/anime/movie releases. It fetches RSS feeds, parses resources with per-channel field mappings, links resources to local metadata, filters them through Agents, and sends matching torrents to Transmission.
+**English** | [中文](README_CN.md)
 
-## Features
+RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It fetches RSS feeds, parses each release with per-channel field mappings, links releases to a local metadata library, filters them through Agents, and dispatches matching torrents to Transmission — closing the loop from subscription to download.
 
-- Multi-source RSS support through required per-channel `field_mapping` rules.
-- LLM-assisted feed analysis, unified metadata agent (title cleaning + single-source Exa/TMDB/Wikipedia metadata search), and pending-decision suggestions.
-- Local metadata cache for `TVSeries` and `Movie`, populated by manual metadata linking or MetadataAgent search.
-- Agent-based subscriptions with channel-wide or selected-work scope.
-- Bool-query Filter DSL with nested `and`/`or`, field operators, per-work overrides, and dedicated support for boolean (`is_batch`) and multi-value list (`subtitle_langs` — BCP-47 tags like `zh-CN`, `zh-TW`, `ja`, `en`, plus the `multi` sentinel) fields.
-- Persistent suggestions for resources that cannot be linked to metadata yet.
-- Transmission RPC integration for torrent add/pause/resume/retry/delete, per-downloader default directories, optional per-Agent subdirectories, and progress sync.
-- React dashboard for channels, resources, agents, decisions, download tasks, series, movies, and downloaders.
+## Highlights
 
-## Architecture
+- **End-to-end pipeline** — RSS fetch → field-mapping parse → metadata link → Agent filter → Transmission dispatch. Agent runs are incremental (a `last_consumed_at` watermark); rule changes go through a rules-preview / backfill flow so historical resources are never silently auto-dispatched.
+- **LLM-assisted feed analysis** — point RSSRipple at a feed and the LLM proposes the `field_mapping` rules; refine them in the UI before saving.
+- **Unified metadata agent** — a LangGraph ReAct agent cleans titles, infers season/episode, and searches exactly one selected source (`exa`, `jina`, `tmdb`, or `wikipedia`). Results cache locally as `TVSeries` / `Movie` to avoid re-querying.
+- **Filter DSL** — boolean queries with nested `and` / `or`, field operators, per-work overrides, and first-class support for batches (`is_batch`) and multi-value subtitle languages (`zh-CN`, `zh-TW`, `ja`, `en`, `multi`).
+- **Transmission integration** — multiple downloader instances, required default directory with optional per-Agent subdirectories, retry with persisted destination, and live progress sync. A `mock` downloader is included for testing.
+- **React dashboard** — channels, resources, agents, pending decisions, download tasks, the works library, and downloaders, all in one place.
 
-The system is organized around two design documents:
+## Quick Start
 
-- [AGENTS.md](AGENTS.md) is the authoritative product/API/data-model specification.
-- [ARCHITECTURE.md](ARCHITECTURE.md) describes the module layout and runtime data flow.
+### 1. Configure environment
 
-`DESIGN.md` is reserved for design tokens and visual guidance only.
+```bash
+cp .env.example .env
+# at minimum set: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+# optional metadata sources: EXA_API_KEY / JINA_API_KEY / TMDB_API_KEY
+```
 
-## Tech Stack
-
-| Layer | Technology |
-| --- | --- |
-| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
-| Database | SQLite with aiosqlite by default; PostgreSQL-compatible architecture |
-| Queue/Scheduler | MemoryQueue or RedisQueue, APScheduler |
-| RSS | feedparser |
-| Metadata/AI | OpenAI-compatible LLM APIs, Exa Agent API, TMDB API, Wikipedia Python library |
-| Download | Transmission RPC |
-| Frontend | React 18, TypeScript, Vite, Ant Design 5 |
-| Package manager | uv, npm |
-
-## Key Concepts
-
-- **Channel**: RSS feed configuration. `field_mapping` is required and defines how RSS entries become `FileResource` records. `metadata_agent_enabled` defaults to `true`; if set to `false`, the unified metadata agent is disabled and only local DB matching is used.
-- **FileResource**: One parsed RSS release. TV episode numbering uses the `episode` field directly. Multi-episode batches (Season Pack / `S01E01~13` / `[01-12 合集]` …) are marked with `is_batch=true` and best-effort `episode_start` / `episode_end`; batches bypass per-episode dedup and never produce PendingDecisions — filter them via the Filter DSL when needed.
-- **TVSeries / Movie**: Local metadata cache. External metadata search results are stored here rather than in a separate search cache.
-- **MetadataAgent**: LangGraph ReAct agent that cleans titles, infers season/episode fields, and searches exactly one selected metadata source. Supported sources are `exa` (default Exa Agent Search), `tmdb`, and `wikipedia`; it does not perform multi-source fallback.
-- **Agent**: Watches one Channel, requires a Downloader, applies Filter DSL, and dispatches matching resources. It may specify a relative `download_subdir` under the Downloader's default directory. Runs are incremental (a `last_consumed_at` watermark; replaces the old latest-200 scan); rule changes go through a rules-preview/backfill flow so historical resources are never silently auto-dispatched.
-- **AgentWork**: A selected TV series or movie for scoped Agents, with optional filter overrides.
-- **AgentSuggestion**: Persisted groups of unrecognized resources for later manual metadata linking.
-- **PendingDecision**: Multiple valid candidates for the same movie or episode (when `conflict_resolution="ask"`, the default is `"auto"`). Also carries ambiguous-episode resources that need manual episode confirmation. When `llm_enabled`, the LLM picks a candidate (`llm_picked_resource_id`) which can be accepted via one-click "AI auto-handle".
-- **AgentRun**: A persisted record of each agent execution — counts (matched / dispatched / pending / filtered / skipped), status, and the list of matched resources — shown in the agent's run-history tab.
-- **DownloaderInstance**: Transmission RPC connection plus a required default `download_dir`, interpreted on the download server where Transmission runs. Its connection test also checks the directory with Transmission's free-space RPC. A second `type="mock"` variant is available for testing — an in-process simulator whose connection test always succeeds and whose accepted tasks complete after a random 1–10 s delay. Both types share the same client interface via `app.clients.downloader.get_downloader_client`.
-- **Download directory resolution**: A task's effective directory is `DownloaderInstance.download_dir` plus `Agent.download_subdir` when set. Agent subdirectories must be relative paths and must not escape the Downloader root.
-
-## API Overview
-
-All API routes are under `/api/v1`.
-
-| Area | Main endpoints |
-| --- | --- |
-| Dashboard | `GET /dashboard` |
-| Channels | CRUD, fetch, fetch-status, analyze/analyze-stream, preview-feed, validate-url, summarize-filters |
-| Resources | Channel resources, resource detail, metadata search/link |
-| Agents | CRUD, run/run-status, test-filters, rules-preview, persisted suggestions, run history |
-| Agent Works | CRUD under `/agents/{agent_id}/works` |
-| Downloaders | CRUD with required default download directory, connection test, local tasks, live Transmission torrents |
-| Tasks | Detail, pause, resume, retry, delete |
-| Decisions | List, confirm, skip, AI auto-handle (`ai-pick`), batch skip/AI |
-| Series / Movies | CRUD and search/list views |
-
-## Metadata Search
-
-Metadata search is single-source by design. Each MetadataAgent run uses exactly one of:
-
-- `exa` — default, backed by Exa Agent Search.
-- `tmdb` — TMDB API search/detail.
-- `wikipedia` — Wikipedia search/page lookup.
-
-The agent does not chain sources or fall back from one source to another. Eval datasets should be created with an explicit source type and use that source as the dataset-name prefix, such as `exa-eval-...`. The legacy `combined` value is accepted only for old datasets and is normalized to `exa`.
-
-## Download Directories
-
-Each Downloader must define a default `download_dir`, using the path as seen by the Transmission server. The path may use the native absolute-path style of that server, such as `/volume1/downloads/rssripple`, `D:\Downloads\RSSRipple`, or a UNC path if supported by the Transmission daemon.
-
-Each Agent may optionally define a relative `download_subdir`; RSSRipple joins it under the Downloader directory when creating tasks.
-
-The resolved directory is stored on each `DownloadTask`, so retries keep using the original destination even if the Downloader or Agent configuration changes later. Agent subdirectories are validated as relative paths and cannot escape the Downloader root.
-
-RSSRipple does not change Transmission's global session download directory. It passes the resolved directory per torrent when calling Transmission.
-
-## Configuration
-
-Common environment variables:
-
-| Variable | Description |
-| --- | --- |
-| `DATABASE_URL` | SQLAlchemy database URL |
-| `REDIS_URL` | Optional Redis backend for queue distribution |
-| `QUEUE_BACKEND` | Queue backend: `"memory"` (default) or `"redis"` |
-| `LLM_API_KEY` | API key for LLM features |
-| `LLM_BASE_URL` | OpenAI-compatible base URL |
-| `LLM_MODEL` | Model for feed analysis, metadata agent, and suggestions. The metadata agent uses the same `LLM_MODEL` for title understanding and interpreting the selected metadata source. |
-| `EXA_API_KEY` | API key for default Exa Agent Search metadata source |
-| `EXA_EFFORT_LEVEL` | Exa Agent effort level: `minimal`, `low` (default), `medium`, `high`, or `xhigh` |
-| `TMDB_API_KEY` | Optional API key for the `tmdb` metadata source |
-| `POSTER_CACHE_DIR` | Local poster cache mounted at `/posters` |
-| `TRANSMISSION_TIMEOUT` | Transmission RPC timeout |
-| `MAX_RETRY_COUNT` | Max retry attempts for failed downloads (default `3`) |
-| `TASK_EXPIRE_DAYS` | Auto-cleanup completed tasks after N days (default `30`) |
-| `DEV_MODE` | Include stack traces in internal error responses when true |
-| `DEBUG` | Enable debug logging (default `false`) |
-| `LOG_LEVEL` | Logging level: `"DEBUG"`, `"INFO"` (default), `"WARNING"`, `"ERROR"` |
-
-## Local Development
-
-### Quick start (docker-compose)
+### 2. Run with Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-Web UI: [http://localhost:9001](http://localhost:9001)
+This starts the app **and** a Transmission instance:
 
-API docs: [http://localhost:9001/docs](http://localhost:9001/docs)
+| Service | URL | Purpose |
+| --- | --- | --- |
+| RSSRipple | http://localhost:9001 | Web UI |
+| API docs | http://localhost:9001/docs | OpenAPI / Swagger |
+| Transmission | http://localhost:9091 | Download backend |
 
-The compose file starts the app with a MemoryQueue backend and an SQLite database stored in `./data/`.
+SQLite + in-memory queue by default; data is persisted under `./data/`.
 
-### Manual run
+### 3. Run manually
 
 ```bash
 uv sync
@@ -132,44 +49,92 @@ cd frontend && npm install && npm run build && cd ..
 uv run uvicorn app.main:app --reload --port 9001
 ```
 
-## Tests
+## Obtaining API Credentials
 
-### Unit and API tests (fast, local SQLite)
+RSSRipple needs an LLM and at least one metadata source. Get the keys you want, then put them in `.env`.
+
+| Service | Where to get it | Env var | Required? |
+| --- | --- | --- | --- |
+| LLM (OpenAI-compatible) | [OpenRouter](https://openrouter.ai/keys) — or any OpenAI-compatible provider | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Yes — feed analysis, metadata agent, suggestions |
+| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | Optional — default metadata source |
+| Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | Optional — strong CJK coverage |
+| TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (apply for a v3 key) | `TMDB_API_KEY` | Optional — best for TV/movie ID matching |
+| Wikipedia | — | — | No key (free `wikipedia` library) |
+
+A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`. The `local` source needs no credentials — it matches against the local DB only.
+
+## Configuration
+
+Common variables (full list in [AGENTS.md](AGENTS.md), under "Other Conventions"):
+
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | SQLAlchemy database URL |
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible LLM for feed analysis, metadata agent, suggestions |
+| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` | Metadata source credentials — configure the sources you want |
+| `QUEUE_BACKEND` | `"memory"` (default) or `"redis"` (requires `REDIS_URL`) |
+| `POSTER_CACHE_DIR` | Poster image cache, served at `/posters` |
+
+Each metadata source appears as a candidate only when enabled **and** its API key is set (`wikipedia` needs no key). Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`.
+
+## Developer Guide
+
+### Local development
+
+The compose file watches `./app` and hot-reloads Python. Frontend changes are **not** hot-reloaded — run `npm run build` in `frontend/`, or `docker compose build app` to bake a new bundle into the image.
+
+### Tests
+
+**Unit & API tests** (fast, local SQLite):
 
 ```bash
 uv run pytest tests/unit tests/api -v
 ```
 
-599 tests, typically finish in under 60 seconds.
+**Integration tests** (docker-compose) — two profiles:
 
-### Integration tests (docker-compose)
-
-Two test profiles are available:
-
-**Single-node (SQLite + MemoryQueue)** — fast, no external dependencies:
+Single-node (SQLite + MemoryQueue) — fast, no external dependencies:
 
 ```bash
-# Clean stale database files from previous runs
-rm -rf data/ && mkdir -p data
-
-# Run all integration tests suitable for single-node
+rm -rf data/ && mkdir -p data   # stale SQLite files persist across `down -v`
 docker compose -f docker-compose.test.yml run --rm test-runner
-
-# Run a single integration test module
+# single module:
 docker compose -f docker-compose.test.yml run --rm test-runner \
   uv run pytest tests/integration/test_channel_workflow.py -v --tb=short
 ```
 
-**Distributed (PostgreSQL + Redis, two app replicas)** — exercises multi-instance queue dedup:
+Distributed (PostgreSQL + Redis, two app replicas) — exercises multi-instance queue dedup:
 
 ```bash
 docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 ```
 
-Tests that require a persistent network client (E2E, torrent lifecycle) are excluded from both profiles. Redis-specific job-queue tests are automatically skipped in single-node mode.
+Tests requiring a persistent network client (E2E, torrent lifecycle) are excluded from both profiles; Redis-specific job-queue tests are skipped in single-node mode.
 
-**Note:** `./data` is bind-mounted in the single-node profile, so stale SQLite files persist across `docker compose down -v`. Always run `rm -rf data/ && mkdir -p data` before a clean test run.
+### Contributing
 
-## Development Collaboration
+Branch naming follows [Conventional Branch](https://conventionalbranch.org/) v1.1.0. See [CONTRIBUTION.md](CONTRIBUTION.md) for the workflow and [AGENTS.md](AGENTS.md) (branch policy section) for the full branch specification.
 
-See [CONTRIBUTION.md](CONTRIBUTION.md) for branch naming conventions and development workflow. See [AGENTS.md](AGENTS.md#分支与协作规范) for the full branch specification (intended for AI agents).
+## Specs for Coding Agents
+
+If you are a coding agent (Claude Code, Cursor, Copilot, Codex, …) working on this repo, read these in order:
+
+- **[AGENTS.md](AGENTS.md)** — the authoritative spec: data models, Filter DSL, API endpoints, business logic, frontend routes, error handling, and the branch policy. This is the single source of truth for *how the system works*.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — module layout and runtime data flow.
+- **[overview.md](overview.md)** — design-logic analysis of the channel & metadata library.
+- **[DESIGN.md](DESIGN.md)** — design tokens and visual guidance (frontend only).
+
+Implementation must follow AGENTS.md. When code and AGENTS.md disagree, AGENTS.md describes the intended behavior — fix the code, or update AGENTS.md if the design has genuinely changed.
+
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
+| Database | SQLite (aiosqlite) by default; PostgreSQL-compatible architecture |
+| Queue / Scheduler | MemoryQueue or RedisQueue, APScheduler |
+| RSS | feedparser |
+| Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Exa / Jina / TMDB / Wikipedia |
+| Download | Transmission RPC |
+| Frontend | React, TypeScript, Vite, Ant Design |
+| Package manager | uv, npm |
