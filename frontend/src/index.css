@@ -29,6 +29,8 @@ html {
   --rr-primary: #1863dc;
   --rr-primary-soft: #f1f5ff;
   --rr-shadow: rgba(15, 23, 42, 0.12);
+  --rr-logo-bg: #17171c;
+  --rr-logo-fg: #ffffff;
 }
 
 :root[data-theme='dark'] {
@@ -45,6 +47,8 @@ html {
   --rr-primary: #72a2ff;
   --rr-primary-soft: #17243d;
   --rr-shadow: rgba(0, 0, 0, 0.42);
+  --rr-logo-bg: #f3f3f5;
+  --rr-logo-fg: #17171c;
 }
 
 body {
