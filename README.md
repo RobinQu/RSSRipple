@@ -115,6 +115,16 @@ Tests requiring a persistent network client (E2E, torrent lifecycle) are exclude
 
 Branch naming follows [Conventional Branch](https://conventionalbranch.org/) v1.1.0. See [CONTRIBUTION.md](CONTRIBUTION.md) for the workflow and [AGENTS.md](AGENTS.md) (branch policy section) for the full branch specification.
 
+### CI/CD
+
+GitHub Actions handles continuous integration and delivery:
+
+- **CI Fast Gate** (`ci-fast.yml`) — feature/fix branches and their PRs: lint + unit/API tests.
+- **CI Strict Gate** (`ci-strict.yml`) — `main`, `develop`, `release/**` and their PRs: lint + unit/API + integration tests.
+- **Docker Publish** (`docker-publish.yml`) — on push to `main` or a `v*` tag, builds a multi-arch (`linux/amd64` + `linux/arm64`) image and pushes it to `ghcr.io/robinqu/rssripple`. Tags: `main` → `:latest`, `:main`, `:sha-<short>`; `v1.2.3` → `:1.2.3`, `:1.2`, `:1`. The build is gated on lint + unit/API tests.
+
+See [CONTRIBUTION.md](CONTRIBUTION.md) for the full workflow and the recommended release flow.
+
 ## Specs for Coding Agents
 
 If you are a coding agent (Claude Code, Cursor, Copilot, Codex, …) working on this repo, read these in order:

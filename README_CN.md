@@ -113,6 +113,16 @@ docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 
 分支命名遵循 [Conventional Branch](https://conventionalbranch.org/) v1.1.0。工作流见 [CONTRIBUTION.md](CONTRIBUTION.md)，完整分支规范见 [AGENTS.md](AGENTS.md)（分支与协作规范小节）。
 
+### CI/CD
+
+GitHub Actions 负责持续集成与持续交付：
+
+- **CI Fast Gate**（`ci-fast.yml`）— feature/fix 等开发分支及其 PR：lint + 单元/API 测试。
+- **CI Strict Gate**（`ci-strict.yml`）— `main`、`develop`、`release/**` 及其 PR：lint + 单元/API + 集成测试。
+- **Docker Publish**（`docker-publish.yml`）— 推送到 `main` 或打 `v*` 标签时，构建多架构（`linux/amd64` + `linux/arm64`）镜像并发布到 `ghcr.io/robinqu/rssripple`。标签：`main` → `:latest`、`:main`、`:sha-<短哈希>`；`v1.2.3` → `:1.2.3`、`:1.2`、`:1`。构建前以 lint + 单元/API 测试作为门禁。
+
+完整工作流与推荐发布流程见 [CONTRIBUTION.md](CONTRIBUTION.md)。
+
 ## 面向 Coding Agents 的 Spec 说明
 
 如果你是在本仓库工作的 coding agent（Claude Code、Cursor、Copilot、Codex 等），按以下顺序阅读：
