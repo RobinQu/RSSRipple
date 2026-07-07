@@ -34,7 +34,6 @@ import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import { timeAgo } from '../utils/format';
-import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
@@ -42,10 +41,6 @@ import type {
 } from '../types';
 
 const { Title, Text } = Typography;
-
-function posterFor(group: GroupedResource) {
-  return posterUrl(group.poster_url);
-}
 
 function groupIcon(type: GroupedResource['type']) {
   if (type === 'series') return <Tv size={14} />;
@@ -333,12 +328,6 @@ export default function ChannelDetail() {
           key: g.id || g.title,
           label: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
-              <img
-                src={posterFor(g)}
-                alt=""
-                style={{ width: 32, height: 48, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }}
-                onError={useDefaultPoster}
-              />
               <div>
                 <Space size={6}>
                   <Text strong>{g.title}</Text>
@@ -408,7 +397,7 @@ export default function ChannelDetail() {
                   {g.resources.map((r) => (
                     <tr
                       key={r.id}
-                      style={{ borderTop: '1px solid #f2f2f2', cursor: 'pointer' }}
+                      style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
                       onClick={() => setSelectedResource(r)}
                       className="resource-row"
                     >
@@ -514,9 +503,9 @@ export default function ChannelDetail() {
                       >
                         <Space size={2}>
                           <Tooltip
-                            title={<span style={{ wordBreak: 'break-all' }}>{r.title_raw}</span>}
+                            title={<span className="raw-title-tooltip-content">{r.title_raw}</span>}
                             placement="topRight"
-                            styles={{ root: { maxWidth: 480 } }}
+                            classNames={{ root: 'raw-title-tooltip' }}
                           >
                             <Button
                               type="text"
@@ -583,7 +572,7 @@ export default function ChannelDetail() {
               {unknownGroup.resources.map((r) => (
                 <tr
                   key={r.id}
-                  style={{ borderTop: '1px solid #f2f2f2', cursor: 'pointer' }}
+                  style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
                   onClick={() => setSelectedResource(r)}
                   className="resource-row"
                 >
@@ -626,10 +615,6 @@ export default function ChannelDetail() {
           </Button>
         </Space>
       )}
-
-      <style>{`
-        .resource-row:hover { background: #f7f7f5; }
-      `}</style>
 
       <ResourceDetailDrawer
         resource={selectedResource}

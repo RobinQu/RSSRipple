@@ -20,7 +20,7 @@ const { Sider } = Layout;
 const githubUrl = 'https://github.com/RobinQu/RSSRipple';
 
 const iconButtonStyle = {
-  color: '#616161',
+  color: 'var(--rr-text-secondary)',
   height: 36,
   width: 36,
 };
@@ -105,14 +105,14 @@ export default function Sidebar() {
       collapsedWidth={72}
       breakpoint="lg"
       style={{
-        borderRight: '1px solid #d9d9dd',
+        borderRight: '1px solid var(--rr-border)',
         position: 'relative',
       }}
     >
       <div
         style={{
           alignItems: 'center',
-          borderBottom: '1px solid #d9d9dd',
+          borderBottom: '1px solid var(--rr-border)',
           display: 'flex',
           height: 78,
           justifyContent: collapsed ? 'center' : 'flex-start',
@@ -165,19 +165,19 @@ export default function Sidebar() {
         {!collapsed && (
           <div
             style={{
-              color: '#93939f',
+              color: 'var(--rr-text-muted)',
               fontSize: 12,
               lineHeight: 1.4,
               textAlign: 'center',
             }}
           >
             <span>v0.2.0</span>
-            <span style={{ color: '#d9d9dd', padding: '0 6px' }}>/</span>
+            <span style={{ color: 'var(--rr-border)', padding: '0 6px' }}>/</span>
             <a
               href={githubUrl}
               target="_blank"
               rel="noreferrer"
-              style={{ color: '#616161', fontWeight: 650 }}
+              style={{ color: 'var(--rr-text-secondary)', fontWeight: 650 }}
             >
               GitHub
             </a>
@@ -219,7 +219,7 @@ export default function Sidebar() {
                 className="sidebar-control-button"
                 type="text"
                 icon={<Languages size={16} />}
-                style={{ color: '#616161' }}
+                style={{ color: 'var(--rr-text-secondary)' }}
               >
                 {t('language.switch')}
               </Button>
@@ -231,7 +231,7 @@ export default function Sidebar() {
             icon={collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
             onClick={() => handleCollapse(!collapsed)}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          style={collapsed ? iconButtonStyle : { color: '#616161' }}
+          style={collapsed ? iconButtonStyle : { color: 'var(--rr-text-secondary)' }}
           />
         </div>
         {collapsed ? null : (
@@ -242,7 +242,7 @@ export default function Sidebar() {
             aria-label="RSSRipple GitHub"
             style={{
               alignItems: 'center',
-              color: '#93939f',
+              color: 'var(--rr-text-muted)',
               display: 'flex',
               fontSize: 11,
               gap: 4,

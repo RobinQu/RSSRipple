@@ -1,7 +1,7 @@
 import type { ThemeConfig } from 'antd';
 
 // Cohere-inspired design tokens from DESIGN.md.
-export const raycastColors = {
+export const lightColors = {
   canvas: '#ffffff',
   surface: '#ffffff',
   'surface-elevated': '#f7f7f5',
@@ -41,6 +41,48 @@ export const raycastColors = {
   'key-bg-end': '#ffffff',
 };
 
+export const darkColors: typeof lightColors = {
+  canvas: '#111114',
+  surface: '#17171c',
+  'surface-elevated': '#1f1f24',
+  'surface-card': '#282830',
+  'button-fg': '#17171c',
+
+  hairline: '#303038',
+  'hairline-soft': '#26262d',
+  'hairline-strong': '#5f6070',
+
+  ink: '#f3f3f5',
+  body: '#c4c4cc',
+  charcoal: '#ffffff',
+  mute: '#93939f',
+  ash: '#a6a6b2',
+  stone: '#383844',
+  'on-dark': '#ffffff',
+  'on-dark-mute': 'rgba(255,255,255,0.72)',
+
+  primary: '#ffffff',
+  'primary-pressed': '#d9d9dd',
+  'on-primary': '#17171c',
+
+  'accent-blue': '#72a2ff',
+  'accent-blue-soft': '#17243d',
+  'accent-red': '#ff8b8b',
+  'accent-red-soft': '#341919',
+  'accent-green': '#89d9c8',
+  'accent-green-soft': '#15352f',
+  'accent-yellow': '#ffb29c',
+  'accent-yellow-soft': '#3d241f',
+
+  'hero-stripe-start': '#0c3c35',
+  'hero-stripe-end': '#08111e',
+
+  'key-bg-start': '#282830',
+  'key-bg-end': '#17171c',
+};
+
+export const raycastColors = lightColors;
+
 export const raycastRadius = {
   xs: 4,
   sm: 8,
@@ -61,30 +103,34 @@ export const raycastSpacing = {
 };
 
 // Map design tokens to antd seed tokens.
-export const seedTokens: ThemeConfig['token'] = {
+export const createSeedTokens = (
+  mode: 'light' | 'dark' = 'light',
+): ThemeConfig['token'] => {
+  const colors = mode === 'dark' ? darkColors : lightColors;
+  return {
   // Colors
-  colorPrimary: raycastColors.primary,
-  colorTextLightSolid: raycastColors['button-fg'],
-  colorSuccess: raycastColors['accent-green'],
-  colorWarning: raycastColors['accent-yellow'],
-  colorError: raycastColors['accent-red'],
-  colorInfo: raycastColors['accent-blue'],
+  colorPrimary: colors.primary,
+  colorTextLightSolid: colors['button-fg'],
+  colorSuccess: colors['accent-green'],
+  colorWarning: colors['accent-yellow'],
+  colorError: colors['accent-red'],
+  colorInfo: colors['accent-blue'],
 
-  colorBgBase: raycastColors.canvas,
-  colorBgContainer: raycastColors.surface,
-  colorBgElevated: raycastColors['surface-elevated'],
-  colorBgLayout: raycastColors.canvas,
-  colorBgSpotlight: raycastColors['surface-card'],
+  colorBgBase: colors.canvas,
+  colorBgContainer: colors.surface,
+  colorBgElevated: colors['surface-elevated'],
+  colorBgLayout: colors.canvas,
+  colorBgSpotlight: colors['surface-card'],
 
   // Text colors
-  colorText: raycastColors.ink,
-  colorTextSecondary: raycastColors.body,
-  colorTextTertiary: raycastColors.mute,
-  colorTextQuaternary: raycastColors.ash,
+  colorText: colors.ink,
+  colorTextSecondary: colors.body,
+  colorTextTertiary: colors.mute,
+  colorTextQuaternary: colors.ash,
 
   // Border
-  colorBorder: raycastColors.hairline,
-  colorBorderSecondary: raycastColors['hairline-soft'],
+  colorBorder: colors.hairline,
+  colorBorderSecondary: colors['hairline-soft'],
 
   fontFamily: "'Inter', 'Unica77 Cohere Web', system-ui, -apple-system, sans-serif",
   fontSize: 14,
@@ -100,4 +146,7 @@ export const seedTokens: ThemeConfig['token'] = {
 
   // Motion
   motion: true,
+  };
 };
+
+export const seedTokens: ThemeConfig['token'] = createSeedTokens('light');

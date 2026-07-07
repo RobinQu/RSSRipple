@@ -49,3 +49,6 @@ htmlcov/
 .workbuddy/
 .mcp.json
 .opencode/
+
+# Dogfood / QA scratch output
+dogfood-output/

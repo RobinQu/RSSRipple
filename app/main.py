@@ -208,7 +208,12 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     logger.info("Database ready.")
 
     # Init scheduler
-    from app.services.scheduler import init_scheduler, setup_channel_jobs, shutdown_scheduler
+    from app.services.scheduler import (
+        init_scheduler,
+        setup_channel_jobs,
+        setup_metadata_refresh_job,
+        shutdown_scheduler,
+    )
     await init_scheduler()
 
     # Setup channel jobs with a DB session
@@ -231,6 +236,9 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
 
     await queue.start()
+    async with async_session_factory() as sess:
+        await setup_metadata_refresh_job(sess)
+        await sess.commit()
     try:
         yield
     finally:

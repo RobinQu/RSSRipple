@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Modal, Select, Spin, Tag, Typography, App, Alert } from 'antd';
+import { Modal, Select, Spin, Tag, Typography, App, Alert, Switch, InputNumber } from 'antd';
 import { worksApi, type MetadataConfigResponse } from '../api/works';
 
 const { Text } = Typography;
@@ -18,6 +18,8 @@ export default function MetadataConfigModal({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [value, setValue] = useState<string | null>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [intervalMinutes, setIntervalMinutes] = useState(1440);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -26,6 +28,8 @@ export default function MetadataConfigModal({ open, onClose }: Props) {
       if (r.success && r.data) {
         setConfig(r.data);
         setValue(r.data.default_source ?? null);
+        setAutoRefreshEnabled(r.data.auto_refresh_enabled);
+        setIntervalMinutes(r.data.auto_refresh_interval_minutes);
       }
     } finally {
       setLoading(false);
@@ -51,9 +55,13 @@ export default function MetadataConfigModal({ open, onClose }: Props) {
   };
 
   const handleSave = async () => {
+    if (!value) {
+      message.warning(t('works.configSourceRequired'));
+      return;
+    }
     setSaving(true);
     try {
-      const r = await worksApi.setMetadataConfig(value);
+      const r = await worksApi.setMetadataConfig(value, autoRefreshEnabled, intervalMinutes);
       if (r.success) {
         message.success(t('works.configSaved'));
         onClose();
@@ -74,7 +82,7 @@ export default function MetadataConfigModal({ open, onClose }: Props) {
       okText={t('common.save')}
       cancelText={t('common.cancel')}
       confirmLoading={saving}
-      okButtonProps={{ disabled: noneAvailable && value === null ? false : noneAvailable }}
+      okButtonProps={{ disabled: noneAvailable || !value }}
     >
       {loading ? (
         <div style={{ textAlign: 'center', padding: 24 }}>
@@ -85,9 +93,8 @@ export default function MetadataConfigModal({ open, onClose }: Props) {
           <Text type="secondary">{t('works.configDesc')}</Text>
           <Select
             value={value}
-            onChange={(v) => setValue(v ?? null)}
+            onChange={(v) => setValue(v)}
             options={buildOptions()}
-            allowClear
             placeholder={t('works.configPlaceholder')}
             style={{ width: '100%' }}
           />
@@ -97,6 +104,44 @@ export default function MetadataConfigModal({ open, onClose }: Props) {
               {t(`channels.sources.${value}`, { defaultValue: value })}
             </Tag>
           )}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+              marginTop: 8,
+            }}
+          >
+            <div>
+              <Text strong>{t('works.autoRefresh')}</Text>
+              <br />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('works.autoRefreshDesc')}
+              </Text>
+            </div>
+            <Switch checked={autoRefreshEnabled} onChange={setAutoRefreshEnabled} />
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 16,
+            }}
+          >
+            <Text>{t('works.refreshInterval')}</Text>
+            <InputNumber
+              min={30}
+              max={10080}
+              step={30}
+              disabled={!autoRefreshEnabled}
+              value={intervalMinutes}
+              addonAfter={t('works.minutes')}
+              onChange={(v) => setIntervalMinutes(Number(v) || 1440)}
+              style={{ width: 180 }}
+            />
+          </div>
           {noneAvailable && (
             <Alert
               type="warning"

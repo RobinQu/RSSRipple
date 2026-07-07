@@ -3,7 +3,7 @@
 
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,13 +13,20 @@ from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.schemas.common import paginated_response, success_response
 from app.services.metadata_agent import (
-    DEFAULT_METADATA_SOURCE,
     SUPPORTED_METADATA_SOURCES,
     get_metadata_source_catalog,
+    is_metadata_source_available,
 )
 from app.services.metadata_service import refresh_work_metadata
 from app.services.settings_service import (
+    DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+    MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+    MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+    SETTING_METADATA_AUTO_REFRESH_ENABLED,
+    SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
     SETTING_DEFAULT_METADATA_SOURCE,
+    get_bool_setting,
+    get_int_setting,
     get_setting,
     resolve_default_metadata_source,
     set_setting,
@@ -34,18 +41,29 @@ router = APIRouter()
 
 
 class MetadataConfigUpdate(BaseModel):
-    default_source: str | None = None
+    default_source: str
+    auto_refresh_enabled: bool = False
+    auto_refresh_interval_minutes: int = DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES
 
     @field_validator("default_source")
     @classmethod
-    def _validate_source(cls, v: str | None) -> str | None:
+    def _validate_source(cls, v: str) -> str:
         if v is None:
-            return None
+            raise ValueError("metadata source is required")
         v = v.strip().lower()
         if not v:
-            return None
+            raise ValueError("metadata source is required")
         if v not in SUPPORTED_METADATA_SOURCES:
             raise ValueError(f"unsupported metadata_source: {v!r}")
+        return v
+
+    @field_validator("auto_refresh_interval_minutes")
+    @classmethod
+    def _validate_interval(cls, v: int) -> int:
+        if v < MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES:
+            return MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES
+        if v > MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES:
+            return MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES
         return v
 
 
@@ -67,10 +85,21 @@ class BatchRefreshMetadataRequest(BaseModel):
 async def get_metadata_config(db: AsyncSession = Depends(get_db)):
     """Return the default metadata search source + the source catalog."""
     default_source = await get_setting(db, SETTING_DEFAULT_METADATA_SOURCE)
+    auto_refresh_enabled = await get_bool_setting(
+        db, SETTING_METADATA_AUTO_REFRESH_ENABLED, False
+    )
+    auto_refresh_interval_minutes = await get_int_setting(
+        db,
+        SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+    )
     return success_response({
         "default_source": default_source,
+        "auto_refresh_enabled": auto_refresh_enabled,
+        "auto_refresh_interval_minutes": auto_refresh_interval_minutes,
         "sources": get_metadata_source_catalog(),
-        "default": DEFAULT_METADATA_SOURCE,
     })
 
 
@@ -79,9 +108,30 @@ async def put_metadata_config(
     body: MetadataConfigUpdate, db: AsyncSession = Depends(get_db)
 ):
     """Set the default metadata search source used by the refresh actions."""
+    if not is_metadata_source_available(body.default_source):
+        raise HTTPException(status_code=400, detail="metadata source is not available")
     await set_setting(db, SETTING_DEFAULT_METADATA_SOURCE, body.default_source)
+    await set_setting(
+        db, SETTING_METADATA_AUTO_REFRESH_ENABLED, "true" if body.auto_refresh_enabled else "false"
+    )
+    await set_setting(
+        db,
+        SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        str(body.auto_refresh_interval_minutes),
+    )
     await db.commit()
-    return success_response({"default_source": body.default_source})
+    try:
+        from app.services.scheduler import reschedule_metadata_refresh_job
+
+        await reschedule_metadata_refresh_job(db)
+    except RuntimeError:
+        pass
+    return success_response({
+        "default_source": body.default_source,
+        "auto_refresh_enabled": body.auto_refresh_enabled,
+        "auto_refresh_interval_minutes": body.auto_refresh_interval_minutes,
+        "sources": get_metadata_source_catalog(),
+    })
 
 
 @router.post("/works/refresh-metadata")
@@ -89,7 +139,10 @@ async def refresh_single_metadata(
     body: RefreshMetadataRequest, db: AsyncSession = Depends(get_db)
 ):
     """Refresh a single work's missing metadata fields from the selected source."""
-    source = await resolve_default_metadata_source(db, body.source)
+    try:
+        source = await resolve_default_metadata_source(db, body.source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     result = await refresh_work_metadata(db, body.id, body.content_type, source)
     return success_response(result)
 
@@ -105,7 +158,10 @@ async def batch_refresh_metadata(
     """
     if not body.items:
         return success_response({"job": None, "count": 0, "source": None})
-    source = await resolve_default_metadata_source(db, body.source)
+    try:
+        source = await resolve_default_metadata_source(db, body.source)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     from app.services.task_queue import task_queue
 
     job = await task_queue.enqueue(
@@ -144,6 +200,10 @@ def _normalize_series(s: TVSeries) -> dict:
         "genre": s.genre or [],
         "episodes": s.number_of_episodes,
         "seasons": s.number_of_seasons,
+        "number_of_episodes": s.number_of_episodes,
+        "number_of_seasons": s.number_of_seasons,
+        "release_date": None,
+        "runtime": None,
         "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
         "updated_at": s.updated_at.isoformat() + "Z" if s.updated_at else None,
     }
@@ -163,6 +223,10 @@ def _normalize_movie(m: Movie) -> dict:
         "genre": m.genre or [],
         "episodes": None,
         "seasons": None,
+        "number_of_episodes": None,
+        "number_of_seasons": None,
+        "release_date": str(m.release_date) if m.release_date else None,
+        "runtime": m.runtime,
         "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
         "updated_at": m.updated_at.isoformat() + "Z" if m.updated_at else None,
     }

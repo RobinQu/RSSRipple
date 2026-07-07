@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="360" viewBox="0 0 240 360" role="img" aria-label="Default poster">
+  <rect width="240" height="360" rx="14" fill="#17171c"/>
+  <rect x="14" y="14" width="212" height="332" rx="10" fill="#1f1f24" stroke="#303038" stroke-width="2"/>
+  <path d="M74 122h62c24 0 43 19 43 43v30c0 24-19 43-43 43H74z" fill="#89d9c8"/>
+  <path d="M92 145h42c11 0 20 9 20 20v30c0 11-9 20-20 20H92z" fill="#15352f"/>
+  <rect x="74" y="122" width="22" height="116" fill="#3b7b70"/>
+  <rect x="96" y="144" width="35" height="12" fill="#89d9c8"/>
+  <rect x="96" y="173" width="54" height="12" fill="#89d9c8"/>
+  <rect x="96" y="202" width="29" height="12" fill="#89d9c8"/>
+  <path d="M74 270h92" stroke="#3b7b70" stroke-width="8" stroke-linecap="square"/>
+  <path d="M91 292h58" stroke="#5f6070" stroke-width="6" stroke-linecap="square"/>
+</svg>

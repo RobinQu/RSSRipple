@@ -11,6 +11,7 @@ import { seriesApi } from '../api/series';
 import { worksApi } from '../api/works';
 import type { TVSeries, Episode, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 
 const { Title, Text } = Typography;
 
@@ -158,9 +159,12 @@ export default function SeriesDetail() {
       {/* Metadata card */}
       <Card style={{ marginBottom: 16 }}>
         <Space align="start" size={16}>
-          {series.poster_url && (
-            <img src={series.poster_url} alt="" style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8 }} />
-          )}
+          <img
+            src={posterUrl(series.poster_url)}
+            alt=""
+            style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
+            onError={useDefaultPoster}
+          />
           <div style={{ flex: 1 }}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label={t('series.cnTitle')}>{series.title_cn || '—'}</Descriptions.Item>

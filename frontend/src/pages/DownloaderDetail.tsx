@@ -250,9 +250,7 @@ export default function DownloaderDetail() {
           <Descriptions.Item label={t('common.url')}>{dl.url}</Descriptions.Item>
           <Descriptions.Item label={t('downloaders.defaultDir')}>{dl.download_dir}</Descriptions.Item>
           <Descriptions.Item label={t('common.status')}>
-            <Tag color={dl.status === 'connected' ? 'success' : dl.status === 'error' ? 'error' : 'default'}>
-              {dl.status.toUpperCase()}
-            </Tag>
+            <StatusBadge status={dl.status} />
           </Descriptions.Item>
           <Descriptions.Item label={t('downloaders.lastCheck')}>
             {dl.last_checked_at ? timeAgo(dl.last_checked_at) : t('format.dash')}

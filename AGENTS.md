@@ -985,15 +985,21 @@ fetch_and_link_metadata(resource, channel, db)
 
 MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必须选择且只选择一个数据源，由 LLM 基于该数据源返回的证据做标题理解、集数/季数推断和最终结构化输出。
 
-支持的数据源：
-- `exa`：Exa Agent Search，默认数据源。通过 Exa Agent API 创建 run，传入结构化 `output_schema`，轮询完成后读取 `output.structured.candidates`。适合 Web 证据覆盖面更广的标题搜索与评测。
+支持的数据源（`SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}`）：
+- `exa`：Exa Agent Search，代码默认数据源（`DEFAULT_METADATA_SOURCE = "exa"`）。通过 Exa Agent API 创建 run，传入结构化 `output_schema`，轮询完成后读取 `output.structured.candidates`。适合 Web 证据覆盖面更广的标题搜索与评测。
+- `jina`：Jina Search + Reader。通过 `s.jina.ai` 搜索 + `r.jina.ai` Reader 抓取页面 markdown 作为证据；廉价 web 搜索，对中日韩标题覆盖较好。
 - `tmdb`：TMDB Search。仅使用 TMDB API 的搜索/详情工具，适合结构化影视库匹配。
 - `wikipedia`：Wikipedia Search。仅使用 Wikipedia 搜索与页面工具，适合以百科页面为唯一证据的评测。
+- `local`：仅本地 DB 匹配，不调用任何外部源（关闭 MetadataAgent 外部搜索时使用）。
+
+数据源选择规则：
+- 一个数据源当且仅当"启用开关开启 **且** 凭证已配置"时才在 UI（频道表单 / 作品库元数据刷新）中可选；`wikipedia` 无需凭证，仅看启用开关。启用开关环境变量：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（默认 `true`）。
+- 作品库"刷新元数据"动作使用的默认数据源由运行时设置 `default_metadata_source`（`app_settings` 表）决定，需用户在 UI 主动选择一个可用数据源；未配置时刷新请求返回 400。频道级的 `metadata_source` 在频道表单中单独选择。
 
 兼容规则：
 - `combined` 仅作为旧评测数据集值保留；运行时归一化为默认 `exa`，不得作为新数据集或新搜索任务的数据源类型。
-- 生产 RSS 抓取当前默认使用 `exa`。若未来为 Channel 增加可配置数据源字段，也必须保持"单次只使用一个数据源"的约束。
-- eval 标注平台的新建 Dataset 必须人工选择 `exa` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `exa-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
+- 单次搜索必须保持"只使用一个数据源"的约束，不得跨数据源 fallback。
+- eval 标注平台的新建 Dataset 必须人工选择 `exa` / `jina` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `exa-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
 
 ### Agent 运行生命周期（run_agent）
 
@@ -1329,7 +1335,23 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
   - 子目录 API 表达推荐使用 `/` 分隔；后端根据 Downloader 根目录风格拼接，标准化后必须保证最终路径仍在 `DownloaderInstance.download_dir` 下。
   - `DownloadTask.download_dir` 保存创建任务时解析出的最终绝对路径；任务重试沿用该字段。
 - **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
-- **配置项**（环境变量）：`DATABASE_URL`、`REDIS_URL`（可选）、`LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`（用于 feed 分析、统一 MetadataAgent、PendingDecision 建议）、`EXA_API_KEY`（用于默认 Exa Agent Search）、`EXA_EFFORT_LEVEL`（Exa Agent effort，默认 `low`）、`TMDB_API_KEY`（用于 TMDB Search）、`POSTER_CACHE_DIR`（默认 `./data/posters`）、`TRANSMISSION_TIMEOUT`、`DEV_MODE`（默认 false）。MetadataAgent 通过 `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` 配置推理模型。Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
+- **配置项**（环境变量，完整列表）：
+  - `DATABASE_URL`：SQLAlchemy 数据库 URL（默认 `sqlite+aiosqlite:///data/rss_ripple_dev.db`）。
+  - `QUEUE_BACKEND`：队列后端，`"memory"`（默认）或 `"redis"`。
+  - `REDIS_URL`：可选 Redis 地址，`QUEUE_BACKEND=redis` 时必填。
+  - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`：OpenAI 兼容 LLM，用于 feed 分析、统一 MetadataAgent、PendingDecision 建议。
+  - `EXA_API_KEY` / `EXA_EFFORT_LEVEL`（默认 `low`，可选 `minimal`/`low`/`medium`/`high`/`xhigh`）：Exa Agent Search 数据源。
+  - `JINA_API_KEY`：Jina Search + Reader 数据源。
+  - `TMDB_API_KEY`：TMDB 数据源（可选）。
+  - `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下从 UI 隐藏该源。
+  - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
+  - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
+  - `TRANSMISSION_TIMEOUT`：Transmission RPC 超时。
+  - `MAX_RETRY_COUNT`：失败下载最大重试次数（默认 `3`）。
+  - `TASK_EXPIRE_DAYS`：已完成任务自动清理天数（默认 `30`）。
+  - `DEV_MODE`：为 `true` 时内部错误响应含堆栈（默认 `false`）。
+  - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
+  - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。

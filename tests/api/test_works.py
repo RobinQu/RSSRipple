@@ -12,25 +12,33 @@ class TestWorksMetadataConfig:
         data = res.json()["data"]
         assert "sources" in data
         assert data["default_source"] is None
-        assert data["default"] == "exa"
+        assert data["auto_refresh_enabled"] is False
+        assert data["auto_refresh_interval_minutes"] == 1440
 
     async def test_put_then_get_config(self, client):
-        res = await client.put("/api/v1/works/metadata-config", json={"default_source": "tmdb"})
+        res = await client.put(
+            "/api/v1/works/metadata-config",
+            json={
+                "default_source": "wikipedia",
+                "auto_refresh_enabled": True,
+                "auto_refresh_interval_minutes": 60,
+            },
+        )
         assert res.status_code == 200
-        assert res.json()["data"]["default_source"] == "tmdb"
+        assert res.json()["data"]["default_source"] == "wikipedia"
         got = await client.get("/api/v1/works/metadata-config")
-        assert got.json()["data"]["default_source"] == "tmdb"
+        data = got.json()["data"]
+        assert data["default_source"] == "wikipedia"
+        assert data["auto_refresh_enabled"] is True
+        assert data["auto_refresh_interval_minutes"] == 60
 
     async def test_put_rejects_invalid_source(self, client):
         res = await client.put("/api/v1/works/metadata-config", json={"default_source": "bogus"})
         assert res.status_code == 422
 
-    async def test_put_clears_source(self, client):
-        await client.put("/api/v1/works/metadata-config", json={"default_source": "tmdb"})
+    async def test_put_rejects_empty_source(self, client):
         res = await client.put("/api/v1/works/metadata-config", json={"default_source": None})
-        assert res.status_code == 200
-        got = await client.get("/api/v1/works/metadata-config")
-        assert got.json()["data"]["default_source"] is None
+        assert res.status_code == 422
 
 
 class TestWorksRefreshMetadata:
@@ -52,7 +60,7 @@ class TestWorksRefreshMetadata:
         ):
             res = await client.post(
                 "/api/v1/works/refresh-metadata",
-                json={"id": sample_series.id, "content_type": "tv"},
+                json={"id": sample_series.id, "content_type": "tv", "source": "wikipedia"},
             )
         assert res.status_code == 200
         data = res.json()["data"]
@@ -71,7 +79,7 @@ class TestWorksRefreshMetadata:
         ):
             res = await client.post(
                 "/api/v1/works/refresh-metadata",
-                json={"id": "nope", "content_type": "tv"},
+                json={"id": "nope", "content_type": "tv", "source": "wikipedia"},
             )
         assert res.status_code == 200
         assert res.json()["data"]["found"] is False
@@ -98,7 +106,10 @@ class TestWorksRefreshMetadata:
         monkeypatch.setattr(tq_mod, "task_queue", fake)
         res = await client.post(
             "/api/v1/works/batch-refresh-metadata",
-            json={"items": [{"id": sample_series.id, "content_type": "tv"}]},
+            json={
+                "items": [{"id": sample_series.id, "content_type": "tv"}],
+                "source": "wikipedia",
+            },
         )
         assert res.status_code == 200
         data = res.json()["data"]
@@ -107,7 +118,7 @@ class TestWorksRefreshMetadata:
         fake.enqueue.assert_awaited_once()
         assert fake.enqueue.call_args.args[0] == "refresh_works_metadata"
         payload = fake.enqueue.call_args.args[2]
-        assert payload["source"] == "exa"  # fell back to default (no setting)
+        assert payload["source"] == "wikipedia"
         assert payload["items"][0]["id"] == sample_series.id
 
     async def test_batch_refresh_empty(self, client):
