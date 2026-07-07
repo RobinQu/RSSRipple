@@ -10,7 +10,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.services.task_queue import task_queue
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -77,6 +76,51 @@ async def setup_channel_jobs(db) -> None:  # pragma: no cover - wiring only
     logger.info("Scheduled %d active channel fetch jobs", len(channels))
 
 
+async def setup_metadata_refresh_job(db) -> None:  # pragma: no cover - wiring only
+    """Register the optional periodic works metadata refresh job from settings."""
+    await reschedule_metadata_refresh_job(db)
+
+
+async def reschedule_metadata_refresh_job(db) -> None:  # pragma: no cover - wiring only
+    from app.services.settings_service import (
+        DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        SETTING_METADATA_AUTO_REFRESH_ENABLED,
+        SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        get_bool_setting,
+        get_int_setting,
+    )
+
+    sched = get_scheduler()
+    job_id = "metadata_refresh"
+    try:
+        sched.remove_job(job_id)
+    except Exception:
+        pass
+
+    enabled = await get_bool_setting(db, SETTING_METADATA_AUTO_REFRESH_ENABLED, False)
+    if not enabled:
+        logger.info("Periodic metadata refresh is disabled")
+        return
+
+    interval_minutes = await get_int_setting(
+        db,
+        SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+        MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
+    )
+    sched.add_job(
+        _run_metadata_refresh,
+        trigger=IntervalTrigger(minutes=interval_minutes),
+        id=job_id,
+        replace_existing=True,
+        next_run_time=utcnow() + timedelta(seconds=5),
+    )
+    logger.info("Scheduled periodic metadata refresh every %d minutes", interval_minutes)
+
+
 def schedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
     sched = get_scheduler()
     job_id = f"channel:{channel.id}"
@@ -107,6 +151,8 @@ def reschedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
 
 
 async def _run_channel_fetch(channel_id: str) -> None:  # pragma: no cover - wiring only
+    from app.services.task_queue import task_queue
+
     try:
         await task_queue.enqueue(
             "fetch_channel",
@@ -115,6 +161,41 @@ async def _run_channel_fetch(channel_id: str) -> None:  # pragma: no cover - wir
         )
     except Exception as e:
         logger.warning("Failed to enqueue fetch for channel %s: %s", channel_id, e)
+
+
+async def _run_metadata_refresh() -> None:  # pragma: no cover - wiring only
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from app.database import committed_session
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+    from app.services.settings_service import resolve_default_metadata_source
+    from app.services.task_queue import task_queue
+
+    async with committed_session() as db:
+        try:
+            source = await resolve_default_metadata_source(db)
+        except ValueError as e:
+            logger.warning("Periodic metadata refresh skipped: %s", e)
+            return
+
+        series_ids = (await db.execute(select(TVSeries.id))).scalars().all()
+        movie_ids = (await db.execute(select(Movie.id))).scalars().all()
+        items = (
+            [{"id": wid, "content_type": "tv"} for wid in series_ids]
+            + [{"id": wid, "content_type": "movie"} for wid in movie_ids]
+        )
+
+    if not items:
+        return
+
+    await task_queue.enqueue(
+        "refresh_works_metadata",
+        f"periodic_refresh_works:{uuid4().hex}",
+        {"items": items, "source": source},
+    )
 
 
 async def _sync_download_progress() -> None:

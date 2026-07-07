@@ -2,19 +2,14 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Zap, Edit } from 'lucide-react';
-import { Table, Button, Space, Typography, App, Empty, Tag } from 'antd';
+import { Table, Button, Space, Typography, App, Empty } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { downloadersApi } from '../api/downloaders';
 import type { DownloaderInstance } from '../types';
 import { timeAgo } from '../utils/format';
+import StatusBadge from '../components/StatusBadge';
 
 const { Title } = Typography;
-
-const STATUS_COLOR: Record<string, string> = {
-  connected: 'success',
-  disconnected: 'default',
-  error: 'error',
-};
 
 export default function Downloaders() {
   const [items, setItems] = useState<DownloaderInstance[]>([]);
@@ -115,9 +110,7 @@ export default function Downloaders() {
       dataIndex: 'status',
       key: 'status',
       width: 120,
-      render: (s: string) => (
-        <Tag color={STATUS_COLOR[s] ?? 'default'}>{s.toUpperCase()}</Tag>
-      ),
+      render: (s: string) => <StatusBadge status={s} />,
     },
     {
       title: t('downloaders.lastCheck'),

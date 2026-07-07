@@ -1,22 +1,26 @@
 import type { ThemeConfig } from 'antd';
-import { raycastColors, raycastRadius } from './tokens';
+import { darkColors, lightColors, raycastRadius } from './tokens';
 
-export const componentTokens: ThemeConfig['components'] = {
+export const createComponentTokens = (
+  mode: 'light' | 'dark' = 'light',
+): ThemeConfig['components'] => {
+  const colors = mode === 'dark' ? darkColors : lightColors;
+  return {
   // Layout
   Layout: {
-    bodyBg: raycastColors.canvas,
-    siderBg: raycastColors.surface,
-    headerBg: raycastColors.canvas,
+    bodyBg: colors.canvas,
+    siderBg: colors.surface,
+    headerBg: colors.canvas,
   },
 
   // Menu (sidebar navigation)
   Menu: {
-    itemBg: raycastColors.surface,
-    itemColor: raycastColors.body,
-    itemHoverColor: raycastColors.ink,
-    itemHoverBg: raycastColors['surface-elevated'],
-    itemSelectedBg: raycastColors.primary,
-    itemSelectedColor: raycastColors['on-primary'],
+    itemBg: colors.surface,
+    itemColor: colors.body,
+    itemHoverColor: colors.ink,
+    itemHoverBg: colors['surface-elevated'],
+    itemSelectedBg: colors.primary,
+    itemSelectedColor: colors['on-primary'],
     itemBorderRadius: raycastRadius.sm,
     itemMarginInline: 8,
     itemPaddingInline: 12,
@@ -24,26 +28,26 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Table
   Table: {
-    headerBg: raycastColors['surface-elevated'],
-    headerColor: raycastColors.mute,
-    headerSplitColor: raycastColors.hairline,
-    borderColor: raycastColors.hairline,
-    rowHoverBg: raycastColors['surface-card'],
+    headerBg: colors['surface-elevated'],
+    headerColor: colors.mute,
+    headerSplitColor: colors.hairline,
+    borderColor: colors.hairline,
+    rowHoverBg: colors['surface-card'],
     // The global colorPrimary is near-black (#17171c), whose derived
     // rowSelectedBg is a muddy dark gray — dark titles on that background
     // become unreadable. Pin selected rows to a light blue tint instead.
-    rowSelectedBg: raycastColors['accent-blue-soft'],
-    rowSelectedHoverBg: '#e0eaff',
-    colorBgContainer: raycastColors.surface,
+    rowSelectedBg: colors['accent-blue-soft'],
+    rowSelectedHoverBg: mode === 'dark' ? '#20345a' : '#e0eaff',
+    colorBgContainer: colors.surface,
     headerBorderRadius: raycastRadius.md,
   },
 
   // Card
   Card: {
-    colorBgContainer: raycastColors.surface,
+    colorBgContainer: colors.surface,
     borderRadiusLG: raycastRadius.lg,
     paddingLG: 24,
-    actionsBg: raycastColors['surface-elevated'],
+    actionsBg: colors['surface-elevated'],
   },
 
   // Button
@@ -58,41 +62,41 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Input
   Input: {
-    colorBgContainer: raycastColors.surface,
-    colorBorder: raycastColors.hairline,
-    activeBorderColor: '#9b60aa',
-    hoverBorderColor: raycastColors['hairline-strong'],
+    colorBgContainer: colors.surface,
+    colorBorder: colors.hairline,
+    activeBorderColor: colors['accent-blue'],
+    hoverBorderColor: colors['hairline-strong'],
     borderRadius: raycastRadius.md,
     controlHeight: 36,
   },
 
   // Select
   Select: {
-    colorBgContainer: raycastColors.surface,
-    colorBorder: raycastColors.hairline,
+    colorBgContainer: colors.surface,
+    colorBorder: colors.hairline,
     borderRadius: raycastRadius.md,
     controlHeight: 36,
   },
 
   // Form
   Form: {
-    labelColor: raycastColors.body,
+    labelColor: colors.body,
   },
 
   // Modal
   Modal: {
-    colorBgElevated: raycastColors['surface-elevated'],
+    colorBgElevated: colors['surface-elevated'],
     borderRadiusLG: raycastRadius.lg,
-    titleColor: raycastColors.ink,
+    titleColor: colors.ink,
   },
 
   // Tabs
   Tabs: {
-    inkBarColor: raycastColors.primary,
-    itemActiveColor: raycastColors.ink,
-    itemSelectedColor: raycastColors.ink,
-    itemColor: raycastColors.mute,
-    itemHoverColor: raycastColors.body,
+    inkBarColor: colors.primary,
+    itemActiveColor: colors.ink,
+    itemSelectedColor: colors.ink,
+    itemColor: colors.mute,
+    itemHoverColor: colors.body,
   },
 
   // Tag
@@ -102,31 +106,34 @@ export const componentTokens: ThemeConfig['components'] = {
 
   // Badge
   Badge: {
-    colorError: raycastColors['accent-red'],
+    colorError: colors['accent-red'],
   },
 
   // Progress
   Progress: {
-    defaultColor: raycastColors['accent-blue'],
+    defaultColor: colors['accent-blue'],
   },
 
   // Tooltip
   Tooltip: {
-    colorBgSpotlight: raycastColors.primary,
-    colorTextLightSolid: raycastColors['on-primary'],
+    colorBgSpotlight: mode === 'dark' ? colors['surface-card'] : colors.charcoal,
+    colorTextLightSolid: mode === 'dark' ? colors.ink : colors['on-dark'],
   },
 
   // Pagination
   Pagination: {
-    colorBgContainer: raycastColors['surface-elevated'],
-    colorBorder: raycastColors.hairline,
+    colorBgContainer: colors['surface-elevated'],
+    colorBorder: colors.hairline,
     borderRadius: raycastRadius.md,
-    itemActiveBg: raycastColors['surface-card'],
+    itemActiveBg: colors['surface-card'],
   },
 
   // Descriptions
   Descriptions: {
-    labelBg: raycastColors['surface-elevated'],
-    colorBgContainer: raycastColors.surface,
+    labelBg: colors['surface-elevated'],
+    colorBgContainer: colors.surface,
   },
+  };
 };
+
+export const componentTokens: ThemeConfig['components'] = createComponentTokens('light');

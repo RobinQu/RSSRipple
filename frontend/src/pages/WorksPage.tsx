@@ -11,11 +11,11 @@ import {
   Segmented,
   Button,
   Space,
+  Checkbox,
   App,
 } from 'antd';
 import { worksApi } from '../api/works';
 import type { RefreshItem } from '../api/works';
-import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { Work } from '../types';
 import MetadataConfigModal from '../components/MetadataConfigModal';
 
@@ -67,18 +67,26 @@ export default function WorksPage() {
   const fetchPage = useCallback(
     async (p: number, ct: ContentType, q: string, replace: boolean) => {
       if (replace) setLoading(true);
-      else setLoadingMore(true);
+      else {
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      }
       try {
         const ctParam = ct === 'all' ? undefined : ct;
         const r = await worksApi.list(p, PAGE_SIZE, q.trim() || undefined, ctParam);
         if (r.success) {
           setWorks((prev) => (replace ? r.data : [...prev, ...r.data]));
           const total = r.meta?.total ?? 0;
-          setHasMore(r.data.length === PAGE_SIZE && p * PAGE_SIZE < total);
+          const nextHasMore = r.data.length === PAGE_SIZE && p * PAGE_SIZE < total;
+          hasMoreRef.current = nextHasMore;
+          setHasMore(nextHasMore);
         }
       } finally {
         if (replace) setLoading(false);
-        else setLoadingMore(false);
+        else {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        }
       }
     },
     [],
@@ -89,6 +97,7 @@ export default function WorksPage() {
     const timeout = setTimeout(() => {
       fetchPage(1, contentType, search, true);
       setPage(1);
+      hasMoreRef.current = true;
       setHasMore(true);
     }, 300);
     return () => clearTimeout(timeout);
@@ -152,7 +161,7 @@ export default function WorksPage() {
         message.success(t('works.batchRefreshStarted', { n: r.data.count }));
         setSelectMode(false);
         setSelected(new Set());
-        // Reload the first page so refreshed posters/titles appear.
+        // Reload the first page so refreshed titles appear.
         fetchPage(1, contentType, search, true);
         setPage(1);
       } else {
@@ -201,7 +210,7 @@ export default function WorksPage() {
             }}
           />
           <Input
-            prefix={<Search size={14} style={{ color: '#93939f' }} />}
+            prefix={<Search size={14} style={{ color: 'var(--rr-text-muted)' }} />}
             placeholder={t('works.searchPlaceholder')}
             value={search}
             onChange={(e) => {
@@ -229,24 +238,9 @@ export default function WorksPage() {
 
       {/* Selection action bar */}
       {selectMode && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-            marginBottom: 16,
-            padding: '8px 12px',
-            background: '#1f1f24',
-            border: '1px solid #2a2a2a',
-            borderRadius: 8,
-            flexWrap: 'wrap',
-          }}
-        >
+        <div className="works-selection-bar">
           <Space>
-            <Text style={{ color: '#d9d9dd' }}>
-              {t('works.selectedCount', { n: selected.size })}
-            </Text>
+            <Text>{t('works.selectedCount', { n: selected.size })}</Text>
             <Button size="small" type="link" onClick={toggleSelectAll}>
               {selected.size >= works.length ? t('common.deselect') : t('common.selectAll')}
             </Button>
@@ -279,142 +273,98 @@ export default function WorksPage() {
         />
       ) : (
         <>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: 20,
-              marginBottom: 32,
-            }}
-          >
-            {works.map((w) => {
-              const displayTitle = getDisplayTitle(w);
-              const key = workKey(w);
-              const isSelected = selected.has(key);
-              return (
-                <div
-                  key={key}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => handleCardClick(w)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCardClick(w);
-                  }}
-                  style={{
-                    cursor: 'pointer',
-                    borderRadius: 10,
-                    overflow: 'hidden',
-                    border: isSelected ? '2px solid #1863dc' : '1px solid #2a2a2a',
-                    background: '#1a1a1a',
-                    transition: 'border-color 0.2s, transform 0.2s, box-shadow 0.2s',
-                    position: 'relative',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isSelected) e.currentTarget.style.borderColor = '#1863dc';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.4)';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isSelected) e.currentTarget.style.borderColor = '#2a2a2a';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  {/* Selection checkbox */}
-                  {selectMode && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 6,
-                        left: 6,
-                        zIndex: 2,
-                        width: 22,
-                        height: 22,
-                        borderRadius: 6,
-                        background: isSelected ? '#1863dc' : 'rgba(0,0,0,0.6)',
-                        border: isSelected ? 'none' : '1px solid #d9d9dd',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
+          <div className="resource-table-wrap" style={{ marginBottom: 32 }}>
+            <table className={`resource-table works-table${selectMode ? ' selectable' : ''}`}>
+              <colgroup>
+                {selectMode && <col style={{ width: 40 }} />}
+                <col style={{ width: 60 }} />
+                <col />
+                <col style={{ width: 84 }} />
+                <col style={{ width: 96 }} />
+                <col style={{ width: 116 }} />
+                <col style={{ width: 200 }} />
+              </colgroup>
+              <thead>
+                <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
+                  {selectMode && <th style={{ textAlign: 'left', padding: '8px' }} />}
+                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colType')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colStatus')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colInfo')}</th>
+                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colGenre')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {works.map((w) => {
+                  const displayTitle = getDisplayTitle(w);
+                  const key = workKey(w);
+                  const isSelected = selected.has(key);
+                  const info =
+                    w.content_type === 'movie'
+                      ? (w.year ?? '—')
+                      : w.number_of_seasons
+                        ? `${w.number_of_seasons}S · ${w.number_of_episodes ?? '?'}E`
+                        : '—';
+                  return (
+                    <tr
+                      key={key}
+                      className={`resource-row works-row${isSelected ? ' selected' : ''}`}
+                      style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
+                      onClick={() => handleCardClick(w)}
                     >
-                      {isSelected && <CheckCircle size={16} color="#fff" />}
-                    </div>
-                  )}
-
-                  {/* Poster */}
-                  <div
-                    style={{
-                      width: '100%',
-                      aspectRatio: '2 / 3',
-                      overflow: 'hidden',
-                      background: '#141414',
-                    }}
-                  >
-                    <img
-                      src={posterUrl(w.poster_url)}
-                      alt={displayTitle}
-                      loading="lazy"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        display: 'block',
-                      }}
-                      onError={useDefaultPoster}
-                    />
-                  </div>
-
-                  {/* Info */}
-                  <div style={{ padding: '10px 12px 12px' }}>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-                      <Tag
-                        color={w.content_type === 'movie' ? 'green' : 'blue'}
-                        style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}
-                      >
-                        {w.content_type === 'movie' ? t('works.movie') : t('works.tv')}
-                      </Tag>
-                      {w.rating != null && (
-                        <Tag color="gold" style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                          ★ {w.rating.toFixed(1)}
+                      {selectMode && (
+                        <td
+                          className="resource-check-cell"
+                          style={{ padding: '8px' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Checkbox checked={isSelected} onChange={() => handleCardClick(w)} />
+                        </td>
+                      )}
+                      <td style={{ padding: '8px' }} data-label={t('works.colType')}>
+                        <Tag color={w.content_type === 'movie' ? 'green' : 'blue'} style={{ margin: 0 }}>
+                          {w.content_type === 'movie' ? t('works.movie') : t('works.tv')}
                         </Tag>
-                      )}
-                      {w.status && (
-                        <Tag style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>{w.status}</Tag>
-                      )}
-                    </div>
-
-                    <Text
-                      ellipsis={{ tooltip: displayTitle }}
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: '#d9d9dd',
-                        display: 'block',
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {displayTitle}
-                    </Text>
-
-                    <Text style={{ fontSize: 11, color: '#616161', display: 'block', marginTop: 2 }}>
-                      {w.content_type === 'movie'
-                        ? w.release_date || '—'
-                        : w.number_of_seasons
-                          ? `${w.number_of_seasons}S · ${w.number_of_episodes ?? '?'}E`
-                          : '—'}
-                    </Text>
-                  </div>
-                </div>
-              );
-            })}
+                      </td>
+                      <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
+                        <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>
+                          {displayTitle}
+                        </Text>
+                      </td>
+                      <td style={{ padding: '8px' }} data-label={t('works.colRating')}>
+                        {w.rating != null ? `★ ${w.rating.toFixed(1)}` : '—'}
+                      </td>
+                      <td style={{ padding: '8px' }} data-label={t('works.colStatus')}>
+                        {w.status || '—'}
+                      </td>
+                      <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colInfo')}>
+                        {info}
+                      </td>
+                      <td className="resource-text-cell" style={{ padding: '8px' }} data-label={t('works.colGenre')}>
+                        <Text ellipsis style={{ display: 'block' }}>
+                          {w.genre && w.genre.length ? w.genre.join(', ') : '—'}
+                        </Text>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
 
           {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} style={{ height: 1 }} />
           {loadingMore && (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
-              <Spin />
+            <div className="works-load-more" role="status" aria-live="polite">
+              <div className="works-load-more-indicator" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('works.loadingMore')}
+              </Text>
             </div>
           )}
           {!hasMore && works.length > 0 && (

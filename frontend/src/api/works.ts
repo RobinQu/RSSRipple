@@ -4,8 +4,9 @@ import type { Work } from '../types';
 
 export interface MetadataConfigResponse {
   default_source: string | null;
+  auto_refresh_enabled: boolean;
+  auto_refresh_interval_minutes: number;
   sources: MetadataSourceOption[];
-  default: string;
 }
 
 export interface RefreshResult {
@@ -43,8 +44,16 @@ export const worksApi = {
     return api.get<Work[]>(`/works?${qs.toString()}`);
   },
   getMetadataConfig: () => api.get<MetadataConfigResponse>('/works/metadata-config'),
-  setMetadataConfig: (default_source: string | null) =>
-    api.put<{ default_source: string | null }>('/works/metadata-config', { default_source }),
+  setMetadataConfig: (
+    default_source: string,
+    auto_refresh_enabled: boolean,
+    auto_refresh_interval_minutes: number,
+  ) =>
+    api.put<MetadataConfigResponse>('/works/metadata-config', {
+      default_source,
+      auto_refresh_enabled,
+      auto_refresh_interval_minutes,
+    }),
   refreshMetadata: (id: string, content_type: 'tv' | 'movie', source?: string | null) =>
     api.post<RefreshResult>('/works/refresh-metadata', { id, content_type, source: source ?? null }),
   batchRefreshMetadata: (items: RefreshItem[], source?: string | null) =>

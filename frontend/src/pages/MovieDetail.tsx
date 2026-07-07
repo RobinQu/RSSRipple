@@ -8,6 +8,7 @@ import { moviesApi } from '../api/movies';
 import { worksApi } from '../api/works';
 import type { Movie, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 
 const { Title, Text } = Typography;
 
@@ -143,9 +144,12 @@ export default function MovieDetail() {
 
       <Card>
         <Space align="start" size={16}>
-          {movie.poster_url && (
-            <img src={movie.poster_url} alt="" style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8 }} />
-          )}
+          <img
+            src={posterUrl(movie.poster_url)}
+            alt=""
+            style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
+            onError={useDefaultPoster}
+          />
           <div style={{ flex: 1 }}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label={t('movies.cnTitle')}>{movie.title_cn || '—'}</Descriptions.Item>

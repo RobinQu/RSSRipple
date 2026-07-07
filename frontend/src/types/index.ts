@@ -158,6 +158,8 @@ export interface Work {
   number_of_episodes: number | null;
   release_date: string | null;
   runtime: number | null;
+  year: number | null;
+  genre: string[] | null;
   resource_count: number;
   created_at: string;
   updated_at: string;
