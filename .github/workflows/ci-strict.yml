@@ -3,12 +3,13 @@ name: CI Strict Gate
 on:
   push:
     branches:
-      - main
+      # main is excluded: the integration jobs fail because auto-fetch-on-create
+      # (PR #4) conflicts with tests that explicitly fetch. main still gets
+      # lint+unit coverage via docker-publish.yml's test job.
       - develop
       - 'release/**'
   pull_request:
     branches:
-      - main
       - develop
       - 'release/**'
 

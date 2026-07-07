@@ -120,7 +120,7 @@ Branch naming follows [Conventional Branch](https://conventionalbranch.org/) v1.
 GitHub Actions handles continuous integration and delivery:
 
 - **CI Fast Gate** (`ci-fast.yml`) — feature/fix branches and their PRs: lint + unit/API tests.
-- **CI Strict Gate** (`ci-strict.yml`) — `main`, `develop`, `release/**` and their PRs: lint + unit/API + integration tests.
+- **CI Strict Gate** (`ci-strict.yml`) — `develop`, `release/**` and their PRs: lint + unit/API + integration tests.
 - **Docker Publish** (`docker-publish.yml`) — on push to `main` or a `v*` tag, builds a multi-arch (`linux/amd64` + `linux/arm64`) image and pushes it to `ghcr.io/robinqu/rssripple`. Tags: `main` → `:latest`, `:main`, `:sha-<short>`; `v1.2.3` → `:1.2.3`, `:1.2`, `:1`. The build is gated on lint + unit/API tests.
 
 See [CONTRIBUTION.md](CONTRIBUTION.md) for the full workflow and the recommended release flow.

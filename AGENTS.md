@@ -1433,7 +1433,7 @@ feature/issue-123-new-login
 ### CI/CD 与发布
 
 - **CI Fast Gate**（`.github/workflows/ci-fast.yml`）：开发分支（`feature/`、`fix/`、`ai/` 等）及其 PR 的快速门禁——lint + 单元/API 测试。
-- **CI Strict Gate**（`.github/workflows/ci-strict.yml`）：`main`、`develop`、`release/**` 分支及其 PR 的严格门禁——lint + 单元/API + 集成测试。
+- **CI Strict Gate**（`.github/workflows/ci-strict.yml`）：`develop`、`release/**` 分支及其 PR 的严格门禁——lint + 单元/API + 集成测试。
 - **Docker Publish**（`.github/workflows/docker-publish.yml`）：推送到 `main` 或打 `v*` 标签时触发，构建 **linux/amd64 + linux/arm64** 双架构镜像并发布到 GHCR 项目命名空间 `ghcr.io/robinqu/rssripple`。构建前以 lint + 单元/API 测试作为门禁（`build-and-push` 依赖 `test`）。
   - 推送 `main` → 标签 `:latest`、`:main`、`:sha-<短哈希>`
   - 打标签 `v1.2.3` → 标签 `:1.2.3`、`:1.2`、`:1`（基于 `docker/metadata-action` 的 semver 模式）
