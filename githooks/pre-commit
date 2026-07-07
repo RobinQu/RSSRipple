@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+# Pre-commit hook — mirrors the lint gate in
+# .github/workflows/docker-publish.yml (the `test` job): runs `ruff check .`.
+# Aborts the commit on any lint error so issues are caught locally before
+# they can break a CI build. Bypass with `git commit --no-verify`.
+#
+# One-time activation (per clone):
+#   git config core.hooksPath githooks
+
+echo "▷ pre-commit: ruff check . (matches docker-publish CI lint)"
+
+if ! uv run ruff check .; then
+  echo "" >&2
+  echo "✘ pre-commit: ruff check failed." >&2
+  echo "  Auto-fix with:  uv run ruff check --fix ." >&2
+  echo "  Bypass with:    git commit --no-verify  (not recommended)" >&2
+  exit 1
+fi
+
+echo "✔ pre-commit: ruff check passed"

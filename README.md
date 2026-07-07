@@ -125,6 +125,8 @@ GitHub Actions handles continuous integration and delivery:
 
 See [CONTRIBUTION.md](CONTRIBUTION.md) for the full workflow and the recommended release flow.
 
+A local `pre-commit` hook (`githooks/pre-commit`) runs the same `ruff check .` before each commit — enable once with `git config core.hooksPath githooks`.
+
 ## Specs for Coding Agents
 
 If you are a coding agent (Claude Code, Cursor, Copilot, Codex, …) working on this repo, read these in order:

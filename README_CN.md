@@ -123,6 +123,8 @@ GitHub Actions 负责持续集成与持续交付：
 
 完整工作流与推荐发布流程见 [CONTRIBUTION.md](CONTRIBUTION.md)。
 
+本地 `pre-commit` 钩子（`githooks/pre-commit`）会在每次提交前执行相同的 `ruff check .` —— 一次性启用：`git config core.hooksPath githooks`。
+
 ## 面向 Coding Agents 的 Spec 说明
 
 如果你是在本仓库工作的 coding agent（Claude Code、Cursor、Copilot、Codex 等），按以下顺序阅读：

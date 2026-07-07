@@ -87,6 +87,18 @@ feature/issue-123-new-login
 
 发布新版本的标准流程：在 `release/v1.2.0` 分支上准备发布 → 合并到 `main` → 在合并提交上打 `v1.2.0` 标签触发版本镜像发布。
 
+### 本地 pre-commit hook（推荐）
+
+为避免 lint 错误导致 CI 构建失败，仓库提供了 `githooks/pre-commit`，它会在每次 `git commit` 前执行与 `docker-publish.yml` 的 `test` job 相同的 `uv run ruff check .`；失败时提交被中止。
+
+一次性启用（每个 clone）：
+
+```bash
+git config core.hooksPath githooks
+```
+
+自动修复：`uv run ruff check --fix .`。如需临时跳过（不推荐）：`git commit --no-verify`。
+
 ## 测试
 
 ```bash

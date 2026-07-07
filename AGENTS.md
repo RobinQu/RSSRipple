@@ -1438,3 +1438,4 @@ feature/issue-123-new-login
   - 推送 `main` → 标签 `:latest`、`:main`、`:sha-<短哈希>`
   - 打标签 `v1.2.3` → 标签 `:1.2.3`、`:1.2`、`:1`（基于 `docker/metadata-action` 的 semver 模式）
 - 发布流程：在 `release/v1.2.0` 分支准备发布 → 合并到 `main` → 在合并提交上打 `v1.2.0` 标签触发版本镜像发布。
+- 本地 pre-commit 钩子：`githooks/pre-commit` 在每次 `git commit` 前执行与 `docker-publish.yml` 的 `test` job 相同的 `uv run ruff check .`，失败则中止提交。一次性启用：`git config core.hooksPath githooks`；跳过：`git commit --no-verify`。
