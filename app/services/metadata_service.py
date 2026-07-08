@@ -851,9 +851,13 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         return
 
     try:
-        from app.services.metadata_agent import DEFAULT_METADATA_SOURCE
+        from app.services.metadata_agent import resolve_metadata_source
 
-        results = await search_metadata_via_llm(search_title, DEFAULT_METADATA_SOURCE)
+        # Respect the channel's configured source (e.g. jina) instead of
+        # hardcoding the default - otherwise a Jina channel's per-resource
+        # refresh would silently run the Exa agent.
+        data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
+        results = await search_metadata_via_llm(search_title, data_source_type)
     except Exception as e:
         logger.warning("[metadata] LLM search failed for %r: %s", search_title[:60], e)
         _record_unmatched_attempt(resource, "transient")
