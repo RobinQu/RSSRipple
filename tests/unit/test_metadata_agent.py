@@ -250,3 +250,146 @@ def test_extract_search_info_tracks_jina_empty_results():
     info = UnifiedMetadataAgent._extract_search_info(messages)
     assert info["source_errors"]["jina"] == "no results"
     assert info["error"] and "Jina" in info["error"]
+
+
+# ---------------------------------------------------------------------------
+# Failure classification + retry-state recording + cache/force_refresh behavior
+# ---------------------------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+from app.services.metadata_agent import (  # noqa: E402
+    _classify_failure,
+    _record_metadata_attempt,
+)
+
+
+def _meta(found=True, reason=None, search_error=None):
+    return ResourceMetadata(
+        clean_title="X", content_type="tv", found=found,
+        reason=reason, search_error=search_error,
+    )
+
+
+def test_classify_failure_success_returns_none():
+    assert _classify_failure(_meta(found=True)) is None
+
+
+def test_classify_failure_transient_markers():
+    for reason in (
+        "Agent error: Request timed out.",
+        "Agent error: Connection error.",
+        "Agent did not call finalize",
+        "Agent error: Error code: 403 - AccountOverdueError",
+    ):
+        assert _classify_failure(_meta(found=False, reason=reason)) == "transient", reason
+    # search_error is also consulted
+    assert _classify_failure(_meta(found=False, search_error="Request timed out.")) == "transient"
+
+
+def test_classify_failure_non_work_markers():
+    for reason in (
+        "The RSS entry is a music album release",
+        "The RSS entry is an ASMR audio recording",
+        "The provided RSS entry is for an opening theme song",
+    ):
+        assert _classify_failure(_meta(found=False, reason=reason)) == "non_work", reason
+
+
+def test_classify_failure_not_found_default():
+    assert _classify_failure(_meta(found=False, reason="No matching work found in Jina")) == "not_found"
+    assert _classify_failure(_meta(found=False)) == "not_found"
+
+
+def test_record_metadata_attempt_increments_and_stamps():
+    res = SimpleNamespace(metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None)
+    _record_metadata_attempt(res, _meta(found=False, reason="Request timed out."))
+    assert res.metadata_attempts == 1
+    assert res.last_metadata_attempt_at is not None
+    assert res.metadata_failure_type == "transient"
+    # success clears the failure marker
+    _record_metadata_attempt(res, _meta(found=True))
+    assert res.metadata_attempts == 2
+    assert res.metadata_failure_type is None
+
+
+def _patched_agent():
+    """A UnifiedMetadataAgent with all I/O methods stubbed, so process() can
+    be exercised in isolation against the cache/force_refresh logic."""
+    agent = UnifiedMetadataAgent()
+    agent._get_cache = AsyncMock()
+    agent._set_cache = AsyncMock()
+    agent._apply_to_resource = AsyncMock()
+    agent._run_react = AsyncMock()
+    agent._build_production_message = MagicMock(return_value="msg")
+    return agent
+
+
+def _ns_resource():
+    return SimpleNamespace(
+        title_raw="[G] Show - 01", series_id=None, movie_id=None,
+        metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None,
+    )
+
+
+def _react_return(found, reason=None):
+    finalize = {"clean_title": "Show", "content_type": "tv", "found": found, "reason": reason}
+    info = {"method": None, "data_sources_used": [], "source_errors": {}, "error": None}
+    return finalize, info
+
+
+async def test_process_uses_definitive_cache_without_refresh():
+    agent = _patched_agent()
+    resource = _ns_resource()
+    cached = _meta(found=False, reason="No matching work found in Jina")
+    agent._get_cache.return_value = cached
+    res = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+    agent._run_react.assert_not_called()          # no live run
+    agent._apply_to_resource.assert_called_once()  # cached applied
+    assert res is cached
+    assert resource.metadata_attempts == 1         # attempt recorded from cache
+    assert resource.metadata_failure_type == "not_found"
+
+
+async def test_process_force_refresh_bypasses_definitive_cache():
+    agent = _patched_agent()
+    agent._get_cache.return_value = _meta(found=False, reason="No matching work found")
+    agent._run_react.return_value = _react_return(found=True)
+    res = await agent.process(
+        _ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock(),
+        force_refresh=True,
+    )
+    agent._get_cache.assert_not_called()  # cache read skipped
+    agent._run_react.assert_called_once()  # ran live
+    assert res.found is True
+
+
+async def test_process_ignores_transient_cache_and_reruns():
+    """A legacy cached transient failure must not short-circuit a live run."""
+    agent = _patched_agent()
+    agent._get_cache.return_value = _meta(found=False, reason="Agent error: Request timed out.")
+    agent._run_react.return_value = _react_return(found=True)
+    res = await agent.process(
+        _ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock(),
+    )
+    agent._run_react.assert_called_once()  # cache ignored → live run
+    assert res.found is True
+
+
+async def test_process_does_not_cache_transient_failure():
+    agent = _patched_agent()
+    agent._get_cache.return_value = None
+    agent._run_react.return_value = _react_return(found=False, reason="Agent error: Request timed out.")
+    resource = _ns_resource()
+    await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+    agent._set_cache.assert_not_called()  # transient never cached
+    assert resource.metadata_failure_type == "transient"
+
+
+async def test_process_caches_definitive_not_found():
+    agent = _patched_agent()
+    agent._get_cache.return_value = None
+    agent._run_react.return_value = _react_return(found=False, reason="No matching work found in Jina")
+    await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+    agent._set_cache.assert_called_once()  # definitive outcome cached

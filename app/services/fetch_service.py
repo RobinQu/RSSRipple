@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,23 @@ from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
+# ── Metadata backfill knobs ──
+# Existing FileResources are skipped by the GUID dedup above, so without a
+# backfill phase a transient metadata failure (timeout / LLM-format error) or
+# a source that later improves would never get a second chance. Each fetch
+# re-runs up to ``MAX_BACKFILL_PER_FETCH`` retry-eligible unmatched resources.
+MAX_BACKFILL_PER_FETCH = 30
+# How many unmatched rows to load for eligibility filtering. Ordered
+# oldest-attempt-first, so the most-eligible rows come first; scanning a bit
+# beyond the cap absorbs ordering ties without loading the whole backlog.
+MAX_BACKFILL_SCAN = 100
+# Transient failures retry with exponential backoff: 1h, 2h, 4h, … capped.
+TRANSIENT_BACKOFF_BASE_HOURS = 1
+TRANSIENT_BACKOFF_MAX_HOURS = 24
+# A definitive "no match" is retried this long after the last attempt, in case
+# the external source has improved its coverage.
+NOT_FOUND_RETRY_DAYS = 14
+
 
 def _simple_title_clean(raw: str) -> str | None:
     """Minimal title cleanup: strip leading bracket group and episode tail."""
@@ -36,6 +54,83 @@ _EXPLICIT_RESOURCE_COLS = frozenset({
     "torrent_url", "detail_url", "published_at", "parsed_at",
     "created_at",
 })
+
+
+def _is_retry_eligible(resource: FileResource, now) -> bool:
+    """Whether an unmatched resource should be re-run on this fetch.
+
+    Policy (matches the design in the metadata-retry spec):
+      * never tried (``metadata_attempts == 0``) → eligible;
+      * ``non_work`` (correctly identified as music/ASMR/OP) → never;
+      * ``transient`` (timeout/connection/LLM-format) → after exponential
+        backoff, capped at ``TRANSIENT_BACKOFF_MAX_HOURS``;
+      * ``not_found`` (source had no match) → after ``NOT_FOUND_RETRY_DAYS``;
+      * unknown failure type or missing timestamp → eligible (re-evaluate).
+    """
+    attempts = int(getattr(resource, "metadata_attempts", 0) or 0)
+    if attempts == 0:
+        return True
+    ftype = getattr(resource, "metadata_failure_type", None)
+    if ftype == "non_work":
+        return False
+    last = getattr(resource, "last_metadata_attempt_at", None)
+    if last is None:
+        return True
+    age = now - last
+    if ftype == "transient":
+        backoff_hours = min(
+            TRANSIENT_BACKOFF_BASE_HOURS * (2 ** (attempts - 1)),
+            TRANSIENT_BACKOFF_MAX_HOURS,
+        )
+        return age >= timedelta(hours=backoff_hours)
+    if ftype == "not_found":
+        return age >= timedelta(days=NOT_FOUND_RETRY_DAYS)
+    return True
+
+
+async def _backfill_unmatched_resources(channel: Channel, db: AsyncSession) -> int:
+    """Re-run metadata for retry-eligible unmatched resources of a channel.
+
+    Returns the number of resources re-processed. Bounded by
+    ``MAX_BACKFILL_PER_FETCH`` per fetch so the job stays predictable.
+    """
+    now = utcnow()
+    result = await db.execute(
+        select(FileResource)
+        .where(
+            FileResource.channel_id == channel.id,
+            FileResource.series_id.is_(None),
+            FileResource.movie_id.is_(None),
+        )
+        .order_by(
+            FileResource.last_metadata_attempt_at.asc().nullsfirst(),
+            FileResource.created_at.asc(),
+        )
+        .limit(MAX_BACKFILL_SCAN)
+    )
+    candidates = result.scalars().all()
+
+    processed = 0
+    for resource in candidates:
+        if processed >= MAX_BACKFILL_PER_FETCH:
+            break
+        if not _is_retry_eligible(resource, now):
+            continue
+        try:
+            if channel.metadata_agent_enabled:
+                from app.services.metadata_agent import get_agent
+                await get_agent().process(resource, channel, db, force_refresh=True)
+            else:
+                await fetch_and_link_metadata(db, resource, channel)
+        except Exception as e:
+            logger.warning(
+                "[fetch:%s] backfill re-match failed for %s: %s",
+                channel.id, resource.id, e,
+            )
+        processed += 1
+        await db.commit()
+    return processed
+
 
 
 async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
@@ -74,13 +169,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
 
     entries = feed.entries
     logger.debug("[fetch:%s] Feed read: %d entries", channel.id, len(entries))
-    if not entries:
-        channel.last_fetched_at = utcnow()
-        channel.last_fetch_status = "success"
-        channel.status = "active"
-        channel.last_fetch_error = None
-        await db.commit()
-        return {"status": "unchanged", "new_resource_ids": [], "new_count": 0}
+    # Note: an empty feed no longer short-circuits — the backfill phase below
+    # still re-runs retry-eligible unmatched resources, so a transiently empty
+    # feed still makes repair progress. The new-entry loop is simply a no-op.
 
     # 2. Existing GUIDs for dedup
     result = await db.execute(
@@ -223,6 +314,16 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             len(entries),
         )
 
+    # 3. Backfill: re-run metadata for retry-eligible unmatched resources.
+    # Existing resources are skipped by the GUID dedup in step 2, so without
+    # this phase a transient failure (timeout / LLM-format error) or a source
+    # that later improves would never get a second chance.
+    backfilled_count = 0
+    try:
+        backfilled_count = await _backfill_unmatched_resources(channel, db)
+    except Exception as e:
+        logger.warning("[fetch:%s] backfill phase failed: %s", channel.id, e)
+
     # Finalize channel status
     channel.last_fetched_at = utcnow()
     channel.last_fetch_status = "success"
@@ -250,4 +351,5 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         "total": len(entries),
         "new_count": new_count,
         "new_resource_ids": new_resource_ids,
+        "backfilled_count": backfilled_count,
     }

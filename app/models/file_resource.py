@@ -80,6 +80,21 @@ class FileResource(Base):
         String(36), ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
     )
     metadata_matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ── Metadata retry state ──
+    # ``metadata_matched_at`` only records *successful* links, so a failed
+    # attempt is indistinguishable from "never tried". These three columns
+    # close that gap and drive the fetch-time backfill of unmatched resources:
+    #   * ``metadata_attempts`` — how many times the metadata pipeline ran.
+    #   * ``last_metadata_attempt_at`` — when it last ran (for backoff / TTL).
+    #   * ``metadata_failure_type`` — None on success or "never tried";
+    #     "transient" (timeout/connection/LLM-format → retry with backoff),
+    #     "not_found" (source had no match → retry after a long TTL),
+    #     "non_work" (correctly identified as music/ASMR/OP → never retry).
+    metadata_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_metadata_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    metadata_failure_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
