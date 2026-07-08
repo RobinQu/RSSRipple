@@ -393,3 +393,61 @@ async def test_process_caches_definitive_not_found():
     agent._run_react.return_value = _react_return(found=False, reason="No matching work found in Jina")
     await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
     agent._set_cache.assert_called_once()  # definitive outcome cached
+
+
+# ---------------------------------------------------------------------------
+# Source-scoped cache key + upsert
+# ---------------------------------------------------------------------------
+
+
+def test_cache_source_key_namespaces_by_source():
+    from app.services.metadata_agent import _cache_source_key
+    assert _cache_source_key("jina") == "metadata_agent:jina"
+    assert _cache_source_key("exa") == "metadata_agent:exa"
+    assert _cache_source_key("local") == "metadata_agent:local"
+    # Unset source resolves to the default (exa), still its own namespace.
+    assert _cache_source_key(None) == "metadata_agent:exa"
+
+
+async def test_get_cache_is_source_scoped(db_session):
+    """A result cached under one source must not be returned for another."""
+    agent = UnifiedMetadataAgent()
+    meta = ResourceMetadata(
+        clean_title="Show", content_type="tv", found=False,
+        reason="No matching work found in Jina",
+    )
+    await agent._set_cache("[G] Show - 01", "jina", meta, db_session)
+    await db_session.commit()
+
+    hit = await agent._get_cache("[G] Show - 01", "jina", db_session)
+    assert hit is not None and hit.found is False
+
+    # Different source -> miss (no cross-source poisoning)
+    miss = await agent._get_cache("[G] Show - 01", "exa", db_session)
+    assert miss is None
+
+
+async def test_set_cache_upsert_overwrites_same_source(db_session):
+    """A force_refresh re-run writes the same (title, source) again - it must
+    overwrite the stale row, not violate the unique constraint."""
+    from sqlalchemy import func, select
+
+    from app.models.metadata_cache import MetadataCache
+
+    agent = UnifiedMetadataAgent()
+    m1 = ResourceMetadata(clean_title="Show", found=True, content_type="tv")
+    m2 = ResourceMetadata(clean_title="Show", found=False, content_type="tv", reason="No match")
+    await agent._set_cache("[G] Show - 01", "jina", m1, db_session)
+    await db_session.commit()
+    await agent._set_cache("[G] Show - 01", "jina", m2, db_session)  # must not raise
+    await db_session.commit()
+
+    hit = await agent._get_cache("[G] Show - 01", "jina", db_session)
+    assert hit is not None and hit.found is False  # m2 overwrote m1
+    count = (await db_session.execute(
+        select(func.count()).select_from(MetadataCache).where(
+            MetadataCache.title == "[G] Show - 01",
+            MetadataCache.source == "metadata_agent:jina",
+        )
+    )).scalar_one()
+    assert count == 1  # no duplicate rows

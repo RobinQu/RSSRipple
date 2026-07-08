@@ -1,11 +1,15 @@
 """Metadata cache for title cleaning and agent results.
 
-Stores cached results keyed by ``(title, source)`` where ``source`` indicates
-the cache type:
+Stores cached results keyed by ``(title, source)`` where ``source`` namespaces
+the cache by both type and data source:
 
-- ``"llm_title"`` — Legacy title cleaning cache (pre-refactor, retained for reference).
-- ``"metadata_agent"`` — Full metadata agent result, including clean_title,
-  content_type, inferred episode/season, matched entity, and confidence.
+- ``"metadata_agent:<source>"`` - Full metadata agent result for one external
+  source (e.g. ``"metadata_agent:jina"``, ``"metadata_agent:exa"``), including
+  clean_title, content_type, inferred episode/season, matched entity, and
+  confidence. Namespacing by source keeps one source's results from being
+  served for a channel configured with a different source.
+- ``"llm_title"`` - Legacy title cleaning cache (pre-refactor, retained for
+  reference).
 
 The ``metadata_json`` column stores the complete result dict, whose shape
 depends on the ``source`` value.

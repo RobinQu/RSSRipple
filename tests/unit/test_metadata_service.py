@@ -640,3 +640,34 @@ async def test_create_or_update_movie_dedups_by_canonical_external_id(db_session
 
     assert m1.id == m2.id
     assert m2.external_id == "tmdb:12345"
+
+
+# ---------------------------------------------------------------------------
+# Layer 4 must respect the channel's configured source (not hardcoded Exa)
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_and_link_metadata_layer4_uses_channel_source(db_session):
+    """Per-resource refresh (Layer 4) must run the channel's configured source,
+    not the hardcoded Exa default - otherwise a Jina channel's refresh silently
+    uses Exa."""
+    ch = Channel(
+        id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
+        field_mapping=TEST_FIELD_MAPPING,
+        metadata_agent_enabled=True, metadata_source="jina",
+    )
+    db_session.add(ch)
+    await db_session.flush()
+    res = _resource(
+        ch.id, title_raw="[G] Some Unique Show - 01 [1080p]",
+        search_title="Some Unique Show",
+    )
+    db_session.add(res)
+    await db_session.flush()
+
+    with patch("app.services.metadata_service.search_metadata_via_llm", new_callable=AsyncMock) as mock_search:
+        mock_search.return_value = []
+        await ms.fetch_and_link_metadata(db_session, res, ch)
+
+    mock_search.assert_called_once()
+    assert mock_search.call_args.args[1] == "jina"

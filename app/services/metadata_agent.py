@@ -913,6 +913,19 @@ def _record_metadata_attempt(resource: Any, meta: Any) -> None:
     resource.metadata_failure_type = _classify_failure(meta)
 
 
+def _cache_source_key(data_source_type: str | None) -> str:
+    """Cache namespace for one metadata source.
+
+    The cache is keyed by ``(title, source)`` where ``source`` carries both the
+    cache type and the data source, e.g. ``"metadata_agent:jina"``. This keeps
+    results from one source (e.g. Exa) from being returned for a channel
+    configured with another (e.g. Jina) - switching a channel's source no
+    longer serves stale results from the old source.
+    """
+    ns = normalize_metadata_source_type(data_source_type)
+    return f"metadata_agent:{ns}"
+
+
 # ---------------------------------------------------------------------------
 # Main agent class
 # ---------------------------------------------------------------------------
@@ -990,6 +1003,10 @@ class UnifiedMetadataAgent:
         if not raw_title.strip():
             return None
 
+        # Resolve the channel's data source up front so the cache lookup is
+        # source-scoped (a Jina channel must not hit a stale Exa cache entry).
+        data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
+
         # 0. Cache check — skipped on force_refresh. Legacy cache rows that
         # recorded a *transient* failure (timeout / "did not call finalize")
         # are also ignored and re-run live, since the cached outcome is not
@@ -997,17 +1014,15 @@ class UnifiedMetadataAgent:
         # applied directly without spending another LLM call.
         cached: ResourceMetadata | None = None
         if not force_refresh:
-            cached = await self._get_cache(raw_title, db)
+            cached = await self._get_cache(raw_title, data_source_type, db)
             if cached is not None and _classify_failure(cached) != "transient":
                 await self._apply_to_resource(cached, resource, channel, db)
                 _record_metadata_attempt(resource, cached)
                 return cached
 
-        # 1. Build context — use the channel's chosen external source, falling
-        # back to the default when unset. If the chosen source's credentials are
+        # 1. Build context - if the chosen source's credentials are
         # missing/disabled, we still run its graph (the per-source search helper
         # no-ops on missing keys) but log a warning so it is debuggable.
-        data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
         if not is_metadata_source_available(data_source_type) and data_source_type != "local":
             logger.warning(
                 "[metadata_agent] channel %s source=%r is not available (disabled or "
@@ -1036,7 +1051,7 @@ class UnifiedMetadataAgent:
         await self._apply_to_resource(meta, resource, channel, db)
         _record_metadata_attempt(resource, meta)
         if _classify_failure(meta) != "transient":
-            await self._set_cache(raw_title, meta, db)
+            await self._set_cache(raw_title, data_source_type, meta, db)
 
         return meta
 
@@ -1380,15 +1395,18 @@ class UnifiedMetadataAgent:
 
     # ── Cache ──
 
-    async def _get_cache(self, raw_title: str, db: AsyncSession) -> ResourceMetadata | None:
+    async def _get_cache(
+        self, raw_title: str, data_source_type: str | None, db: AsyncSession
+    ) -> ResourceMetadata | None:
         from sqlalchemy import select
 
         from app.models.metadata_cache import MetadataCache
 
+        source_key = _cache_source_key(data_source_type)
         result = await db.execute(
             select(MetadataCache).where(
                 MetadataCache.title == raw_title.strip(),
-                MetadataCache.source == "metadata_agent",
+                MetadataCache.source == source_key,
             )
         )
         cached = result.scalar_one_or_none()
@@ -1396,15 +1414,30 @@ class UnifiedMetadataAgent:
             return ResourceMetadata.from_dict(cached.metadata_json)
         return None
 
-    async def _set_cache(self, raw_title: str, meta: ResourceMetadata, db: AsyncSession) -> None:
+    async def _set_cache(
+        self, raw_title: str, data_source_type: str | None, meta: ResourceMetadata, db: AsyncSession
+    ) -> None:
         import uuid
+
+        from sqlalchemy import delete
 
         from app.models.metadata_cache import MetadataCache
 
+        source_key = _cache_source_key(data_source_type)
+        title = raw_title.strip()
+        # Upsert: clear any existing row for this (title, source) so a
+        # force_refresh re-run replaces the stale result instead of violating
+        # the unique constraint, and different sources coexist as separate rows.
+        await db.execute(
+            delete(MetadataCache).where(
+                MetadataCache.title == title,
+                MetadataCache.source == source_key,
+            )
+        )
         cache_entry = MetadataCache(
             id=str(uuid.uuid4()),
-            title=raw_title.strip(),
-            source="metadata_agent",
+            title=title,
+            source=source_key,
             content_type=meta.content_type,
             metadata_json={
                 "clean_title": meta.clean_title,
