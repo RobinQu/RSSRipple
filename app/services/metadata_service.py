@@ -41,6 +41,20 @@ FUZZY_THRESHOLD = 70
 AUTO_LINK_THRESHOLD = 85
 
 
+def _record_unmatched_attempt(resource: Any, failure_type: str) -> None:
+    """Stamp retry-state columns when a resource ends a pass still unmatched.
+
+    Mirrors ``metadata_agent._record_metadata_attempt`` for the non-agent
+    path so the fetch-time backfill can apply the same backoff/TTL policy
+    regardless of which matcher ran. Only called on unmatched exits —
+    matched exits set ``metadata_matched_at`` and are excluded from backfill
+    by the ``series_id/movie_id IS NULL`` filter.
+    """
+    resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
+    resource.last_metadata_attempt_at = utcnow()
+    resource.metadata_failure_type = failure_type
+
+
 # ---------------------------------------------------------------------------
 # external_id canonicalization
 #
@@ -811,6 +825,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     # Layer 3: local match
     search_title = resource.search_title or extract_search_title(resource)
     if not search_title:
+        _record_unmatched_attempt(resource, "not_found")
         return
 
     series, s_ratio = await match_series_by_title(db, search_title)
@@ -832,6 +847,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
 
     # Layer 4: selected-source metadata search
     if not channel.metadata_agent_enabled:
+        _record_unmatched_attempt(resource, "not_found")
         return
 
     try:
@@ -840,9 +856,11 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         results = await search_metadata_via_llm(search_title, DEFAULT_METADATA_SOURCE)
     except Exception as e:
         logger.warning("[metadata] LLM search failed for %r: %s", search_title[:60], e)
+        _record_unmatched_attempt(resource, "transient")
         return
 
     if not results:
+        _record_unmatched_attempt(resource, "not_found")
         return
     best = results[0]
     try:
@@ -857,6 +875,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         resource.metadata_matched_at = utcnow()
     except Exception as e:
         logger.warning("[metadata] Failed to link via LLM for %r: %s", search_title[:60], e)
+        _record_unmatched_attempt(resource, "transient")
 
 
 async def manual_search_metadata(

@@ -851,6 +851,69 @@ Always output valid JSON matching:
 
 
 # ---------------------------------------------------------------------------
+# Failure classification + attempt recording
+#
+# ``process()`` used to cache every result — including ``found=false`` from
+# timeouts and LLM-format errors — so a transient failure became a permanent
+# "not found". These helpers split non-success results into three buckets so
+# the cache only retains *definitive* outcomes and the fetch-time backfill
+# knows which unmatched resources are worth retrying.
+# ---------------------------------------------------------------------------
+
+# Substrings of ``ResourceMetadata.reason`` / ``search_error`` that indicate
+# an infra failure (not a real "no match"). These must NOT be cached, because
+# re-running later will very likely succeed.
+_TRANSIENT_MARKERS: tuple[str, ...] = (
+    "timed out", "timeout", "connection error", "did not call finalize",
+    "403", "accountoverdue", "api key not configured",
+    "rate limit", "service unavailable", "overloaded",
+)
+
+# Substrings indicating the entry is genuinely not a TV/movie work (music,
+# ASMR, theme songs). Re-running will not change the outcome.
+_NON_WORK_MARKERS: tuple[str, ...] = (
+    "music album", "music single", "music release", "mini-album", "mini album",
+    "asmr", "opening theme", "ending theme", "theme song",
+    "not a tv", "not a movie", "not an anime",
+)
+
+
+def _classify_failure(meta: Any) -> str | None:
+    """Classify a ``ResourceMetadata`` outcome for retry/cache decisions.
+
+    Returns ``None`` on success (``meta.found`` truthy). Otherwise one of:
+      * ``"transient"``  — retryable infra failure; never cached.
+      * ``"non_work"``   — correctly identified as non-TV/movie; never retried.
+      * ``"not_found"``  — source had no match; retried after a long TTL.
+    """
+    if getattr(meta, "found", False):
+        return None
+    haystack = " ".join(filter(None, (
+        str(getattr(meta, "reason", "") or ""),
+        str(getattr(meta, "search_error", "") or ""),
+    ))).lower()
+    if any(m in haystack for m in _TRANSIENT_MARKERS):
+        return "transient"
+    if any(m in haystack for m in _NON_WORK_MARKERS):
+        return "non_work"
+    return "not_found"
+
+
+def _record_metadata_attempt(resource: Any, meta: Any) -> None:
+    """Stamp retry-state columns on ``resource`` after an evaluation.
+
+    ``metadata_matched_at`` only records successes, so this tracks *attempts*
+    (count + timestamp + failure type) so the backfill can tell "never tried"
+    from "tried and failed transiently" from "definitively not found".
+    ``metadata_failure_type`` is set to ``None`` on success, which also clears
+    any stale failure marker left by a previous attempt.
+    """
+    resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
+    resource.last_metadata_attempt_at = utcnow()
+    resource.metadata_failure_type = _classify_failure(meta)
+
+
+# ---------------------------------------------------------------------------
 # Main agent class
 # ---------------------------------------------------------------------------
 
@@ -910,22 +973,35 @@ class UnifiedMetadataAgent:
         resource: Any,
         channel: Any,
         db: AsyncSession,
+        force_refresh: bool = False,
     ) -> ResourceMetadata | None:
         """Process a FileResource: extract metadata and persist to DB.
 
         Writes search_title, episode, season, series_id/movie_id to the
         FileResource. Upserts TVSeries or Movie as needed. Caches result
         in MetadataCache.
+
+        ``force_refresh`` skips the cache *read* so retry-eligible resources
+        re-run the agent live even when a (possibly stale or transient-failure)
+        cache entry exists. Transient failures are never written to the cache,
+        so a timeout/LLM-format error can no longer poison future runs.
         """
         raw_title = getattr(resource, "title_raw", "") or ""
         if not raw_title.strip():
             return None
 
-        # 0. Cache check
-        cached = await self._get_cache(raw_title, db)
-        if cached is not None:
-            await self._apply_to_resource(cached, resource, channel, db)
-            return cached
+        # 0. Cache check — skipped on force_refresh. Legacy cache rows that
+        # recorded a *transient* failure (timeout / "did not call finalize")
+        # are also ignored and re-run live, since the cached outcome is not
+        # trustworthy. Definitive results (found / not_found / non_work) are
+        # applied directly without spending another LLM call.
+        cached: ResourceMetadata | None = None
+        if not force_refresh:
+            cached = await self._get_cache(raw_title, db)
+            if cached is not None and _classify_failure(cached) != "transient":
+                await self._apply_to_resource(cached, resource, channel, db)
+                _record_metadata_attempt(resource, cached)
+                return cached
 
         # 1. Build context — use the channel's chosen external source, falling
         # back to the default when unset. If the chosen source's credentials are
@@ -954,9 +1030,13 @@ class UnifiedMetadataAgent:
         if meta.content_type == "tv" and meta.season is None and meta.found:
             meta.season = 1
 
-        # 4. Persist
+        # 4. Persist — record the attempt (success or failure) and cache only
+        # definitive outcomes. Transient failures are intentionally NOT cached
+        # so the next fetch's backfill retries them.
         await self._apply_to_resource(meta, resource, channel, db)
-        await self._set_cache(raw_title, meta, db)
+        _record_metadata_attempt(resource, meta)
+        if _classify_failure(meta) != "transient":
+            await self._set_cache(raw_title, meta, db)
 
         return meta
 

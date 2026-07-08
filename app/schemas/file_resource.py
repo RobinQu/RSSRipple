@@ -46,6 +46,9 @@ class FileResourceResponse(BaseModel):
     published_at: datetime | None = None
     parsed_at: datetime | None = None
     metadata_matched_at: datetime | None = None
+    metadata_attempts: int = 0
+    last_metadata_attempt_at: datetime | None = None
+    metadata_failure_type: str | None = None
     series_id: str | None = None
     movie_id: str | None = None
     series: Any | None = None

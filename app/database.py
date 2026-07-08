@@ -281,6 +281,14 @@ async def _apply_light_migrations(conn) -> None:
         # Per-channel external metadata source (tmdb/exa/wikipedia/jina/local).
         # NULL → fall back to the default source at runtime.
         ("channels", "metadata_source", "VARCHAR(32)"),
+        # Metadata retry state on FileResource: ``metadata_matched_at`` only
+        # records successes, so failed attempts looked like "never tried".
+        # These let the fetch-time backfill re-run transient failures (with
+        # backoff) and long-stale "no match" rows, while skipping correctly
+        # unmatched non-work content.
+        ("file_resources", "metadata_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("file_resources", "last_metadata_attempt_at", "DATETIME"),
+        ("file_resources", "metadata_failure_type", "VARCHAR(16)"),
     ]
 
     for table, column, ddl in additions:

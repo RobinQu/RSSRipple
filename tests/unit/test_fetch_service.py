@@ -572,3 +572,120 @@ class TestFetchChannelResources:
 
         assert res["new_count"] == 1
         assert channel.last_fetch_status == "success"
+
+
+# ---------------------------------------------------------------------------
+# Metadata backfill: retry-eligibility + fetch-time re-processing of existing
+# unmatched resources.
+# ---------------------------------------------------------------------------
+
+
+def _res(**over):
+    from types import SimpleNamespace
+    base = dict(
+        metadata_attempts=0, metadata_failure_type=None,
+        last_metadata_attempt_at=None,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_is_retry_eligible_never_tried():
+    from app.services.fetch_service import _is_retry_eligible
+    from app.utils.time import utcnow
+    assert _is_retry_eligible(_res(), utcnow()) is True
+
+
+def test_is_retry_eligible_non_work_never():
+    from datetime import timedelta
+
+    from app.services.fetch_service import _is_retry_eligible
+    from app.utils.time import utcnow
+    now = utcnow()
+    r = _res(metadata_attempts=3, metadata_failure_type="non_work",
+             last_metadata_attempt_at=now - timedelta(days=400))
+    assert _is_retry_eligible(r, now) is False
+
+
+def test_is_retry_eligible_transient_backoff():
+    from datetime import timedelta
+
+    from app.services.fetch_service import _is_retry_eligible
+    from app.utils.time import utcnow
+    now = utcnow()
+    # attempts=1 → 1h backoff; 30min ago → not yet
+    r = _res(metadata_attempts=1, metadata_failure_type="transient",
+             last_metadata_attempt_at=now - timedelta(minutes=30))
+    assert _is_retry_eligible(r, now) is False
+    # 2h ago → eligible
+    r2 = _res(metadata_attempts=1, metadata_failure_type="transient",
+              last_metadata_attempt_at=now - timedelta(hours=2))
+    assert _is_retry_eligible(r2, now) is True
+
+
+def test_is_retry_eligible_not_found_ttl():
+    from datetime import timedelta
+
+    from app.services.fetch_service import NOT_FOUND_RETRY_DAYS, _is_retry_eligible
+    from app.utils.time import utcnow
+    now = utcnow()
+    r = _res(metadata_attempts=1, metadata_failure_type="not_found",
+             last_metadata_attempt_at=now - timedelta(days=NOT_FOUND_RETRY_DAYS - 1))
+    assert _is_retry_eligible(r, now) is False
+    r2 = _res(metadata_attempts=1, metadata_failure_type="not_found",
+              last_metadata_attempt_at=now - timedelta(days=NOT_FOUND_RETRY_DAYS + 1))
+    assert _is_retry_eligible(r2, now) is True
+
+
+class TestMetadataBackfill:
+    async def test_backfill_caps_and_records_attempts(self, db_session, channel, fake_queue):
+        """40 never-tried unmatched resources → exactly MAX_BACKFILL_PER_FETCH
+        re-processed, each stamped with a not_found attempt."""
+        from sqlalchemy import select
+        for i in range(40):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+                title_raw=f"[G] Show{i} - 01 [1080p]",
+                torrent_url=f"magnet:?xt=urn:btih:{i}",
+            ))
+        await db_session.commit()
+
+        feed = _mock_feed([])  # empty feed: no new entries, backfill still runs
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["backfilled_count"] == 30
+        rows = (await db_session.execute(
+            select(FileResource).where(FileResource.channel_id == channel.id)
+        )).scalars().all()
+        attempted = [r for r in rows if r.metadata_attempts == 1]
+        untouched = [r for r in rows if r.metadata_attempts == 0]
+        assert len(attempted) == 30
+        assert len(untouched) == 10
+        assert all(r.metadata_failure_type == "not_found" for r in attempted)
+        assert all(r.last_metadata_attempt_at is not None for r in attempted)
+
+    async def test_backfill_skips_non_work(self, db_session, channel, fake_queue):
+        """A correctly-identified non-work resource is never auto-retried."""
+        from datetime import timedelta
+
+        from sqlalchemy import select
+
+        from app.utils.time import utcnow
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=channel.id, guid="nw",
+            title_raw="[ASMR] something", torrent_url="magnet:?xt=urn:btih:nw",
+            metadata_attempts=1, metadata_failure_type="non_work",
+            last_metadata_attempt_at=utcnow() - timedelta(days=400),
+        ))
+        await db_session.commit()
+
+        feed = _mock_feed([])
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed):
+            res = await fs.fetch_channel_resources(channel, db_session)
+
+        assert res["backfilled_count"] == 0
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "nw")
+        )).scalar_one()
+        assert row.metadata_attempts == 1  # untouched
