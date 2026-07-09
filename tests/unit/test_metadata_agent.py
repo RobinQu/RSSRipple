@@ -288,6 +288,25 @@ def test_classify_failure_transient_markers():
     assert _classify_failure(_meta(found=False, search_error="Request timed out.")) == "transient"
 
 
+def test_classify_failure_http_source_errors_are_transient():
+    """Billing/rate/auth/server errors from the external source are infra
+    failures, not a definitive 'no match' - they must retry and must not be
+    cached as permanent not_found."""
+    for err in (
+        "Jina: 402 Payment Required",
+        "Client error '402 Payment Required' for url 'https://s.jina.ai/'",
+        "Exa: 429 Too Many Requests",
+        "Jina: 401 Unauthorized",
+        "Exa: 502 Bad Gateway",
+        "Jina: 503 Service Unavailable",
+    ):
+        assert _classify_failure(_meta(found=False, search_error=err)) == "transient", err
+    # A real "no match" reason (no HTTP error in reason/search_error) stays not_found
+    assert _classify_failure(
+        _meta(found=False, reason="No matching work found in Jina search results")
+    ) == "not_found"
+
+
 def test_classify_failure_non_work_markers():
     for reason in (
         "The RSS entry is a music album release",

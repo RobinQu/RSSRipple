@@ -862,11 +862,15 @@ Always output valid JSON matching:
 
 # Substrings of ``ResourceMetadata.reason`` / ``search_error`` that indicate
 # an infra failure (not a real "no match"). These must NOT be cached, because
-# re-running later will very likely succeed.
+# re-running later will very likely succeed. HTTP failures from the external
+# source (billing/credits exhausted, rate limit, auth, server errors) belong
+# here: they are failures of the source, not a definitive "no match".
 _TRANSIENT_MARKERS: tuple[str, ...] = (
     "timed out", "timeout", "connection error", "did not call finalize",
-    "403", "accountoverdue", "api key not configured",
-    "rate limit", "service unavailable", "overloaded",
+    "401", "402", "403", "429", "payment required", "accountoverdue",
+    "unauthorized", "rate limit", "service unavailable", "overloaded",
+    "500", "502", "503", "504", "bad gateway", "server error",
+    "api key not configured",
 )
 
 # Substrings indicating the entry is genuinely not a TV/movie work (music,
