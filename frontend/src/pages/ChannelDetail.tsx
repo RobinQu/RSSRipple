@@ -28,6 +28,7 @@ import {
   Tag,
   Empty,
   Tooltip,
+  Tabs,
 } from 'antd';
 import { channelsApi } from '../api/channels';
 import StatusBadge from '../components/StatusBadge';
@@ -91,10 +92,16 @@ export default function ChannelDetail() {
   const navigate = useNavigate();
 
   const [channel, setChannel] = useState<ChannelDetailData | null>(null);
-  const [groups, setGroups] = useState<GroupedResource[]>([]);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<'parsed' | 'unparsed'>('parsed');
+  const [parsedGroups, setParsedGroups] = useState<GroupedResource[]>([]);
+  const [parsedPage, setParsedPage] = useState(1);
+  const [parsedTotal, setParsedTotal] = useState(0);
+  const [parsedLoading, setParsedLoading] = useState(true);
+  const [unparsed, setUnparsed] = useState<FileResource[]>([]);
+  const [unparsedPage, setUnparsedPage] = useState(1);
+  const [unparsedTotal, setUnparsedTotal] = useState(0);
+  const [unparsedLoading, setUnparsedLoading] = useState(true);
+  const [channelLoading, setChannelLoading] = useState(true);
   const [selectedResource, setSelectedResource] = useState<FileResource | null>(null);
   const [fetchStatus, setFetchStatus] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -107,23 +114,39 @@ export default function ChannelDetail() {
     if (r.success) setChannel(r.data);
   }, [id]);
 
-  const loadResources = useCallback(async () => {
+  const loadParsed = useCallback(async (p: number) => {
     if (!id) return;
-    const r = await channelsApi.resources(id, page, PAGE_SIZE, true);
+    setParsedLoading(true);
+    const r = await channelsApi.resources(id, p, PAGE_SIZE, true, true);
     if (r.success) {
-      // Backend returns grouped array; meta.total is total resources count
-      const data = r.data as GroupedResource[];
-      setGroups(data);
-      if (r.meta) setTotal(r.meta.total);
+      setParsedGroups(r.data as GroupedResource[]);
+      if (r.meta) setParsedTotal(r.meta.total);
     }
-    setLoading(false);
-  }, [id, page]);
+    setParsedLoading(false);
+  }, [id]);
+
+  const loadUnparsed = useCallback(async (p: number) => {
+    if (!id) return;
+    setUnparsedLoading(true);
+    const r = await channelsApi.resources(id, p, PAGE_SIZE, false, false);
+    if (r.success) {
+      setUnparsed(r.data as FileResource[]);
+      if (r.meta) setUnparsedTotal(r.meta.total);
+    }
+    setUnparsedLoading(false);
+  }, [id]);
+
+  const reloadActiveTab = useCallback(async () => {
+    if (tab === 'parsed') await loadParsed(parsedPage);
+    else await loadUnparsed(unparsedPage);
+  }, [tab, parsedPage, unparsedPage, loadParsed, loadUnparsed]);
 
   useEffect(() => {
-    setLoading(true);
+    setChannelLoading(true);
     loadChannel();
-    loadResources();
-  }, [loadChannel, loadResources]);
+    loadParsed(1);
+    loadUnparsed(1);
+  }, [loadChannel, loadParsed, loadUnparsed]);
 
   useEffect(() => {
     if (!id) return;
@@ -150,7 +173,7 @@ export default function ChannelDetail() {
       const r = await channelsApi.fetchStatus(id);
       if (!r.success || !r.data) return;
       setFetchStatus(r.data.status);
-      loadResources();
+      reloadActiveTab();
       if (r.data.status === 'success' || r.data.status === 'failed' || r.data.status === 'done') {
         loadChannel();
         if (pollRef.current) clearInterval(pollRef.current);
@@ -161,7 +184,7 @@ export default function ChannelDetail() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [isFetching, id, loadResources, loadChannel]);
+  }, [isFetching, id, reloadActiveTab, loadChannel]);
 
   const handleFetch = async () => {
     if (!id || isFetching) return;
@@ -198,16 +221,13 @@ export default function ChannelDetail() {
     }
   };
 
-  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const parsedTotalPages = Math.ceil(parsedTotal / PAGE_SIZE);
+  const unparsedTotalPages = Math.ceil(unparsedTotal / PAGE_SIZE);
 
-  if (loading) {
+  if (channelLoading) {
     return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
   }
   if (!channel) return <Text type="danger">{t('channels.notFound')}</Text>;
-
-  // Separate unknown group
-  const knownGroups = groups.filter((g) => g.type !== 'unknown');
-  const unknownGroup = groups.find((g) => g.type === 'unknown');
 
   return (
     <div>
@@ -270,14 +290,14 @@ export default function ChannelDetail() {
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.resourceCount')}</div>
-            <div style={{ fontWeight: 500 }}>{total}</div>
+            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.unparsedResources')}</div>
+            <div style={{ fontWeight: 500 }}>{unparsedTotal}</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
             <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.workGroups')}</div>
-            <div style={{ fontWeight: 500 }}>{knownGroups.length}</div>
+            <div style={{ fontWeight: 500 }}>{parsedTotal}</div>
           </Card>
         </Col>
       </Row>
@@ -311,20 +331,39 @@ export default function ChannelDetail() {
         </Card>
       )}
 
-      {/* Known groups */}
-      {knownGroups.length === 0 && !unknownGroup && (
-        <Card>
-          <Empty
-            description={
-              isFetching ? t('channels.fetching') : t('channels.noResources')
-            }
-          />
-        </Card>
-      )}
-
-      <Collapse
-        defaultActiveKey={knownGroups.map((g) => g.id || g.title)}
-        items={knownGroups.map((g) => ({
+      <Tabs
+        activeKey={tab}
+        onChange={(k) => {
+          setTab(k as 'parsed' | 'unparsed');
+          setSelectedIds(new Set());
+        }}
+        style={{ marginTop: 16 }}
+        items={[
+          {
+            key: 'parsed',
+            label: (
+              <Space size={6}>
+                {t('channels.parsedResources')}
+                {parsedTotal > 0 && <Tag>{parsedTotal}</Tag>}
+              </Space>
+            ),
+            children: (
+              <>
+                {/* Parsed groups */}
+                {parsedLoading ? (
+                  <Spin style={{ display: 'flex', justifyContent: 'center', padding: 24 }} />
+                ) : parsedGroups.length === 0 ? (
+                  <Card>
+                    <Empty
+                      description={
+                        isFetching ? t('channels.fetching') : t('channels.noResources')
+                      }
+                    />
+                  </Card>
+                ) : (
+                <Collapse
+                  defaultActiveKey={parsedGroups.map((g) => g.id || g.title)}
+                  items={parsedGroups.map((g) => ({
           key: g.id || g.title,
           label: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
@@ -534,93 +573,128 @@ export default function ChannelDetail() {
           ),
         }))}
       />
+                )}
 
-      {/* Unknown group */}
-      {unknownGroup && unknownGroup.resources.length > 0 && (
-        <Card
-          size="small"
-          title={
-            <Space>
-              <HelpCircle size={14} />
-              <span>{t('channels.unidentifiedResources')}</span>
-              <Tag>{unknownGroup.resources.length}</Tag>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('channels.clickToCorrect')}
-              </Text>
-            </Space>
-          }
-          style={{ marginTop: 16 }}
-          styles={{ body: { padding: 0 } }}
-        >
-          <div className="resource-table-wrap">
-          <table className="resource-table resource-table-unknown">
-            <colgroup>
-              <col style={{ width: 40 }} />
-              <col />
-              <col style={{ width: 84 }} />
-              <col style={{ width: 180 }} />
-            </colgroup>
-            <thead>
-              <tr style={{ color: '#93939f', fontSize: 12 }}>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.rawTitle')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {unknownGroup.resources.map((r) => (
-                <tr
-                  key={r.id}
-                  style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
-                  onClick={() => setSelectedResource(r)}
-                  className="resource-row"
-                >
-                  <td className="resource-check-cell" style={{ padding: '6px 8px' }} onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selectedIds.has(r.id)}
-                      onChange={(e) => toggleResource(r.id, e.target.checked)}
-                    />
-                  </td>
-                  <td className="resource-title-cell" style={{ padding: '6px 8px' }} data-label={t('channels.rawTitle')}>
-                    <Text ellipsis style={{ display: 'block' }}>
-                      {r.title_raw}
-                    </Text>
-                  </td>
-                  <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
-                  <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
-                    <Text ellipsis style={{ display: 'block' }}>
-                      {r.subtitle_group || '—'}
-                    </Text>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </Card>
-      )}
-
-      {/* Pagination */}
-      {total > PAGE_SIZE && (
+      {/* Parsed pagination */}
+      {parsedTotal > PAGE_SIZE && (
         <Space style={{ marginTop: 16, justifyContent: 'flex-end', width: '100%' }}>
-          <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          <Button size="small" disabled={parsedPage <= 1} onClick={() => setParsedPage(parsedPage - 1)}>
             {t('common.previous')}
           </Button>
           <Text style={{ fontSize: 12 }}>
-            {page} / {totalPages}
+            {parsedPage} / {parsedTotalPages}
           </Text>
-          <Button size="small" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+          <Button size="small" disabled={parsedPage >= parsedTotalPages} onClick={() => setParsedPage(parsedPage + 1)}>
             {t('common.next')}
           </Button>
         </Space>
       )}
+              </>
+            ),
+          },
+          {
+            key: 'unparsed',
+            label: (
+              <Space size={6}>
+                {t('channels.unparsedResources')}
+                {unparsedTotal > 0 && <Tag>{unparsedTotal}</Tag>}
+              </Space>
+            ),
+            children: (
+              <>
+                {unparsedLoading ? (
+                  <Spin style={{ display: 'flex', justifyContent: 'center', padding: 24 }} />
+                ) : unparsed.length === 0 ? (
+                  <Card>
+                    <Empty description={t('channels.noResources')} />
+                  </Card>
+                ) : (
+                  <Card
+                    size="small"
+                    title={
+                      <Space>
+                        <HelpCircle size={14} />
+                        <span>{t('channels.unidentifiedResources')}</span>
+                        <Tag>{unparsedTotal}</Tag>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {t('channels.clickToCorrect')}
+                        </Text>
+                      </Space>
+                    }
+                    styles={{ body: { padding: 0 } }}
+                  >
+                    <div className="resource-table-wrap">
+                      <table className="resource-table resource-table-unknown">
+                        <colgroup>
+                          <col style={{ width: 40 }} />
+                          <col />
+                          <col style={{ width: 84 }} />
+                          <col style={{ width: 180 }} />
+                        </colgroup>
+                        <thead>
+                          <tr style={{ color: '#93939f', fontSize: 12 }}>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.rawTitle')}</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
+                            <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {unparsed.map((r) => (
+                            <tr
+                              key={r.id}
+                              style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
+                              onClick={() => setSelectedResource(r)}
+                              className="resource-row"
+                            >
+                              <td className="resource-check-cell" style={{ padding: '6px 8px' }} onClick={(e) => e.stopPropagation()}>
+                                <Checkbox
+                                  checked={selectedIds.has(r.id)}
+                                  onChange={(e) => toggleResource(r.id, e.target.checked)}
+                                />
+                              </td>
+                              <td className="resource-title-cell" style={{ padding: '6px 8px' }} data-label={t('channels.rawTitle')}>
+                                <Text ellipsis style={{ display: 'block' }}>
+                                  {r.title_raw}
+                                </Text>
+                              </td>
+                              <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '-'}</td>
+                              <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
+                                <Text ellipsis style={{ display: 'block' }}>
+                                  {r.subtitle_group || '-'}
+                                </Text>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                )}
+                {unparsedTotal > PAGE_SIZE && (
+                  <Space style={{ marginTop: 16, justifyContent: 'flex-end', width: '100%' }}>
+                    <Button size="small" disabled={unparsedPage <= 1} onClick={() => setUnparsedPage(unparsedPage - 1)}>
+                      {t('common.previous')}
+                    </Button>
+                    <Text style={{ fontSize: 12 }}>
+                      {unparsedPage} / {unparsedTotalPages}
+                    </Text>
+                    <Button size="small" disabled={unparsedPage >= unparsedTotalPages} onClick={() => setUnparsedPage(unparsedPage + 1)}>
+                      {t('common.next')}
+                    </Button>
+                  </Space>
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
 
       <ResourceDetailDrawer
         resource={selectedResource}
         onClose={() => setSelectedResource(null)}
         onCorrected={() => {
-          loadResources();
+          reloadActiveTab();
           loadChannel();
         }}
       />

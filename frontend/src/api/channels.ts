@@ -92,9 +92,17 @@ export const channelsApi = {
     if (q) params.set('q', q);
     return api.get<string[]>(`/channels/${channelId}/field-values?${params}`);
   },
-  resources: async (channelId: string, page = 1, pageSize = 20, grouped = false) => {
+  resources: async (
+    channelId: string,
+    page = 1,
+    pageSize = 20,
+    grouped = false,
+    matched?: boolean,
+  ) => {
+    const matchedParam =
+      matched === true ? '&matched=true' : matched === false ? '&matched=false' : '';
     const response = await api.get<ChannelResourcesPayload>(
-      `/channels/${channelId}/resources?page=${page}&page_size=${pageSize}${grouped ? '&grouped=true' : ''}`,
+      `/channels/${channelId}/resources?page=${page}&page_size=${pageSize}${grouped ? '&grouped=true' : ''}${matchedParam}`,
     );
     if (!response.success) return response as APIResponse<FileResource[] | GroupedResource[]>;
     return {

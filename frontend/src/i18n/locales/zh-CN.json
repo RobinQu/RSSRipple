@@ -102,6 +102,8 @@
     "subtitleGroup": "字幕组",
     "publishedAt": "发布时间",
     "unidentifiedResources": "未识别资源",
+    "parsedResources": "已解析",
+    "unparsedResources": "未解析",
     "clickToCorrect": "点击资源可手动修正元数据",
     "rawTitle": "原始标题",
     "videoCodec": "视频编码",
