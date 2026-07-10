@@ -112,6 +112,7 @@ export default function ChannelDetail() {
     if (!id) return;
     const r = await channelsApi.get(id);
     if (r.success) setChannel(r.data);
+    setChannelLoading(false);
   }, [id]);
 
   const loadParsed = useCallback(async (p: number) => {
