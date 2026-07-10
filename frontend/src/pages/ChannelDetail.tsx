@@ -115,31 +115,34 @@ export default function ChannelDetail() {
     setChannelLoading(false);
   }, [id]);
 
-  const loadParsed = useCallback(async (p: number) => {
+  const loadParsed = useCallback(async (p: number, silent = false) => {
     if (!id) return;
-    setParsedLoading(true);
+    if (!silent) setParsedLoading(true);
     const r = await channelsApi.resources(id, p, PAGE_SIZE, true, true);
     if (r.success) {
       setParsedGroups(r.data as GroupedResource[]);
       if (r.meta) setParsedTotal(r.meta.total);
     }
-    setParsedLoading(false);
+    if (!silent) setParsedLoading(false);
   }, [id]);
 
-  const loadUnparsed = useCallback(async (p: number) => {
+  const loadUnparsed = useCallback(async (p: number, silent = false) => {
     if (!id) return;
-    setUnparsedLoading(true);
+    if (!silent) setUnparsedLoading(true);
     const r = await channelsApi.resources(id, p, PAGE_SIZE, false, false);
     if (r.success) {
       setUnparsed(r.data as FileResource[]);
       if (r.meta) setUnparsedTotal(r.meta.total);
     }
-    setUnparsedLoading(false);
+    if (!silent) setUnparsedLoading(false);
   }, [id]);
 
   const reloadActiveTab = useCallback(async () => {
-    if (tab === 'parsed') await loadParsed(parsedPage);
-    else await loadUnparsed(unparsedPage);
+    // Silent: polling calls this every few seconds during a fetch. Toggling
+    // the loading spinners each time caused the page to flicker, so refresh
+    // the data in place without the loading state.
+    if (tab === 'parsed') await loadParsed(parsedPage, true);
+    else await loadUnparsed(unparsedPage, true);
   }, [tab, parsedPage, unparsedPage, loadParsed, loadUnparsed]);
 
   useEffect(() => {
