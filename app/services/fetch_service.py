@@ -143,7 +143,11 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
     channel.last_fetch_error = None
     await db.commit()
 
-    # 1. Fetch RSS (30s timeout enforced by asyncio.wait_for)
+    # 1. Fetch RSS (30s timeout). A feed outage no longer aborts the job: the
+    # backfill (step 3) still re-runs retry-eligible unmatched resources so
+    # repair progresses even when the feed is temporarily unreachable.
+    feed = None
+    feed_error: str | None = None
     try:
         feed = await asyncio.wait_for(
             asyncio.to_thread(_parse_feed_sync, channel.url),
@@ -151,23 +155,21 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         )
     except Exception as e:
         logger.warning("[fetch:%s] feed fetch failed: %s", channel.id, e)
-        channel.status = "error"
-        channel.last_fetch_status = "failed"
-        channel.last_fetch_error = str(e)[:2000]
-        await db.commit()
-        return {"status": "error", "new_resource_ids": [], "new_count": 0, "error": str(e)}
+        feed_error = str(e)[:2000]
 
-    if feed.bozo and not feed.entries:
+    if feed is not None and feed.bozo and not feed.entries:
         exc = getattr(feed, "bozo_exception", None)
-        msg = f"Failed to fetch RSS feed '{channel.url}': {exc or 'unknown error'}"
-        logger.warning("[fetch:%s] %s", channel.id, msg)
+        feed_error = f"Failed to fetch RSS feed '{channel.url}': {exc or 'unknown error'}"
+        logger.warning("[fetch:%s] %s", channel.id, feed_error)
+        feed = None
+
+    if feed_error is not None:
         channel.status = "error"
         channel.last_fetch_status = "failed"
-        channel.last_fetch_error = msg
+        channel.last_fetch_error = feed_error
         await db.commit()
-        return {"status": "error", "new_resource_ids": [], "new_count": 0, "error": msg}
 
-    entries = feed.entries
+    entries = feed.entries if feed is not None else []
     logger.debug("[fetch:%s] Feed read: %d entries", channel.id, len(entries))
     # Note: an empty feed no longer short-circuits — the backfill phase below
     # still re-runs retry-eligible unmatched resources, so a transiently empty
@@ -324,11 +326,12 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
     except Exception as e:
         logger.warning("[fetch:%s] backfill phase failed: %s", channel.id, e)
 
-    # Finalize channel status
-    channel.last_fetched_at = utcnow()
-    channel.last_fetch_status = "success"
-    channel.status = "active"
-    channel.last_fetch_error = None
+    # Finalize channel status - only mark success when the feed fetch succeeded.
+    if feed_error is None:
+        channel.last_fetched_at = utcnow()
+        channel.last_fetch_status = "success"
+        channel.status = "active"
+        channel.last_fetch_error = None
 
     await db.commit()
 
@@ -347,9 +350,10 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             logger.warning("Failed to enqueue run_agent for %s: %s", agent.id, e)
 
     return {
-        "status": "success" if new_count > 0 else "unchanged",
+        "status": "error" if feed_error is not None else ("success" if new_count > 0 else "unchanged"),
         "total": len(entries),
         "new_count": new_count,
         "new_resource_ids": new_resource_ids,
         "backfilled_count": backfilled_count,
+        "error": feed_error,
     }

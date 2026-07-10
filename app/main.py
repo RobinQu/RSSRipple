@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 import traceback
 from contextlib import asynccontextmanager
@@ -146,8 +147,18 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         }
 
 
+# Per-work ceiling for the background metadata-refresh job. A single hung
+# external search (Jina/LLM call that never returns) must not stall the whole
+# batch - and with it the shared task queue.
+_REFRESH_WORK_TIMEOUT = 120  # seconds
+
+
 async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no cover
-    """Background job: refresh metadata for a batch of works sequentially."""
+    """Background job: refresh metadata for a batch of works sequentially.
+
+    Each work is bounded by ``_REFRESH_WORK_TIMEOUT`` so a single hung external
+    search cannot stall the whole batch - and the shared task queue - forever.
+    """
     from app.services.metadata_service import refresh_work_metadata
 
     items: list[dict] = payload.get("items", []) or []
@@ -158,8 +169,19 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no c
             work_id = item.get("id")
             content_type = item.get("content_type")
             try:
-                r = await refresh_work_metadata(session, work_id, content_type, source)
+                r = await asyncio.wait_for(
+                    refresh_work_metadata(session, work_id, content_type, source),
+                    timeout=_REFRESH_WORK_TIMEOUT,
+                )
                 results.append({"id": work_id, "content_type": content_type, **r})
+            except TimeoutError:
+                logger.warning(
+                    "[refresh_works] timed out after %ds for %s/%s",
+                    _REFRESH_WORK_TIMEOUT, content_type, work_id,
+                )
+                results.append(
+                    {"id": work_id, "content_type": content_type, "found": False, "error": "timeout"}
+                )
             except Exception as e:  # noqa: BLE001 — keep processing the rest
                 logger.warning(
                     "[refresh_works] failed for %s/%s: %s", content_type, work_id, e
@@ -228,6 +250,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     queue = create_queue(
         backend=settings.queue_backend,
         redis_url=settings.redis_url,
+        max_concurrent=settings.queue_max_concurrent,
     )
     _tq_mod.task_queue = queue
 

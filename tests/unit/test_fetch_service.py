@@ -689,3 +689,29 @@ class TestMetadataBackfill:
             select(FileResource).where(FileResource.guid == "nw")
         )).scalar_one()
         assert row.metadata_attempts == 1  # untouched
+
+
+async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fake_queue):
+    """A feed outage must not block repair: the backfill still re-runs
+    retry-eligible unmatched resources even though the RSS fetch failed."""
+    from sqlalchemy import select
+    for i in range(5):
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=channel.id, guid=f"g{i}",
+            title_raw=f"[G] Show{i} - 01 [1080p]",
+            torrent_url=f"magnet:?xt=urn:btih:{i}",
+        ))
+    await db_session.commit()
+
+    with patch("app.services.fetch_service._parse_feed_sync",
+               side_effect=Exception("network error")):
+        res = await fs.fetch_channel_resources(channel, db_session)
+
+    assert res["status"] == "error"
+    assert res["new_count"] == 0
+    assert res["backfilled_count"] == 5  # backfill ran despite the feed failure
+    assert channel.last_fetch_status == "failed"
+    rows = (await db_session.execute(
+        select(FileResource).where(FileResource.channel_id == channel.id)
+    )).scalars().all()
+    assert all(r.metadata_attempts == 1 for r in rows)

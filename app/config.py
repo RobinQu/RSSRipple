@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # Task queue backend: "memory" (default, single-process) or "redis" (distributed)
     queue_backend: str = "memory"
     redis_url: str = "redis://localhost:6379/0"
+    # Max concurrent jobs. A metadata-refresh job (sequential, can run for a long
+    # time) must not monopolize the worker - with the default 1, it starved
+    # fetch_channel jobs. 4 lets a long refresh coexist with channel fetches.
+    queue_max_concurrent: int = 4
 
     # App
     app_name: str = "RSSRipple"
