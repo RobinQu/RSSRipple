@@ -4,7 +4,7 @@ from collections import Counter
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,6 +35,10 @@ async def list_resources(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     grouped: bool = Query(False),
+    matched: bool | None = Query(
+        None,
+        description="Filter by link state: true=linked to a work, false=unmatched.",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     ch = await db.get(Channel, channel_id)
@@ -44,6 +48,17 @@ async def list_resources(
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Channel not found"}},
         )
     base_q = select(FileResource).where(FileResource.channel_id == channel_id)
+    # Filter by metadata link state so the channel page can show parsed vs
+    # unparsed resources in separate tabs. In grouped mode, matched=True drops
+    # the synthetic "unknown" bucket (its count query returns 0).
+    if matched is True:
+        base_q = base_q.where(
+            or_(FileResource.series_id.isnot(None), FileResource.movie_id.isnot(None))
+        )
+    elif matched is False:
+        base_q = base_q.where(
+            FileResource.series_id.is_(None), FileResource.movie_id.is_(None)
+        )
 
     if grouped:
         # Paginate by WORK GROUP (not by row). A group is a TVSeries, a Movie,
@@ -82,7 +97,10 @@ async def list_resources(
             entries.append(("series", sid, ts))
         for mid, ts in movie_groups:
             entries.append(("movie", mid, ts))
-        if unknown_last[1] and unknown_last[1] > 0:
+        # The synthetic "unknown" bucket holds unmatched resources; it is only
+        # relevant when the caller wants unmatched or all resources. Skip it for
+        # matched=True so the parsed tab shows only linked work-groups.
+        if matched is not True and unknown_last[1] and unknown_last[1] > 0:
             entries.append(("unknown", None, unknown_last[0]))
 
         # Sort by last_update desc; None values sink to the end for stability.

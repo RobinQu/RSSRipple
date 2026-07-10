@@ -291,3 +291,64 @@ class TestEpisodeCorrection:
             json={"episode": 5},
         )
         assert res.status_code == 404
+
+
+class TestResourceMatchedFilter:
+    """The channel page splits parsed/unparsed into tabs via the `matched` param."""
+
+    async def test_matched_filter_splits_parsed_and_unparsed(self, client, sample_channel, db_session_factory):
+        from app.models.series import TVSeries
+        # Two unmatched + one matched (linked to a series)
+        await _make_resource(db_session_factory, sample_channel.id, title_raw="U1")
+        await _make_resource(db_session_factory, sample_channel.id, title_raw="U2")
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", title_en="Show", content_type="tv"))
+            await s.commit()
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="M1", series_id=sid, metadata_matched_at=datetime.now(UTC),
+        )
+        base = f"/api/v1/channels/{sample_channel.id}/resources"
+
+        # matched=true -> only the linked resource
+        r = (await client.get(f"{base}?matched=true")).json()
+        assert r["meta"]["total"] == 1
+        assert r["data"][0]["title_raw"] == "M1"
+
+        # matched=false -> only the two unmatched
+        r = (await client.get(f"{base}?matched=false")).json()
+        assert r["meta"]["total"] == 2
+        assert {d["title_raw"] for d in r["data"]} == {"U1", "U2"}
+
+        # default (no matched) -> all three
+        r = (await client.get(base)).json()
+        assert r["meta"]["total"] == 3
+
+    async def test_matched_true_grouped_excludes_unknown(self, client, sample_channel, db_session_factory):
+        from app.models.series import TVSeries
+        await _make_resource(db_session_factory, sample_channel.id, title_raw="U1")  # unmatched
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", title_en="Show", content_type="tv"))
+            await s.commit()
+        await _make_resource(
+            db_session_factory, sample_channel.id,
+            title_raw="M1", series_id=sid, metadata_matched_at=datetime.now(UTC),
+        )
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/resources?grouped=true&matched=true"
+        )
+        groups = res.json()["data"]["groups"]
+        types = {g["type"] for g in groups}
+        assert types == {"series"}  # no "unknown" bucket when matched=true
+
+    async def test_matched_false_paginates(self, client, sample_channel, db_session_factory):
+        for i in range(3):
+            await _make_resource(db_session_factory, sample_channel.id, title_raw=f"U{i}")
+        base = f"/api/v1/channels/{sample_channel.id}/resources?matched=false"
+        p1 = (await client.get(f"{base}&page=1&page_size=2")).json()
+        assert p1["meta"]["total"] == 3
+        assert len(p1["data"]) == 2
+        p2 = (await client.get(f"{base}&page=2&page_size=2")).json()
+        assert len(p2["data"]) == 1

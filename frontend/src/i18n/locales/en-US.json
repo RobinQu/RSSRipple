@@ -102,6 +102,8 @@
     "subtitleGroup": "Group",
     "publishedAt": "Published",
     "unidentifiedResources": "Unidentified Resources",
+    "parsedResources": "Parsed",
+    "unparsedResources": "Unparsed",
     "clickToCorrect": "Click a resource to manually correct metadata",
     "rawTitle": "Raw Title",
     "videoCodec": "Video",
