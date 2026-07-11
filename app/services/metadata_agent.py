@@ -19,6 +19,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, ClassVar, Literal
 
 from langchain_core.messages import HumanMessage
@@ -409,78 +410,218 @@ async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
         return {"success": False, "data": {}, "error": str(e)}
 
 
+# ---------------------------------------------------------------------------
+# Wikipedia
+#
+# Backed by the maintained ``Wikipedia-API`` PyPI package (import
+# ``wikipediaapi``), which replaces the unmaintained ``wikipedia`` package
+# (v1.4.0). The old package was fragile in three ways that all converged on
+# the same ``JSONDecodeError`` ("Expecting value: line 1 column 1 (char 0)"):
+#   * its ``User-Agent`` defaulted to a generic string that Wikimedia's UA
+#     policy throttles/blocks with an *empty* response body;
+#   * it built ``http://<lang>.wikipedia.org/...`` URLs (Wikimedia redirects
+#     to https, which some networks/proxies drop to an empty body);
+#   * ``_wiki_request`` called ``r.json()`` with no ``raise_for_status`` and
+#     no retry, so an empty body raised ``JSONDecodeError``.
+# ``Wikipedia-API`` alleviates all three at the source:
+#   * the constructor REQUIRES a descriptive ``user_agent`` (>=5 chars) and
+#     builds a Wikimedia-compliant composite UA header;
+#   * it hits ``https://{lang}.wikipedia.org/w/api.php`` directly (no http
+#     redirect whose body can be dropped);
+#   * it checks HTTP status (non-200 -> ``WikiHttpError``) instead of parsing
+#     an empty body, and retries transient failures (5xx, 429, connection,
+#     timeout, invalid JSON) internally up to ``max_retries``.
+# We still wrap every call so any residual ``WikipediaException`` is mapped to
+# a transient ``_WikipediaRequestError`` ("Wikipedia request failed: ..."),
+# never a definitive "no match" - so the backfill retries instead of caching a
+# permanent not_found. A genuine page-not-found (``page.exists() is False``)
+# returns a non-transient "Page not found" error.
+# ---------------------------------------------------------------------------
+
+# Wikimedia-compliant UA - policy requires a descriptive agent with contact.
+_WIKIPEDIA_USER_AGENT = (
+    f"{settings.app_name}/0.1.0 (https://github.com/RobinQu/RSSRipple) "
+    f"metadata-agent"
+)
+
+
+class _WikipediaRequestError(Exception):
+    """A retryable infra failure from the wikipediaapi library (connection,
+    timeout, rate limit, non-200, invalid JSON). Its message always starts
+    with ``"Wikipedia request failed"`` so :func:`_classify_failure` treats
+    the outcome as transient."""
+
+
+@lru_cache(maxsize=8)
+def _wikipedia_client(lang: str) -> Any:
+    """Build (and cache) a ``wikipediaapi.Wikipedia`` client for one language.
+
+    The client carries a Wikimedia-compliant User-Agent, uses HTTPS, and
+    retries transient HTTP failures (5xx, 429, connection, timeout, invalid
+    JSON) internally - so the empty-body ``JSONDecodeError`` that plagued the
+    old ``wikipedia`` package cannot occur.
+    """
+    import wikipediaapi
+
+    return wikipediaapi.Wikipedia(
+        user_agent=_WIKIPEDIA_USER_AGENT,
+        language=lang,
+        extract_format=wikipediaapi.ExtractFormat.WIKI,
+    )
+
+
+def _is_disambiguation_category(category_names: list[str]) -> bool:
+    """Heuristic disambiguation detection from a page's category names.
+
+    ``Wikipedia-API`` does not raise ``DisambiguationError`` (unlike the old
+    package); a disambiguation page is a normal page whose categories include
+    a disambiguation category. We detect that so the agent can ask for a more
+    specific title instead of trusting a generic page.
+    """
+    for name in category_names:
+        lowered = name.lower()
+        if "disambig" in lowered or "消歧义" in name or "曖昧" in name:
+            return True
+    return False
+
+
+async def _wiki_call(func: Any, *args: Any, **kwargs: Any) -> Any:
+    """Run a synchronous ``wikipediaapi`` call in a worker thread, mapping any
+    library exception to a transient ``_WikipediaRequestError``.
+
+    Transient retrying (5xx, 429, connection, timeout, invalid JSON) is handled
+    inside the library; this wrapper only normalizes the error contract so the
+    agent's failure classification treats infra failures as retryable.
+    """
+    import wikipediaapi
+
+    try:
+        return await asyncio.to_thread(func, *args, **kwargs)
+    except wikipediaapi.WikipediaException as e:
+        raise _WikipediaRequestError(
+            f"Wikipedia request failed: {type(e).__name__} ({e})"
+        )
+    except Exception as e:  # noqa: BLE001 - belt-and-suspenders for httpx errors
+        msg = str(e).lower()
+        if "timeout" in msg or "timed out" in msg or "connection" in msg:
+            raise _WikipediaRequestError(
+                f"Wikipedia request failed: network error ({type(e).__name__})"
+            )
+        raise _WikipediaRequestError(
+            f"Wikipedia request failed: {type(e).__name__} ({e})"
+        )
+
+
 async def _execute_search_wikipedia(query: str, lang: str = "en") -> dict:
     """Search Wikipedia for matching pages."""
     try:
-        import wikipedia
+        import wikipediaapi  # noqa: F401 - presence check only
+    except ImportError as e:
+        return {"success": False, "data": [], "error": f"wikipediaapi not installed: {e}"}
 
-        wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
-        wikipedia.set_lang(wiki_lang)
+    wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
+    wiki = _wikipedia_client(wiki_lang)
 
-        results = await asyncio.to_thread(wikipedia.search, query, results=5)
-        if not results:
-            return {"success": True, "data": []}
-
-        pages = []
-        for title in results[:5]:
-            try:
-                page = await asyncio.to_thread(wikipedia.page, title, auto_suggest=False)
-                pages.append(
-                    {
-                        "title": page.title,
-                        "page_id": page.pageid,
-                        "url": page.url,
-                        "summary": page.summary[:500] if page.summary else "",
-                    }
-                )
-            except (wikipedia.exceptions.DisambiguationError, wikipedia.exceptions.PageError):
-                continue
-        return {"success": True, "data": pages}
-    except Exception as e:
+    try:
+        results = await _wiki_call(wiki.search, query, limit=5)
+    except _WikipediaRequestError as e:
         logger.warning(
-            "[metadata_agent] search_wikipedia failed for query=%s lang=%s: %s",
-            query, lang, e, exc_info=True,
+            "[metadata_agent] search_wikipedia failed for query=%r lang=%s: %s",
+            query, lang, e,
         )
         return {"success": False, "data": [], "error": str(e)}
+    if not results or not getattr(results, "pages", None):
+        return {"success": True, "data": []}
+
+    pages = []
+    for _title, page in list(results.pages.items())[:5]:
+        # ``pageid`` is populated by ``search``; ``exists()`` is a cheap
+        # ``pageid > 0`` check (no extra API call) for search-result stubs.
+        if not page.exists():
+            continue
+        # ``summary`` is a lazy extract (one API call per page); a transient
+        # failure on one page must not sink the whole result, so fall back to "".
+        try:
+            summary = await _wiki_call(lambda p=page: p.summary)
+        except _WikipediaRequestError as e:
+            logger.debug(
+                "[metadata_agent] wikipedia summary(%r) failed lang=%s: %s",
+                page.title, wiki_lang, e,
+            )
+            summary = ""
+        pages.append(
+            {
+                "title": page.title,
+                "page_id": page.pageid,
+                "url": page.fullurl,
+                "summary": (summary or "")[:500],
+            }
+        )
+    return {"success": True, "data": pages}
 
 
 async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
     """Get full Wikipedia page with infobox and categories."""
     try:
-        import wikipedia
+        import wikipediaapi  # noqa: F401 - presence check only
+    except ImportError as e:
+        return {"success": False, "data": {}, "error": f"wikipediaapi not installed: {e}"}
 
-        wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
-        wikipedia.set_lang(wiki_lang)
+    wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
+    wiki = _wikipedia_client(wiki_lang)
+    page = wiki.page(title)  # lazy stub - no network until an attr is resolved
 
-        page = await asyncio.to_thread(wikipedia.page, title, auto_suggest=False)
+    try:
+        exists = await _wiki_call(page.exists)
+    except _WikipediaRequestError as e:
+        logger.warning(
+            "[metadata_agent] get_wikipedia_page failed for title=%r lang=%s: %s",
+            title, lang, e,
+        )
+        return {"success": False, "data": {}, "error": str(e)}
+    if not exists:
+        return {"success": False, "data": {}, "error": f"Page not found: {title}"}
 
-        return {
-            "success": True,
-            "data": {
-                "title": page.title,
-                "page_id": page.pageid,
-                "url": page.url,
-                "summary": page.summary[:800] if page.summary else "",
-                "categories": page.categories[:20] if page.categories else [],
-            },
-        }
-    except wikipedia.exceptions.DisambiguationError as e:
+    # ``categories`` is a lazy fetch; reuse it for both disambiguation
+    # detection and the result so we only pay for one API call.
+    try:
+        categories = await _wiki_call(lambda p=page: list(p.categories.keys()))
+    except _WikipediaRequestError as e:
+        logger.debug(
+            "[metadata_agent] wikipedia categories(%r) failed lang=%s: %s",
+            title, wiki_lang, e,
+        )
+        categories = []
+
+    if _is_disambiguation_category(categories or []):
         return {
             "success": True,
             "data": {
                 "title": title,
                 "disambiguation": True,
-                "options": e.options[:10] if e.options else [],
+                "options": [],
             },
         }
-    except wikipedia.exceptions.PageError:
-        return {"success": False, "data": {}, "error": f"Page not found: {title}"}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] get_wikipedia_page failed for title=%s lang=%s: %s",
-            title, lang, e, exc_info=True,
+
+    try:
+        summary = await _wiki_call(lambda p=page: p.summary)
+    except _WikipediaRequestError as e:
+        logger.debug(
+            "[metadata_agent] wikipedia summary(%r) failed lang=%s: %s",
+            title, wiki_lang, e,
         )
-        return {"success": False, "data": {}, "error": str(e)}
+        summary = ""
+
+    return {
+        "success": True,
+        "data": {
+            "title": page.title,
+            "page_id": page.pageid,
+            "url": page.fullurl,
+            "summary": (summary or "")[:800],
+            "categories": (categories or [])[:20],
+        },
+    }
 
 
 async def _execute_search_exa_agent(query: str) -> dict:
@@ -871,6 +1012,11 @@ _TRANSIENT_MARKERS: tuple[str, ...] = (
     "unauthorized", "rate limit", "service unavailable", "overloaded",
     "500", "502", "503", "504", "bad gateway", "server error",
     "api key not configured",
+    # Wikipedia infra failures surfaced by _wiki_call (connection, timeout,
+    # rate limit, non-200, invalid JSON from wikipediaapi). A real "no match"
+    # returns success=True with an empty data list (or "Page not found"), so
+    # this marker only appears on retryable failures.
+    "wikipedia request failed",
 )
 
 # Substrings indicating the entry is genuinely not a TV/movie work (music,
@@ -1285,7 +1431,16 @@ class UnifiedMetadataAgent:
                         content = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
                         if isinstance(content, dict):
                             if not content.get("success"):
-                                source_errors.setdefault("wikipedia", content.get("error", "no results"))
+                                err = content.get("error", "no results")
+                                source_errors.setdefault("wikipedia", err)
+                                # Surface infra failures ("Wikipedia request
+                                # failed: ...") on search_error so
+                                # _classify_failure treats them as transient
+                                # and they are retried, not cached as a
+                                # permanent not_found. A PageError ("Page not
+                                # found") carries no transient marker, so it
+                                # still classifies as not_found.
+                                search_error = search_error or f"Wikipedia: {err}"
                             elif msg.name == "search_wikipedia" and not content.get("data"):
                                 source_errors.setdefault("wikipedia", "no results")
                     except (json.JSONDecodeError, TypeError):
