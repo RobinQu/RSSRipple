@@ -43,7 +43,7 @@ import ProgressBar from '../components/ProgressBar';
 import FilterBuilder from '../components/FilterBuilder';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
-import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
+import { formatBytes, formatSpeed, formatEta, timeAgo, formatDate } from '../utils/format';
 import type {
   Agent,
   AgentRun,
@@ -539,6 +539,30 @@ export default function AgentDetail() {
       ellipsis: true,
       render: (v: string | null) =>
         v ? <Text type="danger" style={{ fontSize: 11 }}>{v}</Text> : null,
+    },
+    {
+      title: t('agents.taskCreatedAt'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 150,
+      // Absolute timestamp so users can correlate creation across tasks; the
+      // tooltip carries the relative "x ago" for a quick sense of recency.
+      render: (v: string) => (
+        <Tooltip title={timeAgo(v)}>
+          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(v)}</Text>
+        </Tooltip>
+      ),
+    },
+    {
+      title: t('agents.taskUpdatedAt'),
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      width: 150,
+      render: (v: string) => (
+        <Tooltip title={timeAgo(v)}>
+          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(v)}</Text>
+        </Tooltip>
+      ),
     },
     {
       title: t('common.actions'),
