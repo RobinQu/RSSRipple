@@ -4,7 +4,12 @@ services:
     ports:
       - "9001:9001"
     volumes:
-      - ./data:/app/data
+      # Named volume (not a bind mount) for the SQLite DB + posters. The DB on a
+      # bind mount hit recurring "disk I/O error" under concurrent writes on
+      # Docker Desktop/macOS (virtiofs EIO); a named volume is backed by the
+      # Linux VM's filesystem and avoids that. downloads/watch stay bind-mounted
+      # on the transmission service below.
+      - app-data:/app/data
     env_file: .env
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_dev.db
@@ -52,7 +57,7 @@ services:
     ports:
       - "9002:9002"
     volumes:
-      - ./data:/app/data
+      - app-data:/app/data
       - ./tests:/app/tests
     env_file: .env
     environment:
@@ -71,3 +76,4 @@ services:
 
 volumes:
   transmission-config:
+  app-data:
