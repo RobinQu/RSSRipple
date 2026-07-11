@@ -18,6 +18,7 @@ import { worksApi } from '../api/works';
 import type { RefreshItem } from '../api/works';
 import type { Work } from '../types';
 import MetadataConfigModal from '../components/MetadataConfigModal';
+import Pagination from '../components/Pagination';
 
 const { Title, Text } = Typography;
 
@@ -39,9 +40,8 @@ export default function WorksPage() {
 
   const [works, setWorks] = useState<Work[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const [contentType, setContentType] = useState<ContentType>('all');
 
@@ -53,75 +53,40 @@ export default function WorksPage() {
   // Configurator modal
   const [configOpen, setConfigOpen] = useState(false);
 
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const loadingMoreRef = useRef(false);
-  const hasMoreRef = useRef(true);
-
-  useEffect(() => {
-    loadingMoreRef.current = loadingMore;
-  }, [loadingMore]);
-  useEffect(() => {
-    hasMoreRef.current = hasMore;
-  }, [hasMore]);
+  const topRef = useRef<HTMLDivElement | null>(null);
 
   const fetchPage = useCallback(
-    async (p: number, ct: ContentType, q: string, replace: boolean) => {
-      if (replace) setLoading(true);
-      else {
-        loadingMoreRef.current = true;
-        setLoadingMore(true);
-      }
+    async (p: number, ct: ContentType, q: string) => {
+      setLoading(true);
       try {
         const ctParam = ct === 'all' ? undefined : ct;
         const r = await worksApi.list(p, PAGE_SIZE, q.trim() || undefined, ctParam);
         if (r.success) {
-          setWorks((prev) => (replace ? r.data : [...prev, ...r.data]));
-          const total = r.meta?.total ?? 0;
-          const nextHasMore = r.data.length === PAGE_SIZE && p * PAGE_SIZE < total;
-          hasMoreRef.current = nextHasMore;
-          setHasMore(nextHasMore);
+          setWorks(r.data);
+          setTotal(r.meta?.total ?? 0);
         }
       } finally {
-        if (replace) setLoading(false);
-        else {
-          loadingMoreRef.current = false;
-          setLoadingMore(false);
-        }
+        setLoading(false);
       }
     },
     [],
   );
 
-  // Initial / filter-change load (page 1).
+  // Load the current page whenever page / filter / search changes.
+  // The short debounce keeps search typing from firing a request per keystroke.
   useEffect(() => {
     const timeout = setTimeout(() => {
-      fetchPage(1, contentType, search, true);
-      setPage(1);
-      hasMoreRef.current = true;
-      setHasMore(true);
+      fetchPage(page, contentType, search);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [contentType, search, fetchPage]);
+  }, [page, contentType, search, fetchPage]);
 
-  // Infinite scroll: load next page when the sentinel enters the viewport.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
-          setPage((prev) => {
-            const next = prev + 1;
-            fetchPage(next, contentType, search, false);
-            return next;
-          });
-        }
-      },
-      { rootMargin: '400px' },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [contentType, search, fetchPage]);
+  const handlePageChange = (p: number) => {
+    setSelected(new Set());
+    setPage(p);
+    // Scroll back to the top of the list when navigating between pages.
+    topRef.current?.scrollIntoView({ block: 'start' });
+  };
 
   const handleCardClick = (w: Work) => {
     if (selectMode) {
@@ -161,9 +126,8 @@ export default function WorksPage() {
         message.success(t('works.batchRefreshStarted', { n: r.data.count }));
         setSelectMode(false);
         setSelected(new Set());
-        // Reload the first page so refreshed titles appear.
-        fetchPage(1, contentType, search, true);
-        setPage(1);
+        // Reload the current page so refreshed titles appear.
+        fetchPage(page, contentType, search);
       } else {
         message.error(r.error?.message || t('works.batchRefreshFailed'));
       }
@@ -182,7 +146,7 @@ export default function WorksPage() {
   );
 
   return (
-    <div>
+    <div ref={topRef}>
       {/* Header */}
       <div
         style={{
@@ -206,6 +170,7 @@ export default function WorksPage() {
             value={contentType}
             onChange={(v) => {
               setContentType(v as ContentType);
+              setPage(1);
               setSelected(new Set());
             }}
           />
@@ -215,6 +180,7 @@ export default function WorksPage() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
+              setPage(1);
               setSelected(new Set());
             }}
             style={{ width: 220 }}
@@ -273,107 +239,97 @@ export default function WorksPage() {
         />
       ) : (
         <>
-          <div className="resource-table-wrap" style={{ marginBottom: 32 }}>
-            <table className={`resource-table works-table${selectMode ? ' selectable' : ''}`}>
-              <colgroup>
-                {selectMode && <col style={{ width: 40 }} />}
-                <col style={{ width: 60 }} />
-                <col />
-                <col style={{ width: 84 }} />
-                <col style={{ width: 96 }} />
-                <col style={{ width: 116 }} />
-                <col style={{ width: 200 }} />
-              </colgroup>
-              <thead>
-                <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
-                  {selectMode && <th style={{ textAlign: 'left', padding: '8px' }} />}
-                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colType')}</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colStatus')}</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colInfo')}</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colGenre')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {works.map((w) => {
-                  const displayTitle = getDisplayTitle(w);
-                  const key = workKey(w);
-                  const isSelected = selected.has(key);
-                  const info =
-                    w.content_type === 'movie'
-                      ? (w.year ?? '—')
-                      : w.number_of_seasons
-                        ? `${w.number_of_seasons}S · ${w.number_of_episodes ?? '?'}E`
-                        : '—';
-                  return (
-                    <tr
-                      key={key}
-                      className={`resource-row works-row${isSelected ? ' selected' : ''}`}
-                      style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
-                      onClick={() => handleCardClick(w)}
-                    >
-                      {selectMode && (
-                        <td
-                          className="resource-check-cell"
-                          style={{ padding: '8px' }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Checkbox checked={isSelected} onChange={() => handleCardClick(w)} />
+          <Spin spinning={loading}>
+            <div className="resource-table-wrap" style={{ marginBottom: 16 }}>
+              <table className={`resource-table works-table${selectMode ? ' selectable' : ''}`}>
+                <colgroup>
+                  {selectMode && <col style={{ width: 40 }} />}
+                  <col style={{ width: 60 }} />
+                  <col />
+                  <col style={{ width: 84 }} />
+                  <col style={{ width: 96 }} />
+                  <col style={{ width: 116 }} />
+                  <col style={{ width: 200 }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
+                    {selectMode && <th style={{ textAlign: 'left', padding: '8px' }} />}
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colType')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colStatus')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colInfo')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colGenre')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {works.map((w) => {
+                    const displayTitle = getDisplayTitle(w);
+                    const key = workKey(w);
+                    const isSelected = selected.has(key);
+                    const info =
+                      w.content_type === 'movie'
+                        ? (w.year ?? '—')
+                        : w.number_of_seasons
+                          ? `${w.number_of_seasons}S · ${w.number_of_episodes ?? '?'}E`
+                          : '—';
+                    return (
+                      <tr
+                        key={key}
+                        className={`resource-row works-row${isSelected ? ' selected' : ''}`}
+                        style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
+                        onClick={() => handleCardClick(w)}
+                      >
+                        {selectMode && (
+                          <td
+                            className="resource-check-cell"
+                            style={{ padding: '8px' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Checkbox checked={isSelected} onChange={() => handleCardClick(w)} />
+                          </td>
+                        )}
+                        <td style={{ padding: '8px' }} data-label={t('works.colType')}>
+                          <Tag color={w.content_type === 'movie' ? 'green' : 'blue'} style={{ margin: 0 }}>
+                            {w.content_type === 'movie' ? t('works.movie') : t('works.tv')}
+                          </Tag>
                         </td>
-                      )}
-                      <td style={{ padding: '8px' }} data-label={t('works.colType')}>
-                        <Tag color={w.content_type === 'movie' ? 'green' : 'blue'} style={{ margin: 0 }}>
-                          {w.content_type === 'movie' ? t('works.movie') : t('works.tv')}
-                        </Tag>
-                      </td>
-                      <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
-                        <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>
-                          {displayTitle}
-                        </Text>
-                      </td>
-                      <td style={{ padding: '8px' }} data-label={t('works.colRating')}>
-                        {w.rating != null ? `★ ${w.rating.toFixed(1)}` : '—'}
-                      </td>
-                      <td style={{ padding: '8px' }} data-label={t('works.colStatus')}>
-                        {w.status || '—'}
-                      </td>
-                      <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colInfo')}>
-                        {info}
-                      </td>
-                      <td className="resource-text-cell" style={{ padding: '8px' }} data-label={t('works.colGenre')}>
-                        <Text ellipsis style={{ display: 'block' }}>
-                          {w.genre && w.genre.length ? w.genre.join(', ') : '—'}
-                        </Text>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
+                          <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>
+                            {displayTitle}
+                          </Text>
+                        </td>
+                        <td style={{ padding: '8px' }} data-label={t('works.colRating')}>
+                          {w.rating != null ? `★ ${w.rating.toFixed(1)}` : '—'}
+                        </td>
+                        <td style={{ padding: '8px' }} data-label={t('works.colStatus')}>
+                          {w.status || '—'}
+                        </td>
+                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colInfo')}>
+                          {info}
+                        </td>
+                        <td className="resource-text-cell" style={{ padding: '8px' }} data-label={t('works.colGenre')}>
+                          <Text ellipsis style={{ display: 'block' }}>
+                            {w.genre && w.genre.length ? w.genre.join(', ') : '—'}
+                          </Text>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Spin>
 
-          {/* Infinite scroll sentinel */}
-          <div ref={sentinelRef} style={{ height: 1 }} />
-          {loadingMore && (
-            <div className="works-load-more" role="status" aria-live="polite">
-              <div className="works-load-more-indicator" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('works.loadingMore')}
-              </Text>
-            </div>
-          )}
-          {!hasMore && works.length > 0 && (
-            <div style={{ textAlign: 'center', padding: 16 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('works.noMore')}
-              </Text>
-            </div>
-          )}
+          {/* Paginator */}
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+            <Pagination
+              page={page}
+              pageSize={PAGE_SIZE}
+              total={total}
+              onPageChange={handlePageChange}
+            />
+          </div>
         </>
       )}
 
