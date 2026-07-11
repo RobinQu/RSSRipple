@@ -47,6 +47,7 @@ from app.api.v1 import (  # noqa: E402
     movies,
     resources,
     series,
+    system_settings,
     tasks,
     works,
 )
@@ -96,6 +97,7 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
         series.router,
         movies.router,
         works.router,
+        system_settings.router,
     ):
         test_app.include_router(router, prefix="/api/v1")
 

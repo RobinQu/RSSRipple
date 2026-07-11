@@ -46,7 +46,8 @@
     "repository": "Repository",
     "channels": "Channels",
     "agents": "Download Agents",
-    "downloaders": "Downloaders"
+    "downloaders": "Downloaders",
+    "settings": "Settings"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -661,6 +662,42 @@
     "failed": "Failed",
     "running": "Running",
     "pending_decisions": "Pending decisions"
+  },
+  "settings": {
+    "title": "System Settings",
+    "desc": "Configure the LLM and external search data sources. Changes persist to the database and take effect without restarting.",
+    "llm": {
+      "title": "LLM API",
+      "desc": "OpenAI-compatible API used for feed analysis and metadata reasoning.",
+      "apiKey": "API Key",
+      "model": "Model",
+      "baseUrl": "Base URL",
+      "enableThinking": "Enable Thinking",
+      "enableThinkingDesc": "Forward enable_thinking to the provider for chain-of-thought reasoning models.",
+      "modelPlaceholder": "e.g. openrouter/free",
+      "baseUrlPlaceholder": "e.g. https://openrouter.ai/api/v1"
+    },
+    "sources": {
+      "title": "External Search Data Sources",
+      "desc": "API keys and enable switches for the metadata search sources. A source is selectable when enabled and configured.",
+      "tmdb": "TMDB",
+      "jina": "Jina Search + Reader",
+      "exa": "Exa Agent",
+      "wikipedia": "Wikipedia",
+      "enable": "Enabled",
+      "apiKey": "API Key",
+      "effortLevel": "Effort Level",
+      "wikipediaHint": "No API key required."
+    },
+    "configured": "Configured",
+    "notConfigured": "Not configured",
+    "secretPlaceholder": "Enter a new value to replace, leave blank to keep",
+    "clear": "Clear",
+    "saved": "Settings saved",
+    "saveFailed": "Failed to save settings",
+    "reset": "Reset",
+    "noChanges": "No changes to save",
+    "envNote": "Values set in the .env file act as defaults. Saving here overrides them; clearing a field reverts to the default."
   },
   "language": {
     "switch": "Language",

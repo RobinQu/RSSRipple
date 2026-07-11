@@ -98,7 +98,7 @@ def _setup_openai_mock(mock_openai_class, response_str: str):
 # =============================================================================
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_success(mock_settings, mock_openai_class):
     mock_settings.llm_api_key = "test-key"
     mock_settings.llm_base_url = "https://api.test.com"
@@ -122,7 +122,7 @@ async def test_analyze_feed_success(mock_settings, mock_openai_class):
 # 2. test_analyze_feed_no_api_key
 # =============================================================================
 @pytest.mark.asyncio
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_no_api_key(mock_settings):
     mock_settings.llm_api_key = ""
 
@@ -138,7 +138,7 @@ async def test_analyze_feed_no_api_key(mock_settings):
 # =============================================================================
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_old_flat_format(mock_settings, mock_openai_class):
     mock_settings.llm_api_key = "test-key"
     mock_settings.llm_base_url = "https://api.test.com"
@@ -163,7 +163,7 @@ async def test_analyze_feed_old_flat_format(mock_settings, mock_openai_class):
 # =============================================================================
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_invalid_json(mock_settings, mock_openai_class):
     mock_settings.llm_api_key = "test-key"
     mock_settings.llm_base_url = "https://api.test.com"
@@ -183,7 +183,7 @@ async def test_analyze_feed_invalid_json(mock_settings, mock_openai_class):
 # =============================================================================
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_partial_coverage(mock_settings, mock_openai_class):
     mock_settings.llm_api_key = "test-key"
     mock_settings.llm_base_url = "https://api.test.com"
@@ -204,7 +204,7 @@ async def test_analyze_feed_partial_coverage(mock_settings, mock_openai_class):
 # =============================================================================
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_medium_confidence(mock_settings, mock_openai_class):
     mock_settings.llm_api_key = "test-key"
     mock_settings.llm_base_url = "https://api.test.com"
@@ -224,7 +224,7 @@ async def test_analyze_feed_medium_confidence(mock_settings, mock_openai_class):
 # =============================================================================
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_api_error(mock_settings, mock_openai_class):
     mock_settings.llm_api_key = "test-key"
     mock_settings.llm_base_url = "https://api.test.com"
@@ -425,7 +425,7 @@ def _setup_openrouter_mock(mock_openrouter_class, chunks):
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_openrouter_non_thinking(mock_settings, mock_openrouter_class):
     """OpenRouter path with a non-thinking model: content only, no reasoning."""
     mock_settings.llm_api_key = "test-key"
@@ -447,7 +447,7 @@ async def test_analyze_feed_openrouter_non_thinking(mock_settings, mock_openrout
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_openrouter_thinking_model(mock_settings, mock_openrouter_class):
     """OpenRouter path with a thinking model: reasoning deltas then content delta."""
     mock_settings.llm_api_key = "test-key"
@@ -471,7 +471,7 @@ async def test_analyze_feed_openrouter_thinking_model(mock_settings, mock_openro
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_openrouter_answer_only_in_reasoning(mock_settings, mock_openrouter_class):
     """Some free reasoning models leave content empty; answer is in reasoning."""
     mock_settings.llm_api_key = "test-key"
@@ -489,7 +489,7 @@ async def test_analyze_feed_openrouter_answer_only_in_reasoning(mock_settings, m
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_openrouter_reasoning_content_alias(mock_settings, mock_openrouter_class):
     """The `reasoning_content` alias (used by some SDKs) must be handled."""
     mock_settings.llm_api_key = "test-key"
@@ -507,7 +507,7 @@ async def test_analyze_feed_openrouter_reasoning_content_alias(mock_settings, mo
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_openrouter_empty_response(mock_settings, mock_openrouter_class):
     """OpenRouter returns no content and no reasoning: result is low confidence."""
     mock_settings.llm_api_key = "test-key"
@@ -536,7 +536,7 @@ async def _collect_events(gen):
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_stream_openrouter_non_thinking(mock_settings, mock_openrouter_class):
     """Streaming OpenRouter path with a non-thinking model."""
     mock_settings.llm_api_key = "test-key"
@@ -567,7 +567,7 @@ async def test_analyze_feed_stream_openrouter_non_thinking(mock_settings, mock_o
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_stream_openrouter_thinking(mock_settings, mock_openrouter_class):
     """Streaming OpenRouter path with a thinking model: reasoning then content."""
     mock_settings.llm_api_key = "test-key"
@@ -597,7 +597,7 @@ async def test_analyze_feed_stream_openrouter_thinking(mock_settings, mock_openr
 
 @pytest.mark.asyncio
 @patch("openrouter.OpenRouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_stream_openrouter_thinking_only_reasoning(mock_settings, mock_openrouter_class):
     """Streaming thinking model that emits answer only via reasoning."""
     mock_settings.llm_api_key = "test-key"
@@ -624,7 +624,7 @@ async def test_analyze_feed_stream_openrouter_thinking_only_reasoning(mock_setti
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_analyze_feed_openai_thinking_disabled_by_default(mock_settings, mock_openai_class):
     """OpenAI path sends enable_thinking=False by default for faster responses."""
     mock_settings.llm_api_key = "test-key"
@@ -662,7 +662,7 @@ def _make_openai_response(content=None, reasoning=None, reasoning_content=None):
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_call_openai_non_thinking_model(mock_settings, mock_openai_class):
     """_call_openai returns content from a regular (non-thinking) model."""
     mock_settings.llm_api_key = "test-key"
@@ -689,7 +689,7 @@ async def test_call_openai_non_thinking_model(mock_settings, mock_openai_class):
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_call_openai_thinking_model_content_empty(mock_settings, mock_openai_class):
     """_call_openai falls back to reasoning_content when content is empty."""
     mock_settings.llm_api_key = "test-key"
@@ -708,7 +708,7 @@ async def test_call_openai_thinking_model_content_empty(mock_settings, mock_open
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_call_openai_constructs_client_with_correct_params(mock_settings, mock_openai_class):
     """_call_openai passes api_key, base_url, and timeout to AsyncOpenAI constructor."""
     mock_settings.llm_api_key = "sk-secret"
@@ -753,7 +753,7 @@ def _make_openai_stream(chunks):
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_stream_openai_non_thinking_model(mock_settings, mock_openai_class):
     """_stream_openai yields delta events then a done event for a regular model."""
     mock_settings.llm_api_key = "test-key"
@@ -791,7 +791,7 @@ async def test_stream_openai_non_thinking_model(mock_settings, mock_openai_class
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_stream_openai_thinking_model_reasoning_content(mock_settings, mock_openai_class):
     """_stream_openai handles thinking model deltas (reasoning_content) then content."""
     mock_settings.llm_api_key = "test-key"
@@ -824,7 +824,7 @@ async def test_stream_openai_thinking_model_reasoning_content(mock_settings, moc
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_stream_openai_empty_response(mock_settings, mock_openai_class):
     """_stream_openai yields an error event when LLM returns no content."""
     mock_settings.llm_api_key = "test-key"
@@ -847,7 +847,7 @@ async def test_stream_openai_empty_response(mock_settings, mock_openai_class):
 
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer.AsyncOpenAI")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_stream_openai_invalid_json(mock_settings, mock_openai_class):
     """_stream_openai yields an error event when the LLM response is not parseable JSON."""
     mock_settings.llm_api_key = "test-key"
@@ -877,7 +877,7 @@ async def test_stream_openai_invalid_json(mock_settings, mock_openai_class):
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer._call_openai")
 @patch("app.services.feed_analyzer._call_openrouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_call_llm_routes_to_openai_for_non_openrouter(mock_settings, mock_openrouter, mock_openai):
     """call_llm uses _call_openai when llm_base_url is not OpenRouter."""
     mock_settings.llm_api_key = "key"
@@ -896,7 +896,7 @@ async def test_call_llm_routes_to_openai_for_non_openrouter(mock_settings, mock_
 @pytest.mark.asyncio
 @patch("app.services.feed_analyzer._call_openai")
 @patch("app.services.feed_analyzer._call_openrouter")
-@patch("app.services.feed_analyzer.settings")
+@patch("app.services.runtime_config.settings")
 async def test_call_llm_routes_to_openrouter(mock_settings, mock_openrouter, mock_openai):
     """call_llm uses _call_openrouter when llm_base_url contains 'openrouter'."""
     mock_settings.llm_api_key = "key"

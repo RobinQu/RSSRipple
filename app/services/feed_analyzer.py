@@ -15,7 +15,7 @@ from collections.abc import AsyncGenerator
 import httpx
 from openai import AsyncOpenAI
 
-from app.config import settings
+from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 def _is_openrouter() -> bool:
     """Check if the configured LLM base URL is OpenRouter."""
-    return "openrouter" in (settings.llm_base_url or "").lower()
+    return "openrouter" in (runtime_config.llm_base_url or "").lower()
 
 
 # ---------------------------------------------------------------------------
@@ -342,7 +342,7 @@ async def analyze_feed(entries: list[dict], sample_count: int = 5) -> dict:
         logger.warning("No entries to analyze")
         return empty_result
 
-    if not settings.llm_api_key:
+    if not runtime_config.llm_api_key:
         logger.warning("LLM API key not configured, cannot analyze feed")
         return empty_result
 
@@ -420,10 +420,10 @@ async def _call_openrouter(messages: list[dict]) -> str:
     """
     from openrouter import OpenRouter
 
-    async with OpenRouter(api_key=settings.llm_api_key) as client:
+    async with OpenRouter(api_key=runtime_config.llm_api_key) as client:
         res = await client.chat.send_async(
             messages=messages,
-            model=settings.llm_model,
+            model=runtime_config.llm_model,
             stream=True,
         )
 
@@ -455,16 +455,16 @@ async def _call_openai(messages: list[dict]) -> str:
     Providers that don't recognise the field silently ignore it.
     """
     client = AsyncOpenAI(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
+        api_key=runtime_config.llm_api_key,
+        base_url=runtime_config.llm_base_url,
         timeout=httpx.Timeout(120.0, connect=10.0),
     )
     response = await client.chat.completions.create(
-        model=settings.llm_model,
+        model=runtime_config.llm_model,
         messages=messages,
         temperature=0.1,
         timeout=120,
-        extra_body={"enable_thinking": settings.llm_enable_thinking},
+        extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
     )
     msg = response.choices[0].message
     return _extract_content(msg)
@@ -501,7 +501,7 @@ async def analyze_feed_stream(entries: list[dict], sample_count: int = 5) -> Asy
         yield {"type": "error", "message": "No entries to analyze"}
         return
 
-    if not settings.llm_api_key:
+    if not runtime_config.llm_api_key:
         yield {"type": "error", "message": "LLM API key not configured"}
         return
 
@@ -545,10 +545,10 @@ async def _stream_openrouter(messages: list[dict]) -> AsyncGenerator[dict, None]
         pending_deltas: list[dict] = []
 
         try:
-            async with OpenRouter(api_key=settings.llm_api_key) as client:
+            async with OpenRouter(api_key=runtime_config.llm_api_key) as client:
                 res = await client.chat.send_async(
                     messages=messages,
-                    model=settings.llm_model,
+                    model=runtime_config.llm_model,
                     stream=True,
                 )
                 async for chunk in res:
@@ -619,18 +619,18 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
     from ``content`` when available, falling back to ``reasoning`` otherwise.
     """
     client = AsyncOpenAI(
-        api_key=settings.llm_api_key,
-        base_url=settings.llm_base_url,
+        api_key=runtime_config.llm_api_key,
+        base_url=runtime_config.llm_base_url,
         timeout=httpx.Timeout(120.0, connect=10.0),
     )
 
     stream = await client.chat.completions.create(
-        model=settings.llm_model,
+        model=runtime_config.llm_model,
         messages=messages,
         temperature=0.1,
         stream=True,
         timeout=120,
-        extra_body={"enable_thinking": settings.llm_enable_thinking},
+        extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
     )
 
     content_buf = ""

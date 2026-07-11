@@ -18,7 +18,7 @@ from typing import Any, TypedDict
 import httpx
 from httpx import HTTPStatusError, TimeoutException
 
-from app.config import settings
+from app.services.runtime_config import runtime_config
 from app.services.url_tools import keep_k_per_hostname
 
 logger = logging.getLogger(__name__)
@@ -198,7 +198,7 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
 
     Runs zh-CN + en-US searches in parallel and merges results by TMDB ID.
     """
-    api_key = settings.tmdb_api_key
+    api_key = runtime_config.tmdb_api_key
     if not api_key:
         return []
 
@@ -475,7 +475,7 @@ _EXA_OUTPUT_SCHEMA: dict[str, Any] = {
 
 async def _search_exa(title: str) -> list[dict[str, Any]]:
     """Search for metadata via Exa AI Agent API."""
-    if not settings.exa_api_key:
+    if not runtime_config.exa_api_key:
         logger.info("[metadata_agent][exa] skipped title=%r: EXA_API_KEY is not configured", title[:120])
         return []
 
@@ -500,13 +500,13 @@ async def _search_exa(title: str) -> list[dict[str, Any]]:
         )
         logger.info(
             "[metadata_agent][exa] create run title=%r effort=%s schema=candidates[]",
-            title[:120], settings.exa_effort_level,
+            title[:120], runtime_config.exa_effort_level,
         )
-        exa = AsyncExa(api_key=settings.exa_api_key)
+        exa = AsyncExa(api_key=runtime_config.exa_api_key)
         run = await exa.agent.runs.create(
             query=query,
             output_schema=_EXA_OUTPUT_SCHEMA,
-            effort=settings.exa_effort_level,
+            effort=runtime_config.exa_effort_level,
         )
         logger.info(
             "[metadata_agent][exa] run created id=%s status=%s",
@@ -608,7 +608,7 @@ async def _search_jina(query: str, num: int = 3) -> list[dict[str, Any]]:
     a single site (Fandom, IMDB, …) can't dominate a small top-N. Cached by
     query like the TMDB/Exa sources.
     """
-    if not settings.jina_api_key:
+    if not runtime_config.jina_api_key:
         logger.info("[metadata_agent][jina] skipped query=%r: JINA_API_KEY not configured", query[:120])
         return []
 
@@ -618,7 +618,7 @@ async def _search_jina(query: str, num: int = 3) -> list[dict[str, Any]]:
         return cached
 
     headers = _jina_headers({
-        "Authorization": f"Bearer {settings.jina_api_key}",
+        "Authorization": f"Bearer {runtime_config.jina_api_key}",
         "X-Preset": "agent",
         "X-Timeout": "20",
     })
@@ -681,12 +681,12 @@ async def _read_jina_url(url: str, *, with_links: bool = False) -> dict[str, Any
     Returns ``{title, url, description, content, links}``. Not cached — URLs
     are ephemeral and Jina Reader itself caches ~5 min on its side.
     """
-    if not settings.jina_api_key:
+    if not runtime_config.jina_api_key:
         logger.info("[metadata_agent][jina] read skipped url=%r: JINA_API_KEY not configured", url[:120])
         return {}
 
     extras: dict[str, str] = {
-        "Authorization": f"Bearer {settings.jina_api_key}",
+        "Authorization": f"Bearer {runtime_config.jina_api_key}",
         "X-Timeout": "60",
     }
     if with_links:

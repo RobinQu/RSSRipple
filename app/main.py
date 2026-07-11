@@ -229,6 +229,14 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     await create_tables()
     logger.info("Database ready.")
 
+    # Load runtime-configurable settings (LLM + external search source keys)
+    # from the DB into the in-memory cache so user overrides take effect.
+    from app.services.runtime_config import load_runtime_config
+
+    async with async_session_factory() as sess:
+        await load_runtime_config(sess)
+    logger.info("Runtime settings loaded.")
+
     # Init scheduler
     from app.services.scheduler import (
         init_scheduler,
@@ -371,6 +379,7 @@ from app.api.v1 import (  # noqa: E402
     movies,
     resources,
     series,
+    system_settings,
     tasks,
     works,
 )
@@ -385,6 +394,7 @@ app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
 app.include_router(series.router, prefix="/api/v1", tags=["series"])
 app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
 app.include_router(works.router, prefix="/api/v1", tags=["works"])
+app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])
 
 # Poster image cache - mount even if empty/default
 _poster_dir = Path(settings.poster_cache_dir)

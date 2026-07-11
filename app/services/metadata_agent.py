@@ -29,6 +29,7 @@ from langgraph.prebuilt import create_react_agent  # noqa: F401 — kept for com
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -55,17 +56,17 @@ def is_metadata_source_configured(source: str) -> bool:
     """Whether the credentials for *source* are present (key set)."""
     for d in _EXTERNAL_SOURCE_DEFS:
         if d["value"] == source:
-            return True if not d["key"] else bool(getattr(settings, d["key"], ""))
+            return True if not d["key"] else bool(getattr(runtime_config, d["key"], ""))
     return False
 
 
 def is_metadata_source_enabled(source: str) -> bool:
     """Whether the enable switch for *source* is on."""
     flag = {
-        "exa": settings.exa_enabled,
-        "jina": settings.jina_enabled,
-        "tmdb": settings.tmdb_enabled,
-        "wikipedia": settings.wikipedia_enabled,
+        "exa": runtime_config.exa_enabled,
+        "jina": runtime_config.jina_enabled,
+        "tmdb": runtime_config.tmdb_enabled,
+        "wikipedia": runtime_config.wikipedia_enabled,
     }.get(source)
     return bool(flag)
 
@@ -342,7 +343,7 @@ async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
     """Fetch full TMDB details including season/episode structure."""
     from app.services.metadata_search_agent import _resolve_genre_ids, _tmdb_image_base
 
-    api_key = settings.tmdb_api_key
+    api_key = runtime_config.tmdb_api_key
     if not api_key:
         return {"success": False, "data": {}, "error": "TMDB API key not configured"}
 
@@ -1098,9 +1099,9 @@ class UnifiedMetadataAgent:
 
     def __init__(self) -> None:
         self._model = ChatOpenAI(
-            model=settings.llm_model,
-            api_key=settings.llm_api_key,
-            base_url=settings.llm_base_url,
+            model=runtime_config.llm_model,
+            api_key=runtime_config.llm_api_key,
+            base_url=runtime_config.llm_base_url,
             temperature=0.1,
             timeout=30,
             max_retries=1,
@@ -1219,7 +1220,7 @@ class UnifiedMetadataAgent:
         if not raw_title.strip():
             return ResourceMetadata(clean_title="", found=False, reason="Empty title")
 
-        if not settings.llm_api_key:
+        if not runtime_config.llm_api_key:
             return ResourceMetadata(
                 clean_title=raw_title.strip()[:100],
                 found=False,
@@ -1639,3 +1640,13 @@ def get_agent() -> UnifiedMetadataAgent:
     if _agent_instance is None:
         _agent_instance = UnifiedMetadataAgent()
     return _agent_instance
+
+
+def reset_metadata_agent() -> None:
+    """Drop the cached agent so the next :func:`get_agent` call rebuilds it.
+
+    Call after LLM config (model / api key / base url) changes via the system
+    settings UI so the new values take effect without an app restart.
+    """
+    global _agent_instance
+    _agent_instance = None

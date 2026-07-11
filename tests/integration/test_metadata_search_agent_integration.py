@@ -187,10 +187,11 @@ async def test_dataset_20_titles():
 @pytest.mark.asyncio
 async def test_search_metadata_no_api_keys_returns_empty(monkeypatch):
     """When no API keys are configured, agent returns empty list gracefully."""
-    import app.services.metadata_search_agent as agent_mod
-    monkeypatch.setattr(agent_mod.settings, "tmdb_api_key", "")
-    monkeypatch.setattr(agent_mod.settings, "jina_api_key", "")
-    monkeypatch.setattr(agent_mod.settings, "llm_api_key", "")
+    # runtime_config reads the shared settings instance live when no DB override
+    # is set, so patching app.config.settings is seen by all services.
+    monkeypatch.setattr("app.config.settings.tmdb_api_key", "")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "")
+    monkeypatch.setattr("app.config.settings.llm_api_key", "")
 
     results = await search_metadata("Breaking Bad")
     assert results == []

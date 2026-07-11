@@ -241,7 +241,7 @@ def _make_mock_async_client(responses: dict[str, dict]):
 @pytest.mark.asyncio
 async def test_tmdb_search_returns_merged_results(monkeypatch):
     """Test that zh-CN + en-US results are merged by TMDB ID."""
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.tmdb_api_key", "test_key")
+    monkeypatch.setattr("app.config.settings.tmdb_api_key", "test_key")
     monkeypatch.setattr("app.services.metadata_search_agent._tmdb_image_base", lambda key: "https://image.tmdb.org/t/p/")
     from app.services.metadata_search_agent import _cache, _search_tmdb
     _cache.clear()
@@ -297,7 +297,7 @@ async def test_tmdb_search_returns_merged_results(monkeypatch):
 @pytest.mark.asyncio
 async def test_tmdb_filters_out_person_results(monkeypatch):
     """Test that 'person' media_type is filtered out."""
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.tmdb_api_key", "test_key")
+    monkeypatch.setattr("app.config.settings.tmdb_api_key", "test_key")
     monkeypatch.setattr("app.services.metadata_search_agent._tmdb_image_base", lambda key: "https://image.tmdb.org/t/p/")
     from app.services.metadata_search_agent import _cache, _search_tmdb
     _cache.clear()
@@ -333,13 +333,11 @@ async def test_tmdb_filters_out_person_results(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_tmdb_no_api_key_returns_empty():
+async def test_tmdb_no_api_key_returns_empty(monkeypatch):
     from app.services.metadata_search_agent import _cache, _search_tmdb
     _cache.clear()
-    # Settings.tmdb_api_key is "" by default
-    # We need to ensure it's unset
-    import app.services.metadata_search_agent as agent_mod
-    agent_mod.settings.tmdb_api_key = ""
+    # runtime_config falls back to the shared settings instance; ensure no key.
+    monkeypatch.setattr("app.config.settings.tmdb_api_key", "")
     results = await _search_tmdb("Breaking Bad")
     assert results == []
 
@@ -470,7 +468,7 @@ def _make_jina_post_client(response_body, captured: _JinaCaptured):
 
 @pytest.mark.asyncio
 async def test_jina_search_parses_envelope_and_caps_per_hostname(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "jina_test_key")
     from app.services.metadata_search_agent import _cache, _search_jina
 
     _cache.clear()
@@ -501,7 +499,7 @@ async def test_jina_search_parses_envelope_and_caps_per_hostname(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jina_search_cache_hit_skips_http(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "jina_test_key")
     from app.services.metadata_search_agent import _cache, _cache_set, _search_jina
 
     _cache.clear()
@@ -531,7 +529,7 @@ async def test_jina_search_cache_hit_skips_http(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jina_search_empty_data_returns_empty(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "jina_test_key")
     from app.services.metadata_search_agent import _cache, _search_jina
 
     _cache.clear()
@@ -551,7 +549,7 @@ async def test_jina_search_empty_data_returns_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jina_search_no_api_key_returns_empty(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "")
     from app.services.metadata_search_agent import _cache, _search_jina
 
     _cache.clear()
@@ -561,7 +559,7 @@ async def test_jina_search_no_api_key_returns_empty(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jina_read_parses_envelope(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "jina_test_key")
     import httpx as httpx_mod
 
     from app.services.metadata_search_agent import _read_jina_url
@@ -584,7 +582,7 @@ async def test_jina_read_parses_envelope(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jina_read_with_links_sends_header(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "jina_test_key")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "jina_test_key")
     import httpx as httpx_mod
 
     from app.services.metadata_search_agent import _read_jina_url
@@ -599,7 +597,7 @@ async def test_jina_read_with_links_sends_header(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_jina_read_no_api_key_returns_empty(monkeypatch):
-    monkeypatch.setattr("app.services.metadata_search_agent.settings.jina_api_key", "")
+    monkeypatch.setattr("app.config.settings.jina_api_key", "")
     from app.services.metadata_search_agent import _read_jina_url
 
     data = await _read_jina_url("https://example.com")

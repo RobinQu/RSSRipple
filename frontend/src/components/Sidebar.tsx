@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Rss,
+  Settings,
 } from 'lucide-react';
 import BrandLogo from './BrandLogo';
 
@@ -64,6 +65,11 @@ export default function Sidebar() {
       key: '/downloaders',
       icon: <HardDrive size={16} />,
       label: t('nav.downloaders'),
+    },
+    {
+      key: '/settings',
+      icon: <Settings size={16} />,
+      label: t('nav.settings'),
     },
   ];
 

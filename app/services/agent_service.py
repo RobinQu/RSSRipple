@@ -20,6 +20,7 @@ from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.filter_engine import evaluate_filter_config, merge_filters
+from app.services.runtime_config import runtime_config
 from app.services.text_normalizer import partial_similarity_score
 from app.utils.download_paths import DownloadPathError, resolve_download_dir
 from app.utils.time import utcnow
@@ -288,7 +289,7 @@ async def _generate_llm_pick(
     when the LLM is disabled, unreachable, or didn't return a valid pick.
     Uses ``agent.llm_prompt`` when set, else the built-in default prompt.
     """
-    if not agent.llm_enabled or not settings.llm_api_key or not candidates:
+    if not agent.llm_enabled or not runtime_config.llm_api_key or not candidates:
         return None, None
     try:
         from app.services.feed_analyzer import call_llm

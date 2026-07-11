@@ -46,7 +46,8 @@
     "repository": "作品仓库",
     "channels": "频道",
     "agents": "下载代理",
-    "downloaders": "下载器"
+    "downloaders": "下载器",
+    "settings": "系统设置"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -661,6 +662,42 @@
     "failed": "失败",
     "running": "运行中",
     "pending_decisions": "待决策"
+  },
+  "settings": {
+    "title": "系统设置",
+    "desc": "配置 LLM 与外部搜索数据源。修改将持久化到数据库，无需重启应用即可生效。",
+    "llm": {
+      "title": "LLM API",
+      "desc": "用于 RSS 字段分析与元数据推理的 OpenAI 兼容接口。",
+      "apiKey": "API Key",
+      "model": "模型",
+      "baseUrl": "Base URL",
+      "enableThinking": "启用思考",
+      "enableThinkingDesc": "向供应商转发 enable_thinking，适用于思维链推理模型。",
+      "modelPlaceholder": "例如 openrouter/free",
+      "baseUrlPlaceholder": "例如 https://openrouter.ai/api/v1"
+    },
+    "sources": {
+      "title": "外部搜索数据源",
+      "desc": "元数据搜索源的 API Key 与启用开关。仅当源已启用且已配置 Key 时才可被选择。",
+      "tmdb": "TMDB",
+      "jina": "Jina Search + Reader",
+      "exa": "Exa Agent",
+      "wikipedia": "Wikipedia",
+      "enable": "启用",
+      "apiKey": "API Key",
+      "effortLevel": "投入等级",
+      "wikipediaHint": "无需 API Key。"
+    },
+    "configured": "已配置",
+    "notConfigured": "未配置",
+    "secretPlaceholder": "输入新值以替换，留空则保持不变",
+    "clear": "清除",
+    "saved": "设置已保存",
+    "saveFailed": "保存设置失败",
+    "reset": "重置",
+    "noChanges": "没有需要保存的更改",
+    "envNote": ".env 中的值作为默认值。在此处保存将覆盖默认值；清除字段则恢复为默认值。"
   },
   "language": {
     "switch": "语言",
