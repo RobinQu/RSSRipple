@@ -267,6 +267,15 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             resource.episode_confidence = "reconciled"
         db.add(resource)
         await db.flush()
+        # Commit the new resource immediately so the SQLite write lock is
+        # released *before* the metadata ReAct loop below. agent.process runs
+        # many LLM + external search calls (tens of messages per resource when
+        # a source misbehaves, e.g. jina 402s) and can take minutes; holding a
+        # write transaction open across that blocks every other writer -
+        # including channel edits, which surface as "database is locked" /
+        # requests that never return. The metadata result is persisted by a
+        # fresh short transaction on the next commit.
+        await db.commit()
 
         # Unified metadata agent (title cleaning + metadata search in one call)
         if channel.metadata_agent_enabled:
@@ -285,6 +294,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
                 await fetch_and_link_metadata(db, resource, channel)
             except Exception as e:
                 logger.warning("Metadata linking failed for %s: %s", resource.id, e)
+        # Persist metadata writes and release the write lock before the poster
+        # download (another network call) so it too doesn't block other writers.
+        await db.commit()
 
         # Poster download for newly-linked entities
         if resource.series_id:
