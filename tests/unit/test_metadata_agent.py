@@ -1,6 +1,5 @@
 """Unit tests for source isolation in UnifiedMetadataAgent."""
 
-
 from app.services.metadata_agent import (
     SUPPORTED_METADATA_SOURCES,
     ResourceMetadata,
@@ -470,3 +469,358 @@ async def test_set_cache_upsert_overwrites_same_source(db_session):
         )
     )).scalar_one()
     assert count == 1  # no duplicate rows
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia: transient infra failures must classify as transient (retry, never
+# cached as a permanent not_found). The wikipediaapi library raises typed
+# WikipediaException subclasses (WikiConnectionError, WikiHttpTimeoutError,
+# WikiInvalidJsonError, WikiHttpError) which _wiki_call maps to a
+# "Wikipedia request failed: ..." transient error.
+# ---------------------------------------------------------------------------
+
+
+def test_classify_failure_wikipedia_infra_error_is_transient():
+    """A wikipediaapi infra failure (connection, timeout, invalid JSON, non-200)
+    is mapped to 'Wikipedia request failed: ...' - an infra failure, not a 'no
+    match' - so it retries and is not cached as permanent not_found."""
+    for err in (
+        "Wikipedia: Wikipedia request failed: WikiConnectionError (https://zh.wikipedia.org/w/api.php)",
+        "Wikipedia: Wikipedia request failed: WikiHttpTimeoutError (https://zh.wikipedia.org/w/api.php)",
+        "Wikipedia: Wikipedia request failed: WikiInvalidJsonError (https://zh.wikipedia.org/w/api.php)",
+        "Wikipedia: Wikipedia request failed: WikiHttpError (https://zh.wikipedia.org/w/api.php)",
+    ):
+        assert _classify_failure(_meta(found=False, search_error=err)) == "transient", err
+
+
+def test_classify_failure_wikipedia_page_not_found_is_not_found():
+    """A genuine page-not-found (page.exists() is False) is a real no-match,
+    not an infra failure - it should be cached as not_found, not retried
+    forever."""
+    assert _classify_failure(
+        _meta(found=False, search_error="Wikipedia: Page not found: Some Title")
+    ) == "not_found"
+
+
+def test_classify_failure_wikipedia_legit_no_results_is_not_found():
+    """A successful search that simply had no hits is a definitive not_found."""
+    assert _classify_failure(
+        _meta(found=False, reason="No matching work found in Wikipedia")
+    ) == "not_found"
+
+
+def test_extract_search_info_surfaces_wikipedia_infra_error():
+    """A failed search_wikipedia must set search_error (not just source_errors)
+    so _classify_failure can see the transient marker. Previously the wikipedia
+    branch never set search_error, so transient failures were misclassified as
+    not_found and cached permanently."""
+    messages = [
+        _ai_message("search_wikipedia", {"query": "复制品也要谈恋爱", "lang": "zh"}),
+        _tool_message(
+            "search_wikipedia",
+            {"success": False, "data": [], "error": "Wikipedia request failed: WikiConnectionError (https://zh.wikipedia.org/w/api.php)"},
+            "search_wikipedia",
+        ),
+    ]
+    info = UnifiedMetadataAgent._extract_search_info(messages)
+    assert "wikipedia" in info["data_sources_used"]
+    assert "Wikipedia request failed" in info["source_errors"]["wikipedia"]
+    assert info["error"] and "Wikipedia request failed" in info["error"]
+    # The surfaced search_error must classify as transient end-to-end.
+    assert _classify_failure(_meta(found=False, search_error=info["error"])) == "transient"
+
+
+def test_extract_search_info_wikipedia_empty_results_no_search_error():
+    """A successful search returning no hits records 'no results' but must NOT
+    set search_error (it is a definitive not_found, not an infra failure)."""
+    messages = [
+        _ai_message("search_wikipedia", {"query": "No Match"}),
+        _tool_message("search_wikipedia", {"success": True, "data": []}, "search_wikipedia"),
+    ]
+    info = UnifiedMetadataAgent._extract_search_info(messages)
+    assert info["source_errors"]["wikipedia"] == "no results"
+    assert info["error"] is None  # legit empty -> not an infra failure
+
+
+# ---------------------------------------------------------------------------
+# _wikipedia_client construction + _wiki_call error mapping (wikipediaapi mocked)
+# ---------------------------------------------------------------------------
+
+
+class _FakeWikiPage:
+    """Stand-in for a ``wikipediaapi.WikipediaPage`` exposing the attributes
+    touched by _execute_search_wikipedia / _execute_get_wikipedia_page."""
+
+    def __init__(
+        self,
+        *,
+        title="Some Page",
+        pageid=42,
+        fullurl="https://en.wikipedia.org/wiki/Some_Page",
+        summary="A summary",
+        categories=None,
+        exists=True,
+        summary_exc=None,
+        categories_exc=None,
+    ):
+        self.title = title
+        self.pageid = pageid
+        self.fullurl = fullurl
+        self._summary = summary
+        self._categories = categories if categories is not None else {}
+        self._exists = exists
+        self._summary_exc = summary_exc
+        self._categories_exc = categories_exc
+
+    @property
+    def summary(self):
+        if self._summary_exc is not None:
+            raise self._summary_exc
+        return self._summary
+
+    @property
+    def categories(self):
+        if self._categories_exc is not None:
+            raise self._categories_exc
+        return self._categories
+
+    def exists(self):
+        return self._exists
+
+
+def _fake_search_results(pages):
+    """Build a SearchResults-like object with a ``.pages`` dict keyed by title."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(pages={p.title: p for p in pages})
+
+
+def test_wikipedia_client_sets_ua_and_language(monkeypatch):
+    """_wikipedia_client builds a wikipediaapi.Wikipedia with a Wikimedia-
+    compliant user_agent and the requested language."""
+    import wikipediaapi
+
+    from app.services import metadata_agent as ma
+    from app.services.metadata_agent import _WIKIPEDIA_USER_AGENT
+
+    ma._wikipedia_client.cache_clear()
+    captured = {}
+
+    class _FakeWikipedia:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(wikipediaapi, "Wikipedia", _FakeWikipedia)
+    try:
+        ma._wikipedia_client("zh")
+    finally:
+        ma._wikipedia_client.cache_clear()
+
+    assert captured["user_agent"] == _WIKIPEDIA_USER_AGENT
+    assert "rssripple" in captured["user_agent"].lower()
+    assert captured["language"] == "zh"
+    assert captured["extract_format"] == wikipediaapi.ExtractFormat.WIKI
+
+
+def test_wikipedia_client_caches_per_language():
+    """Repeated calls for the same language return the cached client."""
+    from app.services import metadata_agent as ma
+
+    ma._wikipedia_client.cache_clear()
+    a = ma._wikipedia_client("en")
+    b = ma._wikipedia_client("en")
+    assert a is b
+    ma._wikipedia_client.cache_clear()
+
+
+async def test_execute_search_wikipedia_maps_infra_error_to_transient(monkeypatch):
+    """A wikipediaapi WikipediaException is mapped to a transient 'Wikipedia
+    request failed' error - never a definitive not_found - so the backfill
+    retries and the cache is not poisoned. (Transient retrying itself is
+    handled inside wikipediaapi.)"""
+    import wikipediaapi
+
+    from app.services import metadata_agent as ma
+
+    wiki = MagicMock()
+    wiki.search.side_effect = wikipediaapi.WikiConnectionError(
+        "https://zh.wikipedia.org/w/api.php"
+    )
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_search_wikipedia("复制品也要谈恋爱", lang="zh")
+
+    assert result["success"] is False
+    assert result["data"] == []
+    assert "Wikipedia request failed" in result["error"]
+    assert "WikiConnectionError" in result["error"]
+
+
+async def test_execute_search_wikipedia_returns_pages_on_success(monkeypatch):
+    """A successful search returns pages with the uniform
+    {title, page_id, url, summary} shape the agent tool contract expects."""
+    from app.services import metadata_agent as ma
+
+    page = _FakeWikiPage(
+        title="Breaking Bad",
+        pageid=14426270,
+        fullurl="https://en.wikipedia.org/wiki/Breaking_Bad",
+        summary="Breaking Bad is an American neo-Western crime drama television series.",
+    )
+    wiki = MagicMock()
+    wiki.search.return_value = _fake_search_results([page])
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_search_wikipedia("Breaking Bad", lang="en")
+
+    assert result["success"] is True
+    assert len(result["data"]) == 1
+    p = result["data"][0]
+    assert p["title"] == "Breaking Bad"
+    assert p["page_id"] == 14426270
+    assert p["url"] == "https://en.wikipedia.org/wiki/Breaking_Bad"
+    assert p["summary"].startswith("Breaking Bad is an American")
+
+
+async def test_execute_search_wikipedia_empty_results_is_success_empty(monkeypatch):
+    """A successful search with no hits is a definitive not_found
+    (success=True, empty data), not an infra failure."""
+    from app.services import metadata_agent as ma
+
+    wiki = MagicMock()
+    wiki.search.return_value = _fake_search_results([])
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_search_wikipedia("No Match", lang="en")
+
+    assert result["success"] is True
+    assert result["data"] == []
+
+
+async def test_execute_search_wikipedia_skips_missing_and_summary_failure(monkeypatch):
+    """A non-existent result stub is skipped, and a transient summary-extract
+    failure on one page must not sink the whole result - the page is kept with
+    an empty summary."""
+    import wikipediaapi
+
+    from app.services import metadata_agent as ma
+
+    good = _FakeWikiPage(title="Good Page", pageid=1, summary="ok")
+    missing = _FakeWikiPage(title="Missing Page", pageid=-1, exists=False)
+    broken = _FakeWikiPage(
+        title="Broken Summary",
+        pageid=2,
+        summary_exc=wikipediaapi.WikiInvalidJsonError("https://en.wikipedia.org/w/api.php"),
+    )
+    wiki = MagicMock()
+    wiki.search.return_value = _fake_search_results([good, missing, broken])
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_search_wikipedia("query", lang="en")
+
+    assert result["success"] is True
+    titles = [p["title"] for p in result["data"]]
+    assert "Good Page" in titles
+    assert "Missing Page" not in titles  # exists() False -> skipped
+    assert "Broken Summary" in titles    # kept despite summary failure
+    broken_row = next(p for p in result["data"] if p["title"] == "Broken Summary")
+    assert broken_row["summary"] == ""   # fell back to empty
+
+
+async def test_execute_get_wikipedia_page_returns_full_page(monkeypatch):
+    """A successful page fetch returns title, page_id, url, summary, and
+    categories in the agent tool contract shape."""
+    from app.services import metadata_agent as ma
+
+    page = _FakeWikiPage(
+        title="Breaking Bad",
+        pageid=14426270,
+        fullurl="https://en.wikipedia.org/wiki/Breaking_Bad",
+        summary="Breaking Bad is an American neo-Western crime drama.",
+        categories={
+            "Category:2000s American crime drama television series": object(),
+            "Category:Television series by Sony Pictures Television": object(),
+        },
+    )
+    wiki = MagicMock()
+    wiki.page.return_value = page
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_get_wikipedia_page("Breaking Bad", lang="en")
+
+    assert result["success"] is True
+    d = result["data"]
+    assert d["title"] == "Breaking Bad"
+    assert d["page_id"] == 14426270
+    assert d["url"] == "https://en.wikipedia.org/wiki/Breaking_Bad"
+    assert d["summary"].startswith("Breaking Bad is an American")
+    assert "Category:2000s American crime drama television series" in d["categories"]
+
+
+async def test_execute_get_wikipedia_page_not_found(monkeypatch):
+    """A page that does not exist returns a non-transient 'Page not found'
+    error (cached as not_found, not retried forever)."""
+    from app.services import metadata_agent as ma
+
+    page = _FakeWikiPage(title="Nope", pageid=-1, exists=False)
+    wiki = MagicMock()
+    wiki.page.return_value = page
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_get_wikipedia_page("Nope", lang="en")
+
+    assert result["success"] is False
+    assert "Page not found" in result["error"]
+
+
+async def test_execute_get_wikipedia_page_maps_infra_error_to_transient(monkeypatch):
+    """A wikipediaapi WikipediaException during page load is mapped to a
+    transient 'Wikipedia request failed' error."""
+    import wikipediaapi
+
+    from app.services import metadata_agent as ma
+
+    page = _FakeWikiPage()
+    # exists() raises - simulates an info-fetch infra failure.
+    page.exists = MagicMock(
+        side_effect=wikipediaapi.WikiHttpTimeoutError("https://en.wikipedia.org/w/api.php")
+    )
+    wiki = MagicMock()
+    wiki.page.return_value = page
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_get_wikipedia_page("Some Title", lang="en")
+
+    assert result["success"] is False
+    assert "Wikipedia request failed" in result["error"]
+    assert "WikiHttpTimeoutError" in result["error"]
+
+
+async def test_execute_get_wikipedia_page_detects_disambiguation(monkeypatch):
+    """A disambiguation page (detected via category membership) returns the
+    disambiguation payload so the agent can ask for a more specific title."""
+    from app.services import metadata_agent as ma
+
+    page = _FakeWikiPage(
+        title="Mercury (disambiguation)",
+        categories={"Category:Disambiguation pages": object()},
+    )
+    wiki = MagicMock()
+    wiki.page.return_value = page
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+
+    result = await ma._execute_get_wikipedia_page("Mercury", lang="en")
+
+    assert result["success"] is True
+    assert result["data"]["disambiguation"] is True
+
+
+def test_is_disambiguation_category_heuristic():
+    from app.services.metadata_agent import _is_disambiguation_category as _isd
+
+    assert _isd(["Category:Disambiguation pages"]) is True
+    assert _isd(["Category:All article disambiguation pages"]) is True
+    assert _isd(["Category:消歧义页"]) is True
+    assert _isd(["Category:曖昧さ回避"]) is True
+    assert _isd(["Category:2000s American crime drama television series"]) is False
+    assert _isd([]) is False
