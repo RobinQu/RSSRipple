@@ -365,6 +365,7 @@ export default function ChannelForm() {
           id,
           {
             name: values.name,
+            url: values.url,
             fetch_interval: values.fetch_interval,
             field_mapping: fm,
             metadata_agent_enabled: values.metadata_agent_enabled ?? true,
@@ -458,21 +459,15 @@ export default function ChannelForm() {
             <Form.Item
               name="url"
               label={t('channels.rssUrl')}
-              rules={
-                mode === 'create' ? [{ required: true, message: t('channels.enterRssUrl') }] : []
-              }
+              rules={[{ required: true, message: t('channels.enterRssUrl') }]}
             >
-              {mode === 'edit' ? (
-                <Input disabled style={{ color: '#93939f' }} />
-              ) : (
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input
-                    placeholder="https://mikanani.me/RSS/..."
-                    onChange={() => setUrlStatus('idle')}
-                  />
-                  <Button onClick={validateUrl}>{t('channels.validate')}</Button>
-                </Space.Compact>
-              )}
+              <Space.Compact style={{ width: '100%' }}>
+                <Input
+                  placeholder="https://mikanani.me/RSS/..."
+                  onChange={() => setUrlStatus('idle')}
+                />
+                <Button onClick={validateUrl}>{t('channels.validate')}</Button>
+              </Space.Compact>
             </Form.Item>
 
             {urlStatus === 'checking' && (
