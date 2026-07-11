@@ -65,15 +65,20 @@ async def shutdown_scheduler() -> None:  # pragma: no cover - wiring only
 
 
 async def setup_channel_jobs(db) -> None:  # pragma: no cover - wiring only
-    """Register interval jobs for all active channels at startup."""
+    """Register interval jobs for all non-inactive channels at startup.
+
+    Channels in the ``error`` state (a previous fetch failed) are still
+    scheduled so they retry and recover when the feed becomes reachable again;
+    only ``inactive`` (paused) channels are skipped.
+    """
     from sqlalchemy import select
 
     from app.models.channel import Channel
-    result = await db.execute(select(Channel).where(Channel.status == "active"))
+    result = await db.execute(select(Channel).where(Channel.status != "inactive"))
     channels = result.scalars().all()
     for ch in channels:
         schedule_channel(ch)
-    logger.info("Scheduled %d active channel fetch jobs", len(channels))
+    logger.info("Scheduled %d channel fetch jobs", len(channels))
 
 
 async def setup_metadata_refresh_job(db) -> None:  # pragma: no cover - wiring only
@@ -145,8 +150,12 @@ def unschedule_channel(channel_id: str) -> None:  # pragma: no cover - wiring on
 
 
 def reschedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
+    # Re-schedule for any non-inactive channel so edits (fetch_interval,
+    # metadata_source, ...) take effect even when the channel is in an error
+    # state - the next fetch re-evaluates and flips status back to active on
+    # success. Only paused (inactive) channels stay unscheduled.
     unschedule_channel(channel.id)
-    if channel.status == "active":
+    if channel.status != "inactive":
         schedule_channel(channel)
 
 

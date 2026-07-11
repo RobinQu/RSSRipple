@@ -69,6 +69,40 @@ class TestChannelsCRUD:
         assert res.status_code == 200
         assert res.json()["data"]["name"] == "Renamed"
 
+    async def test_update_channel_status_not_editable(self, client, sample_channel):
+        # status is system-managed; the edit form must not be able to set it.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"name": "X", "status": "inactive"},
+        )
+        assert res.status_code == 200
+        # status stays 'active' (the channel's existing value), not 'inactive'
+        assert res.json()["data"]["status"] == "active"
+
+    async def test_update_channel_reschedules_to_apply_new_settings(
+        self, client, sample_channel, monkeypatch
+    ):
+        # Editing fetch_interval / metadata_source must reset the background
+        # task so the new settings take effect.
+        from app.services import scheduler as sched_mod
+
+        captured: dict = {}
+
+        def fake_reschedule(ch):
+            captured["channel_id"] = ch.id
+            captured["fetch_interval"] = ch.fetch_interval
+            captured["metadata_source"] = ch.metadata_source
+
+        monkeypatch.setattr(sched_mod, "reschedule_channel", fake_reschedule)
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"fetch_interval": 600, "metadata_source": "jina"},
+        )
+        assert res.status_code == 200
+        assert captured.get("channel_id") == sample_channel.id
+        assert captured.get("fetch_interval") == 600
+        assert captured.get("metadata_source") == "jina"
+
     async def test_delete_channel(self, client, sample_channel):
         res = await client.delete(f"/api/v1/channels/{sample_channel.id}")
         assert res.status_code == 200

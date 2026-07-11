@@ -29,7 +29,6 @@ class ChannelUpdate(BaseModel):
     name: str | None = None
     url: str | None = None
     fetch_interval: int | None = None
-    status: str | None = None
     field_mapping: dict | None = None
     metadata_agent_enabled: bool | None = None
     metadata_source: str | None = None
