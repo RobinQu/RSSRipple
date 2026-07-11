@@ -611,8 +611,6 @@
     "tv": "TV Series",
     "movie": "Movie",
     "loading": "Loading...",
-    "loadingMore": "Loading more works...",
-    "noMore": "No more works",
     "select": "Select",
     "selectedCount": "{n} selected",
     "configButton": "Metadata source",

@@ -611,8 +611,6 @@
     "tv": "剧集",
     "movie": "电影",
     "loading": "加载中...",
-    "loadingMore": "正在加载更多作品...",
-    "noMore": "没有更多了",
     "select": "选择",
     "selectedCount": "已选 {n} 个",
     "configButton": "元数据源设置",
