@@ -35,8 +35,18 @@ MAX_BACKFILL_SCAN = 100
 TRANSIENT_BACKOFF_BASE_HOURS = 1
 TRANSIENT_BACKOFF_MAX_HOURS = 24
 # A definitive "no match" is retried this long after the last attempt, in case
-# the external source has improved its coverage.
-NOT_FOUND_RETRY_DAYS = 14
+# the external source has improved its coverage. Kept short-ish because a
+# "not_found" can also be an LLM finalization miss (the agent identified the
+# work but finalized found=false); a shorter TTL gives those another chance
+# sooner without hammering genuinely-nonexistent works too hard.
+NOT_FOUND_RETRY_DAYS = 7
+
+# Standalone global backfill (runs independent of fetch_channel so metadata
+# repair is not starved by slow feed fetches). Bounded per run; the scheduler
+# re-enqueues it on a short interval and the task-queue dedup gates it to run
+# back-to-back, so it effectively processes continuously while work remains.
+MAX_GLOBAL_BACKFILL_PER_RUN = 50
+MAX_GLOBAL_BACKFILL_SCAN = 300
 
 
 def _simple_title_clean(raw: str) -> str | None:
@@ -126,6 +136,67 @@ async def _backfill_unmatched_resources(channel: Channel, db: AsyncSession) -> i
             logger.warning(
                 "[fetch:%s] backfill re-match failed for %s: %s",
                 channel.id, resource.id, e,
+            )
+        processed += 1
+        await db.commit()
+    return processed
+
+
+async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX_GLOBAL_BACKFILL_PER_RUN) -> int:
+    """Re-run metadata for retry-eligible unmatched resources across ALL channels.
+
+    Unlike ``_backfill_unmatched_resources`` (per-channel, piggybacked on each
+    fetch), this is driven by a standalone scheduler job so metadata repair
+    keeps progressing even when fetch jobs are slow or the feed is quiet. It
+    shares ``_is_retry_eligible`` with the per-channel backfill, so the
+    transient/not_found cooldowns prevent the two from double-processing the
+    same resource within a backoff window.
+
+    Only channels with ``metadata_agent_enabled`` are considered. Returns the
+    number of resources re-processed.
+    """
+    now = utcnow()
+    result = await db.execute(
+        select(FileResource)
+        .join(Channel, FileResource.channel_id == Channel.id)
+        .where(
+            Channel.metadata_agent_enabled.is_(True),
+            FileResource.series_id.is_(None),
+            FileResource.movie_id.is_(None),
+        )
+        .order_by(
+            FileResource.last_metadata_attempt_at.asc().nullsfirst(),
+            FileResource.created_at.asc(),
+        )
+        .limit(MAX_GLOBAL_BACKFILL_SCAN)
+    )
+    candidates = result.scalars().all()
+    if not candidates:
+        return 0
+
+    # Prefetch the channels once (candidates span multiple channels).
+    channel_ids = {r.channel_id for r in candidates}
+    ch_result = await db.execute(select(Channel).where(Channel.id.in_(channel_ids)))
+    channels: dict[str, Channel] = {c.id: c for c in ch_result.scalars().all()}
+
+    from app.services.metadata_agent import get_agent
+
+    agent = get_agent()
+    processed = 0
+    for resource in candidates:
+        if processed >= limit:
+            break
+        if not _is_retry_eligible(resource, now):
+            continue
+        channel = channels.get(resource.channel_id)
+        if channel is None:
+            continue
+        try:
+            await agent.process(resource, channel, db, force_refresh=True)
+        except Exception as e:
+            logger.warning(
+                "[backfill:global] re-match failed for %s (channel %s): %s",
+                resource.id, resource.channel_id, e,
             )
         processed += 1
         await db.commit()

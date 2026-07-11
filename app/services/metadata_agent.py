@@ -1013,6 +1013,14 @@ _TRANSIENT_MARKERS: tuple[str, ...] = (
     "unauthorized", "rate limit", "service unavailable", "overloaded",
     "500", "502", "503", "504", "bad gateway", "server error",
     "api key not configured",
+    # Agent-level failures: ``_run_react`` wraps any ReAct invocation
+    # exception (LangGraph recursion-limit, LLM provider 4xx/5xx, unhandled
+    # tool error) as ``reason="Agent error: {e}"``. These are NEVER a
+    # definitive "no match" - they are infra/agent failures that should retry,
+    # not be cached as a permanent not_found. Without these markers the
+    # recursion-limit and LLM-400 cases were misclassified as not_found and
+    # cached for the full TTL, condemning retryable resources.
+    "agent error", "recursion limit",
     # Wikipedia infra failures surfaced by _wiki_call (connection, timeout,
     # rate limit, non-200, invalid JSON from wikipediaapi). A real "no match"
     # returns success=True with an empty data list (or "Page not found"), so
@@ -1032,12 +1040,19 @@ _NON_WORK_MARKERS: tuple[str, ...] = (
 def _classify_failure(meta: Any) -> str | None:
     """Classify a ``ResourceMetadata`` outcome for retry/cache decisions.
 
-    Returns ``None`` on success (``meta.found`` truthy). Otherwise one of:
+    Returns ``None`` on success (``meta.found`` truthy AND a ``matched_entity``
+    was produced). Otherwise one of:
       * ``"transient"``  — retryable infra failure; never cached.
       * ``"non_work"``   — correctly identified as non-TV/movie; never retried.
       * ``"not_found"``  — source had no match; retried after a long TTL.
     """
     if getattr(meta, "found", False):
+        # found=True but no matched_entity -> the agent claimed success yet
+        # produced nothing to link (LLM finalization gap). Treat as transient
+        # so it retries instead of being cached as a fake "match" and leaving
+        # the resource permanently unparsed.
+        if not getattr(meta, "matched_entity", None):
+            return "transient"
         return None
     haystack = " ".join(filter(None, (
         str(getattr(meta, "reason", "") or ""),
@@ -1095,7 +1110,13 @@ class UnifiedMetadataAgent:
         result: ResourceMetadata = await agent.process_title_only(raw_title)
     """
 
-    MAX_LANGGRAPH_RECURSION_LIMIT: ClassVar[int] = 45
+    # Cap the ReAct loop well below the default. A focused run needs ~3-5
+    # tool calls (search + 1-2 page/details + finalize); 25 steps allows that
+    # with headroom while preventing the runaway case where the agent chases
+    # irrelevant pages for 20+ calls until it hits the limit. Hitting the cap
+    # raises "Recursion limit..." which _classify_failure treats as transient
+    # (retried with backoff), so legitimate-but-long runs get another shot.
+    MAX_LANGGRAPH_RECURSION_LIMIT: ClassVar[int] = 25
 
     def __init__(self) -> None:
         self._model = ChatOpenAI(

@@ -715,3 +715,133 @@ async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fak
         select(FileResource).where(FileResource.channel_id == channel.id)
     )).scalars().all()
     assert all(r.metadata_attempts == 1 for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# Standalone global metadata backfill (scheduler-driven, cross-channel)
+# ---------------------------------------------------------------------------
+
+
+def test_not_found_retry_days_shortened_to_seven():
+    """not_found TTL lowered 14d -> 7d so LLM finalization misses (agent
+    identified the work but finalized found=false) get another chance sooner
+    without hammering genuinely-nonexistent works too hard."""
+    from app.services.fetch_service import NOT_FOUND_RETRY_DAYS
+    assert NOT_FOUND_RETRY_DAYS == 7
+
+
+async def _agent_channel(db_session, *, name):
+    ch = Channel(
+        id=_uuid(), name=name, type="rss_feed", url=f"https://{name}.example/rss",
+        field_mapping=TEST_FIELD_MAPPING, metadata_agent_enabled=True, status="active",
+    )
+    db_session.add(ch)
+    await db_session.flush()
+    return ch
+
+
+def _stamp_process():
+    """An async stand-in for UnifiedMetadataAgent.process that records a
+    not_found attempt on the resource."""
+    from app.utils.time import utcnow
+
+    async def _process(resource, channel, db, force_refresh=False):
+        resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
+        resource.metadata_failure_type = "not_found"
+        resource.last_metadata_attempt_at = utcnow()
+    return _process
+
+
+async def test_global_backfill_processes_agent_enabled_channels_only(db_session):
+    """Global backfill re-runs unmatched resources across ALL agent-enabled
+    channels and skips agent-disabled channels."""
+    from unittest.mock import MagicMock, patch
+
+    ch_on = await _agent_channel(db_session, name="on")
+    ch_off = Channel(
+        id=_uuid(), name="off", type="rss_feed", url="https://off.example/rss",
+        field_mapping=TEST_FIELD_MAPPING, metadata_agent_enabled=False, status="active",
+    )
+    db_session.add(ch_off)
+    for ch, n in ((ch_on, 3), (ch_off, 2)):
+        for i in range(n):
+            db_session.add(FileResource(
+                id=_uuid(), channel_id=ch.id, guid=f"{ch.name}-{i}",
+                title_raw=f"[G] {ch.name}{i} - 01", torrent_url=f"magnet:?xt=urn:btih:{ch.name}{i}",
+            ))
+    await db_session.commit()
+
+    seen: list[str] = []
+    async def _process(resource, channel, db, force_refresh=False):
+        await _stamp_process()(resource, channel, db, force_refresh=force_refresh)
+        seen.append(resource.channel_id)
+
+    mock_agent = MagicMock()
+    mock_agent.process = _process
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 3  # only the 3 agent-enabled resources
+    assert all(cid == ch_on.id for cid in seen)
+    from sqlalchemy import select
+    off_rows = (await db_session.execute(
+        select(FileResource).where(FileResource.channel_id == ch_off.id)
+    )).scalars().all()
+    assert all(r.metadata_attempts == 0 for r in off_rows)
+
+
+async def test_global_backfill_respects_per_run_limit(db_session):
+    """The per-run limit caps how many resources are re-processed in one tick."""
+    from unittest.mock import MagicMock, patch
+
+    ch = await _agent_channel(db_session, name="lim")
+    for i in range(10):
+        db_session.add(FileResource(
+            id=_uuid(), channel_id=ch.id, guid=f"lim-{i}",
+            title_raw=f"[G] lim{i} - 01", torrent_url=f"magnet:?xt=urn:btih:lim{i}",
+        ))
+    await db_session.commit()
+
+    mock_agent = MagicMock()
+    mock_agent.process = _stamp_process()
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=4)
+
+    assert count == 4
+
+
+async def test_global_backfill_skips_non_work_and_respects_cooldown(db_session):
+    """non_work resources are never retried; a recently-attempted transient is
+    still within backoff and is skipped - only the never-tried resource runs."""
+    from datetime import timedelta
+    from unittest.mock import MagicMock, patch
+
+    from app.utils.time import utcnow
+
+    ch = await _agent_channel(db_session, name="elig")
+    now = utcnow()
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="nw",
+        title_raw="[ASMR] x", torrent_url="magnet:?xt=urn:btih:nw",
+        metadata_attempts=2, metadata_failure_type="non_work",
+        last_metadata_attempt_at=now - timedelta(days=400),
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="recent",
+        title_raw="[G] recent - 01", torrent_url="magnet:?xt=urn:btih:recent",
+        metadata_attempts=1, metadata_failure_type="transient",
+        last_metadata_attempt_at=now - timedelta(minutes=10),  # 1h backoff not elapsed
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=ch.id, guid="ok",
+        title_raw="[G] ok - 01", torrent_url="magnet:?xt=urn:btih:ok",
+        # never tried -> eligible
+    ))
+    await db_session.commit()
+
+    mock_agent = MagicMock()
+    mock_agent.process = _stamp_process()
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1  # only the never-tried "ok" resource

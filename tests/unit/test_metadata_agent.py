@@ -264,15 +264,37 @@ from app.services.metadata_agent import (  # noqa: E402
 )
 
 
-def _meta(found=True, reason=None, search_error=None):
+def _meta(found=True, reason=None, search_error=None, matched_entity=None):
     return ResourceMetadata(
         clean_title="X", content_type="tv", found=found,
-        reason=reason, search_error=search_error,
+        reason=reason, search_error=search_error, matched_entity=matched_entity,
     )
 
 
 def test_classify_failure_success_returns_none():
-    assert _classify_failure(_meta(found=True)) is None
+    # A real success has a matched_entity to link.
+    assert _classify_failure(_meta(found=True, matched_entity={"external_id": "x"})) is None
+
+
+def test_classify_failure_found_true_no_entity_is_transient():
+    """found=True with no matched_entity is an LLM finalization gap, not a
+    success - it must retry (transient) instead of being cached as a fake
+    'match' that leaves the resource permanently unparsed."""
+    assert _classify_failure(_meta(found=True)) == "transient"
+    assert _classify_failure(_meta(found=True, matched_entity={})) == "transient"
+
+
+def test_classify_failure_agent_error_recursion_is_transient():
+    """Agent-level exceptions wrapped by _run_react as 'Agent error: ...'
+    (recursion limit, LLM 4xx/5xx) are infra failures, not a definitive
+    no-match - they must retry, never be cached as permanent not_found."""
+    for reason in (
+        "Agent error: Recursion limit of 25 reached without hitting a stop condition.",
+        "Agent error: Error code: 400 - {'error': {'message': 'Error from provider'}}",
+        "Agent error: https://en.wikipedia.org/w/api.php",
+        "Agent error: Error code: 500 - Internal Server Error",
+    ):
+        assert _classify_failure(_meta(found=False, reason=reason)) == "transient", reason
 
 
 def test_classify_failure_transient_markers():
@@ -327,7 +349,7 @@ def test_record_metadata_attempt_increments_and_stamps():
     assert res.last_metadata_attempt_at is not None
     assert res.metadata_failure_type == "transient"
     # success clears the failure marker
-    _record_metadata_attempt(res, _meta(found=True))
+    _record_metadata_attempt(res, _meta(found=True, matched_entity={"external_id": "x"}))
     assert res.metadata_attempts == 2
     assert res.metadata_failure_type is None
 

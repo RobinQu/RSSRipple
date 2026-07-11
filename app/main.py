@@ -192,6 +192,23 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no c
     return {"status": "done", "processed": len(results), "results": results}
 
 
+async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
+    """Background job: globally backfill retry-eligible unmatched resources.
+
+    Driven by the standalone ``metadata_backfill`` scheduler job (not tied to
+    fetch_channel) so metadata repair progresses even when feeds are slow or
+    quiet. Processes up to ``MAX_GLOBAL_BACKFILL_PER_RUN`` resources across all
+    agent-enabled channels; the scheduler re-enqueues with a stable key so the
+    queue dedup runs it back-to-back while unparsed resources remain.
+    """
+    from app.services.fetch_service import backfill_unmatched_resources_global
+
+    async with committed_session() as session:
+        processed = await backfill_unmatched_resources_global(session)
+    logger.info("[backfill_metadata] processed %d resources", processed)
+    return {"status": "done", "processed": processed}
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -265,6 +282,7 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     queue.register("fetch_channel", _handle_fetch_channel)
     queue.register("run_agent", _handle_run_agent)
     queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
+    queue.register("backfill_metadata", _handle_backfill_metadata)
 
     await queue.start()
     async with async_session_factory() as sess:

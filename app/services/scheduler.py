@@ -52,6 +52,18 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(minutes=2),
     )
+    # Standalone metadata backfill: re-run retry-eligible unmatched resources
+    # across all channels, independent of fetch_channel. Decouples metadata
+    # repair from feed fetches so a slow/quiet feed can't starve it. The task
+    # uses a stable key so the queue dedup gates it to run back-to-back
+    # (continuous catch-up while unparsed resources remain).
+    _scheduler.add_job(
+        _run_metadata_backfill,
+        trigger=IntervalTrigger(minutes=5),
+        id="metadata_backfill",
+        replace_existing=True,
+        next_run_time=utcnow() + timedelta(seconds=30),
+    )
     _scheduler.start()
     logger.info("Scheduler started")
 
@@ -170,6 +182,27 @@ async def _run_channel_fetch(channel_id: str) -> None:  # pragma: no cover - wir
         )
     except Exception as e:
         logger.warning("Failed to enqueue fetch for channel %s: %s", channel_id, e)
+
+
+async def _run_metadata_backfill() -> None:  # pragma: no cover - wiring only
+    """Enqueue the standalone global metadata backfill.
+
+    Uses a stable key (``backfill:metadata``) so the task-queue dedup gates
+    consecutive ticks to run back-to-back: while a backfill is in flight the
+    next 5-min tick is dropped, and as soon as it finishes the next tick
+    enqueues again. This yields continuous catch-up on unparsed resources
+    without overlapping runs.
+    """
+    from app.services.task_queue import task_queue
+
+    try:
+        await task_queue.enqueue(
+            "backfill_metadata",
+            "backfill:metadata",
+            {},
+        )
+    except Exception as e:
+        logger.warning("Failed to enqueue metadata backfill: %s", e)
 
 
 async def _run_metadata_refresh() -> None:  # pragma: no cover - wiring only
