@@ -157,7 +157,6 @@ export default function ChannelForm() {
             name: ch.name,
             url: ch.url,
             fetch_interval: ch.fetch_interval,
-            status: ch.status,
             metadata_agent_enabled: ch.metadata_agent_enabled ?? true,
             metadata_source: ch.metadata_source ?? null,
           });
@@ -306,7 +305,6 @@ export default function ChannelForm() {
     name: string;
     url: string;
     fetch_interval: number;
-    status?: string;
     metadata_agent_enabled?: boolean;
     metadata_source?: MetadataSource | null;
   }) => {
@@ -368,7 +366,6 @@ export default function ChannelForm() {
           {
             name: values.name,
             fetch_interval: values.fetch_interval,
-            status: (values.status as 'active' | 'inactive') || 'active',
             field_mapping: fm,
             metadata_agent_enabled: values.metadata_agent_enabled ?? true,
             metadata_source: values.metadata_agent_enabled ? (values.metadata_source ?? null) : null,
@@ -543,18 +540,6 @@ export default function ChannelForm() {
                 message={t('channels.metadataSourceNone')}
                 description={t('channels.metadataSourceNoneDesc')}
               />
-            )}
-
-            {mode === 'edit' && (
-              <Form.Item name="status" label={t('common.status')}>
-                <Select
-                  options={[
-                    { value: 'active', label: t('status.active') },
-                    { value: 'inactive', label: t('status.inactive') },
-                  ]}
-                  style={{ width: 160 }}
-                />
-              </Form.Item>
             )}
 
             {/* Field mapping */}
