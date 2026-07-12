@@ -1124,14 +1124,22 @@ class UnifiedMetadataAgent:
             api_key=runtime_config.llm_api_key,
             base_url=runtime_config.llm_base_url,
             temperature=0.1,
-            timeout=30,
-            # The upstream relay (LLM_BASE_URL) intermittently drops TLS
-            # connections mid-handshake. The SDK retries connection / 5xx /
-            # 429 errors with exponential backoff; max_retries=3 (4 attempts)
-            # absorbs the bulk of these transient drops in-process instead of
-            # relegating every dropped resource to the next fetch cycle.
-            # _classify_failure still treats a total failure as transient
-            # (not cached), so this only tightens the in-process budget.
+            # The upstream relay (LLM_BASE_URL) fails two ways, tuned
+            # separately because they want opposite handling:
+            #   - TLS drops (APIConnectionError): fast-fail, so retries are
+            #     cheap. max_retries=3 (4 attempts, SDK exponential backoff)
+            #     absorbs the bulk in-process instead of deferring each dropped
+            #     resource to the next fetch cycle.
+            #   - Slow-but-successful calls (APITimeoutError): a ReAct step
+            #     with full prompt + history can exceed 30s. The SDK retries
+            #     timeouts too, so such a call is killed 4x under timeout=30
+            #     and never completes; timeout=60 lets that tail succeed on
+            #     the first attempt. Worst case (a truly hung call) is
+            #     ~4x60s + backoff ≈ 4 min per resource, acceptable for a
+            #     background fetch.
+            # A total failure is still classified transient (not cached) by
+            # _classify_failure, so this only tightens the in-process budget.
+            timeout=60,
             max_retries=3,
         )
         self._agents: dict[str, Any] = {}
