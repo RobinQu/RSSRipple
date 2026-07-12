@@ -104,6 +104,37 @@ def _is_retry_eligible(resource: FileResource, now) -> bool:
     return True
 
 
+async def reset_channel_metadata_for_source_change(
+    db: AsyncSession, channel_id: str
+) -> int:
+    """Reset a channel's unmatched not_found/transient resources so the backfill
+    reprocesses them immediately.
+
+    Called when a channel's ``metadata_source`` changes: a not_found recorded
+    under the old source (e.g. jina) should not block a resource for the full
+    ``NOT_FOUND_RETRY_DAYS`` cooldown now that the channel uses a different
+    source (e.g. wikipedia). Clearing ``metadata_failure_type`` /
+    ``last_metadata_attempt_at`` / ``metadata_attempts`` makes the resource
+    retry-eligible (``attempts == 0``) on the next backfill run, which then
+    re-links it under the new source.
+    """
+    result = await db.execute(
+        select(FileResource).where(
+            FileResource.channel_id == channel_id,
+            FileResource.series_id.is_(None),
+            FileResource.movie_id.is_(None),
+            FileResource.metadata_failure_type.in_(("not_found", "transient")),
+        )
+    )
+    reset = 0
+    for r in result.scalars().all():
+        r.metadata_failure_type = None
+        r.last_metadata_attempt_at = None
+        r.metadata_attempts = 0
+        reset += 1
+    return reset
+
+
 async def _process_resource_metadata(
     resource_id: str,
     channel_id: str,

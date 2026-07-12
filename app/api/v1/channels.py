@@ -221,6 +221,7 @@ async def update_channel(
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
+    old_metadata_source = channel.metadata_source
     update_data = body.model_dump(exclude_unset=True)
     if "field_mapping" in update_data and not _valid_field_mapping(update_data.get("field_mapping")):
         return JSONResponse(status_code=422, content={
@@ -232,6 +233,14 @@ async def update_channel(
     for key, value in update_data.items():
         setattr(channel, key, value)
     await db.flush()
+
+    # If the metadata source changed, clear the old source's not_found/transient
+    # cooldowns on this channel's unmatched resources so the backfill reprocesses
+    # them under the new source instead of waiting out NOT_FOUND_RETRY_DAYS.
+    if channel.metadata_source != old_metadata_source:
+        from app.services.fetch_service import reset_channel_metadata_for_source_change
+        await reset_channel_metadata_for_source_change(db, channel_id)
+
     await db.refresh(channel)
 
     try:

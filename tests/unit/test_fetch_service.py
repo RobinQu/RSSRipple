@@ -845,3 +845,56 @@ async def test_global_backfill_skips_non_work_and_respects_cooldown(db_session):
         count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
 
     assert count == 1  # only the never-tried "ok" resource
+
+
+async def test_reset_channel_metadata_for_source_change(db_session, channel, fake_queue):
+    """Switching a channel's source resets its not_found/transient unmatched
+    resources so the backfill reprocesses them under the new source."""
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    # not_found (in cooldown), transient (in cooldown), already-matched, non_work
+    from app.models.series import TVSeries
+    from app.utils.time import utcnow
+    series = TVSeries(id=_uuid(), title_cn="Matched")
+    db_session.add(series)
+    await db_session.flush()
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="nf",
+        title_raw="[G] nf", torrent_url="magnet:?xt=urn:btih:nf",
+        metadata_attempts=1, metadata_failure_type="not_found",
+        last_metadata_attempt_at=utcnow() - timedelta(days=1),
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="tr",
+        title_raw="[G] tr", torrent_url="magnet:?xt=urn:btih:tr",
+        metadata_attempts=2, metadata_failure_type="transient",
+        last_metadata_attempt_at=utcnow() - timedelta(minutes=10),
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="mt",
+        title_raw="[G] mt", torrent_url="magnet:?xt=urn:btih:mt",
+        series_id=series.id, metadata_attempts=1, metadata_failure_type=None,
+    ))
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="nw",
+        title_raw="[ASMR] nw", torrent_url="magnet:?xt=urn:btih:nw",
+        metadata_attempts=1, metadata_failure_type="non_work",
+        last_metadata_attempt_at=utcnow() - timedelta(days=400),
+    ))
+    await db_session.commit()
+
+    reset = await fs.reset_channel_metadata_for_source_change(db_session, channel.id)
+    await db_session.commit()
+
+    assert reset == 2  # only not_found + transient (matched + non_work untouched)
+    rows = {r.guid: r for r in (await db_session.execute(
+        select(FileResource).where(FileResource.channel_id == channel.id)
+    )).scalars().all()}
+    assert rows["nf"].metadata_failure_type is None
+    assert rows["nf"].metadata_attempts == 0
+    assert rows["nf"].last_metadata_attempt_at is None
+    assert rows["tr"].metadata_failure_type is None
+    assert rows["mt"].metadata_failure_type is None  # untouched (matched)
+    assert rows["nw"].metadata_failure_type == "non_work"  # untouched
