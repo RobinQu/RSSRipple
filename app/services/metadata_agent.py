@@ -18,6 +18,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, ClassVar, Literal
@@ -1092,6 +1094,20 @@ def _cache_source_key(data_source_type: str | None) -> str:
     return f"metadata_agent:{ns}"
 
 
+# Normalization for the work-level short-circuit (S1). Collapses a title to
+# its word characters (letters incl. CJK, digits) lowercased, dropping
+# whitespace/punctuation/width variants so "名探偵プリキュア！" and
+# "名探偵プリキュア" collide. Intentionally exact-after-normalization only -
+# no fuzzy matching - so a short-circuit never links to the wrong work.
+_NORMALIZE_RE = re.compile(r"[^\w]+", flags=re.UNICODE)
+
+
+def _normalize_title(s: str | None) -> str:
+    if not s:
+        return ""
+    return _NORMALIZE_RE.sub("", s).lower()
+
+
 # ---------------------------------------------------------------------------
 # Main agent class
 # ---------------------------------------------------------------------------
@@ -1118,6 +1134,12 @@ class UnifiedMetadataAgent:
     # (retried with backoff), so legitimate-but-long runs get another shot.
     MAX_LANGGRAPH_RECURSION_LIMIT: ClassVar[int] = 25
 
+    # Work-level short-circuit (S1): a normalized-title -> (work_type, work_id)
+    # index over existing TVSeries/Movie rows, refreshed on this TTL. Lets a
+    # new episode/release of an already-identified work link directly without
+    # spending an LLM call. Series are added rarely, so a short TTL is plenty.
+    _TITLE_INDEX_TTL: ClassVar[float] = 60.0
+
     def __init__(self) -> None:
         self._model = ChatOpenAI(
             model=runtime_config.llm_model,
@@ -1143,6 +1165,14 @@ class UnifiedMetadataAgent:
             max_retries=3,
         )
         self._agents: dict[str, Any] = {}
+        # Work-level short-circuit index state (S1). Built lazily from the DB
+        # on first use and refreshed after _TITLE_INDEX_TTL. ``_ambiguous``
+        # collects normalized titles that map to >1 distinct work so the
+        # short-circuit skips them (no guessing).
+        self._title_index: dict[str, tuple[str, str]] | None = None
+        self._title_index_ambiguous: set[str] = set()
+        self._title_index_at: float = 0.0
+        self._title_index_lock = asyncio.Lock()
 
     def _tools_for_source(self, data_source_type: str) -> list[Any]:
         """Return the exact tool surface for one metadata data source."""
@@ -1165,6 +1195,104 @@ class UnifiedMetadataAgent:
                 prompt=_SYSTEM_PROMPT,
             )
         return self._agents[source]
+
+    # ── Work-level short-circuit (S1) ──
+
+    async def _ensure_title_index(self, db: AsyncSession) -> dict[str, tuple[str, str]]:
+        """Build (or reuse) the normalized-title -> (work_type, work_id) index.
+
+        Loaded from all TVSeries + Movie rows and cached on the agent instance
+        for ``_TITLE_INDEX_TTL``. Titles that normalize to the same key but map
+        to different works are recorded as ambiguous and excluded.
+        """
+        if (
+            self._title_index is not None
+            and (time.monotonic() - self._title_index_at) < self._TITLE_INDEX_TTL
+        ):
+            return self._title_index
+        async with self._title_index_lock:
+            # Double-check after acquiring - another task may have rebuilt it.
+            if (
+                self._title_index is not None
+                and (time.monotonic() - self._title_index_at) < self._TITLE_INDEX_TTL
+            ):
+                return self._title_index
+            from sqlalchemy import select
+
+            from app.models.movie import Movie
+            from app.models.series import TVSeries
+
+            index: dict[str, tuple[str, str]] = {}
+            ambiguous: set[str] = set()
+
+            def _add(key: str | None, work_type: str, work_id: str) -> None:
+                n = _normalize_title(key)
+                if not n:
+                    return
+                existing = index.get(n)
+                if existing is None:
+                    index[n] = (work_type, work_id)
+                elif existing != (work_type, work_id):
+                    ambiguous.add(n)
+
+            series_rows = (
+                await db.execute(
+                    select(
+                        TVSeries.id,
+                        TVSeries.title_cn,
+                        TVSeries.title_en,
+                        TVSeries.original_title,
+                        TVSeries.canonical_name,
+                        TVSeries.aliases,
+                    )
+                )
+            ).all()
+            for r in series_rows:
+                for k in (r.title_cn, r.title_en, r.original_title, r.canonical_name):
+                    _add(k, "tv", r.id)
+                for alias in (r.aliases or []):
+                    _add(alias, "tv", r.id)
+
+            movie_rows = (
+                await db.execute(
+                    select(
+                        Movie.id,
+                        Movie.title_cn,
+                        Movie.title_en,
+                        Movie.original_title,
+                        Movie.canonical_name,
+                        Movie.aliases,
+                    )
+                )
+            ).all()
+            for r in movie_rows:
+                for k in (r.title_cn, r.title_en, r.original_title, r.canonical_name):
+                    _add(k, "movie", r.id)
+                for alias in (r.aliases or []):
+                    _add(alias, "movie", r.id)
+
+            self._title_index = index
+            self._title_index_ambiguous = ambiguous
+            self._title_index_at = time.monotonic()
+            return index
+
+    async def _find_known_work(
+        self, resource: Any, db: AsyncSession
+    ) -> tuple[str, str] | None:
+        """Return (work_type, work_id) if the resource's pre-parsed title
+        exactly (after normalization) matches one known TVSeries/Movie, else
+        None. Ambiguous titles (mapping to >1 work) return None so the agent
+        runs instead of guessing.
+        """
+        index = await self._ensure_title_index(db)
+        for key in (
+            getattr(resource, "title_cn", None),
+            getattr(resource, "title_en", None),
+        ):
+            n = _normalize_title(key)
+            if n and n not in self._title_index_ambiguous and n in index:
+                return index[n]
+        return None
 
     # ── Production entry ──
 
@@ -1206,6 +1334,43 @@ class UnifiedMetadataAgent:
                 await self._apply_to_resource(cached, resource, channel, db)
                 _record_metadata_attempt(resource, cached)
                 return cached
+
+        # 0b. Work-level short-circuit (S1): if the pre-parser's title already
+        # matches a known TVSeries/Movie (exact after normalization), link
+        # directly without an LLM call. New episodes/releases of an
+        # already-identified work skip the agent entirely. Ambiguous titles
+        # fall through to the agent. Not cached in MetadataCache (the cache is
+        # keyed by raw_title; this index IS the cross-title cache) - the
+        # resource is marked matched so the backfill won't revisit it.
+        if not force_refresh:
+            known = await self._find_known_work(resource, db)
+            if known is not None:
+                work_type, work_id = known
+                if work_type == "movie":
+                    resource.movie_id = work_id
+                    resource.series_id = None
+                else:
+                    resource.series_id = work_id
+                    resource.movie_id = None
+                resource.metadata_matched_at = utcnow()
+                resource.metadata_attempts = int(
+                    getattr(resource, "metadata_attempts", 0) or 0
+                ) + 1
+                resource.last_metadata_attempt_at = utcnow()
+                resource.metadata_failure_type = None  # success
+                if not resource.search_title:
+                    resource.search_title = (
+                        resource.title_cn or resource.title_en or raw_title
+                    )[:200]
+                logger.info(
+                    "[metadata_agent] short-circuit matched %r -> %s %s (no LLM)",
+                    raw_title[:80], work_type, work_id,
+                )
+                return ResourceMetadata(
+                    clean_title=resource.search_title or "",
+                    found=True,
+                    content_type=work_type,
+                )
 
         # 1. Build context - if the chosen source's credentials are
         # missing/disabled, we still run its graph (the per-source search helper

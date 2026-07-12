@@ -362,6 +362,7 @@ def _patched_agent():
     agent._set_cache = AsyncMock()
     agent._apply_to_resource = AsyncMock()
     agent._run_react = AsyncMock()
+    agent._find_known_work = AsyncMock(return_value=None)  # S1 short-circuit off in cache/agent tests
     agent._build_production_message = MagicMock(return_value="msg")
     return agent
 
@@ -433,6 +434,69 @@ async def test_process_caches_definitive_not_found():
     agent._run_react.return_value = _react_return(found=False, reason="No matching work found in Jina")
     await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
     agent._set_cache.assert_called_once()  # definitive outcome cached
+
+
+# ---------------------------------------------------------------------------
+# S1: work-level short-circuit (no LLM when title matches a known work)
+# ---------------------------------------------------------------------------
+
+
+async def test_process_short_circuits_known_series(db_session, sample_channel):
+    """A resource whose pre-parsed title matches a known TVSeries links
+    directly with no LLM call (S1)."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="黄泉使者", title_en="Yomi no Tsugai")
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g1",
+        title_raw="[LoliHouse] 黄泉使者 / Yomi no Tsugai - 14 [1080p]",
+        title_cn="黄泉使者", episode=14, season=1,
+        torrent_url="magnet:?xt=urn:btih:test1",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()  # must NOT be called - short-circuit wins
+    res = await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert res.found is True
+    assert res.content_type == "tv"
+    assert resource.series_id == series.id
+    assert resource.movie_id is None
+    assert resource.metadata_matched_at is not None
+    assert resource.metadata_failure_type is None  # success
+
+
+async def test_process_short_circuit_skipped_on_force_refresh(db_session, sample_channel):
+    """force_refresh bypasses the work-level short-circuit so the agent re-runs."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="黄泉使者")
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g1",
+        title_raw="[LoliHouse] 黄泉使者 - 14 [1080p]", title_cn="黄泉使者",
+        torrent_url="magnet:?xt=urn:btih:test2",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._get_cache = AsyncMock(return_value=None)
+    agent._run_react = AsyncMock(return_value=_react_return(found=True))
+    agent._apply_to_resource = AsyncMock()
+    agent._set_cache = AsyncMock()
+    await agent.process(resource, sample_channel, db_session, force_refresh=True)
+    agent._run_react.assert_called_once()  # force_refresh -> agent ran
 
 
 # ---------------------------------------------------------------------------
