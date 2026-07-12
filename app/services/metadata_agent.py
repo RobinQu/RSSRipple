@@ -31,6 +31,7 @@ from langgraph.prebuilt import create_react_agent  # noqa: F401 — kept for com
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.resource_parser import strip_season_from_title
 from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
 
@@ -1346,7 +1347,9 @@ class UnifiedMetadataAgent:
             ambiguous: set[str] = set()
 
             def _add(key: str | None, work_type: str, work_id: str) -> None:
-                n = _normalize_title(key)
+                # Strip season suffix first so a season-suffixed alias ("X 第四季")
+                # matches a base-title resource ("X"), and vice versa.
+                n = _normalize_title(strip_season_from_title(key))
                 if not n:
                     return
                 existing = index.get(n)
@@ -1409,7 +1412,9 @@ class UnifiedMetadataAgent:
             getattr(resource, "title_cn", None),
             getattr(resource, "title_en", None),
         ):
-            n = _normalize_title(key)
+            # Strip season from the resource title too, so "X 第四季" matches a
+            # base-titled series "X" (the index keys are also season-stripped).
+            n = _normalize_title(strip_season_from_title(key))
             if n and n not in self._title_index_ambiguous and n in index:
                 return index[n]
         return None
@@ -1462,35 +1467,41 @@ class UnifiedMetadataAgent:
         # fall through to the agent. Not cached in MetadataCache (the cache is
         # keyed by raw_title; this index IS the cross-title cache) - the
         # resource is marked matched so the backfill won't revisit it.
-        if not force_refresh:
-            known = await self._find_known_work(resource, db)
-            if known is not None:
-                work_type, work_id = known
-                if work_type == "movie":
-                    resource.movie_id = work_id
-                    resource.series_id = None
-                else:
-                    resource.series_id = work_id
-                    resource.movie_id = None
-                resource.metadata_matched_at = utcnow()
-                resource.metadata_attempts = int(
-                    getattr(resource, "metadata_attempts", 0) or 0
-                ) + 1
-                resource.last_metadata_attempt_at = utcnow()
-                resource.metadata_failure_type = None  # success
-                if not resource.search_title:
-                    resource.search_title = (
-                        resource.title_cn or resource.title_en or raw_title
-                    )[:200]
-                logger.info(
-                    "[metadata_agent] short-circuit matched %r -> %s %s (no LLM)",
-                    raw_title[:80], work_type, work_id,
-                )
-                return ResourceMetadata(
-                    clean_title=resource.search_title or "",
-                    found=True,
-                    content_type=work_type,
-                )
+        #
+        # Fires even on force_refresh: force_refresh bypasses the *cache* (a
+        # possibly-stale result), but the title index is live/current, so a
+        # matching resource is linked correctly without an LLM call. This lets
+        # the backfill (which uses force_refresh) short-circuit resources that
+        # now match a known work (e.g. after a title cleanup) instead of
+        # re-running the full agent for each.
+        known = await self._find_known_work(resource, db)
+        if known is not None:
+            work_type, work_id = known
+            if work_type == "movie":
+                resource.movie_id = work_id
+                resource.series_id = None
+            else:
+                resource.series_id = work_id
+                resource.movie_id = None
+            resource.metadata_matched_at = utcnow()
+            resource.metadata_attempts = int(
+                getattr(resource, "metadata_attempts", 0) or 0
+            ) + 1
+            resource.last_metadata_attempt_at = utcnow()
+            resource.metadata_failure_type = None  # success
+            if not resource.search_title:
+                resource.search_title = (
+                    resource.title_cn or resource.title_en or raw_title
+                )[:200]
+            logger.info(
+                "[metadata_agent] short-circuit matched %r -> %s %s (no LLM)",
+                raw_title[:80], work_type, work_id,
+            )
+            return ResourceMetadata(
+                clean_title=resource.search_title or "",
+                found=True,
+                content_type=work_type,
+            )
 
         # 1. Build context - if the chosen source's credentials are
         # missing/disabled, we still run its graph (the per-source search helper

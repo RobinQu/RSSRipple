@@ -473,8 +473,11 @@ async def test_process_short_circuits_known_series(db_session, sample_channel):
     assert resource.metadata_failure_type is None  # success
 
 
-async def test_process_short_circuit_skipped_on_force_refresh(db_session, sample_channel):
-    """force_refresh bypasses the work-level short-circuit so the agent re-runs."""
+async def test_process_short_circuit_fires_on_force_refresh(db_session, sample_channel):
+    """force_refresh bypasses the *cache* but the S1 title match is live, so a
+    resource matching a known series still short-circuits (no LLM). This is
+    what lets the backfill (which uses force_refresh) link resources that now
+    match a known work without re-running the agent."""
     import uuid
 
     from app.models.file_resource import FileResource
@@ -492,11 +495,36 @@ async def test_process_short_circuit_skipped_on_force_refresh(db_session, sample
 
     agent = UnifiedMetadataAgent()
     agent._get_cache = AsyncMock(return_value=None)
-    agent._run_react = AsyncMock(return_value=_react_return(found=True))
-    agent._apply_to_resource = AsyncMock()
-    agent._set_cache = AsyncMock()
+    agent._run_react = AsyncMock()  # must NOT be called - S1 short-circuits
     await agent.process(resource, sample_channel, db_session, force_refresh=True)
-    agent._run_react.assert_called_once()  # force_refresh -> agent ran
+    agent._run_react.assert_not_called()
+    assert resource.series_id == series.id  # S1 linked it even under force_refresh
+
+
+async def test_process_short_circuit_matches_season_suffixed_title(db_session, sample_channel):
+    """S1 strips season from both sides: a resource titled "X 第四季" matches a
+    series titled "X" (base). Catches the Slime-style mismatch."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="关于我转生变成史莱姆这档事")
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g1",
+        title_raw="[G] 关于我转生变成史莱姆这档事 第四季 - 14 [1080p]",
+        title_cn="关于我转生变成史莱姆这档事 第四季",
+        torrent_url="magnet:?xt=urn:btih:test3",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()
+    await agent.process(resource, sample_channel, db_session)
+    agent._run_react.assert_not_called()
+    assert resource.series_id == series.id
 
 
 # ---------------------------------------------------------------------------
