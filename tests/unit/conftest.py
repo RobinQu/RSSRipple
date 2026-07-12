@@ -66,9 +66,22 @@ async def db_engine():
         # Create FTS5 virtual tables for full-text search tests
         from app.services.fts import ensure_fts_tables
         await ensure_fts_tables(conn)
+    # Install as the global engine/factory so application code that opens its
+    # own sessions (e.g. fetch_service's per-resource metadata tasks, which
+    # run concurrently in isolated sessions) hits the test database rather
+    # than the default :memory: engine. Restored on teardown.
+    import app.database as db_mod
+    saved_engine = db_mod.engine
+    saved_factory = db_mod.async_session_factory
+    db_mod.engine = engine
+    db_mod.async_session_factory = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
     try:
         yield engine
     finally:
+        db_mod.engine = saved_engine
+        db_mod.async_session_factory = saved_factory
         await engine.dispose()
         if _TMP_DB_DIR is not None:
             _TMP_DB_DIR.cleanup()

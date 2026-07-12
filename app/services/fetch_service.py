@@ -48,6 +48,12 @@ NOT_FOUND_RETRY_DAYS = 7
 MAX_GLOBAL_BACKFILL_PER_RUN = 50
 MAX_GLOBAL_BACKFILL_SCAN = 300
 
+# Max in-flight metadata jobs within one fetch cycle / global backfill run.
+# Metadata is LLM + external-search bound (tens of seconds each), so a modest
+# cap multiplies throughput without overwhelming the LLM endpoint or the
+# external search APIs. Each task runs in its own short-lived DB session.
+MAX_METADATA_CONCURRENCY = 4
+
 
 def _simple_title_clean(raw: str) -> str | None:
     """Minimal title cleanup: strip leading bracket group and episode tail."""
@@ -98,11 +104,85 @@ def _is_retry_eligible(resource: FileResource, now) -> bool:
     return True
 
 
-async def _backfill_unmatched_resources(channel: Channel, db: AsyncSession) -> int:
+async def _process_resource_metadata(
+    resource_id: str,
+    channel_id: str,
+    semaphore: asyncio.Semaphore,
+    *,
+    force_refresh: bool = False,
+) -> None:
+    """Run metadata + poster download for one FileResource in its own session.
+
+    Used by both the new-resource path and the backfill path so each
+    resource's slow LLM/search work runs concurrently under ``semaphore``
+    and in an isolated short-lived DB session - the caller's shared fetch
+    session is never held across the agent loop (which spans many LLM +
+    external search calls and can take tens of seconds), avoiding the
+    "database is locked" / unresponsive-edit symptom that motivated
+    committing the resource row before metadata in the first place.
+    """
+    from app.database import async_session_factory
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+    from app.services.metadata_agent import get_agent
+    from app.services.metadata_service import download_and_cache_poster
+
+    async with semaphore:
+        async with async_session_factory() as task_db:
+            try:
+                resource = await task_db.get(FileResource, resource_id)
+                channel = await task_db.get(Channel, channel_id)
+                if resource is None or channel is None:
+                    return
+                if channel.metadata_agent_enabled:
+                    try:
+                        await get_agent().process(
+                            resource, channel, task_db, force_refresh=force_refresh
+                        )
+                    except Exception as e:
+                        logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
+                        base_title = _simple_title_clean(resource.title_raw)
+                        if base_title:
+                            resource.search_title = base_title
+                else:
+                    try:
+                        await fetch_and_link_metadata(task_db, resource, channel)
+                    except Exception as e:
+                        logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+                await task_db.commit()
+
+                # Poster download for newly-linked entities (kept in the same
+                # task session so a network call never blocks other writers).
+                if resource.series_id:
+                    series = await task_db.get(TVSeries, resource.series_id)
+                    if series and series.poster_url and series.poster_url.startswith("http"):
+                        local = await download_and_cache_poster(series.poster_url)
+                        if local:
+                            series.poster_url = local
+                elif resource.movie_id:
+                    movie = await task_db.get(Movie, resource.movie_id)
+                    if movie and movie.poster_url and movie.poster_url.startswith("http"):
+                        local = await download_and_cache_poster(movie.poster_url)
+                        if local:
+                            movie.poster_url = local
+                await task_db.commit()
+            except Exception as e:
+                logger.warning("[metadata-task] failed for %s: %s", resource_id, e)
+                try:
+                    await task_db.rollback()
+                except Exception:
+                    pass
+
+
+async def _backfill_unmatched_resources(
+    channel: Channel, db: AsyncSession, semaphore: asyncio.Semaphore
+) -> int:
     """Re-run metadata for retry-eligible unmatched resources of a channel.
 
     Returns the number of resources re-processed. Bounded by
     ``MAX_BACKFILL_PER_FETCH`` per fetch so the job stays predictable.
+    Runs concurrently under ``semaphore`` (shared with the new-resource phase
+    so one fetch cycle bounds total in-flight metadata work).
     """
     now = utcnow()
     result = await db.execute(
@@ -120,26 +200,24 @@ async def _backfill_unmatched_resources(channel: Channel, db: AsyncSession) -> i
     )
     candidates = result.scalars().all()
 
-    processed = 0
+    # Decide eligibility from the snapshot loaded above, then process the
+    # eligible set concurrently. Per-task sessions update each resource
+    # independently; the next fetch re-queries fresh state.
+    eligible_ids: list[str] = []
     for resource in candidates:
-        if processed >= MAX_BACKFILL_PER_FETCH:
+        if len(eligible_ids) >= MAX_BACKFILL_PER_FETCH:
             break
-        if not _is_retry_eligible(resource, now):
-            continue
-        try:
-            if channel.metadata_agent_enabled:
-                from app.services.metadata_agent import get_agent
-                await get_agent().process(resource, channel, db, force_refresh=True)
-            else:
-                await fetch_and_link_metadata(db, resource, channel)
-        except Exception as e:
-            logger.warning(
-                "[fetch:%s] backfill re-match failed for %s: %s",
-                channel.id, resource.id, e,
+        if _is_retry_eligible(resource, now):
+            eligible_ids.append(resource.id)
+
+    if eligible_ids:
+        await asyncio.gather(
+            *(
+                _process_resource_metadata(rid, channel.id, semaphore, force_refresh=True)
+                for rid in eligible_ids
             )
-        processed += 1
-        await db.commit()
-    return processed
+        )
+    return len(eligible_ids)
 
 
 async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX_GLOBAL_BACKFILL_PER_RUN) -> int:
@@ -174,33 +252,26 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
     if not candidates:
         return 0
 
-    # Prefetch the channels once (candidates span multiple channels).
-    channel_ids = {r.channel_id for r in candidates}
-    ch_result = await db.execute(select(Channel).where(Channel.id.in_(channel_ids)))
-    channels: dict[str, Channel] = {c.id: c for c in ch_result.scalars().all()}
-
-    from app.services.metadata_agent import get_agent
-
-    agent = get_agent()
-    processed = 0
+    # Decide eligibility from the loaded snapshot, then process the eligible
+    # set concurrently. Each task loads its resource + channel by PK in its
+    # own session (cheap vs the agent loop), so the channel prefetch the old
+    # sequential version needed is no longer necessary.
+    eligible: list[tuple[str, str]] = []  # (resource_id, channel_id)
     for resource in candidates:
-        if processed >= limit:
+        if len(eligible) >= limit:
             break
-        if not _is_retry_eligible(resource, now):
-            continue
-        channel = channels.get(resource.channel_id)
-        if channel is None:
-            continue
-        try:
-            await agent.process(resource, channel, db, force_refresh=True)
-        except Exception as e:
-            logger.warning(
-                "[backfill:global] re-match failed for %s (channel %s): %s",
-                resource.id, resource.channel_id, e,
+        if _is_retry_eligible(resource, now):
+            eligible.append((resource.id, resource.channel_id))
+
+    if eligible:
+        semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
+        await asyncio.gather(
+            *(
+                _process_resource_metadata(rid, cid, semaphore, force_refresh=True)
+                for rid, cid in eligible
             )
-        processed += 1
-        await db.commit()
-    return processed
+        )
+    return len(eligible)
 
 
 
@@ -348,49 +419,14 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
         # fresh short transaction on the next commit.
         await db.commit()
 
-        # Unified metadata agent (title cleaning + metadata search in one call)
-        if channel.metadata_agent_enabled:
-            try:
-                from app.services.metadata_agent import get_agent
-                agent = get_agent()
-                await agent.process(resource, channel, db)
-            except Exception as e:
-                logger.warning("MetadataAgent failed for %s: %s", resource.id, e)
-                # Fallback: extract a basic search_title and try local match
-                base_title = _simple_title_clean(resource.title_raw)
-                resource.search_title = base_title
-        else:
-            # metadata_agent_enabled=False: only local DB match
-            try:
-                await fetch_and_link_metadata(db, resource, channel)
-            except Exception as e:
-                logger.warning("Metadata linking failed for %s: %s", resource.id, e)
-        # Persist metadata writes and release the write lock before the poster
-        # download (another network call) so it too doesn't block other writers.
-        await db.commit()
-
-        # Poster download for newly-linked entities
-        if resource.series_id:
-            from app.models.series import TVSeries
-            series = await db.get(TVSeries, resource.series_id)
-            if series and series.poster_url and series.poster_url.startswith("http"):
-                from app.services.metadata_service import download_and_cache_poster
-                local = await download_and_cache_poster(series.poster_url)
-                if local:
-                    series.poster_url = local
-        elif resource.movie_id:
-            from app.models.movie import Movie
-            movie = await db.get(Movie, resource.movie_id)
-            if movie and movie.poster_url and movie.poster_url.startswith("http"):
-                from app.services.metadata_service import download_and_cache_poster
-                local = await download_and_cache_poster(movie.poster_url)
-                if local:
-                    movie.poster_url = local
-
+        # Phase A: the resource row is created and committed above. The slow
+        # metadata + poster work is deferred to Phase B (below) so this loop
+        # stays fast and never holds the shared fetch session across an agent
+        # run - the same "release the write lock before metadata" property
+        # the inline version had, now also with real concurrency.
         existing_guids.add(guid)
         new_resource_ids.append(resource.id)
         new_count += 1
-        await db.commit()
         logger.debug(
             "[fetch:%s] Committed resource %s (%d/%d new so far)",
             channel.id,
@@ -399,13 +435,28 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
             len(entries),
         )
 
+    # Phase B: run metadata + poster download for the new resources
+    # concurrently. Each task uses its own DB session (see
+    # ``_process_resource_metadata``) so the slow LLM/search work doesn't
+    # hold this shared fetch session's write lock. The semaphore is shared
+    # with the backfill phase below so one fetch cycle bounds total in-flight
+    # metadata work to ``MAX_METADATA_CONCURRENCY``.
+    semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
+    if new_resource_ids:
+        await asyncio.gather(
+            *(
+                _process_resource_metadata(rid, channel.id, semaphore)
+                for rid in new_resource_ids
+            )
+        )
+
     # 3. Backfill: re-run metadata for retry-eligible unmatched resources.
     # Existing resources are skipped by the GUID dedup in step 2, so without
     # this phase a transient failure (timeout / LLM-format error) or a source
     # that later improves would never get a second chance.
     backfilled_count = 0
     try:
-        backfilled_count = await _backfill_unmatched_resources(channel, db)
+        backfilled_count = await _backfill_unmatched_resources(channel, db, semaphore)
     except Exception as e:
         logger.warning("[fetch:%s] backfill phase failed: %s", channel.id, e)
 
