@@ -311,3 +311,34 @@ from app.services.resource_parser import detect_absolute_episode
 )
 def test_detect_absolute_episode(title, expected):
     assert detect_absolute_episode(title) == expected
+
+
+# ---------------------------------------------------------------------------
+# strip_season_from_title
+# ---------------------------------------------------------------------------
+
+from app.services.resource_parser import strip_season_from_title  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("关于我转生变成史莱姆这档事 第四季", "关于我转生变成史莱姆这档事"),
+        ("欢迎来到实力至上主义的教室 第四季", "欢迎来到实力至上主义的教室"),
+        ("碧蓝航线：微速前行！第二季", "碧蓝航线：微速前行！"),
+        ("That Time I Got Reincarnated as a Slime Season 4", "That Time I Got Reincarnated as a Slime"),
+        ("Wistoria: Wand and Sword Season 2", "Wistoria: Wand and Sword"),
+        ("Skeleton Knight in Another World S2", "Skeleton Knight in Another World"),
+        ("Some Show 4th Season", "Some Show"),
+        # Non-season titles are untouched
+        ("名侦探柯南", "名侦探柯南"),
+        ("Spy x Family", "Spy x Family"),
+        # Ambiguous bare trailing digits are NOT stripped (too risky)
+        ("异世界悠闲农家2", "异世界悠闲农家2"),
+        # None / empty pass through
+        (None, None),
+        ("", ""),
+    ],
+)
+def test_strip_season_from_title(raw, expected):
+    assert strip_season_from_title(raw) == expected

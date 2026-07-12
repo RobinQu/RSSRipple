@@ -32,6 +32,7 @@ from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.services import fts as fts_service
+from app.services.resource_parser import strip_season_from_title
 from app.services.text_normalizer import normalize_title, similarity_score
 from app.utils.time import utcnow
 
@@ -430,15 +431,22 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
 
     # Fallback: same work returned with a fresh external_id shape. Match by
     # any of the canonical title columns (case-sensitive; titles are already
-    # normalized by upstream extraction).
+    # normalized by upstream extraction). Include season-stripped forms too:
+    # stored series titles are base (season-stripped at write time), so an
+    # incoming season-suffixed title (e.g. "X 第二季") must be stripped to
+    # match the existing base-title row - this is what lets wikipedia/tmdb/exa
+    # converge on one series row across sources.
     if series is None:
-        title_candidates = [
+        raw_candidates = [
             t for t in (
                 data.get("title_cn"),
                 data.get("title_en"),
                 data.get("original_title"),
             ) if t
         ]
+        title_candidates = list({
+            t for c in raw_candidates for t in (c, strip_season_from_title(c)) if t
+        })
         if title_candidates:
             title_result = await db.execute(
                 select(TVSeries).where(
@@ -476,9 +484,9 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         if data.get("genre"):
             series.genre = data.get("genre")
         if data.get("title_cn"):
-            series.title_cn = series.title_cn or data.get("title_cn")
+            series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
         if data.get("title_en"):
-            series.title_en = series.title_en or data.get("title_en")
+            series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
 
         existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
         new_aliases = list(series.aliases or [])
@@ -499,10 +507,14 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     # Create
     remote_poster = data.get("poster_url")
     local_url = await download_and_cache_poster(remote_poster)
-    title_cn = data.get("title_cn")
-    title_en = data.get("title_en") or data.get("original_title")
+    raw_cn = data.get("title_cn")
+    raw_en = data.get("title_en") or data.get("original_title")
+    title_cn = strip_season_from_title(raw_cn)
+    title_en = strip_season_from_title(raw_en)
     aliases: list[str] = []
-    for t in (title_cn, title_en, data.get("original_title")):
+    # Keep the original (season-suffixed) forms as aliases too, so resources
+    # whose title still carries the season can still match via the title index.
+    for t in (raw_cn, raw_en, data.get("original_title"), title_cn, title_en):
         if t and t not in aliases:
             aliases.append(t)
     series = TVSeries(

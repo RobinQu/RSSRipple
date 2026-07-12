@@ -12,6 +12,36 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Season suffixes baked into work titles by external sources (e.g. exa returns
+# "That Time I Got Reincarnated as a Slime Season 4" for a show). We strip them
+# so TVSeries stores the base show title and season lives on FileResource/Episode
+# (where it belongs). Suffix-only + conservative patterns so legitimate titles
+# like "Part II" or a trailing number aren't mangled; the season-suffixed form
+# is still kept in series.aliases for matching.
+_SEASON_SUFFIX_RE = re.compile(
+    r"\s*("
+    r"第[一二三四五六七八九十百零千两\d]+\s*[季期]"   # 第N季 / 第N期
+    r"|Season\s*\d+"                                    # Season 4
+    r"|\d+(?:st|nd|rd|th)\s+Season"                     # 4th Season
+    r"|S\d{1,2}"                                        # S04
+    r")\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def strip_season_from_title(title: str | None) -> str | None:
+    """Remove a trailing season suffix from a work title.
+
+    Returns the base title (e.g. "关于我转生变成史莱姆这档事 第四季" ->
+    "关于我转生变成史莱姆这档事"). If nothing matches, returns the title
+    unchanged. Never returns empty - falls back to the original.
+    """
+    if not title:
+        return title
+    stripped = _SEASON_SUFFIX_RE.sub("", title).strip(" -:：·")
+    return stripped or title
+
+
 def parse_entry(entry: dict, field_mapping: dict | None, description: str | None = None) -> dict:
     """Parse a feedparser entry into FileResource fields.
 
