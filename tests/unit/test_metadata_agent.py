@@ -500,6 +500,44 @@ async def test_process_short_circuit_skipped_on_force_refresh(db_session, sample
 
 
 # ---------------------------------------------------------------------------
+# S3: search-first + single-LLM-judge routing
+# ---------------------------------------------------------------------------
+
+
+async def test_process_routes_wikipedia_to_search_then_judge(db_session, sample_channel):
+    """S3: a wikipedia-source resource uses _run_search_then_judge, not _run_react."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+
+    sample_channel.metadata_source = "wikipedia"
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g1",
+        title_raw="[G] Some New Show - 01 [1080p]", title_cn="Some New Show",
+        torrent_url="magnet:?xt=urn:btih:s3route",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._get_cache = AsyncMock(return_value=None)
+    agent._find_known_work = AsyncMock(return_value=None)  # no S1 short-circuit
+    agent._run_search_then_judge = AsyncMock(return_value=(
+        {"found": True, "clean_title": "Some New Show", "content_type": "tv"},
+        {"method": "search_then_judge", "data_sources_used": ["wikipedia"],
+         "source_errors": {}, "error": None},
+    ))
+    agent._apply_to_resource = AsyncMock()
+    agent._set_cache = AsyncMock()
+    agent._run_react = AsyncMock()  # must NOT be called for wikipedia
+
+    await agent.process(resource, sample_channel, db_session)
+
+    agent._run_search_then_judge.assert_called_once()
+    agent._run_react.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Source-scoped cache key + upsert
 # ---------------------------------------------------------------------------
 

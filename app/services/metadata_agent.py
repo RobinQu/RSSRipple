@@ -1109,6 +1109,126 @@ def _normalize_title(s: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# S3: search-first + single-LLM-judge path (wikipedia)
+#
+# ReAct spends ~4-5 LLM calls per resource (think -> search -> think -> ... ->
+# finalize). This path pre-computes the candidate wikipedia queries, runs them
+# in parallel (no LLM), then makes ONE LLM call to judge the evidence and emit
+# the finalize JSON. _run_react remains the fallback for other sources and for
+# any judge call that fails or yields unparseable JSON.
+# ---------------------------------------------------------------------------
+
+
+def _clean_query(part: str) -> str:
+    """Strip trailing episode/quality markers from a title fragment."""
+    part = re.sub(r"\s*-\s*\d+.*$", "", part)
+    part = re.sub(r"\s*\d{3,4}p.*$", "", part, flags=re.IGNORECASE)
+    return part.strip(" -/|:")
+
+
+def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tuple[str, str]]:
+    """Up to 4 (query, lang) wikipedia searches for the judge path.
+
+    Prefers pre-parser hints (title_cn -> zh, title_en -> en) when a resource
+    is available, then derives more from the raw title (split on " / ", drop
+    [subtitle groups], pick lang by CJK vs Latin). Dedupes.
+    """
+    queries: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(q: str | None, lang: str) -> None:
+        q = _clean_query(q or "")
+        if not q:
+            return
+        key = (q.lower(), lang)
+        if key in seen:
+            return
+        seen.add(key)
+        queries.append((q, lang))
+
+    if resource is not None:
+        if getattr(resource, "title_cn", None):
+            add(resource.title_cn, "zh")
+        if getattr(resource, "title_en", None):
+            add(resource.title_en, "en")
+
+    cleaned = re.sub(r"\[[^\]]*\]", "", raw_title)  # drop [subtitle groups]
+    cleaned = re.sub(r"【[^】]*】", "", cleaned)
+    for part in re.split(r"\s*/\s*", cleaned):
+        part = part.strip()
+        if not part:
+            continue
+        lang = "zh" if re.search(r"[一-鿿぀-ヿ]", part) else "en"
+        add(part, lang)
+
+    return queries[:4]
+
+
+def _parse_finalize_json(text: str) -> dict | None:
+    """Extract the finalize JSON object from an LLM text response."""
+    if not text:
+        return None
+    fence = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL)
+    candidate = fence.group(1) if fence else text
+    start = candidate.find("{")
+    end = candidate.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        obj = json.loads(candidate[start:end + 1])
+        return obj if isinstance(obj, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+_JUDGE_SYSTEM_PROMPT = """You are a metadata judge for anime/TV/movie RSS entries.
+
+You are given an RSS entry title (plus optional pre-parsed hints) and a set of
+Wikipedia search results already gathered for you. Pick the SINGLE best-matching
+work (TV series or movie), or confirm no match, and return ONLY a JSON object
+matching this schema:
+
+{
+  "found": true|false,
+  "clean_title": "string",
+  "content_type": "tv"|"movie",
+  "inferred_episode": int|null,
+  "inferred_season": int|null,
+  "is_batch": true|false,
+  "inferred_episode_start": int|null,
+  "inferred_episode_end": int|null,
+  "title_cn": "string|null",
+  "title_en": "string|null",
+  "subtitle_group": "string|null",
+  "resolution": "string|null",
+  "matched_entity": {
+    "external_id": "wikipedia:<page_id>",
+    "external_source": "wikipedia",
+    "title_cn": "...", "title_en": "...", "original_title": "...",
+    "description": "...", "wikipedia_url": "...", "canonical_name": "..."
+  } | null,
+  "ambiguous": true|false,
+  "confidence": 0.0-1.0,
+  "reason": "explanation"
+}
+
+Rules:
+- Pick the candidate whose Wikipedia page is clearly the work named in the
+  title. Use BOTH the summary AND the categories to confirm it is a TV series
+  or film (e.g. categories containing "television series"/"anime"/"TV series"
+  => content_type "tv"; "films"/"movie" => "movie") - not a disambiguation
+  page, person, or single episode.
+- content_type "tv" for series/anime, "movie" for films.
+- external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
+  page_id; external_source "wikipedia"; include wikipedia_url.
+- Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
+- If no candidate clearly matches, found=false with a reason. Set
+  ambiguous=true if two candidates are equally plausible.
+- Output ONLY the JSON object, no prose.
+"""
+
+
+# ---------------------------------------------------------------------------
 # Main agent class
 # ---------------------------------------------------------------------------
 
@@ -1383,8 +1503,14 @@ class UnifiedMetadataAgent:
             )
         message = self._build_production_message(resource, channel, data_source_type)
 
-        # 2. Run ReAct
-        finalize_dict, search_info = await self._run_react(message, data_source_type)
+        # 2. Run metadata: search-first + single-LLM-judge for wikipedia (S3,
+        # 1 LLM call + parallel searches); ReAct for other sources.
+        if normalize_metadata_source_type(data_source_type) == "wikipedia":
+            finalize_dict, search_info = await self._run_search_then_judge(
+                raw_title, data_source_type, resource=resource
+            )
+        else:
+            finalize_dict, search_info = await self._run_react(message, data_source_type)
         finalize_dict["search_method"] = search_info.get("method")
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
@@ -1431,7 +1557,11 @@ class UnifiedMetadataAgent:
         source = normalize_metadata_source_type(data_source_type)
         logger.info("[metadata_agent] process_title_only source=%s title=%r", source, raw_title[:200])
         message = self._build_title_only_message(raw_title, source)
-        finalize_dict, search_info = await self._run_react(message, source)
+        # S3: search-first + single-LLM-judge for wikipedia; ReAct otherwise.
+        if source == "wikipedia":
+            finalize_dict, search_info = await self._run_search_then_judge(raw_title, source)
+        else:
+            finalize_dict, search_info = await self._run_react(message, source)
         finalize_dict["search_method"] = search_info.get("method")
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
@@ -1540,6 +1670,155 @@ class UnifiedMetadataAgent:
             self._extract_finalize_result(messages),
             self._extract_search_info(messages),
         )
+
+    async def _run_search_then_judge(
+        self,
+        raw_title: str,
+        data_source_type: str | None = None,
+        resource: Any | None = None,
+    ) -> tuple[dict, dict]:
+        """Search-first + single-LLM-judge path (S3) for the wikipedia source.
+
+        Runs candidate wikipedia searches in parallel (no LLM), then ONE LLM
+        call to judge the evidence and emit the finalize JSON - cutting the
+        ~4-5 LLM calls of ReAct to 1. Falls back to ``_run_react`` when there
+        is no usable query, the judge call fails, or its JSON is unparseable.
+        """
+        source = normalize_metadata_source_type(data_source_type)
+        queries = _candidate_queries(raw_title, resource)
+        if not queries:
+            return await self._run_react(
+                self._build_title_only_message(raw_title, source), source
+            )
+
+        raw_results = await asyncio.gather(
+            *(_execute_search_wikipedia(q, lang) for (q, lang) in queries),
+            return_exceptions=True,
+        )
+        source_errors: dict[str, str] = {}
+        # Collect top candidates (dedup by page_id) across variants.
+        seen_pids: set = set()
+        top: list[dict] = []
+        for (q, lang), res in zip(queries, raw_results):
+            if isinstance(res, Exception):
+                source_errors[f"wikipedia:{lang}"] = f"{type(res).__name__}: {res}"[:200]
+                continue
+            if not isinstance(res, dict) or not res.get("success"):
+                source_errors[f"wikipedia:{lang}"] = (
+                    res.get("error", "search failed")[:200]
+                    if isinstance(res, dict)
+                    else "no result"
+                )
+                continue
+            for cand in res.get("data", [])[:2]:
+                pid = cand.get("page_id")
+                if pid and pid in seen_pids:
+                    continue
+                if pid:
+                    seen_pids.add(pid)
+                top.append({"query": q, "lang": lang, **cand})
+                if len(top) >= 4:
+                    break
+            if len(top) >= 4:
+                break
+
+        # Fetch full pages in parallel - categories are the strongest TV-vs-movie
+        # signal and the search summary alone is often too thin for the judge to
+        # confirm a match (this is what made ReAct's get_wikipedia_page step
+        # worth its extra turn).
+        page_results = await asyncio.gather(
+            *(_execute_get_wikipedia_page(c["title"], c["lang"]) for c in top),
+            return_exceptions=True,
+        )
+        evidence: list[dict] = []
+        for cand, pres in zip(top, page_results):
+            entry = dict(cand)
+            if isinstance(pres, dict) and pres.get("data"):
+                d = pres["data"]
+                entry["categories"] = list(d.get("categories", [])[:10])
+                if d.get("summary"):
+                    entry["summary"] = d["summary"][:400]
+                if not entry.get("url") and d.get("url"):
+                    entry["url"] = d["url"]
+            elif isinstance(pres, Exception):
+                source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
+            evidence.append(entry)
+
+        evidence_text = (
+            "\n".join(
+                f"[{i}] title={e.get('title')} page_id={e.get('page_id')} "
+                f"url={e.get('url')} lang={e.get('lang')}\n    "
+                f"categories={e.get('categories', [])[:6]}\n    "
+                f"summary={e.get('summary', '')[:280]}"
+                for i, e in enumerate(evidence[:6], 1)
+            )
+            or "(no wikipedia results found for any variant)"
+        )
+        hints = ""
+        if resource is not None:
+            hints = (
+                f"Pre-parsed hints: title_cn={getattr(resource, 'title_cn', None)!r} "
+                f"title_en={getattr(resource, 'title_en', None)!r} "
+                f"episode={getattr(resource, 'episode', None)} "
+                f"season={getattr(resource, 'season', None)}"
+            )
+
+        user_msg = (
+            f"RSS title: {raw_title}\n{hints}\n\n"
+            f"Wikipedia evidence:\n{evidence_text}\n\n"
+            f"Return the finalize JSON now."
+        )
+        try:
+            from langchain_core.messages import HumanMessage, SystemMessage
+
+            resp = await self._model.ainvoke(
+                [SystemMessage(content=_JUDGE_SYSTEM_PROMPT), HumanMessage(content=user_msg)]
+            )
+        except Exception as e:
+            logger.warning(
+                "[metadata_agent] judge call failed for %r: %s; falling back to ReAct",
+                raw_title[:80], e,
+            )
+            return await self._run_react(
+                self._build_title_only_message(raw_title, source), source
+            )
+        content = getattr(resp, "content", "") or ""
+        if isinstance(content, list):  # some models return structured content
+            content = "".join(getattr(c, "text", str(c)) for c in content)
+        finalize_dict = _parse_finalize_json(content)
+        if finalize_dict is None:
+            logger.warning(
+                "[metadata_agent] judge returned unparseable JSON for %r; falling back to ReAct",
+                raw_title[:80],
+            )
+            return await self._run_react(
+                self._build_title_only_message(raw_title, source), source
+            )
+        # The single-call judge (especially on a mini model) can be conservative
+        # and return found=False despite relevant evidence existing - a false
+        # negative ReAct's multi-turn reasoning would catch. When that happens,
+        # spend the extra ReAct run to verify; clear not-founds (no evidence at
+        # all) are accepted as-is. Found=True results keep the fast 1-call path.
+        if not finalize_dict.get("found") and evidence:
+            logger.info(
+                "[metadata_agent] judge found=False with %d candidates for %r; ReAct second opinion",
+                len(evidence), raw_title[:80],
+            )
+            return await self._run_react(
+                self._build_title_only_message(raw_title, source), source
+            )
+        finalize_dict.setdefault("clean_title", "")
+        finalize_dict.setdefault("content_type", "tv")
+        logger.info(
+            "[metadata_agent] judge done %r found=%s",
+            raw_title[:80], finalize_dict.get("found"),
+        )
+        return finalize_dict, {
+            "method": "search_then_judge",
+            "data_sources_used": ["wikipedia"],
+            "source_errors": source_errors,
+            "error": None,
+        }
 
     def _extract_finalize_result(self, messages: list) -> dict:
         """Extract the JSON payload from the finalize tool call."""
