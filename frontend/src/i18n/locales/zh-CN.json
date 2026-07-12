@@ -310,6 +310,8 @@
     "taskSpeed": "速度",
     "taskDir": "目录",
     "taskError": "错误",
+    "taskCreatedAt": "创建时间",
+    "taskUpdatedAt": "最后更新时间",
     "deleteTaskConfirm": "删除下载任务？",
     "deleteTaskWarning": "已下载的数据不会被删除（默认），勾选\"同时删除数据\"一并移除文件。",
     "channelLabel": "频道：",

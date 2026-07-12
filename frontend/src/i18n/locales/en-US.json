@@ -309,6 +309,8 @@
     "taskSpeed": "Speed",
     "taskDir": "Dir",
     "taskError": "Error",
+    "taskCreatedAt": "Created",
+    "taskUpdatedAt": "Updated",
     "deleteTaskConfirm": "Delete download task?",
     "deleteTaskWarning": "Downloaded data will not be deleted by default. Check \"Delete data\" to also remove files.",
     "channelLabel": "Channel: ",
