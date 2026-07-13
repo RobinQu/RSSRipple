@@ -33,11 +33,12 @@ async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
     from app.services.fetch_service import fetch_channel_resources
 
     channel_id: str = payload["channel_id"]
+    force: bool = bool(payload.get("force", False))
     async with committed_session() as session:
         ch = await session.get(Channel, channel_id)
         if not ch:
             raise RuntimeError(f"Channel {channel_id} not found")
-        result = await fetch_channel_resources(ch, session)
+        result = await fetch_channel_resources(ch, session, force=force)
         return result
 
 

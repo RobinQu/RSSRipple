@@ -193,7 +193,10 @@ export default function ChannelDetail() {
   const handleFetch = async () => {
     if (!id || isFetching) return;
     setFetchStatus('queued');
-    const r = await channelsApi.fetch(id);
+    // force=true: a manual fetch also re-runs the channel's unresolved
+    // (not_found/transient) resources, bypassing the retry cooldown, instead
+    // of only fetching new entries.
+    const r = await channelsApi.fetch(id, true);
     if (!r.success) {
       setFetchStatus(null);
       message.error(r.error?.message || t('channels.fetchTriggerFailed'));

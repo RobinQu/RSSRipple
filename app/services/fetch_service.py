@@ -206,14 +206,23 @@ async def _process_resource_metadata(
 
 
 async def _backfill_unmatched_resources(
-    channel: Channel, db: AsyncSession, semaphore: asyncio.Semaphore
+    channel: Channel,
+    db: AsyncSession,
+    semaphore: asyncio.Semaphore,
+    *,
+    force: bool = False,
 ) -> int:
-    """Re-run metadata for retry-eligible unmatched resources of a channel.
+    """Re-run metadata for unmatched resources of a channel.
 
-    Returns the number of resources re-processed. Bounded by
-    ``MAX_BACKFILL_PER_FETCH`` per fetch so the job stays predictable.
-    Runs concurrently under ``semaphore`` (shared with the new-resource phase
-    so one fetch cycle bounds total in-flight metadata work).
+    Returns the number of resources re-processed. By default bounded by
+    ``MAX_BACKFILL_PER_FETCH`` and gated by ``_is_retry_eligible`` (the
+    not_found/transient cooldowns) so automatic fetches don't hammer stale
+    failures. With ``force=True`` (manual fetch) the cooldown is bypassed -
+    every unmatched resource is reprocessed up to ``MAX_BACKFILL_SCAN`` - so
+    the user can retry unresolved items on demand instead of waiting out
+    ``NOT_FOUND_RETRY_DAYS``. Runs concurrently under ``semaphore`` (shared
+    with the new-resource phase so one fetch cycle bounds total in-flight
+    metadata work).
     """
     now = utcnow()
     result = await db.execute(
@@ -234,11 +243,12 @@ async def _backfill_unmatched_resources(
     # Decide eligibility from the snapshot loaded above, then process the
     # eligible set concurrently. Per-task sessions update each resource
     # independently; the next fetch re-queries fresh state.
+    cap = MAX_BACKFILL_SCAN if force else MAX_BACKFILL_PER_FETCH
     eligible_ids: list[str] = []
     for resource in candidates:
-        if len(eligible_ids) >= MAX_BACKFILL_PER_FETCH:
+        if len(eligible_ids) >= cap:
             break
-        if _is_retry_eligible(resource, now):
+        if force or _is_retry_eligible(resource, now):
             eligible_ids.append(resource.id)
 
     if eligible_ids:
@@ -306,11 +316,14 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
 
 
 
-async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
+async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: bool = False) -> dict:
     """Fetch RSS feed for a channel, parse entries, store new FileResources,
     link metadata, and enqueue agent runs for active agents.
 
     Returns dict with counts + list of new resource IDs.
+
+    ``force`` bypasses the not_found/transient cooldowns in the backfill phase
+    (so a manual fetch reprocesses unresolved items instead of skipping them).
     """
     channel.last_fetch_status = "running"
     channel.last_fetch_error = None
@@ -487,7 +500,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession) -> dict:
     # that later improves would never get a second chance.
     backfilled_count = 0
     try:
-        backfilled_count = await _backfill_unmatched_resources(channel, db, semaphore)
+        backfilled_count = await _backfill_unmatched_resources(channel, db, semaphore, force=force)
     except Exception as e:
         logger.warning("[fetch:%s] backfill phase failed: %s", channel.id, e)
 

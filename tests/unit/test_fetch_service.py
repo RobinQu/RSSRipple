@@ -717,6 +717,30 @@ async def test_backfill_runs_even_when_feed_fetch_fails(db_session, channel, fak
     assert all(r.metadata_attempts == 1 for r in rows)
 
 
+async def test_backfill_force_bypasses_cooldown(db_session, channel, fake_queue):
+    """force=True (manual fetch) bypasses the not_found cooldown; force=False
+    (automatic) respects it."""
+    import asyncio
+    from datetime import timedelta
+
+    from app.utils.time import utcnow
+
+    # not_found, attempted 1h ago - well within the 7-day cooldown.
+    db_session.add(FileResource(
+        id=_uuid(), channel_id=channel.id, guid="nf",
+        title_raw="[G] Show - 01 [1080p]", torrent_url="magnet:?xt=urn:btih:nf",
+        metadata_attempts=1, metadata_failure_type="not_found",
+        last_metadata_attempt_at=utcnow() - timedelta(hours=1),
+    ))
+    await db_session.commit()
+
+    sem = asyncio.Semaphore(4)
+    # Automatic: in cooldown -> not eligible -> 0 processed.
+    assert await fs._backfill_unmatched_resources(channel, db_session, sem, force=False) == 0
+    # Manual (force): bypasses cooldown -> 1 processed.
+    assert await fs._backfill_unmatched_resources(channel, db_session, sem, force=True) == 1
+
+
 # ---------------------------------------------------------------------------
 # Standalone global metadata backfill (scheduler-driven, cross-channel)
 # ---------------------------------------------------------------------------

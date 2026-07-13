@@ -267,12 +267,12 @@ async def delete_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/channels/{channel_id}/fetch")
-async def fetch_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
+async def fetch_channel(channel_id: str, force: bool = False, db: AsyncSession = Depends(get_db)):
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
     from app.services.task_queue import task_queue
-    job = await task_queue.enqueue("fetch_channel", f"channel:{channel_id}", {"channel_id": channel_id})
+    job = await task_queue.enqueue("fetch_channel", f"channel:{channel_id}", {"channel_id": channel_id, "force": force})
     if job is None:
         existing = await task_queue.status(f"channel:{channel_id}")
         return _already_running(existing)
