@@ -83,7 +83,7 @@ export const channelsApi = {
     api.put<Channel>(`/channels/${id}`, data, formToken ? { 'X-Form-Token': formToken } : undefined),
   delete: (id: string) => api.delete<null>(`/channels/${id}`),
   fetch: (id: string, force = false) =>
-    api.post<{ task_id: string }>(`/channels/${id}/fetch`, { force }),
+    api.post<{ task_id: string }>(`/channels/${id}/fetch?force=${force}`),
   fetchStatus: (id: string) =>
     api.get<{ status: string; message?: string; progress?: number }>(
       `/channels/${id}/fetch-status`,
