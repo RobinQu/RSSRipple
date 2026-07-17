@@ -236,6 +236,47 @@ def test_detect_batch(title, expected):
     assert detect_batch(title) == expected
 
 
+# =============================================================================
+# extract_compilation_work_title - [整理搬运] archive torrents
+# =============================================================================
+
+
+from app.services.resource_parser import extract_compilation_work_title  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        # Primary work name before ／ (full-width slash) and ：description
+        (
+            "[整理搬运] 猫眼三姐妹／猫之眼 (キャッツ・アイ) (Kyattsu Ai／Cat's Eye)：TV动画 (1983年版、1984年版)+剧场版+漫画+CD",
+            "猫眼三姐妹",
+        ),
+        # Work name before a half-width parenthetical alt title
+        (
+            "[整理搬运] 幸运星 (らき☆すた) (Lucky Star)：TV动画+OVA篇+漫画+音乐+其他",
+            "幸运星",
+        ),
+        ("[整理搬运] 犬夜叉 (Inuyasha)：TV动画+剧场版+OVA篇", "犬夜叉"),
+        # 【】tag form
+        ("【整理搬运】新世纪福音战士 (EVANGELION)：TV动画+剧场版", "新世纪福音战士"),
+        # Not a compilation -> None
+        ("[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 03 [1080p]", None),
+        ("[G] Show - 01 [1080p]", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_extract_compilation_work_title(title, expected):
+    assert extract_compilation_work_title(title) == expected
+
+
+def test_detect_batch_flags_compilation_tag():
+    # [整理搬运] archive torrents are flagged as batches (no explicit range).
+    assert detect_batch("[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版") == (True, None, None)
+    assert detect_batch("【打包】某作品 全集") == (True, None, None)
+
+
 def test_detect_batch_ignores_resolution_pairs():
     """1920x1080 must not be mistaken for a batch range."""
     result = detect_batch("[Group] Show - 05 (1920x1080 HEVC AAC)")

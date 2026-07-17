@@ -527,7 +527,7 @@ async def _execute_search_wikipedia(query: str, lang: str = "en") -> dict:
     wiki = _wikipedia_client(wiki_lang)
 
     try:
-        results = await _wiki_call(wiki.search, query, limit=5)
+        results = await _wiki_call(wiki.search, query, limit=8)
     except _WikipediaRequestError as e:
         logger.warning(
             "[metadata_agent] search_wikipedia failed for query=%r lang=%s: %s",
@@ -1120,19 +1120,95 @@ def _normalize_title(s: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
+# Episode/season/quality markers stripped from a Wikipedia search fragment so
+# the query targets the work name, not a specific release. Applied to the
+# per-fragment query, not to stored data, so aggressive is fine.
+_QUERY_EPISODE_TAIL_RE = re.compile(r"\s*[-－]\s*\d+.*$")
+_QUERY_QUALITY_TAIL_RE = re.compile(
+    r"\s+(?:\d{3,4}p|4K|2160P?|1080[IP]?|720P?|HEVC|AVC|x26[45]|H\.?26[45]|"
+    r"AAC|FLAC|MP[34]|WEB[- ]?DL|WebRip|BDRip|BluRay|10bit|8bit|GB|BIG5|CHS|CHT)\b.*$",
+    flags=re.IGNORECASE,
+)
+_QUERY_EPISODE_MARKER_RE = re.compile(
+    r"\s*[\[【]\s*\d{1,3}\s*(?:v\d+)?\s*[\]】]"   # [01] / [01v2]
+    r"|\s*第\s*\d{1,3}\s*[话話集]"
+    r"|\s*EP\s*\d{1,3}\b"
+    r"|\s*[#＃]\s*\d{1,3}\b",
+    flags=re.IGNORECASE,
+)
+_QUERY_DECORATIVE_TAIL_RE = re.compile(r"\s*[～~][^～~]*[～~]\s*$")
+# First-occurrence season/episode marker; the prefix before it is the base
+# work name (e.g. "无职转生 3期" -> "无职转生", "Mushoku Tensei S3 - 03" ->
+# "Mushoku Tensei", "樱桃小丸子第二期 1538 ..." -> "樱桃小丸子").
+_QUERY_SEASON_EP_SPLIT_RE = re.compile(
+    r"\s*[-－]\s*\d"
+    r"|\s+S\d{1,2}\b"
+    r"|第[一二三四五六七八九十百零千两\d]+\s*[季期话話集]"
+    r"|\d{1,2}\s*[季期]"
+    r"|Season\s*\d+"
+    r"|\s*[\[【]\s*\d"
+    r"|\sEP\s*\d"
+    r"|\s[#＃]\s*\d",
+    flags=re.IGNORECASE,
+)
+_KANA_RE = re.compile(r"[぀-ヿ]")
+_CJK_RE = re.compile(r"[一-鿿぀-ヿ]")
+# Bracket pair with content captured (both [] and 【】).
+_BRACKET_PAIR_CAPTURE_RE = re.compile(r"[\[【]([^\]】]*)[\]】]")
+# Hint that a bracket's content is release metadata (resolution / codec /
+# subtitle lang / etc.) rather than a work-name fragment. Matched as a
+# substring so "[简繁日内封字幕]" and "[AVC 8bit]" both drop, while
+# "[樱桃小丸子第二期(Chibi Maruko-chan II)]" stays.
+_BRACKET_METADATA_HINT_RE = re.compile(
+    r"\d{3,4}p|4K|2160|1080|720|HEVC|AVC|x26[45]|H\.?26[45]|AAC|FLAC|MP[34]|"
+    r"WEB[- ]?DL|WebRip|BDRip|BluRay|BD-?BOX|BIG5|CHS|CHT|"
+    r"简体|繁体|简繁|简日|繁日|简中|繁中|内封|内嵌|内挂|外挂|双语|字幕|"
+    r"Fin|Complete|Batch|合集|全集|招募|翻译|\bGB\b",
+    flags=re.IGNORECASE,
+)
+_BRACKET_PURE_DIGIT_RE = re.compile(r"^\d{1,4}(?:v\d+)?$")
+_BRACKET_DATE_RE = re.compile(r"^\d{4}[.\-/]\d{1,2}")
+# Alt-title separator: half-width " / " or full-width "／".
+_ALT_TITLE_SPLIT_RE = re.compile(r"\s*[／/]\s*")
+
+
 def _clean_query(part: str) -> str:
-    """Strip trailing episode/quality markers from a title fragment."""
-    part = re.sub(r"\s*-\s*\d+.*$", "", part)
-    part = re.sub(r"\s*\d{3,4}p.*$", "", part, flags=re.IGNORECASE)
-    return part.strip(" -/|:")
+    """Strip episode/quality/season markers from a title fragment so the
+    Wikipedia search query targets the work name, not a specific release."""
+    if not part:
+        return ""
+    part = _BRACKET_PAIR_CAPTURE_RE.sub(" ", part)  # drop [metadata] / 【metadata】
+    part = _QUERY_EPISODE_TAIL_RE.sub("", part)
+    part = _QUERY_QUALITY_TAIL_RE.sub("", part)
+    part = _QUERY_EPISODE_MARKER_RE.sub("", part)
+    part = _QUERY_DECORATIVE_TAIL_RE.sub("", part)
+    part = strip_season_from_title(part)
+    return part.strip(" -/|:：·～~")
+
+
+def _work_name_prefix(part: str) -> str:
+    """Return the work-name prefix before the first season/episode marker.
+
+    ``"无职转生 3期"`` -> ``"无职转生"``; ``"Mushoku Tensei S3 - 03"`` ->
+    ``"Mushoku Tensei"``. Returns empty when the marker starts the fragment
+    (nothing useful before it). Caller already ran :func:`_clean_query`.
+    """
+    m = _QUERY_SEASON_EP_SPLIT_RE.search(part)
+    if not m:
+        return ""
+    return part[: m.start()].strip(" -/|:：·～~")
 
 
 def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tuple[str, str]]:
-    """Up to 4 (query, lang) wikipedia searches for the judge path.
+    """Up to 6 (query, lang) wikipedia searches for the judge path.
 
-    Prefers pre-parser hints (title_cn -> zh, title_en -> en) when a resource
-    is available, then derives more from the raw title (split on " / ", drop
-    [subtitle groups], pick lang by CJK vs Latin). Dedupes.
+    Prefers pre-parser hints (search_title / title_cn -> zh, title_en -> en)
+    when a resource is available, then derives more from the raw title (drop
+    [subtitle groups], split on " / "). For each fragment it emits BOTH the
+    cleaned form AND the season-stripped work-name prefix, so a noisy
+    "无职转生 3期" still queries the base "无职转生". CJK fragments search
+    Chinese Wikipedia, and Japanese Wikipedia too when the fragment carries
+    kana (the canonical anime page usually lives on ja). Dedupes.
     """
     queries: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -1147,23 +1223,59 @@ def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tupl
         seen.add(key)
         queries.append((q, lang))
 
-    if resource is not None:
-        if getattr(resource, "title_cn", None):
-            add(resource.title_cn, "zh")
-        if getattr(resource, "title_en", None):
-            add(resource.title_en, "en")
+    def add_variants(part: str, lang: str) -> None:
+        cleaned = _clean_query(part)
+        if not cleaned:
+            return
+        add(cleaned, lang)
+        prefix = _work_name_prefix(cleaned)
+        if prefix and prefix.lower() != cleaned.lower():
+            add(prefix, lang)
 
-    cleaned = re.sub(r"\[[^\]]*\]", "", raw_title)  # drop [subtitle groups]
-    cleaned = re.sub(r"【[^】]*】", "", cleaned)
-    for part in re.split(r"\s*/\s*", cleaned):
-        part = part.strip()
+    if resource is not None:
+        st = getattr(resource, "search_title", None)
+        if st:
+            add_variants(st, "zh" if _CJK_RE.search(st) else "en")
+        if getattr(resource, "title_cn", None):
+            add_variants(resource.title_cn, "zh")
+        if getattr(resource, "title_en", None):
+            add_variants(resource.title_en, "en")
+
+    # Build candidate fragments from the raw title. Brackets usually hold
+    # release metadata ([1080p], [01], [CHS], ...), so their content is dropped
+    # - UNLESS a bracket's content looks like a work name (no metadata hint,
+    # not a pure episode number / date), in which case it's kept as an extra
+    # fragment. This recovers the work name on multi-bracket titles like
+    # "[SweetSub][小書痴...][S04][13]" where dropping every bracket would
+    # leave nothing to search.
+    bracket_parts: list[str] = []
+
+    def _strip_brackets(m: re.Match) -> str:
+        content = m.group(1).strip()
+        if (
+            content
+            and not _BRACKET_METADATA_HINT_RE.search(content)
+            and not _BRACKET_PURE_DIGIT_RE.match(content)
+            and not _BRACKET_DATE_RE.match(content)
+        ):
+            bracket_parts.append(content)
+        return " "
+
+    outside = _BRACKET_PAIR_CAPTURE_RE.sub(_strip_brackets, raw_title)
+    fragments = [p.strip() for p in _ALT_TITLE_SPLIT_RE.split(outside) if p.strip()]
+    fragments.extend(bracket_parts)
+
+    for part in fragments:
         if not part:
             continue
-        lang = "zh" if re.search(r"[一-鿿぀-ヿ]", part) else "en"
-        add(part, lang)
+        if _CJK_RE.search(part):
+            add_variants(part, "zh")
+            if _KANA_RE.search(part):
+                add_variants(part, "ja")
+        else:
+            add_variants(part, "en")
 
-    return queries[:4]
-
+    return queries[:6]
 
 def _parse_finalize_json(text: str) -> dict | None:
     """Extract the finalize JSON object from an LLM text response."""
@@ -1411,6 +1523,7 @@ class UnifiedMetadataAgent:
         for key in (
             getattr(resource, "title_cn", None),
             getattr(resource, "title_en", None),
+            getattr(resource, "search_title", None),
         ):
             # Strip season from the resource title too, so "X 第四季" matches a
             # base-titled series "X" (the index keys are also season-stripped).
@@ -1721,16 +1834,16 @@ class UnifiedMetadataAgent:
                     else "no result"
                 )
                 continue
-            for cand in res.get("data", [])[:2]:
+            for cand in res.get("data", [])[:3]:
                 pid = cand.get("page_id")
                 if pid and pid in seen_pids:
                     continue
                 if pid:
                     seen_pids.add(pid)
                 top.append({"query": q, "lang": lang, **cand})
-                if len(top) >= 4:
+                if len(top) >= 6:
                     break
-            if len(top) >= 4:
+            if len(top) >= 6:
                 break
 
         # Fetch full pages in parallel - categories are the strongest TV-vs-movie

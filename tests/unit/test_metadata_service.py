@@ -75,6 +75,37 @@ def test_extract_search_title_falls_back_to_parser():
     assert "黄泉使者" in title
 
 
+def test_extract_search_title_strips_alt_title_and_season():
+    # " / " alt-title split (keep Chinese primary) + bare "3期" season strip.
+    r = SimpleNamespace(
+        title_cn=None, title_en=None,
+        title_raw="[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 03 [WebRip 1080p]",
+    )
+    assert ms.extract_search_title(r) == "无职转生"
+
+
+def test_extract_search_title_strips_full_width_group_bracket():
+    r = SimpleNamespace(
+        title_cn=None, title_en=None,
+        title_raw="【字幕组】 作品名 / English Title - 01 [1080p]",
+    )
+    assert ms.extract_search_title(r) == "作品名"
+
+
+def test_extract_search_title_strips_trailing_quality_bracket():
+    r = SimpleNamespace(
+        title_cn=None, title_en=None,
+        title_raw="[G] Movie 2024 [2160p]",
+    )
+    assert ms.extract_search_title(r) == "Movie 2024"
+
+
+def test_extract_search_title_strips_season_from_parsed_title():
+    # The title_cn path also strips a trailing season suffix.
+    r = SimpleNamespace(title_cn="某剧 第三季", title_en=None, title_raw="raw")
+    assert ms.extract_search_title(r) == "某剧"
+
+
 # ---------------------------------------------------------------------------
 # Layer 2: ChannelRawTitleMapping
 # ---------------------------------------------------------------------------

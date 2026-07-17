@@ -437,6 +437,73 @@ async def test_process_caches_definitive_not_found():
 
 
 # ---------------------------------------------------------------------------
+# S3: Wikipedia candidate queries (recall-oriented query generation)
+# ---------------------------------------------------------------------------
+
+from app.services.metadata_agent import (  # noqa: E402
+    _candidate_queries,
+    _clean_query,
+    _work_name_prefix,
+)
+
+
+def test_clean_query_strips_season_episode_quality():
+    assert _clean_query("无职转生 3期") == "无职转生"
+    assert _clean_query("Mushoku Tensei S3 - 03") == "Mushoku Tensei"
+    assert _clean_query("Show [01] [1080p HEVC]") == "Show"
+    assert _clean_query("Movie 2024") == "Movie 2024"
+
+
+def test_work_name_prefix_splits_at_first_season_marker():
+    assert _work_name_prefix("无职转生 3期") == "无职转生"
+    assert _work_name_prefix("Mushoku Tensei S3 - 03") == "Mushoku Tensei"
+    assert _work_name_prefix("樱桃小丸子第二期 1538 详情") == "樱桃小丸子"
+    # No marker -> no prefix variant.
+    assert _work_name_prefix("黄泉使者") == ""
+
+
+def test_candidate_queries_emits_season_stripped_variants():
+    r = SimpleNamespace(title_cn=None, title_en=None, search_title=None)
+    qs = _candidate_queries(
+        "[LoliHouse] 无职转生 3期 / Mushoku Tensei S3 - 03 [WebRip 1080p]", r
+    )
+    assert ("无职转生", "zh") in qs
+    assert ("Mushoku Tensei", "en") in qs
+
+
+def test_candidate_queries_recovers_bracketed_work_name():
+    # All-bracket title: dropping every bracket would leave nothing. The
+    # work-name bracket content must be recovered as a query.
+    r = SimpleNamespace(title_cn=None, title_en=None, search_title=None)
+    qs = _candidate_queries(
+        "[SweetSub][小書痴的下剋上 領主的養女][Honzuki no Gekokujou S04][13][WebRip][1080P]",
+        r,
+    )
+    assert any("小書痴" in q for q, _ in qs)
+    assert any("Honzuki no Gekokujou" in q for q, _ in qs)
+
+
+def test_candidate_queries_splits_full_width_slash():
+    r = SimpleNamespace(title_cn=None, title_en=None, search_title=None)
+    qs = _candidate_queries("[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版", r)
+    assert ("猫眼三姐妹", "zh") in qs
+
+
+def test_candidate_queries_uses_search_title_hint():
+    r = SimpleNamespace(title_cn=None, title_en=None, search_title="猫眼三姐妹")
+    qs = _candidate_queries("[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版", r)
+    assert ("猫眼三姐妹", "zh") in qs
+
+
+def test_candidate_queries_adds_ja_for_kana_fragments():
+    r = SimpleNamespace(title_cn=None, title_en=None, search_title=None)
+    qs = _candidate_queries("魔法少女まどか☆マギカ / Madoka Magica - 01 [1080p]", r)
+    # CJK+kana fragment should produce a ja query in addition to zh.
+    langs = {lang for _, lang in qs}
+    assert "ja" in langs
+
+
+# ---------------------------------------------------------------------------
 # S1: work-level short-circuit (no LLM when title matches a known work)
 # ---------------------------------------------------------------------------
 

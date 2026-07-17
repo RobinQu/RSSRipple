@@ -16,7 +16,7 @@ from app.clients.rss_parser import (
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.services.metadata_service import fetch_and_link_metadata
-from app.services.resource_parser import parse_entry
+from app.services.resource_parser import parse_entry, strip_season_from_title
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -56,12 +56,20 @@ MAX_METADATA_CONCURRENCY = 4
 
 
 def _simple_title_clean(raw: str) -> str | None:
-    """Minimal title cleanup: strip leading bracket group and episode tail."""
+    """Minimal title cleanup used as the search_title fallback when the
+    metadata agent fails.
+
+    Strips the leading [subtitle group], takes the segment before a `` / ``
+    alt-title separator (the primary work name), drops the episode tail, and
+    strips a trailing season suffix so the work title matches its base form.
+    """
     if not raw:
         return None
     import re
     cleaned = re.sub(r"^\[[^\]]*\]\s*", "", raw)
+    cleaned = re.split(r"\s*/\s*", cleaned, maxsplit=1)[0]
     cleaned = re.sub(r"\s*-\s*\d+\b.*$", "", cleaned)
+    cleaned = strip_season_from_title(cleaned)
     return cleaned.strip() or raw.strip()
 
 # Columns that are set explicitly in the FileResource(...) constructor.
@@ -429,6 +437,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             detect_absolute_episode,
             detect_batch,
             detect_subtitle_langs,
+            extract_compilation_work_title,
         )
         pre_is_batch, pre_start, pre_end = detect_batch(title)
         if pre_is_batch:
@@ -437,6 +446,15 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
                 resource.episode_start = pre_start
             if pre_end is not None:
                 resource.episode_end = pre_end
+        # Compilation/archive torrents ("[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版...")
+        # bundle an entire work. Extract the primary work name as the search
+        # title so the resource can link to that work (via the title index or
+        # local FTS) and flag it as a batch, without needing the LLM to parse
+        # the long descriptive blob.
+        compilation_work = extract_compilation_work_title(title)
+        if compilation_work:
+            resource.is_batch = True
+            resource.search_title = compilation_work
         # Subtitle language pre-fill. Store an empty list (rather than None)
         # once parsed, so downstream code can distinguish "never parsed" from
         # "no explicit marking".

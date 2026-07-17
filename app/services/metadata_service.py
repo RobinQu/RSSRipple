@@ -124,33 +124,71 @@ def canonicalize_external_id(
 # Title extraction helpers
 # ---------------------------------------------------------------------------
 
-_LEADING_BRACKET_RE = re.compile(r"^\[[^\]]*\]\s*")
 _EPISODE_TAIL_RE = re.compile(r"\s*-\s*\d+\b.*$")
 _SEASON_EPISODE_RE = re.compile(r"\s+S\d+E\d+\b.*$", re.IGNORECASE)
-_TRAILING_BRACKET_RE = re.compile(r"\s*\[[^\]]*\]\s*$")
+# Leading subtitle-group bracket pair: [Group] or 【Group】. Only ONE pair is
+# stripped so a bracketed work name in a multi-bracket title (e.g.
+# "[SweetSub][小書痴...][S04]") is preserved for the LLM agent / candidate
+# queries to handle - dropping all brackets would delete it.
+_LEADING_BRACKET_PAIR_RE = re.compile(r"^[\[【][^\]】]*[\]】]\s*")
+# Loose S0N season token and a trailing standalone episode number, e.g.
+# "Show S04 13" -> "Show".
+_STRAY_SEASON_TOKEN_RE = re.compile(r"\s+S\d{1,2}\b", flags=re.IGNORECASE)
+_TRAILING_EPISODE_NUM_RE = re.compile(r"\s+\d{1,3}\s*$")
+# A single trailing bracket pair (quality/codec tag like "[1080p]"). Only one
+# pass so an all-bracket title ("[Work][meta][meta]") keeps its content.
+_TRAILING_BRACKET_PAIR_RE = re.compile(r"\s*[\[【][^\]】]*[\]】]\s*$")
+
+
+def _finalize_search_title(s: str) -> str:
+    """Final cleanup for an extracted search title.
+
+    Strips a trailing season suffix (第三季 / S04 / Season 4 / 3期) so the work
+    title matches its base-form entry in the local DB / title index, then trims
+    decorative separators. ``strip_season_from_title`` already falls back to
+    the input when stripping would empty it.
+    """
+    return strip_season_from_title(s).strip(" -:：·|/")
 
 
 def extract_search_title(resource: Any) -> str:
     """Extract a base searchable title from a FileResource (sync, no LLM).
 
     Priority:
-    1. ``title_cn`` or ``title_en`` (already parsed by field_mapping)
-    2. ``parse_title(title_raw)`` — strips subtitle group, episode, quality
-    3. Simple regex cleanup of ``title_raw`` as a last resort
+    1. ``title_cn`` or ``title_en`` (already parsed by field_mapping), with a
+       trailing season suffix stripped so it matches the base work title.
+    2. ``title_raw`` cleaned: drop the leading [subtitle group] bracket, take
+       the segment before a `` / `` alt-title separator, strip the episode
+       tail / SxxExx / stray season token / trailing episode number, then
+       strip a trailing season suffix.
+    3. Simple regex cleanup of ``title_raw`` as a last resort.
+
+    Conservative by design: many fansub titles bury the work name inside
+    bracket pairs (``[Group][Work][S04][13]``) where no regex can reliably
+    separate it from release metadata. Those are resolved by the LLM agent
+    (which sets a clean title on success) and the Wikipedia candidate-query
+    builder; this function only needs to be "good enough" for local FTS
+    matching and as a fallback when the agent is disabled or fails.
     """
     title = resource.title_cn or resource.title_en
     if title and title.strip():
-        return title.strip()
+        return _finalize_search_title(title.strip())
 
     raw = getattr(resource, "title_raw", None) or ""
     if not raw.strip():
         return raw
 
-    cleaned = _LEADING_BRACKET_RE.sub("", raw)
+    cleaned = _LEADING_BRACKET_PAIR_RE.sub("", raw)
+    # Multi-language alt titles are separated by " / "; keep only the first
+    # segment as the primary work name. Per-language variants for Wikipedia
+    # search are derived separately by the candidate-query builder.
+    cleaned = re.split(r"\s*/\s*", cleaned, maxsplit=1)[0]
     cleaned = _EPISODE_TAIL_RE.sub("", cleaned)
     cleaned = _SEASON_EPISODE_RE.sub("", cleaned)
-    cleaned = _TRAILING_BRACKET_RE.sub("", cleaned)
-    cleaned = cleaned.strip()
+    cleaned = _STRAY_SEASON_TOKEN_RE.sub("", cleaned)
+    cleaned = _TRAILING_EPISODE_NUM_RE.sub("", cleaned)
+    cleaned = _TRAILING_BRACKET_PAIR_RE.sub("", cleaned)
+    cleaned = _finalize_search_title(cleaned)
     return cleaned or raw.strip()
 
 

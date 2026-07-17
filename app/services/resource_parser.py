@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 _SEASON_SUFFIX_RE = re.compile(
     r"\s*("
     r"第[一二三四五六七八九十百零千两\d]+\s*[季期]"   # 第N季 / 第N期
+    r"|\d{1,2}\s*[季期]"                             # bare N季/N期 (e.g. 3期, 2季)
     r"|Season\s*\d+"                                    # Season 4
     r"|\d+(?:st|nd|rd|th)\s+Season"                     # 4th Season
     r"|S\d{1,2}"                                        # S04
@@ -211,9 +212,39 @@ _BATCH_PATTERNS: list[tuple[re.Pattern[str], int, int]] = [
 
 _BATCH_KEYWORD_RE = re.compile(
     r"(?:Season\s*Pack|Full\s*Season|Batch|BD-?BOX|BDBOX|BD\s*Rip\s*Box|"
-    r"全集|全季|合集|完整|完结|Complete\s*Series)",
+    r"全集|全季|合集|完整|完结|Complete\s*Series|"
+    r"整理搬运|合集整理|资源整合|全集整理|打包)",
     re.IGNORECASE,
 )
+
+
+# Leading tag marking a compilation/archive torrent that bundles an entire
+# work (TV + movies + CDs + manga, e.g. "[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版...").
+# Such torrents should link to the primary work and be flagged as a batch.
+_COMPILATION_TAG_RE = re.compile(
+    r"^[\[【]\s*(?:整理搬运|合集整理|资源整合|全集整理|打包整理|整理|搬运|打包)\s*[\]】]\s*"
+)
+# Delimiters that separate the primary work name from alt titles / description
+# in a compilation title: full/half-width slash, colon, opening paren/bracket.
+_COMPILATION_DELIM_RE = re.compile(r"[／/：:（(【\[]|\s{2,}")
+
+
+def extract_compilation_work_title(raw: str | None) -> str | None:
+    """Extract the primary work name from a compilation/archive title.
+
+    ``"[整理搬运] 猫眼三姐妹／猫之眼 (キャッツ・アイ)：TV动画+剧场版+漫画+CD..."``
+    -> ``"猫眼三姐妹"``. The torrent bundles an entire work, so the resource
+    should link to that work and be flagged ``is_batch``. Returns ``None`` when
+    ``raw`` is not a compilation title (no leading tag).
+    """
+    if not raw:
+        return None
+    m = _COMPILATION_TAG_RE.match(raw)
+    if not m:
+        return None
+    rest = raw[m.end():]
+    work = _COMPILATION_DELIM_RE.split(rest, maxsplit=1)[0].strip(" -·　")
+    return work or None
 
 
 def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
