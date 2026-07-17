@@ -484,3 +484,39 @@ async def _apply_light_migrations(conn) -> None:
             )
     except Exception as e:
         logger.warning("[migrate] not_found reset skipped: %s", e)
+
+    # ── one-time not_found reset for auto-link improvements ──────────────
+    # The Wikipedia auto-link now matches candidate titles against all
+    # queries (fixing page-id dedup) and splits CJK work names from trailing
+    # romaji. Reset not_found once more so existing rows are reprocessed
+    # under the improved matching.
+    try:
+        sentinel = "not_found_autolink_reset"
+        if is_sqlite:
+            await conn.execute(text(
+                f"INSERT OR IGNORE INTO app_settings(key, value) "
+                f"VALUES ('{sentinel}', 'pending')"
+            ))
+        elif is_postgres:
+            await conn.execute(text(
+                f"INSERT INTO app_settings(key, value) "
+                f"VALUES ('{sentinel}', 'pending') ON CONFLICT (key) DO NOTHING"
+            ))
+        row = (await conn.execute(text(
+            f"SELECT value FROM app_settings WHERE key = '{sentinel}'"
+        ))).first()
+        if row and row[0] == "pending":
+            res = await conn.execute(text(
+                "UPDATE file_resources SET metadata_failure_type = NULL, "
+                "metadata_attempts = 0, last_metadata_attempt_at = NULL "
+                "WHERE metadata_failure_type = 'not_found'"
+            ))
+            await conn.execute(text(
+                f"UPDATE app_settings SET value = 'done' WHERE key = '{sentinel}'"
+            ))
+            logger.info(
+                "[migrate] reset %s not_found rows for auto-link reprocessing",
+                getattr(res, "rowcount", "?"),
+            )
+    except Exception as e:
+        logger.warning("[migrate] not_found autolink reset skipped: %s", e)
