@@ -1213,7 +1213,9 @@ _QUERY_COLON_TAIL_RE = re.compile(r"\s*[：:].*$")
 _QUERY_ROMAN_TAIL_RE = re.compile(r"\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*$")
 # First-occurrence season/episode marker; the prefix before it is the base
 # work name (e.g. "无职转生 3期" -> "无职转生", "Mushoku Tensei S3 - 03" ->
-# "Mushoku Tensei", "樱桃小丸子第二期 1538 ..." -> "樱桃小丸子").
+# "Mushoku Tensei", "樱桃小丸子第二期 1538 ..." -> "樱桃小丸子"). Also splits
+# off a trailing romaji/English alt-title appended to a CJK work name
+# ("二十世纪电气目录 Nijusseiki Denki Mokuroku" -> "二十世纪电气目录").
 _QUERY_SEASON_EP_SPLIT_RE = re.compile(
     r"\s*[-－]\s*\d"
     r"|\s+S\d{1,2}\b"
@@ -1224,7 +1226,8 @@ _QUERY_SEASON_EP_SPLIT_RE = re.compile(
     r"|\sEP\s*\d"
     r"|\s[#＃]\s*\d"
     r"|\s*[：:]"
-    r"|\s*[（(]",
+    r"|\s*[（(]"
+    r"|(?<=[一-鿿぀-ヿ])\s+[A-Za-z]",
     flags=re.IGNORECASE,
 )
 _KANA_RE = re.compile(r"[぀-ヿ]")
@@ -2158,19 +2161,26 @@ class UnifiedMetadataAgent:
         from app.services.metadata_service import AUTO_LINK_THRESHOLD
         from app.services.text_normalizer import similarity_score
 
+        # Match each candidate's title against ALL candidate queries (not just
+        # the one that first surfaced it). Page-id dedup above may associate a
+        # page with a noisier long query even though a cleaner prefix query
+        # also returned it - taking the max picks the clean match.
+        all_query_strs = [q for q, _ in queries if q]
         best_auto: dict | None = None
         best_auto_score = 0
+        best_auto_query = ""
         for e in evidence:
             if e.get("disambiguation"):
                 continue
-            q = e.get("query") or ""
             title = e.get("title") or ""
-            if not q or not title:
+            if not title or not all_query_strs:
                 continue
+            q = max(all_query_strs, key=lambda qq: similarity_score(qq, title))
             score = similarity_score(q, title)
             if score > best_auto_score:
                 best_auto_score = score
                 best_auto = e
+                best_auto_query = q
         if best_auto is not None and best_auto_score >= AUTO_LINK_THRESHOLD:
             cats = best_auto.get("categories") or []
             ct = _infer_content_type_from_categories(cats)
@@ -2179,7 +2189,7 @@ class UnifiedMetadataAgent:
             wiki_title = best_auto.get("title")
             finalize_dict = {
                 "found": True,
-                "clean_title": best_auto.get("query") or wiki_title,
+                "clean_title": best_auto_query or wiki_title,
                 "content_type": ct,
                 "title_cn": wiki_title if lang == "zh" else None,
                 "title_en": wiki_title if lang == "en" else None,

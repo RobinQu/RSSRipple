@@ -489,6 +489,14 @@ def test_work_name_prefix_splits_at_first_season_marker():
     assert _work_name_prefix("黄泉使者") == ""
 
 
+def test_work_name_prefix_splits_cjk_from_romaji():
+    # Trailing romaji/English alt-title appended to a CJK work name is split
+    # off so "二十世纪电气目录 Nijusseiki Denki Mokuroku" -> "二十世纪电气目录".
+    assert _work_name_prefix("二十世纪电气目录 Nijusseiki Denki Mokuroku") == "二十世纪电气目录"
+    # Latin-only titles are unaffected (no CJK before the Latin run).
+    assert _work_name_prefix("Mushoku Tensei") == ""
+
+
 def test_detect_audio_work_type():
     assert _detect_audio_work_type("【ASMR】愛上火車 少女們的祕事簿♪[WAV/MP3]") == "asmr"
     assert _detect_audio_work_type("[JMAX] ウマ娘 - トレセンラーメン列伝 [FLAC 96kHz/24bit]") == "music"
