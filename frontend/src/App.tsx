@@ -12,6 +12,7 @@ import AgentForm from './pages/AgentForm';
 import AgentDetail from './pages/AgentDetail';
 import SeriesDetail from './pages/SeriesDetail';
 import MovieDetail from './pages/MovieDetail';
+import AudioWorkDetail from './pages/AudioWorkDetail';
 import WorksPage from './pages/WorksPage';
 import SettingsPage from './pages/Settings';
 import PageErrorBoundary from './components/PageErrorBoundary';
@@ -42,6 +43,7 @@ function App() {
           <Route path="series/:id" element={<SeriesDetail />} />
           <Route path="movies" element={<Navigate to="/works" replace />} />
           <Route path="movies/:id" element={<MovieDetail />} />
+          <Route path="audio-works/:id" element={<AudioWorkDetail />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

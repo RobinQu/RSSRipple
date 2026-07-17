@@ -51,8 +51,10 @@ class FileResourceResponse(BaseModel):
     metadata_failure_type: str | None = None
     series_id: str | None = None
     movie_id: str | None = None
+    audio_work_id: str | None = None
     series: Any | None = None
     movie: Any | None = None
+    audio_work: Any | None = None
     created_at: datetime
     updated_at: datetime
 

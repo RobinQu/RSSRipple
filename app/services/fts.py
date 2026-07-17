@@ -48,12 +48,21 @@ _CREATE_MOVIE_FTS = """
     )
 """
 
+_CREATE_AUDIO_WORK_FTS = """
+    CREATE VIRTUAL TABLE IF NOT EXISTS audio_work_fts USING fts5(
+        entity_id UNINDEXED,
+        title_cn, title_en, original_title, aliases,
+        tokenize='trigram'
+    )
+"""
+
 
 async def ensure_fts_tables(conn: AsyncConnection) -> None:
     """Create FTS5 virtual tables if they don't exist (SQLite only)."""
     try:
         await conn.execute(text(_CREATE_SERIES_FTS))
         await conn.execute(text(_CREATE_MOVIE_FTS))
+        await conn.execute(text(_CREATE_AUDIO_WORK_FTS))
     except Exception as e:
         # FTS5 or trigram tokenizer might not be available in all SQLite builds
         logger.warning("[fts] Could not create FTS5 tables: %s", e)
@@ -270,6 +279,100 @@ async def rebuild_movie_fts(db: AsyncSession) -> int:
     count = 0
     for movie in result.scalars().all():
         await upsert_movie_fts(db, movie)
+        count += 1
+    return count
+
+
+# ---------------------------------------------------------------------------
+# AudioWork FTS
+# ---------------------------------------------------------------------------
+
+
+async def upsert_audio_work_fts(db: AsyncSession, audio_work: Any) -> None:
+    """Insert or update an audio work in the FTS index."""
+    try:
+        await db.execute(
+            text("DELETE FROM audio_work_fts WHERE entity_id = :id"),
+            {"id": audio_work.id},
+        )
+        vals = _fts_values(audio_work)
+        vals["id"] = audio_work.id
+        await db.execute(
+            text(
+                "INSERT INTO audio_work_fts (entity_id, title_cn, title_en, original_title, aliases) "
+                "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)"
+            ),
+            vals,
+        )
+    except Exception as e:
+        logger.warning("[fts] upsert_audio_work_fts failed for %s: %s", audio_work.id, e)
+
+
+async def delete_audio_work_fts(db: AsyncSession, audio_work_id: str) -> None:
+    """Remove an audio work from the FTS index."""
+    try:
+        await db.execute(
+            text("DELETE FROM audio_work_fts WHERE entity_id = :id"),
+            {"id": audio_work_id},
+        )
+    except Exception as e:
+        logger.warning("[fts] delete_audio_work_fts failed for %s: %s", audio_work_id, e)
+
+
+async def search_audio_work_fts(
+    db: AsyncSession, query: str, limit: int = 30
+) -> list[str]:
+    """Search audio works via FTS5. Returns a list of audio work entity IDs."""
+    norm = normalize_title(query)
+    if not norm:
+        return []
+
+    if len(norm) < 3:
+        try:
+            pattern = f"%{norm}%"
+            result = await db.execute(
+                text(
+                    "SELECT entity_id FROM audio_work_fts "
+                    "WHERE title_cn LIKE :p OR title_en LIKE :p "
+                    "OR original_title LIKE :p OR aliases LIKE :p "
+                    "LIMIT :limit"
+                ),
+                {"p": pattern, "limit": limit},
+            )
+            return [row[0] for row in result.fetchall()]
+        except Exception as e:
+            logger.warning("[fts] search_audio_work_fts LIKE fallback failed: %s", e)
+            return []
+
+    fts_query = _escape_fts_query(norm)
+    try:
+        result = await db.execute(
+            text(
+                "SELECT entity_id FROM audio_work_fts "
+                "WHERE audio_work_fts MATCH :query "
+                "ORDER BY bm25(audio_work_fts) "
+                "LIMIT :limit"
+            ),
+            {"query": fts_query, "limit": limit},
+        )
+        return [row[0] for row in result.fetchall()]
+    except Exception as e:
+        logger.warning("[fts] search_audio_work_fts MATCH failed for %r: %s", norm[:60], e)
+        return []
+
+
+async def rebuild_audio_work_fts(db: AsyncSession) -> int:
+    """Rebuild the entire audio work FTS index from the audio_works table."""
+    from app.models.audio_work import AudioWork
+
+    try:
+        await db.execute(text("DELETE FROM audio_work_fts"))
+    except Exception:
+        pass
+    result = await db.execute(select(AudioWork))
+    count = 0
+    for aw in result.scalars().all():
+        await upsert_audio_work_fts(db, aw)
         count += 1
     return count
 

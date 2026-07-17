@@ -443,6 +443,7 @@ async def test_process_caches_definitive_not_found():
 from app.services.metadata_agent import (  # noqa: E402
     _candidate_queries,
     _clean_query,
+    _detect_audio_work_type,
     _work_name_prefix,
 )
 
@@ -460,6 +461,17 @@ def test_work_name_prefix_splits_at_first_season_marker():
     assert _work_name_prefix("樱桃小丸子第二期 1538 详情") == "樱桃小丸子"
     # No marker -> no prefix variant.
     assert _work_name_prefix("黄泉使者") == ""
+
+
+def test_detect_audio_work_type():
+    assert _detect_audio_work_type("【ASMR】愛上火車 少女們的祕事簿♪[WAV/MP3]") == "asmr"
+    assert _detect_audio_work_type("[JMAX] ウマ娘 - トレセンラーメン列伝 [FLAC 96kHz/24bit]") == "music"
+    assert _detect_audio_work_type("TVアニメ「X」OPテーマ「Y」／Aimer [FLAC]") == "music"
+    assert _detect_audio_work_type("某ドラマCD 第1巻 [FLAC]") == "drama_cd"
+    # Normal anime episodes are NOT flagged.
+    assert _detect_audio_work_type("[LoliHouse] 无职转生 3期 - 03 [WebRip 1080p HEVC AAC]") is None
+    assert _detect_audio_work_type("") is None
+    assert _detect_audio_work_type(None) is None
 
 
 def test_candidate_queries_emits_season_stripped_variants():
@@ -538,6 +550,42 @@ async def test_process_short_circuits_known_series(db_session, sample_channel):
     assert resource.movie_id is None
     assert resource.metadata_matched_at is not None
     assert resource.metadata_failure_type is None  # success
+
+
+async def test_process_resolves_asmr_to_audio_work(db_session, sample_channel):
+    """An ASMR title is detected and resolved to an AudioWork stub (no LLM,
+    no TV/movie agent run)."""
+    import uuid
+
+    from app.models.audio_work import AudioWork
+    from app.models.file_resource import FileResource
+
+    sample_channel.metadata_source = "wikipedia"
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_asmr",
+        title_raw="【ASMR】愛上火車 少女們的祕事簿♪[WAV/MP3]",
+        torrent_url="magnet:?xt=urn:btih:asmr1",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    # No Wikipedia page for this ASMR title -> stub path.
+    agent._search_audio_wikipedia = AsyncMock(return_value=None)
+    agent._run_react = AsyncMock()  # must NOT be called - audio path wins
+
+    res = await agent.process(resource, sample_channel, db_session, force_refresh=True)
+
+    agent._run_react.assert_not_called()
+    assert res.found is True
+    assert res.content_type == "asmr"
+    assert resource.audio_work_id is not None
+    assert resource.series_id is None
+    assert resource.movie_id is None
+    assert resource.metadata_failure_type is None  # success
+    aw = await db_session.get(AudioWork, resource.audio_work_id)
+    assert aw is not None
+    assert aw.content_type == "asmr"
 
 
 async def test_process_short_circuit_fires_on_force_refresh(db_session, sample_channel):

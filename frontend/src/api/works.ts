@@ -24,7 +24,7 @@ export interface RefreshResult {
 
 export interface RefreshItem {
   id: string;
-  content_type: 'tv' | 'movie';
+  content_type: 'tv' | 'movie' | 'asmr' | 'music' | 'drama_cd' | 'radio' | 'other';
 }
 
 export interface BatchRefreshResponse {
@@ -54,7 +54,7 @@ export const worksApi = {
       auto_refresh_enabled,
       auto_refresh_interval_minutes,
     }),
-  refreshMetadata: (id: string, content_type: 'tv' | 'movie', source?: string | null) =>
+  refreshMetadata: (id: string, content_type: RefreshItem['content_type'], source?: string | null) =>
     api.post<RefreshResult>('/works/refresh-metadata', { id, content_type, source: source ?? null }),
   batchRefreshMetadata: (items: RefreshItem[], source?: string | null) =>
     api.post<BatchRefreshResponse>('/works/batch-refresh-metadata', {

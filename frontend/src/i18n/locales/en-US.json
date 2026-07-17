@@ -425,6 +425,12 @@
     "deleteBlockedGeneric": "Cannot delete: movie is referenced by agents. Remove related agent work subscriptions first.",
     "deleted": "Movie deleted"
   },
+  "audioWorks": {
+    "notFound": "Not found",
+    "source": "Source",
+    "deleteConfirm": "Delete this audio work? All linked resources will be unlinked.",
+    "deleted": "Deleted"
+  },
   "resource": {
     "detail": "Resource Detail",
     "unknownSeries": "Unknown Series",
@@ -612,6 +618,14 @@
     "noResults": "No works data",
     "tv": "TV Series",
     "movie": "Movie",
+    "audio": "Audio",
+    "audioType": {
+      "asmr": "ASMR",
+      "music": "Music",
+      "drama_cd": "Drama CD",
+      "radio": "Radio",
+      "other": "Other"
+    },
     "loading": "Loading...",
     "select": "Select",
     "selectedCount": "{n} selected",

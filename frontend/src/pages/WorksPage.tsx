@@ -22,7 +22,7 @@ import Pagination from '../components/Pagination';
 
 const { Title, Text } = Typography;
 
-type ContentType = 'all' | 'tv' | 'movie';
+type ContentType = 'all' | 'tv' | 'movie' | 'audio';
 const PAGE_SIZE = 20;
 
 function getDisplayTitle(w: Work): string {
@@ -100,6 +100,14 @@ export default function WorksPage() {
       return;
     }
     if (w.content_type === 'movie') navigate(`/movies/${w.id}`);
+    else if (
+      w.content_type === 'asmr' ||
+      w.content_type === 'music' ||
+      w.content_type === 'drama_cd' ||
+      w.content_type === 'radio' ||
+      w.content_type === 'other'
+    )
+      navigate(`/audio-works/${w.id}`);
     else navigate(`/series/${w.id}`);
   };
 
@@ -141,6 +149,7 @@ export default function WorksPage() {
       { label: t('works.all'), value: 'all' },
       { label: t('works.tvSeries'), value: 'tv' },
       { label: t('works.movies'), value: 'movie' },
+      { label: t('works.audio'), value: 'audio' },
     ],
     [t],
   );
@@ -267,6 +276,12 @@ export default function WorksPage() {
                     const displayTitle = getDisplayTitle(w);
                     const key = workKey(w);
                     const isSelected = selected.has(key);
+                    const isAudio =
+                      w.content_type === 'asmr' ||
+                      w.content_type === 'music' ||
+                      w.content_type === 'drama_cd' ||
+                      w.content_type === 'radio' ||
+                      w.content_type === 'other';
                     const info =
                       w.content_type === 'movie'
                         ? (w.year ?? '—')
@@ -290,8 +305,17 @@ export default function WorksPage() {
                           </td>
                         )}
                         <td style={{ padding: '8px' }} data-label={t('works.colType')}>
-                          <Tag color={w.content_type === 'movie' ? 'green' : 'blue'} style={{ margin: 0 }}>
-                            {w.content_type === 'movie' ? t('works.movie') : t('works.tv')}
+                          <Tag
+                            color={
+                              isAudio ? 'purple' : w.content_type === 'movie' ? 'green' : 'blue'
+                            }
+                            style={{ margin: 0 }}
+                          >
+                            {isAudio
+                              ? t(`works.audioType.${w.content_type}`, String(w.content_type))
+                              : w.content_type === 'movie'
+                                ? t('works.movie')
+                                : t('works.tv')}
                           </Tag>
                         </td>
                         <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>

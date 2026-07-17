@@ -79,6 +79,11 @@ class FileResource(Base):
     movie_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
     )
+    # Non-TV/non-movie work (ASMR / music / drama CD / radio). Resolved via
+    # general-purpose sources (Wikipedia / Exa) only.
+    audio_work_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("audio_works.id", ondelete="SET NULL"), nullable=True
+    )
     metadata_matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── Metadata retry state ──
     # ``metadata_matched_at`` only records *successful* links, so a failed
@@ -106,4 +111,5 @@ class FileResource(Base):
     channel = relationship("Channel", back_populates="file_resources")
     series = relationship("TVSeries", back_populates="file_resources")
     movie = relationship("Movie", back_populates="file_resources")
+    audio_work = relationship("AudioWork", back_populates="file_resources")
     download_tasks = relationship("DownloadTask", back_populates="file_resource")

@@ -9,6 +9,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.audio_work import AudioWork
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.schemas.common import paginated_response, success_response
@@ -237,15 +238,19 @@ async def list_works(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None, description="Title fuzzy search"),
-    content_type: str = Query("all", description="Filter: all, tv, movie"),
+    content_type: str = Query(
+        "all", description="Filter: all, tv, movie, audio, asmr, music, drama_cd, radio, other"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
-    """Unified poster wall combining TVSeries and Movie in one list.
+    """Unified poster wall combining TVSeries, Movie, and AudioWork in one list.
 
     Returns items sorted by ``created_at`` descending, with a ``content_type``
-    discriminator field ("tv" or "movie").
+    discriminator field ("tv", "movie", or an audio sub-kind).
     """
     works: list[dict] = []
+    audio_types = {"asmr", "music", "drama_cd", "radio", "other"}
+    include_audio = content_type in ("all", "audio") or content_type in audio_types
 
     # Fetch from both tables
     if content_type in ("all", "tv"):
@@ -278,6 +283,23 @@ async def list_works(
         for m in result.scalars().all():
             works.append(_normalize_movie(m))
 
+    if include_audio:
+        audio_q = select(AudioWork)
+        if content_type in audio_types:
+            audio_q = audio_q.where(AudioWork.content_type == content_type)
+        if search:
+            pattern = f"%{search}%"
+            audio_q = audio_q.where(
+                or_(
+                    AudioWork.title_cn.ilike(pattern),
+                    AudioWork.title_en.ilike(pattern),
+                    AudioWork.original_title.ilike(pattern),
+                )
+            )
+        result = await db.execute(audio_q.order_by(AudioWork.created_at.desc()))
+        for a in result.scalars().all():
+            works.append(_normalize_audio_work(a))
+
     # Sort merged results by created_at descending
     works.sort(key=lambda w: w["created_at"] or "", reverse=True)
 
@@ -286,3 +308,26 @@ async def list_works(
     paged = works[offset:offset + page_size]
 
     return paginated_response(paged, total=total, page=page, page_size=page_size)
+
+
+def _normalize_audio_work(a: AudioWork) -> dict:
+    return {
+        "id": a.id,
+        "content_type": a.content_type or "other",
+        "title_cn": a.title_cn,
+        "title_en": a.title_en,
+        "original_title": a.original_title,
+        "poster_url": a.poster_url,
+        "rating": a.rating,
+        "status": a.status,
+        "year": _year_from_date(a.release_date),
+        "genre": a.genre or [],
+        "episodes": None,
+        "seasons": None,
+        "number_of_episodes": None,
+        "number_of_seasons": None,
+        "release_date": str(a.release_date) if a.release_date else None,
+        "runtime": a.runtime,
+        "created_at": a.created_at.isoformat() + "Z" if a.created_at else None,
+        "updated_at": a.updated_at.isoformat() + "Z" if a.updated_at else None,
+    }

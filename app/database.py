@@ -289,6 +289,9 @@ async def _apply_light_migrations(conn) -> None:
         ("file_resources", "metadata_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("file_resources", "last_metadata_attempt_at", "DATETIME"),
         ("file_resources", "metadata_failure_type", "VARCHAR(16)"),
+        # AudioWork link for non-TV/non-movie works (ASMR / music / drama CD /
+        # radio). The audio_works table itself is created by create_all.
+        ("file_resources", "audio_work_id", "VARCHAR(36)"),
     ]
 
     for table, column, ddl in additions:
@@ -405,3 +408,42 @@ async def _apply_light_migrations(conn) -> None:
         ))
     except Exception as e:
         logger.warning("[migrate] agents.last_consumed_at backfill skipped: %s", e)
+
+    # ── one-time non_work reset for the AudioWork path ───────────────────
+    # Resources previously classified ``non_work`` (ASMR / music / OP-ED)
+    # were never retried. Now that the metadata agent can resolve them into
+    # AudioWork entities, clear that marker once so the backfill reprocesses
+    # them under the new path. Genuinely-non-work content will simply be
+    # reclassified (non_work again or linked to an AudioWork stub). Gated by
+    # an app_settings sentinel so it runs exactly once.
+    try:
+        if is_sqlite:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES ('audio_work_non_work_reset', 'pending')"
+            ))
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) "
+                "VALUES ('audio_work_non_work_reset', 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ))
+        row = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = 'audio_work_non_work_reset'"
+        ))).first()
+        if row and row[0] == "pending":
+            res = await conn.execute(text(
+                "UPDATE file_resources SET metadata_failure_type = NULL, "
+                "metadata_attempts = 0, last_metadata_attempt_at = NULL "
+                "WHERE metadata_failure_type = 'non_work'"
+            ))
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' "
+                "WHERE key = 'audio_work_non_work_reset'"
+            ))
+            logger.info(
+                "[migrate] reset %s non_work rows for AudioWork reprocessing",
+                getattr(res, "rowcount", "?"),
+            )
+    except Exception as e:
+        logger.warning("[migrate] non_work reset skipped: %s", e)

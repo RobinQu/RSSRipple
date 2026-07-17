@@ -426,6 +426,12 @@
     "deleteBlockedGeneric": "无法删除：该电影被下载代理引用，请先移除相关代理的订阅作品。",
     "deleted": "电影已删除"
   },
+  "audioWorks": {
+    "notFound": "未找到",
+    "source": "来源",
+    "deleteConfirm": "确定删除该音频作品？所有关联的资源将被解除关联。",
+    "deleted": "已删除"
+  },
   "resource": {
     "detail": "资源详情",
     "unknownSeries": "未知剧集",
@@ -612,6 +618,14 @@
     "noResults": "暂无作品数据",
     "tv": "剧集",
     "movie": "电影",
+    "audio": "音频",
+    "audioType": {
+      "asmr": "ASMR",
+      "music": "音乐",
+      "drama_cd": "广播剧",
+      "radio": "广播",
+      "other": "其它"
+    },
     "loading": "加载中...",
     "select": "选择",
     "selectedCount": "已选 {n} 个",

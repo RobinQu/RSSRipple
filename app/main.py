@@ -391,6 +391,7 @@ install_db_retry_middleware(app)
 # API routers
 from app.api.v1 import (  # noqa: E402
     agents,
+    audio_works,
     channels,
     dashboard,
     decisions,
@@ -412,6 +413,7 @@ app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
 app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
 app.include_router(series.router, prefix="/api/v1", tags=["series"])
 app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
+app.include_router(audio_works.router, prefix="/api/v1", tags=["audio-works"])
 app.include_router(works.router, prefix="/api/v1", tags=["works"])
 app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])
 

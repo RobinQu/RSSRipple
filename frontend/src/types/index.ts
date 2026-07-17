@@ -144,7 +144,10 @@ export interface Movie {
   agent_work_count?: number;
 }
 
-// Unified Work (TVSeries | Movie) for repository view
+// Unified Work (TVSeries | Movie | AudioWork) for repository view
+export type AudioContentType = 'asmr' | 'music' | 'drama_cd' | 'radio' | 'other';
+export type WorkContentType = 'tv' | 'movie' | AudioContentType | null;
+
 export interface Work {
   id: string;
   title_cn: string | null;
@@ -153,7 +156,7 @@ export interface Work {
   poster_url: string | null;
   rating: number | null;
   status: string | null;
-  content_type: 'tv' | 'movie' | null;
+  content_type: WorkContentType;
   number_of_seasons: number | null;
   number_of_episodes: number | null;
   release_date: string | null;
@@ -163,6 +166,32 @@ export interface Work {
   resource_count: number;
   created_at: string;
   updated_at: string;
+}
+
+// AudioWork - non-TV/non-movie works (ASMR / music / drama CD / radio)
+export interface AudioWork {
+  id: string;
+  title_cn: string | null;
+  title_en: string | null;
+  original_title: string | null;
+  aliases: string[] | null;
+  external_id: string | null;
+  external_source: string | null;
+  description: string | null;
+  poster_url: string | null;
+  rating: number | null;
+  genre: string[] | null;
+  status: string | null;
+  release_date: string | null;
+  runtime: number | null;
+  content_type: AudioContentType | null;
+  wikipedia_url: string | null;
+  wikipedia_page_id: number | null;
+  created_at: string;
+  updated_at: string;
+  // Detail-only fields
+  resources?: FileResource[];
+  resource_count?: number;
 }
 
 // Episode

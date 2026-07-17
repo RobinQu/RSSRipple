@@ -5,6 +5,7 @@ from app.models.agent_run import AgentRun
 from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_work import AgentWork
 from app.models.app_setting import AppSetting
+from app.models.audio_work import AudioWork
 from app.models.channel import Channel
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.download_task import DownloadTask
@@ -24,6 +25,7 @@ __all__ = [
     "Episode",
     "TVSeries",
     "Movie",
+    "AudioWork",
     "Agent",
     "AgentRun",
     "AgentWork",

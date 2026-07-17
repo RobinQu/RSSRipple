@@ -28,6 +28,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.audio_work import AudioWork
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.movie import Movie
 from app.models.series import TVSeries
@@ -345,6 +346,52 @@ async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | No
         if score > best_score:
             best_score = score
             best = m
+
+    if best_score >= FUZZY_THRESHOLD:
+        return best, best_score
+    return None, 0
+
+
+async def match_audio_work_by_title(db: AsyncSession, title: str) -> tuple[AudioWork | None, int]:
+    """Find best matching AudioWork in local DB. Returns (entity, score 0-100).
+
+    Uses FTS5 trigram search for candidate retrieval, then bigram Dice
+    similarity for precise ranking. Mirrors :func:`match_movie_by_title`.
+    """
+    if not title:
+        return None, 0
+    norm = normalize_title(title)
+    if not norm:
+        return None, 0
+
+    result = await db.execute(
+        select(AudioWork).where(
+            or_(
+                AudioWork.title_cn == title,
+                AudioWork.title_en == title,
+            )
+        )
+    )
+    audio = result.scalars().first()
+    if audio:
+        return audio, 100
+
+    candidate_ids = await fts_service.search_audio_work_fts(db, title, limit=30)
+    if candidate_ids:
+        result = await db.execute(select(AudioWork).where(AudioWork.id.in_(candidate_ids)))
+        candidates = result.scalars().all()
+    else:
+        result = await db.execute(select(AudioWork))
+        candidates = result.scalars().all()
+
+    best: AudioWork | None = None
+    best_score = 0
+    for a in candidates:
+        titles = [a.title_cn, a.title_en, *(a.aliases or [])]
+        score = max((similarity_score(norm, t) for t in titles if t), default=0)
+        if score > best_score:
+            best_score = score
+            best = a
 
     if best_score >= FUZZY_THRESHOLD:
         return best, best_score
@@ -686,6 +733,118 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     await db.flush()
     await fts_service.upsert_movie_fts(db, movie)
     return movie
+
+
+async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict) -> AudioWork:
+    """Upsert an AudioWork by canonicalized external_id, then by exact title.
+
+    Mirrors :func:`create_or_update_movie_from_external`. ``data["content_type"]``
+    carries the sub-kind (asmr / music / drama_cd / radio / other) and is
+    preserved on the entity.
+    """
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    content_type = data.get("content_type") or "other"
+    canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
+
+    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
+    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+
+    audio: AudioWork | None = None
+    if lookup_ids:
+        stmt = select(AudioWork).where(AudioWork.external_id.in_(lookup_ids))
+        if lookup_sources:
+            stmt = stmt.where(AudioWork.external_source.in_(lookup_sources))
+        result = await db.execute(stmt)
+        audio = result.scalars().first()
+
+    if audio is None:
+        title_candidates = [
+            t for t in (
+                data.get("title_cn"),
+                data.get("title_en"),
+                data.get("original_title"),
+            ) if t
+        ]
+        if title_candidates:
+            title_result = await db.execute(
+                select(AudioWork).where(
+                    or_(
+                        AudioWork.title_cn.in_(title_candidates),
+                        AudioWork.title_en.in_(title_candidates),
+                        AudioWork.original_title.in_(title_candidates),
+                    )
+                )
+            )
+            audio = title_result.scalars().first()
+
+    if audio:
+        if canonical_id:
+            audio.external_id = canonical_id
+        if raw_source and raw_source != "llm_search":
+            audio.external_source = raw_source
+        audio.description = data.get("description") or audio.description
+        if data.get("rating") is not None:
+            audio.rating = data.get("rating")
+        audio.original_title = data.get("original_title") or audio.original_title
+        audio.status = data.get("status") or audio.status
+        rd = _parse_date(data.get("release_date"))
+        if rd:
+            audio.release_date = rd
+        if data.get("runtime") is not None:
+            audio.runtime = data.get("runtime")
+        if data.get("genre"):
+            audio.genre = data.get("genre")
+        if data.get("title_cn"):
+            audio.title_cn = audio.title_cn or data.get("title_cn")
+        if data.get("title_en"):
+            audio.title_en = audio.title_en or data.get("title_en")
+        if data.get("content_type"):
+            audio.content_type = data.get("content_type")
+
+        existing_titles = {t for t in [audio.title_cn, audio.title_en, *(audio.aliases or [])] if t}
+        new_aliases = list(audio.aliases or [])
+        for t in (data.get("title_cn"), data.get("title_en"), data.get("original_title")):
+            if t and t not in existing_titles and t not in new_aliases:
+                new_aliases.append(t)
+                existing_titles.add(t)
+        audio.aliases = new_aliases or None
+
+        remote_poster = data.get("poster_url")
+        if remote_poster and not (audio.poster_url or "").startswith("/posters/"):
+            local_url = await download_and_cache_poster(remote_poster)
+            audio.poster_url = local_url or remote_poster
+        await fts_service.upsert_audio_work_fts(db, audio)
+        return audio
+
+    remote_poster = data.get("poster_url")
+    local_url = await download_and_cache_poster(remote_poster)
+    title_cn = data.get("title_cn")
+    title_en = data.get("title_en") or data.get("original_title")
+    aliases: list[str] = []
+    for t in (title_cn, title_en, data.get("original_title")):
+        if t and t not in aliases:
+            aliases.append(t)
+    audio = AudioWork(
+        title_cn=title_cn,
+        title_en=title_en,
+        original_title=data.get("original_title"),
+        aliases=aliases or None,
+        external_id=canonical_id or raw_external_id,
+        external_source=data.get("external_source", "llm_search"),
+        description=data.get("description"),
+        poster_url=local_url or remote_poster,
+        rating=data.get("rating"),
+        genre=data.get("genre") or [],
+        status=data.get("status"),
+        release_date=_parse_date(data.get("release_date")),
+        runtime=data.get("runtime"),
+        content_type=content_type,
+    )
+    db.add(audio)
+    await db.flush()
+    await fts_service.upsert_audio_work_fts(db, audio)
+    return audio
 
 
 # ---------------------------------------------------------------------------

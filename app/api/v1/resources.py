@@ -53,11 +53,17 @@ async def list_resources(
     # the synthetic "unknown" bucket (its count query returns 0).
     if matched is True:
         base_q = base_q.where(
-            or_(FileResource.series_id.isnot(None), FileResource.movie_id.isnot(None))
+            or_(
+                FileResource.series_id.isnot(None),
+                FileResource.movie_id.isnot(None),
+                FileResource.audio_work_id.isnot(None),
+            )
         )
     elif matched is False:
         base_q = base_q.where(
-            FileResource.series_id.is_(None), FileResource.movie_id.is_(None)
+            FileResource.series_id.is_(None),
+            FileResource.movie_id.is_(None),
+            FileResource.audio_work_id.is_(None),
         )
 
     if grouped:
@@ -83,12 +89,21 @@ async def list_resources(
             .where(FileResource.channel_id == channel_id, FileResource.movie_id.isnot(None))
             .group_by(FileResource.movie_id)
         )).all()
+        audio_groups = (await db.execute(
+            select(FileResource.audio_work_id, func.max(pub_col))
+            .where(
+                FileResource.channel_id == channel_id,
+                FileResource.audio_work_id.isnot(None),
+            )
+            .group_by(FileResource.audio_work_id)
+        )).all()
         unknown_last = (await db.execute(
             select(func.max(pub_col), func.count())
             .where(
                 FileResource.channel_id == channel_id,
                 FileResource.series_id.is_(None),
                 FileResource.movie_id.is_(None),
+                FileResource.audio_work_id.is_(None),
             )
         )).one()
 
@@ -97,6 +112,8 @@ async def list_resources(
             entries.append(("series", sid, ts))
         for mid, ts in movie_groups:
             entries.append(("movie", mid, ts))
+        for aid, ts in audio_groups:
+            entries.append(("audio", aid, ts))
         # The synthetic "unknown" bucket holds unmatched resources; it is only
         # relevant when the caller wants unmatched or all resources. Skip it for
         # matched=True so the parsed tab shows only linked work-groups.
@@ -115,15 +132,23 @@ async def list_resources(
         # Load resources for the groups on this page (bulk-load per bucket).
         series_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "series"]
         movie_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "movie"]
+        audio_ids_on_page = [tid for typ, tid, _ in page_entries if typ == "audio"]
         has_unknown_on_page = any(typ == "unknown" for typ, _, _ in page_entries)
 
         resource_by_series: dict[str, list[FileResource]] = {}
         resource_by_movie: dict[str, list[FileResource]] = {}
+        resource_by_audio: dict[str, list[FileResource]] = {}
         unknown_resources: list[FileResource] = []
+
+        _load_opts = (
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        )
 
         if series_ids_on_page:
             rs = (await db.execute(
-                base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
+                base_q.options(*_load_opts)
                 .where(FileResource.series_id.in_(series_ids_on_page))
                 .order_by(FileResource.published_at.desc())
             )).scalars().all()
@@ -131,16 +156,28 @@ async def list_resources(
                 resource_by_series.setdefault(r.series_id, []).append(r)
         if movie_ids_on_page:
             rs = (await db.execute(
-                base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
+                base_q.options(*_load_opts)
                 .where(FileResource.movie_id.in_(movie_ids_on_page))
                 .order_by(FileResource.published_at.desc())
             )).scalars().all()
             for r in rs:
                 resource_by_movie.setdefault(r.movie_id, []).append(r)
+        if audio_ids_on_page:
+            rs = (await db.execute(
+                base_q.options(*_load_opts)
+                .where(FileResource.audio_work_id.in_(audio_ids_on_page))
+                .order_by(FileResource.published_at.desc())
+            )).scalars().all()
+            for r in rs:
+                resource_by_audio.setdefault(r.audio_work_id, []).append(r)
         if has_unknown_on_page:
             unknown_resources = list((await db.execute(
-                base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
-                .where(FileResource.series_id.is_(None), FileResource.movie_id.is_(None))
+                base_q.options(*_load_opts)
+                .where(
+                    FileResource.series_id.is_(None),
+                    FileResource.movie_id.is_(None),
+                    FileResource.audio_work_id.is_(None),
+                )
                 .order_by(FileResource.published_at.desc())
             )).scalars().all())
 
@@ -175,6 +212,19 @@ async def list_resources(
                     "last_update": _iso(last_ts),
                     "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
                 })
+            elif typ == "audio":
+                items = resource_by_audio.get(tid, [])
+                if not items:
+                    continue
+                a = items[0].audio_work
+                out.append({
+                    "type": "audio",
+                    "id": tid,
+                    "title": (a.title_cn or a.title_en or a.original_title or tid) if a else tid,
+                    "poster_url": a.poster_url if a else None,
+                    "last_update": _iso(last_ts),
+                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
+                })
             else:  # unknown
                 out.append({
                     "type": "unknown",
@@ -194,7 +244,11 @@ async def list_resources(
     total = total_q.scalar_one()
     offset = (page - 1) * page_size
     result = await db.execute(
-        base_q.options(selectinload(FileResource.series), selectinload(FileResource.movie))
+        base_q.options(
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        )
         .order_by(FileResource.published_at.desc())
         .offset(offset).limit(page_size)
     )
@@ -299,7 +353,11 @@ async def list_channel_field_values(
 async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
     resource = await db.get(
         FileResource, resource_id,
-        options=[selectinload(FileResource.series), selectinload(FileResource.movie)],
+        options=[
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        ],
     )
     if not resource:
         return JSONResponse(
@@ -313,7 +371,11 @@ async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
 async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get_db)):
     resource = await db.get(
         FileResource, resource_id,
-        options=[selectinload(FileResource.series), selectinload(FileResource.movie)],
+        options=[
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        ],
     )
     if not resource:
         return JSONResponse(
@@ -332,7 +394,7 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
             content={"success": False, "data": None, "error": {"code": "INTERNAL_SERVER_ERROR", "message": str(e)}},
         )
 
-    await db.refresh(resource, ["series", "movie"])
+    await db.refresh(resource, ["series", "movie", "audio_work"])
     linked = None
     if resource.series:
         from app.schemas.series import TVSeriesResponse
@@ -340,11 +402,15 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
     elif resource.movie:
         from app.schemas.movie import MovieResponse
         linked = {"type": "movie", "entity": MovieResponse.model_validate(resource.movie).model_dump()}
+    elif resource.audio_work:
+        from app.schemas.audio_work import AudioWorkResponse
+        linked = {"type": "audio", "entity": AudioWorkResponse.model_validate(resource.audio_work).model_dump()}
 
     return success_response({
         "resource_id": resource.id,
         "series_id": resource.series_id,
         "movie_id": resource.movie_id,
+        "audio_work_id": resource.audio_work_id,
         "metadata_matched_at": resource.metadata_matched_at.isoformat() if resource.metadata_matched_at else None,
         "linked": linked,
     })
@@ -410,7 +476,11 @@ async def link_metadata(
     resource = (await db.execute(
         select(FileResource)
         .where(FileResource.id == resource.id)
-        .options(selectinload(FileResource.series), selectinload(FileResource.movie))
+        .options(
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        )
     )).scalar_one()
     return success_response(FileResourceResponse.model_validate(resource).model_dump())
 
@@ -488,6 +558,10 @@ async def correct_episode(
     resource = (await db.execute(
         select(FileResource)
         .where(FileResource.id == resource_id)
-        .options(selectinload(FileResource.series), selectinload(FileResource.movie))
+        .options(
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        )
     )).scalar_one()
     return success_response(FileResourceResponse.model_validate(resource).model_dump())
