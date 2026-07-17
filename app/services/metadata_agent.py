@@ -1162,15 +1162,19 @@ def _cache_source_key(data_source_type: str | None) -> str:
 # Normalization for the work-level short-circuit (S1). Collapses a title to
 # its word characters (letters incl. CJK, digits) lowercased, dropping
 # whitespace/punctuation/width variants so "名探偵プリキュア！" and
-# "名探偵プリキュア" collide. Intentionally exact-after-normalization only -
-# no fuzzy matching - so a short-circuit never links to the wrong work.
+# "名探偵プリキュア" collide. Goes through ``normalize_title`` (NFKC + OpenCC
+# t2s) first so Traditional and Simplified Chinese forms of the same work
+# also collide - e.g. a Simplified RSS title matches a Traditional-cased
+# TVSeries row. Intentionally exact-after-normalization only - no fuzzy
+# matching - so a short-circuit never links to the wrong work.
 _NORMALIZE_RE = re.compile(r"[^\w]+", flags=re.UNICODE)
 
 
 def _normalize_title(s: str | None) -> str:
     if not s:
         return ""
-    return _NORMALIZE_RE.sub("", s).lower()
+    from app.services.text_normalizer import normalize_title
+    return _NORMALIZE_RE.sub("", normalize_title(s))
 
 
 # ---------------------------------------------------------------------------
@@ -1272,6 +1276,14 @@ def _work_name_prefix(part: str) -> str:
     if not m:
         return ""
     return part[: m.start()].strip(" -/|:：·～~")
+
+
+def _infer_content_type_from_categories(categories: list[str]) -> str:
+    """Infer 'tv' vs 'movie' from a Wikipedia page's category list."""
+    text = " ".join(categories or "").lower()
+    if any(k in text for k in ("film", "movie", "電影", "电影", "短片")):
+        return "movie"
+    return "tv"
 
 
 def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tuple[str, str]]:
@@ -2126,14 +2138,72 @@ class UnifiedMetadataAgent:
             entry = dict(cand)
             if isinstance(pres, dict) and pres.get("data"):
                 d = pres["data"]
+                if d.get("disambiguation"):
+                    entry["disambiguation"] = True
                 entry["categories"] = list(d.get("categories", [])[:10])
                 if d.get("summary"):
                     entry["summary"] = d["summary"][:400]
                 if not entry.get("url") and d.get("url"):
-                    entry["url"] = d["url"]
+                    entry["url"] = d.get("url")
             elif isinstance(pres, Exception):
                 source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
             evidence.append(entry)
+
+        # Deterministic auto-link: when a search result's title clearly matches
+        # its query (similarity >= AUTO_LINK_THRESHOLD after OpenCC trad/simp
+        # normalization), trust it without the LLM judge. The mini-LLM judge
+        # often rejects obvious trad<->simp matches - e.g. simplified
+        # "说出这边...传说" vs Wikipedia's traditional "說出這邊...傳說。" -
+        # even though Wikipedia returned it as the top result.
+        from app.services.metadata_service import AUTO_LINK_THRESHOLD
+        from app.services.text_normalizer import similarity_score
+
+        best_auto: dict | None = None
+        best_auto_score = 0
+        for e in evidence:
+            if e.get("disambiguation"):
+                continue
+            q = e.get("query") or ""
+            title = e.get("title") or ""
+            if not q or not title:
+                continue
+            score = similarity_score(q, title)
+            if score > best_auto_score:
+                best_auto_score = score
+                best_auto = e
+        if best_auto is not None and best_auto_score >= AUTO_LINK_THRESHOLD:
+            cats = best_auto.get("categories") or []
+            ct = _infer_content_type_from_categories(cats)
+            page_id = best_auto.get("page_id")
+            lang = best_auto.get("lang")
+            wiki_title = best_auto.get("title")
+            finalize_dict = {
+                "found": True,
+                "clean_title": best_auto.get("query") or wiki_title,
+                "content_type": ct,
+                "title_cn": wiki_title if lang == "zh" else None,
+                "title_en": wiki_title if lang == "en" else None,
+                "matched_entity": {
+                    "external_id": f"wikipedia:{page_id}" if page_id else None,
+                    "external_source": "wikipedia",
+                    "title_cn": wiki_title if lang == "zh" else None,
+                    "title_en": wiki_title if lang == "en" else None,
+                    "description": (best_auto.get("summary") or "")[:500] or None,
+                    "wikipedia_url": best_auto.get("url"),
+                },
+                "confidence": 0.9,
+                "reason": f"auto-linked wikipedia result (title similarity {best_auto_score})",
+            }
+            logger.info(
+                "[metadata_agent] auto-link %r -> %r (sim=%d, no judge)",
+                raw_title[:80], wiki_title, best_auto_score,
+            )
+            return finalize_dict, {
+                "method": "search_then_autolink",
+                "data_sources_used": ["wikipedia"],
+                "source_errors": source_errors,
+                "error": None,
+            }
 
         evidence_text = (
             "\n".join(

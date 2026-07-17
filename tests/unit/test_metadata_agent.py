@@ -471,6 +471,16 @@ def test_is_non_media_detects_software():
     assert _is_non_media("") is False
 
 
+def test_normalize_title_collapses_traditional_and_simplified():
+    # S1 short-circuit must treat Traditional-cased library titles the same
+    # as Simplified RSS titles (OpenCC t2s).
+    from app.services.metadata_agent import _normalize_title
+    assert _normalize_title("说出这边交给我") == _normalize_title("說出這邊交給我")
+    assert _normalize_title("无职转生Ⅲ") == _normalize_title("無職轉生Ⅲ")
+    # Punctuation dropped so "X！" and "X" collide.
+    assert _normalize_title("猫眼三姐妹！") == _normalize_title("猫眼三姐妹")
+
+
 def test_work_name_prefix_splits_at_first_season_marker():
     assert _work_name_prefix("无职转生 3期") == "无职转生"
     assert _work_name_prefix("Mushoku Tensei S3 - 03") == "Mushoku Tensei"
