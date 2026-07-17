@@ -447,3 +447,40 @@ async def _apply_light_migrations(conn) -> None:
             )
     except Exception as e:
         logger.warning("[migrate] non_work reset skipped: %s", e)
+
+    # ── one-time not_found reset for improved query cleaning ─────────────
+    # The Wikipedia candidate-query cleaner was strengthened (drops paren
+    # alt-titles, colon description tails, roman-numeral season markers) and
+    # non-media titles are now classified non_work. Reset existing not_found
+    # rows once so the backfill reprocesses them under the new logic instead
+    # of waiting out the 7-day cooldown.
+    try:
+        sentinel = "not_found_reclean_reset"
+        if is_sqlite:
+            await conn.execute(text(
+                f"INSERT OR IGNORE INTO app_settings(key, value) "
+                f"VALUES ('{sentinel}', 'pending')"
+            ))
+        elif is_postgres:
+            await conn.execute(text(
+                f"INSERT INTO app_settings(key, value) "
+                f"VALUES ('{sentinel}', 'pending') ON CONFLICT (key) DO NOTHING"
+            ))
+        row = (await conn.execute(text(
+            f"SELECT value FROM app_settings WHERE key = '{sentinel}'"
+        ))).first()
+        if row and row[0] == "pending":
+            res = await conn.execute(text(
+                "UPDATE file_resources SET metadata_failure_type = NULL, "
+                "metadata_attempts = 0, last_metadata_attempt_at = NULL "
+                "WHERE metadata_failure_type = 'not_found'"
+            ))
+            await conn.execute(text(
+                f"UPDATE app_settings SET value = 'done' WHERE key = '{sentinel}'"
+            ))
+            logger.info(
+                "[migrate] reset %s not_found rows for query re-cleaning",
+                getattr(res, "rowcount", "?"),
+            )
+    except Exception as e:
+        logger.warning("[migrate] not_found reset skipped: %s", e)

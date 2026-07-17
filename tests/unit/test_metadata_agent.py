@@ -444,6 +444,7 @@ from app.services.metadata_agent import (  # noqa: E402
     _candidate_queries,
     _clean_query,
     _detect_audio_work_type,
+    _is_non_media,
     _work_name_prefix,
 )
 
@@ -453,6 +454,21 @@ def test_clean_query_strips_season_episode_quality():
     assert _clean_query("Mushoku Tensei S3 - 03") == "Mushoku Tensei"
     assert _clean_query("Show [01] [1080p HEVC]") == "Show"
     assert _clean_query("Movie 2024") == "Movie 2024"
+
+
+def test_clean_query_strips_parens_colon_roman():
+    # Parenthetical alt titles + colon description tail -> base work name.
+    assert _clean_query("新世纪福音战士 (新世紀エヴァンゲリオン) (Neon Genesis Evangelion)：TV动画+剧场版") == "新世纪福音战士"
+    # Colon arc/description tail.
+    assert _clean_query("辉夜大小姐想让我告白：通往大人的阶梯") == "辉夜大小姐想让我告白"
+    # Trailing roman-numeral season marker.
+    assert _clean_query("无职转生Ⅲ") == "无职转生"
+
+
+def test_is_non_media_detects_software():
+    assert _is_non_media("BitComet Stable (build 2.21.6.23) 比特彗星全功能解锁豪华版") is True
+    assert _is_non_media("[LoliHouse] 无职转生 3期 - 03 [1080p]") is False
+    assert _is_non_media("") is False
 
 
 def test_work_name_prefix_splits_at_first_season_marker():

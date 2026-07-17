@@ -1091,6 +1091,19 @@ def _detect_audio_work_type(raw_title: str | None) -> str | None:
     return None
 
 
+# Titles that are software / non-media releases (BitComet builds, cracked
+# tools), not anime/TV/movie works. Marked non_work so they aren't retried.
+_NON_MEDIA_RE = re.compile(
+    r"BitComet|uTorrent|qBittorrent|比特彗星|aria2|解锁豪华版|破解版",
+    re.IGNORECASE,
+)
+
+
+def _is_non_media(raw_title: str | None) -> bool:
+    """True for software / non-media titles that should never be matched."""
+    return bool(raw_title and _NON_MEDIA_RE.search(raw_title))
+
+
 def _classify_failure(meta: Any) -> str | None:
     """Classify a ``ResourceMetadata`` outcome for retry/cache decisions.
 
@@ -1188,6 +1201,12 @@ _QUERY_EPISODE_MARKER_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _QUERY_DECORATIVE_TAIL_RE = re.compile(r"\s*[～~][^～~]*[～~]\s*$")
+# Alt-title parenthetical "(新世紀エヴァンゲリオン)" / "(Neon Genesis Evangelion)"
+# and description/arc tails after a colon "：通往大人的阶梯" / "：TV动画+剧场版".
+_QUERY_PAREN_RE = re.compile(r"[（(][^）)]*[）)]")
+_QUERY_COLON_TAIL_RE = re.compile(r"\s*[：:].*$")
+# Trailing unicode roman numerals used as season markers (无职转生Ⅲ -> 无职转生).
+_QUERY_ROMAN_TAIL_RE = re.compile(r"\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*$")
 # First-occurrence season/episode marker; the prefix before it is the base
 # work name (e.g. "无职转生 3期" -> "无职转生", "Mushoku Tensei S3 - 03" ->
 # "Mushoku Tensei", "樱桃小丸子第二期 1538 ..." -> "樱桃小丸子").
@@ -1199,7 +1218,9 @@ _QUERY_SEASON_EP_SPLIT_RE = re.compile(
     r"|Season\s*\d+"
     r"|\s*[\[【]\s*\d"
     r"|\sEP\s*\d"
-    r"|\s[#＃]\s*\d",
+    r"|\s[#＃]\s*\d"
+    r"|\s*[：:]"
+    r"|\s*[（(]",
     flags=re.IGNORECASE,
 )
 _KANA_RE = re.compile(r"[぀-ヿ]")
@@ -1229,12 +1250,15 @@ def _clean_query(part: str) -> str:
     if not part:
         return ""
     part = _BRACKET_PAIR_CAPTURE_RE.sub(" ", part)  # drop [metadata] / 【metadata】
+    part = _QUERY_PAREN_RE.sub(" ", part)  # drop （alt-title） parentheticals
+    part = _QUERY_COLON_TAIL_RE.sub("", part)  # drop ：arc/description tail
     part = _QUERY_EPISODE_TAIL_RE.sub("", part)
     part = _QUERY_QUALITY_TAIL_RE.sub("", part)
     part = _QUERY_EPISODE_MARKER_RE.sub("", part)
     part = _QUERY_DECORATIVE_TAIL_RE.sub("", part)
+    part = _QUERY_ROMAN_TAIL_RE.sub("", part)  # trailing Ⅲ season marker
     part = strip_season_from_title(part)
-    return part.strip(" -/|:：·～~")
+    return part.strip(" -/|:：·～~。.")
 
 
 def _work_name_prefix(part: str) -> str:
@@ -1827,7 +1851,21 @@ class UnifiedMetadataAgent:
                 content_type=work_type,
             )
 
-        # 0c. AudioWork detection: a title with strong audio-only markers
+        # 0c. Non-media (software / cracked tools) -> non_work, never retried.
+        if _is_non_media(raw_title):
+            meta = ResourceMetadata(
+                clean_title=raw_title[:200],
+                found=False,
+                content_type="tv",
+                reason="non-media release (software / tool), not a TV/movie work",
+            )
+            await self._apply_to_resource(meta, resource, channel, db)
+            _record_metadata_attempt(resource, meta)
+            if _classify_failure(meta) != "transient":
+                await self._set_cache(raw_title, data_source_type, meta, db)
+            return meta
+
+        # 0d. AudioWork detection: a title with strong audio-only markers
         # (ASMR / FLAC / soundtrack / drama CD / radio) is not a TV/movie work.
         # Resolve it into an AudioWork entity via a general-purpose source
         # (Wikipedia / Exa; TMDB falls back to Wikipedia) with a title-stub
