@@ -346,6 +346,20 @@ async def _cleanup_expired() -> None:
         if deleted_count:
             logger.info("Cleaned up %d expired completed tasks", deleted_count)
 
+        # Auto-cleanup of stale unresolved FileResources for channels that have
+        # opted in (per-channel enable + age threshold).
+        from app.services.resource_cleanup import cleanup_stale_unresolved_resources
+
+        try:
+            report = await cleanup_stale_unresolved_resources(db)
+            if report["deleted"]:
+                logger.info(
+                    "Auto-cleaned %d unresolved resources on %d channels",
+                    report["deleted"], report["channels"],
+                )
+        except Exception as e:
+            logger.warning("Unresolved-resource cleanup failed: %s", e)
+
 
 async def _check_downloader_connections() -> None:
     """Hourly connectivity check for all downloaders."""

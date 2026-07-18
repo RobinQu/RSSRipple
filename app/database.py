@@ -292,6 +292,11 @@ async def _apply_light_migrations(conn) -> None:
         # AudioWork link for non-TV/non-movie works (ASMR / music / drama CD /
         # radio). The audio_works table itself is created by create_all.
         ("file_resources", "audio_work_id", "VARCHAR(36)"),
+        # Per-channel auto-cleanup of stale unresolved resources: an enable
+        # toggle + an age threshold (days, default 21 = 3 weeks).
+        ("channels", "auto_cleanup_unresolved_enabled",
+         "BOOLEAN NOT NULL DEFAULT 0" if is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("channels", "auto_cleanup_unresolved_days", "INTEGER NOT NULL DEFAULT 21"),
     ]
 
     for table, column, ddl in additions:

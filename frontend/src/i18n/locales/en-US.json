@@ -165,6 +165,10 @@
     "metadataSourcePlaceholder": "Select a source (blank uses default)",
     "metadataSourceNone": "No data sources available",
     "metadataSourceNoneDesc": "No external data source is enabled and configured. Set the relevant API key in .env and keep its switch on, or turn off metadata search to use local matching only.",
+    "autoCleanupUnresolved": "Auto-cleanup unresolved resources",
+    "autoCleanupUnresolvedDesc": "When enabled, FileResources that remain unresolved past the threshold and have had no manual handling (direct download or metadata edit) are deleted automatically; if the feed re-publishes the same item it is re-created and re-matched.",
+    "cleanupThresholdDays": "Cleanup threshold (days)",
+    "cleanupThresholdDaysDesc": "Unresolved resources older than this (by creation time) are cleaned up. Range 1-365, default 21 (3 weeks).",
     "sourceUnavailable": "unavailable",
     "sources": {
       "exa": "Exa Agent",

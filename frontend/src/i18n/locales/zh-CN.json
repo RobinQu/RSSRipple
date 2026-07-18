@@ -165,6 +165,10 @@
     "metadataSourcePlaceholder": "选择数据源（留空使用默认）",
     "metadataSourceNone": "没有可用的数据源",
     "metadataSourceNoneDesc": "未启用或未配置任何外部数据源。请在 .env 中配置对应 API Key 并保持开关开启，或关闭元数据搜索仅使用本地匹配。",
+    "autoCleanupUnresolved": "自动清理未解析资源",
+    "autoCleanupUnresolvedDesc": "开启后，超过设定天数仍未解析成功且未被人工处理（直接下载或编辑元数据）的 FileResource 将被自动删除；RSS 重新发布相同条目时会再次创建并匹配",
+    "cleanupThresholdDays": "清理阈值（天）",
+    "cleanupThresholdDaysDesc": "未解析资源创建超过该天数后将被清理，范围 1-365，默认 21（3 周）",
     "sourceUnavailable": "不可用",
     "sources": {
       "exa": "Exa Agent",

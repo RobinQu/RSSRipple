@@ -42,6 +42,8 @@ export interface ChannelCreate {
   field_mapping: FieldMapping;
   metadata_agent_enabled?: boolean;
   metadata_source?: MetadataSource | null;
+  auto_cleanup_unresolved_enabled?: boolean;
+  auto_cleanup_unresolved_days?: number;
 }
 
 export interface ChannelUpdate {
@@ -52,6 +54,8 @@ export interface ChannelUpdate {
   field_mapping?: FieldMapping;
   metadata_agent_enabled?: boolean;
   metadata_source?: MetadataSource | null;
+  auto_cleanup_unresolved_enabled?: boolean;
+  auto_cleanup_unresolved_days?: number;
 }
 
 type ChannelResourcesPayload =

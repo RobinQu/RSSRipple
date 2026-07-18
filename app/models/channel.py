@@ -34,6 +34,18 @@ class Channel(Base):
     # One of SUPPORTED_METADATA_SOURCES (tmdb/exa/wikipedia/jina/local), or
     # None to fall back to the default source at runtime.
     metadata_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # ── Auto-cleanup of stale unresolved resources ──
+    # When enabled, the daily cleanup job deletes this channel's FileResources
+    # that have sat *unresolved* (no linked work, never matched) for longer
+    # than ``auto_cleanup_unresolved_days`` and have had no manual handling
+    # (no direct download, no manual episode/metadata edit). Opt-in per channel.
+    auto_cleanup_unresolved_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    # Age (days) a resource may stay unresolved before auto-cleanup. 21 = 3 weeks.
+    auto_cleanup_unresolved_days: Mapped[int] = mapped_column(
+        Integer, default=21, nullable=False, server_default="21"
+    )
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_fetch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_fetch_error: Mapped[str | None] = mapped_column(String(2048), nullable=True)

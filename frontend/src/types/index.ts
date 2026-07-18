@@ -19,6 +19,8 @@ export interface Channel {
   field_mapping: FieldMapping;
   metadata_agent_enabled: boolean;
   metadata_source: MetadataSource | null;
+  auto_cleanup_unresolved_enabled: boolean;
+  auto_cleanup_unresolved_days: number;
   last_fetched_at: string | null;
   last_fetch_status: string | null;
   last_fetch_error: string | null;

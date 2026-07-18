@@ -18,11 +18,18 @@ class ChannelCreate(BaseModel):
     field_mapping: dict
     metadata_agent_enabled: bool = True
     metadata_source: str | None = None
+    auto_cleanup_unresolved_enabled: bool = False
+    auto_cleanup_unresolved_days: int = 21
 
     @field_validator("metadata_source")
     @classmethod
     def _validate_source(cls, v: str | None) -> str | None:
         return _normalize_source(v)
+
+    @field_validator("auto_cleanup_unresolved_days")
+    @classmethod
+    def _clamp_days(cls, v: int) -> int:
+        return _clamp_cleanup_days(v)
 
 
 class ChannelUpdate(BaseModel):
@@ -32,11 +39,18 @@ class ChannelUpdate(BaseModel):
     field_mapping: dict | None = None
     metadata_agent_enabled: bool | None = None
     metadata_source: str | None = None
+    auto_cleanup_unresolved_enabled: bool | None = None
+    auto_cleanup_unresolved_days: int | None = None
 
     @field_validator("metadata_source")
     @classmethod
     def _validate_source(cls, v: str | None) -> str | None:
         return _normalize_source(v)
+
+    @field_validator("auto_cleanup_unresolved_days")
+    @classmethod
+    def _clamp_days(cls, v: int | None) -> int | None:
+        return None if v is None else _clamp_cleanup_days(v)
 
 
 class ChannelResponse(ORMModel):
@@ -49,11 +63,22 @@ class ChannelResponse(ORMModel):
     field_mapping: dict
     metadata_agent_enabled: bool = True
     metadata_source: str | None = None
+    auto_cleanup_unresolved_enabled: bool = False
+    auto_cleanup_unresolved_days: int = 21
     last_fetched_at: datetime | None = None
     last_fetch_status: str | None = None
     last_fetch_error: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+def _clamp_cleanup_days(v: int) -> int:
+    """Clamp the auto-cleanup threshold to a sane positive window."""
+    if v < 1:
+        return 1
+    if v > 365:
+        return 365
+    return v
 
 
 def _normalize_source(value: str | None) -> str | None:

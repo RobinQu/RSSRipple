@@ -288,6 +288,21 @@ async def get_fetch_status(channel_id: str, db: AsyncSession = Depends(get_db)):
     return success_response(await task_queue.status(f"channel:{channel_id}"))
 
 
+@router.post("/channels/{channel_id}/cleanup-unresolved")
+async def cleanup_unresolved(channel_id: str, db: AsyncSession = Depends(get_db)):
+    """Manually trigger stale-unresolved-resource cleanup for a channel.
+
+    Runs regardless of the channel's auto-cleanup toggle - that toggle only
+    gates the *automatic* daily cleanup. Returns the number of deleted resources.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        return _not_found()
+    from app.services.resource_cleanup import cleanup_channel_unresolved_resources
+    deleted = await cleanup_channel_unresolved_resources(db, channel_id, force=True)
+    return success_response({"deleted": deleted})
+
+
 @router.post("/channels/{channel_id}/analyze")
 async def analyze_channel_feed(channel_id: str, db: AsyncSession = Depends(get_db)):
     channel = await db.get(Channel, channel_id)
