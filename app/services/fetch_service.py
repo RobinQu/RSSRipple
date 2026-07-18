@@ -16,7 +16,7 @@ from app.clients.rss_parser import (
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.services.metadata_service import fetch_and_link_metadata
-from app.services.resource_parser import parse_entry, strip_season_from_title
+from app.services.resource_parser import normalize_parsed_fields, parse_entry, strip_season_from_title
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -398,6 +398,12 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
             except Exception as e:
                 logger.debug("[fetch:%s] Field mapping failed: guid=%s error=%s", channel.id, guid, e)
                 parsed = {}
+        # Conservative post-parse repair: fix bracket leaks in title_cn/title_en
+        # (multi-bracket titles like "[Group][Station]Work / Alt - EP") and fill
+        # tech fields the LLM-regexes miss (1920x1080, bare WEB, AACx2). No-op
+        # for resources the field_mapping already parsed cleanly.
+        parsed = normalize_parsed_fields(title, parsed)
+        parsed = {k: v for k, v in parsed.items() if v is not None}
 
         # Pop explicit fields
         fm_torrent_url = parsed.pop("torrent_url", None) or None

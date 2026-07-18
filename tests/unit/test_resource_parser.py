@@ -383,3 +383,113 @@ from app.services.resource_parser import strip_season_from_title  # noqa: E402
 )
 def test_strip_season_from_title(raw, expected):
     assert strip_season_from_title(raw) == expected
+
+
+# ---------------------------------------------------------------------------
+# normalize_parsed_fields - post-parse repair of bracket leaks & missed tech
+# ---------------------------------------------------------------------------
+
+from app.services.resource_parser import normalize_parsed_fields  # noqa: E402
+
+
+def _norm(title_raw, parsed):
+    """Run the normalizer and drop None values, mirroring fetch_service usage."""
+    return {k: v for k, v in normalize_parsed_fields(title_raw, parsed).items() if v is not None}
+
+
+def test_normalize_repairs_multi_bracket_title_leak():
+    """Second bracket [ViuTV粵語] leaks into title_cn/title_en; normalizer
+    re-derives them from the bracket-stripped core."""
+    raw = ("[jibaketa合成&音頻壓制][ViuTV粵語]幪面超人 / 假面騎士ZEZTZ / 假面骑士ZZZ / "
+           "Kamen Rider Zeztz - 42 [粵日雙語+內封繁體中文字幕] "
+           "(WEB 1920x1080 AVC AACx2 SRT+PGS ViuTV CHT)")
+    parsed = {
+        "title_cn": "粵語]幪面超人 ", "title_en": "[ViuTV",
+        "subtitle_group": "jibaketa合成&音頻壓制", "episode": 42, "season": 1,
+        "video_codec": "AVC", "subtitle_type": "CHT",
+    }
+    out = _norm(raw, parsed)
+    assert out["title_cn"] == "幪面超人"
+    assert out["title_en"] == "Kamen Rider Zeztz"
+    # search_title prefers the latin variant (best local-match signal)
+    assert out["search_title"] == "Kamen Rider Zeztz"
+    # tech fields filled from the parenthetical block
+    assert out["resolution"] == "1080p"
+    assert out["source"] == "WEB"
+    assert out["audio_codec"] == "AAC"
+    # already-present values preserved
+    assert out["video_codec"] == "AVC"
+    assert out["subtitle_type"] == "CHT"
+    assert out["episode"] == 42
+
+
+def test_normalize_repairs_ultraman_title_to_latin_name():
+    """The user-reported case: work name should be 'Ultraman Teo', not ViuTV."""
+    raw = ("[jibaketa合成&二次壓制][ViuTV粵語]超人 / 超人力霸王狄奧 / 提欧奥特曼 / "
+           "Ultraman Teo - 02 [粵語+無對白字幕](WEB 1920x1080 x264 AAC YUE CHT)")
+    parsed = {"title_cn": "粵語]超人 ", "title_en": "[ViuTV",
+              "subtitle_group": "jibaketa合成&二次壓制", "episode": 2}
+    out = _norm(raw, parsed)
+    assert out["title_en"] == "Ultraman Teo"
+    assert out["search_title"] == "Ultraman Teo"
+    assert out["resolution"] == "1080p"
+    assert out["source"] == "WEB"
+    assert out["audio_codec"] == "AAC"
+    assert out["video_codec"] == "x264"
+
+
+def test_normalize_is_noop_for_clean_parse():
+    """A cleanly-parsed single-bracket title is untouched; search_title stays
+    None (extract_search_title handles it later)."""
+    raw = "[ANi] Kamen Rider ZEZTZ /  假面騎士 ZEZTZ - 39 [1080P][Baha][WEB-DL][AAC AVC][CHT][MP4]"
+    parsed = {
+        "title_cn": "假面騎士 ZEZTZ", "title_en": "Kamen Rider ZEZTZ /",
+        "subtitle_group": "ANi", "episode": 39, "source": "WEB-DL",
+        "video_codec": "AVC", "audio_codec": "AAC", "subtitle_type": "CHT", "container": "MP4",
+    }
+    out = _norm(raw, parsed)
+    # No bracket leak -> title fields unchanged, no search_title injected
+    assert out["title_cn"] == "假面騎士 ZEZTZ"
+    assert out["title_en"] == "Kamen Rider ZEZTZ /"
+    assert "search_title" not in out
+    # Existing tech values are NOT overwritten
+    assert out["source"] == "WEB-DL"
+    assert out["audio_codec"] == "AAC"
+    assert out["container"] == "MP4"
+
+
+def test_normalize_fills_missing_tech_without_title_repair():
+    """Tech fields are filled from title_raw even when title_cn/title_en are
+    clean (only None fields are filled - never overwritten)."""
+    raw = "[Group] Some Show - 05 (WEB 1920x1080 x265 FLAC2.0 MP4)"
+    parsed = {"title_cn": "Some Show", "subtitle_group": "Group", "episode": 5}
+    out = _norm(raw, parsed)
+    assert out["resolution"] == "1080p"
+    assert out["source"] == "WEB"
+    assert out["video_codec"] == "x265"
+    assert out["audio_codec"] == "FLAC"
+    assert out["container"] == "MP4"
+    # title untouched (no leak)
+    assert out["title_cn"] == "Some Show"
+    assert "search_title" not in out
+
+
+def test_normalize_resolution_from_4k():
+    raw = "[G] Show - 1 (3840x2160 AVC AAC MKV)"
+    out = _norm(raw, {})
+    assert out["resolution"] == "2160p"
+
+
+def test_normalize_no_brackets_in_search_title_when_no_latin_segment():
+    """If only CJK segments exist, search_title falls back to the CJK one."""
+    raw = "[Group][粵語]幪面超人 - 01 (WEB 1080p AAC)"
+    parsed = {"title_cn": "語]幪面超人", "title_en": "[Group"}
+    out = _norm(raw, parsed)
+    # title_en leaked -> repaired; no pure-latin segment -> search_title = CJK
+    assert out["title_cn"] == "幪面超人"
+    assert out["search_title"] == "幪面超人"
+
+
+def test_normalize_empty_title_and_missing_fields():
+    assert normalize_parsed_fields(None, {"title_cn": None}) == {"title_cn": None}
+    assert normalize_parsed_fields("", {"episode": 1}) == {"episode": 1}

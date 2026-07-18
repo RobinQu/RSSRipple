@@ -375,3 +375,132 @@ def detect_subtitle_langs(title: str | None) -> list[str]:
         # translated to zh-CN + zh-TW).
         remaining = pattern.sub(" ", remaining)
     return seen
+
+
+# ---------------------------------------------------------------------------
+# Post-parse normalization
+# ---------------------------------------------------------------------------
+
+# The per-channel field_mapping regexes are LLM-generated and fragile. Two
+# recurrent failure modes this normalizer repairs:
+#   1. Multi-bracket titles ``[Group][Station]Work / Alt - EP``: the regex
+#      strips only the first ``[...]`` so the second bracket leaks into
+#      title_cn/title_en (e.g. ``"[ViuTV"``, ``"粵語]幪面超人 "``). That leaked
+#      token then mis-directs the metadata agent (a TV-station name auto-links
+#      to the station's Wikipedia article, spawning a bogus work).
+#   2. Parenthetical tech blocks ``(WEB 1920x1080 AVC AACx2 ... CHT)``: the
+#      WxH resolution, bare ``WEB`` source, and ``AACx2`` codec (the ``x``
+#      breaks ``\bAAC\b``) are missed.
+#
+# The normalizer is CONSERVATIVE: it only repairs title fields that contain
+# leaked brackets, and only fills tech fields that are None. Resources the
+# field_mapping already parsed cleanly are untouched.
+
+# All leading [..]/【..】 release-tag brackets (group / station / language).
+_LEADING_BRACKETS_RE = re.compile(r"^(?:\s*[\[【][^\]】]*[\]】])+")
+# Episode tail " - 42 ..." and any trailing [tech]/(tech) block, used to
+# isolate the work-name segment(s) from a raw title.
+_EPISODE_TAIL_RE = re.compile(r"\s*-\s*\d+\b.*$")
+_TRAILING_TECH_RE = re.compile(r"\s*[\[【(（].*$")
+
+_RESOLUTION_WXH_RE = re.compile(r"\b(\d{3,4})\s*[x×]\s*(\d{3,4})\b", re.IGNORECASE)
+_RESOLUTION_BY_HEIGHT = {
+    360: "360p", 480: "480p", 540: "540p", 720: "720p",
+    1080: "1080p", 1440: "1440p", 2160: "2160p",
+}
+# Source tokens; bare ``WEB`` is recognized (the field_mapping only has WEB-DL).
+_SOURCE_TOKEN_RE = re.compile(r"\b(WEB-DL|BDRip|WebRip|TVRip|WEB|BD-Rip|HDTV|DVD)\b", re.IGNORECASE)
+# Codec tokens. The lookahead permits a trailing channel-count modifier
+# (``AACx2``, ``AAC2.0``) without matching the codec inside a longer word
+# (``AACoder``), which a plain ``\b...\b`` cannot do for ``AACx2``.
+_AUDIO_CODEC_RE = re.compile(
+    r"\b(AAC|FLAC|OPUS|AC-?3|E-?AC-?3|MP3|DTS|TrueHD)(?=[\s)\]x\d]|$)",
+    re.IGNORECASE,
+)
+_VIDEO_CODEC_RE = re.compile(
+    r"\b(AVC|x265|x264|HEVC|H\.?264|H\.?265|AV1|VP9)\b",
+    re.IGNORECASE,
+)
+_CONTAINER_RE = re.compile(r"\b(MP4|MKV|AVI)\b", re.IGNORECASE)
+
+_CJK_RE = re.compile(r"[一-鿿]")
+_ASCII_ONLY_RE = re.compile(r"[\x00-\x7f\s]+")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+
+def _has_bracket_leak(value: Any) -> bool:
+    """True when an extracted field leaked bracket characters (``[ViuTV``)."""
+    return value is not None and ("[" in str(value) or "]" in str(value))
+
+
+def _title_core_segments(title_raw: str) -> list[str]:
+    """Split a raw title into its work-name variant segments.
+
+    Strips ALL leading release-tag brackets, drops the episode tail and any
+    trailing tech block, then splits on `` / `` alt-title separators::
+
+        "[jibaketa..][ViuTV粵語]幪面超人 / 假面騎士ZEZTZ - 42 [..] (..)"
+        -> ["幪面超人", "假面騎士ZEZTZ"]
+    """
+    core = _LEADING_BRACKETS_RE.sub("", title_raw).strip()
+    core = _EPISODE_TAIL_RE.sub("", core)
+    core = _TRAILING_TECH_RE.sub("", core)
+    return [s.strip() for s in core.split("/") if s.strip()]
+
+
+def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
+    """Conservatively repair field_mapping output for common regex misses.
+
+    See the module section header for the two failure modes this addresses.
+    Only repairs title fields that leaked brackets and only fills tech fields
+    that are ``None`` - a no-op for cleanly-parsed resources. When a title
+    field is repaired, ``search_title`` is set to the latin variant if present
+    (the best local-match signal for bilingual fansub titles such as
+    "Ultraman Teo"), else the CJK variant.
+
+    Tech values preserve the casing found in the title (matching the
+    field_mapping's behavior); only ``resolution`` is canonicalized to the
+    ``Np`` form.
+    """
+    out = dict(parsed)
+    if not title_raw:
+        return out
+
+    if _has_bracket_leak(out.get("title_cn")) or _has_bracket_leak(out.get("title_en")):
+        segments = _title_core_segments(title_raw)
+        cjk_seg = next((s for s in segments if _CJK_RE.search(s)), None)
+        lat_seg = next(
+            (s for s in segments if _ASCII_ONLY_RE.fullmatch(s) and _LATIN_RE.search(s)),
+            None,
+        )
+        if _has_bracket_leak(out.get("title_cn")):
+            out["title_cn"] = cjk_seg
+        if _has_bracket_leak(out.get("title_en")):
+            out["title_en"] = lat_seg
+        # Prefer the latin variant for search_title: series.title_en is the
+        # romanized name local matching keys on, and bilingual titles bury the
+        # searchable name in a later " / " segment.
+        out["search_title"] = lat_seg or cjk_seg or out.get("search_title")
+
+    if not out.get("resolution"):
+        m = _RESOLUTION_WXH_RE.search(title_raw)
+        if m:
+            out["resolution"] = _RESOLUTION_BY_HEIGHT.get(int(m.group(2)))
+    if not out.get("source"):
+        m = _SOURCE_TOKEN_RE.search(title_raw)
+        if m:
+            out["source"] = m.group(1)
+    if not out.get("audio_codec"):
+        m = _AUDIO_CODEC_RE.search(title_raw)
+        if m:
+            out["audio_codec"] = m.group(1)
+    if not out.get("video_codec"):
+        m = _VIDEO_CODEC_RE.search(title_raw)
+        if m:
+            out["video_codec"] = m.group(1)
+    if not out.get("container"):
+        m = _CONTAINER_RE.search(title_raw)
+        if m:
+            out["container"] = m.group(1)
+
+    return out
