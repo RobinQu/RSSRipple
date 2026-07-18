@@ -1025,6 +1025,13 @@ Example 7 — Batch without explicit boundaries:
 4. If the selected source fails → finalize with found=false.
 5. Do NOT call the same tool with the same parameters more than once.
 6. ALWAYS call finalize to end. Never leave a task unfinished.
+7. ENTITY TYPE: only link to a result that IS the work (a TV series, anime, or
+   film). Never accept a result that is a TV channel/station/network, a
+   streaming platform, a production company/studio, a person, a disambiguation
+   page, a single episode, or a soundtrack/song - even if its name matches the
+   query (a leaked station token like "ViuTV"/"TVB"/"NHK" is the broadcaster,
+   not the show). If the best result is such a non-work entity, finalize
+   found=false.
 
 ## TITLE PARSING
 
@@ -1364,6 +1371,26 @@ _BRACKET_METADATA_HINT_RE = re.compile(
 )
 _BRACKET_PURE_DIGIT_RE = re.compile(r"^\d{1,4}(?:v\d+)?$")
 _BRACKET_DATE_RE = re.compile(r"^\d{4}[.\-/]\d{1,2}")
+# Station / platform / broadcaster tokens that appear in fansub titles but
+# are NOT work names. A field-mapping leak can surface one as the search_title
+# (e.g. "[ViuTV粵語]" -> "ViuTV"), and its Wikipedia page (the ViuTV *television
+# station*) title-matches the query well enough to slip past auto-link. Used
+# two ways: A4 drops a bracket whose content contains one; A1 skips a query
+# that IS one (fullmatch, so "Tokyo MX"/"BS 11" match but "Tokyo" alone won't).
+_NON_WORK_NAME_TOKEN_RE = re.compile(
+    r"ViuTV|TVB|CCTV|NHK|MBS|TBS|KBS|MBC|SBS|TVA|YTV|BS\s*11|AT-?X|"
+    r"Fuji\s*TV|Nippon\s*TV|Tokyo\s*MX|"
+    r"Bilibili|Netflix|Disney\+|Disney\s*Plus|Hulu|"
+    r"Prime\s*Video|Amazon\s*Prime|HBO\s*Max|"
+    r"Crunchyroll|Funimation|IQIYI|Youku|Tencent\s*Video|"
+    r"爱奇艺|優酷|优酷|腾讯视频|"
+    r"YouTube",
+    flags=re.IGNORECASE,
+)
+# Any unbalanced bracket char left over after the pair-sub - an upstream
+# regex that ate only the closing ']' (a field-mapping leak) leaves a stray
+# '[' that would otherwise travel into the Wikipedia query.
+_ORPHAN_BRACKET_RE = re.compile(r"[\[\]【】]")
 # Alt-title separator: half-width " / " or full-width "／".
 _ALT_TITLE_SPLIT_RE = re.compile(r"\s*[／/]\s*")
 
@@ -1374,6 +1401,7 @@ def _clean_query(part: str) -> str:
     if not part:
         return ""
     part = _BRACKET_PAIR_CAPTURE_RE.sub(" ", part)  # drop [metadata] / 【metadata】
+    part = _ORPHAN_BRACKET_RE.sub(" ", part)  # drop unbalanced [】left by an upstream leak
     part = _QUERY_PAREN_RE.sub(" ", part)  # drop （alt-title） parentheticals
     part = _QUERY_COLON_TAIL_RE.sub("", part)  # drop ：arc/description tail
     part = _QUERY_EPISODE_TAIL_RE.sub("", part)
@@ -1406,6 +1434,118 @@ def _infer_content_type_from_categories(categories: list[str]) -> str:
     return "tv"
 
 
+# ── Work-vs-non-work page classification ──────────────────────────────────
+#
+# A Wikipedia page for a TV *station* / broadcaster / streaming platform /
+# company / person can title-match a fansub token (ViuTV, TVB, ...) with
+# similarity >= AUTO_LINK_THRESHOLD. Title similarity alone therefore cannot
+# tell a creative work from its broadcaster - that is how the ViuTV station
+# page was auto-linked as a bogus series. The classifier below uses the page's
+# category list (the strongest signal) with a summary lead-sentence fallback.
+
+_WORK_CATEGORY_RE = re.compile(
+    r"television series|television shows|tv series|tv shows|"
+    r"\banime\b|anime and manga|anime television|animated television|"
+    r"\bfilms\b|\bfilm\b|\bmovies\b|animated films|"
+    r"manga|light novels|\bnovels\b|web series|"
+    r"original video animation|\bova\b|original net animation|\bona\b|"
+    r"电视剧|電視劇|動畫|动画|电影|電影|漫畫|漫画|"
+    r"テレビアニメ|アニメ|映画|漫画",
+    flags=re.IGNORECASE,
+)
+_NON_WORK_CATEGORY_RE = re.compile(
+    r"disambiguation|set-index|set index|ambiguous|"
+    r"television channels|television networks|television stations|"
+    r"broadcasting|broadcasters|television programming blocks|"
+    r"\bcompanies\b|\bcorporations\b|\bbrands\b|subsidiaries|"
+    r"\bpeople\b|\bpersons\b|biographies|living people|\bbirths\b|\bdeaths\b|"
+    r"voice actors|\bactors\b|\bdirectors\b|\bwriters\b|filmography|"
+    r"albums|soundtracks|\bsongs\b|discographies|"
+    r"\blists\b|\bstubs\b|"
+    r"電視台|电视台|电视网|廣播|广播|公司|人物|消歧义|消歧義|"
+    r"テレビ局|企業|人物|曖昧さ回避",
+    flags=re.IGNORECASE,
+)
+_WORK_SUMMARY_RE = re.compile(
+    r"\b(?:is|was|are|were)\b[^.]{0,60}\b"
+    r"(?:television series|tv series|anime|animated series|film|movie|ova|ona|"
+    r"manga|light novel|web series|drama series)\b",
+    flags=re.IGNORECASE,
+)
+_NON_WORK_SUMMARY_RE = re.compile(
+    r"\b(?:is|was|are|were)\b[^.]{0,60}\b"
+    r"(?:television channel|television network|television station|broadcaster|"
+    r"broadcasting|streaming service|streaming platform|video-on-demand|"
+    r"video on demand|company|corporation|subsidiary|brand)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _classify_wikipedia_page(
+    categories: list[str] | None, summary: str | None = None
+) -> str:
+    """Classify a Wikipedia page as ``"work"`` | ``"non_work"`` | ``"ambiguous"``.
+
+    ``"work"`` => safe to link as a TVSeries/Movie. ``"non_work"`` => a
+    station/network/platform/company/person/disambiguation page that must NOT
+    be linked. ``"ambiguous"`` => not enough signal to decide; defer to the LLM
+    judge. Categories dominate; the lead-sentence summary is a tiebreaker.
+    """
+    cat_text = " ".join(categories or [])
+    has_non_work_cat = bool(cat_text and _NON_WORK_CATEGORY_RE.search(cat_text))
+    has_work_cat = bool(cat_text and _WORK_CATEGORY_RE.search(cat_text))
+    if has_non_work_cat and not has_work_cat:
+        return "non_work"
+    if has_non_work_cat and has_work_cat:
+        return "ambiguous"  # mixed signals - let the judge decide
+    if has_work_cat:
+        return "work"
+    text = summary or ""
+    if _NON_WORK_SUMMARY_RE.search(text):
+        return "non_work"
+    if _WORK_SUMMARY_RE.search(text):
+        return "work"
+    return "ambiguous"
+
+
+def _validate_matched_entity_kind(meta: ResourceMetadata) -> ResourceMetadata:
+    """Defense-in-depth: decline a Wikipedia match whose page is a non-work
+    entity (station / company / person / disambiguation), even if the agent
+    returned it.
+
+    B1 (auto-link gate) and B2 (judge prompt) already steer away from these,
+    but a judge slip or a thin-categories fallthrough could still surface one -
+    never upsert a bogus TVSeries from a non-work page. The reason phrasing
+    deliberately avoids :data:`_NON_WORK_MARKERS` ("not a tv/movie/anime") so
+    :func:`_classify_failure` treats it as a retryable ``not_found`` rather
+    than a permanent ``non_work`` (the resource IS a show; we just matched the
+    wrong page and should retry with better keywords).
+    """
+    me = getattr(meta, "matched_entity", None)
+    if not meta.found or not me:
+        return meta
+    if (me.get("external_source") or "") != "wikipedia":
+        return meta
+    cats = me.get("categories") or []
+    if not cats:
+        return meta  # no categories to check (e.g. ReAct path) - trust B2
+    kind = _classify_wikipedia_page(cats, me.get("description") or "")
+    if kind == "non_work":
+        logger.info(
+            "[metadata_agent] declined non-work wikipedia match %r "
+            "(categories=%s); downgrading to not_found",
+            me.get("external_id"), cats[:3],
+        )
+        meta.found = False
+        meta.matched_entity = None
+        meta.confidence = 0.0
+        meta.reason = (
+            "declined non-work wikipedia entity match "
+            "(channel/company/person); will retry"
+        )
+    return meta
+
+
 def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tuple[str, str]]:
     """Up to 6 (query, lang) wikipedia searches for the judge path.
 
@@ -1424,6 +1564,8 @@ def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tupl
         q = _clean_query(q or "")
         if not q:
             return
+        if _NON_WORK_NAME_TOKEN_RE.fullmatch(q):
+            return  # A1: a bare station/platform token is not a work name
         key = (q.lower(), lang)
         if key in seen:
             return
@@ -1462,6 +1604,7 @@ def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tupl
         if (
             content
             and not _BRACKET_METADATA_HINT_RE.search(content)
+            and not _NON_WORK_NAME_TOKEN_RE.search(content)  # A4: [ViuTV粵語]/[TVB]/[Netflix]
             and not _BRACKET_PURE_DIGIT_RE.match(content)
             and not _BRACKET_DATE_RE.match(content)
         ):
@@ -1533,11 +1676,18 @@ matching this schema:
 }
 
 Rules:
-- Pick the candidate whose Wikipedia page is clearly the work named in the
-  title. Use BOTH the summary AND the categories to confirm it is a TV series
-  or film (e.g. categories containing "television series"/"anime"/"TV series"
-  => content_type "tv"; "films"/"movie" => "movie") - not a disambiguation
-  page, person, or single episode.
+- Pick the candidate whose Wikipedia page IS the work named in the title (not
+  a page that merely mentions it). Use BOTH the summary AND the categories.
+  The page MUST be a creative work: require a work-type category such as
+  "television series"/"anime"/"TV series" (=> content_type "tv") or
+  "films"/"movie" (=> "movie"). REJECT - found=false - any candidate whose
+  page is a NON-work entity type, even if its title matches the query well:
+  TV channels / stations / networks, broadcasters, streaming platforms /
+  services, production companies / studios, brands, people (voice actors /
+  directors / writers), broadcast programming blocks, disambiguation /
+  set-index / "ambiguous" pages, single episodes, and soundtrack albums /
+  songs. A leaked station token (e.g. "ViuTV", "TVB", "NHK") is never the work
+  itself. If none of the candidates has a work-type category, found=false.
 - content_type "tv" for series/anime, "movie" for films.
 - external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
   page_id; external_source "wikipedia"; include wikipedia_url.
@@ -2042,6 +2192,17 @@ class UnifiedMetadataAgent:
         # 3. Parse
         meta = ResourceMetadata.from_dict(finalize_dict)
 
+        # B3: defense-in-depth - decline a Wikipedia match whose page is a
+        # non-work entity (station/company/person/disambiguation). B1 (auto-link
+        # gate) and B2 (judge prompt) already steer away from these, but a judge
+        # slip or thin-categories fallthrough could still surface one; never
+        # upsert a bogus TVSeries from a non-work page. Strips the carried
+        # `categories` (a B3-only transport key) from matched_entity afterwards
+        # so it never reaches the upsert/cache.
+        meta = _validate_matched_entity_kind(meta)
+        if meta.matched_entity:
+            meta.matched_entity.pop("categories", None)
+
         # Default season to 1 for TV when not inferable
         if meta.content_type == "tv" and meta.season is None and meta.found:
             meta.season = 1
@@ -2302,38 +2463,53 @@ class UnifiedMetadataAgent:
                 best_auto_query = q
         if best_auto is not None and best_auto_score >= AUTO_LINK_THRESHOLD:
             cats = best_auto.get("categories") or []
-            ct = _infer_content_type_from_categories(cats)
-            page_id = best_auto.get("page_id")
-            lang = best_auto.get("lang")
-            wiki_title = best_auto.get("title")
-            finalize_dict = {
-                "found": True,
-                "clean_title": best_auto_query or wiki_title,
-                "content_type": ct,
-                "title_cn": wiki_title if lang == "zh" else None,
-                "title_en": wiki_title if lang == "en" else None,
-                "matched_entity": {
-                    "external_id": f"wikipedia:{page_id}" if page_id else None,
-                    "external_source": "wikipedia",
+            page_kind = _classify_wikipedia_page(cats, best_auto.get("summary") or "")
+            # B1: only auto-link a genuine creative work. A station / platform /
+            # company / person / disambiguation page can title-match the query
+            # (ViuTV, TVB, ...) well above the threshold - linking it on title
+            # similarity alone is how the ViuTV television-station page became a
+            # bogus series. non_work / ambiguous fall through to the LLM judge,
+            # which can pick a different candidate or confirm no match.
+            if page_kind == "work":
+                ct = _infer_content_type_from_categories(cats)
+                page_id = best_auto.get("page_id")
+                lang = best_auto.get("lang")
+                wiki_title = best_auto.get("title")
+                finalize_dict = {
+                    "found": True,
+                    "clean_title": best_auto_query or wiki_title,
+                    "content_type": ct,
                     "title_cn": wiki_title if lang == "zh" else None,
                     "title_en": wiki_title if lang == "en" else None,
-                    "description": (best_auto.get("summary") or "")[:500] or None,
-                    "poster_url": best_auto.get("poster_url"),
-                    "wikipedia_url": best_auto.get("url"),
-                },
-                "confidence": 0.9,
-                "reason": f"auto-linked wikipedia result (title similarity {best_auto_score})",
-            }
+                    "matched_entity": {
+                        "external_id": f"wikipedia:{page_id}" if page_id else None,
+                        "external_source": "wikipedia",
+                        "title_cn": wiki_title if lang == "zh" else None,
+                        "title_en": wiki_title if lang == "en" else None,
+                        "description": (best_auto.get("summary") or "")[:500] or None,
+                        "poster_url": best_auto.get("poster_url"),
+                        "wikipedia_url": best_auto.get("url"),
+                        "categories": list(cats[:10]),  # B3: carried for validation
+                    },
+                    "confidence": 0.9,
+                    "reason": f"auto-linked wikipedia result (title similarity {best_auto_score})",
+                }
+                logger.info(
+                    "[metadata_agent] auto-link %r -> %r (sim=%d, work, no judge)",
+                    raw_title[:80], wiki_title, best_auto_score,
+                )
+                return finalize_dict, {
+                    "method": "search_then_autolink",
+                    "data_sources_used": ["wikipedia"],
+                    "source_errors": source_errors,
+                    "error": None,
+                }
             logger.info(
-                "[metadata_agent] auto-link %r -> %r (sim=%d, no judge)",
-                raw_title[:80], wiki_title, best_auto_score,
+                "[metadata_agent] auto-link skipped for %r: top result %r is %s "
+                "(sim=%d); deferring to judge",
+                raw_title[:80], best_auto.get("title"), page_kind, best_auto_score,
             )
-            return finalize_dict, {
-                "method": "search_then_autolink",
-                "data_sources_used": ["wikipedia"],
-                "source_errors": source_errors,
-                "error": None,
-            }
+            # non_work / ambiguous -> fall through to the LLM judge below
 
         evidence_text = (
             "\n".join(
@@ -2399,6 +2575,22 @@ class UnifiedMetadataAgent:
             return await self._run_react(
                 self._build_title_only_message(raw_title, source), source
             )
+        # B3: carry the matched page's categories onto matched_entity so
+        # process() can defense-check the entity kind. The judge returns
+        # external_id "wikipedia:<page_id>"; find the evidence page with that
+        # page_id and copy its categories (plus a description if missing).
+        if finalize_dict.get("found"):
+            me = finalize_dict.get("matched_entity") or {}
+            ext_id = me.get("external_id") or ""
+            pid = ext_id.split(":", 1)[1] if ext_id.startswith("wikipedia:") else None
+            if pid:
+                for e in evidence:
+                    if str(e.get("page_id")) == str(pid):
+                        me["categories"] = list(e.get("categories", [])[:10])
+                        if not me.get("description"):
+                            me["description"] = (e.get("summary") or "")[:500] or None
+                        break
+                finalize_dict["matched_entity"] = me
         finalize_dict.setdefault("clean_title", "")
         finalize_dict.setdefault("content_type", "tv")
         logger.info(

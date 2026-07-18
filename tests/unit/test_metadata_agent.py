@@ -442,6 +442,7 @@ async def test_process_caches_definitive_not_found():
 
 from app.services.metadata_agent import (  # noqa: E402
     _candidate_queries,
+    _classify_wikipedia_page,
     _clean_query,
     _detect_audio_work_type,
     _is_non_media,
@@ -547,6 +548,54 @@ def test_candidate_queries_adds_ja_for_kana_fragments():
     # CJK+kana fragment should produce a ja query in addition to zh.
     langs = {lang for _, lang in qs}
     assert "ja" in langs
+
+
+def test_clean_query_strips_orphan_brackets():
+    # A field-mapping leak can leave an unbalanced bracket (only the closing
+    # ']' was consumed upstream) - the orphan '[' must not reach the query.
+    assert _clean_query("[ViuTV 幪面超人") == "ViuTV 幪面超人"
+    assert _clean_query("幪面超人]") == "幪面超人"
+    assert _clean_query("【幪面超人") == "幪面超人"
+
+
+def test_candidate_queries_skips_station_token_leak():
+    # Regression for the ViuTV leak: a multi-bracket fansub title whose second
+    # bracket is the TV station "[ViuTV粵語]" must never query the ViuTV
+    # television-station Wikipedia page as if it were the work. A1 skips a bare
+    # station token; A4 drops a bracket whose content carries one.
+    r = SimpleNamespace(title_cn=None, title_en=None, search_title=None)
+    qs = _candidate_queries(
+        "[jibaketa合成&音頻壓制][ViuTV粵語]幪面超人 - 42", r
+    )
+    lowered = [q.lower() for q, _ in qs]
+    assert not any(q in ("viutv", "viutv粵語", "viutv粤语") for q in lowered)
+    # The actual work name is still queried.
+    assert any("幪面超人" in q for q, _ in qs)
+
+
+def test_classify_wikipedia_page_work_vs_non_work():
+    # The ViuTV television STATION page is non_work, not a series - this is the
+    # page that was auto-linked as a bogus series on a title-similarity match.
+    station = ["Television channels in Hong Kong", "Companies based in Hong Kong"]
+    assert _classify_wikipedia_page(station, "ViuTV is a television channel") == "non_work"
+    # A genuine anime series is a work.
+    anime = [
+        "2024 anime television series debuts",
+        "Anime and live-action television series based on manga",
+    ]
+    assert _classify_wikipedia_page(anime, "is a Japanese television series") == "work"
+    # A film is a work.
+    assert _classify_wikipedia_page(["2023 films", "Japanese films"], "is a 2023 film") == "work"
+    # A person page is non_work.
+    person = ["Living people", "Japanese voice actors"]
+    assert _classify_wikipedia_page(person, "is a Japanese voice actor") == "non_work"
+    # Disambiguation is non_work.
+    assert _classify_wikipedia_page(["Disambiguation pages"], "may refer to") == "non_work"
+    # No decisive signal -> ambiguous (defer to the judge).
+    assert _classify_wikipedia_page(["Foo"], "some text about a thing") == "ambiguous"
+    # Mixed work + non_work categories -> ambiguous.
+    mixed = ["Anime television series", "Companies based in Japan"]
+    assert _classify_wikipedia_page(mixed, "") == "ambiguous"
 
 
 # ---------------------------------------------------------------------------
@@ -1120,6 +1169,64 @@ async def test_execute_get_wikipedia_page_detects_disambiguation(monkeypatch):
 
     assert result["success"] is True
     assert result["data"]["disambiguation"] is True
+
+
+async def test_search_then_judge_skips_autolink_for_non_work_page(monkeypatch):
+    """B1: a Wikipedia page whose title matches the query with high similarity
+    but whose categories mark it a non-work entity (here a TV station) must NOT
+    be auto-linked as a series. The auto-link branch is skipped and the path
+    falls through to the judge / ReAct - the gate that stops a leaked station
+    token from becoming a bogus TVSeries on title similarity alone."""
+    from app.services import metadata_agent as ma
+
+    # "幪面超人" is a real work name (not a station token), so A1 lets the query
+    # through. The search returns a page titled identically (similarity 100) but
+    # whose categories mark it a TV station, not a show.
+    station_page = _FakeWikiPage(
+        title="幪面超人",
+        pageid=999,
+        fullurl="https://zh.wikipedia.org/wiki/999",
+        summary="幪面超人 is a television channel.",
+        categories={
+            "Category:Television channels in Hong Kong": object(),
+            "Category:Companies based in Hong Kong": object(),
+        },
+    )
+    wiki = MagicMock()
+    wiki.search.return_value = _fake_search_results([station_page])
+    wiki.page.return_value = station_page
+    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(ma, "_fetch_wikipedia_page_image", AsyncMock(return_value=None))
+
+    agent = ma.UnifiedMetadataAgent()
+    agent._model = MagicMock()
+    # Judge returns no match; found=false WITH evidence falls back to _run_react.
+    judge_resp = MagicMock()
+    judge_resp.content = (
+        '{"found": false, "clean_title": "幪面超人", "content_type": "tv", '
+        '"reason": "no work-type candidate"}'
+    )
+    agent._model.ainvoke = AsyncMock(return_value=judge_resp)
+    react_spy = AsyncMock(return_value=(
+        {"found": False, "clean_title": "幪面超人", "content_type": "tv", "reason": "no match"},
+        {"method": "react", "data_sources_used": [], "source_errors": {}, "error": None},
+    ))
+    agent._run_react = react_spy
+
+    resource = SimpleNamespace(
+        title_cn=None, title_en=None, search_title="幪面超人",
+        title="幪面超人 - 42", episode=42, season=1,
+    )
+    finalize, info = await agent._run_search_then_judge(
+        "幪面超人 - 42", "wikipedia", resource
+    )
+
+    # Had B1 not skipped, auto-link would have returned method
+    # "search_then_autolink" with found=True and a matched_entity.
+    assert info["method"] != "search_then_autolink"
+    assert finalize.get("found") is False
+    # Reaching ReAct proves we fell through past the auto-link branch.
+    assert react_spy.await_count == 1
 
 
 def test_is_disambiguation_category_heuristic():
