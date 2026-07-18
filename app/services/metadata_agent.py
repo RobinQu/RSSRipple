@@ -566,6 +566,118 @@ async def _execute_search_wikipedia(query: str, lang: str = "en") -> dict:
     return {"success": True, "data": pages}
 
 
+async def _fetch_wikipedia_page_image(
+    title: str, lang: str = "en", page_id: int | None = None,
+    expected_title: str | None = None,
+) -> str | None:
+    """Fetch the lead/infobox image URL for a Wikipedia page.
+
+    Two MediaWiki endpoints are tried in order, because neither alone covers
+    every page:
+
+    1. ``action=query&prop=pageimages`` (queried by ``pageids`` when available
+       for reliable redirect resolution, else by ``titles``). Fast and
+       batchable, but the PageImages extension has not assessed a lead image
+       for some pages (e.g. zh ``二十世纪电气目录``).
+    2. The REST ``/api/rest_v1/page/summary/{title}`` endpoint, whose
+       ``originalimage``/``thumbnail`` fields surface the lead image for pages
+       the pageimages prop misses.
+
+    Returns the original (full-res) source when available, falling back to a
+    500px thumbnail. Returns ``None`` on any failure or when the page has no
+    image - callers must treat the absence of a poster as non-fatal.
+    """
+    from urllib.parse import quote
+
+    import httpx
+
+    from app.services.metadata_service import AUTO_LINK_THRESHOLD
+    from app.services.text_normalizer import similarity_score
+
+    wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
+    headers = {"Accept": "application/json", "User-Agent": _WIKIPEDIA_USER_AGENT}
+
+    def _title_ok(page_title: str | None) -> bool:
+        """True when the fetched page's title plausibly belongs to this work.
+        Without this guard a stale/wrong ``page_id`` (or a REST title mismatch)
+        silently returns an unrelated article's image."""
+        if not expected_title or not page_title:
+            return True
+        return similarity_score(expected_title, page_title) >= AUTO_LINK_THRESHOLD
+
+    # ── 1. pageimages prop ──
+    pi_params = {
+        "action": "query",
+        "format": "json",
+        "prop": "pageimages",
+        "piprop": "original|thumbnail",
+        "pithumbsize": 500,
+        "redirects": 1,
+    }
+    if page_id:
+        pi_params["pageids"] = page_id
+    else:
+        pi_params["titles"] = title
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                f"https://{wiki_lang}.wikipedia.org/w/api.php",
+                params=pi_params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        for page in ((data.get("query") or {}).get("pages") or {}).values():
+            if not _title_ok(page.get("title")):
+                # The stored page_id points at the wrong article - fall through
+                # to the REST-by-title fallback instead of trusting it.
+                continue
+            original = page.get("original")
+            if isinstance(original, dict) and original.get("source"):
+                return original["source"]
+            thumb = page.get("thumbnail")
+            if isinstance(thumb, dict) and thumb.get("source"):
+                return thumb["source"]
+    except Exception as e:  # noqa: BLE001 - best-effort image fetch
+        logger.debug(
+            "[metadata_agent] wikipedia pageimages(%r/%s) failed lang=%s: %s",
+            title, page_id, wiki_lang, e,
+        )
+
+    # ── 2. REST summary fallback ──
+    # Queried by ``title`` (not pageid), so when the caller's title is not the
+    # canonical article title it can resolve to a different page and surface an
+    # unrelated image. ``_title_ok`` rejects those the same way.
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(
+                f"https://{wiki_lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}",
+                headers=headers,
+            )
+            if resp.status_code != 200:
+                return None
+            d = resp.json()
+        if not _title_ok(d.get("title")):
+            logger.debug(
+                "[metadata_agent] wikipedia rest_summary(%r) page title %r "
+                "did not match expected %r - skipping image",
+                title, d.get("title"), expected_title,
+            )
+            return None
+        original = d.get("originalimage")
+        if isinstance(original, dict) and original.get("source"):
+            return original["source"]
+        thumb = d.get("thumbnail")
+        if isinstance(thumb, dict) and thumb.get("source"):
+            return thumb["source"]
+    except Exception as e:  # noqa: BLE001 - best-effort image fetch
+        logger.debug(
+            "[metadata_agent] wikipedia rest_summary(%r) failed lang=%s: %s",
+            title, wiki_lang, e,
+        )
+    return None
+
+
 async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
     """Get full Wikipedia page with infobox and categories."""
     try:
@@ -618,6 +730,10 @@ async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
         )
         summary = ""
 
+    poster_url = await _fetch_wikipedia_page_image(
+        page.title, wiki_lang, page.pageid, expected_title=page.title
+    )
+
     return {
         "success": True,
         "data": {
@@ -626,6 +742,7 @@ async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
             "url": page.fullurl,
             "summary": (summary or "")[:800],
             "categories": (categories or [])[:20],
+            "poster_url": poster_url,
         },
     }
 
@@ -2148,6 +2265,8 @@ class UnifiedMetadataAgent:
                     entry["summary"] = d["summary"][:400]
                 if not entry.get("url") and d.get("url"):
                     entry["url"] = d.get("url")
+                if d.get("poster_url"):
+                    entry["poster_url"] = d["poster_url"]
             elif isinstance(pres, Exception):
                 source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
             evidence.append(entry)
@@ -2199,6 +2318,7 @@ class UnifiedMetadataAgent:
                     "title_cn": wiki_title if lang == "zh" else None,
                     "title_en": wiki_title if lang == "en" else None,
                     "description": (best_auto.get("summary") or "")[:500] or None,
+                    "poster_url": best_auto.get("poster_url"),
                     "wikipedia_url": best_auto.get("url"),
                 },
                 "confidence": 0.9,
@@ -2220,6 +2340,7 @@ class UnifiedMetadataAgent:
                 f"[{i}] title={e.get('title')} page_id={e.get('page_id')} "
                 f"url={e.get('url')} lang={e.get('lang')}\n    "
                 f"categories={e.get('categories', [])[:6]}\n    "
+                f"poster_url={e.get('poster_url')}\n    "
                 f"summary={e.get('summary', '')[:280]}"
                 for i, e in enumerate(evidence[:6], 1)
             )

@@ -1046,6 +1046,11 @@ async def test_execute_get_wikipedia_page_returns_full_page(monkeypatch):
     wiki = MagicMock()
     wiki.page.return_value = page
     monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(
+        ma,
+        "_fetch_wikipedia_page_image",
+        AsyncMock(return_value="https://upload.wikimedia.org/bb.jpg"),
+    )
 
     result = await ma._execute_get_wikipedia_page("Breaking Bad", lang="en")
 
@@ -1056,6 +1061,7 @@ async def test_execute_get_wikipedia_page_returns_full_page(monkeypatch):
     assert d["url"] == "https://en.wikipedia.org/wiki/Breaking_Bad"
     assert d["summary"].startswith("Breaking Bad is an American")
     assert "Category:2000s American crime drama television series" in d["categories"]
+    assert d["poster_url"] == "https://upload.wikimedia.org/bb.jpg"
 
 
 async def test_execute_get_wikipedia_page_not_found(monkeypatch):
@@ -1125,3 +1131,247 @@ def test_is_disambiguation_category_heuristic():
     assert _isd(["Category:曖昧さ回避"]) is True
     assert _isd(["Category:2000s American crime drama television series"]) is False
     assert _isd([]) is False
+
+
+class _FakeImageResp:
+    def __init__(self, payload, *, raise_exc=None, status_code=200):
+        self._payload = payload
+        self._raise = raise_exc
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self._raise is not None:
+            raise self._raise
+
+    def json(self):
+        return self._payload
+
+
+class _FakeImageClient:
+    """Minimal stand-in for ``httpx.AsyncClient`` used by the pageimages
+    fetcher - records the request and returns a canned response."""
+
+    def __init__(self, payload, *, raise_exc=None):
+        self._resp = _FakeImageResp(payload, raise_exc=raise_exc)
+        self.last_url = None
+        self.last_params = None
+        self.last_headers = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None, headers=None):
+        self.last_url = url
+        self.last_params = params
+        self.last_headers = headers
+        return self._resp
+
+
+async def test_fetch_wikipedia_page_image_prefers_original(monkeypatch):
+    """The full-res ``original.source`` is preferred over the thumbnail."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    payload = {
+        "query": {
+            "pages": {
+                "12345": {
+                    "pageid": 12345,
+                    "title": "二十世纪电气目录",
+                    "original": {"source": "https://upload.wikimedia.org/full.jpg", "width": 800},
+                    "thumbnail": {"source": "https://upload.wikimedia.org/500px.jpg", "width": 500},
+                }
+            }
+        }
+    }
+    fake = _FakeImageClient(payload)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: fake)
+
+    url = await ma._fetch_wikipedia_page_image("二十世纪电气目录", lang="zh")
+
+    assert url == "https://upload.wikimedia.org/full.jpg"
+    assert fake.last_url == "https://zh.wikipedia.org/w/api.php"
+    assert fake.last_params["prop"] == "pageimages"
+    assert fake.last_params["titles"] == "二十世纪电气目录"
+    assert fake.last_headers["User-Agent"]
+
+
+async def test_fetch_wikipedia_page_image_falls_back_to_thumbnail(monkeypatch):
+    """When no original is present, the 500px thumbnail source is used."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    payload = {
+        "query": {
+            "pages": {
+                "1": {
+                    "title": "NoOriginal",
+                    "thumbnail": {"source": "https://upload.wikimedia.org/500px.jpg"},
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: _FakeImageClient(payload))
+
+    url = await ma._fetch_wikipedia_page_image("NoOriginal", lang="en")
+
+    assert url == "https://upload.wikimedia.org/500px.jpg"
+
+
+async def test_fetch_wikipedia_page_image_none_when_no_image(monkeypatch):
+    """A page without any pageimages entry yields None (non-fatal)."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    payload = {"query": {"pages": {"1": {"title": "Plain Page"}}}}
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: _FakeImageClient(payload))
+
+    url = await ma._fetch_wikipedia_page_image("Plain Page", lang="en")
+
+    assert url is None
+
+
+async def test_fetch_wikipedia_page_image_returns_none_on_http_error(monkeypatch):
+    """An HTTP error from the API is swallowed and returns None rather than
+    propagating - the caller must treat a missing poster as non-fatal."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *a, **kw: _FakeImageClient(None, raise_exc=httpx.HTTPStatusError(
+            "403", request=httpx.Request("GET", "https://x"), response=httpx.Response(403)
+        )),
+    )
+
+    url = await ma._fetch_wikipedia_page_image("Whatever", lang="ja")
+
+    assert url is None
+
+
+class _UrlAwareImageClient:
+    """Returns a different canned response depending on whether the request
+    hits the ``api.php`` (pageimages prop) or the REST ``summary`` endpoint,
+    so the fallback path can be exercised."""
+
+    def __init__(self, api_payload, rest_payload):
+        self._api = api_payload
+        self._rest = rest_payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None, headers=None):
+        if "rest_v1" in url:
+            return _FakeImageResp(self._rest)
+        return _FakeImageResp(self._api)
+
+
+async def test_fetch_wikipedia_page_image_falls_back_to_rest_summary(monkeypatch):
+    """When the pageimages prop returns no image (some zh pages are not
+    assessed), the REST summary endpoint's ``originalimage`` is used instead."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    # pageimages: page exists but has no original/thumbnail (the
+    # 二十世纪电气目录 case).
+    api_payload = {
+        "query": {"pages": {"6502776": {"pageid": 6502776, "title": "二十世纪电气目录"}}}
+    }
+    rest_payload = {
+        "title": "二十世纪电气目录",
+        "originalimage": {"source": "https://upload.wikimedia.org/wikipedia/zh/4/40/20th_den_moku.png"},
+    }
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *a, **kw: _UrlAwareImageClient(api_payload, rest_payload),
+    )
+
+    url = await ma._fetch_wikipedia_page_image(
+        "二十世纪电气目录", lang="zh", page_id=6502776, expected_title="二十世纪电气目录"
+    )
+
+    assert url == "https://upload.wikimedia.org/wikipedia/zh/4/40/20th_den_moku.png"
+
+
+async def test_fetch_wikipedia_page_image_rejects_mismatched_rest_title(monkeypatch):
+    """The REST fallback is queried by title, so a non-canonical stored title
+    can resolve to a different page (e.g. simplified ``灌篮高手`` hitting a
+    non-Slam-Dunk zh page). When the REST page title doesn't match
+    ``expected_title``, the image is rejected to avoid caching a wrong poster."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    api_payload = {
+        "query": {"pages": {"1": {"pageid": 1, "title": "灌篮高手"}}}  # no image
+    }
+    # REST resolved to an unrelated page whose title is nothing like Slam Dunk.
+    rest_payload = {
+        "title": "Westchester Compilation",
+        "originalimage": {"source": "https://upload.wikimedia.org/wikipedia/commons/x/x/Westchester.png"},
+    }
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *a, **kw: _UrlAwareImageClient(api_payload, rest_payload),
+    )
+
+    url = await ma._fetch_wikipedia_page_image(
+        "灌篮高手", lang="zh", page_id=1, expected_title="灌篮高手"
+    )
+
+    assert url is None
+
+
+async def test_fetch_wikipedia_page_image_rejects_wrong_pageid_then_rest_rescues(monkeypatch):
+    """A stale ``page_id`` can point at the wrong article (e.g. Slam Dunk's
+    stored pageid actually resolves to ``西徹斯特郡``). The pageimages image is
+    rejected by title mismatch, then the REST-by-title fallback finds the real
+    article and returns its image."""
+    import httpx
+
+    from app.services import metadata_agent as ma
+
+    # pageimages: pageid 471518 resolves to the wrong article, which happens to
+    # carry an unrelated image.
+    api_payload = {
+        "query": {
+            "pages": {
+                "471518": {
+                    "pageid": 471518,
+                    "title": "西徹斯特郡",
+                    "original": {"source": "https://upload.wikimedia.org/Westchester.png"},
+                }
+            }
+        }
+    }
+    # REST (queried by the work title) finds the real Slam Dunk article.
+    rest_payload = {
+        "title": "灌籃高手",
+        "originalimage": {"source": "https://upload.wikimedia.org/Slam_Dunk_cover.png"},
+    }
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *a, **kw: _UrlAwareImageClient(api_payload, rest_payload),
+    )
+
+    url = await ma._fetch_wikipedia_page_image(
+        "灌篮高手", lang="zh", page_id=471518, expected_title="灌篮高手"
+    )
+
+    assert url == "https://upload.wikimedia.org/Slam_Dunk_cover.png"

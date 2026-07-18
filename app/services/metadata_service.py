@@ -231,7 +231,15 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
 
     def _download() -> bytes | None:
         try:
-            with httpx.Client(timeout=30, follow_redirects=True) as client:
+            # Wikimedia upload servers (upload.wikimedia.org) 403 requests
+            # without a descriptive User-Agent; harmless for TMDB image hosts.
+            ua = (
+                f"{settings.app_name}/0.1.0 "
+                f"(https://github.com/RobinQu/RSSRipple) metadata-agent"
+            )
+            with httpx.Client(
+                timeout=30, follow_redirects=True, headers={"User-Agent": ua}
+            ) as client:
                 resp = client.get(remote_url)
                 resp.raise_for_status()
                 return resp.content
