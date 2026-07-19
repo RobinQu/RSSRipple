@@ -668,6 +668,8 @@ class UnifiedMetadataAgent:
         raw_title: str,
         data_source_type: str | None = None,
         resource: Any | None = None,
+        *,
+        exa_searcher=None,
     ) -> tuple[dict, dict]:
         """Search-first + single-LLM-judge path (S3) for the wikipedia source.
 
@@ -681,6 +683,7 @@ class UnifiedMetadataAgent:
             resource,
             react_runner=self._run_react,
             msg_builder=self._build_title_only_message,
+            exa_searcher=exa_searcher,
         )
 
     def _extract_finalize_result(self, messages: list) -> dict:

@@ -39,6 +39,8 @@ _WORK_CATEGORY_RE = re.compile(
     r"manga|light novels|\bnovels\b|web series|"
     r"original video animation|\bova\b|original net animation|\bona\b|"
     r"电视剧|電視劇|動畫|动画|电影|電影|漫畫|漫画|"
+    r"小說|小说|网络小说|網絡小說|中國小說|中国小说|中华人民共和国网络小说|"
+    r"改编.*小说|改編.*小說|网络动画|網絡動畫|中国动画|中國動畫|"
     r"テレビアニメ|アニメ|映画|漫画",
     flags=re.IGNORECASE,
 )
@@ -56,16 +58,25 @@ _NON_WORK_CATEGORY_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _WORK_SUMMARY_RE = re.compile(
+    r"(?:"
     r"\b(?:is|was|are|were)\b[^.]{0,60}\b"
     r"(?:television series|tv series|anime|animated series|film|movie|ova|ona|"
-    r"manga|light novel|web series|drama series)\b",
+    r"manga|light novel|web series|drama series)\b"
+    r"|"
+    r"是[^。]{0,80}?(?:网络小说|小說|小说|网络动画|網絡動畫|动画|動畫|动漫|番剧|"
+    r"电视剧|電視劇|連續劇|漫畫|漫画|電影|电影|作品)"
+    r")",
     flags=re.IGNORECASE,
 )
 _NON_WORK_SUMMARY_RE = re.compile(
+    r"(?:"
     r"\b(?:is|was|are|were)\b[^.]{0,60}\b"
     r"(?:television channel|television network|television station|broadcaster|"
     r"broadcasting|streaming service|streaming platform|video-on-demand|"
-    r"video on demand|company|corporation|subsidiary|brand)\b",
+    r"video on demand|company|corporation|subsidiary|brand)\b"
+    r"|"
+    r"是[^。]{0,60}?(?:电视台|電視台|电视网|廣播|广播|公司|企業|品牌|人物|工作室|频道|頻道)"
+    r")",
     flags=re.IGNORECASE,
 )
 

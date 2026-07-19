@@ -18,6 +18,7 @@ import logging
 import re
 from typing import Any
 
+from app.services.metadata_exa_fallback import exa_fallback_judge
 from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT
 from app.services.metadata_sources import normalize_metadata_source_type
 from app.services.metadata_wiki_classify import (
@@ -58,6 +59,7 @@ async def run_search_then_judge(
     *,
     react_runner,
     msg_builder,
+    exa_searcher=None,
 ) -> tuple[dict, dict]:
     """Search-first + single-LLM-judge path (S3) for the wikipedia source.
 
@@ -65,6 +67,11 @@ async def run_search_then_judge(
     call to judge the evidence and emit the finalize JSON - cutting the
     ~4-5 LLM calls of ReAct to 1. Falls back to ``_run_react`` when there
     is no usable query, the judge call fails, or its JSON is unparseable.
+
+    When the wikipedia judge returns found=False, an optional Exa web-search
+    fallback runs before the ReAct second opinion. Exa can close wikipedia's
+    coverage gap (no page / misclassified novel page / bad translated title)
+    by finding bangumi/TMDB/moegirl/Baidu Baike/etc. pages on the open web.
     """
     source = normalize_metadata_source_type(data_source_type)
     queries = _candidate_queries(raw_title, resource)
@@ -265,6 +272,56 @@ async def run_search_then_judge(
     # negative ReAct's multi-turn reasoning would catch. When that happens,
     # spend the extra ReAct run to verify; clear not-founds (no evidence at
     # all) are accepted as-is. Found=True results keep the fast 1-call path.
+    if not finalize_dict.get("found"):
+        exa_result = await exa_fallback_judge(
+            model, raw_title, resource=resource, exa_searcher=exa_searcher,
+        )
+        if exa_result is not None:
+            exa_finalize, exa_info = exa_result
+            source_errors.update(exa_info.get("source_errors", {}))
+            dsu = ["wikipedia", "exa"]
+            if exa_info.get("error"):
+                # Exa itself failed (network/rate/API) - transient. Do not run
+                # ReAct; wikipedia already failed, and ReAct uses the same
+                # wikipedia tools. Returning with the transient marker prevents
+                # _classify_failure from caching this as not_found.
+                logger.warning(
+                    "[metadata_agent] wikipedia found=False and Exa failed for %r (%s); "
+                    "treating as transient",
+                    raw_title[:80], exa_info["error"],
+                )
+                return (
+                    {
+                        "found": False,
+                        "clean_title": raw_title,
+                        "content_type": finalize_dict.get("content_type", "tv"),
+                        "reason": exa_info["error"],
+                    },
+                    {
+                        "method": "search_then_exa_fallback",
+                        "data_sources_used": dsu,
+                        "source_errors": source_errors,
+                        "error": exa_info["error"],
+                    },
+                )
+            # Exa produced a definitive answer (found True or False). Return it
+            # directly; skip the ReAct second opinion since Exa searched the
+            # broader web and is the cheaper/broader fallback.
+            logger.info(
+                "[metadata_agent] wikipedia found=False, Exa fallback %s for %r",
+                "found" if exa_finalize.get("found") else "not_found",
+                raw_title[:80],
+            )
+            exa_finalize.setdefault("clean_title", raw_title)
+            exa_finalize.setdefault("content_type", "tv")
+            return exa_finalize, {
+                "method": "search_then_exa_fallback",
+                "data_sources_used": dsu,
+                "source_errors": source_errors,
+                "error": None,
+            }
+        # Exa not configured/disabled - fall through to the original ReAct logic.
+
     if not finalize_dict.get("found") and evidence:
         logger.info(
             "[metadata_agent] judge found=False with %d candidates for %r; ReAct second opinion",

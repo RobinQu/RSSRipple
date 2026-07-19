@@ -588,6 +588,14 @@ def test_classify_wikipedia_page_work_vs_non_work():
     assert _classify_wikipedia_page(anime, "is a Japanese television series") == "work"
     # A film is a work.
     assert _classify_wikipedia_page(["2023 films", "Japanese films"], "is a 2023 film") == "work"
+    # A Chinese web-novel page is a work (the source material for donghua
+    # adaptations that previously fell through to the judge and got rejected).
+    cn_novel = ["2008年中国小说", "中华人民共和国网络小说"]
+    assert _classify_wikipedia_page(cn_novel, "《凡人修仙传》是忘语创作的网络小说") == "work"
+    # Mixed categories that include the novel markers + a platform/company marker
+    # stay ambiguous so the judge can decide.
+    mixed_novel = ["中华人民共和国网络小说", "Companies based in China"]
+    assert _classify_wikipedia_page(mixed_novel, "") == "ambiguous"
     # A person page is non_work.
     person = ["Living people", "Japanese voice actors"]
     assert _classify_wikipedia_page(person, "is a Japanese voice actor") == "non_work"
@@ -1215,19 +1223,24 @@ async def test_search_then_judge_skips_autolink_for_non_work_page(monkeypatch):
     ))
     agent._run_react = react_spy
 
+    from app.services import runtime_config as rc_module
+
+    monkeypatch.setattr(rc_module, "_overrides", {"exa_enabled": "false"})
+
     resource = SimpleNamespace(
         title_cn=None, title_en=None, search_title="幪面超人",
         title="幪面超人 - 42", episode=42, season=1,
     )
     finalize, info = await agent._run_search_then_judge(
-        "幪面超人 - 42", "wikipedia", resource
+        "幪面超人 - 42", "wikipedia", resource, exa_searcher=None,
     )
 
     # Had B1 not skipped, auto-link would have returned method
     # "search_then_autolink" with found=True and a matched_entity.
     assert info["method"] != "search_then_autolink"
     assert finalize.get("found") is False
-    # Reaching ReAct proves we fell through past the auto-link branch.
+    # Exa disabled in this test: judge found=False with evidence falls through
+    # to the original ReAct second-opinion path.
     assert react_spy.await_count == 1
 
 
