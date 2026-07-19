@@ -1,5 +1,6 @@
 """Unit tests for source isolation in UnifiedMetadataAgent."""
 
+from app.services import metadata_audio_resolver as mar
 from app.services import metadata_wikipedia_client as wc
 from app.services.metadata_agent import (
     SUPPORTED_METADATA_SOURCES,
@@ -636,7 +637,7 @@ async def test_process_short_circuits_known_series(db_session, sample_channel):
     assert resource.metadata_failure_type is None  # success
 
 
-async def test_process_resolves_asmr_to_audio_work(db_session, sample_channel):
+async def test_process_resolves_asmr_to_audio_work(monkeypatch, db_session, sample_channel):
     """An ASMR title is detected and resolved to an AudioWork stub (no LLM,
     no TV/movie agent run)."""
     import uuid
@@ -655,7 +656,7 @@ async def test_process_resolves_asmr_to_audio_work(db_session, sample_channel):
 
     agent = UnifiedMetadataAgent()
     # No Wikipedia page for this ASMR title -> stub path.
-    agent._search_audio_wikipedia = AsyncMock(return_value=None)
+    monkeypatch.setattr(mar, "_search_audio_wikipedia", AsyncMock(return_value=None))
     agent._run_react = AsyncMock()  # must NOT be called - audio path wins
 
     res = await agent.process(resource, sample_channel, db_session, force_refresh=True)
