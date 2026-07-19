@@ -20,9 +20,8 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
@@ -31,297 +30,36 @@ from langgraph.prebuilt import create_react_agent  # noqa: F401 — kept for com
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.services.metadata_audio import AUDIO_CONTENT_TYPES, _detect_audio_work_type, _is_non_media
+from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile_episode
+from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT, _SYSTEM_PROMPT
+from app.services.metadata_resource_meta import ResourceMetadata
+from app.services.metadata_sources import (
+    DEFAULT_METADATA_SOURCE,
+    SUPPORTED_METADATA_SOURCES,
+    get_metadata_source_catalog,
+    is_metadata_source_available,
+    normalize_metadata_source_type,
+    resolve_metadata_source,
+)
 from app.services.resource_parser import strip_season_from_title
 from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
 
+# Names re-exported from extracted leaf modules (Phase 0). Listing them here
+# keeps ruff F401 from pruning symbols that metadata_agent no longer uses
+# locally but still exposes to legacy callers (`from app.services.metadata_agent
+# import SUPPORTED_METADATA_SOURCES`, etc.).
+__all__ = [
+    "DEFAULT_METADATA_SOURCE",
+    "SUPPORTED_METADATA_SOURCES",
+    "get_metadata_source_catalog",
+    "is_metadata_source_available",
+    "normalize_metadata_source_type",
+    "resolve_metadata_source",
+]
+
 logger = logging.getLogger(__name__)
-
-DEFAULT_METADATA_SOURCE = "exa"
-SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}
-
-# User-selectable external metadata sources (ordered as presented in the UI).
-# ``key`` is the credential attr on Settings; sources without a key
-# (wikipedia) are considered configured whenever their enable switch is on.
-_EXTERNAL_SOURCE_DEFS: tuple[dict[str, str], ...] = (
-    {"value": "exa", "label": "Exa Agent", "key": "exa_api_key",
-     "description": "Structured web-agent search; broad evidence coverage."},
-    {"value": "jina", "label": "Jina Search + Reader", "key": "jina_api_key",
-     "description": "Cheap web-native search with strong CJK coverage."},
-    {"value": "wikipedia", "label": "Wikipedia", "key": "",
-     "description": "Wikipedia REST search; no API key required."},
-    {"value": "tmdb", "label": "TMDB", "key": "tmdb_api_key",
-     "description": "The Movie Database; best for TV/movie ID matching."},
-)
-
-
-def is_metadata_source_configured(source: str) -> bool:
-    """Whether the credentials for *source* are present (key set)."""
-    for d in _EXTERNAL_SOURCE_DEFS:
-        if d["value"] == source:
-            return True if not d["key"] else bool(getattr(runtime_config, d["key"], ""))
-    return False
-
-
-def is_metadata_source_enabled(source: str) -> bool:
-    """Whether the enable switch for *source* is on."""
-    flag = {
-        "exa": runtime_config.exa_enabled,
-        "jina": runtime_config.jina_enabled,
-        "tmdb": runtime_config.tmdb_enabled,
-        "wikipedia": runtime_config.wikipedia_enabled,
-    }.get(source)
-    return bool(flag)
-
-
-def is_metadata_source_available(source: str) -> bool:
-    """A source is an selectable candidate when enabled AND configured."""
-    return is_metadata_source_enabled(source) and is_metadata_source_configured(source)
-
-
-def get_metadata_source_catalog() -> list[dict[str, Any]]:
-    """Return all external metadata sources with their availability flags.
-
-    Each entry: ``{value, label, description, enabled, configured, available}``.
-    The frontend offers only ``available`` sources in the channel form.
-    """
-    catalog: list[dict[str, Any]] = []
-    for d in _EXTERNAL_SOURCE_DEFS:
-        value = d["value"]
-        catalog.append({
-            "value": value,
-            "label": d["label"],
-            "description": d["description"],
-            "enabled": is_metadata_source_enabled(value),
-            "configured": is_metadata_source_configured(value),
-            "available": is_metadata_source_available(value),
-        })
-    return catalog
-
-
-def get_available_metadata_sources() -> list[dict[str, Any]]:
-    """Return only the currently-selectable external metadata sources."""
-    return [s for s in get_metadata_source_catalog() if s["available"]]
-
-
-def resolve_metadata_source(value: str | None) -> str:
-    """Resolve a channel's stored source to a runnable source.
-
-    Returns the normalized source if it is supported, else the default. Callers
-    that need an *available* source should additionally check
-    :func:`is_metadata_source_available` and fall back.
-    """
-    return normalize_metadata_source_type(value)
-
-
-def normalize_metadata_source_type(value: str | None) -> str:
-    """Normalize a caller-provided metadata source.
-
-    ``combined`` is accepted only as a legacy dataset value and maps to the
-    default single source. ``local`` searches the in-app TVSeries/Movie library
-    via FTS5 instead of calling an external API. New calls should pass
-    tmdb/exa/wikipedia/local explicitly.
-    """
-    source = (value or DEFAULT_METADATA_SOURCE).strip().lower()
-    if source == "combined":
-        return DEFAULT_METADATA_SOURCE
-    return source if source in SUPPORTED_METADATA_SOURCES else DEFAULT_METADATA_SOURCE
-
-# ---------------------------------------------------------------------------
-# Intermediate data type — sits between raw_title and DB entities
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ResourceMetadata:
-    """Metadata extracted from a single RSS resource title.
-
-    Independent of any DB entity. Used as the output of MetadataAgent
-    in both production (applied to FileResource/TVSeries/Movie) and
-    evaluation (compared against GroundTruth) flows.
-    """
-
-    # ── Core ──
-    clean_title: str
-    content_type: Literal[
-        "tv", "movie", "asmr", "music", "drama_cd", "radio", "other"
-    ] = "tv"
-    found: bool = True
-
-    # ── Inferred resource fields (subset of FileResource columns) ──
-    title_cn: str | None = None
-    title_en: str | None = None
-    episode: int | None = None
-    season: int | None = None
-    # Multi-episode batch (合集). ``is_batch`` marks torrents containing many
-    # episodes. ``episode_start`` / ``episode_end`` are best-effort — a batch
-    # title may not spell out the boundaries (e.g. "Batch", "全集").
-    is_batch: bool = False
-    episode_start: int | None = None
-    episode_end: int | None = None
-    resolution: str | None = None
-    source: str | None = None
-    video_codec: str | None = None
-    audio_codec: str | None = None
-    subtitle_type: str | None = None
-    subtitle_group: str | None = None
-    # BCP-47 language tags: ["zh-CN", "zh-TW", "ja", "en"], or ["multi"] for
-    # titles marked "多语言" / "多国字幕" without specifics. None means the
-    # LLM had nothing to say — pre-parser output is kept.
-    subtitle_langs: list[str] | None = None
-    container: str | None = None
-
-    # ── Matched entity metadata (upserted into TVSeries or Movie) ──
-    matched_entity: dict | None = None
-    # Keys: external_id, external_source, title_cn, title_en,
-    #       original_title, description, poster_url, rating, genre,
-    #       status, number_of_episodes, number_of_seasons,
-    #       start_date, end_date, release_date, runtime,
-    #       canonical_name, wikipedia_url
-
-    # ── Quality ──
-    confidence: float = 0.0
-    reason: str | None = None
-
-    # ── Ambiguity (for manual resolution) ──
-    ambiguous: bool = False
-    ambiguous_candidates: list[dict] = field(default_factory=list)
-
-    # ── Search tracking (for eval) ──
-    search_method: str | None = None
-    data_sources_used: list[str] = field(default_factory=list)
-    source_errors: dict[str, str] = field(default_factory=dict)
-    search_error: str | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> ResourceMetadata:
-        """Construct from the finalize tool's JSON output."""
-        entity = data.get("matched_entity") or {}
-        return cls(
-            clean_title=data.get("clean_title", ""),
-            content_type=data.get("content_type", "tv"),
-            found=data.get("found", True),
-            title_cn=data.get("title_cn") or entity.get("title_cn"),
-            title_en=data.get("title_en") or entity.get("title_en"),
-            episode=data.get("inferred_episode"),
-            season=data.get("inferred_season"),
-            is_batch=bool(data.get("is_batch", False)),
-            episode_start=data.get("inferred_episode_start") or data.get("episode_start"),
-            episode_end=data.get("inferred_episode_end") or data.get("episode_end"),
-            resolution=data.get("resolution"),
-            source=data.get("source"),
-            video_codec=data.get("video_codec"),
-            audio_codec=data.get("audio_codec"),
-            subtitle_type=data.get("subtitle_type"),
-            subtitle_group=data.get("subtitle_group"),
-            subtitle_langs=data.get("subtitle_langs"),
-            container=data.get("container"),
-            matched_entity=entity if entity else None,
-            confidence=float(data.get("confidence", 0.0)),
-            reason=data.get("reason"),
-            ambiguous=data.get("ambiguous", False),
-            ambiguous_candidates=data.get("ambiguous_candidates", []),
-            search_method=data.get("search_method"),
-            data_sources_used=data.get("data_sources_used") or [],
-            source_errors=data.get("source_errors") or {},
-            search_error=data.get("search_error"),
-        )
-
-
-# ---------------------------------------------------------------------------
-# Cross-season episode reconciliation
-# ---------------------------------------------------------------------------
-
-# Some RSS titles number episodes absolutely across all seasons (S04 - 84,
-# where 84 = cumulative episode count across seasons 1-4) rather than
-# per-season. We detect this by checking the raw episode against the
-# season's episode_count from TMDB/Exa metadata and converting when the
-# arithmetic works out. Values outside the tolerance envelope are flagged
-# ``ambiguous`` and routed to AgentSuggestion for manual review.
-
-# Extra headroom for still-airing shows where TMDB's episode_count lags a
-# few episodes behind the true count.
-_RECONCILE_TOLERANCE = 2
-
-
-def _seasons_map_from(entity: dict | None) -> dict[int, int]:
-    """Extract ``{season_number: episode_count}`` from a matched_entity dict.
-
-    Both TMDB (native ``seasons``) and the Exa Agent schema (which mirrors
-    it) return a list of season dicts. Season 0 = specials and is ignored.
-    Returns an empty dict when there's no usable data.
-    """
-    if not isinstance(entity, dict):
-        return {}
-    seasons = entity.get("seasons")
-    if not isinstance(seasons, list):
-        return {}
-    out: dict[int, int] = {}
-    for s in seasons:
-        if not isinstance(s, dict):
-            continue
-        num = s.get("season_number")
-        cnt = s.get("episode_count")
-        if not isinstance(num, int) or not isinstance(cnt, int):
-            continue
-        if num < 1 or cnt < 1:
-            continue
-        out[num] = cnt
-    return out
-
-
-def reconcile_episode(
-    *,
-    raw_episode: int,
-    raw_season: int,
-    seasons_map: dict[int, int],
-) -> tuple[int, int | None, str] | None:
-    """Decide whether ``raw_episode`` is per-season or absolute-across-seasons.
-
-    Returns ``(episode, absolute_episode, confidence)`` where ``episode`` is
-    the per-season number to store on the resource, ``absolute_episode`` is
-    the audit value (or None when the raw was already per-season), and
-    ``confidence`` is one of ``"raw" | "reconciled" | "ambiguous"``.
-
-    Returns ``None`` when there's no basis to make a call — caller keeps
-    the raw episode and (optionally) marks the resource ``"raw"``.
-
-    Algorithm:
-      * No entry for ``raw_season`` in ``seasons_map`` → return None. We
-        can't tell.
-      * ``raw_episode ≤ season_count + tolerance`` → it looks per-season;
-        keep as-is (``confidence="raw"``).
-      * Otherwise try converting: subtract the episode counts of prior
-        seasons. If the candidate lands within ``[1, season_count]`` we
-        accept the conversion (``confidence="reconciled"``). Otherwise
-        return ``confidence="ambiguous"`` so the caller can route the
-        resource to AgentSuggestion instead of dispatching.
-    """
-    season_count = seasons_map.get(raw_season)
-    if season_count is None or season_count <= 0:
-        return None
-
-    # Case A — the raw number already looks like a per-season episode.
-    if raw_episode <= season_count + _RECONCILE_TOLERANCE:
-        return raw_episode, None, "raw"
-
-    # Case B — try treating raw as absolute.
-    prev_total = sum(
-        cnt for s, cnt in seasons_map.items() if s < raw_season and cnt > 0
-    )
-    if prev_total <= 0:
-        # Season 1 with a raw > season_count is just a strange release; leave
-        # it ambiguous.
-        return raw_episode, None, "ambiguous"
-
-    candidate = raw_episode - prev_total
-    if 1 <= candidate <= season_count + _RECONCILE_TOLERANCE:
-        # Clamp to season_count when tolerance overshoots — TMDB just being
-        # behind on episode_count is the common case.
-        final_ep = min(candidate, season_count) if candidate > season_count else candidate
-        return final_ep, raw_episode, "reconciled"
-
-    return raw_episode, None, "ambiguous"
 
 
 # ---------------------------------------------------------------------------
@@ -960,173 +698,6 @@ def finalize(result_json: str) -> str:
     return "FINALIZED"
 
 
-# ---------------------------------------------------------------------------
-# System prompt
-# ---------------------------------------------------------------------------
-
-
-_SYSTEM_PROMPT = """You are a metadata agent for anime/TV/movie RSS feeds. Your job:
-Given a raw RSS entry title, identify the work (TV series or movie), extract its
-canonical clean title, infer episode/season numbers from the title, and return
-structured metadata via the finalize tool.
-
-## FEW-SHOT EXAMPLES
-
-Example 1 — Chinese anime with season number in brackets and title:
-  Raw: "[SweetSub&LoliHouse] 小书痴的下克上 领主的养女 / Honzuki no Gekokujou S04 - 11 [WebRip 1080p HEVC-10bit AAC][简繁日内封字幕]（第四季）"
-  → clean_title: "小书痴的下克上 领主的养女"
-  → content_type: tv, episode: 11, season: 4
-  → subtitle_group: "SweetSub&LoliHouse", resolution: "1080p"
-  → subtitle_langs: ["zh-CN", "zh-TW", "ja"]
-  → title_cn: "小书痴的下克上 领主的养女", title_en: "Ascendance of a Bookworm"
-  → search query: "Ascendance of a Bookworm"
-
-Example 2 — English TV with SXXEXX notation:
-  Raw: "Ace Of The Diamond S04E13 720p WEB H264-SKYANiME"
-  → clean_title: "Ace of the Diamond", content_type: tv, episode: 13, season: 4
-  → title_en: "Ace of the Diamond", resolution: "720p", source: "WEB"
-  → video_codec: "H264", subtitle_group: "SKYANiME"
-
-Example 3 — Anime with season number embedded in title:
-  Raw: "[LoliHouse] 异世界悠闲农家 2 / Isekai Nonbiri Nouka 2 - 12 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
-  → clean_title: "异世界悠闲农家", content_type: tv, episode: 12, season: 2
-  → title_cn: "异世界悠闲农家", title_en: "Farming Life in Another World"
-
-Example 4 — No recognizable work:
-  Raw: "random_bytes_xyz123 1080p"
-  → found: false, reason: "No matching work found in the selected source"
-
-Example 5 — Multi-episode batch with explicit range:
-  Raw: "魔法帽的工作室「とんがり帽子のアトリエ」Witch Hat Atelier S01E01~13 1080p 多国字幕"
-  → clean_title: "Witch Hat Atelier"
-  → content_type: tv, season: 1, episode: null
-  → is_batch: true, inferred_episode_start: 1, inferred_episode_end: 13
-  → resolution: "1080p"
-
-Example 6 — Chinese collection tag with "合集":
-  Raw: "[LoliHouse] 异世界悠闲农家 2 / Isekai Nonbiri Nouka 2 [01-12 合集][WebRip 1080p HEVC-10bit AAC][简繁内封字幕][Fin]"
-  → clean_title: "异世界悠闲农家", content_type: tv, season: 2, episode: null
-  → is_batch: true, inferred_episode_start: 1, inferred_episode_end: 12
-  → subtitle_group: "LoliHouse", resolution: "1080p"
-
-Example 7 — Batch without explicit boundaries:
-  Raw: "[SubGroup] Some Show S02 (Season Pack) 1080p"
-  → is_batch: true, inferred_episode_start: null, inferred_episode_end: null
-  → episode: null, season: 2
-
-## RULES
-
-1. Use only the metadata source selected by the caller. The available tools
-   in this run already enforce that choice.
-2. Do not try to compensate for missing evidence by switching to another
-   source. If the selected source fails, finalize with found=false.
-3. Use the LLM to interpret the selected source evidence and produce one final
-   judgment.
-4. If the selected source fails → finalize with found=false.
-5. Do NOT call the same tool with the same parameters more than once.
-6. ALWAYS call finalize to end. Never leave a task unfinished.
-7. ENTITY TYPE: only link to a result that IS the work (a TV series, anime, or
-   film). Never accept a result that is a TV channel/station/network, a
-   streaming platform, a production company/studio, a person, a disambiguation
-   page, a single episode, or a soundtrack/song - even if its name matches the
-   query (a leaked station token like "ViuTV"/"TVB"/"NHK" is the broadcaster,
-   not the show). If the best result is such a non-work entity, finalize
-   found=false.
-8. Do NOT substitute a different work. The title is authoritative - never treat
-   it as a typo or misspelling of another show. Match only a result whose own
-   TITLE names the SAME work (ignoring traditional/simplified Chinese and
-   season/episode markers); a franchise sibling - a different Kamen Rider /
-   Precure / Ultraman / Gundam season, or another entry in the same series -
-   is NOT a match (e.g. "Kamen Rider Zeztz" is NOT "Kamen Rider Gotchard").
-   If no result's title names the same work, finalize found=false.
-
-## TITLE PARSING
-
-From raw RSS titles, extract:
-- Clean title: remove [subtitle groups], - episode numbers, [quality/codec tags]
-- Episode: from "- 05", "EP05", "#05", "第05话", "S04E05" → the second number
-- Season: from "第二季", "Season 2", "S2", "S02", "II", "Ⅲ", "Final Season",
-  "S04" (when SXXEXX format), parenthetical like "（第四季）"
-- Season arcs: "游郭篇", "无限列车篇", "领主的养女" often indicate specific seasons
-- Batch detection: set ``is_batch: true`` (and leave ``inferred_episode`` null)
-  when the title covers multiple episodes:
-  * ``SxxE01~13``, ``SxxE01-13`` (episode range)
-  * ``[01-12 合集]``, ``[01~16 Fin]``, ``01-12 合集``
-  * ``Season Pack``, ``Full Season``, ``Batch``, ``BD-BOX``
-  * ``全集``, ``全季``, ``完整`` / ``完结`` + range
-  Fill ``inferred_episode_start`` / ``inferred_episode_end`` when the boundaries
-  are stated; leave them null when the title only says "Batch" / "全集".
-- Quality: resolution (1080p/720p/2160p/4K), source (WebRip/WEB-DL/BDRip),
-  codecs (HEVC/AVC/x264/x265, AAC/FLAC), subtitle types, container (MKV/MP4)
-- Subtitle languages: emit ``subtitle_langs`` as a list of BCP-47 tags —
-  ``"zh-CN"`` for 简中/CHS/简体/GB, ``"zh-TW"`` for 繁中/CHT/繁體/BIG5,
-  ``"ja"`` for 日文/JAP/Japanese, ``"en"`` for 英文/ENG/English. Use the
-  sentinel ``"multi"`` (and nothing else) when the title only says
-  "多语言" / "多国字幕" / "Multi-Sub" without spelling out which languages.
-  Emit ``[]`` when the title has no subtitle marker at all; only use
-  ``null`` to mean "I don't know / defer to the pre-parser".
-
-## SEARCH QUERY VARIANTS (Jina mode only)
-
-When the title spans multiple languages (Chinese/Japanese/English), try these
-variants in order and combine evidence across them:
-  1. Chinese title (title_cn) — best for Chinese release info, Baidu/Douban
-  2. Romanized Japanese — for anime, use the romaji title
-  3. English title — for TMDB/IMDb-style databases
-Search each with ``search_jina`` at most once. Prefer TMDB / IMDb / Wikipedia /
-Wikidata / MyAnimeList / AniList URLs in the results.
-
-## SOURCE MODE
-- TMDB mode: use search_tmdb and get_tmdb_details only.
-- Exa mode: use search_exa_agent only.
-- Wikipedia mode: use search_wikipedia and get_wikipedia_page only.
-- Jina mode: use search_jina and read_jina_url only. Cap at 3 tool calls before
-  finalize. When evidence comes from a TMDB/IMDb page reached via Jina, emit
-  external_id in canonical form (tmdb:XXXXX / imdb:ttXXXXXXX) — Jina is the
-  route, TMDB/IMDb is the identifier source.
-
-## finalize SCHEMA
-Always output valid JSON matching:
-{
-  "found": true/false,
-  "clean_title": "string",
-  "content_type": "tv"|"movie",
-  "inferred_episode": int|null,
-  "inferred_season": int|null,
-  "is_batch": true/false,
-  "inferred_episode_start": int|null,
-  "inferred_episode_end": int|null,
-  "title_cn": "string|null",
-  "title_en": "string|null",
-  "subtitle_group": "string|null",
-  "resolution": "string|null",
-  "source": "string|null",
-  "video_codec": "string|null",
-  "audio_codec": "string|null",
-  "subtitle_type": "string|null",
-  "subtitle_langs": ["zh-CN"|"zh-TW"|"ja"|"en"|"multi", ...] | null,
-  "container": "string|null",
-  "matched_entity": {
-    "external_id": "tmdb:XXXXX",
-    "external_source": "tmdb",  # tmdb|exa|wikipedia|jina — canonical ID source
-    "title_cn": "...", "title_en": "...", "original_title": "...",
-    "description": "...", "poster_url": "...",
-    "rating": float, "genre": [...],
-    "status": "...", "number_of_episodes": int, "number_of_seasons": int,
-    "seasons": [
-      {"season_number": 1, "episode_count": 24, "name": "Season 1"},
-      {"season_number": 2, "episode_count": 24}
-    ],
-    "start_date": "YYYY-MM-DD", "canonical_name": "...", "wikipedia_url": "..."
-  } | null,
-  "ambiguous": true/false,
-  "ambiguous_candidates": [],
-  "data_sources_used": ["tmdb"|"exa"|"wikipedia"|"jina"],
-  "confidence": 0.0-1.0,
-  "reason": "explanation"
-}
-"""
-
 
 # ---------------------------------------------------------------------------
 # Failure classification + attempt recording
@@ -1171,68 +742,6 @@ _NON_WORK_MARKERS: tuple[str, ...] = (
     "asmr", "opening theme", "ending theme", "theme song",
     "not a tv", "not a movie", "not an anime",
 )
-
-
-# ---------------------------------------------------------------------------
-# AudioWork detection - non-TV/non-movie works (ASMR, music, drama CD, radio)
-#
-# These never match TMDB and rarely have a Wikipedia page, so the TV/movie
-# agent path leaves them as non_work / not_found forever. Detecting them up
-# front lets us resolve them into AudioWork entities (grouping resources and
-# stopping the retry loop) via general-purpose sources (Wikipedia / Exa).
-# ---------------------------------------------------------------------------
-
-AUDIO_CONTENT_TYPES: frozenset[str] = frozenset(
-    {"asmr", "music", "drama_cd", "radio", "other"}
-)
-
-
-# Ordered: the first matching pattern wins. ASMR is the most specific (a
-# standalone audio work with no TV/movie equivalent). Music markers target
-# lossless/hi-res audio releases and OSTs - anime OP/ED themes carrying these
-# tags still reach this path only when they did NOT short-circuit to a known
-# series, which is the right fallback.
-_AUDIO_TYPE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("asmr", re.compile(r"ASMR", re.IGNORECASE)),
-    ("drama_cd", re.compile(r"ドラマ\s*CD|Drama\s*CD|广播剧|廣播劇")),
-    ("radio", re.compile(r"ラジオ|Radio(?![a-z])|广播节目|廣播節目")),
-    (
-        "music",
-        re.compile(
-            r"\[FLAC|\bFLAC\b|\bALAC\b|96kHz|48kHz|24bit|"
-            r"サントラ|Soundtrack|\bOST\b|シングル|\bSingle\b|"
-            r"ボーカル|Vocal\b|キャラクターソング|Character\s*Song",
-            re.IGNORECASE,
-        ),
-    ),
-]
-
-
-def _detect_audio_work_type(raw_title: str | None) -> str | None:
-    """Return the AudioWork sub-kind for a title, or None if it isn't audio.
-
-    Conservative: only flags titles with strong audio-only markers. A normal
-    anime episode (``[WebRip 1080p HEVC AAC]``) is NOT flagged.
-    """
-    if not raw_title:
-        return None
-    for kind, pattern in _AUDIO_TYPE_PATTERNS:
-        if pattern.search(raw_title):
-            return kind
-    return None
-
-
-# Titles that are software / non-media releases (BitComet builds, cracked
-# tools), not anime/TV/movie works. Marked non_work so they aren't retried.
-_NON_MEDIA_RE = re.compile(
-    r"BitComet|uTorrent|qBittorrent|比特彗星|aria2|解锁豪华版|破解版",
-    re.IGNORECASE,
-)
-
-
-def _is_non_media(raw_title: str | None) -> bool:
-    """True for software / non-media titles that should never be matched."""
-    return bool(raw_title and _NON_MEDIA_RE.search(raw_title))
 
 
 def _classify_failure(meta: Any) -> str | None:
@@ -1649,69 +1158,6 @@ def _parse_finalize_json(text: str) -> dict | None:
         return obj if isinstance(obj, dict) else None
     except json.JSONDecodeError:
         return None
-
-
-_JUDGE_SYSTEM_PROMPT = """You are a metadata judge for anime/TV/movie RSS entries.
-
-You are given an RSS entry title (plus optional pre-parsed hints) and a set of
-Wikipedia search results already gathered for you. Pick the SINGLE best-matching
-work (TV series or movie), or confirm no match, and return ONLY a JSON object
-matching this schema:
-
-{
-  "found": true|false,
-  "clean_title": "string",
-  "content_type": "tv"|"movie",
-  "inferred_episode": int|null,
-  "inferred_season": int|null,
-  "is_batch": true|false,
-  "inferred_episode_start": int|null,
-  "inferred_episode_end": int|null,
-  "title_cn": "string|null",
-  "title_en": "string|null",
-  "subtitle_group": "string|null",
-  "resolution": "string|null",
-  "matched_entity": {
-    "external_id": "wikipedia:<page_id>",
-    "external_source": "wikipedia",
-    "title_cn": "...", "title_en": "...", "original_title": "...",
-    "description": "...", "wikipedia_url": "...", "canonical_name": "..."
-  } | null,
-  "ambiguous": true|false,
-  "confidence": 0.0-1.0,
-  "reason": "explanation"
-}
-
-Rules:
-- Pick the candidate whose Wikipedia page IS the work named in the title (not
-  a page that merely mentions it). Use BOTH the summary AND the categories.
-  The page MUST be a creative work: require a work-type category such as
-  "television series"/"anime"/"TV series" (=> content_type "tv") or
-  "films"/"movie" (=> "movie"). REJECT - found=false - any candidate whose
-  page is a NON-work entity type, even if its title matches the query well:
-  TV channels / stations / networks, broadcasters, streaming platforms /
-  services, production companies / studios, brands, people (voice actors /
-  directors / writers), broadcast programming blocks, disambiguation /
-  set-index / "ambiguous" pages, single episodes, and soundtrack albums /
-  songs. A leaked station token (e.g. "ViuTV", "TVB", "NHK") is never the work
-  itself. If none of the candidates has a work-type category, found=false.
-- Do NOT substitute a different work. The RSS title is authoritative - never
-  treat it as a typo or misspelling of another show's name. A candidate counts
-  only if its own TITLE names the SAME work as the RSS title (ignoring
-  traditional/simplified Chinese and season/episode markers); being from the
-  same franchise - a different Kamen Rider / Precure / Ultraman / Gundam
-  season, or any other entry in the same series - is NOT a match. For example,
-  "Kamen Rider Zeztz" is NOT "Kamen Rider Gotchard". If none of the
-  candidates' titles names the same work as the RSS title, return
-  found=false rather than guessing a "similar" or "related" show.
-- content_type "tv" for series/anime, "movie" for films.
-- external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
-  page_id; external_source "wikipedia"; include wikipedia_url.
-- Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
-- If no candidate clearly matches, found=false with a reason. Set
-  ambiguous=true if two candidates are equally plausible.
-- Output ONLY the JSON object, no prose.
-"""
 
 
 # ---------------------------------------------------------------------------

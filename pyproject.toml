@@ -72,6 +72,7 @@ select = ["E", "F", "I", "N", "W", "UP"]
 # LLM prompt templates hold few-shot example strings verbatim; line-length
 # rewraps would corrupt the samples passed to the model.
 "app/services/metadata_agent.py" = ["E501"]
+"app/services/metadata_prompts.py" = ["E501"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
