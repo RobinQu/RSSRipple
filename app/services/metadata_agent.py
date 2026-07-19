@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.services.metadata_audio import AUDIO_CONTENT_TYPES, _detect_audio_work_type, _is_non_media
 from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile_episode
+from app.services.metadata_failure import _classify_failure, _record_metadata_attempt
 from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT, _SYSTEM_PROMPT
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_sources import (
@@ -42,6 +43,12 @@ from app.services.metadata_sources import (
     normalize_metadata_source_type,
     resolve_metadata_source,
 )
+from app.services.metadata_wiki_classify import (
+    _classify_wikipedia_page,
+    _infer_content_type_from_categories,
+    _validate_matched_entity_kind,
+)
+from app.services.metadata_wiki_query import _CJK_RE, _candidate_queries, _clean_query, _work_name_prefix
 from app.services.resource_parser import strip_season_from_title
 from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
@@ -57,6 +64,9 @@ __all__ = [
     "is_metadata_source_available",
     "normalize_metadata_source_type",
     "resolve_metadata_source",
+    # wiki_query: _candidate_queries is used locally below; these two are not.
+    "_clean_query",
+    "_work_name_prefix",
 ]
 
 logger = logging.getLogger(__name__)
@@ -698,94 +708,6 @@ def finalize(result_json: str) -> str:
     return "FINALIZED"
 
 
-
-# ---------------------------------------------------------------------------
-# Failure classification + attempt recording
-#
-# ``process()`` used to cache every result — including ``found=false`` from
-# timeouts and LLM-format errors — so a transient failure became a permanent
-# "not found". These helpers split non-success results into three buckets so
-# the cache only retains *definitive* outcomes and the fetch-time backfill
-# knows which unmatched resources are worth retrying.
-# ---------------------------------------------------------------------------
-
-# Substrings of ``ResourceMetadata.reason`` / ``search_error`` that indicate
-# an infra failure (not a real "no match"). These must NOT be cached, because
-# re-running later will very likely succeed. HTTP failures from the external
-# source (billing/credits exhausted, rate limit, auth, server errors) belong
-# here: they are failures of the source, not a definitive "no match".
-_TRANSIENT_MARKERS: tuple[str, ...] = (
-    "timed out", "timeout", "connection error", "did not call finalize",
-    "401", "402", "403", "429", "payment required", "accountoverdue",
-    "unauthorized", "rate limit", "service unavailable", "overloaded",
-    "500", "502", "503", "504", "bad gateway", "server error",
-    "api key not configured",
-    # Agent-level failures: ``_run_react`` wraps any ReAct invocation
-    # exception (LangGraph recursion-limit, LLM provider 4xx/5xx, unhandled
-    # tool error) as ``reason="Agent error: {e}"``. These are NEVER a
-    # definitive "no match" - they are infra/agent failures that should retry,
-    # not be cached as a permanent not_found. Without these markers the
-    # recursion-limit and LLM-400 cases were misclassified as not_found and
-    # cached for the full TTL, condemning retryable resources.
-    "agent error", "recursion limit",
-    # Wikipedia infra failures surfaced by _wiki_call (connection, timeout,
-    # rate limit, non-200, invalid JSON from wikipediaapi). A real "no match"
-    # returns success=True with an empty data list (or "Page not found"), so
-    # this marker only appears on retryable failures.
-    "wikipedia request failed",
-)
-
-# Substrings indicating the entry is genuinely not a TV/movie work (music,
-# ASMR, theme songs). Re-running will not change the outcome.
-_NON_WORK_MARKERS: tuple[str, ...] = (
-    "music album", "music single", "music release", "mini-album", "mini album",
-    "asmr", "opening theme", "ending theme", "theme song",
-    "not a tv", "not a movie", "not an anime",
-)
-
-
-def _classify_failure(meta: Any) -> str | None:
-    """Classify a ``ResourceMetadata`` outcome for retry/cache decisions.
-
-    Returns ``None`` on success (``meta.found`` truthy AND a ``matched_entity``
-    was produced). Otherwise one of:
-      * ``"transient"``  — retryable infra failure; never cached.
-      * ``"non_work"``   — correctly identified as non-TV/movie; never retried.
-      * ``"not_found"``  — source had no match; retried after a long TTL.
-    """
-    if getattr(meta, "found", False):
-        # found=True but no matched_entity -> the agent claimed success yet
-        # produced nothing to link (LLM finalization gap). Treat as transient
-        # so it retries instead of being cached as a fake "match" and leaving
-        # the resource permanently unparsed.
-        if not getattr(meta, "matched_entity", None):
-            return "transient"
-        return None
-    haystack = " ".join(filter(None, (
-        str(getattr(meta, "reason", "") or ""),
-        str(getattr(meta, "search_error", "") or ""),
-    ))).lower()
-    if any(m in haystack for m in _TRANSIENT_MARKERS):
-        return "transient"
-    if any(m in haystack for m in _NON_WORK_MARKERS):
-        return "non_work"
-    return "not_found"
-
-
-def _record_metadata_attempt(resource: Any, meta: Any) -> None:
-    """Stamp retry-state columns on ``resource`` after an evaluation.
-
-    ``metadata_matched_at`` only records successes, so this tracks *attempts*
-    (count + timestamp + failure type) so the backfill can tell "never tried"
-    from "tried and failed transiently" from "definitively not found".
-    ``metadata_failure_type`` is set to ``None`` on success, which also clears
-    any stale failure marker left by a previous attempt.
-    """
-    resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
-    resource.last_metadata_attempt_at = utcnow()
-    resource.metadata_failure_type = _classify_failure(meta)
-
-
 def _cache_source_key(data_source_type: str | None) -> str:
     """Cache namespace for one metadata source.
 
@@ -827,321 +749,6 @@ def _normalize_title(s: str | None) -> str:
 # any judge call that fails or yields unparseable JSON.
 # ---------------------------------------------------------------------------
 
-
-# Episode/season/quality markers stripped from a Wikipedia search fragment so
-# the query targets the work name, not a specific release. Applied to the
-# per-fragment query, not to stored data, so aggressive is fine.
-_QUERY_EPISODE_TAIL_RE = re.compile(r"\s*[-－]\s*\d+.*$")
-_QUERY_QUALITY_TAIL_RE = re.compile(
-    r"\s+(?:\d{3,4}p|4K|2160P?|1080[IP]?|720P?|HEVC|AVC|x26[45]|H\.?26[45]|"
-    r"AAC|FLAC|MP[34]|WEB[- ]?DL|WebRip|BDRip|BluRay|10bit|8bit|GB|BIG5|CHS|CHT)\b.*$",
-    flags=re.IGNORECASE,
-)
-_QUERY_EPISODE_MARKER_RE = re.compile(
-    r"\s*[\[【]\s*\d{1,3}\s*(?:v\d+)?\s*[\]】]"   # [01] / [01v2]
-    r"|\s*第\s*\d{1,3}\s*[话話集]"
-    r"|\s*EP\s*\d{1,3}\b"
-    r"|\s*[#＃]\s*\d{1,3}\b",
-    flags=re.IGNORECASE,
-)
-_QUERY_DECORATIVE_TAIL_RE = re.compile(r"\s*[～~][^～~]*[～~]\s*$")
-# Alt-title parenthetical "(新世紀エヴァンゲリオン)" / "(Neon Genesis Evangelion)"
-# and description/arc tails after a colon "：通往大人的阶梯" / "：TV动画+剧场版".
-_QUERY_PAREN_RE = re.compile(r"[（(][^）)]*[）)]")
-_QUERY_COLON_TAIL_RE = re.compile(r"\s*[：:].*$")
-# Trailing unicode roman numerals used as season markers (无职转生Ⅲ -> 无职转生).
-_QUERY_ROMAN_TAIL_RE = re.compile(r"\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*$")
-# First-occurrence season/episode marker; the prefix before it is the base
-# work name (e.g. "无职转生 3期" -> "无职转生", "Mushoku Tensei S3 - 03" ->
-# "Mushoku Tensei", "樱桃小丸子第二期 1538 ..." -> "樱桃小丸子"). Also splits
-# off a trailing romaji/English alt-title appended to a CJK work name
-# ("二十世纪电气目录 Nijusseiki Denki Mokuroku" -> "二十世纪电气目录").
-_QUERY_SEASON_EP_SPLIT_RE = re.compile(
-    r"\s*[-－]\s*\d"
-    r"|\s+S\d{1,2}\b"
-    r"|第[一二三四五六七八九十百零千两\d]+\s*[季期话話集]"
-    r"|\d{1,2}\s*[季期]"
-    r"|Season\s*\d+"
-    r"|\s*[\[【]\s*\d"
-    r"|\sEP\s*\d"
-    r"|\s[#＃]\s*\d"
-    r"|\s*[：:]"
-    r"|\s*[（(]"
-    r"|(?<=[一-鿿぀-ヿ])\s+[A-Za-z]",
-    flags=re.IGNORECASE,
-)
-_KANA_RE = re.compile(r"[぀-ヿ]")
-_CJK_RE = re.compile(r"[一-鿿぀-ヿ]")
-# Bracket pair with content captured (both [] and 【】).
-_BRACKET_PAIR_CAPTURE_RE = re.compile(r"[\[【]([^\]】]*)[\]】]")
-# Hint that a bracket's content is release metadata (resolution / codec /
-# subtitle lang / etc.) rather than a work-name fragment. Matched as a
-# substring so "[简繁日内封字幕]" and "[AVC 8bit]" both drop, while
-# "[樱桃小丸子第二期(Chibi Maruko-chan II)]" stays.
-_BRACKET_METADATA_HINT_RE = re.compile(
-    r"\d{3,4}p|4K|2160|1080|720|HEVC|AVC|x26[45]|H\.?26[45]|AAC|FLAC|MP[34]|"
-    r"WEB[- ]?DL|WebRip|BDRip|BluRay|BD-?BOX|BIG5|CHS|CHT|"
-    r"简体|繁体|简繁|简日|繁日|简中|繁中|内封|内嵌|内挂|外挂|双语|字幕|"
-    r"Fin|Complete|Batch|合集|全集|招募|翻译|\bGB\b",
-    flags=re.IGNORECASE,
-)
-_BRACKET_PURE_DIGIT_RE = re.compile(r"^\d{1,4}(?:v\d+)?$")
-_BRACKET_DATE_RE = re.compile(r"^\d{4}[.\-/]\d{1,2}")
-# Station / platform / broadcaster tokens that appear in fansub titles but
-# are NOT work names. A field-mapping leak can surface one as the search_title
-# (e.g. "[ViuTV粵語]" -> "ViuTV"), and its Wikipedia page (the ViuTV *television
-# station*) title-matches the query well enough to slip past auto-link. Used
-# two ways: A4 drops a bracket whose content contains one; A1 skips a query
-# that IS one (fullmatch, so "Tokyo MX"/"BS 11" match but "Tokyo" alone won't).
-_NON_WORK_NAME_TOKEN_RE = re.compile(
-    r"ViuTV|TVB|CCTV|NHK|MBS|TBS|KBS|MBC|SBS|TVA|YTV|BS\s*11|AT-?X|"
-    r"Fuji\s*TV|Nippon\s*TV|Tokyo\s*MX|"
-    r"Bilibili|Netflix|Disney\+|Disney\s*Plus|Hulu|"
-    r"Prime\s*Video|Amazon\s*Prime|HBO\s*Max|"
-    r"Crunchyroll|Funimation|IQIYI|Youku|Tencent\s*Video|"
-    r"爱奇艺|優酷|优酷|腾讯视频|"
-    r"YouTube",
-    flags=re.IGNORECASE,
-)
-# Any unbalanced bracket char left over after the pair-sub - an upstream
-# regex that ate only the closing ']' (a field-mapping leak) leaves a stray
-# '[' that would otherwise travel into the Wikipedia query.
-_ORPHAN_BRACKET_RE = re.compile(r"[\[\]【】]")
-# Alt-title separator: half-width " / " or full-width "／".
-_ALT_TITLE_SPLIT_RE = re.compile(r"\s*[／/]\s*")
-
-
-def _clean_query(part: str) -> str:
-    """Strip episode/quality/season markers from a title fragment so the
-    Wikipedia search query targets the work name, not a specific release."""
-    if not part:
-        return ""
-    part = _BRACKET_PAIR_CAPTURE_RE.sub(" ", part)  # drop [metadata] / 【metadata】
-    part = _ORPHAN_BRACKET_RE.sub(" ", part)  # drop unbalanced [】left by an upstream leak
-    part = _QUERY_PAREN_RE.sub(" ", part)  # drop （alt-title） parentheticals
-    part = _QUERY_COLON_TAIL_RE.sub("", part)  # drop ：arc/description tail
-    part = _QUERY_EPISODE_TAIL_RE.sub("", part)
-    part = _QUERY_QUALITY_TAIL_RE.sub("", part)
-    part = _QUERY_EPISODE_MARKER_RE.sub("", part)
-    part = _QUERY_DECORATIVE_TAIL_RE.sub("", part)
-    part = _QUERY_ROMAN_TAIL_RE.sub("", part)  # trailing Ⅲ season marker
-    part = strip_season_from_title(part)
-    return part.strip(" -/|:：·～~。.")
-
-
-def _work_name_prefix(part: str) -> str:
-    """Return the work-name prefix before the first season/episode marker.
-
-    ``"无职转生 3期"`` -> ``"无职转生"``; ``"Mushoku Tensei S3 - 03"`` ->
-    ``"Mushoku Tensei"``. Returns empty when the marker starts the fragment
-    (nothing useful before it). Caller already ran :func:`_clean_query`.
-    """
-    m = _QUERY_SEASON_EP_SPLIT_RE.search(part)
-    if not m:
-        return ""
-    return part[: m.start()].strip(" -/|:：·～~")
-
-
-def _infer_content_type_from_categories(categories: list[str]) -> str:
-    """Infer 'tv' vs 'movie' from a Wikipedia page's category list."""
-    text = " ".join(categories or "").lower()
-    if any(k in text for k in ("film", "movie", "電影", "电影", "短片")):
-        return "movie"
-    return "tv"
-
-
-# ── Work-vs-non-work page classification ──────────────────────────────────
-#
-# A Wikipedia page for a TV *station* / broadcaster / streaming platform /
-# company / person can title-match a fansub token (ViuTV, TVB, ...) with
-# similarity >= AUTO_LINK_THRESHOLD. Title similarity alone therefore cannot
-# tell a creative work from its broadcaster - that is how the ViuTV station
-# page was auto-linked as a bogus series. The classifier below uses the page's
-# category list (the strongest signal) with a summary lead-sentence fallback.
-
-_WORK_CATEGORY_RE = re.compile(
-    r"television series|television shows|tv series|tv shows|"
-    r"\banime\b|anime and manga|anime television|animated television|"
-    r"\bfilms\b|\bfilm\b|\bmovies\b|animated films|"
-    r"manga|light novels|\bnovels\b|web series|"
-    r"original video animation|\bova\b|original net animation|\bona\b|"
-    r"电视剧|電視劇|動畫|动画|电影|電影|漫畫|漫画|"
-    r"テレビアニメ|アニメ|映画|漫画",
-    flags=re.IGNORECASE,
-)
-_NON_WORK_CATEGORY_RE = re.compile(
-    r"disambiguation|set-index|set index|ambiguous|"
-    r"television channels|television networks|television stations|"
-    r"broadcasting|broadcasters|television programming blocks|"
-    r"\bcompanies\b|\bcorporations\b|\bbrands\b|subsidiaries|"
-    r"\bpeople\b|\bpersons\b|biographies|living people|\bbirths\b|\bdeaths\b|"
-    r"voice actors|\bactors\b|\bdirectors\b|\bwriters\b|filmography|"
-    r"albums|soundtracks|\bsongs\b|discographies|"
-    r"\blists\b|\bstubs\b|"
-    r"電視台|电视台|电视网|廣播|广播|公司|人物|消歧义|消歧義|"
-    r"テレビ局|企業|人物|曖昧さ回避",
-    flags=re.IGNORECASE,
-)
-_WORK_SUMMARY_RE = re.compile(
-    r"\b(?:is|was|are|were)\b[^.]{0,60}\b"
-    r"(?:television series|tv series|anime|animated series|film|movie|ova|ona|"
-    r"manga|light novel|web series|drama series)\b",
-    flags=re.IGNORECASE,
-)
-_NON_WORK_SUMMARY_RE = re.compile(
-    r"\b(?:is|was|are|were)\b[^.]{0,60}\b"
-    r"(?:television channel|television network|television station|broadcaster|"
-    r"broadcasting|streaming service|streaming platform|video-on-demand|"
-    r"video on demand|company|corporation|subsidiary|brand)\b",
-    flags=re.IGNORECASE,
-)
-
-
-def _classify_wikipedia_page(
-    categories: list[str] | None, summary: str | None = None
-) -> str:
-    """Classify a Wikipedia page as ``"work"`` | ``"non_work"`` | ``"ambiguous"``.
-
-    ``"work"`` => safe to link as a TVSeries/Movie. ``"non_work"`` => a
-    station/network/platform/company/person/disambiguation page that must NOT
-    be linked. ``"ambiguous"`` => not enough signal to decide; defer to the LLM
-    judge. Categories dominate; the lead-sentence summary is a tiebreaker.
-    """
-    cat_text = " ".join(categories or [])
-    has_non_work_cat = bool(cat_text and _NON_WORK_CATEGORY_RE.search(cat_text))
-    has_work_cat = bool(cat_text and _WORK_CATEGORY_RE.search(cat_text))
-    if has_non_work_cat and not has_work_cat:
-        return "non_work"
-    if has_non_work_cat and has_work_cat:
-        return "ambiguous"  # mixed signals - let the judge decide
-    if has_work_cat:
-        return "work"
-    text = summary or ""
-    if _NON_WORK_SUMMARY_RE.search(text):
-        return "non_work"
-    if _WORK_SUMMARY_RE.search(text):
-        return "work"
-    return "ambiguous"
-
-
-def _validate_matched_entity_kind(meta: ResourceMetadata) -> ResourceMetadata:
-    """Defense-in-depth: decline a Wikipedia match whose page is a non-work
-    entity (station / company / person / disambiguation), even if the agent
-    returned it.
-
-    B1 (auto-link gate) and B2 (judge prompt) already steer away from these,
-    but a judge slip or a thin-categories fallthrough could still surface one -
-    never upsert a bogus TVSeries from a non-work page. The reason phrasing
-    deliberately avoids :data:`_NON_WORK_MARKERS` ("not a tv/movie/anime") so
-    :func:`_classify_failure` treats it as a retryable ``not_found`` rather
-    than a permanent ``non_work`` (the resource IS a show; we just matched the
-    wrong page and should retry with better keywords).
-    """
-    me = getattr(meta, "matched_entity", None)
-    if not meta.found or not me:
-        return meta
-    if (me.get("external_source") or "") != "wikipedia":
-        return meta
-    cats = me.get("categories") or []
-    if not cats:
-        return meta  # no categories to check (e.g. ReAct path) - trust B2
-    kind = _classify_wikipedia_page(cats, me.get("description") or "")
-    if kind == "non_work":
-        logger.info(
-            "[metadata_agent] declined non-work wikipedia match %r "
-            "(categories=%s); downgrading to not_found",
-            me.get("external_id"), cats[:3],
-        )
-        meta.found = False
-        meta.matched_entity = None
-        meta.confidence = 0.0
-        meta.reason = (
-            "declined non-work wikipedia entity match "
-            "(channel/company/person); will retry"
-        )
-    return meta
-
-
-def _candidate_queries(raw_title: str, resource: Any | None = None) -> list[tuple[str, str]]:
-    """Up to 6 (query, lang) wikipedia searches for the judge path.
-
-    Prefers pre-parser hints (search_title / title_cn -> zh, title_en -> en)
-    when a resource is available, then derives more from the raw title (drop
-    [subtitle groups], split on " / "). For each fragment it emits BOTH the
-    cleaned form AND the season-stripped work-name prefix, so a noisy
-    "无职转生 3期" still queries the base "无职转生". CJK fragments search
-    Chinese Wikipedia, and Japanese Wikipedia too when the fragment carries
-    kana (the canonical anime page usually lives on ja). Dedupes.
-    """
-    queries: list[tuple[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-
-    def add(q: str | None, lang: str) -> None:
-        q = _clean_query(q or "")
-        if not q:
-            return
-        if _NON_WORK_NAME_TOKEN_RE.fullmatch(q):
-            return  # A1: a bare station/platform token is not a work name
-        key = (q.lower(), lang)
-        if key in seen:
-            return
-        seen.add(key)
-        queries.append((q, lang))
-
-    def add_variants(part: str, lang: str) -> None:
-        cleaned = _clean_query(part)
-        if not cleaned:
-            return
-        add(cleaned, lang)
-        prefix = _work_name_prefix(cleaned)
-        if prefix and prefix.lower() != cleaned.lower():
-            add(prefix, lang)
-
-    if resource is not None:
-        st = getattr(resource, "search_title", None)
-        if st:
-            add_variants(st, "zh" if _CJK_RE.search(st) else "en")
-        if getattr(resource, "title_cn", None):
-            add_variants(resource.title_cn, "zh")
-        if getattr(resource, "title_en", None):
-            add_variants(resource.title_en, "en")
-
-    # Build candidate fragments from the raw title. Brackets usually hold
-    # release metadata ([1080p], [01], [CHS], ...), so their content is dropped
-    # - UNLESS a bracket's content looks like a work name (no metadata hint,
-    # not a pure episode number / date), in which case it's kept as an extra
-    # fragment. This recovers the work name on multi-bracket titles like
-    # "[SweetSub][小書痴...][S04][13]" where dropping every bracket would
-    # leave nothing to search.
-    bracket_parts: list[str] = []
-
-    def _strip_brackets(m: re.Match) -> str:
-        content = m.group(1).strip()
-        if (
-            content
-            and not _BRACKET_METADATA_HINT_RE.search(content)
-            and not _NON_WORK_NAME_TOKEN_RE.search(content)  # A4: [ViuTV粵語]/[TVB]/[Netflix]
-            and not _BRACKET_PURE_DIGIT_RE.match(content)
-            and not _BRACKET_DATE_RE.match(content)
-        ):
-            bracket_parts.append(content)
-        return " "
-
-    outside = _BRACKET_PAIR_CAPTURE_RE.sub(_strip_brackets, raw_title)
-    fragments = [p.strip() for p in _ALT_TITLE_SPLIT_RE.split(outside) if p.strip()]
-    fragments.extend(bracket_parts)
-
-    for part in fragments:
-        if not part:
-            continue
-        if _CJK_RE.search(part):
-            add_variants(part, "zh")
-            if _KANA_RE.search(part):
-                add_variants(part, "ja")
-        else:
-            add_variants(part, "en")
-
-    return queries[:6]
 
 def _parse_finalize_json(text: str) -> dict | None:
     """Extract the finalize JSON object from an LLM text response."""
