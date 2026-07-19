@@ -153,6 +153,14 @@ export default function ChannelDetail() {
   }, [loadChannel, loadParsed, loadUnparsed]);
 
   useEffect(() => {
+    loadParsed(parsedPage);
+  }, [parsedPage, loadParsed]);
+
+  useEffect(() => {
+    loadUnparsed(unparsedPage);
+  }, [unparsedPage, loadUnparsed]);
+
+  useEffect(() => {
     if (!id) return;
     channelsApi.fetchStatus(id).then((r) => {
       if (r.success && r.data) {
