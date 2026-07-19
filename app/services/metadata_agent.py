@@ -1032,6 +1032,13 @@ Example 7 — Batch without explicit boundaries:
    query (a leaked station token like "ViuTV"/"TVB"/"NHK" is the broadcaster,
    not the show). If the best result is such a non-work entity, finalize
    found=false.
+8. Do NOT substitute a different work. The title is authoritative - never treat
+   it as a typo or misspelling of another show. Match only a result whose own
+   TITLE names the SAME work (ignoring traditional/simplified Chinese and
+   season/episode markers); a franchise sibling - a different Kamen Rider /
+   Precure / Ultraman / Gundam season, or another entry in the same series -
+   is NOT a match (e.g. "Kamen Rider Zeztz" is NOT "Kamen Rider Gotchard").
+   If no result's title names the same work, finalize found=false.
 
 ## TITLE PARSING
 
@@ -1688,6 +1695,15 @@ Rules:
   set-index / "ambiguous" pages, single episodes, and soundtrack albums /
   songs. A leaked station token (e.g. "ViuTV", "TVB", "NHK") is never the work
   itself. If none of the candidates has a work-type category, found=false.
+- Do NOT substitute a different work. The RSS title is authoritative - never
+  treat it as a typo or misspelling of another show's name. A candidate counts
+  only if its own TITLE names the SAME work as the RSS title (ignoring
+  traditional/simplified Chinese and season/episode markers); being from the
+  same franchise - a different Kamen Rider / Precure / Ultraman / Gundam
+  season, or any other entry in the same series - is NOT a match. For example,
+  "Kamen Rider Zeztz" is NOT "Kamen Rider Gotchard". If none of the
+  candidates' titles names the same work as the RSS title, return
+  found=false rather than guessing a "similar" or "related" show.
 - content_type "tv" for series/anime, "movie" for films.
 - external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
   page_id; external_source "wikipedia"; include wikipedia_url.
