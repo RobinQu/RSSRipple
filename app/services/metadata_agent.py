@@ -20,7 +20,6 @@ import json
 import logging
 import re
 import time
-from functools import lru_cache
 from typing import Any, ClassVar
 
 from langchain_core.messages import HumanMessage
@@ -29,12 +28,18 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent  # noqa: F401 — kept for compat; deprecation warning is harmless
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.services.metadata_audio import AUDIO_CONTENT_TYPES, _detect_audio_work_type, _is_non_media
 from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile_episode
 from app.services.metadata_failure import _classify_failure, _record_metadata_attempt
 from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT, _SYSTEM_PROMPT
 from app.services.metadata_resource_meta import ResourceMetadata
+from app.services.metadata_source_io import (
+    _execute_get_tmdb_details,
+    _execute_read_jina_url,
+    _execute_search_exa_agent,
+    _execute_search_jina,
+    _execute_search_tmdb,
+)
 from app.services.metadata_sources import (
     DEFAULT_METADATA_SOURCE,
     SUPPORTED_METADATA_SOURCES,
@@ -49,6 +54,14 @@ from app.services.metadata_wiki_classify import (
     _validate_matched_entity_kind,
 )
 from app.services.metadata_wiki_query import _CJK_RE, _candidate_queries, _clean_query, _work_name_prefix
+from app.services.metadata_wikipedia_client import (
+    _WIKIPEDIA_USER_AGENT,
+    _execute_get_wikipedia_page,
+    _execute_search_wikipedia,
+    _fetch_wikipedia_page_image,
+    _is_disambiguation_category,
+    _wikipedia_client,
+)
 from app.services.resource_parser import strip_season_from_title
 from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
@@ -67,490 +80,15 @@ __all__ = [
     # wiki_query: _candidate_queries is used locally below; these two are not.
     "_clean_query",
     "_work_name_prefix",
+    # wikipedia_client: the two _execute_* are used locally by the judge path
+    # and audio resolver; these four are re-exported only for tests (ma.X).
+    "_WIKIPEDIA_USER_AGENT",
+    "_fetch_wikipedia_page_image",
+    "_is_disambiguation_category",
+    "_wikipedia_client",
 ]
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Tool backing implementations
-# ---------------------------------------------------------------------------
-
-
-async def _execute_search_tmdb(query: str) -> dict:
-    """Search TMDB — delegates to the existing metadata_search_agent module."""
-    from app.services.metadata_search_agent import _search_tmdb
-
-    try:
-        results = await _search_tmdb(query)
-        return {"success": True, "data": results}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] search_tmdb failed for query=%s: %s",
-            query, e, exc_info=True,
-        )
-        return {"success": False, "data": [], "error": str(e)}
-
-
-async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
-    """Fetch full TMDB details including season/episode structure."""
-    from app.services.metadata_search_agent import _resolve_genre_ids, _tmdb_image_base
-
-    api_key = runtime_config.tmdb_api_key
-    if not api_key:
-        return {"success": False, "data": {}, "error": "TMDB API key not configured"}
-
-    import httpx
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}",
-                params={"api_key": api_key, "language": "zh-CN"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-        image_base = _tmdb_image_base(api_key)
-        poster_path = data.get("poster_path")
-        poster_url = f"{image_base}w500{poster_path}" if poster_path else None
-
-        # Resolve genres — TMDB detail endpoint returns genres as list of dicts
-        # e.g. [{"id": 28, "name": "Action"}, ...]
-        genres_raw = data.get("genres", [])
-        genre_names: list[str] = []
-        if genres_raw and isinstance(genres_raw, list) and isinstance(genres_raw[0], dict):
-            genre_ids = [g["id"] for g in genres_raw if isinstance(g, dict) and "id" in g]
-            genre_names = _resolve_genre_ids(genre_ids, api_key)
-
-        result: dict[str, Any] = {
-            "tmdb_id": data.get("id"),
-            "media_type": media_type,
-            "title_cn": data.get("name") or data.get("title"),
-            "title_en": data.get("original_name") or data.get("original_title"),
-            "overview": data.get("overview"),
-            "poster_url": poster_url,
-            "vote_average": data.get("vote_average"),
-            "genre": genre_names,
-            "status": data.get("status"),
-        }
-
-        if media_type == "tv":
-            result["number_of_episodes"] = data.get("number_of_episodes")
-            result["number_of_seasons"] = data.get("number_of_seasons")
-            result["first_air_date"] = data.get("first_air_date")
-            result["last_air_date"] = data.get("last_air_date")
-            # Fetch season details
-            seasons_raw = data.get("seasons", [])
-            result["seasons"] = [
-                {
-                    "season_number": s.get("season_number"),
-                    "episode_count": s.get("episode_count"),
-                    "name": s.get("name"),
-                }
-                for s in seasons_raw
-                if s.get("season_number", 0) > 0
-            ]
-        else:
-            result["release_date"] = data.get("release_date")
-            result["runtime"] = data.get("runtime")
-
-        return {"success": True, "data": result}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] get_tmdb_details failed for tmdb_id=%s media_type=%s: %s",
-            tmdb_id, media_type, e, exc_info=True,
-        )
-        return {"success": False, "data": {}, "error": str(e)}
-
-
-# ---------------------------------------------------------------------------
-# Wikipedia
-#
-# Backed by the maintained ``Wikipedia-API`` PyPI package (import
-# ``wikipediaapi``), which replaces the unmaintained ``wikipedia`` package
-# (v1.4.0). The old package was fragile in three ways that all converged on
-# the same ``JSONDecodeError`` ("Expecting value: line 1 column 1 (char 0)"):
-#   * its ``User-Agent`` defaulted to a generic string that Wikimedia's UA
-#     policy throttles/blocks with an *empty* response body;
-#   * it built ``http://<lang>.wikipedia.org/...`` URLs (Wikimedia redirects
-#     to https, which some networks/proxies drop to an empty body);
-#   * ``_wiki_request`` called ``r.json()`` with no ``raise_for_status`` and
-#     no retry, so an empty body raised ``JSONDecodeError``.
-# ``Wikipedia-API`` alleviates all three at the source:
-#   * the constructor REQUIRES a descriptive ``user_agent`` (>=5 chars) and
-#     builds a Wikimedia-compliant composite UA header;
-#   * it hits ``https://{lang}.wikipedia.org/w/api.php`` directly (no http
-#     redirect whose body can be dropped);
-#   * it checks HTTP status (non-200 -> ``WikiHttpError``) instead of parsing
-#     an empty body, and retries transient failures (5xx, 429, connection,
-#     timeout, invalid JSON) internally up to ``max_retries``.
-# We still wrap every call so any residual ``WikipediaException`` is mapped to
-# a transient ``_WikipediaRequestError`` ("Wikipedia request failed: ..."),
-# never a definitive "no match" - so the backfill retries instead of caching a
-# permanent not_found. A genuine page-not-found (``page.exists() is False``)
-# returns a non-transient "Page not found" error.
-# ---------------------------------------------------------------------------
-
-# Wikimedia-compliant UA - policy requires a descriptive agent with contact.
-_WIKIPEDIA_USER_AGENT = (
-    f"{settings.app_name}/0.1.0 (https://github.com/RobinQu/RSSRipple) "
-    f"metadata-agent"
-)
-
-
-class _WikipediaRequestError(Exception):
-    """A retryable infra failure from the wikipediaapi library (connection,
-    timeout, rate limit, non-200, invalid JSON). Its message always starts
-    with ``"Wikipedia request failed"`` so :func:`_classify_failure` treats
-    the outcome as transient."""
-
-
-@lru_cache(maxsize=8)
-def _wikipedia_client(lang: str) -> Any:
-    """Build (and cache) a ``wikipediaapi.Wikipedia`` client for one language.
-
-    The client carries a Wikimedia-compliant User-Agent, uses HTTPS, and
-    retries transient HTTP failures (5xx, 429, connection, timeout, invalid
-    JSON) internally - so the empty-body ``JSONDecodeError`` that plagued the
-    old ``wikipedia`` package cannot occur.
-    """
-    import wikipediaapi
-
-    return wikipediaapi.Wikipedia(
-        user_agent=_WIKIPEDIA_USER_AGENT,
-        language=lang,
-        extract_format=wikipediaapi.ExtractFormat.WIKI,
-    )
-
-
-def _is_disambiguation_category(category_names: list[str]) -> bool:
-    """Heuristic disambiguation detection from a page's category names.
-
-    ``Wikipedia-API`` does not raise ``DisambiguationError`` (unlike the old
-    package); a disambiguation page is a normal page whose categories include
-    a disambiguation category. We detect that so the agent can ask for a more
-    specific title instead of trusting a generic page.
-    """
-    for name in category_names:
-        lowered = name.lower()
-        if "disambig" in lowered or "消歧义" in name or "曖昧" in name:
-            return True
-    return False
-
-
-async def _wiki_call(func: Any, *args: Any, **kwargs: Any) -> Any:
-    """Run a synchronous ``wikipediaapi`` call in a worker thread, mapping any
-    library exception to a transient ``_WikipediaRequestError``.
-
-    Transient retrying (5xx, 429, connection, timeout, invalid JSON) is handled
-    inside the library; this wrapper only normalizes the error contract so the
-    agent's failure classification treats infra failures as retryable.
-    """
-    import wikipediaapi
-
-    try:
-        return await asyncio.to_thread(func, *args, **kwargs)
-    except wikipediaapi.WikipediaException as e:
-        raise _WikipediaRequestError(
-            f"Wikipedia request failed: {type(e).__name__} ({e})"
-        )
-    except Exception as e:  # noqa: BLE001 - belt-and-suspenders for httpx errors
-        msg = str(e).lower()
-        if "timeout" in msg or "timed out" in msg or "connection" in msg:
-            raise _WikipediaRequestError(
-                f"Wikipedia request failed: network error ({type(e).__name__})"
-            )
-        raise _WikipediaRequestError(
-            f"Wikipedia request failed: {type(e).__name__} ({e})"
-        )
-
-
-async def _execute_search_wikipedia(query: str, lang: str = "en") -> dict:
-    """Search Wikipedia for matching pages."""
-    try:
-        import wikipediaapi  # noqa: F401 - presence check only
-    except ImportError as e:
-        return {"success": False, "data": [], "error": f"wikipediaapi not installed: {e}"}
-
-    wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
-    wiki = _wikipedia_client(wiki_lang)
-
-    try:
-        results = await _wiki_call(wiki.search, query, limit=8)
-    except _WikipediaRequestError as e:
-        logger.warning(
-            "[metadata_agent] search_wikipedia failed for query=%r lang=%s: %s",
-            query, lang, e,
-        )
-        return {"success": False, "data": [], "error": str(e)}
-    if not results or not getattr(results, "pages", None):
-        return {"success": True, "data": []}
-
-    pages = []
-    for _title, page in list(results.pages.items())[:5]:
-        # ``pageid`` is populated by ``search``; ``exists()`` is a cheap
-        # ``pageid > 0`` check (no extra API call) for search-result stubs.
-        if not page.exists():
-            continue
-        # ``summary`` is a lazy extract (one API call per page); a transient
-        # failure on one page must not sink the whole result, so fall back to "".
-        try:
-            summary = await _wiki_call(lambda p=page: p.summary)
-        except _WikipediaRequestError as e:
-            logger.debug(
-                "[metadata_agent] wikipedia summary(%r) failed lang=%s: %s",
-                page.title, wiki_lang, e,
-            )
-            summary = ""
-        pages.append(
-            {
-                "title": page.title,
-                "page_id": page.pageid,
-                "url": page.fullurl,
-                "summary": (summary or "")[:500],
-            }
-        )
-    return {"success": True, "data": pages}
-
-
-async def _fetch_wikipedia_page_image(
-    title: str, lang: str = "en", page_id: int | None = None,
-    expected_title: str | None = None,
-) -> str | None:
-    """Fetch the lead/infobox image URL for a Wikipedia page.
-
-    Two MediaWiki endpoints are tried in order, because neither alone covers
-    every page:
-
-    1. ``action=query&prop=pageimages`` (queried by ``pageids`` when available
-       for reliable redirect resolution, else by ``titles``). Fast and
-       batchable, but the PageImages extension has not assessed a lead image
-       for some pages (e.g. zh ``二十世纪电气目录``).
-    2. The REST ``/api/rest_v1/page/summary/{title}`` endpoint, whose
-       ``originalimage``/``thumbnail`` fields surface the lead image for pages
-       the pageimages prop misses.
-
-    Returns the original (full-res) source when available, falling back to a
-    500px thumbnail. Returns ``None`` on any failure or when the page has no
-    image - callers must treat the absence of a poster as non-fatal.
-    """
-    from urllib.parse import quote
-
-    import httpx
-
-    from app.services.metadata_service import AUTO_LINK_THRESHOLD
-    from app.services.text_normalizer import similarity_score
-
-    wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
-    headers = {"Accept": "application/json", "User-Agent": _WIKIPEDIA_USER_AGENT}
-
-    def _title_ok(page_title: str | None) -> bool:
-        """True when the fetched page's title plausibly belongs to this work.
-        Without this guard a stale/wrong ``page_id`` (or a REST title mismatch)
-        silently returns an unrelated article's image."""
-        if not expected_title or not page_title:
-            return True
-        return similarity_score(expected_title, page_title) >= AUTO_LINK_THRESHOLD
-
-    # ── 1. pageimages prop ──
-    pi_params = {
-        "action": "query",
-        "format": "json",
-        "prop": "pageimages",
-        "piprop": "original|thumbnail",
-        "pithumbsize": 500,
-        "redirects": 1,
-    }
-    if page_id:
-        pi_params["pageids"] = page_id
-    else:
-        pi_params["titles"] = title
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"https://{wiki_lang}.wikipedia.org/w/api.php",
-                params=pi_params,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        for page in ((data.get("query") or {}).get("pages") or {}).values():
-            if not _title_ok(page.get("title")):
-                # The stored page_id points at the wrong article - fall through
-                # to the REST-by-title fallback instead of trusting it.
-                continue
-            original = page.get("original")
-            if isinstance(original, dict) and original.get("source"):
-                return original["source"]
-            thumb = page.get("thumbnail")
-            if isinstance(thumb, dict) and thumb.get("source"):
-                return thumb["source"]
-    except Exception as e:  # noqa: BLE001 - best-effort image fetch
-        logger.debug(
-            "[metadata_agent] wikipedia pageimages(%r/%s) failed lang=%s: %s",
-            title, page_id, wiki_lang, e,
-        )
-
-    # ── 2. REST summary fallback ──
-    # Queried by ``title`` (not pageid), so when the caller's title is not the
-    # canonical article title it can resolve to a different page and surface an
-    # unrelated image. ``_title_ok`` rejects those the same way.
-    try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(
-                f"https://{wiki_lang}.wikipedia.org/api/rest_v1/page/summary/{quote(title)}",
-                headers=headers,
-            )
-            if resp.status_code != 200:
-                return None
-            d = resp.json()
-        if not _title_ok(d.get("title")):
-            logger.debug(
-                "[metadata_agent] wikipedia rest_summary(%r) page title %r "
-                "did not match expected %r - skipping image",
-                title, d.get("title"), expected_title,
-            )
-            return None
-        original = d.get("originalimage")
-        if isinstance(original, dict) and original.get("source"):
-            return original["source"]
-        thumb = d.get("thumbnail")
-        if isinstance(thumb, dict) and thumb.get("source"):
-            return thumb["source"]
-    except Exception as e:  # noqa: BLE001 - best-effort image fetch
-        logger.debug(
-            "[metadata_agent] wikipedia rest_summary(%r) failed lang=%s: %s",
-            title, wiki_lang, e,
-        )
-    return None
-
-
-async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
-    """Get full Wikipedia page with infobox and categories."""
-    try:
-        import wikipediaapi  # noqa: F401 - presence check only
-    except ImportError as e:
-        return {"success": False, "data": {}, "error": f"wikipediaapi not installed: {e}"}
-
-    wiki_lang = lang if lang in ("en", "zh", "ja") else "en"
-    wiki = _wikipedia_client(wiki_lang)
-    page = wiki.page(title)  # lazy stub - no network until an attr is resolved
-
-    try:
-        exists = await _wiki_call(page.exists)
-    except _WikipediaRequestError as e:
-        logger.warning(
-            "[metadata_agent] get_wikipedia_page failed for title=%r lang=%s: %s",
-            title, lang, e,
-        )
-        return {"success": False, "data": {}, "error": str(e)}
-    if not exists:
-        return {"success": False, "data": {}, "error": f"Page not found: {title}"}
-
-    # ``categories`` is a lazy fetch; reuse it for both disambiguation
-    # detection and the result so we only pay for one API call.
-    try:
-        categories = await _wiki_call(lambda p=page: list(p.categories.keys()))
-    except _WikipediaRequestError as e:
-        logger.debug(
-            "[metadata_agent] wikipedia categories(%r) failed lang=%s: %s",
-            title, wiki_lang, e,
-        )
-        categories = []
-
-    if _is_disambiguation_category(categories or []):
-        return {
-            "success": True,
-            "data": {
-                "title": title,
-                "disambiguation": True,
-                "options": [],
-            },
-        }
-
-    try:
-        summary = await _wiki_call(lambda p=page: p.summary)
-    except _WikipediaRequestError as e:
-        logger.debug(
-            "[metadata_agent] wikipedia summary(%r) failed lang=%s: %s",
-            title, wiki_lang, e,
-        )
-        summary = ""
-
-    poster_url = await _fetch_wikipedia_page_image(
-        page.title, wiki_lang, page.pageid, expected_title=page.title
-    )
-
-    return {
-        "success": True,
-        "data": {
-            "title": page.title,
-            "page_id": page.pageid,
-            "url": page.fullurl,
-            "summary": (summary or "")[:800],
-            "categories": (categories or [])[:20],
-            "poster_url": poster_url,
-        },
-    }
-
-
-async def _execute_search_exa_agent(query: str) -> dict:
-    """Search via Exa Agent as an independent web metadata source."""
-    from app.services.metadata_search_agent import _search_exa
-
-    try:
-        logger.info("[metadata_agent][exa_tool] search_exa_agent query=%r", query[:200])
-        results = await _search_exa(query)
-        logger.info(
-            "[metadata_agent][exa_tool] search_exa_agent done query=%r candidates=%d",
-            query[:200], len(results),
-        )
-        return {"success": True, "data": results}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] search_exa_agent failed for query=%s: %s",
-            query, e, exc_info=True,
-        )
-        return {"success": False, "data": [], "error": str(e)}
-
-
-async def _execute_search_jina(query: str) -> dict:
-    """Search the web via Jina Search (s.jina.ai) — SERP hits with full content."""
-    from app.services.metadata_search_agent import _search_jina
-
-    try:
-        logger.info("[metadata_agent][jina_tool] search_jina query=%r", query[:200])
-        results = await _search_jina(query)
-        logger.info(
-            "[metadata_agent][jina_tool] search_jina done query=%r hits=%d",
-            query[:200], len(results),
-        )
-        return {"success": True, "data": results}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] search_jina failed for query=%s: %s",
-            query, e, exc_info=True,
-        )
-        return {"success": False, "data": [], "error": str(e)}
-
-
-async def _execute_read_jina_url(url: str, with_links: bool = False) -> dict:
-    """Fetch a single URL's full content via Jina Reader (r.jina.ai)."""
-    from app.services.metadata_search_agent import _read_jina_url
-
-    try:
-        logger.info("[metadata_agent][jina_tool] read_jina_url url=%r", url[:200])
-        data = await _read_jina_url(url, with_links=with_links)
-        if not data:
-            return {"success": False, "data": {}, "error": "no content returned"}
-        return {"success": True, "data": data}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] read_jina_url failed for url=%s: %s",
-            url, e, exc_info=True,
-        )
-        return {"success": False, "data": {}, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 """Unit tests for source isolation in UnifiedMetadataAgent."""
 
+from app.services import metadata_wikipedia_client as wc
 from app.services.metadata_agent import (
     SUPPORTED_METADATA_SOURCES,
     ResourceMetadata,
@@ -996,7 +997,7 @@ async def test_execute_search_wikipedia_maps_infra_error_to_transient(monkeypatc
     wiki.search.side_effect = wikipediaapi.WikiConnectionError(
         "https://zh.wikipedia.org/w/api.php"
     )
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_search_wikipedia("复制品也要谈恋爱", lang="zh")
 
@@ -1019,7 +1020,7 @@ async def test_execute_search_wikipedia_returns_pages_on_success(monkeypatch):
     )
     wiki = MagicMock()
     wiki.search.return_value = _fake_search_results([page])
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_search_wikipedia("Breaking Bad", lang="en")
 
@@ -1039,7 +1040,7 @@ async def test_execute_search_wikipedia_empty_results_is_success_empty(monkeypat
 
     wiki = MagicMock()
     wiki.search.return_value = _fake_search_results([])
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_search_wikipedia("No Match", lang="en")
 
@@ -1064,7 +1065,7 @@ async def test_execute_search_wikipedia_skips_missing_and_summary_failure(monkey
     )
     wiki = MagicMock()
     wiki.search.return_value = _fake_search_results([good, missing, broken])
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_search_wikipedia("query", lang="en")
 
@@ -1094,9 +1095,9 @@ async def test_execute_get_wikipedia_page_returns_full_page(monkeypatch):
     )
     wiki = MagicMock()
     wiki.page.return_value = page
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
     monkeypatch.setattr(
-        ma,
+        wc,
         "_fetch_wikipedia_page_image",
         AsyncMock(return_value="https://upload.wikimedia.org/bb.jpg"),
     )
@@ -1121,7 +1122,7 @@ async def test_execute_get_wikipedia_page_not_found(monkeypatch):
     page = _FakeWikiPage(title="Nope", pageid=-1, exists=False)
     wiki = MagicMock()
     wiki.page.return_value = page
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_get_wikipedia_page("Nope", lang="en")
 
@@ -1143,7 +1144,7 @@ async def test_execute_get_wikipedia_page_maps_infra_error_to_transient(monkeypa
     )
     wiki = MagicMock()
     wiki.page.return_value = page
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_get_wikipedia_page("Some Title", lang="en")
 
@@ -1163,7 +1164,7 @@ async def test_execute_get_wikipedia_page_detects_disambiguation(monkeypatch):
     )
     wiki = MagicMock()
     wiki.page.return_value = page
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
 
     result = await ma._execute_get_wikipedia_page("Mercury", lang="en")
 
@@ -1195,8 +1196,8 @@ async def test_search_then_judge_skips_autolink_for_non_work_page(monkeypatch):
     wiki = MagicMock()
     wiki.search.return_value = _fake_search_results([station_page])
     wiki.page.return_value = station_page
-    monkeypatch.setattr(ma, "_wikipedia_client", lambda lang: wiki)
-    monkeypatch.setattr(ma, "_fetch_wikipedia_page_image", AsyncMock(return_value=None))
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_fetch_wikipedia_page_image", AsyncMock(return_value=None))
 
     agent = ma.UnifiedMetadataAgent()
     agent._model = MagicMock()
