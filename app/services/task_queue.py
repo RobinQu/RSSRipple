@@ -84,6 +84,14 @@ class BaseQueue(ABC):
     async def status(self, key: str) -> dict | None:
         """Return the latest job state for *key*, or None if no job ever queued."""
 
+    @abstractmethod
+    async def clear(self, key: str) -> None:
+        """Drop any stored job state for *key*.
+
+        Callers use this after a terminal job has been observed so a new job
+        with the same key can be enqueued. Implementations must be idempotent.
+        """
+
 
 # ---------------------------------------------------------------------------
 # In-process asyncio implementation
@@ -162,6 +170,9 @@ class MemoryQueue(BaseQueue):
     async def status(self, key: str) -> dict | None:
         job = self._jobs_by_key.get(key)
         return job.to_dict() if job else None
+
+    async def clear(self, key: str) -> None:
+        self._jobs_by_key.pop(key, None)
 
     async def _dispatch_loop(self) -> None:
         while True:
@@ -283,6 +294,11 @@ class RedisQueue(BaseQueue):
     async def status(self, key: str) -> dict | None:
         raw = await self._redis.hgetall(f"{_JOB_PFX}{key}")
         return self._deserialize(raw) if raw else None
+
+    async def clear(self, key: str) -> None:
+        redis_key = f"{_JOB_PFX}{key}"
+        active_key = f"{_ACTIVE_PFX}{key}"
+        await self._redis.delete(redis_key, active_key)
 
     async def _worker_loop(self) -> None:
         while True:

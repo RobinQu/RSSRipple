@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     # Transmission
     transmission_timeout: int = 30
 
+    # Scheduler / background jobs. Disable for integration tests where tests
+    # explicitly trigger fetch/agent jobs and automatic scheduling causes
+    # ALREADY_RUNNING races.
+    scheduler_enabled: bool = True
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

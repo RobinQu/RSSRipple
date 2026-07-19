@@ -24,7 +24,12 @@ def get_scheduler() -> AsyncIOScheduler:
 
 
 async def init_scheduler() -> None:  # pragma: no cover - wiring only
+    from app.config import settings
+
     global _scheduler
+    if not settings.scheduler_enabled:
+        logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
+        return
     _scheduler = AsyncIOScheduler()
     _scheduler.add_job(
         _sync_download_progress,
@@ -70,10 +75,11 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
 
 async def shutdown_scheduler() -> None:  # pragma: no cover - wiring only
     global _scheduler
-    if _scheduler:
-        _scheduler.shutdown(wait=False)
-        _scheduler = None
-        logger.info("Scheduler shut down")
+    if _scheduler is None:
+        return
+    _scheduler.shutdown(wait=False)
+    _scheduler = None
+    logger.info("Scheduler shut down")
 
 
 async def setup_channel_jobs(db) -> None:  # pragma: no cover - wiring only
@@ -85,7 +91,12 @@ async def setup_channel_jobs(db) -> None:  # pragma: no cover - wiring only
     """
     from sqlalchemy import select
 
+    from app.config import settings
     from app.models.channel import Channel
+
+    if not settings.scheduler_enabled:
+        logger.info("Scheduler disabled; skipping channel fetch job setup")
+        return
     result = await db.execute(select(Channel).where(Channel.status != "inactive"))
     channels = result.scalars().all()
     for ch in channels:
@@ -95,10 +106,16 @@ async def setup_channel_jobs(db) -> None:  # pragma: no cover - wiring only
 
 async def setup_metadata_refresh_job(db) -> None:  # pragma: no cover - wiring only
     """Register the optional periodic works metadata refresh job from settings."""
+    from app.config import settings
+
+    if not settings.scheduler_enabled:
+        logger.info("Scheduler disabled; skipping metadata refresh job setup")
+        return
     await reschedule_metadata_refresh_job(db)
 
 
 async def reschedule_metadata_refresh_job(db) -> None:  # pragma: no cover - wiring only
+    from app.config import settings
     from app.services.settings_service import (
         DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
         MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
@@ -109,6 +126,8 @@ async def reschedule_metadata_refresh_job(db) -> None:  # pragma: no cover - wir
         get_int_setting,
     )
 
+    if not settings.scheduler_enabled:
+        return
     sched = get_scheduler()
     job_id = "metadata_refresh"
     try:
@@ -139,6 +158,10 @@ async def reschedule_metadata_refresh_job(db) -> None:  # pragma: no cover - wir
 
 
 def schedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
+    from app.config import settings
+
+    if not settings.scheduler_enabled:
+        return
     sched = get_scheduler()
     job_id = f"channel:{channel.id}"
     trigger = IntervalTrigger(seconds=channel.fetch_interval)
@@ -153,6 +176,8 @@ def schedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
 
 
 def unschedule_channel(channel_id: str) -> None:  # pragma: no cover - wiring only
+    if _scheduler is None:
+        return
     sched = get_scheduler()
     job_id = f"channel:{channel_id}"
     try:

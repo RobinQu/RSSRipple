@@ -132,18 +132,23 @@ async def create_channel(
 
     # Auto-trigger an initial fetch so the new channel starts pulling data
     # immediately instead of waiting for the first scheduler tick. Fire-and-
-    # forget: a failure here must not fail the create.
+    # forget: a failure here must not fail the create. Skip auto-trigger when
+    # the scheduler is disabled (e.g. integration tests) so tests have explicit
+    # control over fetch timing.
+    from app.config import settings
+
     fetch_triggered = False
-    try:
-        from app.services.task_queue import task_queue
-        job = await task_queue.enqueue(
-            "fetch_channel", f"channel:{channel.id}", {"channel_id": channel.id}
-        )
-        fetch_triggered = job is not None
-    except Exception:
-        logger.warning(
-            "Failed to enqueue initial fetch for channel %s", channel.id, exc_info=True
-        )
+    if settings.scheduler_enabled:
+        try:
+            from app.services.task_queue import task_queue
+            job = await task_queue.enqueue(
+                "fetch_channel", f"channel:{channel.id}", {"channel_id": channel.id}
+            )
+            fetch_triggered = job is not None
+        except Exception:
+            logger.warning(
+                "Failed to enqueue initial fetch for channel %s", channel.id, exc_info=True
+            )
 
     return success_response(
         ChannelResponse.model_validate(channel).model_dump(),
@@ -272,9 +277,18 @@ async def fetch_channel(channel_id: str, force: bool = False, db: AsyncSession =
     if not channel:
         return _not_found()
     from app.services.task_queue import task_queue
-    job = await task_queue.enqueue("fetch_channel", f"channel:{channel_id}", {"channel_id": channel_id, "force": force})
+    key = f"channel:{channel_id}"
+    existing = await task_queue.status(key)
+    if existing is not None and existing.get("job_type") == "fetch_channel":
+        if existing.get("status") in ("queued", "running"):
+            # A fetch is already in flight. Return the existing job so callers
+            # can poll its status instead of getting a 409 conflict.
+            return success_response(existing)
+        # Existing job has finished; clear it so a fresh enqueue can start.
+        await task_queue.clear(key)
+    job = await task_queue.enqueue("fetch_channel", key, {"channel_id": channel_id, "force": force})
     if job is None:
-        existing = await task_queue.status(f"channel:{channel_id}")
+        existing = await task_queue.status(key)
         return _already_running(existing)
     return success_response(job)
 

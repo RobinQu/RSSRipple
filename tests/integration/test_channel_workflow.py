@@ -222,7 +222,7 @@ class TestCreateChannelBasic:
         result = _poll_fetch(basic_channel_id)
         assert result["status"] == "done"
         assert result["result"]["new_count"] == 0, (
-            f"Re-fetch created {result['result']['new']} new resources — dedup broken"
+            f"Re-fetch created {result['result']['new_count']} new resources — dedup broken"
         )
 
         _, count_after = _list_resources(basic_channel_id)
@@ -372,5 +372,5 @@ class TestEditChannelWithMapping:
         result = _poll_fetch(channel_id)
         assert result["status"] == "done"
         assert result["result"]["new_count"] == 0, (
-            f"Re-fetch created {result['result']['new']} new resources — dedup broken"
+            f"Re-fetch created {result['result']['new_count']} new resources — dedup broken"
         )

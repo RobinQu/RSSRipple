@@ -26,6 +26,7 @@ services:
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
+      - SCHEDULER_ENABLED=false
     volumes:
       - ./data:/app/data
     depends_on:
