@@ -16,6 +16,7 @@ import os
 import time
 
 import httpx
+import pytest
 
 RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
@@ -78,6 +79,20 @@ def _poll_fetch(channel_id: str, timeout: int = 60) -> dict:
 class TestFormToken:
     """Server-side synchronizer token (CSRF-style double-submit prevention)."""
 
+    created_channel_ids: list[str] = []
+
+    @classmethod
+    @pytest.fixture(scope="class", autouse=True)
+    def _cleanup_created_channels(cls):
+        """Delete channels created by these tests so they don't leak into later runs."""
+        yield
+        for ch_id in cls.created_channel_ids:
+            try:
+                httpx.delete(f"{RSSRIPPLE}/api/v1/channels/{ch_id}", timeout=10)
+            except Exception:
+                pass
+        cls.created_channel_ids.clear()
+
     def test_form_token_endpoint_returns_uuid(self):
         """GET /channels/form-token returns a 36-char UUID string."""
         token = _get_form_token()
@@ -97,6 +112,7 @@ class TestFormToken:
         token = _get_form_token()
         resp = _create_channel(name="Token Valid Test", token=token)
         assert resp.status_code == 201, resp.text
+        self.created_channel_ids.append(resp.json()["data"]["id"])
 
     def test_create_channel_duplicate_token_rejected(self):
         """Using the same form token twice returns 409 DUPLICATE_SUBMISSION."""
@@ -105,6 +121,7 @@ class TestFormToken:
         # First use — consumes the token
         resp1 = _create_channel(name="Dup Test A", token=token)
         assert resp1.status_code == 201, f"First submit failed: {resp1.text}"
+        self.created_channel_ids.append(resp1.json()["data"]["id"])
 
         # Second use — token already consumed
         resp2 = _create_channel(name="Dup Test B", token=token)
@@ -117,6 +134,7 @@ class TestFormToken:
         """POST /channels without X-Form-Token succeeds (token is optional)."""
         resp = _create_channel(name="No Token Test")
         assert resp.status_code == 201, resp.text
+        self.created_channel_ids.append(resp.json()["data"]["id"])
 
     def test_update_channel_duplicate_token_rejected(self):
         """PUT /channels/{id} with same token twice returns 409 on second call."""
@@ -124,6 +142,7 @@ class TestFormToken:
         create_resp = _create_channel(name="Update Token Test")
         assert create_resp.status_code == 201
         channel_id = create_resp.json()["data"]["id"]
+        self.created_channel_ids.append(channel_id)
 
         token = _get_form_token()
 

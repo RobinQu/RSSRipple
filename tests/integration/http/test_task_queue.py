@@ -19,6 +19,8 @@ import uuid
 import httpx
 import pytest
 
+from tests.integration.http._http import DEFAULT_FIELD_MAPPING
+
 TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
 APP_MEMORY = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
 APP_REDIS = os.environ.get("REDIS_APP_URL", "")
@@ -79,13 +81,6 @@ def poll_job_status(app_url: str, endpoint: str, timeout: float = FETCH_TIMEOUT)
         time.sleep(POLL_INTERVAL)
 
 
-DEFAULT_FIELD_MAPPING = {
-    "list_locator": {"source": "entries"},
-    "field_mappings": {
-        "title_raw": {"source": "title"},
-        "torrent_url": {"source": "link"},
-    },
-}
 
 
 def make_channel(app_url: str, name_suffix: str = "") -> str:

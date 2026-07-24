@@ -11,3 +11,8 @@ seed (they only need LLM_API_KEY / TMDB_API_KEY).
 Cross-suite hermeticity (runtime_config override reset) is handled by the
 root ``tests/conftest.py``.
 """
+
+# server/ is the fake test-server's application code (built into its own Docker
+# image), not test modules. Exclude it from collection so pytest doesn't try to
+# collect its ``TestFile`` dataclass (PytestCollectionWarning).
+collect_ignore = ["server"]
