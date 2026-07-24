@@ -16,7 +16,7 @@ Replace single LLM web-search call in `search_metadata_via_llm()` with a multi-s
 ### Code to create
 - `app/services/metadata_search_agent.py` — new multi-source agent module
 - `tests/unit/test_metadata_search_agent.py` — unit tests
-- `tests/integration/test_metadata_search_agent_integration.py` — integration tests with 20+ test data
+- `tests/integration/external/test_metadata_search_agent.py` — integration tests with 22-title dataset
 
 ## Research Context (from @librarian ses_0f2554382ffeLSMrk2aJGATVXS)
 
@@ -122,7 +122,7 @@ Curated list of real titles spanning TV, movie, anime, Chinese titles:
 21. "Oppenheimer" — Movie
 22. "Rick and Morty" — TV
 
-### Integration tests (`tests/integration/test_metadata_search_agent_integration.py`)
+### Integration tests (`tests/integration/external/test_metadata_search_agent.py`)
 - For each title in dataset: search and verify response format
 - Verify at least 80% of titles return valid metadata
 - Verify content_type is correctly identified

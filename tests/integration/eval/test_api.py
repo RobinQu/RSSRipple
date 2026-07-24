@@ -282,7 +282,7 @@ class TestMetadataSearch:
         )
         assert r.status_code == 422
 
-    async def test_search_empty_may_fail_or_noop(self, client):
+    async def test_search_without_llm_key_degrades_gracefully(self, client):
         """Search may fail without LLM key, but should handle gracefully."""
         r = await client.post(
             "/api/search-metadata",

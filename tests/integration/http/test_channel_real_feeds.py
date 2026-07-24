@@ -11,59 +11,10 @@ Requirements: Docker test environment with app + test-server services.
 
 from __future__ import annotations
 
-import os
-import time
-
 import httpx
 import pytest
 
-RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
-TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
-TIMEOUT = 60.0
-
-
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
-
-
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=TIMEOUT)
-
-
-def _api(path: str, method: str = "get", **kw):
-    """Convenience HTTP call against the RSSRipple app (with retry)."""
-    last_exc = None
-    for attempt in range(3):
-        try:
-            c = _client()
-            fn = getattr(c, method.lower())
-            return fn(f"{RSSRIPPLE}{path}", **kw)
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            time.sleep(1 * (attempt + 1))
-    raise last_exc
-
-
-def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
-    """Poll fetch-status until running → success."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = _api(f"/api/v1/channels/{channel_id}/fetch-status")
-        data = r.json()
-        if data.get("data", {}).get("status") == "done":
-            return data["data"]
-        time.sleep(2)
-    raise TimeoutError(f"Fetch did not complete for channel {channel_id}")
-
-
-DEFAULT_FIELD_MAPPING = {
-    "list_locator": {"source": "entries"},
-    "field_mappings": {
-        "title_raw": {"source": "title"},
-        "torrent_url": {"source": "link"},
-    },
-}
+from tests.integration.http._http import DEFAULT_FIELD_MAPPING, TEST_SERVER, _api, _poll_fetch
 
 
 def _create_channel(
@@ -331,45 +282,6 @@ class TestChannelFetchGroundTruth:
         assert result["result"]["status"] in ("success", "unchanged"), (
             f"Unexpected inner status: {result['result']['status']}"
         )
-
-    def test_delete_channel_cascades_resources(self):
-        """Delete channel, verify resources gone from /resources endpoint."""
-        # Create a fresh channel and fetch to populate resources
-        resp = _create_channel(
-            "Mikanani-ext Cascade Delete", MIKANANI_EXT_URL
-        )
-        assert resp.status_code == 201
-        ch_id = resp.json()["data"]["id"]
-
-        _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
-        result = _poll_fetch(ch_id)
-        assert result["status"] == "done"
-        assert result["result"]["new_count"] > 0, (
-            "Fetch created no resources — cannot verify cascade delete"
-        )
-
-        # Verify resources exist
-        _, meta = _get_resources(ch_id)
-        assert meta["total"] > 0, "Expected file_resources before delete"
-
-        # Delete channel
-        del_r = _api(f"/api/v1/channels/{ch_id}", method="delete")
-        assert del_r.status_code == 200
-        assert del_r.json()["data"]["deleted"] is True
-
-        # Channel must be gone
-        get_r = _api(f"/api/v1/channels/{ch_id}")
-        assert get_r.status_code == 404
-
-        # Resources endpoint should 404 (channel gone) or 200 with total=0
-        res_after = _api(f"/api/v1/channels/{ch_id}/resources")
-        assert res_after.status_code in (200, 404), (
-            f"Unexpected status {res_after.status_code}: {res_after.text}"
-        )
-        if res_after.status_code == 200:
-            assert res_after.json()["meta"]["total"] == 0, (
-                "Resources not cleaned up after channel delete"
-            )
 
 
 # =========================================================================

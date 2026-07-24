@@ -14,36 +14,9 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import time
-
-import httpx
 import pytest
 
-# ── Environment ──────────────────────────────────────────────────────────
-
-RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
-TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
-TIMEOUT = 60.0
-
-
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=TIMEOUT)
-
-
-def _api(path: str, method: str = "get", **kw):
-    """Convenience HTTP call against the RSSRipple app (with retry)."""
-    last_exc = None
-    for attempt in range(3):
-        try:
-            c = _client()
-            fn = getattr(c, method.lower())
-            return fn(f"{RSSRIPPLE}{path}", **kw)
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            time.sleep(1 * (attempt + 1))
-    raise last_exc
-
+from tests.integration.http._http import _api
 
 # =========================================================================
 # TestDownloaderCRUD — lifecycle of a downloader instance

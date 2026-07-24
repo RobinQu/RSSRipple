@@ -15,107 +15,16 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import time
-
-import httpx
 import pytest
 
-# ── Environment ──────────────────────────────────────────────────────────
-
-RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
-TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
-MIKANANI_EXT_URL = f"{TEST_SERVER}/rss/mikanani-ext"
-TIMEOUT = 60.0
-
-
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=TIMEOUT)
-
-
-def _api(path: str, method: str = "get", **kw):
-    """Convenience HTTP call against the RSSRipple app (with retry)."""
-    last_exc = None
-    for attempt in range(3):
-        try:
-            c = _client()
-            fn = getattr(c, method.lower())
-            return fn(f"{RSSRIPPLE}{path}", **kw)
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            time.sleep(1 * (attempt + 1))
-    raise last_exc
-
-
-def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
-    """Block until the channel fetch job finishes (done/failed) or times out."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = _api(f"/api/v1/channels/{channel_id}/fetch-status")
-        d = r.json()
-        if d.get("data", {}).get("status") in ("done", "failed"):
-            return d["data"]
-        time.sleep(2)
-    raise TimeoutError("Fetch did not complete")
-
-
-def _poll_run(agent_id: str, timeout: int = 120) -> dict:
-    """Block until the agent run job finishes (done/failed) or times out."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = _api(f"/api/v1/agents/{agent_id}/run-status")
-        d = r.json()
-        if d.get("data", {}).get("status") in ("done", "failed"):
-            return d["data"]
-        time.sleep(2)
-    raise TimeoutError("Agent run did not complete")
-
-
-# ── Default field mapping ────────────────────────────────────────────────
-
-DEFAULT_FIELD_MAPPING = {
-    "list_locator": {"source": "entries"},
-    "field_mappings": {
-        "title_raw": {"source": "title"},
-        "torrent_url": {"source": "link"},
-    },
-}
-
-
-# =========================================================================
-# Helpers: fetch first downloader
-# =========================================================================
-
-def _get_first_downloader_id() -> str | None:
-    """Get the ID of the first downloader, or None if none exist."""
-    r = _api("/api/v1/downloaders", params={"page_size": 100})
-    if r.status_code != 200:
-        return None
-    body = r.json()
-    data = body.get("data", [])
-    if not data:
-        return None
-    return data[0]["id"]
-
-
-def _ensure_downloader() -> str:
-    """Get or create a downloader. Returns the downloader ID."""
-    dl_id = _get_first_downloader_id()
-    if dl_id:
-        return dl_id
-    r = _api(
-        "/api/v1/downloaders",
-        method="post",
-        json={
-            "name": "Agent Test Transmission",
-            "type": "transmission",
-            "url": "http://transmission:9091/transmission/rpc",
-            "download_dir": "/downloads/rssripple-agent-test",
-        },
-    )
-    assert r.status_code == 201, f"create downloader failed: {r.text}"
-    return r.json()["data"]["id"]
-
+from tests.integration.http._http import (
+    DEFAULT_FIELD_MAPPING,
+    MIKANANI_EXT_URL,
+    _api,
+    _ensure_downloader,
+    _poll_fetch,
+    _poll_run,
+)
 
 # =========================================================================
 # Class-level setup helpers (pytest fixtures with scope="class")
@@ -148,7 +57,7 @@ def _setup_channel():
 
     # Fetch resources
     _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
-    result = _poll_fetch(ch_id)
+    result = _poll_fetch(ch_id, accept_failed=True)
     if result.get("status") != "done":
         pytest.skip(f"Fetch did not complete: {result}")
 
@@ -500,7 +409,7 @@ def _run_agent():
 
     # Fetch resources
     _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
-    result = _poll_fetch(ch_id)
+    result = _poll_fetch(ch_id, accept_failed=True)
     if result.get("status") != "done":
         pytest.skip(f"Fetch did not complete: {result}")
 
@@ -593,7 +502,7 @@ def _filter_agent():
     ch_id = r.json()["data"]["id"]
 
     _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
-    result = _poll_fetch(ch_id)
+    result = _poll_fetch(ch_id, accept_failed=True)
     if result.get("status") != "done":
         _api(f"/api/v1/channels/{ch_id}", method="delete")
         pytest.skip(f"Fetch did not complete: {result}")
@@ -723,7 +632,7 @@ class TestAgentFilterDSL:
         stored = r.json()["data"]
         assert stored["filter_config"] == negated_filter
 
-    def test_set_invalid_filter_field_rejected(self, _filter_agent):
+    def test_set_invalid_filter_field_accepted_deferred(self, _filter_agent):
         """PUT /agents/{id} with bogus field — verify 422."""
         agent_id = _filter_agent["id"]
 

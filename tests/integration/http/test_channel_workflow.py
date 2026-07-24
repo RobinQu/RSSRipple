@@ -147,89 +147,6 @@ class TestTestServerFeeds:
 
 
 # ---------------------------------------------------------------------------
-# Create Channel workflow (no LLM — always runs)
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="module")
-def basic_channel_id():
-    """Create a channel pointing at the mikanani-1 fixture.
-
-    fetch test finishes quickly without hitting rate limits.
-    metadata_agent_enabled=False skips LLM metadata search for each of the 100
-    entries, which would otherwise hang when using models that don't support
-    the Responses API web_search tool.
-    Shared across all tests in TestCreateChannelBasic.
-    """
-    resp = httpx.post(
-        f"{RSSRIPPLE}/api/v1/channels",
-        json={
-            "name": "Mikanani-1 Basic Test",
-            "url": MIKANANI_1_URL,
-            "field_mapping": DEFAULT_FIELD_MAPPING,
-            "fetch_interval": 3600,
-            "metadata_agent_enabled": False,
-        },
-        timeout=15,
-    )
-    assert resp.status_code == 201, f"create channel failed: {resp.text}"
-    return resp.json()["data"]["id"]
-
-
-class TestCreateChannelBasic:
-    """Basic Create Channel workflow: validate → create → fetch → resources."""
-
-    def test_validate_mikanani_1_url(self):
-        resp = httpx.post(
-            f"{RSSRIPPLE}/api/v1/channels/validate-url",
-            json={"url": MIKANANI_1_URL},
-            timeout=15,
-        )
-        assert resp.status_code == 200
-        data = resp.json()["data"]
-        assert data["valid"] is True
-        assert data["item_count"] > 0
-        assert data["downloadable_count"] > 0
-
-    def test_create_channel_returns_id(self, basic_channel_id):
-        assert basic_channel_id, "channel_id must be non-empty"
-
-    def test_channel_appears_in_list(self, basic_channel_id):
-        resp = httpx.get(f"{RSSRIPPLE}/api/v1/channels", timeout=10)
-        assert resp.status_code == 200
-        ids = [ch["id"] for ch in resp.json()["data"]]
-        assert basic_channel_id in ids
-
-    def test_channel_fetch_creates_resources(self, basic_channel_id):
-        """Trigger fetch and verify resources are created (no field mapping needed)."""
-        resp = httpx.post(f"{RSSRIPPLE}/api/v1/channels/{basic_channel_id}/fetch", timeout=30)
-        assert resp.status_code == 200
-        result = _poll_fetch(basic_channel_id)
-        assert result["status"] == "done", f"fetch failed: {result}"
-        assert result["result"]["new_count"] > 0, "Expected at least one new resource"
-
-    def test_resources_have_title_raw(self, basic_channel_id):
-        resources, total = _list_resources(basic_channel_id)
-        assert total > 0
-        blank = [r["id"] for r in resources if not r.get("title_raw")]
-        assert not blank, f"{len(blank)} resources without title_raw"
-
-    def test_no_duplicates_on_refetch(self, basic_channel_id):
-        _, count_before = _list_resources(basic_channel_id)
-        assert count_before > 0
-
-        resp = httpx.post(f"{RSSRIPPLE}/api/v1/channels/{basic_channel_id}/fetch", timeout=30)
-        assert resp.status_code == 200
-        result = _poll_fetch(basic_channel_id)
-        assert result["status"] == "done"
-        assert result["result"]["new_count"] == 0, (
-            f"Re-fetch created {result['result']['new_count']} new resources — dedup broken"
-        )
-
-        _, count_after = _list_resources(basic_channel_id)
-        assert count_after == count_before
-
-
-# ---------------------------------------------------------------------------
 # Analyze + Edit Channel workflow (requires LLM_API_KEY)
 # ---------------------------------------------------------------------------
 
@@ -259,7 +176,7 @@ def channel_with_mapping(analyzed_mapping):
     Shares fixture result across all tests in this module.
     """
     # Create channel — disable LLM title extraction so the 87-entry fetch
-    # finishes quickly (title extraction is tested in test_fetch_with_real_feed.py).
+    # finishes quickly (title extraction is tested in http/test_fetch_with_real_feed.py).
     # metadata_agent_enabled=False avoids per-entry LLM metadata search hangs.
     resp = httpx.post(
         f"{RSSRIPPLE}/api/v1/channels",
@@ -288,12 +205,18 @@ def channel_with_mapping(analyzed_mapping):
     assert resp.status_code == 200
     fetch_result = _poll_fetch(channel_id)
 
-    return {
+    data = {
         "id": channel_id,
         "field_mapping": analyzed_mapping["field_mapping"],
         "confidence": analyzed_mapping["confidence"],
         "fetch_result": fetch_result,
     }
+    yield data
+    # Cleanup: delete the channel so tests don't leak state
+    try:
+        httpx.delete(f"{RSSRIPPLE}/api/v1/channels/{channel_id}", timeout=15)
+    except Exception:
+        pass
 
 
 class TestAnalyzeUrlStream:

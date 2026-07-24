@@ -98,7 +98,7 @@ rm -rf data/ && mkdir -p data   # 残留的 SQLite 文件在 `down -v` 后仍会
 docker compose -f docker-compose.test.yml run --rm test-runner
 # 单个模块：
 docker compose -f docker-compose.test.yml run --rm test-runner \
-  uv run pytest tests/integration/test_channel_workflow.py -v --tb=short
+  uv run pytest tests/integration/http/test_channel_workflow.py -v --tb=short
 ```
 
 分布式（PostgreSQL + Redis，两个 app 副本）— 验证多实例队列去重：

@@ -224,7 +224,7 @@ class TestChannelFetchJob:
         poll_job_status(app_url, f"/api/v1/channels/{channel_id}/fetch-status")
 
     @pytest.mark.parametrize("app_url", ALL_BACKENDS)
-    def test_status_reflects_all_transitions(self, app_url):
+    def test_status_reaches_terminal_state(self, app_url):
         """Observed statuses during a fetch cycle include terminal state."""
         channel_id = make_channel(app_url)
         httpx.post(f"{app_url}/api/v1/channels/{channel_id}/fetch", timeout=10)

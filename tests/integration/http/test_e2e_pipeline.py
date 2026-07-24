@@ -11,110 +11,21 @@ Requirements: Docker test environment with app + test-server + transmission serv
 
 Usage:
     docker compose -f docker-compose.test.yml up --build
-    uv run pytest tests/integration/test_e2e_pipeline.py -v --timeout=300
+    uv run pytest tests/integration/http/test_e2e_pipeline.py -v --timeout=300
 """
 
 from __future__ import annotations
 
-import os
-import time
-
-import httpx
 import pytest
 
-# ── Environment ──────────────────────────────────────────────────────────
-
-RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
-TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
-MIKANANI_EXT_URL = f"{TEST_SERVER}/rss/mikanani-ext"
-TIMEOUT = 60.0
-
-
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=TIMEOUT)
-
-
-def _api(path: str, method: str = "get", **kw):
-    """Convenience HTTP call against the RSSRipple app (with retry)."""
-    last_exc = None
-    for attempt in range(3):
-        try:
-            c = _client()
-            fn = getattr(c, method.lower())
-            return fn(f"{RSSRIPPLE}{path}", **kw)
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            time.sleep(1 * (attempt + 1))
-    raise last_exc
-
-
-def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
-    """Block until the channel fetch job finishes (done/failed) or times out."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = _api(f"/api/v1/channels/{channel_id}/fetch-status")
-        d = r.json()
-        data = d.get("data") or {}
-        if data.get("status") in ("done", "failed"):
-            return data
-        time.sleep(2)
-    raise TimeoutError("Fetch did not complete")
-
-
-def _poll_run(agent_id: str, timeout: int = 120) -> dict:
-    """Block until the agent run job finishes (done/failed) or times out."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = _api(f"/api/v1/agents/{agent_id}/run-status")
-        d = r.json()
-        data = d.get("data") or {}
-        if data.get("status") in ("done", "failed"):
-            return data
-        time.sleep(2)
-    raise TimeoutError("Agent run did not complete")
-
-
-def _get_first_downloader_id() -> str | None:
-    """Get the ID of the first downloader, or None if none exist."""
-    r = _api("/api/v1/downloaders", params={"page_size": 100})
-    if r.status_code != 200:
-        return None
-    body = r.json()
-    data = body.get("data", [])
-    if not data:
-        return None
-    return data[0]["id"]
-
-
-def _ensure_downloader() -> str:
-    """Get or create a downloader. Returns the downloader ID."""
-    dl_id = _get_first_downloader_id()
-    if dl_id:
-        return dl_id
-    r = _api(
-        "/api/v1/downloaders",
-        method="post",
-        json={
-            "name": "E2E Test Transmission",
-            "type": "transmission",
-            "url": "http://transmission:9091/transmission/rpc",
-            "download_dir": "/downloads/e2e-test",
-        },
-    )
-    assert r.status_code == 201, f"create downloader failed: {r.text}"
-    return r.json()["data"]["id"]
-
-
-# ── Default field mapping ────────────────────────────────────────────────
-
-DEFAULT_FIELD_MAPPING = {
-    "list_locator": {"source": "entries"},
-    "field_mappings": {
-        "title_raw": {"source": "title"},
-        "torrent_url": {"source": "link"},
-    },
-}
-
+from tests.integration.http._http import (
+    DEFAULT_FIELD_MAPPING,
+    MIKANANI_EXT_URL,
+    _api,
+    _ensure_downloader,
+    _poll_fetch,
+    _poll_run,
+)
 
 # =========================================================================
 # TestE2EPipeline — full channel → agent → tasks pipeline
@@ -156,7 +67,7 @@ class TestE2EPipeline:
         )
         assert r.status_code == 200, f"fetch trigger failed: {r.text}"
 
-        result = _poll_fetch(TestE2EPipeline.channel_id)
+        result = _poll_fetch(TestE2EPipeline.channel_id, accept_failed=True)
         assert result["status"] == "done", (
             f"Fetch did not complete successfully: {result}"
         )

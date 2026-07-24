@@ -100,7 +100,7 @@ rm -rf data/ && mkdir -p data   # stale SQLite files persist across `down -v`
 docker compose -f docker-compose.test.yml run --rm test-runner
 # single module:
 docker compose -f docker-compose.test.yml run --rm test-runner \
-  uv run pytest tests/integration/test_channel_workflow.py -v --tb=short
+  uv run pytest tests/integration/http/test_channel_workflow.py -v --tb=short
 ```
 
 Distributed (PostgreSQL + Redis, two app replicas) — exercises multi-instance queue dedup:

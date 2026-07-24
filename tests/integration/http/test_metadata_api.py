@@ -18,62 +18,20 @@ Usage:
 from __future__ import annotations
 
 import os
-import time
 
-import httpx
 import pytest
 
-# ── Environment ──────────────────────────────────────────────────────────
-
-RSSRIPPLE = os.environ.get("RSSRIPPLE_URL", "http://app:9001")
-TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
-MIKANANI_EXT_URL = f"{TEST_SERVER}/rss/mikanani-ext"
-TIMEOUT = 60.0
+from tests.integration.http._http import (
+    DEFAULT_FIELD_MAPPING,
+    MIKANANI_EXT_URL,
+    _api,
+    _poll_fetch,
+)
 
 _HAS_LLM = bool(os.environ.get("LLM_API_KEY"))
 _HAS_TMDB = bool(os.environ.get("TMDB_API_KEY"))
 
 
-def _client() -> httpx.Client:
-    return httpx.Client(timeout=TIMEOUT)
-
-
-def _api(path: str, method: str = "get", **kw):
-    """Convenience HTTP call against the RSSRipple app (with retry)."""
-    last_exc = None
-    for attempt in range(3):
-        try:
-            c = _client()
-            fn = getattr(c, method.lower())
-            return fn(f"{RSSRIPPLE}{path}", **kw)
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            time.sleep(1 * (attempt + 1))
-    raise last_exc
-
-
-def _poll_fetch(channel_id: str, timeout: int = 120) -> dict:
-    """Block until the channel fetch job finishes (done/failed) or times out."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        r = _api(f"/api/v1/channels/{channel_id}/fetch-status")
-        d = r.json()
-        data = d.get("data") or {}
-        if data.get("status") in ("done", "failed"):
-            return data
-        time.sleep(2)
-    raise TimeoutError("Fetch did not complete")
-
-
-# ── Default field mapping ────────────────────────────────────────────────
-
-DEFAULT_FIELD_MAPPING = {
-    "list_locator": {"source": "entries"},
-    "field_mappings": {
-        "title_raw": {"source": "title"},
-        "torrent_url": {"source": "link"},
-    },
-}
 
 
 # =========================================================================
@@ -120,7 +78,7 @@ class TestMetadataMatching:
         )
         assert r.status_code == 200, f"fetch trigger failed: {r.text}"
 
-        result = _poll_fetch(TestMetadataMatching.channel_id)
+        result = _poll_fetch(TestMetadataMatching.channel_id, accept_failed=True)
         assert result["status"] == "done", (
             f"Fetch did not complete successfully: {result}"
         )

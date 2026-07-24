@@ -7,11 +7,12 @@ Tests:
 4. Assert download is complete and file matches
 """
 
+import os
 import time
 
 import httpx
 
-TEST_SERVER = "http://test-server:8080"
+TEST_SERVER = os.environ.get("TEST_SERVER_URL", "http://test-server:8080")
 
 
 class TestTorrentLifecycle:

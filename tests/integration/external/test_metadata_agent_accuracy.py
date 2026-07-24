@@ -15,12 +15,13 @@ All three sources are skipped with a clear message if not available.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-_DATA_DIR = Path(__file__).parent.parent / "data"
+_DATA_DIR = Path(__file__).parents[2] / "data"  # tests/integration/external/ -> tests/data
 _DATASET_NAME = "v1"
 _PARQUET_PATH = _DATA_DIR / f"ground_truth_{_DATASET_NAME}.parquet"
 _JSON_PATH = _DATA_DIR / f"ground_truth_{_DATASET_NAME}.json"
@@ -128,6 +129,8 @@ def ground_truth_entries() -> list[dict[str, Any]]:
 
 @pytest.fixture(scope="module")
 async def agent():
+    if not os.environ.get("LLM_API_KEY"):
+        pytest.skip("LLM_API_KEY not set; metadata accuracy test requires the LLM")
     from app.services.metadata_agent import get_agent
 
     return get_agent()
