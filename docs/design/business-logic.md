@@ -33,6 +33,12 @@ fetch_channel_resources(channel, db)
   │     │     更新 series.poster_url = /posters/xxx.jpg
   │     └─ h. db 批量提交
   │
+  │     # 并发说明：e–h 的 metadata 处理按资源在独立短会话中并发执行（上限
+  │     # MAX_METADATA_CONCURRENCY=4），但同一作品（规范化 search_title 相同）
+  │     # 的资源在进程内串行锁下逐一处理并在锁内提交——否则多个同作品资源并发
+  │     # 查不到彼此尚未提交的 series/movie 行，会重复创建同一作品的记录。
+  │     # 跨进程（PostgreSQL 多副本）的重复仍由每日 04:00 dedup 兜底。
+  │
   ├─ 4. 更新 channel.last_fetched_at = now, last_fetch_status="success",
   │        status = "active", last_fetch_error = null
   │

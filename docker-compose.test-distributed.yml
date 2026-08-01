@@ -66,6 +66,11 @@ services:
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
+      # Scheduler off (same as the single-node stack, see cff0af0): auto-
+      # fetch-on-create is gated on scheduler_enabled, and the integration
+      # tests drive fetches explicitly — an auto fetch racing the explicit
+      # one makes fetch-status/resource assertions flaky.
+      - SCHEDULER_ENABLED=false
     depends_on:
       postgres:
         condition: service_healthy
@@ -92,6 +97,8 @@ services:
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
+      # See app-1: scheduler stays off so tests control every fetch.
+      - SCHEDULER_ENABLED=false
     depends_on:
       postgres:
         condition: service_healthy

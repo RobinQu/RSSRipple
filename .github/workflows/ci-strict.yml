@@ -86,7 +86,11 @@ jobs:
 
       - name: Start distributed services
         run: |
-          docker compose -f docker-compose.test-distributed.yml up -d
+          # --scale test-runner=0: `up -d` would otherwise start the
+          # test-runner service too, and its suite would run CONCURRENTLY
+          # with the explicit `run --rm test-runner` below — two suites
+          # sharing one database corrupt each other's assertions.
+          docker compose -f docker-compose.test-distributed.yml up -d --scale test-runner=0
           echo "Waiting for services to become healthy..."
           for i in $(seq 1 36); do
             HEALTHY=$(docker compose -f docker-compose.test-distributed.yml ps --format json 2>/dev/null | grep -c '"Health":"healthy"' || true)

@@ -278,6 +278,22 @@ async def create_tables() -> None:
             await session.commit()
 
 
+@contextlib.asynccontextmanager
+async def _best_effort(conn, label: str) -> AsyncIterator[None]:
+    """Run a tolerated-failure migration step inside a SAVEPOINT.
+
+    On PostgreSQL a failed statement aborts the surrounding transaction:
+    without a savepoint, one skipped step would make every later step (and
+    the final ``pg_advisory_unlock`` in ``create_tables``) fail with
+    ``InFailedSQLTransactionError`` and kill application startup.
+    """
+    try:
+        async with conn.begin_nested():
+            yield
+    except Exception as e:
+        logger.warning("[migrate] %s skipped: %s", label, e)
+
+
 async def _apply_light_migrations(conn) -> None:
     """Idempotent ``ADD COLUMN`` migrations for schema evolutions that we don't
     manage via a proper migration tool yet.
@@ -354,33 +370,28 @@ async def _apply_light_migrations(conn) -> None:
             existing = set()
         if column in existing:
             continue
-        try:
+        async with _best_effort(conn, f"add column {table}.{column}"):
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
-        except Exception as e:
-            # Non-fatal — race with another replica or dialect quirk.
-            logger.warning("[migrate] failed to add %s.%s: %s", table, column, e)
 
     # ── downloader_type enum widening ────────────────────────────────────
     # Older PostgreSQL DBs may have a native enum restricting
     # ``downloader_instances.type`` to just ``'transmission'``. We now allow
     # ``'mock'`` as well (and the column has been widened to a plain String
     # in the ORM). Turso databases use a plain VARCHAR + CHECK from the start.
-    try:
+    async with _best_effort(conn, "downloader_type widening"):
         if is_postgres:
             # Idempotent: succeeds silently if the value is already there.
             await conn.execute(text(
                 "ALTER TYPE downloader_type ADD VALUE IF NOT EXISTS 'mock'"
             ))
-    except Exception as e:
-        logger.warning("[migrate] downloader_type widening skipped: %s", e)
 
     # ── download_tasks.agent_id → nullable + ON DELETE SET NULL ────────────
     # Older PostgreSQL DBs created the column as ``NOT NULL`` with
     # ``ON DELETE CASCADE``. We now want to keep tasks after an Agent is
     # deleted (marked cancelled) so ``agent_id`` must be nullable. Turso
     # databases are always created from — or migrated after — the new shape.
-    try:
+    async with _best_effort(conn, "download_tasks.agent_id widening"):
         if is_postgres:
             await conn.execute(text(
                 "ALTER TABLE download_tasks ALTER COLUMN agent_id DROP NOT NULL"
@@ -399,8 +410,6 @@ async def _apply_light_migrations(conn) -> None:
                 ))
             except Exception:
                 pass
-    except Exception as e:
-        logger.warning("[migrate] download_tasks.agent_id widening skipped: %s", e)
 
     # ── agents.last_consumed_at backfill ─────────────────────────────────
     # Existing agents get their watermark set to the channel's current max
@@ -408,7 +417,7 @@ async def _apply_light_migrations(conn) -> None:
     # silently auto-dispatch every historical matching resource (backfill must
     # be a deliberate, user-selected action via the rules-preview flow). Only
     # touches rows where the column is still NULL.
-    try:
+    async with _best_effort(conn, "agents.last_consumed_at backfill"):
         await conn.execute(text(
             "UPDATE agents SET last_consumed_at = COALESCE("
             "  (SELECT MAX(fr.created_at) FROM file_resources fr "
@@ -416,8 +425,6 @@ async def _apply_light_migrations(conn) -> None:
             "  CURRENT_TIMESTAMP"
             ") WHERE last_consumed_at IS NULL"
         ))
-    except Exception as e:
-        logger.warning("[migrate] agents.last_consumed_at backfill skipped: %s", e)
 
     # ── one-time non_work reset for the AudioWork path ───────────────────
     # Resources previously classified ``non_work`` (ASMR / music / OP-ED)
@@ -426,7 +433,7 @@ async def _apply_light_migrations(conn) -> None:
     # them under the new path. Genuinely-non-work content will simply be
     # reclassified (non_work again or linked to an AudioWork stub). Gated by
     # an app_settings sentinel so it runs exactly once.
-    try:
+    async with _best_effort(conn, "non_work reset"):
         if is_turso:
             await conn.execute(text(
                 "INSERT OR IGNORE INTO app_settings(key, value) "
@@ -455,8 +462,6 @@ async def _apply_light_migrations(conn) -> None:
                 "[migrate] reset %s non_work rows for AudioWork reprocessing",
                 getattr(res, "rowcount", "?"),
             )
-    except Exception as e:
-        logger.warning("[migrate] non_work reset skipped: %s", e)
 
     # ── one-time not_found reset for improved query cleaning ─────────────
     # The Wikipedia candidate-query cleaner was strengthened (drops paren
@@ -464,7 +469,7 @@ async def _apply_light_migrations(conn) -> None:
     # non-media titles are now classified non_work. Reset existing not_found
     # rows once so the backfill reprocesses them under the new logic instead
     # of waiting out the 7-day cooldown.
-    try:
+    async with _best_effort(conn, "not_found reset"):
         sentinel = "not_found_reclean_reset"
         if is_turso:
             await conn.execute(text(
@@ -492,15 +497,13 @@ async def _apply_light_migrations(conn) -> None:
                 "[migrate] reset %s not_found rows for query re-cleaning",
                 getattr(res, "rowcount", "?"),
             )
-    except Exception as e:
-        logger.warning("[migrate] not_found reset skipped: %s", e)
 
     # ── one-time not_found reset for auto-link improvements ──────────────
     # The Wikipedia auto-link now matches candidate titles against all
     # queries (fixing page-id dedup) and splits CJK work names from trailing
     # romaji. Reset not_found once more so existing rows are reprocessed
     # under the improved matching.
-    try:
+    async with _best_effort(conn, "not_found autolink reset"):
         sentinel = "not_found_autolink_reset"
         if is_turso:
             await conn.execute(text(
@@ -528,5 +531,3 @@ async def _apply_light_migrations(conn) -> None:
                 "[migrate] reset %s not_found rows for auto-link reprocessing",
                 getattr(res, "rowcount", "?"),
             )
-    except Exception as e:
-        logger.warning("[migrate] not_found autolink reset skipped: %s", e)

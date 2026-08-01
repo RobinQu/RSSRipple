@@ -57,7 +57,9 @@ def _stale_unresolved_where(channel: Channel, cutoff):
         FileResource.audio_work_id.is_(None),
         FileResource.metadata_matched_at.is_(None),
         FileResource.created_at < cutoff,
-        FileResource.episode_confidence.isnot("manual"),
+        # "!= 'manual' including NULL" — IS NOT <literal> is SQLite-only
+        # syntax; IS DISTINCT FROM renders correctly on both backends.
+        FileResource.episode_confidence.is_distinct_from("manual"),
         ~has_download,
     )
 

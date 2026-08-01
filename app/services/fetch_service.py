@@ -15,8 +15,9 @@ from app.clients.rss_parser import (
 )
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
-from app.services.metadata_service import fetch_and_link_metadata
+from app.services.metadata_service import extract_search_title, fetch_and_link_metadata
 from app.services.resource_parser import normalize_parsed_fields, parse_entry, strip_season_from_title
+from app.services.text_normalizer import normalize_title
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,23 @@ MAX_GLOBAL_BACKFILL_SCAN = 300
 # cap multiplies throughput without overwhelming the LLM endpoint or the
 # external search APIs. Each task runs in its own short-lived DB session.
 MAX_METADATA_CONCURRENCY = 4
+
+# ── Per-work metadata serialization ──
+# The semaphore bounds total in-flight work, but several resources of the
+# SAME not-yet-persisted work can still run concurrently: each misses the
+# series/movie lookup (its siblings haven't committed yet), asks the agent,
+# and inserts its own duplicate TVSeries/Movie row. Serialize the metadata +
+# commit section per normalized search title so the first task's commit is
+# visible to the next task's lookup. Cross-process duplicates (PostgreSQL
+# replicas) remain possible; the daily dedup job is the backstop for those.
+_WORK_METADATA_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _work_metadata_lock(key: str) -> asyncio.Lock:
+    lock = _WORK_METADATA_LOCKS.get(key)
+    if lock is None:
+        lock = _WORK_METADATA_LOCKS[key] = asyncio.Lock()
+    return lock
 
 
 def _simple_title_clean(raw: str) -> str | None:
@@ -173,22 +191,26 @@ async def _process_resource_metadata(
                 channel = await task_db.get(Channel, channel_id)
                 if resource is None or channel is None:
                     return
-                if channel.metadata_agent_enabled:
-                    try:
-                        await get_agent().process(
-                            resource, channel, task_db, force_refresh=force_refresh
-                        )
-                    except Exception as e:
-                        logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
-                        base_title = _simple_title_clean(resource.title_raw)
-                        if base_title:
-                            resource.search_title = base_title
-                else:
-                    try:
-                        await fetch_and_link_metadata(task_db, resource, channel)
-                    except Exception as e:
-                        logger.warning("Metadata linking failed for %s: %s", resource_id, e)
-                await task_db.commit()
+                work_key = normalize_title(resource.search_title or extract_search_title(resource))
+                async with _work_metadata_lock(work_key):
+                    if channel.metadata_agent_enabled:
+                        try:
+                            await get_agent().process(
+                                resource, channel, task_db, force_refresh=force_refresh
+                            )
+                        except Exception as e:
+                            logger.warning("MetadataAgent failed for %s: %s", resource_id, e)
+                            base_title = _simple_title_clean(resource.title_raw)
+                            if base_title:
+                                resource.search_title = base_title
+                    else:
+                        try:
+                            await fetch_and_link_metadata(task_db, resource, channel)
+                        except Exception as e:
+                            logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+                    # Commit inside the lock: the next same-work task's lookup
+                    # must see this task's series/movie row.
+                    await task_db.commit()
 
                 # Poster download for newly-linked entities (kept in the same
                 # task session so a network call never blocks other writers).
