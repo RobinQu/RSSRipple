@@ -7,6 +7,7 @@
 [![CI Fast Gate](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-fast.yml)
 [![CI Strict Gate](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-strict.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-strict.yml)
 [![Docker Publish](https://github.com/RobinQu/RSSRipple/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/docker-publish.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It fetches RSS feeds, parses each release with per-channel field mappings, links releases to a local metadata library, filters them through Agents, and dispatches matching torrents to Transmission — closing the loop from subscription to download.
 
@@ -116,3 +117,7 @@ Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTR
 | Download | Transmission RPC |
 | Frontend | React, TypeScript, Vite, Ant Design |
 | Package manager | uv, npm |
+
+## License
+
+RSSRipple is licensed under the [Apache License 2.0](LICENSE).

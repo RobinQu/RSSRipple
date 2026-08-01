@@ -7,6 +7,7 @@
 [![CI Fast Gate](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-fast.yml)
 [![CI Strict Gate](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-strict.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-strict.yml)
 [![Docker Publish](https://github.com/RobinQu/RSSRipple/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/docker-publish.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 RSSRipple 是一个面向 TV / 番剧 / 电影资源的 RSS 订阅下载器。它抓取 RSS 源，按每个频道的字段映射规则解析每条资源，将资源关联到本地元数据作品库，通过 Agent 过滤后，把匹配的种子推送到 Transmission —— 打通从订阅到下载的完整闭环。
 
@@ -116,3 +117,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | 下载 | Transmission RPC |
 | 前端 | React、TypeScript、Vite、Ant Design |
 | 包管理 | uv、npm |
+
+## 许可证
+
+RSSRipple 基于 [Apache License 2.0](LICENSE) 开源。
