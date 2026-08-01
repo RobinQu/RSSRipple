@@ -61,7 +61,9 @@ services:
       - ./tests:/app/tests
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_turso.db
+      # eval stays on the legacy aiosqlite file: a Turso database file is
+      # locked by a single process, so app and eval cannot share one.
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_dev.db
       - LOG_LEVEL=DEBUG
     command: ["uv", "run", "--no-project", "uvicorn", "tests.integration.eval.main:app", "--host", "0.0.0.0", "--port", "9002", "--reload"]
     develop:
