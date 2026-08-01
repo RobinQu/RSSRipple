@@ -12,6 +12,9 @@ on:
     branches:
       - develop
       - 'release/**'
+  # Manual trigger so the strict gate (incl. integration jobs) can be run on
+  # any branch on demand, e.g. to re-check main after the push exclusion above.
+  workflow_dispatch:
 
 jobs:
   lint:
