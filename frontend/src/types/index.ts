@@ -248,12 +248,16 @@ export type FilterOperator =
   | 'gt'
   | 'gte'
   | 'lt'
-  | 'lte';
+  | 'lte'
+  | 'is_empty'
+  | 'is_not_empty';
 
-export type StringOperator = 'eq' | 'ne' | 'contains' | 'fuzzy' | 'in' | 'regex';
-export type NumberOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in';
-export type BoolOperator = 'eq' | 'ne';
-export type ListOperator = 'eq' | 'ne' | 'contains' | 'in';
+/** Operators that take no value (the backend ignores ``value`` for these). */
+export type NoValueOperator = 'is_empty' | 'is_not_empty';
+export type StringOperator = 'eq' | 'ne' | 'contains' | 'fuzzy' | 'in' | 'regex' | NoValueOperator;
+export type NumberOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | NoValueOperator;
+export type BoolOperator = 'eq' | 'ne' | NoValueOperator;
+export type ListOperator = 'eq' | 'ne' | 'contains' | 'in' | NoValueOperator;
 
 export interface FieldCondition {
   field: FilterField;
@@ -610,8 +614,25 @@ export interface DashboardData {
   pending_decisions: DashboardPendingItem[];
 }
 
-// Filter suggestions (new BoolCondition-based)
+// Filter suggestions (Agent-rules based)
+export interface FilterSuggestionWork {
+  content_type: 'tv' | 'movie';
+  series_id: string | null;
+  movie_id: string | null;
+  title: string | null;
+  poster_url: string | null;
+  resource_count: number;
+  /** Differentiating conditions for THIS work (merged AND with the agent's
+   * global filter_config when the work is subscribed). */
+  filter_overrides: BoolCondition | null;
+  override_explanation: string;
+}
+
 export interface FilterSuggestionResponse {
-  filter_config: BoolCondition;
+  works: FilterSuggestionWork[];
+  /** Conditions shared by ALL selected resources. */
+  global_filter_config: BoolCondition | null;
+  /** Selected resources not linked to any work. */
+  unlinked_count: number;
   explanation: string;
 }

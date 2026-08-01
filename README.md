@@ -65,7 +65,7 @@ A metadata source appears in the UI only when enabled **and** its key is set. To
 
 ## Configuration
 
-Common variables (full list in [AGENTS.md](AGENTS.md), under "Other Conventions"):
+Common variables (full list in [docs/design/conventions.md](docs/design/conventions.md)):
 
 | Variable | Description |
 | --- | --- |
@@ -113,7 +113,7 @@ Tests requiring a persistent network client (E2E, torrent lifecycle) are exclude
 
 ### Contributing
 
-Branch naming follows [Conventional Branch](https://conventionalbranch.org/) v1.1.0. See [CONTRIBUTION.md](CONTRIBUTION.md) for the workflow and [AGENTS.md](AGENTS.md) (branch policy section) for the full branch specification.
+Branch naming follows [Conventional Branch](https://conventionalbranch.org/) v1.1.0. See [CONTRIBUTION.md](CONTRIBUTION.md) for the workflow and [docs/design/branching.md](docs/design/branching.md) for the full branch specification.
 
 ### CI/CD
 
@@ -131,7 +131,7 @@ A local `pre-commit` hook (`githooks/pre-commit`) runs the same `ruff check .` b
 
 If you are a coding agent (Claude Code, Cursor, Copilot, Codex, …) working on this repo, read these in order:
 
-- **[AGENTS.md](AGENTS.md)** — the authoritative spec: data models, Filter DSL, API endpoints, business logic, frontend routes, error handling, and the branch policy. This is the single source of truth for *how the system works*.
+- **[AGENTS.md](AGENTS.md)** — the authoritative spec index and quick reference of core invariants; the detailed design (data models, Filter DSL, API endpoints, business logic, frontend routes, error handling, branch policy) lives in the [docs/design/](docs/design/) subdocs. This is the single source of truth for *how the system works*.
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — module layout and runtime data flow.
 - **[overview.md](overview.md)** — design-logic analysis of the channel & metadata library.
 - **[DESIGN.md](DESIGN.md)** — design tokens and visual guidance (frontend only).

@@ -205,7 +205,8 @@ class TestChannelActions:
             json={"resource_ids": []},
         )
         assert res.status_code == 200
-        assert res.json()["data"]["filter_config"] is None
+        assert res.json()["data"]["global_filter_config"] is None
+        assert res.json()["data"]["works"] == []
 
     async def test_summarize_filters_with_resources(self, client, sample_channel, db_session_factory):
         # Create resources directly
@@ -224,6 +225,57 @@ class TestChannelActions:
             json={"resource_ids": [rid]},
         )
         assert res.status_code == 200
+        data = res.json()["data"]
+        # Unlinked resource: no work subscription, but its uniform fields are global.
+        assert data["unlinked_count"] == 1
+        assert data["works"] == []
+        conds = data["global_filter_config"]["conditions"]
+        assert {c["field"] for c in conds} == {"subtitle_group", "resolution"}
+
+    async def test_summarize_filters_splits_global_and_work_overrides(
+        self, client, sample_channel, db_session_factory
+    ):
+        """Works become subscriptions; globally-common fields go to the global
+        filter; per-work uniform fields go to that work's overrides."""
+        from app.models.file_resource import FileResource
+        from app.models.series import TVSeries
+
+        s1_id, s2_id = str(uuid.uuid4()), str(uuid.uuid4())
+        rids = [str(uuid.uuid4()) for _ in range(4)]
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=s1_id, title_cn="剧A", content_type="tv"))
+            s.add(TVSeries(id=s2_id, title_cn="剧B", content_type="tv"))
+            # Work A: all ANi; Work B: all LoliHouse; all 1080p globally.
+            for i, (sid, grp) in enumerate([(s1_id, "ANi"), (s1_id, "ANi"), (s2_id, "LoliHouse"), (s2_id, "LoliHouse")]):
+                s.add(FileResource(
+                    id=rids[i], channel_id=sample_channel.id, guid=rids[i] + "-g",
+                    title_raw=f"T{i}", subtitle_group=grp, resolution="1080p",
+                    series_id=sid, torrent_url="magnet:?xt=urn:btih:x",
+                ))
+            await s.commit()
+
+        res = await client.post(
+            f"/api/v1/channels/{sample_channel.id}/summarize-filters",
+            json={"resource_ids": rids},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+
+        # resolution is common across all -> global only.
+        gconds = data["global_filter_config"]["conditions"]
+        assert gconds == [{"field": "resolution", "operator": "eq", "value": "1080p"}]
+
+        assert len(data["works"]) == 2
+        by_series = {w["series_id"]: w for w in data["works"]}
+        assert by_series[s1_id]["resource_count"] == 2
+        # subtitle_group differs between works -> per-work overrides, not global.
+        assert by_series[s1_id]["filter_overrides"]["conditions"] == [
+            {"field": "subtitle_group", "operator": "eq", "value": "ANi"}
+        ]
+        assert by_series[s2_id]["filter_overrides"]["conditions"] == [
+            {"field": "subtitle_group", "operator": "eq", "value": "LoliHouse"}
+        ]
+        assert by_series[s1_id]["title"] == "剧A"
 
 
 class TestChannelResources:

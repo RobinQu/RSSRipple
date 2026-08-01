@@ -61,20 +61,24 @@ def _torrent_to_dict(t) -> dict[str, Any]:
 
     left_until_done = 0
     try:
-        left_until_done = int(getattr(t, "leftUntilDone", 0) or 0)
+        # transmission-rpc v7 exposes snake_case attributes; a camelCase
+        # access here silently produced 0 via getattr defaults, which made the
+        # scheduler read "left_until_done == 0" as "finished".
+        left_until_done = int(getattr(t, "left_until_done", 0) or 0)
     except Exception:
         left_until_done = 0
 
     status_str = str(t.status)
     # Normalize common transmission_rpc status strings
     status_l = status_str.lower()
+    rate_download = int(getattr(t, "rate_download", 0) or 0)
     if "stop" in status_l:
         norm_status = "stopped"
     elif "check" in status_l:
         norm_status = "checking"
     elif "seed" in status_l:
         norm_status = "seeding"
-    elif "download" in status_l or t.rateDownload > 0:
+    elif "download" in status_l or rate_download > 0:
         norm_status = "downloading"
     else:
         norm_status = "queued"
@@ -82,21 +86,21 @@ def _torrent_to_dict(t) -> dict[str, Any]:
     return {
         "id": t.id,
         "name": t.name,
-        "hash": t.hashString,
+        "hash": t.hashString,  # v7 keeps this one camelCase
         "status": norm_status,
         "raw_status": status_str,
-        "percent_done": float(getattr(t, "percentDone", 0) or 0),
-        "rate_download": int(getattr(t, "rateDownload", 0) or 0),
-        "rate_upload": int(getattr(t, "rateUpload", 0) or 0),
+        "percent_done": float(getattr(t, "percent_done", 0) or 0),
+        "rate_download": rate_download,
+        "rate_upload": int(getattr(t, "rate_upload", 0) or 0),
         "eta_seconds": eta_seconds,
-        "total_size": int(getattr(t, "totalSize", 0) or 0),
-        "have_valid": int(getattr(t, "haveValid", 0) or 0),
-        "is_finished": bool(getattr(t, "isFinished", False)),
+        "total_size": int(getattr(t, "total_size", 0) or 0),
+        "have_valid": int(getattr(t, "have_valid", 0) or 0),
+        "is_finished": bool(getattr(t, "is_finished", False)),
         "left_until_done": left_until_done,
         "error": int(getattr(t, "error", 0) or 0),
-        "error_string": t.fields.get("errorString", "") if hasattr(t, "fields") else "",
+        "error_string": str(getattr(t, "error_string", "") or ""),
         "added_date": added_date,
-        "peers_connected": int(t.fields.get("peersConnected", 0)) if hasattr(t, "fields") else 0,
+        "peers_connected": int(getattr(t, "peers_connected", 0) or 0),
     }
 
 

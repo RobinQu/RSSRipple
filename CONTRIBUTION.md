@@ -122,5 +122,5 @@ docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 ## 参考
 
 - [Conventional Branch 规范](https://conventionalbranch.org/)
-- [AGENTS.md](AGENTS.md#分支与协作规范) — AI Agent 可读的完整分支规范
+- [docs/design/branching.md](docs/design/branching.md) — AI Agent 可读的完整分支规范
 - [README.md](README.md) — 项目概览和本地开发指南

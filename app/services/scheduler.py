@@ -301,7 +301,13 @@ async def _sync_download_progress() -> None:
                     task.download_speed = torrent["rate_download"]
                     task.upload_speed = torrent["rate_upload"]
                     task.eta = torrent.get("eta_seconds")
-                    if torrent["is_finished"] or torrent.get("left_until_done", 1) == 0:
+                    if torrent["is_finished"] or (
+                        # leftUntilDone is also 0 before a magnet's metadata
+                        # arrives - require a known size so fresh magnets are
+                        # not mistaken for finished torrents.
+                        torrent.get("left_until_done", 1) == 0
+                        and torrent.get("total_size", 0) > 0
+                    ):
                         task.status = "completed"
                         task.completed_at = utcnow()
                     elif torrent["status"] == "stopped":

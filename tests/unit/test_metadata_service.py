@@ -702,3 +702,94 @@ async def test_fetch_and_link_metadata_layer4_uses_channel_source(db_session):
 
     mock_search.assert_called_once()
     assert mock_search.call_args.args[1] == "jina"
+
+
+# ---------------------------------------------------------------------------
+# create_or_update_*_from_external — cross-language convergence via alt_titles
+# ---------------------------------------------------------------------------
+
+
+async def test_create_or_update_series_converges_cross_language_wiki_pages(db_session):
+    """The same work matched once via its zhwiki page and once via its enwiki
+    page (different external_ids, disjoint title slots) must upsert into ONE
+    row when the second match carries langlink alt_titles."""
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        s1 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "黃泉使者",
+            "title_en": None,
+            "external_id": "wikipedia:7727654",
+            "external_source": "wikipedia",
+        })
+        await db_session.flush()
+
+        s2 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "黃泉使者",  # backfilled from langlinks by the judge
+            "title_en": "Daemons of the Shadow Realm",
+            "alt_titles": ["黃泉使者"],
+            "external_id": "wikipedia:70545449",
+            "external_source": "wikipedia",
+        })
+        await db_session.flush()
+
+    assert s1.id == s2.id
+    assert s2.title_en == "Daemons of the Shadow Realm"
+    assert "黃泉使者" in (s2.aliases or [])
+
+
+async def test_create_or_update_series_alt_titles_alone_can_bridge(db_session):
+    """Even if the judge only supplied the en title in the en slot, an
+    alt_titles entry equal to the existing row's title_cn still converges."""
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        s1 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_cn": "黃泉使者",
+            "external_id": "wikipedia:7727654",
+            "external_source": "wikipedia",
+        })
+        await db_session.flush()
+
+        s2 = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv",
+            "title_en": "Daemons of the Shadow Realm",
+            "alt_titles": ["黃泉使者"],
+            "external_id": "wikipedia:70545449",
+            "external_source": "wikipedia",
+        })
+        await db_session.flush()
+
+    assert s1.id == s2.id
+
+
+async def test_create_or_update_movie_converges_on_alt_titles(db_session):
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        m1 = await ms.create_or_update_movie_from_external(db_session, {
+            "content_type": "movie",
+            "title_cn": "劇場版 甲",
+            "external_id": "wikipedia:111",
+            "external_source": "wikipedia",
+        })
+        await db_session.flush()
+
+        m2 = await ms.create_or_update_movie_from_external(db_session, {
+            "content_type": "movie",
+            "title_en": "Movie A",
+            "alt_titles": ["劇場版 甲"],
+            "external_id": "wikipedia:222",
+            "external_source": "wikipedia",
+        })
+        await db_session.flush()
+
+    assert m1.id == m2.id
+    assert m2.title_en == "Movie A"
+    assert "劇場版 甲" in (m2.aliases or [])

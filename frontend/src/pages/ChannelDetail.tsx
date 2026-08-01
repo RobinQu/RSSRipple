@@ -710,6 +710,7 @@ export default function ChannelDetail() {
         <FilterSummaryModal
           open={filterModalOpen}
           channelId={id}
+          channelName={channel?.name}
           selectedIds={Array.from(selectedIds)}
           onClose={() => setFilterModalOpen(false)}
           onAgentCreated={() => {

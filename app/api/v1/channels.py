@@ -408,21 +408,38 @@ async def analyze_channel_stream(channel_id: str, db: AsyncSession = Depends(get
 
 @router.post("/channels/{channel_id}/summarize-filters")
 async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: AsyncSession = Depends(get_db)):
+    """Summarize selected resources into an Agent-shaped rule proposal.
+
+    Returns the works to subscribe (from the resources' linked series/movie),
+    a GLOBAL filter from fields shared across ALL selected resources, and
+    per-work override filters from fields that differ between works but are
+    uniform within one work. The frontend modal lets the user tweak each
+    piece before creating/applying an agent.
+    """
     from app.models.file_resource import FileResource
+
+    empty = {
+        "works": [],
+        "global_filter_config": None,
+        "unlinked_count": 0,
+        "explanation": "",
+    }
     if not body.resource_ids:
-        return success_response({"filter_config": None, "explanation": ""})
+        return success_response(empty)
+    from sqlalchemy.orm import selectinload
+
     result = await db.execute(
-        select(FileResource).where(
+        select(FileResource)
+        .where(
             FileResource.channel_id == channel_id,
             FileResource.id.in_(body.resource_ids),
         )
+        .options(selectinload(FileResource.series), selectinload(FileResource.movie))
     )
     resources = result.scalars().all()
     if not resources:
-        return success_response({"filter_config": None, "explanation": ""})
-    conditions = []
-    explanation_parts = []
-    n = len(resources)
+        return success_response(empty)
+
     exact_fields = [
         "subtitle_group",
         "resolution",
@@ -432,13 +449,73 @@ async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: 
         "subtitle_type",
         "source",
     ]
-    for field in exact_fields:
-        values = [getattr(r, field) for r in resources if getattr(r, field)]
-        if not values:
-            continue
-        most_common, count = Counter(values).most_common(1)[0]
-        if count / n >= 0.8:
-            conditions.append({"field": field, "operator": "eq", "value": most_common})
-            explanation_parts.append(f"{field}={most_common}")
-    filter_config = {"combinator": "and", "conditions": conditions} if conditions else None
-    return success_response({"filter_config": filter_config, "explanation": "; ".join(explanation_parts)})
+
+    def _common_conditions(group) -> tuple[list[dict], list[str]]:
+        """Fields where one value covers >=80% of the group."""
+        conds, parts = [], []
+        n = len(group)
+        for field in exact_fields:
+            values = [getattr(r, field) for r in group if getattr(r, field)]
+            if not values:
+                continue
+            most_common, count = Counter(values).most_common(1)[0]
+            if count / n >= 0.8:
+                conds.append({"field": field, "operator": "eq", "value": most_common})
+                parts.append(f"{field}={most_common}")
+        return conds, parts
+
+    # Common features across ALL selected resources -> global filter.
+    global_conds, global_parts = _common_conditions(resources)
+    global_fields = {c["field"] for c in global_conds}
+
+    # Group by linked work -> subscription entries; features uniform within
+    # one work but not globally common -> that work's filter_overrides.
+    groups: dict[tuple[str, str], list] = {}
+    unlinked = 0
+    for r in resources:
+        if r.series_id:
+            groups.setdefault(("tv", r.series_id), []).append(r)
+        elif r.movie_id:
+            groups.setdefault(("movie", r.movie_id), []).append(r)
+        else:
+            unlinked += 1
+
+    works = []
+    for (ctype, work_id), group in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        entity = group[0].series if ctype == "tv" else group[0].movie
+        override_conds, override_parts = [], []
+        n = len(group)
+        for field in exact_fields:
+            if field in global_fields:
+                continue
+            values = [getattr(r, field) for r in group if getattr(r, field)]
+            if not values:
+                continue
+            most_common, count = Counter(values).most_common(1)[0]
+            if count / n >= 0.8:
+                override_conds.append({"field": field, "operator": "eq", "value": most_common})
+                override_parts.append(f"{field}={most_common}")
+        works.append({
+            "content_type": ctype,
+            "series_id": work_id if ctype == "tv" else None,
+            "movie_id": work_id if ctype == "movie" else None,
+            "title": (entity.title_cn or entity.title_en or entity.original_title) if entity else None,
+            "poster_url": entity.poster_url if entity else None,
+            "resource_count": n,
+            "filter_overrides": (
+                {"combinator": "and", "conditions": override_conds} if override_conds else None
+            ),
+            "override_explanation": "; ".join(override_parts),
+        })
+
+    explanation_parts = list(global_parts)
+    if unlinked:
+        explanation_parts.append(f"unlinked={unlinked}")
+    return success_response({
+        "works": works,
+        "global_filter_config": (
+            {"combinator": "and", "conditions": global_conds} if global_conds else None
+        ),
+        "unlinked_count": unlinked,
+        "explanation": "; ".join(explanation_parts),
+    })

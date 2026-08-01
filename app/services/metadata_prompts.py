@@ -224,7 +224,10 @@ Rules:
   "Kamen Rider Zeztz" is NOT "Kamen Rider Gotchard". If none of the
   candidates' titles names the same work as the RSS title, return
   found=false rather than guessing a "similar" or "related" show.
-- content_type "tv" for series/anime, "movie" for films.
+- content_type "tv" for series/anime, "movie" for films. A franchise /
+  overview page often carries BOTH TV-anime and film categories (the series
+  spawned a movie adaptation, which has its own separate page) - classify
+  such a page as "tv" whenever any TV/series category is present.
 - external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
   page_id; external_source "wikipedia"; include wikipedia_url.
 - Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).

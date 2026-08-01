@@ -21,7 +21,7 @@ import {
 import { agentsApi } from '../api/agents';
 import { channelsApi } from '../api/channels';
 import { downloadersApi } from '../api/downloaders';
-import FilterBuilder from '../components/FilterBuilder';
+import FilterBuilder, { findInvalidConditions, nullIfEmptyFilter } from '../components/FilterBuilder';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import type {
@@ -80,10 +80,17 @@ export default function AgentForm() {
     Promise.all([channelsApi.list(1, 100), downloadersApi.list(1, 100)]).then(
       ([c, d]) => {
         if (c.success) setChannels(c.data);
-        if (d.success) setDownloaders(d.data);
+        if (d.success) {
+          setDownloaders(d.data);
+          // Create mode: default to the first available downloader so the
+          // form is submittable out of the box (edit mode sets its own).
+          if (mode === 'create' && d.data.length > 0 && !form.getFieldValue('downloader_id')) {
+            form.setFieldsValue({ downloader_id: d.data[0].id });
+          }
+        }
       },
     );
-  }, []);
+  }, [form, mode]);
 
   // Load agent for edit
   useEffect(() => {
@@ -127,6 +134,13 @@ export default function AgentForm() {
           channel_id: data.channel_id,
         });
         if (data.filter_config) setFilterConfig(data.filter_config);
+        // FilterSummaryModal may also prefill suggested works; keep the
+        // scope on selected-works so they are visible and editable.
+        if (Array.isArray(data.works) && data.works.length > 0) {
+          setWorks(data.works);
+          form.setFieldsValue({ scope_channel_wide: false });
+          setChannelWide(false);
+        }
       }
     } catch {
       /* ignore */
@@ -143,7 +157,7 @@ export default function AgentForm() {
     llm_prompt: values.llm_prompt?.trim() || null,
     scope_channel_wide: values.scope_channel_wide,
     conflict_resolution: values.conflict_resolution,
-    filter_config: filterConfig,
+    filter_config: nullIfEmptyFilter(filterConfig),
     works: values.scope_channel_wide
       ? []
       : works.map((w) => ({
@@ -151,7 +165,7 @@ export default function AgentForm() {
           series_id: w.series_id,
           movie_id: w.movie_id,
           enable_episode_dedup: w.enable_episode_dedup,
-          filter_overrides: w.filter_overrides,
+          filter_overrides: nullIfEmptyFilter(w.filter_overrides),
           display_name_override: w.display_name_override,
         })),
     dispatch_resource_ids: dispatchResourceIds,
@@ -161,7 +175,7 @@ export default function AgentForm() {
     agent_id: mode === 'edit' && id ? id : undefined,
     channel_id: values.channel_id,
     scope_channel_wide: values.scope_channel_wide,
-    filter_config: filterConfig,
+    filter_config: nullIfEmptyFilter(filterConfig),
     works: values.scope_channel_wide
       ? []
       : works.map((w) => ({
@@ -169,7 +183,7 @@ export default function AgentForm() {
           series_id: w.series_id,
           movie_id: w.movie_id,
           enable_episode_dedup: w.enable_episode_dedup,
-          filter_overrides: w.filter_overrides,
+          filter_overrides: nullIfEmptyFilter(w.filter_overrides),
         })),
   });
 
@@ -191,6 +205,15 @@ export default function AgentForm() {
   const handleSubmit = async (values: FormValues) => {
     if (!values.scope_channel_wide && works.length === 0) {
       message.error(t('agents.worksRequired'));
+      return;
+    }
+    // The backend rejects value-taking operators with empty values (422) —
+    // block the save here so the user gets a clear inline-level message.
+    if (
+      findInvalidConditions(filterConfig).length > 0 ||
+      works.some((w) => findInvalidConditions(w.filter_overrides).length > 0)
+    ) {
+      message.error(t('filter.emptyValueNotAllowed'));
       return;
     }
     setSaving(true);
@@ -367,7 +390,7 @@ export default function AgentForm() {
 
           {!channelWide && (
             <div style={{ marginBottom: 20 }}>
-              <WorkSelector value={works} onChange={setWorks} maxWorks={10} channelId={channelId} />
+              <WorkSelector value={works} onChange={setWorks} maxWorks={10} channelId={channelId} globalFilter={filterConfig} />
             </div>
           )}
 

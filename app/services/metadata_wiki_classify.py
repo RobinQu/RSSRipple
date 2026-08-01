@@ -15,10 +15,26 @@ from app.services.metadata_resource_meta import ResourceMetadata
 logger = logging.getLogger(__name__)
 
 
+# TV indicators win over film indicators: a franchise/overview page (e.g. a
+# light-novel series that also spawned a theatrical film) carries BOTH
+# TV-anime and film categories - "2021年日本電視動畫" next to "2022年日本動畫
+# 電影". Such a page represents the series; the film has its own separate
+# page. A film-only page has no TV category and still resolves to "movie".
+_TV_CATEGORY_KEYWORDS = (
+    "television series", "tv series", "television shows", "tv shows",
+    "anime television", "animated television", "web series",
+    "電視動畫", "电视动画", "電視劇", "电视剧", "テレビアニメ",
+    "網絡動畫", "网络动画",
+)
+_FILM_CATEGORY_KEYWORDS = ("film", "movie", "電影", "电影", "短片", "映画")
+
+
 def _infer_content_type_from_categories(categories: list[str]) -> str:
     """Infer 'tv' vs 'movie' from a Wikipedia page's category list."""
     text = " ".join(categories or "").lower()
-    if any(k in text for k in ("film", "movie", "電影", "电影", "短片")):
+    if any(k in text for k in _TV_CATEGORY_KEYWORDS):
+        return "tv"
+    if any(k in text for k in _FILM_CATEGORY_KEYWORDS):
         return "movie"
     return "tv"
 

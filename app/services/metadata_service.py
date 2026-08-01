@@ -492,6 +492,44 @@ def _parse_date(val: Any) -> date | None:
     return None
 
 
+async def find_series_by_external_id(db: AsyncSession, data: dict) -> TVSeries | None:
+    """Look up an existing TVSeries by the candidate's canonical external_id.
+
+    Cross-table guard: a "movie" verdict for an external entity that already
+    owns a TVSeries row must not spawn a duplicate Movie (and vice versa).
+    """
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    canonical_id = canonicalize_external_id(
+        raw_external_id, raw_source, data.get("content_type")
+    )
+    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
+    if not lookup_ids:
+        return None
+    stmt = select(TVSeries).where(TVSeries.external_id.in_(lookup_ids))
+    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+    if lookup_sources:
+        stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
+    return (await db.execute(stmt)).scalars().first()
+
+
+async def find_movie_by_external_id(db: AsyncSession, data: dict) -> Movie | None:
+    """Mirror of :func:`find_series_by_external_id` for the movies table."""
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    canonical_id = canonicalize_external_id(
+        raw_external_id, raw_source, data.get("content_type")
+    )
+    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
+    if not lookup_ids:
+        return None
+    stmt = select(Movie).where(Movie.external_id.in_(lookup_ids))
+    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+    if lookup_sources:
+        stmt = stmt.where(Movie.external_source.in_(lookup_sources))
+    return (await db.execute(stmt)).scalars().first()
+
+
 async def create_or_update_series_from_external(db: AsyncSession, data: dict) -> TVSeries:
     """Upsert a TVSeries by canonicalized external_id, then by exact title fallback.
 
@@ -535,6 +573,9 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
                 data.get("title_cn"),
                 data.get("title_en"),
                 data.get("original_title"),
+                # Cross-language page titles from Wikipedia langlinks - the
+                # same work's zh/en pages must converge on one row.
+                *(data.get("alt_titles") or []),
             ) if t
         ]
         title_candidates = list({
@@ -583,7 +624,12 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
 
         existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
         new_aliases = list(series.aliases or [])
-        for t in (data.get("title_cn"), data.get("title_en"), data.get("original_title")):
+        for t in (
+            data.get("title_cn"),
+            data.get("title_en"),
+            data.get("original_title"),
+            *(data.get("alt_titles") or []),
+        ):
             if t and t not in existing_titles and t not in new_aliases:
                 new_aliases.append(t)
                 existing_titles.add(t)
@@ -607,7 +653,15 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     aliases: list[str] = []
     # Keep the original (season-suffixed) forms as aliases too, so resources
     # whose title still carries the season can still match via the title index.
-    for t in (raw_cn, raw_en, data.get("original_title"), title_cn, title_en):
+    # alt_titles carries the cross-language Wikipedia page titles.
+    for t in (
+        raw_cn,
+        raw_en,
+        data.get("original_title"),
+        title_cn,
+        title_en,
+        *(data.get("alt_titles") or []),
+    ):
         if t and t not in aliases:
             aliases.append(t)
     series = TVSeries(
@@ -661,6 +715,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
                 data.get("title_cn"),
                 data.get("title_en"),
                 data.get("original_title"),
+                *(data.get("alt_titles") or []),
             ) if t
         ]
         if title_candidates:
@@ -699,7 +754,12 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
 
         existing_titles = {t for t in [movie.title_cn, movie.title_en, *(movie.aliases or [])] if t}
         new_aliases = list(movie.aliases or [])
-        for t in (data.get("title_cn"), data.get("title_en"), data.get("original_title")):
+        for t in (
+            data.get("title_cn"),
+            data.get("title_en"),
+            data.get("original_title"),
+            *(data.get("alt_titles") or []),
+        ):
             if t and t not in existing_titles and t not in new_aliases:
                 new_aliases.append(t)
                 existing_titles.add(t)
@@ -718,7 +778,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     title_cn = data.get("title_cn")
     title_en = data.get("title_en") or data.get("original_title")
     aliases: list[str] = []
-    for t in (title_cn, title_en, data.get("original_title")):
+    for t in (title_cn, title_en, data.get("original_title"), *(data.get("alt_titles") or [])):
         if t and t not in aliases:
             aliases.append(t)
     movie = Movie(
@@ -1223,6 +1283,36 @@ async def _search_local_library(
     return results
 
 
+async def invalidate_metadata_cache_for_external_id(
+    db: AsyncSession, external_id: str | None
+) -> int:
+    """Drop MetadataCache verdicts whose matched entity is ``external_id``.
+
+    Called after a manual (re)link: the user has just overruled the automatic
+    classification, so any cached verdict pointing at the same external
+    entity - e.g. a stale "movie" verdict for a work the user re-linked as a
+    series - must not be served to future resources. The cache table is small
+    by design, so a full scan beats dialect-specific JSON-path queries.
+    """
+    if not external_id:
+        return 0
+    from app.models.metadata_cache import MetadataCache
+
+    rows = (await db.execute(select(MetadataCache))).scalars().all()
+    removed = 0
+    for row in rows:
+        me = (row.metadata_json or {}).get("matched_entity") or {}
+        if me.get("external_id") == external_id:
+            await db.delete(row)
+            removed += 1
+    if removed:
+        logger.info(
+            "[metadata] invalidated %d cached verdict(s) for external_id=%r after manual link",
+            removed, external_id,
+        )
+    return removed
+
+
 async def manual_link_metadata(
     db: AsyncSession,
     resource: Any,
@@ -1302,4 +1392,9 @@ async def manual_link_metadata(
             db.add(mapping)
 
     await db.flush()
+
+    # The user just overruled the automatic classification for this work;
+    # purge any cached verdicts for the same external entity so future
+    # resources don't inherit the overruled (e.g. wrong-type) result.
+    await invalidate_metadata_cache_for_external_id(db, selected_result.get("external_id"))
     return entity

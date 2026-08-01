@@ -25,7 +25,7 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_work import AgentWork
@@ -47,6 +47,7 @@ class DedupReport:
     series_removed: int = 0
     movie_groups: int = 0
     movies_removed: int = 0
+    cross_type_merges: int = 0
     file_resources_updated: int = 0
     agent_works_updated: int = 0
     mappings_updated: int = 0
@@ -319,4 +320,173 @@ async def merge_duplicate_metadata(db: AsyncSession) -> DedupReport:
     report = DedupReport()
     await merge_duplicate_series(db, report)
     await merge_duplicate_movies(db, report)
+    await merge_cross_type_duplicates(db, report)
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Cross-table (Movie <-> TVSeries) duplicates
+# ---------------------------------------------------------------------------
+
+
+async def _episode_resource_count(db: AsyncSession, column, work_id: str) -> int:
+    """Resources linked to a work that carry a per-season episode number -
+    the strongest evidence that the work is actually a TV series."""
+    n = (await db.execute(
+        select(func.count()).select_from(FileResource).where(
+            column == work_id,
+            FileResource.episode.isnot(None),
+            FileResource.is_batch.is_(False),
+        )
+    )).scalar_one()
+    return int(n or 0)
+
+
+async def merge_cross_type_duplicates(
+    db: AsyncSession, report: DedupReport | None = None
+) -> DedupReport:
+    """Merge (Movie, TVSeries) pairs that describe the same external work.
+
+    The per-table upserts converge duplicates within one table, but a wrong
+    content_type verdict can still file the same entity (e.g.
+    ``wikipedia:5139056``) once as a Movie and once as a TVSeries. Pairing
+    rule: identical canonical external_id, or a shared normalized title key
+    (titles + aliases, trad/simp-folded). Survivor rule: any episode-bearing
+    resource (or Episode rows) on either side means the work is a series;
+    otherwise the Movie survives. The loser's references are re-pointed and
+    its titles/aliases merged before deletion.
+    """
+    report = report or DedupReport()
+    movies = list((await db.execute(select(Movie))).scalars().all())
+    series_all = list((await db.execute(select(TVSeries))).scalars().all())
+    if not movies or not series_all:
+        return report
+
+    series_keys = {s.id: _title_keys(s) for s in series_all}
+    removed_movies: set[str] = set()
+    removed_series: set[str] = set()
+
+    for movie in movies:
+        if movie.id in removed_movies:
+            continue
+        m_keys = _title_keys(movie)
+        m_canon = canonicalize_external_id(movie.external_id, movie.external_source, "movie")
+        for series in series_all:
+            if series.id in removed_series:
+                continue
+            s_canon = canonicalize_external_id(
+                series.external_id, series.external_source, "tv"
+            )
+            same_entity = bool(
+                (m_canon and s_canon and m_canon == s_canon)
+                or (movie.external_id and movie.external_id == series.external_id)
+                or (m_keys & series_keys[series.id])
+            )
+            if not same_entity:
+                continue
+
+            # Survivor decision: episode evidence (or Episode rows) => series.
+            series_ep_rows = int((await db.execute(
+                select(func.count()).select_from(Episode).where(
+                    Episode.series_id == series.id
+                )
+            )).scalar_one() or 0)
+            movie_ep = await _episode_resource_count(db, FileResource.movie_id, movie.id)
+            series_ep = await _episode_resource_count(db, FileResource.series_id, series.id)
+            keep_series = bool(series_ep_rows or movie_ep or series_ep)
+
+            if keep_series:
+                n = (await db.execute(
+                    update(FileResource)
+                    .where(FileResource.movie_id == movie.id)
+                    .values(series_id=series.id, movie_id=None)
+                )).rowcount or 0
+                report.file_resources_updated += n
+                n = (await db.execute(
+                    update(AgentWork)
+                    .where(AgentWork.movie_id == movie.id)
+                    .values(series_id=series.id, movie_id=None, content_type="tv")
+                )).rowcount or 0
+                report.agent_works_updated += n
+                n = (await db.execute(
+                    update(ChannelRawTitleMapping)
+                    .where(ChannelRawTitleMapping.movie_id == movie.id)
+                    .values(series_id=series.id, movie_id=None, content_type="tv")
+                )).rowcount or 0
+                report.mappings_updated += n
+                n = (await db.execute(
+                    update(PendingDecision)
+                    .where(PendingDecision.movie_id == movie.id)
+                    .values(series_id=series.id, movie_id=None)
+                )).rowcount or 0
+                report.pending_decisions_updated += n
+
+                series.aliases = _merge_aliases([series, movie])
+                for attr in ("title_cn", "title_en", "original_title"):
+                    if not getattr(series, attr) and getattr(movie, attr):
+                        setattr(series, attr, getattr(movie, attr))
+                if not (series.poster_url or "").startswith("/posters/") and movie.poster_url:
+                    series.poster_url = movie.poster_url
+                if not series.description and movie.description:
+                    series.description = movie.description
+                if series.rating is None and movie.rating is not None:
+                    series.rating = movie.rating
+                if not series.genre and movie.genre:
+                    series.genre = movie.genre
+
+                await db.delete(movie)
+                removed_movies.add(movie.id)
+                report.cross_type_merges += 1
+                report.notes.append(
+                    f"[cross-type] movie {movie.id} merged into series {series.id} "
+                    f"({movie.title_cn or movie.title_en!r}; episode evidence)"
+                )
+                break  # movie gone - next movie
+            else:
+                n = (await db.execute(
+                    update(FileResource)
+                    .where(FileResource.series_id == series.id)
+                    .values(movie_id=movie.id, series_id=None)
+                )).rowcount or 0
+                report.file_resources_updated += n
+                n = (await db.execute(
+                    update(AgentWork)
+                    .where(AgentWork.series_id == series.id)
+                    .values(movie_id=movie.id, series_id=None, content_type="movie")
+                )).rowcount or 0
+                report.agent_works_updated += n
+                n = (await db.execute(
+                    update(ChannelRawTitleMapping)
+                    .where(ChannelRawTitleMapping.series_id == series.id)
+                    .values(movie_id=movie.id, series_id=None, content_type="movie")
+                )).rowcount or 0
+                report.mappings_updated += n
+                n = (await db.execute(
+                    update(PendingDecision)
+                    .where(PendingDecision.series_id == series.id)
+                    .values(movie_id=movie.id, series_id=None)
+                )).rowcount or 0
+                report.pending_decisions_updated += n
+
+                movie.aliases = _merge_aliases([movie, series])
+                for attr in ("title_cn", "title_en", "original_title"):
+                    if not getattr(movie, attr) and getattr(series, attr):
+                        setattr(movie, attr, getattr(series, attr))
+                if not (movie.poster_url or "").startswith("/posters/") and series.poster_url:
+                    movie.poster_url = series.poster_url
+                if not movie.description and series.description:
+                    movie.description = series.description
+                if movie.rating is None and series.rating is not None:
+                    movie.rating = series.rating
+                if not movie.genre and series.genre:
+                    movie.genre = series.genre
+
+                await db.delete(series)
+                removed_series.add(series.id)
+                report.cross_type_merges += 1
+                report.notes.append(
+                    f"[cross-type] series {series.id} merged into movie {movie.id} "
+                    f"({series.title_cn or series.title_en!r}; no episode evidence)"
+                )
+                # series gone - keep scanning remaining series for this movie
     return report

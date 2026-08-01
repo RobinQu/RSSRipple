@@ -65,7 +65,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 
 ## 配置
 
-常用变量（完整列表见 [AGENTS.md](AGENTS.md) 的「其他约定」小节）：
+常用变量（完整列表见 [docs/design/conventions.md](docs/design/conventions.md)）：
 
 | 变量 | 说明 |
 | --- | --- |
@@ -111,7 +111,7 @@ docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 
 ### 贡献
 
-分支命名遵循 [Conventional Branch](https://conventionalbranch.org/) v1.1.0。工作流见 [CONTRIBUTION.md](CONTRIBUTION.md)，完整分支规范见 [AGENTS.md](AGENTS.md)（分支与协作规范小节）。
+分支命名遵循 [Conventional Branch](https://conventionalbranch.org/) v1.1.0。工作流见 [CONTRIBUTION.md](CONTRIBUTION.md)，完整分支规范见 [docs/design/branching.md](docs/design/branching.md)。
 
 ### CI/CD
 
@@ -129,7 +129,7 @@ GitHub Actions 负责持续集成与持续交付：
 
 如果你是在本仓库工作的 coding agent（Claude Code、Cursor、Copilot、Codex 等），按以下顺序阅读：
 
-- **[AGENTS.md](AGENTS.md)** — 权威 spec：数据模型、Filter DSL、API 端点、业务逻辑、前端路由、错误处理、分支规范。这是*系统如何工作*的唯一事实来源。
+- **[AGENTS.md](AGENTS.md)** — 权威 spec 索引与核心约束速查；详细设计（数据模型、Filter DSL、API 端点、业务逻辑、前端路由、错误处理、分支规范）在 [docs/design/](docs/design/) 子文档中。这是*系统如何工作*的唯一事实来源。
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — 模块布局与运行时数据流。
 - **[overview.md](overview.md)** — 频道与元数据作品库的设计逻辑分析。
 - **[DESIGN.md](DESIGN.md)** — 设计 token 与视觉指引（仅前端）。

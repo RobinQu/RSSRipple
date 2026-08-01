@@ -333,6 +333,26 @@ async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
         )
         summary = ""
 
+    # Langlinks give the same work's page titles in the other language wikis
+    # (zh page "黃泉使者" <-> en page "Daemons of the Shadow Realm"). They are
+    # the bridge that lets the upsert converge per-language wiki pages onto a
+    # single series/movie row instead of creating one row per language.
+    # Restricted to the languages we actually search in.
+    try:
+        langlinks = await _wiki_call(
+            lambda p=page: {
+                k: v.title
+                for k, v in p.langlinks.items()
+                if k in ("en", "zh", "ja") and v.title
+            }
+        )
+    except Exception as e:  # optional enrichment - never fail the page fetch
+        logger.debug(
+            "[metadata_agent] wikipedia langlinks(%r) failed lang=%s: %s",
+            title, wiki_lang, e,
+        )
+        langlinks = {}
+
     poster_url = await _fetch_wikipedia_page_image(
         page.title, wiki_lang, page.pageid, expected_title=page.title
     )
@@ -346,5 +366,6 @@ async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
             "summary": (summary or "")[:800],
             "categories": (categories or [])[:20],
             "poster_url": poster_url,
+            "langlinks": langlinks,
         },
     }

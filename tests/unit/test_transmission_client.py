@@ -194,19 +194,22 @@ class TestListTorrents:
         t = MagicMock()
         t.id = id
         t.name = name
-        t.hashString = "abc123"
+        t.hashString = "abc123"  # transmission-rpc v7 keeps this one camelCase
         t.status = status
-        t.percentDone = percent_done
-        t.rateDownload = rate_dl
-        t.rateUpload = rate_ul
+        # v7 exposes snake_case attributes - mirror the real library here so
+        # the wrapper cannot silently regress to camelCase defaults again.
+        t.percent_done = percent_done
+        t.rate_download = rate_dl
+        t.rate_upload = rate_ul
         t.eta = timedelta(seconds=eta_seconds)
-        t.totalSize = total_size
-        t.haveValid = have_valid
-        t.isFinished = is_finished
+        t.total_size = total_size
+        t.have_valid = have_valid
+        t.is_finished = is_finished
         t.error = error
-        t.leftUntilDone = left_until_done
-        t.addedDate = datetime(2024, 1, 1, tzinfo=UTC)
-        t.fields = {"errorString": "", "peersConnected": 3}
+        t.error_string = ""
+        t.peers_connected = 3
+        t.left_until_done = left_until_done
+        t.added_date = datetime(2024, 1, 1, tzinfo=UTC)
         return t
 
     @pytest.mark.asyncio

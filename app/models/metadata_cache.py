@@ -23,6 +23,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
+# Bump this whenever the classification / judge / matching logic that
+# PRODUCES cached verdicts changes (e.g. the tv-vs-movie classifier). Rows
+# written by older generations are treated as cache misses and lazily
+# deleted on read, so stale verdicts from superseded logic can never
+# short-circuit the fixed code. Legacy rows (pre-versioning) migrated to
+# ``generation = 0`` and are therefore always stale.
+METADATA_CACHE_GENERATION = 1
+
 
 class MetadataCache(Base):
     __tablename__ = "metadata_cache"
@@ -37,6 +45,10 @@ class MetadataCache(Base):
     source: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Logic generation that produced this verdict; see METADATA_CACHE_GENERATION.
+    generation: Mapped[int] = mapped_column(
+        nullable=False, default=METADATA_CACHE_GENERATION
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False

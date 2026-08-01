@@ -20,8 +20,12 @@ import { Film, Tv } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
-import FilterBuilder from './FilterBuilder';
-import type { AgentWork, Movie, TVSeries } from '../types';
+import FilterBuilder, {
+  collectFieldConditions,
+  describeCondition,
+  isFilterEmpty,
+} from './FilterBuilder';
+import type { AgentWork, BoolCondition, Movie, TVSeries } from '../types';
 import type { TFunction } from 'i18next';
 
 const { Text } = Typography;
@@ -37,6 +41,9 @@ interface WorkSelectorProps {
   onChange: (works: AgentWork[]) => void;
   maxWorks?: number;
   suggestions?: SuggestionShortcut[];
+  /** Agent-level filter_config — shown read-only so users see the effective
+   * filter = global AND work override. */
+  globalFilter?: BoolCondition | null;
 }
 
 function resolvePoster(work: AgentWork): string | null {
@@ -64,6 +71,7 @@ export default function WorkSelector({
   maxWorks = 10,
   suggestions = [],
   channelId,
+  globalFilter,
 }: WorkSelectorProps) {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -428,6 +436,18 @@ export default function WorkSelector({
                                 <Text style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
                                   {t('work.workFilter')}
                                 </Text>
+                                {globalFilter && !isFilterEmpty(globalFilter) && (
+                                  <div style={{ marginBottom: 6 }}>
+                                    <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
+                                      {t('work.mergedWithGlobal')}
+                                    </Text>
+                                    {collectFieldConditions(globalFilter).map((c, i) => (
+                                      <Tag key={i} style={{ fontSize: 11, margin: 2 }}>
+                                        {describeCondition(c, t)}
+                                      </Tag>
+                                    ))}
+                                  </div>
+                                )}
                                 <FilterBuilder
                                   value={work.filter_overrides}
                                   compact

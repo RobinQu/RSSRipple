@@ -647,3 +647,89 @@ class TestEpisodeConfidence:
         assert evaluate_field_condition(
             {"field": "episode_confidence", "operator": "ne", "value": "ambiguous"}, r
         ) is True
+
+
+# ---------------------------------------------------------------------------
+# is_empty / is_not_empty operators + empty-value prohibition
+# ---------------------------------------------------------------------------
+
+
+class TestEmptinessOperatorValidation:
+    def test_is_empty_valid_without_value_key(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "subtitle_group", "operator": "is_empty"}
+        ]}
+        assert validate_filter_config(cfg) == []
+
+    def test_is_not_empty_valid_with_null_value(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "resolution", "operator": "is_not_empty", "value": None}
+        ]}
+        assert validate_filter_config(cfg) == []
+
+    def test_eq_empty_string_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "subtitle_group", "operator": "eq", "value": ""}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("requires a non-empty value" in e for e in errs)
+
+    def test_contains_blank_value_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "title_en", "operator": "contains", "value": "   "}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("requires a non-empty value" in e for e in errs)
+
+    def test_ne_null_value_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "resolution", "operator": "ne", "value": None}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("requires a non-empty value" in e for e in errs)
+
+    def test_numeric_empty_string_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "episode", "operator": "eq", "value": ""}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("requires a non-empty value" in e for e in errs)
+
+
+class TestEmptinessOperatorEvaluation:
+    def test_is_empty_string_field(self):
+        cond = {"field": "subtitle_group", "operator": "is_empty"}
+        assert evaluate_field_condition(cond, _res(subtitle_group=None)) is True
+        assert evaluate_field_condition(cond, _res(subtitle_group="  ")) is True
+        assert evaluate_field_condition(cond, _res(subtitle_group="ANi")) is False
+
+    def test_is_not_empty_string_field(self):
+        cond = {"field": "subtitle_group", "operator": "is_not_empty"}
+        assert evaluate_field_condition(cond, _res(subtitle_group="ANi")) is True
+        assert evaluate_field_condition(cond, _res(subtitle_group=None)) is False
+        assert evaluate_field_condition(cond, _res(subtitle_group="")) is False
+
+    def test_is_empty_number_field(self):
+        cond = {"field": "episode", "operator": "is_empty"}
+        assert evaluate_field_condition(cond, _res(episode=None)) is True
+        assert evaluate_field_condition(cond, _res(episode=3)) is False
+        # 0 is a real value, not emptiness
+        assert evaluate_field_condition(cond, _res(episode=0)) is False
+
+    def test_is_empty_list_field(self):
+        cond = {"field": "subtitle_langs", "operator": "is_empty"}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=None)) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=[])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is False
+
+    def test_is_empty_bool_field(self):
+        cond = {"field": "is_batch", "operator": "is_empty"}
+        assert evaluate_field_condition(cond, _res(is_batch=None)) is True
+        assert evaluate_field_condition(cond, _res(is_batch=False)) is False
+
+    def test_eval_works_without_value_key(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "resolution", "operator": "is_empty"}
+        ]}
+        assert evaluate_filter_config(cfg, _res(resolution=None)) is True
+        assert evaluate_filter_config(cfg, _res(resolution="1080p")) is False

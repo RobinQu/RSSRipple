@@ -51,6 +51,29 @@ def _parse_finalize_json(text: str) -> dict | None:
         return None
 
 
+def _cross_language_titles(entry: dict) -> dict:
+    """Derive cross-language title fields from a page's langlinks.
+
+    Wikipedia page ids are per-language-wiki, so the same work matches as
+    e.g. zhwiki:7727654 ("黃泉使者") for one resource and enwiki:70545449
+    ("Daemons of the Shadow Realm") for another - without a shared title the
+    upsert cannot converge them onto one row. Returns ``title_cn``/``title_en``
+    (the page's own title in its language slot, else the langlink title) and
+    ``alt_titles`` (every langlink title distinct from the page title).
+    """
+    lang = entry.get("lang")
+    title = entry.get("title") or ""
+    langlinks = entry.get("langlinks") or {}
+    title_cn = title if lang == "zh" else langlinks.get("zh")
+    title_en = title if lang == "en" else langlinks.get("en")
+    alt_titles = [t for t in langlinks.values() if t and t != title]
+    return {
+        "title_cn": title_cn or None,
+        "title_en": title_en or None,
+        "alt_titles": alt_titles,
+    }
+
+
 async def run_search_then_judge(
     model,
     raw_title: str,
@@ -133,6 +156,8 @@ async def run_search_then_judge(
                 entry["url"] = d.get("url")
             if d.get("poster_url"):
                 entry["poster_url"] = d["poster_url"]
+            if d.get("langlinks"):
+                entry["langlinks"] = d["langlinks"]
         elif isinstance(pres, Exception):
             source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
         evidence.append(entry)
@@ -180,17 +205,19 @@ async def run_search_then_judge(
             page_id = best_auto.get("page_id")
             lang = best_auto.get("lang")
             wiki_title = best_auto.get("title")
+            xl = _cross_language_titles(best_auto)
             finalize_dict = {
                 "found": True,
                 "clean_title": best_auto_query or wiki_title,
                 "content_type": ct,
-                "title_cn": wiki_title if lang == "zh" else None,
-                "title_en": wiki_title if lang == "en" else None,
+                "title_cn": xl["title_cn"],
+                "title_en": xl["title_en"],
                 "matched_entity": {
                     "external_id": f"wikipedia:{page_id}" if page_id else None,
                     "external_source": "wikipedia",
-                    "title_cn": wiki_title if lang == "zh" else None,
-                    "title_en": wiki_title if lang == "en" else None,
+                    "title_cn": xl["title_cn"],
+                    "title_en": xl["title_en"],
+                    "alt_titles": xl["alt_titles"],
                     "description": (best_auto.get("summary") or "")[:500] or None,
                     "poster_url": best_auto.get("poster_url"),
                     "wikipedia_url": best_auto.get("url"),
@@ -344,6 +371,17 @@ async def run_search_then_judge(
                     me["categories"] = list(e.get("categories", [])[:10])
                     if not me.get("description"):
                         me["description"] = (e.get("summary") or "")[:500] or None
+                    # Cross-language bridge: backfill the other language's
+                    # title slot and carry all langlink titles as alt_titles
+                    # so the upsert's title fallback can converge per-language
+                    # wiki pages of the same work onto one row.
+                    xl = _cross_language_titles(e)
+                    if xl["alt_titles"]:
+                        me["alt_titles"] = xl["alt_titles"]
+                    if not me.get("title_cn") and xl["title_cn"]:
+                        me["title_cn"] = xl["title_cn"]
+                    if not me.get("title_en") and xl["title_en"]:
+                        me["title_en"] = xl["title_en"]
                     break
             finalize_dict["matched_entity"] = me
     finalize_dict.setdefault("clean_title", "")

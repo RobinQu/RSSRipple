@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -22,6 +23,7 @@ import {
   Tooltip,
   Checkbox,
   Drawer,
+  Popover,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
@@ -35,15 +37,26 @@ import {
   PlayCircle,
   ArrowLeft,
   Edit,
+  Clock,
+  Download,
+  Ban,
+  AlertTriangle,
+  Copy,
 } from 'lucide-react';
 import { agentsApi } from '../api/agents';
 import { tasksApi, decisionsApi } from '../api/tasks';
 import StatusBadge from '../components/StatusBadge';
 import ProgressBar from '../components/ProgressBar';
-import FilterBuilder from '../components/FilterBuilder';
+import FilterBuilder, {
+  collectFieldConditions,
+  describeCondition,
+  findInvalidConditions,
+  isFilterEmpty,
+  nullIfEmptyFilter,
+} from '../components/FilterBuilder';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
-import { formatBytes, formatSpeed, formatEta, timeAgo, formatDate } from '../utils/format';
+import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import type {
   Agent,
   AgentRun,
@@ -223,27 +236,32 @@ export default function AgentDetail() {
   // 15s so badges like "下载任务 (N)" stay current without a manual refresh.
   // Uses page_size=1 for the list endpoints to keep the payload tiny, and
   // never overwrites unsaved works edits (worksDirty guard).
-  useEffect(() => {
+  const refreshCounts = useCallback(async () => {
     if (!id) return;
-    const interval = setInterval(async () => {
-      try {
-        const [agentRes, taskRes, decRes] = await Promise.all([
-          agentsApi.get(id),
-          tasksApi.listByAgent(id, 1, 1, taskStatus),
-          decisionsApi.listByAgent(id, 1, 1, 'pending'),
-        ]);
-        if (agentRes.success) {
-          setAgent(agentRes.data);
-          if (!worksDirty && agentRes.data.works) setWorks(agentRes.data.works);
-        }
-        if (taskRes.success && taskRes.meta) setTaskTotal(taskRes.meta.total);
-        if (decRes.success && decRes.meta) setDecTotal(decRes.meta.total);
-      } catch {
-        /* ignore transient poll errors */
+    try {
+      const [agentRes, taskRes, decRes] = await Promise.all([
+        agentsApi.get(id),
+        tasksApi.listByAgent(id, 1, 1, taskStatus),
+        decisionsApi.listByAgent(id, 1, 1, 'pending'),
+      ]);
+      if (agentRes.success) {
+        setAgent(agentRes.data);
+        if (!worksDirty && agentRes.data.works) setWorks(agentRes.data.works);
       }
-    }, 15000);
-    return () => clearInterval(interval);
+      if (taskRes.success && taskRes.meta) setTaskTotal(taskRes.meta.total);
+      if (decRes.success && decRes.meta) setDecTotal(decRes.meta.total);
+    } catch {
+      /* ignore transient poll errors */
+    }
   }, [id, worksDirty, taskStatus]);
+
+  useEffect(() => {
+    // Fetch immediately on mount - otherwise the badges show (0) for up to
+    // 15s (or until the tab is first opened) after navigation.
+    refreshCounts();
+    const interval = setInterval(refreshCounts, 15000);
+    return () => clearInterval(interval);
+  }, [refreshCounts]);
 
   // Poll run status
   useEffect(() => {
@@ -371,12 +389,17 @@ export default function AgentDetail() {
 
   const handleSaveFilter = async () => {
     if (!id || !agent) return;
+    // Backend rejects value-taking operators with empty values (422).
+    if (findInvalidConditions(filterConfig).length > 0) {
+      message.error(t('filter.emptyValueNotAllowed'));
+      return;
+    }
     setSavingFilter(true);
     const r = await agentsApi.update(id, {
       name: agent.name,
       channel_id: agent.channel_id,
       downloader_id: agent.downloader_id,
-      filter_config: filterConfig,
+      filter_config: nullIfEmptyFilter(filterConfig),
     });
     setSavingFilter(false);
     if (r.success) {
@@ -391,7 +414,7 @@ export default function AgentDetail() {
       series_id: w.series_id,
       movie_id: w.movie_id,
       enable_episode_dedup: w.enable_episode_dedup,
-      filter_overrides: w.filter_overrides,
+      filter_overrides: nullIfEmptyFilter(w.filter_overrides),
       display_name_override: w.display_name_override,
     }));
 
@@ -407,7 +430,7 @@ export default function AgentDetail() {
         series_id: w.series_id,
         movie_id: w.movie_id,
         enable_episode_dedup: w.enable_episode_dedup,
-        filter_overrides: w.filter_overrides,
+        filter_overrides: nullIfEmptyFilter(w.filter_overrides),
         display_name_override: w.display_name_override,
       })),
       dispatch_resource_ids: dispatchIds,
@@ -430,6 +453,11 @@ export default function AgentDetail() {
 
   const handleSaveWorks = async () => {
     if (!id || !agent) return;
+    // Backend rejects value-taking operators with empty values (422).
+    if (works.some((w) => findInvalidConditions(w.filter_overrides).length > 0)) {
+      message.error(t('filter.emptyValueNotAllowed'));
+      return;
+    }
     setSavingWorks(true);
     try {
       // Preview the rule diff before committing. The works tab only changes
@@ -477,98 +505,141 @@ export default function AgentDetail() {
     else message.error(r.error?.message || t('agents.testFailed'));
   };
 
+  // Status → icon-only mapping (colors mirror StatusBadge's palette). The
+  // text label moves to a tooltip so the column can shrink to icon width.
+  const TASK_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
+    pending: { icon: <Clock size={15} />, color: '#616161' },
+    queued: { icon: <Clock size={15} />, color: '#1863dc' },
+    downloading: { icon: <Download size={15} />, color: '#1863dc' },
+    paused: { icon: <Pause size={15} />, color: '#c4502a' },
+    completed: { icon: <CheckCircle size={15} />, color: '#003c33' },
+    error: { icon: <AlertTriangle size={15} />, color: '#b30000' },
+    cancelled: { icon: <Ban size={15} />, color: '#b30000' },
+  };
+
+  const copyText = async (text: string) => {
+    // navigator.clipboard requires a secure context; fall back for plain http.
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    message.success(t('agents.errorCopied'));
+  };
+
   const taskColumns: TableColumnsType<DownloadTask> = [
     {
       title: t('agents.taskTitle'),
       dataIndex: ['file_resource', 'title_raw'],
       key: 'title',
-      // No ellipsis: let the raw title wrap so the user sees the whole thing
-      // instead of a truncated single line.
-      render: (text: string, record) => (
-        <Text style={{ fontSize: 13, wordBreak: 'break-word' }}>
-          {text || record.file_resource_id.slice(0, 8)}
-        </Text>
-      ),
+      width: 400,
+      // Pinned left so the title stays visible while scrolling horizontally;
+      // single-line ellipsis keeps the table from being crushed in narrow
+      // viewports; the full raw title is available via the tooltip.
+      fixed: 'left',
+      render: (text: string, record) => {
+        const display = text || record.file_resource_id.slice(0, 8);
+        return (
+          <Tooltip title={display} placement="topLeft">
+            <Text
+              style={{
+                fontSize: 13,
+                display: 'block',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {display}
+            </Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('agents.taskStatus'),
       dataIndex: 'status',
       key: 'status',
-      width: 120,
-      render: (status: string) => <StatusBadge status={status} />,
+      width: 56,
+      align: 'center',
+      render: (status: string) => {
+        const key = (status || '').toLowerCase();
+        const conf = TASK_STATUS_ICON[key] ?? TASK_STATUS_ICON.pending;
+        return (
+          <Tooltip title={t(`status.${key}`, { defaultValue: status })}>
+            <span style={{ color: conf.color, display: 'inline-flex' }}>{conf.icon}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('agents.taskProgress'),
       dataIndex: 'progress',
       key: 'progress',
-      width: 220,
-      // ProgressBar already renders the percentage via its `format` prop —
-      // don't duplicate it with a sibling <Text>.
-      render: (progress: number) => <ProgressBar progress={progress} />,
-    },
-    {
-      title: t('agents.taskSpeed'),
-      key: 'speed',
-      width: 180,
-      render: (_, record) => {
-        // Only show live speed/ETA while the task is actually running; hide
-        // the numbers for paused/completed/error/cancelled tasks.
-        if (!['pending', 'queued', 'downloading'].includes(record.status)) {
-          return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
-        }
-        return (
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            ↓{formatSpeed(record.download_speed)} · ETA {formatEta(record.eta)}
-          </Text>
-        );
-      },
-    },
-    {
-      title: t('agents.taskDir'),
-      dataIndex: 'download_dir',
-      key: 'download_dir',
-      width: 180,
-      ellipsis: true,
-      render: (v: string | null) => <Text type="secondary" style={{ fontSize: 12 }}>{v || t('format.dash')}</Text>,
+      width: 200,
+      // Progress bar on top, live speed + ETA stacked below (only while the
+      // task is actually running).
+      render: (progress: number, record) => (
+        <div>
+          <ProgressBar progress={progress} />
+          <div style={{ marginTop: 2 }}>
+            {['pending', 'queued', 'downloading'].includes(record.status) ? (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                ↓{formatSpeed(record.download_speed)} · ETA {formatEta(record.eta)}
+              </Text>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
+            )}
+          </div>
+        </div>
+      ),
     },
     {
       title: t('agents.taskError'),
       dataIndex: 'error_message',
       key: 'err',
-      width: 120,
-      ellipsis: true,
+      width: 56,
+      align: 'center',
+      // Error details live behind a popover: hover to read, click the copy
+      // button to take the full log.
       render: (v: string | null) =>
-        v ? <Text type="danger" style={{ fontSize: 11 }}>{v}</Text> : null,
-    },
-    {
-      title: t('agents.taskCreatedAt'),
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 150,
-      // Absolute timestamp so users can correlate creation across tasks; the
-      // tooltip carries the relative "x ago" for a quick sense of recency.
-      render: (v: string) => (
-        <Tooltip title={timeAgo(v)}>
-          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(v)}</Text>
-        </Tooltip>
-      ),
-    },
-    {
-      title: t('agents.taskUpdatedAt'),
-      dataIndex: 'updated_at',
-      key: 'updated_at',
-      width: 150,
-      render: (v: string) => (
-        <Tooltip title={timeAgo(v)}>
-          <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(v)}</Text>
-        </Tooltip>
-      ),
+        v ? (
+          <Popover
+            trigger={['hover', 'click']}
+            placement="left"
+            content={
+              <div style={{ maxWidth: 360 }}>
+                <Text style={{ fontSize: 12, display: 'block', wordBreak: 'break-word' }}>{v}</Text>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<Copy size={13} />}
+                  style={{ marginTop: 6, padding: 0 }}
+                  onClick={() => copyText(v)}
+                >
+                  {t('agents.copyError')}
+                </Button>
+              </div>
+            }
+          >
+            <Button type="text" size="small" danger icon={<AlertTriangle size={15} />} />
+          </Popover>
+        ) : null,
     },
     {
       title: t('common.actions'),
       key: 'actions',
       width: 160,
       align: 'right',
+      // Pinned right so pause/resume/retry/delete stay reachable without
+      // scrolling to the far end of the (wide) table.
+      fixed: 'right',
       render: (_, record) => (
         <Space size={0}>
           {record.status === 'downloading' && (
@@ -646,6 +717,22 @@ export default function AgentDetail() {
             label: `${t('agents.subscribedWorks')} (${works.length})`,
             children: (
               <Card loading={loadingWorks}>
+                {/* Global filter shown read-only here so the works tab shows
+                    the effective rules: global conditions AND work overrides. */}
+                <div style={{ marginBottom: 16 }}>
+                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                    {t('agents.globalFilter')}
+                  </Text>
+                  {isFilterEmpty(agent.filter_config) ? (
+                    <Text type="secondary" style={{ fontSize: 12 }}>{t('format.dash')}</Text>
+                  ) : (
+                    <Space wrap size={[4, 4]}>
+                      {collectFieldConditions(agent.filter_config).map((c, i) => (
+                        <Tag key={i} style={{ margin: 0 }}>{describeCondition(c, t)}</Tag>
+                      ))}
+                    </Space>
+                  )}
+                </div>
                 <WorkSelector
                   value={works}
                   onChange={(w) => {
@@ -654,6 +741,7 @@ export default function AgentDetail() {
                   }}
                   maxWorks={10}
                   channelId={agent.channel_id}
+                  globalFilter={agent.filter_config}
                 />
                 <Divider />
                 <div
@@ -724,6 +812,7 @@ export default function AgentDetail() {
                   rowKey="id"
                   loading={loadingTasks}
                   size="small"
+                  scroll={{ x: 872 }}
                   pagination={{
                     current: taskPage,
                     pageSize: 20,

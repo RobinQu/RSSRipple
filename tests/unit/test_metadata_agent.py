@@ -922,6 +922,7 @@ class _FakeWikiPage:
         exists=True,
         summary_exc=None,
         categories_exc=None,
+        langlinks=None,
     ):
         self.title = title
         self.pageid = pageid
@@ -931,6 +932,7 @@ class _FakeWikiPage:
         self._exists = exists
         self._summary_exc = summary_exc
         self._categories_exc = categories_exc
+        self._langlinks = langlinks if langlinks is not None else {}
 
     @property
     def summary(self):
@@ -946,6 +948,10 @@ class _FakeWikiPage:
 
     def exists(self):
         return self._exists
+
+    @property
+    def langlinks(self):
+        return self._langlinks
 
 
 def _fake_search_results(pages):
@@ -1497,3 +1503,80 @@ async def test_fetch_wikipedia_page_image_rejects_wrong_pageid_then_rest_rescues
     )
 
     assert url == "https://upload.wikimedia.org/Slam_Dunk_cover.png"
+
+
+# ---------------------------------------------------------------------------
+# Cross-language convergence via Wikipedia langlinks
+# ---------------------------------------------------------------------------
+
+
+async def test_execute_get_wikipedia_page_includes_langlinks(monkeypatch):
+    """Page fetch carries langlink titles (en/zh/ja only) so the upsert can
+    converge per-language wiki pages of the same work onto one row."""
+    from app.services import metadata_agent as ma
+
+    page = _FakeWikiPage(
+        title="Daemons of the Shadow Realm",
+        pageid=70545449,
+        fullurl="https://en.wikipedia.org/wiki/Daemons_of_the_Shadow_Realm",
+        summary="Daemons of the Shadow Realm is a Japanese manga series.",
+        categories={"Category:Japanese manga series": object()},
+        langlinks={
+            "zh": SimpleNamespace(title="黃泉使者"),
+            "ja": SimpleNamespace(title="黄泉のツガイ"),
+            "fr": SimpleNamespace(title="Les Démons du royaume des ombres"),
+        },
+    )
+    wiki = MagicMock()
+    wiki.page.return_value = page
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_fetch_wikipedia_page_image", AsyncMock(return_value=None))
+
+    result = await ma._execute_get_wikipedia_page("Daemons of the Shadow Realm", lang="en")
+
+    assert result["success"] is True
+    assert result["data"]["langlinks"] == {
+        "zh": "黃泉使者",
+        "ja": "黄泉のツガイ",
+    }  # fr filtered out - only the languages we search in
+
+
+async def test_search_then_judge_autolink_fills_cross_language_titles(monkeypatch):
+    """Auto-link on an en page must populate title_cn from the langlinks and
+    carry all langlink titles as alt_titles - the bridge that prevents a
+    per-language duplicate series row."""
+    from app.services import metadata_agent as ma
+
+    en_page = _FakeWikiPage(
+        title="Daemons of the Shadow Realm",
+        pageid=70545449,
+        fullurl="https://en.wikipedia.org/wiki/Daemons_of_the_Shadow_Realm",
+        summary="Daemons of the Shadow Realm is a Japanese manga series.",
+        categories={"Category:Japanese manga series": object()},
+        langlinks={"zh": SimpleNamespace(title="黃泉使者")},
+    )
+    wiki = MagicMock()
+    wiki.search.return_value = _fake_search_results([en_page])
+    wiki.page.return_value = en_page
+    monkeypatch.setattr(wc, "_wikipedia_client", lambda lang: wiki)
+    monkeypatch.setattr(wc, "_fetch_wikipedia_page_image", AsyncMock(return_value=None))
+
+    agent = ma.UnifiedMetadataAgent()
+    agent._model = MagicMock()  # judge must NOT be reached (auto-link path)
+
+    resource = SimpleNamespace(
+        title_cn=None, title_en="Daemons of the Shadow Realm",
+        search_title="Daemons of the Shadow Realm",
+        title="Daemons of the Shadow Realm - 16", episode=16, season=1,
+    )
+    finalize, info = await agent._run_search_then_judge(
+        "Daemons of the Shadow Realm - 16", "wikipedia", resource, exa_searcher=None,
+    )
+
+    assert info["method"] == "search_then_autolink"
+    me = finalize["matched_entity"]
+    assert me["external_id"] == "wikipedia:70545449"
+    assert me["title_en"] == "Daemons of the Shadow Realm"
+    assert me["title_cn"] == "黃泉使者"          # filled from langlinks
+    assert me["alt_titles"] == ["黃泉使者"]
+    assert finalize["title_cn"] == "黃泉使者"

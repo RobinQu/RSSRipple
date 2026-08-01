@@ -9,6 +9,7 @@ instance (``agent._get_cache = AsyncMock()``) still intercept calls from
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,8 @@ from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_sources import normalize_metadata_source_type
 from app.utils.time import utcnow
+
+logger = logging.getLogger(__name__)
 
 
 def _cache_source_key(data_source_type: str | None) -> str:
@@ -105,6 +108,8 @@ async def _apply_to_resource(
             create_or_update_audio_work_from_external,
             create_or_update_movie_from_external,
             create_or_update_series_from_external,
+            find_movie_by_external_id,
+            find_series_by_external_id,
         )
 
         if meta.content_type in AUDIO_CONTENT_TYPES:
@@ -115,15 +120,45 @@ async def _apply_to_resource(
             resource.series_id = None
             resource.movie_id = None
         elif meta.content_type == "movie":
-            movie = await create_or_update_movie_from_external(db, meta.matched_entity)
-            resource.movie_id = movie.id
-            resource.series_id = None
-            resource.audio_work_id = None
+            # Cross-table guard: the same external entity may already exist
+            # as a TVSeries (an earlier tv classification, or a manual
+            # correction). Creating a second row in the movies table would
+            # split one work across tables - flip the dispatch instead.
+            if await find_series_by_external_id(db, meta.matched_entity) is not None:
+                logger.warning(
+                    "[metadata] movie verdict for %r but a series already owns "
+                    "external_id=%r; linking the series instead",
+                    (meta.matched_entity.get("title_cn") or meta.matched_entity.get("title_en") or "")[:60],
+                    meta.matched_entity.get("external_id"),
+                )
+                series = await create_or_update_series_from_external(db, meta.matched_entity)
+                resource.series_id = series.id
+                resource.movie_id = None
+                resource.audio_work_id = None
+            else:
+                movie = await create_or_update_movie_from_external(db, meta.matched_entity)
+                resource.movie_id = movie.id
+                resource.series_id = None
+                resource.audio_work_id = None
         else:
-            series = await create_or_update_series_from_external(db, meta.matched_entity)
-            resource.series_id = series.id
-            resource.movie_id = None
-            resource.audio_work_id = None
+            # Symmetric guard: a tv verdict for an entity that already owns
+            # a Movie row links the movie instead of duplicating.
+            if await find_movie_by_external_id(db, meta.matched_entity) is not None:
+                logger.warning(
+                    "[metadata] tv verdict for %r but a movie already owns "
+                    "external_id=%r; linking the movie instead",
+                    (meta.matched_entity.get("title_cn") or meta.matched_entity.get("title_en") or "")[:60],
+                    meta.matched_entity.get("external_id"),
+                )
+                movie = await create_or_update_movie_from_external(db, meta.matched_entity)
+                resource.movie_id = movie.id
+                resource.series_id = None
+                resource.audio_work_id = None
+            else:
+                series = await create_or_update_series_from_external(db, meta.matched_entity)
+                resource.series_id = series.id
+                resource.movie_id = None
+                resource.audio_work_id = None
 
         resource.metadata_matched_at = utcnow()
 
@@ -133,7 +168,7 @@ async def _get_cache(
 ) -> ResourceMetadata | None:
     from sqlalchemy import select
 
-    from app.models.metadata_cache import MetadataCache
+    from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
 
     source_key = _cache_source_key(data_source_type)
     result = await db.execute(
@@ -143,6 +178,17 @@ async def _get_cache(
         )
     )
     cached = result.scalar_one_or_none()
+    if cached and cached.generation != METADATA_CACHE_GENERATION:
+        # Verdict produced by superseded matching/classification logic -
+        # drop it and miss, so the fixed logic re-runs instead of being
+        # short-circuited by its own predecessor's mistakes.
+        logger.info(
+            "[metadata_cache] discarding generation-%s verdict for %r (current=%s)",
+            cached.generation, raw_title[:60], METADATA_CACHE_GENERATION,
+        )
+        await db.delete(cached)
+        await db.flush()
+        return None
     if cached and isinstance(cached.metadata_json, dict):
         return ResourceMetadata.from_dict(cached.metadata_json)
     return None

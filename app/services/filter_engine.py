@@ -31,7 +31,11 @@ STRING_OPS = {"eq", "ne", "contains", "fuzzy", "in", "regex"}
 NUMBER_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in"}
 BOOL_OPS = {"eq", "ne"}
 LIST_STRING_OPS = {"eq", "ne", "contains", "in"}
-ALL_OPS = STRING_OPS | NUMBER_OPS | BOOL_OPS | LIST_STRING_OPS
+# Value-less operators: they test the field's own emptiness, take no ``value``
+# (the key may be omitted), and are valid for every field type. Use these
+# instead of ``eq ""`` — an empty-string ``eq`` never matches anything.
+NO_VALUE_OPS = {"is_empty", "is_not_empty"}
+ALL_OPS = STRING_OPS | NUMBER_OPS | BOOL_OPS | LIST_STRING_OPS | NO_VALUE_OPS
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -59,7 +63,10 @@ def _is_bool_condition(node: Any) -> bool:
 
 
 def _is_field_condition(node: Any) -> bool:
-    return isinstance(node, dict) and "field" in node and "operator" in node and "value" in node
+    if not (isinstance(node, dict) and "field" in node and "operator" in node):
+        return False
+    # Value-less operators may omit the ``value`` key entirely.
+    return "value" in node or node.get("operator") in NO_VALUE_OPS
 
 
 def validate_filter_config(config: Any) -> list[str]:
@@ -100,6 +107,8 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
         if op not in ALL_OPS:
             errors.append(f"{path}.operator: unknown operator {op!r}")
             return
+        if op in NO_VALUE_OPS:
+            return  # no value required; valid for every field type
         if field in STRING_FIELDS and op not in STRING_OPS:
             errors.append(f"{path}.operator: operator {op!r} not supported for string field {field!r}")
             return
@@ -111,6 +120,16 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
             return
         if field in LIST_STRING_FIELDS and op not in LIST_STRING_OPS:
             errors.append(f"{path}.operator: operator {op!r} not supported for list field {field!r}")
+            return
+        # A missing/blank value is always a mistake for value-taking
+        # operators: ``eq ""` matches nothing (positive ops fail on empty
+        # resource values), so reject it at save time instead of silently
+        # filtering out every resource.
+        if value is None or (isinstance(value, str) and not value.strip()):
+            errors.append(
+                f"{path}.value: operator {op!r} requires a non-empty value "
+                "(use is_empty/is_not_empty to test emptiness)"
+            )
             return
         # Validate value types
         if op == "in":
@@ -132,7 +151,7 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
                 except re.error as e:
                     errors.append(f"{path}.value: invalid regex: {e}")
         elif field in NUMBER_FIELDS and op in ("eq", "ne", "gt", "gte", "lt", "lte"):
-            if not isinstance(value, (int, float)) and not (isinstance(value, str) and value.strip() == ""):
+            if not isinstance(value, (int, float)):
                 try:
                     float(value)
                 except (TypeError, ValueError):
@@ -172,9 +191,22 @@ def _eval_node(node: dict, resource: Any) -> bool:
 def evaluate_field_condition(cond: dict, resource: Any) -> bool:
     field = cond["field"]
     op = cond["operator"]
-    expected = cond["value"]
+    expected = cond.get("value")
 
     raw = get_field_value(resource, field)
+
+    # Value-less emptiness operators — evaluated before the type-specific
+    # branches so they work uniformly for string/number/bool/list fields.
+    if op in NO_VALUE_OPS:
+        if raw is None:
+            empty = True
+        elif isinstance(raw, str):
+            empty = not raw.strip()
+        elif isinstance(raw, (list, tuple, set)):
+            empty = len(raw) == 0
+        else:
+            empty = False
+        return empty if op == "is_empty" else not empty
 
     # List-of-strings field short-circuit — element-wise semantics.
     if field in LIST_STRING_FIELDS:

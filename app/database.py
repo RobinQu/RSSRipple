@@ -297,6 +297,9 @@ async def _apply_light_migrations(conn) -> None:
         ("channels", "auto_cleanup_unresolved_enabled",
          "BOOLEAN NOT NULL DEFAULT 0" if is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("channels", "auto_cleanup_unresolved_days", "INTEGER NOT NULL DEFAULT 21"),
+        # Logic-generation tag on cached metadata verdicts. Legacy rows get 0
+        # (< METADATA_CACHE_GENERATION) and are treated as misses on read.
+        ("metadata_cache", "generation", "INTEGER NOT NULL DEFAULT 0"),
     ]
 
     for table, column, ddl in additions:

@@ -227,3 +227,104 @@ async def test_merge_duplicate_movies(db_session):
     assert len(survivors) == 1
     assert survivors[0].id == m1.id
     assert survivors[0].external_id == "tmdb:100"
+
+
+# ---------------------------------------------------------------------------
+# Cross-table (Movie <-> TVSeries) dedup
+# ---------------------------------------------------------------------------
+
+
+async def test_cross_type_movie_with_episode_resources_folds_into_series(db_session, channel):
+    """The Slime case: same wikipedia entity filed as both Movie and TVSeries.
+    Episode-bearing resources on the Movie side prove it's a series."""
+    movie = Movie(
+        id=_uuid(), title_cn="關於我轉生變成史萊姆這檔事",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_en="That Time I Got Reincarnated as a Slime",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g1", title_raw="raw",
+        torrent_url="magnet:?xt=1", movie_id=movie.id, episode=88, is_batch=False,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    from sqlalchemy import select
+    assert (await db_session.execute(select(Movie))).scalars().all() == []
+    await db_session.refresh(r)
+    assert r.series_id == series.id
+    assert r.movie_id is None
+    # Survivor enriched from the loser's title slots.
+    assert series.title_cn == "關於我轉生變成史萊姆這檔事"
+
+
+async def test_cross_type_no_episode_evidence_keeps_movie(db_session, channel):
+    """A genuine film duplicated into both tables (no episodes anywhere):
+    the Movie survives."""
+    movie = Movie(
+        id=_uuid(), title_cn="剧场版甲", title_en="Film A",
+        external_id="tmdb:777", external_source="tmdb", content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="剧场版甲", external_id="tmdb:777",
+        external_source="tmdb", content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g2", title_raw="raw",
+        torrent_url="magnet:?xt=1", series_id=series.id,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    from sqlalchemy import select
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+    await db_session.refresh(r)
+    assert r.movie_id == movie.id
+    assert r.series_id is None
+
+
+async def test_cross_type_shared_title_without_external_id(db_session, channel):
+    """Pairs can also be detected via shared normalized title (trad/simp fold)."""
+    movie = Movie(
+        id=_uuid(), title_cn="關於我轉生變成史萊姆這檔事",
+        external_id="wikipedia:5139056", external_source="wikipedia",
+        content_type="movie",
+    )
+    series = TVSeries(
+        id=_uuid(), title_cn="关于我转生变成史莱姆这档事",  # simplified twin
+        external_id="exa:abc", external_source="exa", content_type="tv",
+    )
+    db_session.add_all([movie, series])
+    await db_session.flush()
+    r = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="g3", title_raw="raw",
+        torrent_url="magnet:?xt=1", movie_id=movie.id, episode=1, is_batch=False,
+    )
+    db_session.add(r)
+    await db_session.flush()
+
+    report = await dedup.merge_cross_type_duplicates(db_session)
+    await db_session.flush()
+
+    assert report.cross_type_merges == 1
+    from sqlalchemy import select
+    assert (await db_session.execute(select(Movie))).scalars().all() == []
+    await db_session.refresh(r)
+    assert r.series_id == series.id

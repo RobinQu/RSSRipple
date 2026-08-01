@@ -84,11 +84,17 @@ const ENUM_FIELDS: Record<string, string[]> = {
   episode_confidence: ['raw', 'reconciled', 'ambiguous', 'manual'],
 };
 
-const STRING_OPERATORS: FilterOperator[] = ['eq', 'ne', 'contains', 'fuzzy', 'in', 'regex'];
-const NUMBER_OPERATORS: FilterOperator[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in'];
-const BOOL_OPERATORS: FilterOperator[] = ['eq', 'ne'];
-const LIST_OPERATORS: FilterOperator[] = ['contains', 'in', 'eq', 'ne'];
-const ENUM_OPERATORS: FilterOperator[] = ['eq', 'ne', 'in'];
+// Operators that take no value (is_empty / is_not_empty). Valid for every
+// field type; the backend ignores ``value`` when one of these is selected.
+const NO_VALUE_OPERATORS: FilterOperator[] = ['is_empty', 'is_not_empty'];
+export const isNoValueOperator = (op: FilterOperator): boolean =>
+  NO_VALUE_OPERATORS.includes(op);
+
+const STRING_OPERATORS: FilterOperator[] = ['eq', 'ne', 'contains', 'fuzzy', 'in', 'regex', ...NO_VALUE_OPERATORS];
+const NUMBER_OPERATORS: FilterOperator[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', ...NO_VALUE_OPERATORS];
+const BOOL_OPERATORS: FilterOperator[] = ['eq', 'ne', ...NO_VALUE_OPERATORS];
+const LIST_OPERATORS: FilterOperator[] = ['contains', 'in', 'eq', 'ne', ...NO_VALUE_OPERATORS];
+const ENUM_OPERATORS: FilterOperator[] = ['eq', 'ne', 'in', ...NO_VALUE_OPERATORS];
 
 function operatorsFor(field: FilterField): FilterOperator[] {
   if (field in ENUM_FIELDS) return ENUM_OPERATORS;
@@ -149,6 +155,14 @@ const isFieldCondition = (node: unknown): node is FieldCondition => {
   );
 };
 
+// A value-taking operator with an empty value is rejected by the backend at
+// save time; blank strings count as empty too.
+const isEmptyValue = (v: FieldCondition['value'] | null | undefined): boolean =>
+  v === undefined ||
+  v === null ||
+  (typeof v === 'string' && v.trim() === '') ||
+  (Array.isArray(v) && v.length === 0);
+
 function emptyBool(): BoolCondition {
   return { combinator: 'and', conditions: [] };
 }
@@ -183,6 +197,7 @@ interface AutocompleteSelectProps {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  status?: 'error';
 }
 
 function AutocompleteSelect({
@@ -191,6 +206,7 @@ function AutocompleteSelect({
   value,
   onChange,
   placeholder,
+  status,
 }: AutocompleteSelectProps) {
   const [options, setOptions] = useState<{ value: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -241,6 +257,7 @@ function AutocompleteSelect({
       options={options}
       placeholder={placeholder}
       loading={loading}
+      status={status}
       filterOption={false}
       notFoundContent={loading ? '…' : null}
     />
@@ -280,6 +297,16 @@ function FieldConditionNode({
   };
 
   const handleOperatorChange = (op: FilterOperator) => {
+    // is_empty / is_not_empty take no value — clear it (backend ignores it).
+    if (isNoValueOperator(op)) {
+      onChange({ ...value, operator: op, value: '' });
+      return;
+    }
+    // Switching away from a no-value operator: reseed a sensible default.
+    if (isNoValueOperator(value.operator)) {
+      onChange({ ...value, operator: op, value: defaultValueFor(value.field, op) });
+      return;
+    }
     // Value type may change when switching to/from 'in' or between
     // number/string; normalize.
     let v: string | number | boolean | string[] = value.value as never;
@@ -295,6 +322,11 @@ function FieldConditionNode({
     }
     onChange({ ...value, operator: op, value: v });
   };
+
+  // Mid-edit feedback: value-taking operators with an empty value can't be
+  // saved, so flag the control inline without blocking typing.
+  const valueInvalid = !isNoValueOperator(value.operator) && isEmptyValue(value.value);
+  const errorStatus = valueInvalid ? ('error' as const) : undefined;
 
   const operators = operatorsFor(value.field).map((op) => ({
     value: op,
@@ -336,13 +368,17 @@ function FieldConditionNode({
       />
 
       {/* --- Value input, varies by (fieldType, operator) --- */}
-      {value.field in ENUM_FIELDS && value.operator === 'in' ? (
+      {isNoValueOperator(value.operator) ? (
+        // No-value operators: render a disabled placeholder instead of an input.
+        <Input disabled placeholder="—" size="small" style={{ minWidth: 160, flex: 1 }} />
+      ) : value.field in ENUM_FIELDS && value.operator === 'in' ? (
         <Select
           mode="multiple"
           style={{ minWidth: 200, flex: 1 }}
           value={Array.isArray(value.value) ? (value.value as string[]) : []}
           onChange={(tags) => onChange({ ...value, value: tags })}
           size="small"
+          status={errorStatus}
           options={(ENUM_FIELDS[value.field] || []).map((v) => ({
             value: v,
             label: t(`filter.enumValue_${v}` as never, { defaultValue: v }),
@@ -355,6 +391,7 @@ function FieldConditionNode({
           onChange={(v) => onChange({ ...value, value: v })}
           size="small"
           allowClear
+          status={errorStatus}
           options={(ENUM_FIELDS[value.field] || []).map((v) => ({
             value: v,
             label: t(`filter.enumValue_${v}` as never, { defaultValue: v }),
@@ -369,6 +406,7 @@ function FieldConditionNode({
           placeholder={t('filter.enterValue')}
           options={SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }))}
           size="small"
+          status={errorStatus}
           tokenSeparators={[',']}
         />
       ) : value.operator === 'in' ? (
@@ -379,6 +417,7 @@ function FieldConditionNode({
           onChange={(tags) => onChange({ ...value, value: tags })}
           placeholder={t('filter.enterValue')}
           size="small"
+          status={errorStatus}
           tokenSeparators={[',']}
         />
       ) : fieldType === 'bool' ? (
@@ -387,6 +426,7 @@ function FieldConditionNode({
           onChange={(v) => onChange({ ...value, value: v === 'true' })}
           size="small"
           style={{ width: 130 }}
+          status={errorStatus}
           options={[
             { value: 'true', label: t('filter.true') },
             { value: 'false', label: t('filter.false') },
@@ -407,6 +447,7 @@ function FieldConditionNode({
           size="small"
           options={SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }))}
           placeholder={t('filter.value')}
+          status={errorStatus}
         />
       ) : fieldType === 'number' ? (
         <InputNumber
@@ -415,6 +456,7 @@ function FieldConditionNode({
           style={{ width: 160 }}
           size="small"
           placeholder={t('filter.numericValue')}
+          status={errorStatus}
         />
       ) : showAutocomplete ? (
         <AutocompleteSelect
@@ -423,6 +465,7 @@ function FieldConditionNode({
           value={typeof value.value === 'string' ? value.value : ''}
           onChange={(v) => onChange({ ...value, value: v })}
           placeholder={t('filter.value')}
+          status={errorStatus}
         />
       ) : (
         <Input
@@ -431,6 +474,7 @@ function FieldConditionNode({
           placeholder={t('filter.value')}
           size="small"
           style={{ minWidth: 160, flex: 1 }}
+          status={errorStatus}
         />
       )}
 
@@ -662,4 +706,59 @@ export function isFilterEmpty(v: FilterConfig | null | undefined): boolean {
   if (!isBoolCondition(v)) return true;
   if (!v.conditions || v.conditions.length === 0) return true;
   return false;
+}
+
+/**
+ * Collapse an emptied-out tree (`{combinator, conditions: []}` — e.g. the
+ * user just deleted the last condition) to `null` ("no filter", pass-all).
+ * The backend rejects empty condition lists, so every save/preview payload
+ * must pass through this.
+ */
+export function nullIfEmptyFilter(
+  v: FilterConfig | null | undefined,
+): BoolCondition | null {
+  return isFilterEmpty(v) ? null : (v as BoolCondition);
+}
+
+/** Walk the tree and return every leaf field condition (depth-first). */
+export function collectFieldConditions(
+  config: BoolCondition | null | undefined,
+): FieldCondition[] {
+  if (!config || !isBoolCondition(config)) return [];
+  const out: FieldCondition[] = [];
+  const walk = (node: BoolCondition) => {
+    for (const c of node.conditions || []) {
+      if (isBoolCondition(c)) walk(c);
+      else if (isFieldCondition(c)) out.push(c);
+    }
+  };
+  walk(config);
+  return out;
+}
+
+/**
+ * Leaves whose operator takes a value but the value is empty — the backend
+ * rejects these at save time (422), so callers check before submitting.
+ * No-value operators (is_empty / is_not_empty) are never invalid.
+ */
+export function findInvalidConditions(
+  config: BoolCondition | null | undefined,
+): FieldCondition[] {
+  return collectFieldConditions(config).filter(
+    (c) => !isNoValueOperator(c.operator) && isEmptyValue(c.value),
+  );
+}
+
+/** Human-readable one-liner for a leaf condition, e.g. "Resolution Equals 1080p". */
+export function describeCondition(cond: FieldCondition, t: TFunction): string {
+  const field = t(`filter.${cond.field}` as never, { defaultValue: cond.field });
+  const op = t(`filter.${cond.operator}` as never, { defaultValue: cond.operator });
+  if (isNoValueOperator(cond.operator)) return `${field} ${op}`;
+  const v = cond.value;
+  const text = Array.isArray(v)
+    ? v.join(', ')
+    : typeof v === 'boolean'
+      ? t(v ? 'filter.true' : 'filter.false')
+      : String(v ?? '');
+  return `${field} ${op} ${text}`.trim();
 }

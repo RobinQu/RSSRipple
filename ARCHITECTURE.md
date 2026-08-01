@@ -74,7 +74,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 | ChannelRawTitleMapping | Channel 手动修正的标题映射记忆 |
 | MetadataCache | LLM 标题清洗缓存 |
 
-完整字段定义与 API 详见 `AGENTS.md`。
+完整字段定义与 API 详见 `docs/design/data-models.md` 与 `docs/design/api-endpoints.md`。
 
 ## 5. 核心数据流
 

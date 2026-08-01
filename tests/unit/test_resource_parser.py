@@ -493,3 +493,41 @@ def test_normalize_no_brackets_in_search_title_when_no_latin_segment():
 def test_normalize_empty_title_and_missing_fields():
     assert normalize_parsed_fields(None, {"title_cn": None}) == {"title_cn": None}
     assert normalize_parsed_fields("", {"episode": 1}) == {"episode": 1}
+
+
+# =============================================================================
+# Case-insensitive extraction + resolution canonicalization
+# =============================================================================
+class TestCaseInsensitiveExtraction:
+    def test_user_regex_matches_regardless_of_case(self):
+        # "1080P" in the title must match a lowercase "1080p" pattern, and
+        # the value is canonicalized to "1080p" (no transform configured).
+        entry = {"title": "[ANi] Yomi no Tsugai - 16 [1080P][Baha][WEB-DL][MP4]"}
+        mapping = {
+            "field_mappings": {
+                "resolution": {"source": "title", "regex": "\\b(1080p|720p)\\b", "group": 1},
+            }
+        }
+        result = parse_entry(entry, mapping)
+        assert result["resolution"] == "1080p"
+
+    def test_resolution_canonicalized_without_transform(self):
+        entry = {"title": "Show - 01 [720P]"}
+        mapping = {
+            "field_mappings": {
+                "resolution": {"source": "title", "regex": "\\b(\\d{3,4}[pP])\\b", "group": 1},
+            }
+        }
+        result = parse_entry(entry, mapping)
+        assert result["resolution"] == "720p"
+
+    def test_wxh_resolution_passes_through(self):
+        # Only the plain "<digits>p" shape is canonicalized.
+        entry = {"title": "Show - 01 (1920x1080)"}
+        mapping = {
+            "field_mappings": {
+                "resolution": {"source": "title", "regex": "\\b(1920x1080)\\b", "group": 1},
+            }
+        }
+        result = parse_entry(entry, mapping)
+        assert result["resolution"] == "1920x1080"

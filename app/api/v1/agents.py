@@ -49,6 +49,29 @@ def _not_found(entity: str) -> dict:
             "meta": {}}
 
 
+def _validate_filters_response(filter_config, works) -> JSONResponse | None:
+    """Validate the global filter_config and every work's filter_overrides.
+
+    Returns a 422 JSONResponse on the first invalid payload, else None.
+    ``works`` items may be pydantic objects (create) or plain dicts (update
+    via ``model_dump``).
+    """
+    errs: list[str] = []
+    if filter_config is not None:
+        errs.extend(validate_filter_config(filter_config))
+    for i, w in enumerate(works or []):
+        fo = w.get("filter_overrides") if isinstance(w, dict) else getattr(w, "filter_overrides", None)
+        if fo is not None:
+            errs.extend(f"works[{i}]: {e}" for e in validate_filter_config(fo))
+    if errs:
+        return JSONResponse(status_code=422, content={
+            "success": False, "data": None,
+            "error": {"code": "VALIDATION_ERROR", "message": "; ".join(errs)},
+            "meta": {},
+        })
+    return None
+
+
 def _rule_set_from_request(body) -> RuleSet:
     """Build a RuleSet from proposed (not-yet-persisted) rules.
 
@@ -157,16 +180,11 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
             "error": {"code": "VALIDATION_ERROR", "message": "downloader_id does not exist"},
             "meta": {},
         })
-    # Validate filter_config
-    if body.filter_config is not None:
-        errs = validate_filter_config(body.filter_config)
-        if errs:
-            return JSONResponse(status_code=422, content={
-                "success": False, "data": None,
-                "error": {"code": "VALIDATION_ERROR", "message": "; ".join(errs)},
-                "meta": {},
-            })
+    # Validate filter_config and per-work filter_overrides
     works_data = body.works or []
+    filter_err = _validate_filters_response(body.filter_config, works_data)
+    if filter_err is not None:
+        return filter_err
     if not body.scope_channel_wide and len(works_data) > 10:
         return JSONResponse(status_code=422, content={
             "success": False, "data": None,
@@ -239,6 +257,11 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     data = body.model_dump(exclude_unset=True)
     new_works = data.pop("works", None)
     dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
+    # Validate only the payloads being changed (exclude_unset semantics):
+    # an untouched stored filter is not re-validated here.
+    filter_err = _validate_filters_response(data.get("filter_config"), new_works)
+    if filter_err is not None:
+        return filter_err
     if data.get("status") == "active" and data.get("downloader_id") is None and not agent.downloader_id:
         return JSONResponse(status_code=422, content={
             "success": False, "data": None,

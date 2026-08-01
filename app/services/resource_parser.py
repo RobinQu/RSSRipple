@@ -92,7 +92,25 @@ def _parse_with_mappings(entry: dict, field_mappings: dict) -> dict:
         except Exception as e:
             logger.debug("Failed to extract field '%s': %s", field_name, e)
             result[field_name] = None
+    _postprocess_parsed(result)
     return result
+
+
+_RESOLUTION_P_RE = re.compile(r"^(\d{3,4})\s*[pP]$")
+
+
+def _postprocess_parsed(result: dict) -> None:
+    """Normalize parsed field values to canonical forms (in place).
+
+    resolution: "1080P" / "1080 p" -> "1080p", so subscription conditions
+    don't need to care about the publisher's casing. Only the plain
+    ``<digits>p`` shape is touched; values like "1920x1080" pass through.
+    """
+    res = result.get("resolution")
+    if isinstance(res, str):
+        m = _RESOLUTION_P_RE.match(res.strip())
+        if m:
+            result["resolution"] = f"{m.group(1)}p"
 
 
 def _extract_value(entry: dict, rule: dict) -> Any:
@@ -105,11 +123,14 @@ def _extract_value(entry: dict, rule: dict) -> Any:
 
     raw_str = str(raw_value)
 
-    # Apply regex extraction if specified
+    # Apply regex extraction if specified. Case-insensitive: feed titles mix
+    # cases freely ("1080p" vs "1080P", "WEB-DL" vs "web-dl"); extraction
+    # should not depend on the publisher's casing. Normalization to a
+    # canonical form happens in the transform step / post-processing below.
     regex = rule.get("regex")
     if regex:
         group = rule.get("group", 0)
-        match = re.search(regex, raw_str)
+        match = re.search(regex, raw_str, re.IGNORECASE)
         if match:
             raw_str = match.group(group)
         else:
