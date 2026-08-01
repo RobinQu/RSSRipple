@@ -171,3 +171,48 @@ async def test_search_swallows_db_errors():
     for search in (search_series_fts, search_movie_fts, search_audio_work_fts):
         assert await search(db, "long enough query") == []
         assert await search(db, "ab") == []
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation
+# ---------------------------------------------------------------------------
+
+
+async def test_reconcile_fts_heals_divergence(db_session, sample_series, sample_movie):
+    from sqlalchemy import text
+
+    from app.services.fts import _get_fts_engine, reconcile_fts
+
+    await backfill_fts_if_empty(db_session)
+
+    engine = _get_fts_engine()
+    async with engine.begin() as conn:
+        # 1. stale content on an existing shadow row
+        await conn.execute(text(
+            "UPDATE tv_series_fts SET title_en = 'stale title' WHERE entity_id = :id"
+        ), {"id": sample_series.id})
+        # 2. orphan shadow row (base row does not exist)
+        await conn.execute(text(
+            "INSERT INTO tv_series_fts (entity_id, title_cn) VALUES ('orphan-id', '幽灵')"
+        ))
+        # 3. missing shadow row (movie deleted from shadow)
+        await conn.execute(text(
+            "DELETE FROM movie_fts WHERE entity_id = :id"
+        ), {"id": sample_movie.id})
+
+    report = await reconcile_fts(db_session)
+    assert report["updated"] == 2  # stale series row + missing movie row
+    assert report["deleted"] == 1  # orphan
+
+    assert sample_series.id in await search_series_fts(db_session, "test series")
+    assert sample_series.id not in await search_series_fts(db_session, "stale")
+    assert sample_movie.id in await search_movie_fts(db_session, "测试电影")
+    assert "orphan-id" not in await search_series_fts(db_session, "幽灵")
+
+
+async def test_reconcile_fts_noop_when_in_sync(db_session, sample_series):
+    from app.services.fts import reconcile_fts
+
+    await backfill_fts_if_empty(db_session)
+    report = await reconcile_fts(db_session)
+    assert report == {"updated": 0, "deleted": 0}

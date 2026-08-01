@@ -69,6 +69,16 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(seconds=30),
     )
+    # FTS shadow-table reconciliation: heal any base/shadow divergence the
+    # upsert/delete call sites miss (scripts, dedup merges, swallowed write
+    # failures). Cheap full diff at current table sizes.
+    _scheduler.add_job(
+        _reconcile_fts,
+        trigger=IntervalTrigger(minutes=5),
+        id="fts_reconcile",
+        replace_existing=True,
+        next_run_time=utcnow() + timedelta(minutes=1),
+    )
     _scheduler.start()
     logger.info("Scheduler started")
 
@@ -437,3 +447,20 @@ async def _dedup_metadata() -> None:
             report.series_removed,
             report.movies_removed,
         )
+
+
+async def _reconcile_fts() -> None:
+    """Every 5 minutes: reconcile FTS shadow tables with the base tables."""
+    from app.database import committed_session
+    from app.services.fts import reconcile_fts
+
+    try:
+        async with committed_session() as db:
+            report = await reconcile_fts(db)
+        if report["updated"] or report["deleted"]:
+            logger.info(
+                "[fts] reconcile: %d rewritten, %d orphans removed",
+                report["updated"], report["deleted"],
+            )
+    except Exception as e:
+        logger.warning("[fts] reconcile job failed: %s", e)

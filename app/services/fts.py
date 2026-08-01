@@ -427,3 +427,72 @@ async def backfill_fts_if_empty(db: AsyncSession) -> None:
             n = await rebuild(db)
             if n:
                 logger.info("[fts] backfilled %s with %d rows", table, n)
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation (periodic safety net)
+# ---------------------------------------------------------------------------
+
+
+async def reconcile_fts(db: AsyncSession) -> dict[str, int]:
+    """Diff base tables against FTS shadow tables and fix any divergence.
+
+    The upsert/delete call sites cover the hot paths; this reconciliation
+    pass heals everything they miss (scripts, metadata dedup merges, direct
+    SQL, swallowed write failures). Cheap at the current table sizes
+    (hundreds of rows), so it simply compares both sides in full:
+
+    - missing or content-stale shadow rows → rewrite
+    - orphan shadow rows (base row gone) → delete
+    """
+    if not _fts_available(db):
+        return {"updated": 0, "deleted": 0}
+    from app.models.audio_work import AudioWork
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
+    report = {"updated": 0, "deleted": 0}
+    engine = _get_fts_engine()
+    for table, model in (
+        ("tv_series_fts", TVSeries),
+        ("movie_fts", Movie),
+        ("audio_work_fts", AudioWork),
+    ):
+        entities = (await db.execute(select(model))).scalars().all()
+        expected = {e.id: _fts_values(e) for e in entities}
+        async with engine.connect() as conn:
+            rows = (await conn.execute(text(
+                f"SELECT entity_id, title_cn, title_en, original_title, aliases FROM {table}"
+            ))).fetchall()
+        current = {
+            r[0]: {
+                "title_cn": r[1] or "",
+                "title_en": r[2] or "",
+                "original_title": r[3] or "",
+                "aliases": r[4] or "",
+            }
+            for r in rows
+        }
+
+        statements: list[tuple[str, dict]] = []
+        insert_sql = (
+            f"INSERT INTO {table} (entity_id, title_cn, title_en, original_title, aliases) "
+            "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)"
+        )
+        for eid, vals in expected.items():
+            if current.get(eid) != vals:
+                statements.append((f"DELETE FROM {table} WHERE entity_id = :id", {"id": eid}))
+                row = dict(vals)
+                row["id"] = eid
+                statements.append((insert_sql, row))
+                report["updated"] += 1
+        for eid in current:
+            if eid not in expected:
+                statements.append((f"DELETE FROM {table} WHERE entity_id = :id", {"id": eid}))
+                report["deleted"] += 1
+        if statements:
+            try:
+                await _shadow_write(statements)
+            except Exception as e:
+                logger.warning("[fts] reconcile failed for %s: %s", table, e)
+    return report

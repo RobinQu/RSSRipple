@@ -323,7 +323,12 @@ startup:
   ├─ 4. 全局每小时任务:
   │     check_downloader_connections()  # 调用 POST /downloaders/{id}/test
   │
-  └─ 5. 全局每日任务:
+  ├─ 5. 每 5 分钟任务:
+  │     metadata_backfill              # 重试可重试的未匹配资源
+  │     fts_reconcile                  # FTS 影子表对账：全量 diff 基表 vs 影子表，
+  │                                    # 修补调用点遗漏（脚本、去重合并、写入失败吞没）
+  │
+  └─ 6. 全局每日任务:
         cleanup_expired_tasks()  # 删除 completed 且 completed_at < now - task_expire_days 的任务
         expire_pending_decisions()  # 过期 pending decision → status="expired"
         _dedup_metadata()  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
