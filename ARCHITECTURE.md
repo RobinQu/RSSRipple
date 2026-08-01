@@ -8,7 +8,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 
 | 层 | 技术选型 |
 |---|---|
-| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 (async), APScheduler, aiosqlite |
+| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 (async), APScheduler, pyturso |
 | Frontend | React 18, TypeScript, Vite, Ant Design 5, react-router v6 |
 | External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), Exa Agent API, TMDB API, Wikipedia Python library, feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |

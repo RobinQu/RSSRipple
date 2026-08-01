@@ -27,7 +27,7 @@ services:
     build: .
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db
+      - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db
       - QUEUE_BACKEND=memory
       - DEBUG=true
       - LOG_LEVEL=DEBUG
@@ -63,7 +63,7 @@ services:
     build: .
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test_llm.db
+      - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_llm_turso.db
       - QUEUE_BACKEND=memory
       - DEBUG=true
       - LOG_LEVEL=DEBUG
@@ -113,7 +113,7 @@ services:
     build: .
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db
+      - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db
       - TEST_SERVER_URL=http://test-server:8080
       - RSSRIPPLE_URL=http://app:9001
       # Second app instance wired to the mock LLM (tests/integration/http/
@@ -161,7 +161,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "export DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=70"
+      - "export DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=70"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

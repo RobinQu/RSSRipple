@@ -1,8 +1,8 @@
 """Shared fixtures for unit tests that need a database session.
 
-Uses a file-backed aiosqlite database in a temporary directory per test
-function, ensuring each test has isolated state. Also installs a clean
-global engine/session_factory in ``app.database`` so that application
+Uses a file-backed Turso (sqlite+aioturso) database in a temporary directory
+per test function, ensuring each test has isolated state. Also installs a
+clean global engine/session_factory in ``app.database`` so that application
 code that imports the module-global factory uses the test database.
 """
 
@@ -29,9 +29,7 @@ async def _fast_sleep(delay: float, *a, **kw):
     return await _real_sleep(delay, *a, **kw)
 asyncio.sleep = _fast_sleep  # type: ignore[assignment]
 
-# Use SQLite for all unit tests; override DATABASE_URL before app imports it.
-# TEST_DB_BACKEND=aioturso runs the suite against the embedded Turso engine.
-_DB_BACKEND = os.environ.get("TEST_DB_BACKEND", "aiosqlite")
+# Override DATABASE_URL before app imports it.
 _TMP_DB_DIR: tempfile.TemporaryDirectory[str] | None = None
 _TMP_DB_PATH: Path | None = None
 
@@ -40,12 +38,9 @@ def _fresh_db_url() -> str:
     global _TMP_DB_DIR, _TMP_DB_PATH
     _TMP_DB_DIR = tempfile.TemporaryDirectory(prefix="rssripple-tests-")
     _TMP_DB_PATH = Path(_TMP_DB_DIR.name) / "test.db"
-    url = f"sqlite+{_DB_BACKEND}:///{_TMP_DB_PATH}"
-    if _DB_BACKEND == "aioturso":
-        from app.database import normalize_database_url
+    from app.database import normalize_database_url
 
-        url = normalize_database_url(url)
-    return url
+    return normalize_database_url(f"sqlite+aioturso:///{_TMP_DB_PATH}")
 
 
 @pytest.fixture(scope="session")
@@ -56,28 +51,24 @@ def event_loop_policy():
 
 
 # Import Base/models after setting DATABASE_URL.
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["DATABASE_URL"] = "sqlite+aioturso:///:memory:"
 
 import app.models  # noqa: E402, F401  (register models)
-from app.database import Base, enable_sqlite_fk  # noqa: E402
+from app.database import Base, apply_db_pragmas  # noqa: E402
 
 
 @pytest_asyncio.fixture
 async def db_engine():
-    """Provide a fresh aiosqlite engine per test with all tables created."""
+    """Provide a fresh Turso engine per test with all tables created."""
     url = _fresh_db_url()
     engine = create_async_engine(url, echo=False)
-    enable_sqlite_fk(engine)
+    apply_db_pragmas(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        if _DB_BACKEND == "aioturso":
-            # MVCC is persistent per file; required by isolation_level=CONCURRENT.
-            from sqlalchemy import text
+        # MVCC is persistent per file; required by isolation_level=CONCURRENT.
+        from sqlalchemy import text
 
-            await conn.execute(text("PRAGMA journal_mode='mvcc'"))
-        # Create FTS5 virtual tables for full-text search tests
-        from app.services.fts import ensure_fts_tables
-        await ensure_fts_tables(conn)
+        await conn.execute(text("PRAGMA journal_mode='mvcc'"))
     # Install as the global engine/factory so application code that opens its
     # own sessions (e.g. fetch_service's per-resource metadata tasks, which
     # run concurrently in isolated sessions) hits the test database rather

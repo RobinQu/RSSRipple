@@ -1,9 +1,9 @@
 """Shared test fixtures for API tests.
 
 Sets up a dedicated FastAPI test application (without running the lifespan
-or the real scheduler/task queue) backed by a file-based aiosqlite
-database created per-test, and provides an :class:`httpx.AsyncClient`
-pointed at that app.
+or the real scheduler/task queue) backed by a file-based Turso
+(sqlite+aioturso) database created per-test, and provides an
+:class:`httpx.AsyncClient` pointed at that app.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ async def _fast_sleep(delay: float, *a, **kw):
 asyncio.sleep = _fast_sleep  # type: ignore[assignment]
 
 # Ensure a default DATABASE_URL before app imports.
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("DATABASE_URL", "sqlite+aioturso:///:memory:")
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
@@ -51,7 +51,7 @@ from app.api.v1 import (  # noqa: E402
     tasks,
     works,
 )
-from app.database import Base, enable_sqlite_fk, get_db, install_db_retry_middleware  # noqa: E402
+from app.database import Base, apply_db_pragmas, get_db, install_db_retry_middleware  # noqa: E402
 from app.main import (  # noqa: E402
     http_exception_handler,
     unhandled_exception_handler,
@@ -61,20 +61,14 @@ from app.main import (  # noqa: E402
 _TMP_DB_DIR: tempfile.TemporaryDirectory[str] | None = None
 _TMP_DB_PATH: Path | None = None
 
-# TEST_DB_BACKEND=aioturso runs the suite against the embedded Turso engine.
-_DB_BACKEND = os.environ.get("TEST_DB_BACKEND", "aiosqlite")
-
 
 def _fresh_db_url() -> str:
     global _TMP_DB_DIR, _TMP_DB_PATH
     _TMP_DB_DIR = tempfile.TemporaryDirectory(prefix="rssripple-apitests-")
     _TMP_DB_PATH = Path(_TMP_DB_DIR.name) / "test.db"
-    url = f"sqlite+{_DB_BACKEND}:///{_TMP_DB_PATH}"
-    if _DB_BACKEND == "aioturso":
-        from app.database import normalize_database_url
+    from app.database import normalize_database_url
 
-        url = normalize_database_url(url)
-    return url
+    return normalize_database_url(f"sqlite+aioturso:///{_TMP_DB_PATH}")
 
 
 def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
@@ -85,7 +79,7 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
     test_app.add_exception_handler(RequestValidationError, validation_exception_handler)
     test_app.add_exception_handler(Exception, unhandled_exception_handler)
 
-    # Install DB lock retry middleware (SQLite-only, no-op on PostgreSQL)
+    # Install DB lock retry middleware (Turso-only, no-op on PostgreSQL)
     install_db_retry_middleware(test_app)
 
     # Mount a no-op static files directory for /posters
@@ -127,16 +121,13 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
 async def db_engine():
     url = _fresh_db_url()
     engine = create_async_engine(url, echo=False)
-    enable_sqlite_fk(engine)
+    apply_db_pragmas(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        if _DB_BACKEND == "aioturso":
-            # MVCC is persistent per file; required by isolation_level=CONCURRENT.
-            from sqlalchemy import text
+        # MVCC is persistent per file; required by isolation_level=CONCURRENT.
+        from sqlalchemy import text
 
-            await conn.execute(text("PRAGMA journal_mode='mvcc'"))
-        from app.services.fts import ensure_fts_tables
-        await ensure_fts_tables(conn)
+        await conn.execute(text("PRAGMA journal_mode='mvcc'"))
     try:
         yield engine
     finally:

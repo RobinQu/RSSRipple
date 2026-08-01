@@ -39,7 +39,7 @@ docker compose up --build
 | API 文档 | http://localhost:9001/docs | OpenAPI / Swagger |
 | Transmission | http://localhost:9091 | 下载后端 |
 
-默认使用 SQLite + 内存队列；数据持久化在 `./data/` 下。
+默认使用 Turso（嵌入式，兼容 SQLite 文件格式）+ 内存队列；数据持久化在 `./data/` 下。
 
 ### 3. 手动运行
 
@@ -83,7 +83,7 @@ compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热�
 
 ### 测试
 
-**单元 & API 测试**（快速，本地 SQLite）：
+**单元 & API 测试**（快速，本地 Turso）：
 
 ```bash
 uv run pytest tests/unit tests/api -v
@@ -91,10 +91,10 @@ uv run pytest tests/unit tests/api -v
 
 **集成测试**（docker-compose）— 两个 profile：
 
-单机（SQLite + MemoryQueue）— 快速，无外部依赖：
+单机（Turso + MemoryQueue）— 快速，无外部依赖：
 
 ```bash
-rm -rf data/ && mkdir -p data   # 残留的 SQLite 文件在 `down -v` 后仍会保留
+rm -rf data/ && mkdir -p data   # 残留的数据库文件在 `down -v` 后仍会保留
 docker compose -f docker-compose.test.yml run --rm test-runner
 # 单个模块：
 docker compose -f docker-compose.test.yml run --rm test-runner \
@@ -141,7 +141,7 @@ GitHub Actions 负责持续集成与持续交付：
 | 层 | 技术 |
 | --- | --- |
 | 后端 | Python 3.11+、FastAPI、SQLAlchemy 2.0 async、Pydantic v2 |
-| 数据库 | 默认 SQLite（aiosqlite）；架构兼容 PostgreSQL |
+| 数据库 | 默认 Turso（嵌入式，MVCC 并发写）；架构兼容 PostgreSQL |
 | 队列 / 调度 | MemoryQueue 或 RedisQueue、APScheduler |
 | RSS | feedparser |
 | 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Exa / Jina / TMDB / Wikipedia |

@@ -48,31 +48,28 @@ def normalize_database_url(url: str) -> str:
 _register_turso_dialect()
 
 # ---------------------------------------------------------------------------
-# SQLite concurrency handling
+# Lock/conflict retry handling
 #
-# aiosqlite / the C-level sqlite3 busy_timeout do not work reliably through
-# the async bridge: concurrent write attempts raise "database is locked"
-# immediately instead of waiting for the configured timeout.
+# Turso MVCC raises "Write-write conflict" when concurrent transactions touch
+# the same rows (and "database is locked" in single-writer paths). Both are
+# transient and safe to retry.
 #
-# We mitigate this with:
-#
-# 1. **Retry-with-backoff at request/transaction boundary** — a FastAPI
-#    middleware and a context manager that automatically retry on lock errors,
-#    so API handlers and background jobs don't need to know about SQLite.
-#
-# 2. **busy_timeout + WAL + NORMAL sync** — better concurrency defaults.
+# We mitigate this with **retry-with-backoff at request/transaction
+# boundary** — a FastAPI middleware and a context manager that automatically
+# retry on lock/conflict errors, so API handlers and background jobs don't
+# need to know about the embedded engine.
 # ---------------------------------------------------------------------------
 
 _MAX_DB_RETRIES = 5
 _DB_RETRY_BASE_S = 0.125  # 125 ms initial backoff
 
 
-def _is_sqlite_lock_error(exc: Exception) -> bool:
-    """Check if an exception is a retryable SQLite/Turso lock or write conflict.
+def _is_retryable_lock_error(exc: Exception) -> bool:
+    """Check if an exception is a retryable lock or MVCC write conflict.
 
-    SQLite raises OperationalError "database is locked"; Turso MVCC raises
-    DatabaseError "Write-write conflict" when concurrent transactions touch
-    the same rows. Both are transient and safe to retry.
+    Turso MVCC raises DatabaseError "Write-write conflict" when concurrent
+    transactions touch the same rows; single-writer paths can still raise
+    "database is locked". Both are transient and safe to retry.
     """
     if not isinstance(exc, DatabaseError):
         return False
@@ -103,7 +100,7 @@ async def retry_on_lock(coro_factory) -> object:
         try:
             return await coro_factory()
         except DatabaseError as e:
-            if not _is_sqlite_lock_error(e):
+            if not _is_retryable_lock_error(e):
                 raise
             if attempt == _MAX_DB_RETRIES - 1:
                 raise
@@ -119,7 +116,7 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
     """Async context manager for a transactional session with automatic retry.
 
     Yields an async session, commits on normal exit, rolls back on exception.
-    On SQLite, retries the entire block on "database is locked" errors.
+    On Turso, retries the entire block on lock / write-conflict errors.
     On PostgreSQL, behaves like a plain session (no retry).
 
     Usage::
@@ -130,7 +127,7 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
             await session.flush()
             # commit automatically happens on exit; rollback on exception
     """
-    if "sqlite" not in settings.database_url:
+    if not is_turso_url(settings.database_url):
         # Fast path: no retry needed for PostgreSQL/etc.
         async with async_session_factory() as session:
             try:
@@ -141,7 +138,7 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
                 raise
         return
 
-    # SQLite: retry on lock errors
+    # Turso: retry on lock/conflict errors
     last_exc: Exception | None = None
     for attempt in range(_MAX_DB_RETRIES):
         async with async_session_factory() as session:
@@ -152,7 +149,7 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
             except DatabaseError as e:
                 await session.rollback()
                 last_exc = e
-                if not _is_sqlite_lock_error(e):
+                if not _is_retryable_lock_error(e):
                     raise
                 if attempt == _MAX_DB_RETRIES - 1:
                     raise
@@ -167,13 +164,13 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
 
 
 def install_db_retry_middleware(app):
-    """Install a FastAPI middleware that retries requests on SQLite lock errors.
+    """Install a FastAPI middleware that retries requests on lock/conflict errors.
 
-    On PostgreSQL, this is a no-op. On SQLite, the middleware catches
-    "database is locked" OperationalErrors and retries the entire request
-    with a fresh session (5 attempts with exponential backoff).
+    On PostgreSQL, this is a no-op. On Turso, the middleware catches lock /
+    write-conflict DatabaseErrors and retries the entire request with a fresh
+    session (5 attempts with exponential backoff).
     """
-    if "sqlite" not in settings.database_url:
+    if not is_turso_url(settings.database_url):
         return app
 
     from fastapi import Request, Response
@@ -187,7 +184,7 @@ def install_db_retry_middleware(app):
                 return response
             except DatabaseError as e:
                 last_exc = e
-                if not _is_sqlite_lock_error(e):
+                if not _is_retryable_lock_error(e):
                     raise
                 if attempt == _MAX_DB_RETRIES - 1:
                     raise
@@ -200,48 +197,26 @@ def install_db_retry_middleware(app):
     return app
 
 
-def _engine_connect_args() -> dict:
-    """Extra connection kwargs for aiosqlite. Ignored for other drivers."""
-    if "sqlite" in settings.database_url and not is_turso_url(settings.database_url):
-        return {"timeout": 15}  # wait up to 15 s before raising "database is locked"
-    return {}
-
-
-def enable_sqlite_fk(async_engine) -> None:
-    """Enable foreign key enforcement and good concurrency defaults for SQLite/Turso."""
+def apply_db_pragmas(async_engine) -> None:
+    """Per-connection pragmas. Only Turso needs one (foreign key enforcement);
+    MVCC mode is a persistent property of the database file, set by
+    ``create_tables`` or the migration script. PostgreSQL needs nothing."""
     url_str = str(async_engine.url)
-
-    if is_turso_url(url_str):
-        # Turso: WAL/busy_timeout/synchronous pragmas don't exist; MVCC mode is
-        # a persistent property of the database file (set by create_tables or
-        # the migration script), so only FK enforcement is per-connection.
-        @event.listens_for(async_engine.sync_engine, "connect")
-        def _set_turso_pragma(dbapi_conn, _record):
-            cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA foreign_keys = ON")
-            cursor.close()
-        return
-
-    if "sqlite" not in url_str:
+    if not is_turso_url(url_str):
         return
 
     @event.listens_for(async_engine.sync_engine, "connect")
-    def _set_fk_pragma(dbapi_conn, _record):
+    def _set_turso_pragma(dbapi_conn, _record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys = ON")
-        cursor.execute("PRAGMA busy_timeout = 15000")  # wait up to 15s before raising "database is locked"
-        cursor.execute("PRAGMA journal_mode = WAL")    # concurrent reads with writers
-        cursor.execute("PRAGMA synchronous = NORMAL")  # safe under WAL, much faster writes
-        cursor.execute("PRAGMA wal_autocheckpoint = 1000")  # keep WAL size manageable
         cursor.close()
 
 
 engine = create_async_engine(
     normalize_database_url(settings.database_url),
     echo=settings.debug,
-    connect_args=_engine_connect_args(),
 )
-enable_sqlite_fk(engine)
+apply_db_pragmas(engine)
 
 async_session_factory = async_sessionmaker(
     engine,
@@ -270,22 +245,10 @@ async def create_tables() -> None:
     """Create all database tables (drop-and-recreate dev strategy)."""
     async with engine.begin() as conn:
         if is_turso_url(settings.database_url):
-            # Turso: no FTS5 (unsupported) — full-text search falls back to
-            # LIKE over the base tables. MVCC mode is persistent per file and
-            # unlocks BEGIN CONCURRENT (isolation_level=CONCURRENT in the URL).
+            # MVCC mode is persistent per file and unlocks BEGIN CONCURRENT
+            # (isolation_level=CONCURRENT in the URL).
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text("PRAGMA journal_mode='mvcc'"))
-            await _apply_light_migrations(conn)
-            return
-
-        if "sqlite" in settings.database_url:
-            # WAL mode allows concurrent reads alongside a single writer and
-            # dramatically reduces "database is locked" errors under load.
-            await conn.execute(text("PRAGMA journal_mode=WAL"))
-            await conn.run_sync(Base.metadata.create_all)
-            # Create FTS5 virtual tables for CJK-aware full-text search
-            from app.services.fts import ensure_fts_tables
-            await ensure_fts_tables(conn)
             await _apply_light_migrations(conn)
             return
 
@@ -314,19 +277,18 @@ async def _apply_light_migrations(conn) -> None:
     repeatedly: we probe the current columns and skip when the target is
     already there.
     """
-    is_sqlite = "sqlite" in settings.database_url  # includes Turso (sqlite+aioturso)
     is_turso = is_turso_url(settings.database_url)
     is_postgres = "postgresql" in settings.database_url
 
     # Column additions: (table, column_name, ddl_type_and_default)
     additions: list[tuple[str, str, str]] = [
         ("file_resources", "is_batch",
-         "BOOLEAN NOT NULL DEFAULT 0" if is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE"),
+         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("file_resources", "episode_start", "INTEGER"),
         ("file_resources", "episode_end", "INTEGER"),
         # subtitle_langs: JSON array of BCP-47 language tags. SQLite stores JSON
         # as TEXT; PostgreSQL has a proper JSONB type.
-        ("file_resources", "subtitle_langs", "TEXT" if is_sqlite else "JSONB"),
+        ("file_resources", "subtitle_langs", "TEXT" if is_turso else "JSONB"),
         # Episode reconciliation (P2): stores the original absolute-numbering
         # value when the agent converts "S04 - 84" → per-season 13; and a
         # confidence tag noting where the final episode value came from.
@@ -356,7 +318,7 @@ async def _apply_light_migrations(conn) -> None:
         # Per-channel auto-cleanup of stale unresolved resources: an enable
         # toggle + an age threshold (days, default 21 = 3 weeks).
         ("channels", "auto_cleanup_unresolved_enabled",
-         "BOOLEAN NOT NULL DEFAULT 0" if is_sqlite else "BOOLEAN NOT NULL DEFAULT FALSE"),
+         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("channels", "auto_cleanup_unresolved_days", "INTEGER NOT NULL DEFAULT 21"),
         # Logic-generation tag on cached metadata verdicts. Legacy rows get 0
         # (< METADATA_CACHE_GENERATION) and are treated as misses on read.
@@ -364,7 +326,7 @@ async def _apply_light_migrations(conn) -> None:
     ]
 
     for table, column, ddl in additions:
-        if is_sqlite:
+        if is_turso:
             info = (await conn.execute(text(f"PRAGMA table_info({table})"))).fetchall()
             existing = {row[1] for row in info}
         elif is_postgres:
@@ -386,31 +348,12 @@ async def _apply_light_migrations(conn) -> None:
             logger.warning("[migrate] failed to add %s.%s: %s", table, column, e)
 
     # ── downloader_type enum widening ────────────────────────────────────
-    # Older DBs may have a CHECK constraint restricting
+    # Older PostgreSQL DBs may have a native enum restricting
     # ``downloader_instances.type`` to just ``'transmission'``. We now allow
     # ``'mock'`` as well (and the column has been widened to a plain String
-    # in the ORM). Rewrite the CHECK / native enum in place.
+    # in the ORM). Turso databases use a plain VARCHAR + CHECK from the start.
     try:
-        if is_sqlite and not is_turso:
-            row = (await conn.execute(text(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='downloader_instances'"
-            ))).first()
-            if row and row[0] and "'transmission'" in row[0] and "CHECK" in row[0].upper():
-                # Rewrite the CHECK to a no-op via writable_schema. Safer than a
-                # full table rebuild for this specific narrow change.
-                new_sql = row[0].replace(
-                    "CHECK (type IN ('transmission'))",
-                    "CHECK (type IN ('transmission', 'mock'))",
-                )
-                if new_sql != row[0]:
-                    await conn.execute(text("PRAGMA writable_schema = 1"))
-                    await conn.execute(text(
-                        "UPDATE sqlite_master SET sql = :sql "
-                        "WHERE type = 'table' AND name = 'downloader_instances'"
-                    ), {"sql": new_sql})
-                    await conn.execute(text("PRAGMA writable_schema = 0"))
-                    logger.info("[migrate] widened downloader_instances.type CHECK to accept 'mock'")
-        elif is_postgres:
+        if is_postgres:
             # Idempotent: succeeds silently if the value is already there.
             await conn.execute(text(
                 "ALTER TYPE downloader_type ADD VALUE IF NOT EXISTS 'mock'"
@@ -419,30 +362,12 @@ async def _apply_light_migrations(conn) -> None:
         logger.warning("[migrate] downloader_type widening skipped: %s", e)
 
     # ── download_tasks.agent_id → nullable + ON DELETE SET NULL ────────────
-    # Older DBs created the column as ``NOT NULL`` with ``ON DELETE CASCADE``.
-    # We now want to keep tasks after an Agent is deleted (marked cancelled)
-    # so ``agent_id`` must be nullable. SQLite can't ALTER column nullability
-    # in-place, so rebuild the table when we detect the old shape. (Skipped on
-    # Turso: writable_schema / table rebuilds are aiosqlite-only, and Turso
-    # databases are always created from — or migrated after — the new shape.)
+    # Older PostgreSQL DBs created the column as ``NOT NULL`` with
+    # ``ON DELETE CASCADE``. We now want to keep tasks after an Agent is
+    # deleted (marked cancelled) so ``agent_id`` must be nullable. Turso
+    # databases are always created from — or migrated after — the new shape.
     try:
-        if is_sqlite and not is_turso:
-            info = (await conn.execute(text("PRAGMA table_info(download_tasks)"))).fetchall()
-            agent_col = next((row for row in info if row[1] == "agent_id"), None)
-            # row: (cid, name, type, notnull, dflt, pk)
-            if agent_col is not None and agent_col[3] == 1:
-                logger.info("[migrate] rebuilding download_tasks to make agent_id nullable")
-                await conn.execute(text("PRAGMA foreign_keys = OFF"))
-                await conn.execute(text("ALTER TABLE download_tasks RENAME TO _download_tasks_old"))
-                # Recreate with the new schema (Base.metadata knows the new shape).
-                await conn.run_sync(Base.metadata.tables["download_tasks"].create)
-                # Copy rows over (column order matches: id, agent_id, ...).
-                await conn.execute(text(
-                    "INSERT INTO download_tasks SELECT * FROM _download_tasks_old"
-                ))
-                await conn.execute(text("DROP TABLE _download_tasks_old"))
-                await conn.execute(text("PRAGMA foreign_keys = ON"))
-        elif is_postgres:
+        if is_postgres:
             await conn.execute(text(
                 "ALTER TABLE download_tasks ALTER COLUMN agent_id DROP NOT NULL"
             ))
@@ -488,7 +413,7 @@ async def _apply_light_migrations(conn) -> None:
     # reclassified (non_work again or linked to an AudioWork stub). Gated by
     # an app_settings sentinel so it runs exactly once.
     try:
-        if is_sqlite:
+        if is_turso:
             await conn.execute(text(
                 "INSERT OR IGNORE INTO app_settings(key, value) "
                 "VALUES ('audio_work_non_work_reset', 'pending')"
@@ -527,7 +452,7 @@ async def _apply_light_migrations(conn) -> None:
     # of waiting out the 7-day cooldown.
     try:
         sentinel = "not_found_reclean_reset"
-        if is_sqlite:
+        if is_turso:
             await conn.execute(text(
                 f"INSERT OR IGNORE INTO app_settings(key, value) "
                 f"VALUES ('{sentinel}', 'pending')"
@@ -563,7 +488,7 @@ async def _apply_light_migrations(conn) -> None:
     # under the improved matching.
     try:
         sentinel = "not_found_autolink_reset"
-        if is_sqlite:
+        if is_turso:
             await conn.execute(text(
                 f"INSERT OR IGNORE INTO app_settings(key, value) "
                 f"VALUES ('{sentinel}', 'pending')"

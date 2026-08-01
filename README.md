@@ -39,7 +39,7 @@ This starts the app **and** a Transmission instance:
 | API docs | http://localhost:9001/docs | OpenAPI / Swagger |
 | Transmission | http://localhost:9091 | Download backend |
 
-SQLite + in-memory queue by default; data is persisted under `./data/`.
+Turso (embedded, SQLite-compatible) + in-memory queue by default; data is persisted under `./data/`.
 
 ### 3. Run manually
 
@@ -85,7 +85,7 @@ The compose file watches `./app` and hot-reloads Python. Frontend changes are **
 
 ### Tests
 
-**Unit & API tests** (fast, local SQLite):
+**Unit & API tests** (fast, local Turso):
 
 ```bash
 uv run pytest tests/unit tests/api -v
@@ -93,10 +93,10 @@ uv run pytest tests/unit tests/api -v
 
 **Integration tests** (docker-compose) — two profiles:
 
-Single-node (SQLite + MemoryQueue) — fast, no external dependencies:
+Single-node (Turso + MemoryQueue) — fast, no external dependencies:
 
 ```bash
-rm -rf data/ && mkdir -p data   # stale SQLite files persist across `down -v`
+rm -rf data/ && mkdir -p data   # stale database files persist across `down -v`
 docker compose -f docker-compose.test.yml run --rm test-runner
 # single module:
 docker compose -f docker-compose.test.yml run --rm test-runner \
@@ -143,7 +143,7 @@ Implementation must follow AGENTS.md. When code and AGENTS.md disagree, AGENTS.m
 | Layer | Technology |
 | --- | --- |
 | Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
-| Database | SQLite (aiosqlite) by default; PostgreSQL-compatible architecture |
+| Database | Turso (embedded, MVCC concurrent writes) by default; PostgreSQL-compatible architecture |
 | Queue / Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
 | Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Exa / Jina / TMDB / Wikipedia |

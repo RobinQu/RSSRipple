@@ -640,7 +640,6 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             local_url = await download_and_cache_poster(remote_poster)
             series.poster_url = local_url or remote_poster
         series.content_type = "tv"
-        await fts_service.upsert_series_fts(db, series)
         return series
 
     # Create
@@ -684,7 +683,6 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     )
     db.add(series)
     await db.flush()
-    await fts_service.upsert_series_fts(db, series)
     return series
 
 
@@ -770,7 +768,6 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             local_url = await download_and_cache_poster(remote_poster)
             movie.poster_url = local_url or remote_poster
         movie.content_type = "movie"
-        await fts_service.upsert_movie_fts(db, movie)
         return movie
 
     remote_poster = data.get("poster_url")
@@ -799,7 +796,6 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     )
     db.add(movie)
     await db.flush()
-    await fts_service.upsert_movie_fts(db, movie)
     return movie
 
 
@@ -882,7 +878,6 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
         if remote_poster and not (audio.poster_url or "").startswith("/posters/"):
             local_url = await download_and_cache_poster(remote_poster)
             audio.poster_url = local_url or remote_poster
-        await fts_service.upsert_audio_work_fts(db, audio)
         return audio
 
     remote_poster = data.get("poster_url")
@@ -911,7 +906,6 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
     )
     db.add(audio)
     await db.flush()
-    await fts_service.upsert_audio_work_fts(db, audio)
     return audio
 
 
@@ -1032,10 +1026,6 @@ async def refresh_work_metadata(
         filled.append("external_source")
 
     await db.flush()
-    if is_movie:
-        await fts_service.upsert_movie_fts(db, work)
-    else:
-        await fts_service.upsert_series_fts(db, work)
     await db.commit()
 
     label = best.get("title_cn") or best.get("title_en") or best.get("original_title") or ""

@@ -180,8 +180,8 @@ async def test_channel_create_db_error_returns_500_json(error_client):
         with patch("sqlalchemy.ext.asyncio.AsyncSession.flush",
                    new_callable=AsyncMock,
                    side_effect=OperationalError("database is locked", None, None)):
-            # Patch _is_sqlite_lock_error to not recognize this as a retryable error
-            with patch("app.database._is_sqlite_lock_error", return_value=False):
+            # Patch _is_retryable_lock_error to not recognize this as a retryable error
+            with patch("app.database._is_retryable_lock_error", return_value=False):
                 res = await error_client.post(
                     "/api/v1/channels",
                     json={"name": "newchan", "url": "http://test.example/rss.xml", "field_mapping": TEST_FIELD_MAPPING},
