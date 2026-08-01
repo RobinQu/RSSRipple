@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Bot, AlertTriangle, Download, Rss } from 'lucide-react';
+import { Bot, AlertTriangle, CheckCircle, Download, Rss } from 'lucide-react';
 import {
   Typography,
   Row,
@@ -17,19 +17,33 @@ import {
   App,
 } from 'antd';
 import { dashboardApi, decisionsApi } from '../api/tasks';
+import { agentsApi } from '../api/agents';
 import { usePolling } from '../hooks/usePolling';
 import ProgressBar from '../components/ProgressBar';
+import {
+  collectFieldConditions,
+  describeCondition,
+  isFilterEmpty,
+} from '../components/FilterBuilder';
 import { formatSpeed, formatEta, timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
-import type { DashboardData, DashboardPendingItem, FileResource } from '../types';
+import type { Agent, DashboardData, DashboardPendingItem, FileResource } from '../types';
 import { resourcesApi } from '../api/channels';
 
 const { Title, Text } = Typography;
+
+/** GET /agents rows carry a few extra joined fields beyond the Agent type. */
+type AgentListItem = Agent & {
+  channel_name?: string | null;
+  downloader_name?: string | null;
+  active_task_count?: number;
+};
 
 export default function Dashboard() {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [topAgents, setTopAgents] = useState<AgentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [candidateCache, setCandidateCache] = useState<Record<string, FileResource>>({});
 
@@ -55,10 +69,21 @@ export default function Dashboard() {
   );
 
   const fetchData = useCallback(async () => {
-    const res = await dashboardApi.get();
+    const [res, agentsRes] = await Promise.all([
+      dashboardApi.get(),
+      agentsApi.list(1, 100),
+    ]);
     if (res.success) {
       setDashboard(res.data);
       loadCandidates(res.data.pending_decisions);
+    }
+    if (agentsRes.success) {
+      // Top 4 active agents, busiest first.
+      const active = (agentsRes.data as AgentListItem[]).filter(
+        (a) => a.status === 'active',
+      );
+      active.sort((a, b) => (b.active_task_count ?? 0) - (a.active_task_count ?? 0));
+      setTopAgents(active.slice(0, 4));
     }
     setLoading(false);
   }, [loadCandidates]);
@@ -95,6 +120,11 @@ export default function Dashboard() {
     );
   }
   if (!dashboard) return <Empty description={t('dashboard.failedToLoad')} />;
+
+  // Flatten grouped downloads into a flat top-10 task list for the agents section.
+  const inProgressTasks = dashboard.active_download_groups
+    .flatMap((g) => g.tasks.map((task) => ({ ...task, workTitle: g.title })))
+    .slice(0, 10);
 
   return (
     <div>
@@ -167,6 +197,171 @@ export default function Dashboard() {
         </Col>
       </Row>
 
+      {/* All-clear hint directly under the metrics when nothing is pending */}
+      {dashboard.pending_decisions.length === 0 && (
+        <div style={{ marginTop: -8, marginBottom: 24 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            <CheckCircle
+              size={14}
+              style={{ marginRight: 6, color: '#52c41a', verticalAlign: 'text-bottom' }}
+            />
+            {t('dashboard.noPendingHint')}
+          </Text>
+        </div>
+      )}
+
+      {/* Download agents: top 4 active agents + top 10 in-progress tasks */}
+      <Card title={t('dashboard.agentsSection')} style={{ marginBottom: 24 }}>
+        {topAgents.length === 0 ? (
+          <Empty
+            description={t('dashboard.noActiveAgents')}
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        ) : (
+          <Row gutter={[16, 16]}>
+            {topAgents.map((agent) => {
+              const conditions =
+                agent.filter_config && !isFilterEmpty(agent.filter_config)
+                  ? collectFieldConditions(agent.filter_config)
+                  : [];
+              const posters = (agent.works ?? [])
+                .map((w) => ({
+                  id: w.id,
+                  url: w.series?.poster_url || w.movie?.poster_url || null,
+                }))
+                .filter((p) => p.url)
+                .slice(0, 6);
+              return (
+                <Col xs={24} md={12} key={agent.id}>
+                  <div
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 8,
+                      padding: 16,
+                      height: '100%',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <Link to={`/agents/${agent.id}`} style={{ minWidth: 0 }}>
+                        <Text strong style={{ fontSize: 14 }} ellipsis>
+                          {agent.name}
+                        </Text>
+                      </Link>
+                      {(agent.active_task_count ?? 0) > 0 && (
+                        <Tag color="blue" style={{ flexShrink: 0 }}>
+                          {t('dashboard.downloadingCount', { n: agent.active_task_count })}
+                        </Tag>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#93939f', marginBottom: 8 }}>
+                      {agent.channel_name && (
+                        <>
+                          <Link to={`/channels/${agent.channel_id}`}>{agent.channel_name}</Link>
+                          {' · '}
+                        </>
+                      )}
+                      {agent.downloader_name && <>{agent.downloader_name}{' · '}</>}
+                      {agent.scope_channel_wide
+                        ? t('dashboard.channelWide')
+                        : t('dashboard.worksCount', { n: agent.works?.length ?? 0 })}
+                    </div>
+                    {posters.length > 0 && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: 6,
+                          flexWrap: 'wrap',
+                          marginBottom: 8,
+                        }}
+                      >
+                        {posters.map((p) => (
+                          <img
+                            key={p.id}
+                            src={posterUrl(p.url)}
+                            alt=""
+                            style={{
+                              width: 28,
+                              height: 42,
+                              objectFit: 'cover',
+                              borderRadius: 4,
+                              background: '#eeece7',
+                            }}
+                            onError={useDefaultPoster}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <div>
+                      <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
+                        {t('dashboard.filterConditions')}
+                      </Text>
+                      {conditions.length === 0 ? (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {t('dashboard.noFilterConditions')}
+                        </Text>
+                      ) : (
+                        conditions.map((c, i) => (
+                          <Tag key={i} style={{ fontSize: 11, margin: 2 }}>
+                            {describeCondition(c, t)}
+                          </Tag>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </Col>
+              );
+            })}
+          </Row>
+        )}
+
+        <div style={{ marginTop: 16 }}>
+          <Text strong style={{ fontSize: 13 }}>
+            {t('dashboard.inProgressTasks')}
+          </Text>
+          {inProgressTasks.length === 0 ? (
+            <div style={{ padding: '8px 0 0' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {t('dashboard.noActiveTasks')}
+              </Text>
+            </div>
+          ) : (
+            <div
+              style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}
+            >
+              {inProgressTasks.map((task) => (
+                <div key={task.task_id}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 4,
+                      gap: 12,
+                    }}
+                  >
+                    <Text ellipsis style={{ flex: 1, fontSize: 13 }}>
+                      {task.workTitle} · {task.resource_title}
+                    </Text>
+                    <Link to={`/agents/${task.agent_id}`} style={{ flexShrink: 0 }}>
+                      <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>
+                    </Link>
+                  </div>
+                  <ProgressBar progress={task.progress} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* Active downloads */}
       <Card
         title={t('dashboard.activeDownloads')}
@@ -238,13 +433,20 @@ export default function Dashboard() {
         )}
       </Card>
 
-      {/* Pending decisions */}
-      <Card title={t('dashboard.pendingDecisions')} styles={{ body: { padding: 0 } }}>
-        {dashboard.pending_decisions.length === 0 ? (
-          <div style={{ padding: 32 }}>
-            <Empty description={t('dashboard.noPendingDecisions')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          </div>
-        ) : (
+      {/* Pending decisions — only shown when there is something to decide;
+          the warning border/title sets it apart from the other sections. */}
+      {dashboard.pending_decisions.length > 0 && (
+      <Card
+        title={
+          <Space size={8}>
+            <AlertTriangle size={16} color="#ff7759" />
+            <span style={{ color: '#ff7759' }}>{t('dashboard.pendingDecisions')}</span>
+          </Space>
+        }
+        style={{ border: '1px solid #ff7759' }}
+        styles={{ body: { padding: 0 } }}
+      >
+        {(
           <List
             dataSource={dashboard.pending_decisions}
             renderItem={(d) => (
@@ -342,6 +544,7 @@ export default function Dashboard() {
           />
         )}
       </Card>
+      )}
     </div>
   );
 }

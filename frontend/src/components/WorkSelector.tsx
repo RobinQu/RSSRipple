@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Alert,
   Button,
   Card,
   Input,
@@ -16,19 +17,25 @@ import {
   Collapse,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
-import { Film, Tv } from 'lucide-react';
+import { Film, Tv, Headphones } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
+import { audioWorksApi } from '../api/audioWorks';
+import Pagination from './Pagination';
 import FilterBuilder, {
   collectFieldConditions,
   describeCondition,
   isFilterEmpty,
 } from './FilterBuilder';
-import type { AgentWork, BoolCondition, Movie, TVSeries } from '../types';
+import type { AgentWork, AudioWork, BoolCondition, Movie, TVSeries } from '../types';
 import type { TFunction } from 'i18next';
 
 const { Text } = Typography;
+
+type WorkTab = 'tv' | 'movie' | 'audio';
+
+const MODAL_PAGE_SIZE = 10;
 
 interface SuggestionShortcut {
   sample_title: string;
@@ -76,10 +83,13 @@ export default function WorkSelector({
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [modalOpen, setModalOpen] = useState(false);
-  const [tab, setTab] = useState<'tv' | 'movie'>('tv');
+  const [tab, setTab] = useState<WorkTab>('tv');
   const [search, setSearch] = useState('');
   const [seriesList, setSeriesList] = useState<TVSeries[]>([]);
   const [movieList, setMovieList] = useState<Movie[]>([]);
+  const [audioList, setAudioList] = useState<AudioWork[]>([]);
+  const [pages, setPages] = useState<Record<WorkTab, number>>({ tv: 1, movie: 1, audio: 1 });
+  const [totals, setTotals] = useState<Record<WorkTab, number>>({ tv: 0, movie: 0, audio: 0 });
   const [loading, setLoading] = useState(false);
 
   const existingIds = useMemo(() => {
@@ -91,19 +101,31 @@ export default function WorkSelector({
     return s;
   }, [works]);
 
-  const searchWorks = async (q: string) => {
+  const fetchTab = async (which: WorkTab, page: number, q: string) => {
     setLoading(true);
     try {
-      // Empty query = latest 20 rows (API default sort is created_at desc).
-      // Backing endpoints already treat missing `title` as "no filter", so
-      // we get a useful default view instead of an empty modal.
+      // Empty query = latest rows (API default sort is created_at desc), so
+      // the user gets a useful default view instead of an empty modal.
       const term = q.trim() || undefined;
-      const [sRes, mRes] = await Promise.all([
-        seriesApi.list(1, 20, term),
-        moviesApi.list(1, 20, term),
-      ]);
-      if (sRes.success) setSeriesList(sRes.data);
-      if (mRes.success) setMovieList(mRes.data);
+      if (which === 'tv') {
+        const r = await seriesApi.list(page, MODAL_PAGE_SIZE, term);
+        if (r.success) {
+          setSeriesList(r.data);
+          setTotals((prev) => ({ ...prev, tv: r.meta?.total ?? 0 }));
+        }
+      } else if (which === 'movie') {
+        const r = await moviesApi.list(page, MODAL_PAGE_SIZE, term);
+        if (r.success) {
+          setMovieList(r.data);
+          setTotals((prev) => ({ ...prev, movie: r.meta?.total ?? 0 }));
+        }
+      } else {
+        const r = await audioWorksApi.list(page, MODAL_PAGE_SIZE, term);
+        if (r.success) {
+          setAudioList(r.data);
+          setTotals((prev) => ({ ...prev, audio: r.meta?.total ?? 0 }));
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -111,19 +133,14 @@ export default function WorkSelector({
 
   useEffect(() => {
     if (!modalOpen) return;
-    // First open: fetch immediately so the user sees the latest works
-    // without having to type. Typed queries still go through the same
-    // 300ms debounce path below.
-    if (!search.trim()) {
-      searchWorks('');
-      return;
-    }
+    // Tab / page / first-open changes fetch immediately; typed queries go
+    // through a 300ms debounce to avoid hammering the API per keystroke.
+    const delay = search.trim() ? 300 : 0;
     const timeout = setTimeout(() => {
-      searchWorks(search);
-    }, 300);
+      fetchTab(tab, pages[tab], search);
+    }, delay);
     return () => clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, modalOpen]);
+  }, [search, modalOpen, tab, pages]);
 
   const addWork = (type: 'tv' | 'movie', item: TVSeries | Movie) => {
     if (works.length >= maxWorks) {
@@ -161,6 +178,21 @@ export default function WorkSelector({
     onChange(works.map((w) => (w.id === id ? { ...w, ...patch } : w)));
   };
 
+  const renderPagination = (which: WorkTab) => {
+    const total = totals[which];
+    if (total <= MODAL_PAGE_SIZE) return null;
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+        <Pagination
+          page={pages[which]}
+          pageSize={MODAL_PAGE_SIZE}
+          total={total}
+          onPageChange={(p) => setPages((prev) => ({ ...prev, [which]: p }))}
+        />
+      </div>
+    );
+  };
+
   const renderSearchResult = (items: (TVSeries | Movie)[], type: 'tv' | 'movie') => {
     if (loading) {
       return (
@@ -170,7 +202,7 @@ export default function WorkSelector({
       );
     }
     if (!search.trim()) {
-      // Latest-20 default view; if the initial fetch hasn't populated
+      // Latest-N default view; if the initial fetch hasn't populated
       // anything (empty repo), show the neutral placeholder.
       if (items.length === 0) {
         return <Empty description={t('work.searchPlaceholder')} />;
@@ -179,83 +211,192 @@ export default function WorkSelector({
       return <Empty description={t('work.noResults')} />;
     }
     return (
-      <div style={{ maxHeight: 400, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map((item) => {
-          const already = existingIds.has(`${type}:${item.id}`);
-          const title =
-            item.title_cn || item.title_en || item.original_title || t('common.unknown');
-          const sub =
-            item.title_en && item.title_en !== item.title_cn ? item.title_en : item.original_title;
-          return (
-            <div
-              key={item.id}
-              style={{
-                display: 'flex',
-                gap: 10,
-                padding: 10,
-                border: '1px solid #e5e7eb',
-                borderRadius: 8,
-                background: already ? '#edfce9' : 'transparent',
-              }}
-            >
-              {item.poster_url ? (
-                <img
-                  src={item.poster_url}
-                  alt=""
-                  style={{
-                    width: 40,
-                    height: 60,
-                    objectFit: 'cover',
-                    borderRadius: 4,
-                    flexShrink: 0,
-                    background: '#eeece7',
-                  }}
-                  onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                />
-              ) : (
+      <>
+        <div style={{ maxHeight: 440, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {items.map((item) => {
+            const already = existingIds.has(`${type}:${item.id}`);
+            const title =
+              item.title_cn || item.title_en || item.original_title || t('common.unknown');
+            const sub =
+              item.title_en && item.title_en !== item.title_cn ? item.title_en : item.original_title;
+            return (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  gap: 10,
+                  padding: 10,
+                  border: '1px solid #e5e7eb',
+                  borderRadius: 8,
+                  background: already ? '#edfce9' : 'transparent',
+                }}
+              >
+                {item.poster_url ? (
+                  <img
+                    src={item.poster_url}
+                    alt=""
+                    style={{
+                      width: 40,
+                      height: 60,
+                      objectFit: 'cover',
+                      borderRadius: 4,
+                      flexShrink: 0,
+                      background: '#eeece7',
+                    }}
+                    onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 40,
+                      height: 60,
+                      borderRadius: 4,
+                      background: '#eeece7',
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#75758a',
+                    }}
+                  >
+                    {type === 'tv' ? <Tv /> : <Film />}
+                  </div>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong style={{ fontSize: 13 }}>{title}</Text>
+                  {sub && sub !== title && (
+                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{sub}</Text>
+                  )}
+                  <Space size={4} style={{ marginTop: 4 }}>
+                    {item.rating != null && (
+                      <Text type="warning" style={{ fontSize: 11 }}>★ {item.rating}</Text>
+                    )}
+                    {item.status && (
+                      <Tag style={{ fontSize: 10 }}>{item.status}</Tag>
+                    )}
+                  </Space>
+                </div>
+                <Button
+                  htmlType="button"
+                  type="primary"
+                  size="small"
+                  disabled={already}
+                  onClick={() => addWork(type, item)}
+                >
+                  {already ? t('work.added_btn') : t('work.add_btn')}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+        {renderPagination(type)}
+      </>
+    );
+  };
+
+  // Audio works are browse-only here: AgentWork only supports series/movie
+  // subscriptions (backend constraint), so the audio tab shows the catalog
+  // with a pointer to channel-wide mode instead of an "add" button.
+  const renderAudioResult = () => {
+    if (loading) {
+      return (
+        <div style={{ textAlign: 'center', padding: 32 }}>
+          <Spin />
+        </div>
+      );
+    }
+    return (
+      <>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('work.audioUnsupported')}
+        />
+        {audioList.length === 0 ? (
+          <Empty
+            description={search.trim() ? t('work.noResults') : t('work.searchPlaceholder')}
+          />
+        ) : (
+          <div style={{ maxHeight: 440, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {audioList.map((item) => {
+              const title =
+                item.title_cn || item.title_en || item.original_title || t('common.unknown');
+              const sub =
+                item.title_en && item.title_en !== item.title_cn ? item.title_en : item.original_title;
+              return (
                 <div
+                  key={item.id}
                   style={{
-                    width: 40,
-                    height: 60,
-                    borderRadius: 4,
-                    background: '#eeece7',
-                    flexShrink: 0,
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#75758a',
+                    gap: 10,
+                    padding: 10,
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 8,
                   }}
                 >
-                  {type === 'tv' ? <Tv /> : <Film />}
+                  {item.poster_url ? (
+                    <img
+                      src={item.poster_url}
+                      alt=""
+                      style={{
+                        width: 40,
+                        height: 60,
+                        objectFit: 'cover',
+                        borderRadius: 4,
+                        flexShrink: 0,
+                        background: '#eeece7',
+                      }}
+                      onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 40,
+                        height: 60,
+                        borderRadius: 4,
+                        background: '#eeece7',
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#75758a',
+                      }}
+                    >
+                      <Headphones />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Text strong style={{ fontSize: 13 }}>{title}</Text>
+                    {sub && sub !== title && (
+                      <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{sub}</Text>
+                    )}
+                    <Space size={4} style={{ marginTop: 4 }}>
+                      {item.content_type && (
+                        <Tag color="purple" style={{ fontSize: 10 }}>
+                          {t(`works.audioType.${item.content_type}`, String(item.content_type))}
+                        </Tag>
+                      )}
+                      {item.rating != null && (
+                        <Text type="warning" style={{ fontSize: 11 }}>★ {item.rating}</Text>
+                      )}
+                      {item.status && (
+                        <Tag style={{ fontSize: 10 }}>{item.status}</Tag>
+                      )}
+                    </Space>
+                  </div>
+                  <Link to={`/audio-works/${item.id}`}>
+                    <Button htmlType="button" size="small">
+                      {t('work.viewDetail')}
+                    </Button>
+                  </Link>
                 </div>
-              )}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <Text strong style={{ fontSize: 13 }}>{title}</Text>
-                {sub && sub !== title && (
-                  <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{sub}</Text>
-                )}
-                <Space size={4} style={{ marginTop: 4 }}>
-                  {item.rating != null && (
-                    <Text type="warning" style={{ fontSize: 11 }}>★ {item.rating}</Text>
-                  )}
-                  {item.status && (
-                    <Tag style={{ fontSize: 10 }}>{item.status}</Tag>
-                  )}
-                </Space>
-              </div>
-              <Button
-                htmlType="button"
-                type="primary"
-                size="small"
-                disabled={already}
-                onClick={() => addWork(type, item)}
-              >
-                {already ? t('work.added_btn') : t('work.add_btn')}
-              </Button>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        )}
+        {renderPagination('audio')}
+      </>
     );
   };
 
@@ -275,9 +416,13 @@ export default function WorkSelector({
           disabled={works.length >= maxWorks}
           onClick={() => {
             setModalOpen(true);
+            setTab('tv');
             setSearch('');
             setSeriesList([]);
             setMovieList([]);
+            setAudioList([]);
+            setPages({ tv: 1, movie: 1, audio: 1 });
+            setTotals({ tv: 0, movie: 0, audio: 0 });
           }}
         >
           {t('work.addWork')}
@@ -475,21 +620,25 @@ export default function WorkSelector({
         onCancel={() => setModalOpen(false)}
         title={t('work.addWorkModal')}
         footer={null}
-        width={640}
+        width={920}
         destroyOnClose
       >
         <Input
-          placeholder={t('work.searchSeriesOrMovie')}
+          placeholder={t('work.searchWorks')}
           prefix={<SearchOutlined />}
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            // New query always starts from the first page in every tab.
+            setPages({ tv: 1, movie: 1, audio: 1 });
+          }}
           style={{ marginBottom: 12 }}
           autoFocus
           allowClear
         />
         <Tabs
           activeKey={tab}
-          onChange={(k) => setTab(k as 'tv' | 'movie')}
+          onChange={(k) => setTab(k as WorkTab)}
           items={[
             {
               key: 'tv',
@@ -500,6 +649,11 @@ export default function WorkSelector({
               key: 'movie',
               label: t('work.movie'),
               children: renderSearchResult(movieList, 'movie'),
+            },
+            {
+              key: 'audio',
+              label: t('work.audio'),
+              children: renderAudioResult(),
             },
           ]}
         />
