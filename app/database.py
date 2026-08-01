@@ -249,10 +249,12 @@ async def create_tables() -> None:
             # (isolation_level=CONCURRENT in the URL).
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+            # FTS shadow tables + native FTS indexes live on a sidecar
+            # database (FTS indexes are incompatible with MVCC mode).
+            from app.services.fts import ensure_fts_tables
+            await ensure_fts_tables()
             await _apply_light_migrations(conn)
-            return
-
-        if "postgresql" in settings.database_url:
+        elif "postgresql" in settings.database_url:
             # Multiple distributed app replicas can start at the same time.
             # PostgreSQL enum DDL is not race-free under concurrent create_all().
             await conn.execute(text("SELECT pg_advisory_lock(72057594037927937)"))
@@ -265,6 +267,15 @@ async def create_tables() -> None:
 
         await conn.run_sync(Base.metadata.create_all)
         await _apply_light_migrations(conn)
+
+    if is_turso_url(settings.database_url):
+        # One-time backfill for databases whose FTS shadow tables predate the
+        # index introduction (e.g. migrated from SQLite).
+        from app.services.fts import backfill_fts_if_empty
+
+        async with async_session_factory() as session:
+            await backfill_fts_if_empty(session)
+            await session.commit()
 
 
 async def _apply_light_migrations(conn) -> None:

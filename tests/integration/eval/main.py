@@ -35,6 +35,16 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # FTS sidecar schema + backfill (same as the main app startup).
+    from app.services.fts import backfill_fts_if_empty, ensure_fts_tables
+
+    await ensure_fts_tables()
+    from app.database import async_session_factory
+
+    async with async_session_factory() as session:
+        await backfill_fts_if_empty(session)
+        await session.commit()
+
     # Resume any jobs that were "running" when the server stopped
     from tests.integration.eval.job_store import resume_running_jobs
     resumed = await resume_running_jobs()

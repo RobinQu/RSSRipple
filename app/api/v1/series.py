@@ -69,6 +69,7 @@ async def create_series(
     series = TVSeries(**body.model_dump())
     db.add(series)
     await db.flush()
+    await fts_service.upsert_series_fts(db, series)
     await db.refresh(series)
     return success_response(TVSeriesResponse.model_validate(series).model_dump())
 
@@ -154,6 +155,7 @@ async def update_series(
     for key, value in update_data.items():
         setattr(series, key, value)
     await db.flush()
+    await fts_service.upsert_series_fts(db, series)
     await db.refresh(series)
     return success_response(TVSeriesResponse.model_validate(series).model_dump())
 
@@ -207,5 +209,6 @@ async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
         .values(series_id=None)
     )
     await db.delete(series)
+    await fts_service.delete_series_fts(db, series_id)
     await db.commit()
     return success_response({"deleted": True})

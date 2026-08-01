@@ -106,6 +106,7 @@ async def update_audio_work(
     for key, value in update_data.items():
         setattr(audio, key, value)
     await db.flush()
+    await fts_service.upsert_audio_work_fts(db, audio)
     await db.refresh(audio)
     return success_response(AudioWorkResponse.model_validate(audio).model_dump())
 
@@ -130,5 +131,6 @@ async def delete_audio_work(audio_work_id: str, db: AsyncSession = Depends(get_d
         .values(audio_work_id=None)
     )
     await db.delete(audio)
+    await fts_service.delete_audio_work_fts(db, audio_work_id)
     await db.commit()
     return success_response({"deleted": True})

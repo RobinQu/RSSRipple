@@ -10,7 +10,7 @@
 - **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
 - **配置项**（环境变量，完整列表）：
   - `DATABASE_URL`：SQLAlchemy 数据库 URL（默认 `sqlite+aioturso:///data/rss_ripple_turso.db`）。支持两种后端：
-    - `sqlite+aioturso:///`（默认）：嵌入式 Turso 引擎（SQLite 文件格式兼容）。启用 MVCC 并发写：`journal_mode='mvcc'` 为文件级持久属性（由 `create_tables` 或 `scripts/migrate_to_turso.py` 设置），连接级通过 URL 自动附加 `isolation_level=CONCURRENT`（隐式事务发 `BEGIN CONCURRENT`）。写-写冲突报 `Write-write conflict`，由统一的锁/冲突重试设施处理。作品标题检索为基表规范化子串匹配（`app/services/fts.py`）。旧 SQLite 库用 `uv run python scripts/migrate_to_turso.py --source <old.db> --target <new.db>` 迁移（备份复制 → 删除 FTS5 对象 → 开启 MVCC → 校验）。**单进程锁定**：同一 Turso 文件同时只允许一个进程打开（其实验性 `multiprocess_wal` 与 MVCC 不兼容），因此 app 与 eval 等并容器必须各用各的库文件；需要多实例共享数据库时用 PostgreSQL。
+    - `sqlite+aioturso:///`（默认）：嵌入式 Turso 引擎（SQLite 文件格式兼容）。启用 MVCC 并发写：`journal_mode='mvcc'` 为文件级持久属性（由 `create_tables` 或 `scripts/migrate_to_turso.py` 设置），连接级通过 URL 自动附加 `isolation_level=CONCURRENT`（隐式事务发 `BEGIN CONCURRENT`）。写-写冲突报 `Write-write conflict`，由统一的锁/冲突重试设施处理。旧 SQLite 库用 `uv run python scripts/migrate_to_turso.py --source <old.db> --target <new.db>` 迁移（备份复制 → 删除 FTS5 对象 → 开启 MVCC → 校验）。**单进程锁定**：同一 Turso 文件同时只允许一个进程打开（其实验性 `multiprocess_wal` 与 MVCC 不兼容），因此 app 与 eval 等并容器必须各用各的库文件；需要多实例共享数据库时用 PostgreSQL。**全文检索**：Turso 原生 FTS（`USING fts` 索引）与 MVCC 互斥，因此 FTS 影子表放在独立的边车数据库（`<主库名>_fts.db`，WAL 模式，ngram tokenizer，`experimental_features=index_method`）；索引仅缓存规范化标题、可随时从基表重建（`app/services/fts.py`），启动时若为空自动回填。
     - `postgresql+asyncpg://`：PostgreSQL（分布式部署）。
   - `QUEUE_BACKEND`：队列后端，`"memory"`（默认）或 `"redis"`。
   - `REDIS_URL`：可选 Redis 地址，`QUEUE_BACKEND=redis` 时必填。

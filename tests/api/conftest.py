@@ -128,9 +128,21 @@ async def db_engine():
         from sqlalchemy import text
 
         await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+    # Per-test FTS sidecar (WAL-mode Turso with the ngram FTS indexes).
+    import app.services.fts as fts_mod
+
+    fts_engine = create_async_engine(
+        f"sqlite+aioturso:///{_TMP_DB_PATH}.fts?experimental_features=index_method",
+        echo=False,
+    )
+    saved_fts_engine = fts_mod._FTS_ENGINE
+    fts_mod._FTS_ENGINE = fts_engine
+    await fts_mod.ensure_fts_tables()
     try:
         yield engine
     finally:
+        fts_mod._FTS_ENGINE = saved_fts_engine
+        await fts_engine.dispose()
         await engine.dispose()
         if _TMP_DB_DIR is not None:
             _TMP_DB_DIR.cleanup()

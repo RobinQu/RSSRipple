@@ -1,13 +1,31 @@
-"""Work-title substring search for TVSeries, Movie, and AudioWork.
+"""Full-text search index management for TVSeries, Movie, and AudioWork.
 
-All indexed text and queries are passed through
-``text_normalizer.normalize_title`` (NFKC + OpenCC t2s + lowercase) so that
-Traditional/Simplified, half/full-width, and case variants all match.
-Matching is done in Python over the (small) work tables; callers compute
-``similarity_score`` on the returned candidates for precise ranking.
+Backed by Turso's native FTS (Tantivy, ``CREATE INDEX ... USING fts``) with
+the ``ngram`` tokenizer for CJK-friendly substring matching.
 
-Historically this module maintained SQLite FTS5 trigram indexes; those were
-dropped when the storage engine moved to Turso (no FTS5 support).
+**Sidecar architecture**: Turso's FTS indexes ("custom index modules") are
+incompatible with the MVCC journal mode used by the main database, so the FTS
+shadow tables live in a *separate* Turso database file (WAL mode) derived
+from the main ``DATABASE_URL`` — e.g. ``rss_ripple_turso.db`` →
+``rss_ripple_turso_fts.db``. The sidecar is a pure search index: it is
+rebuildable from the base tables at any time and never holds authoritative
+data.
+
+Design:
+- **Shadow tables** (``tv_series_fts`` / ``movie_fts`` / ``audio_work_fts``)
+  holding *normalized* text — all indexed content is passed through
+  ``text_normalizer.normalize_title`` (NFKC + OpenCC t2s + lowercase) so that
+  Traditional/Simplified, half/full-width, and case variants all match. The
+  ngram tokenizer is case-sensitive, so normalization is what makes search
+  case-insensitive.
+- **FTS indexes auto-track DML** on the shadow tables (insert/update/delete),
+  so maintenance is a plain table write on the sidecar.
+- **Candidate retrieval** — ``fts_match`` retrieves candidates; callers
+  compute ``similarity_score`` for precise ranking.
+
+Queries are normalized the same way before matching. On PostgreSQL there is
+no sidecar; searches fall back to substring matching over the base tables in
+Python (the work tables are small).
 """
 
 from __future__ import annotations
@@ -15,26 +33,161 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.config import settings
 from app.services.text_normalizer import normalize_title
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Sidecar engine
+# ---------------------------------------------------------------------------
+
+_FTS_ENGINE = None
+
+
+def _sidecar_url() -> str:
+    """Derive the FTS sidecar database URL from the main DATABASE_URL."""
+    url = settings.database_url
+    path = url.split(":///", 1)[-1].split("?", 1)[0]
+    if path == ":memory:":
+        path = "data/rss_ripple_fts.db"
+    stem, dot, _ext = path.rpartition(".")
+    fts_path = f"{stem}_fts.db" if dot else f"{path}_fts.db"
+    return f"sqlite+aioturso:///{fts_path}?experimental_features=index_method"
+
+
+def _get_fts_engine():
+    """Lazily create the sidecar engine (tests may inject their own)."""
+    global _FTS_ENGINE
+    if _FTS_ENGINE is None:
+        _FTS_ENGINE = create_async_engine(_sidecar_url())
+    return _FTS_ENGINE
+
+
+def _fts_available(db: Any) -> bool:
+    """FTS sidecar only exists alongside the Turso backend."""
+    engine = getattr(db, "engine", None)  # AsyncSession
+    if engine is None:
+        sync_session = getattr(db, "sync_session", None)
+        if sync_session is not None:
+            engine = sync_session.get_bind()
+        else:
+            engine = db
+    url = str(engine.url) if engine is not None else settings.database_url
+    return "turso" in url
+
+
+# ---------------------------------------------------------------------------
+# Schema
+# ---------------------------------------------------------------------------
+
+_SHADOW_TABLES = ("tv_series_fts", "movie_fts", "audio_work_fts")
+
+_CREATE_SHADOW = """
+    CREATE TABLE IF NOT EXISTS {table} (
+        entity_id TEXT PRIMARY KEY,
+        title_cn TEXT,
+        title_en TEXT,
+        original_title TEXT,
+        aliases TEXT
+    )
+"""
+
+_CREATE_INDEX = """
+    CREATE INDEX IF NOT EXISTS {table}_idx ON {table}
+    USING fts (title_cn, title_en, original_title, aliases)
+    WITH (tokenizer = 'ngram')
+"""
+
+
+async def ensure_fts_tables() -> None:
+    """Create FTS shadow tables and indexes on the sidecar (Turso only)."""
+    if "turso" not in settings.database_url and _FTS_ENGINE is None:
+        return
+    engine = _get_fts_engine()
+    async with engine.begin() as conn:
+        for table in _SHADOW_TABLES:
+            try:
+                await conn.execute(text(_CREATE_SHADOW.format(table=table)))
+                await conn.execute(text(_CREATE_INDEX.format(table=table)))
+            except Exception as e:
+                logger.warning("[fts] Could not create FTS objects for %s: %s", table, e)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _fts_values(entity: Any) -> dict[str, str]:
+    """Extract normalized title fields from a TVSeries or Movie for FTS indexing."""
+    return {
+        "title_cn": normalize_title(entity.title_cn) or "",
+        "title_en": normalize_title(entity.title_en) or "",
+        "original_title": normalize_title(entity.original_title) or "",
+        "aliases": " ".join(
+            normalize_title(a) for a in (entity.aliases or []) if a
+        ),
+    }
+
+
+async def _shadow_write(statements: list[tuple[str, dict]]) -> None:
+    """Execute write statements against the sidecar in one transaction."""
+    engine = _get_fts_engine()
+    async with engine.begin() as conn:
+        for sql, params in statements:
+            await conn.execute(text(sql), params)
+
+
+async def _upsert(table: str, entity: Any) -> None:
+    vals = _fts_values(entity)
+    vals["id"] = entity.id
+    await _shadow_write([
+        (f"DELETE FROM {table} WHERE entity_id = :id", {"id": entity.id}),
+        (
+            f"INSERT INTO {table} (entity_id, title_cn, title_en, original_title, aliases) "
+            "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)",
+            vals,
+        ),
+    ])
+
+
+async def _delete(table: str, entity_id: str) -> None:
+    await _shadow_write([(f"DELETE FROM {table} WHERE entity_id = :id", {"id": entity_id})])
+
+
+async def _search_fts(table: str, norm: str, limit: int) -> list[str]:
+    """fts_match over a shadow table. Callers rank by similarity themselves,
+    so no relevance ordering is applied here."""
+    engine = _get_fts_engine()
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text(
+                f"SELECT entity_id FROM {table} "
+                "WHERE fts_match(title_cn, title_en, original_title, aliases, :query) "
+                "LIMIT :limit"
+            ),
+            {"query": norm, "limit": limit},
+        )
+        return [row[0] for row in result.fetchall()]
+
 
 async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
-    """Normalized substring search over a work table.
+    """FTS-less substring search over a work table (PostgreSQL).
 
     Scans the (small) work table and matches the normalized query against the
-    normalized titles/aliases in Python.
+    normalized titles/aliases in Python — same normalization as the FTS
+    indexed content, so matching semantics stay consistent across backends.
     """
     ids: list[str] = []
     try:
         result = await db.execute(select(model))
         entities = result.scalars().all()
     except Exception as e:
-        logger.warning("[fts] LIKE search failed: %s", e)
+        logger.warning("[fts] LIKE fallback search failed: %s", e)
         return []
     for e in entities:
         haystack = " ".join(filter(None, [
@@ -50,37 +203,227 @@ async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: 
     return ids
 
 
+# ---------------------------------------------------------------------------
+# Series FTS
+# ---------------------------------------------------------------------------
+
+
+async def upsert_series_fts(db: AsyncSession, series: Any) -> None:
+    """Insert or update a series in the FTS index."""
+    if not _fts_available(db):
+        return
+    try:
+        await _upsert("tv_series_fts", series)
+    except Exception as e:
+        logger.warning("[fts] upsert_series_fts failed for %s: %s", series.id, e)
+
+
+async def delete_series_fts(db: AsyncSession, series_id: str) -> None:
+    """Remove a series from the FTS index."""
+    if not _fts_available(db):
+        return
+    try:
+        await _delete("tv_series_fts", series_id)
+    except Exception as e:
+        logger.warning("[fts] delete_series_fts failed for %s: %s", series_id, e)
+
+
 async def search_series_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
     """Search series by title. Returns a list of series entity IDs."""
-    from app.models.series import TVSeries
-
     norm = normalize_title(query)
     if not norm:
         return []
-    return await _search_entities_like(db, TVSeries, norm, limit)
+    if not _fts_available(db):
+        from app.models.series import TVSeries
+
+        return await _search_entities_like(db, TVSeries, norm, limit)
+    try:
+        return await _search_fts("tv_series_fts", norm, limit)
+    except Exception as e:
+        logger.warning("[fts] search_series_fts failed for %r: %s", norm[:60], e)
+        return []
+
+
+async def rebuild_series_fts(db: AsyncSession) -> int:
+    """Rebuild the entire series FTS index from the tv_series table."""
+    if not _fts_available(db):
+        return 0
+    from app.models.series import TVSeries
+
+    entities = (await db.execute(select(TVSeries))).scalars().all()
+    statements: list[tuple[str, dict]] = [("DELETE FROM tv_series_fts", {})]
+    for series in entities:
+        vals = _fts_values(series)
+        vals["id"] = series.id
+        statements.append((
+            "INSERT INTO tv_series_fts (entity_id, title_cn, title_en, original_title, aliases) "
+            "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)",
+            vals,
+        ))
+    try:
+        await _shadow_write(statements)
+    except Exception as e:
+        logger.warning("[fts] rebuild_series_fts failed: %s", e)
+        return 0
+    return len(entities)
+
+
+# ---------------------------------------------------------------------------
+# Movie FTS
+# ---------------------------------------------------------------------------
+
+
+async def upsert_movie_fts(db: AsyncSession, movie: Any) -> None:
+    """Insert or update a movie in the FTS index."""
+    if not _fts_available(db):
+        return
+    try:
+        await _upsert("movie_fts", movie)
+    except Exception as e:
+        logger.warning("[fts] upsert_movie_fts failed for %s: %s", movie.id, e)
+
+
+async def delete_movie_fts(db: AsyncSession, movie_id: str) -> None:
+    """Remove a movie from the FTS index."""
+    if not _fts_available(db):
+        return
+    try:
+        await _delete("movie_fts", movie_id)
+    except Exception as e:
+        logger.warning("[fts] delete_movie_fts failed for %s: %s", movie_id, e)
 
 
 async def search_movie_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
     """Search movies by title. Returns a list of movie entity IDs."""
-    from app.models.movie import Movie
-
     norm = normalize_title(query)
     if not norm:
         return []
-    return await _search_entities_like(db, Movie, norm, limit)
+    if not _fts_available(db):
+        from app.models.movie import Movie
+
+        return await _search_entities_like(db, Movie, norm, limit)
+    try:
+        return await _search_fts("movie_fts", norm, limit)
+    except Exception as e:
+        logger.warning("[fts] search_movie_fts failed for %r: %s", norm[:60], e)
+        return []
+
+
+async def rebuild_movie_fts(db: AsyncSession) -> int:
+    """Rebuild the entire movie FTS index from the movies table."""
+    if not _fts_available(db):
+        return 0
+    from app.models.movie import Movie
+
+    entities = (await db.execute(select(Movie))).scalars().all()
+    statements: list[tuple[str, dict]] = [("DELETE FROM movie_fts", {})]
+    for movie in entities:
+        vals = _fts_values(movie)
+        vals["id"] = movie.id
+        statements.append((
+            "INSERT INTO movie_fts (entity_id, title_cn, title_en, original_title, aliases) "
+            "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)",
+            vals,
+        ))
+    try:
+        await _shadow_write(statements)
+    except Exception as e:
+        logger.warning("[fts] rebuild_movie_fts failed: %s", e)
+        return 0
+    return len(entities)
+
+
+# ---------------------------------------------------------------------------
+# AudioWork FTS
+# ---------------------------------------------------------------------------
+
+
+async def upsert_audio_work_fts(db: AsyncSession, audio_work: Any) -> None:
+    """Insert or update an audio work in the FTS index."""
+    if not _fts_available(db):
+        return
+    try:
+        await _upsert("audio_work_fts", audio_work)
+    except Exception as e:
+        logger.warning("[fts] upsert_audio_work_fts failed for %s: %s", audio_work.id, e)
+
+
+async def delete_audio_work_fts(db: AsyncSession, audio_work_id: str) -> None:
+    """Remove an audio work from the FTS index."""
+    if not _fts_available(db):
+        return
+    try:
+        await _delete("audio_work_fts", audio_work_id)
+    except Exception as e:
+        logger.warning("[fts] delete_audio_work_fts failed for %s: %s", audio_work_id, e)
 
 
 async def search_audio_work_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
     """Search audio works by title. Returns a list of audio work entity IDs."""
-    from app.models.audio_work import AudioWork
-
     norm = normalize_title(query)
     if not norm:
         return []
-    return await _search_entities_like(db, AudioWork, norm, limit)
+    if not _fts_available(db):
+        from app.models.audio_work import AudioWork
+
+        return await _search_entities_like(db, AudioWork, norm, limit)
+    try:
+        return await _search_fts("audio_work_fts", norm, limit)
+    except Exception as e:
+        logger.warning("[fts] search_audio_work_fts failed for %r: %s", norm[:60], e)
+        return []
+
+
+async def rebuild_audio_work_fts(db: AsyncSession) -> int:
+    """Rebuild the entire audio work FTS index from the audio_works table."""
+    if not _fts_available(db):
+        return 0
+    from app.models.audio_work import AudioWork
+
+    entities = (await db.execute(select(AudioWork))).scalars().all()
+    statements: list[tuple[str, dict]] = [("DELETE FROM audio_work_fts", {})]
+    for aw in entities:
+        vals = _fts_values(aw)
+        vals["id"] = aw.id
+        statements.append((
+            "INSERT INTO audio_work_fts (entity_id, title_cn, title_en, original_title, aliases) "
+            "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)",
+            vals,
+        ))
+    try:
+        await _shadow_write(statements)
+    except Exception as e:
+        logger.warning("[fts] rebuild_audio_work_fts failed: %s", e)
+        return 0
+    return len(entities)
+
+
+async def backfill_fts_if_empty(db: AsyncSession) -> None:
+    """Populate FTS shadow tables from the base tables when they are empty.
+
+    One-time recovery for databases created before the FTS indexes were
+    introduced (or freshly migrated from SQLite).
+    """
+    if not _fts_available(db):
+        return
+    engine = _get_fts_engine()
+    for table, rebuild in (
+        ("tv_series_fts", rebuild_series_fts),
+        ("movie_fts", rebuild_movie_fts),
+        ("audio_work_fts", rebuild_audio_work_fts),
+    ):
+        try:
+            async with engine.connect() as conn:
+                count = (await conn.execute(text(f"SELECT COUNT(*) FROM {table}"))).scalar() or 0
+        except Exception:
+            continue
+        if count == 0:
+            n = await rebuild(db)
+            if n:
+                logger.info("[fts] backfilled %s with %d rows", table, n)

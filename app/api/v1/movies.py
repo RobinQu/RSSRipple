@@ -70,6 +70,7 @@ async def create_movie(
     movie = Movie(**body.model_dump())
     db.add(movie)
     await db.flush()
+    await fts_service.upsert_movie_fts(db, movie)
     await db.refresh(movie)
     return success_response(MovieResponse.model_validate(movie).model_dump())
 
@@ -139,6 +140,7 @@ async def update_movie(
     for key, value in update_data.items():
         setattr(movie, key, value)
     await db.flush()
+    await fts_service.upsert_movie_fts(db, movie)
     await db.refresh(movie)
     return success_response(MovieResponse.model_validate(movie).model_dump())
 
@@ -191,5 +193,6 @@ async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
         .values(movie_id=None)
     )
     await db.delete(movie)
+    await fts_service.delete_movie_fts(db, movie_id)
     await db.commit()
     return success_response({"deleted": True})
