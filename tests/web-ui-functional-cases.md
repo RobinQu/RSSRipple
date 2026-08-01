@@ -6,6 +6,9 @@
 2. Assert the Dashboard heading is visible.
 3. Assert active Agent, active channel, downloading, and pending decision summary cards are visible.
 4. Assert shortcut buttons for adding a channel and adding an Agent are visible.
+5. Assert the "下载代理" section below the stats shows up to 4 active agent cards (half width each, name links to agent detail, with subscribed-works/condition summary) and an in-progress downloads list or its empty fallback text.
+6. Assert the "活跃下载" card sits below the 下载代理 section.
+7. Assert the pending-decisions area: with pending items, a warning-styled "待决策" card with confirm/skip actions; with none, a "暂无待决策事项" hint directly under the stats and no 待决策 card.
 
 ## Channel Create, Preview, Fetch, And Resources
 
@@ -24,17 +27,22 @@
 13. Assert the resource total is positive, the resource table renders, and pagination limits the current page to the configured page size.
 14. Click a resource row.
 15. Assert the resource detail drawer opens with metadata correction actions.
+16. Select several resources linked to works and click 生成过滤规则.
+17. Assert the generated conditions are grouped by work under the 作品订阅 section (each work card holds its own conditions, common conditions folded into every work), and the 全局规则 section below is empty (manual editing only).
+18. Switch between 新建 Agent and 应用到已有 Agent; assert the merge hint states generated rules only apply at the work level and never modify the target agent's global filter.
 
 ## Downloaders
 
 1. Open `/downloaders`.
 2. Assert the downloader list table and add button are visible.
 3. Open the add downloader form.
-4. Enter a Transmission RPC URL, for example `http://transmission:9091/transmission/rpc`, and default download directory `/downloads`.
-5. Submit the form.
-6. Assert the downloader detail page opens.
-7. Click test connection.
-8. Assert the page remains usable and the Transmission torrent list can be refreshed.
+4. Assert the default download directory is pre-filled with `/downloads/complete`.
+5. Enter a Transmission RPC URL, for example `http://transmission:9091/transmission/rpc` (the default download directory can be kept as-is).
+6. Submit the form.
+7. Assert the downloader detail page opens.
+8. Click test connection.
+9. Assert the page remains usable and the Transmission torrent list can be refreshed.
+10. Open the edit form, change the RPC URL without saving, and click test connection; assert the probe runs against the form's unsaved values (the result toast reflects the new URL, and the stored status is unchanged).
 
 ## Agents
 

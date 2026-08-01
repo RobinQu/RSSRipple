@@ -99,19 +99,53 @@ git config core.hooksPath githooks
 
 自动修复：`uv run ruff check --fix .`。如需临时跳过（不推荐）：`git commit --no-verify`。
 
-## 测试
+## 本地开发
 
 ```bash
-# 单元测试和 API 测试
+uv sync
+cd frontend && npm install && npm run build && cd ..
+uv run uvicorn app.main:app --reload --port 9001
+```
+
+compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热重载 — 在 `frontend/` 下运行 `npm run build`，或 `docker compose build app` 把新 bundle 重新打包进镜像。前端构建需要 Node.js 20.19+ 或 22.12+（Vite 8）；Docker 镜像内的前端构建阶段使用 `node:22-slim`。
+
+## 测试
+
+**单元 & API 测试**（快速，本地 Turso）：
+
+```bash
 uv run pytest tests/unit tests/api -v
+```
 
-# 集成测试（单节点：Turso + MemoryQueue）
-rm -rf data/ && mkdir -p data
+**集成测试**（docker-compose）— 两个 profile：
+
+单节点（Turso + MemoryQueue）— 快速，无外部依赖：
+
+```bash
+rm -rf data/ && mkdir -p data   # 残留的数据库文件在 `down -v` 后仍会保留
 docker compose -f docker-compose.test.yml run --rm test-runner
+# 单个模块：
+docker compose -f docker-compose.test.yml run --rm test-runner \
+  uv run pytest tests/integration/http/test_channel_workflow.py -v --tb=short
+```
 
-# 集成测试（分布式：PostgreSQL + Redis，双实例）
+分布式（PostgreSQL + Redis，两个 app 副本）— 验证多实例队列去重：
+
+```bash
 docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 ```
+
+需要持久网络客户端的测试（E2E、种子生命周期）在两个 profile 中都被排除；Redis 专用的队列测试在单节点模式下自动跳过。浏览器端 E2E（Midscene.js）的运行方式见 [tests/midscene/README.md](tests/midscene/README.md)。
+
+## 面向 Coding Agents 的 Spec 说明
+
+如果你是在本仓库工作的 coding agent（Claude Code、Cursor、Copilot、Codex 等），按以下顺序阅读：
+
+- **[AGENTS.md](AGENTS.md)** — 权威 spec 索引与核心约束速查；详细设计（数据模型、Filter DSL、API 端点、业务逻辑、前端路由、错误处理、分支规范）在 [docs/design/](docs/design/) 子文档中。这是*系统如何工作*的唯一事实来源。
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — 模块布局与运行时数据流。
+- **[DESIGN.md](DESIGN.md)** — 设计 token 与视觉指引（仅前端）。
+
+实现必须遵循 AGENTS.md。当代码与 AGENTS.md 不一致时，以 AGENTS.md 描述的行为为准 — 修复代码，或当设计确实已变更时更新 AGENTS.md。
 
 ## 工具推荐
 
@@ -123,4 +157,4 @@ docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 
 - [Conventional Branch 规范](https://conventionalbranch.org/)
 - [docs/design/branching.md](docs/design/branching.md) — AI Agent 可读的完整分支规范
-- [README.md](README.md) — 项目概览和本地开发指南
+- [README.md](README.md) — 项目概览、快速开始与使用指引

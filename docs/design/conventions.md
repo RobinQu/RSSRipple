@@ -7,6 +7,7 @@
   - `Agent.download_subdir` 可空；非空时必须是相对路径，禁止以 `/`、`\`、`~`、Windows drive prefix（如 `C:\`）、UNC prefix（如 `\\server\share`）开头，禁止 `..` 段和控制字符。
   - 子目录 API 表达推荐使用 `/` 分隔；后端根据 Downloader 根目录风格拼接，标准化后必须保证最终路径仍在 `DownloaderInstance.download_dir` 下。
   - `DownloadTask.download_dir` 保存创建任务时解析出的最终绝对路径；任务重试沿用该字段。
+  - 前端下载器表单的默认下载目录预填值为 `/downloads/complete`（新建表单初始值；编辑表单在已存值为空时回填；mock 类型除外，用 `/tmp/mock-downloads`）。
 - **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
 - **配置项**（环境变量，完整列表）：
   - `DATABASE_URL`：SQLAlchemy 数据库 URL（默认 `sqlite+aioturso:///data/rss_ripple_turso.db`）。支持两种后端：

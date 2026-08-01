@@ -8,10 +8,10 @@ uses a multimodal LLM to locate elements and assert page states.
 
 | File | Scope |
 |------|-------|
-| `dashboard.yaml` | Dashboard stats/cards, sidebar navigation, sidebar collapse |
+| `dashboard.yaml` | Dashboard stats/cards, download-agents section, pending-decisions empty/non-empty states, sidebar navigation, sidebar collapse |
 | `settings.yaml` | System Settings page (read-only: LLM API card, data sources) |
 | `channels-lifecycle.yaml` | Channel CRUD: create (validate + preview), detail, fetch, edit, delete |
-| `downloaders-lifecycle.yaml` | Downloader CRUD using the deterministic **Mock** downloader type |
+| `downloaders-lifecycle.yaml` | Downloader CRUD using the deterministic **Mock** downloader type (incl. default download-dir prefill and edit-form connection test) |
 | `agents-lifecycle.yaml` | Agent CRUD + all detail tabs (works/tasks/decisions/filter/run); creates its own channel + Mock downloader prerequisites |
 | `resources-metadata.yaml` | Channel resources tabs, resource detail drawer, metadata correction modal |
 | `works-repository.yaml` | Unified `/works` Repository page (filter/search/detail) + legacy `/series` & `/movies` redirects |

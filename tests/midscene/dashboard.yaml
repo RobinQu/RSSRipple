@@ -32,14 +32,18 @@ tasks:
     flow:
       - aiAssert: The top-right of the Dashboard has an "Add Channel" button and an "Add Agent" button
 
+  - name: Dashboard shows download agents section
+    flow:
+      - aiAssert: The page displays a "Download Agents" section below the statistics cards with up to 4 active agent cards (each about half the section width, agent name links to the agent detail page, showing channel, subscribed works or "Channel-wide", and condition tags), followed by an "In-progress Downloads" list with progress bars, or a "No in-progress downloads" fallback text
+
   - name: Dashboard shows active downloads section
     flow:
       - aiAssert: The page displays an "Active Downloads" card listing ongoing download groups with posters and progress bars, or an empty state saying there are no active downloads
 
   - name: Dashboard shows pending decisions section
     flow:
-      - ai: Scroll down to view the "Pending Decisions" card
-      - aiAssert: The page has a "Pending Decisions" section showing decision cards with candidate resources and Confirm/Skip actions, or an empty state message if nothing is pending
+      - ai: Scroll down to view the bottom of the page
+      - aiAssert: If decisions are pending, the page has a "Pending Decisions" card with a warning-orange border and title showing decision cards with candidate resources and Confirm/Skip actions; if nothing is pending, there is NO Pending Decisions card and instead a "No pending decisions" hint text appears directly under the statistics cards
 
   - name: Navigate to Repository via sidebar
     flow:

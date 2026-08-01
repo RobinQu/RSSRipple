@@ -29,6 +29,7 @@ tasks:
       - ai: Click the "Add Downloader" primary button at the top right
       - aiWaitFor: The "Add Downloader" form loads with a "Downloader Type" selector and a "Name" field
         timeout: 10000
+      - aiAssert: The "Default Download Directory" field is pre-filled with "/downloads/complete"
 
   - name: Select Mock downloader type
     flow:
@@ -65,6 +66,12 @@ tasks:
       - ai: Click the "Edit" button on the downloader detail page
       - aiWaitFor: The "Edit Downloader" form loads with the name pre-filled as "Test Mock Downloader" and the Downloader Type selector disabled
         timeout: 10000
+
+  - name: Test connection from the edit form uses the form values
+    flow:
+      - ai: Click the "Test Connection" button on the edit form
+      - aiWaitFor: A toast or status message shows the connection test result (success for a Mock downloader); the test probes the form's current values rather than the saved config
+        timeout: 20000
 
   - name: Update downloader name
     flow:

@@ -4,6 +4,10 @@
 
 **English** | [中文](README_CN.md)
 
+[![CI Fast Gate](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-fast.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-fast.yml)
+[![CI Strict Gate](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-strict.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/ci-strict.yml)
+[![Docker Publish](https://github.com/RobinQu/RSSRipple/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/RobinQu/RSSRipple/actions/workflows/docker-publish.yml)
+
 RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It fetches RSS feeds, parses each release with per-channel field mappings, links releases to a local metadata library, filters them through Agents, and dispatches matching torrents to Transmission — closing the loop from subscription to download.
 
 ## Highlights
@@ -13,7 +17,7 @@ RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It 
 - **Unified metadata agent** — a LangGraph ReAct agent cleans titles, infers season/episode, and searches exactly one selected source (`exa`, `jina`, `tmdb`, or `wikipedia`). Results cache locally as `TVSeries` / `Movie` to avoid re-querying.
 - **Filter DSL** — boolean queries with nested `and` / `or`, field operators, per-work overrides, and first-class support for batches (`is_batch`) and multi-value subtitle languages (`zh-CN`, `zh-TW`, `ja`, `en`, `multi`).
 - **Transmission integration** — multiple downloader instances, required default directory with optional per-Agent subdirectories, retry with persisted destination, and live progress sync. A `mock` downloader is included for testing.
-- **React dashboard** — channels, resources, agents, pending decisions, download tasks, the works library, and downloaders, all in one place.
+- **React dashboard** — key metrics, top active agents with their in-progress tasks, active downloads, pending decisions, channels, agents, the works library, and downloaders, all in one place.
 
 ## Quick Start
 
@@ -49,6 +53,8 @@ cd frontend && npm install && npm run build && cd ..
 uv run uvicorn app.main:app --reload --port 9001
 ```
 
+The frontend build requires Node.js 20.19+ or 22.12+ (Vite 8).
+
 ## Obtaining API Credentials
 
 RSSRipple needs an LLM and at least one metadata source. Get the keys you want, then put them in `.env`.
@@ -75,68 +81,28 @@ Common variables (full list in [docs/design/conventions.md](docs/design/conventi
 | `QUEUE_BACKEND` | `"memory"` (default) or `"redis"` (requires `REDIS_URL`) |
 | `POSTER_CACHE_DIR` | Poster image cache, served at `/posters` |
 
-Each metadata source appears as a candidate only when enabled **and** its API key is set (`wikipedia` needs no key). Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`.
+## Using RSSRipple
 
-## Developer Guide
+Once the app is running at http://localhost:9001:
 
-### Local development
+1. **Add a channel** — *Channels → New Channel*: paste the RSS URL, click **Validate**, then let the LLM propose the field mapping (or adjust it yourself) and create the channel.
+2. **Add a downloader** — *Downloaders → Add Downloader*: enter your Transmission RPC URL; the default download directory is pre-filled with `/downloads/complete`. Use **Test Connection** — it probes the values currently in the form, so you can verify before saving.
+3. **Create an agent** — *Download Agents → New Agent*: pick the channel and downloader, subscribe specific works (series/movies, up to 10) or go channel-wide, and refine the filter conditions. Saving runs a rules-preview that lets you optionally backfill existing resources. On a channel's detail page you can also select a few resources and use **Generate Filter Rules** to bootstrap an agent from them.
+4. **Watch the dashboard** — `/` shows the key metrics, your top active agents with their in-progress downloads, the active download list, and anything waiting for your decision (confirm/skip, with an AI suggestion when LLM is enabled).
 
-The compose file watches `./app` and hot-reloads Python. Frontend changes are **not** hot-reloaded — run `npm run build` in `frontend/`, or `docker compose build app` to bake a new bundle into the image.
+## Feedback & Issues
 
-### Tests
+Found a bug or have a feature request? Please open an issue at [GitHub Issues](https://github.com/RobinQu/RSSRipple/issues).
 
-**Unit & API tests** (fast, local Turso):
+To help us reproduce and fix it quickly, include:
 
-```bash
-uv run pytest tests/unit tests/api -v
-```
+- The version or image tag you run (e.g. `ghcr.io/robinqu/rssripple:latest`) and how you deployed (Docker Compose / manual).
+- Steps to reproduce, expected vs. actual behavior — screenshots help a lot.
+- Relevant logs (`docker compose logs app` or the server console output) — redact any API keys before posting.
 
-**Integration tests** (docker-compose) — two profiles:
+## Contributing
 
-Single-node (Turso + MemoryQueue) — fast, no external dependencies:
-
-```bash
-rm -rf data/ && mkdir -p data   # stale database files persist across `down -v`
-docker compose -f docker-compose.test.yml run --rm test-runner
-# single module:
-docker compose -f docker-compose.test.yml run --rm test-runner \
-  uv run pytest tests/integration/http/test_channel_workflow.py -v --tb=short
-```
-
-Distributed (PostgreSQL + Redis, two app replicas) — exercises multi-instance queue dedup:
-
-```bash
-docker compose -f docker-compose.test-distributed.yml run --rm test-runner
-```
-
-Tests requiring a persistent network client (E2E, torrent lifecycle) are excluded from both profiles; Redis-specific job-queue tests are skipped in single-node mode.
-
-### Contributing
-
-Branch naming follows [Conventional Branch](https://conventionalbranch.org/) v1.1.0. See [CONTRIBUTION.md](CONTRIBUTION.md) for the workflow and [docs/design/branching.md](docs/design/branching.md) for the full branch specification.
-
-### CI/CD
-
-GitHub Actions handles continuous integration and delivery:
-
-- **CI Fast Gate** (`ci-fast.yml`) — feature/fix branches and their PRs: lint + unit/API tests.
-- **CI Strict Gate** (`ci-strict.yml`) — `develop`, `release/**` and their PRs: lint + unit/API + integration tests.
-- **Docker Publish** (`docker-publish.yml`) — on push to `main` or a `v*` tag, builds a multi-arch (`linux/amd64` + `linux/arm64`) image and pushes it to `ghcr.io/robinqu/rssripple`. Tags: `main` → `:latest`, `:main`, `:sha-<short>`; `v1.2.3` → `:1.2.3`, `:1.2`, `:1`. The build is gated on lint + unit/API tests.
-
-See [CONTRIBUTION.md](CONTRIBUTION.md) for the full workflow and the recommended release flow.
-
-A local `pre-commit` hook (`githooks/pre-commit`) runs the same `ruff check .` before each commit — enable once with `git config core.hooksPath githooks`.
-
-## Specs for Coding Agents
-
-If you are a coding agent (Claude Code, Cursor, Copilot, Codex, …) working on this repo, read these in order:
-
-- **[AGENTS.md](AGENTS.md)** — the authoritative spec index and quick reference of core invariants; the detailed design (data models, Filter DSL, API endpoints, business logic, frontend routes, error handling, branch policy) lives in the [docs/design/](docs/design/) subdocs. This is the single source of truth for *how the system works*.
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — module layout and runtime data flow.
-- **[overview.md](overview.md)** — design-logic analysis of the channel & metadata library.
-- **[DESIGN.md](DESIGN.md)** — design tokens and visual guidance (frontend only).
-
-Implementation must follow AGENTS.md. When code and AGENTS.md disagree, AGENTS.md describes the intended behavior — fix the code, or update AGENTS.md if the design has genuinely changed.
+Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTRIBUTION.md). Coding agents should start with [AGENTS.md](AGENTS.md).
 
 ## Tech Stack
 
