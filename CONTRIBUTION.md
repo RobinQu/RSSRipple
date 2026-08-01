@@ -105,7 +105,7 @@ git config core.hooksPath githooks
 # 单元测试和 API 测试
 uv run pytest tests/unit tests/api -v
 
-# 集成测试（单节点：SQLite + MemoryQueue）
+# 集成测试（单节点：Turso + MemoryQueue）
 rm -rf data/ && mkdir -p data
 docker compose -f docker-compose.test.yml run --rm test-runner
 

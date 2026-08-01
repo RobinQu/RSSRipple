@@ -13,7 +13,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 | External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), Exa Agent API, TMDB API, Wikipedia Python library, feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |
 
-数据库默认使用 SQLite，可切换至 PostgreSQL。
+数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。全文检索使用 Turso 原生 FTS（ngram），因与 MVCC 互斥而放在独立的边车数据库。
 
 ## 3. 模块划分
 
@@ -42,7 +42,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 │  └─────────┘ └─────────┘ └──────────────┘  │
 │       │                                    │
 │  ┌────▼────────────────────────────────┐   │
-│  │   SQLAlchemy ORM + SQLite/Postgres  │   │
+│  │   SQLAlchemy ORM + Turso/Postgres   │   │
 │  └─────────────────────────────────────┘   │
 └─────────────────────────────────────────────┘
 ```
@@ -54,7 +54,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 - **Client 层**：外部服务封装（RSS 解析、Transmission RPC、LLM 调用）。下载器通过工厂 `app.clients.downloader.get_downloader_client(downloader)` 分派：`type="transmission"` → `TransmissionWrapper`，`type="mock"` → `MockDownloaderWrapper`（本地内存模拟器，用于测试 Agent 流程）。二者共享同一异步接口。
 - **Scheduler 层**：APScheduler 管理定时任务（频道抓取、进度同步、过期清理）
 - **Task Queue 层**：异步后台任务队列（手动触发的 fetch/run），支持内存和 Redis 两种后端
-- **数据层**：SQLAlchemy ORM，SQLite 默认
+- **数据层**：SQLAlchemy ORM，嵌入式 Turso 默认（MVCC 并发写；FTS 走边车库）
 
 ## 4. 核心数据实体
 

@@ -284,7 +284,7 @@ Layer 4: UnifiedMetadataAgent (仅当 channel.metadata_agent_enabled)
 │  Agent / AgentWork / DownloadTask / PendingDecision  │
 │  ChannelRawTitleMapping / MetadataCache              │
 │  AgentSuggestion / DownloaderInstance                │
-│  SQLAlchemy 2.0 async + SQLite/PostgreSQL            │
+│  SQLAlchemy 2.0 async + Turso/PostgreSQL             │
 └─────────────────────────────────────────────────────┘
 ```
 
