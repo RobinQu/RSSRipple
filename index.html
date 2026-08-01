@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RSSRipple — RSS subscription downloader</title>
+<meta name="description" content="RSSRipple is an RSS subscription downloader for TV / anime / movie releases. Fetch, parse, match, filter, download — closing the loop from subscription to Transmission.">
+<style>
+  :root {
+    --ink: #17171c;
+    --muted: #6b6b76;
+    --line: #e5e5ea;
+    --accent: #ff7759;
+    --blue: #1863dc;
+    --bg: #fbfbfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.7;
+  }
+  main { max-width: 640px; margin: 0 auto; padding: 96px 24px 64px; }
+
+  /* logo mark: the pixel "R" */
+  .mark { width: 44px; height: 44px; display: block; margin-bottom: 24px; }
+
+  h1 { font-size: 34px; font-weight: 850; letter-spacing: -0.02em; line-height: 1.2; }
+  .tagline { color: var(--muted); font-size: 17px; margin-top: 10px; }
+
+  .pipeline {
+    margin-top: 28px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+    display: flex; flex-wrap: wrap; gap: 6px 0;
+  }
+  .pipeline b { color: var(--ink); font-weight: 650; }
+  .pipeline .arrow { color: var(--accent); margin: 0 8px; }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+
+  h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 14px; }
+
+  ul.features { list-style: none; }
+  ul.features li { padding: 6px 0 6px 22px; position: relative; font-size: 15px; }
+  ul.features li::before {
+    content: ""; position: absolute; left: 2px; top: 15px;
+    width: 7px; height: 7px; background: var(--accent);
+  }
+  ul.features li:nth-child(even)::before { background: var(--blue); }
+
+  pre {
+    background: var(--ink); color: #f5f5f2;
+    border-radius: 8px; padding: 16px 20px;
+    font-size: 13.5px; overflow-x: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre .c { color: #8a8a95; }
+
+  .links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+  .links a {
+    font-size: 14.5px; font-weight: 600; text-decoration: none;
+    color: var(--ink); border-bottom: 2px solid var(--accent); padding-bottom: 1px;
+  }
+  .links a:hover { color: var(--accent); }
+  .links a.alt { border-bottom-color: var(--blue); }
+  .links a.alt:hover { color: var(--blue); }
+
+  footer { max-width: 640px; margin: 0 auto; padding: 0 24px 48px; color: var(--muted); font-size: 13px; }
+
+  @media (max-width: 480px) {
+    main { padding-top: 64px; }
+    h1 { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <!-- pixel-R mark, from the project banner -->
+  <svg class="mark" viewBox="0 0 76 76" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="RSSRipple logo">
+    <rect fill="#17171c" x="0" y="0" width="76" height="76"/>
+    <rect fill="#ffffff" x="20" y="14" width="12" height="48"/>
+    <rect fill="#ffffff" x="32" y="14" width="20" height="12"/>
+    <rect fill="#ffffff" x="52" y="26" width="12" height="12"/>
+    <rect fill="#ffffff" x="32" y="38" width="20" height="12"/>
+    <rect fill="#ff7759" x="44" y="50" width="12" height="12"/>
+    <rect fill="#1863dc" x="56" y="62" width="8" height="8"/>
+  </svg>
+
+  <h1>RSSRipple</h1>
+  <p class="tagline">An RSS subscription downloader for TV / anime / movie releases.<br>从订阅到下载，一条流水线闭环。</p>
+
+  <p class="pipeline">
+    <b>Fetch</b><span class="arrow">→</span><b>Parse</b><span class="arrow">→</span><b>Match</b><span class="arrow">→</span><b>Filter</b><span class="arrow">→</span><b>Download</b>
+  </p>
+
+  <hr>
+
+  <h2>Highlights</h2>
+  <ul class="features">
+    <li>Incremental agent runs with a watermark — history is never silently re-dispatched</li>
+    <li>LLM proposes feed field-mapping rules; refine them in the UI before saving</li>
+    <li>Unified metadata agent cleans titles, infers season/episode, caches results locally</li>
+    <li>Filter DSL with nested boolean queries, per-work overrides, batch &amp; subtitle support</li>
+    <li>Multiple Transmission instances, per-agent subdirectories, live progress sync</li>
+    <li>React dashboard: metrics, downloads, pending decisions, channels &amp; works library</li>
+  </ul>
+
+  <hr>
+
+  <h2>Quick start</h2>
+  <pre><span class="c"># set LLM_API_KEY / LLM_BASE_URL / LLM_MODEL in .env</span>
+cp .env.example .env
+docker compose up --build
+<span class="c"># Web UI → http://localhost:9001</span></pre>
+
+  <hr>
+
+  <h2>Links</h2>
+  <div class="links">
+    <a href="https://github.com/RobinQu/RSSRipple">GitHub</a>
+    <a class="alt" href="https://github.com/RobinQu/RSSRipple#readme">Documentation</a>
+    <a href="https://github.com/RobinQu/RSSRipple/blob/main/README_CN.md">中文文档</a>
+    <a class="alt" href="https://github.com/RobinQu/RSSRipple/releases">Releases</a>
+  </div>
+</main>
+
+<footer>
+  RSSRipple · Turso + FastAPI + React
+</footer>
+</body>
+</html>
