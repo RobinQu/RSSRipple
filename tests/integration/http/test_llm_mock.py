@@ -24,6 +24,8 @@ from tests.integration.http._http import RICH_FIELD_MAPPING, TEST_SERVER
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
 MIKANANI_S1_URL = f"{TEST_SERVER}/rss/mikanani?series=1"  # 葬送的芙莉莲
+MIKANANI_S3_URL = f"{TEST_SERVER}/rss/mikanani?series=3"  # 咒术回战
+MIKANANI_S4_URL = f"{TEST_SERVER}/rss/mikanani?series=4"  # 小书痴的下克上
 FRIEREN_TITLE_CN = "葬送的芙莉莲"
 
 pytestmark = pytest.mark.skipif(
@@ -416,6 +418,95 @@ class TestMetadataAgentMock:
             )
             assert r.status_code == 200
             assert r.json()["data"]["results"] == []
+        finally:
+            _api(f"/api/v1/channels/{ch_id}", method="delete")
+
+    def test_agent_links_canned_movie(self):
+        """Movie verdict from the mock agent → Movie row + movie_id links.
+
+        The channel name carries the ``mockmovie`` routing keyword (the agent
+        prompt includes the channel name). Uses the S3 feed (咒术回战): its
+        title matches no existing work (the S1 title-index short-circuit would
+        otherwise bypass the agent), and no other app-llm test uses this feed —
+        the MetadataCache is keyed by raw_title + source, so reusing a feed
+        across tests with different expected verdicts poisons them.
+        """
+        r = _api(
+            "/api/v1/channels",
+            method="post",
+            json={
+                "name": "LLM Metadata Channel mockmovie",
+                "url": MIKANANI_S3_URL,
+                "field_mapping": RICH_FIELD_MAPPING,
+                "fetch_interval": 3600,
+                "metadata_agent_enabled": True,
+                "metadata_source": "exa",
+            },
+        )
+        assert r.status_code == 201, f"create channel failed: {r.text}"
+        ch_id = r.json()["data"]["id"]
+
+        try:
+            _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
+            result = _poll_fetch(ch_id)
+            assert result.get("status") == "done", f"fetch failed: {result}"
+
+            r = _api("/api/v1/movies", params={"page_size": 100, "title": "黄泉使者"})
+            movies = [
+                m for m in r.json()["data"]
+                if m.get("external_id") == "mock-exa-daemons-movie"
+            ]
+            assert movies, "expected the mock-exa-daemons-movie movie to be created"
+            movie_id = movies[0]["id"]
+
+            r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
+            resources = r.json().get("data", [])
+            linked = [res for res in resources if res.get("movie_id")]
+            assert linked, "mock agent should link resources to the canned movie"
+            assert all(res["movie_id"] == movie_id for res in linked)
+        finally:
+            _api(f"/api/v1/channels/{ch_id}", method="delete")
+
+    def test_agent_links_canned_audio_work(self):
+        """Audio verdict (drama_cd) → AudioWork row + audio_work_id links.
+
+        Same routing trick as the movie test, via the ``mockaudio`` keyword,
+        on the S4 feed (小书痴的下克上) — again a feed no other app-llm test
+        touches, to keep the raw_title-keyed MetadataCache isolated.
+        """
+        r = _api(
+            "/api/v1/channels",
+            method="post",
+            json={
+                "name": "LLM Metadata Channel mockaudio",
+                "url": MIKANANI_S4_URL,
+                "field_mapping": RICH_FIELD_MAPPING,
+                "fetch_interval": 3600,
+                "metadata_agent_enabled": True,
+                "metadata_source": "exa",
+            },
+        )
+        assert r.status_code == 201, f"create channel failed: {r.text}"
+        ch_id = r.json()["data"]["id"]
+
+        try:
+            _api(f"/api/v1/channels/{ch_id}/fetch", method="post")
+            result = _poll_fetch(ch_id)
+            assert result.get("status") == "done", f"fetch failed: {result}"
+
+            r = _api("/api/v1/audio-works", params={"page_size": 100, "search": "黄泉使者"})
+            works = [
+                w for w in r.json()["data"]
+                if w.get("external_id") == "mock-exa-daemons-drama-cd"
+            ]
+            assert works, "expected the mock drama-cd audio work to be created"
+            work_id = works[0]["id"]
+
+            r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
+            resources = r.json().get("data", [])
+            linked = [res for res in resources if res.get("audio_work_id")]
+            assert linked, "mock agent should link resources to the canned audio work"
+            assert all(res["audio_work_id"] == work_id for res in linked)
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 

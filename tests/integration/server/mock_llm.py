@@ -70,11 +70,42 @@ def _finalize_result(messages: list) -> dict:
     """Build the finalize result_json, routed by the work title in the prompt.
 
     Known canned works finalize found=true (drives the upsert + link path);
-    anything else finalizes found=false (drives the not_found path).
+    anything else finalizes found=false (drives the not_found path). The
+    ``mockmovie`` / ``mockaudio`` keywords are carried by the *channel name*
+    (the agent prompt includes it) so tests can route a feed's resources to
+    the movie / audio-work upsert paths without dedicated feeds.
     """
     text = "\n".join(str(m.get("content", "")) for m in messages)
     canned = None
-    if "Frieren" in text or "芙莉莲" in text:
+    if "mockmovie" in text:
+        canned = {
+            "clean_title": "黄泉使者 剧场版",
+            "entity": {
+                "content_type": "movie",
+                "external_id": "mock-exa-daemons-movie",
+                "external_source": "exa",
+                "title_cn": "黄泉使者 剧场版",
+                "title_en": "Daemons of the Shadow Realm: The Movie",
+                "description": "Mock LLM movie metadata result for integration tests.",
+                "genre": ["Anime", "Action"],
+                "rating": 8.0,
+            },
+        }
+    elif "mockaudio" in text:
+        canned = {
+            "clean_title": "黄泉使者 广播剧",
+            "entity": {
+                "content_type": "drama_cd",
+                "external_id": "mock-exa-daemons-drama-cd",
+                "external_source": "exa",
+                "title_cn": "黄泉使者 广播剧",
+                "title_en": "Daemons of the Shadow Realm Drama CD",
+                "description": "Mock LLM audio-work metadata result for integration tests.",
+                "genre": ["Anime", "Drama"],
+                "rating": 8.2,
+            },
+        }
+    elif "Frieren" in text or "芙莉莲" in text:
         canned = {
             "clean_title": "葬送的芙莉莲",
             "entity": {
@@ -106,7 +137,7 @@ def _finalize_result(messages: list) -> dict:
         result = {
             "found": True,
             "clean_title": canned["clean_title"],
-            "content_type": "tv",
+            "content_type": canned["entity"]["content_type"],
             "confidence": 0.95,
             "matched_entity": canned["entity"],
         }
