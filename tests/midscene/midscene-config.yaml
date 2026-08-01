@@ -1,15 +1,25 @@
 # Midscene batch run configuration for RSSRipple E2E tests.
-# Usage: midscene --config ./tests/midscene/midscene-config.yaml
+#
+# Run from THIS directory so the CLI picks up ./.env (model credentials):
+#   cd tests/midscene
+#   npx @midscene/cli@latest --config midscene-config.yaml
+#
+# Prerequisites:
+#   - RSSRipple running at ${RSSRIPPLE_URL:-http://localhost:9001}
+#   - outbound network access for the live RSS feed used by channel suites
+#   - model configured in ./.env (see .env.example)
 
 files:
-  - ./tests/midscene/dashboard.yaml
-  - ./tests/midscene/channels-lifecycle.yaml
-  - ./tests/midscene/downloaders-lifecycle.yaml
-  - ./tests/midscene/agents-lifecycle.yaml
-  - ./tests/midscene/resources-metadata.yaml
-  - ./tests/midscene/series-movies.yaml
+  - ./dashboard.yaml
+  - ./settings.yaml
+  - ./channels-lifecycle.yaml
+  - ./downloaders-lifecycle.yaml
+  - ./agents-lifecycle.yaml
+  - ./resources-metadata.yaml
+  - ./works-repository.yaml
 
-# Run scripts sequentially (order matters: channels/downloaders before agents)
+# Run scripts sequentially; suites are self-contained (each creates and cleans
+# up its own entities), but sequential runs keep the server load predictable.
 concurrent: 1
 continueOnError: true
 retry: 1

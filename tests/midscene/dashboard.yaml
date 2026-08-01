@@ -1,5 +1,9 @@
 # RSSRipple Dashboard — Core overview tests
-# Validates dashboard stats, download groups, pending decisions, and sidebar navigation.
+# Validates dashboard stats, active downloads, pending decisions, sidebar navigation
+# (including the newer Repository / Settings pages) and sidebar collapse.
+#
+# UI note: the app defaults to zh-CN; every suite first switches the sidebar
+# language to English so the prompts below can rely on English labels.
 
 web:
   url: ${RSSRIPPLE_URL:-http://localhost:9001}
@@ -10,50 +14,74 @@ agent:
   groupDescription: Dashboard overview and navigation smoke tests
 
 tasks:
+  - name: Switch UI language to English
+    flow:
+      - ai: Click the "语言" (Language) dropdown at the very bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The left sidebar menu shows English labels such as "Dashboard" and "Channels"
+        timeout: 10000
+
   - name: Dashboard page loads with key statistics
     flow:
-      - ai: Navigate to the Dashboard page (click "Dashboard" in the left sidebar)
-      - aiWaitFor: The page shows statistics cards including active agents, active channels, downloading count, and pending decisions count
+      - ai: Click "Dashboard" in the left sidebar
+      - aiWaitFor: 'The page heading is "Dashboard" and statistics cards are visible: "Active Agents", "Active Channels", "Downloading" and "Pending Decisions"'
         timeout: 15000
 
-  - name: Dashboard shows active download groups
+  - name: Dashboard quick actions are visible
     flow:
-      - aiAssert: The page displays a section for "Active Downloads" or download groups, showing ongoing download tasks grouped by series or movie, each with a poster image and task list
+      - aiAssert: The top-right of the Dashboard has an "Add Channel" button and an "Add Agent" button
 
-  - name: Dashboard shows pending decisions if any exist
+  - name: Dashboard shows active downloads section
     flow:
-      - ai: Scroll down to view the pending decisions section
-      - aiAssert: The page has a section that shows pending decisions with candidate resource details and confirm/skip actions, or shows an empty state message if no decisions are pending
+      - aiAssert: The page displays an "Active Downloads" card listing ongoing download groups with posters and progress bars, or an empty state saying there are no active downloads
+
+  - name: Dashboard shows pending decisions section
+    flow:
+      - ai: Scroll down to view the "Pending Decisions" card
+      - aiAssert: The page has a "Pending Decisions" section showing decision cards with candidate resources and Confirm/Skip actions, or an empty state message if nothing is pending
+
+  - name: Navigate to Repository via sidebar
+    flow:
+      - ai: Click the "Repository" menu item in the left sidebar
+      - aiWaitFor: The Repository page loads with a works table and a segmented filter control (All / TV Series / Movies / Audio)
+        timeout: 10000
 
   - name: Navigate to Channels via sidebar
     flow:
       - ai: Click the "Channels" menu item in the left sidebar
-      - aiWaitFor: The page shows a table of RSS channels with columns like Name, Status, Fetch Interval, and Last Fetch
+      - aiWaitFor: The Channels page shows a table with columns Name, Status, Fetch Interval, Metadata, Last Fetch
         timeout: 10000
 
-  - name: Navigate to Agents via sidebar
+  - name: Navigate to Download Agents via sidebar
     flow:
-      - ai: Click the "Agents" menu item in the left sidebar
-      - aiWaitFor: The page shows a table of agents with columns like Name, Channel, Downloader, Status, and Works
+      - ai: Click the "Download Agents" menu item in the left sidebar
+      - aiWaitFor: The agents page shows a table with columns Name, Channel, Downloader, Status, Scope, Conflict, LLM, Last Run
         timeout: 10000
 
   - name: Navigate to Downloaders via sidebar
     flow:
       - ai: Click the "Downloaders" menu item in the left sidebar
-      - aiWaitFor: The page shows a table of downloader instances with columns like Name, Type, URL, Status
+      - aiWaitFor: The downloaders page shows a table with columns Name, Type, URL, Default Download Directory, Status, Last Check
+        timeout: 10000
+
+  - name: Navigate to Settings via sidebar
+    flow:
+      - ai: Click the "Settings" menu item in the left sidebar
+      - aiWaitFor: The System Settings page loads with an "LLM API" card and an "External Search Data Sources" card
         timeout: 10000
 
   - name: Return to Dashboard
     flow:
       - ai: Click the "Dashboard" menu item in the left sidebar
-      - aiWaitFor: The dashboard page loads with statistics cards visible
+      - aiWaitFor: The Dashboard page loads again with the statistics cards visible
         timeout: 10000
 
   - name: Sidebar collapse and expand
     flow:
-      - ai: Click the collapse button on the left sidebar (icon with left/right arrows)
+      - ai: Click the collapse-sidebar icon button at the very bottom of the left sidebar (tooltip "Collapse sidebar")
       - sleep: 1000
-      - aiAssert: The sidebar is collapsed showing only icons
-      - ai: Click the expand button to restore sidebar
+      - aiAssert: The sidebar is collapsed and shows only icons without menu text labels
+      - ai: Click the expand-sidebar icon button at the bottom of the collapsed sidebar (tooltip "Expand sidebar")
       - sleep: 1000
-      - aiAssert: The sidebar shows full menu labels (Dashboard, Channels, Agents, Downloaders)
+      - aiAssert: The sidebar is expanded again showing full menu labels (Dashboard, Repository, Channels, Download Agents, Downloaders, Settings)

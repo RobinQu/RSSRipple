@@ -17,6 +17,12 @@
 # ==============================================================================
 services:
   # ── RSSRipple (MemoryQueue + SQLite) ───────────────────────────────────────
+  # Runs under coverage.py so integration coverage of app/ can be measured.
+  # Data only flushes on a clean interpreter exit (uvicorn skips atexit on
+  # SIGTERM), so flush with SIGINT before stopping:
+  #   docker compose -f docker-compose.test.yml kill -s SIGINT app && sleep 5
+  #   docker compose -f docker-compose.test.yml stop app
+  #   docker compose -f docker-compose.test.yml run --rm --no-deps coverage-report
   app:
     build: .
     env_file: .env
@@ -29,6 +35,53 @@ services:
       - SCHEDULER_ENABLED=false
     volumes:
       - ./data:/app/data
+      - ./.coveragerc:/app/.coveragerc:ro
+    command:
+      - "sh"
+      - "-c"
+      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.integration -m uvicorn app.main:app --host 0.0.0.0 --port 9001"
+    depends_on:
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── RSSRipple with mock LLM (for LLM-dependent code paths) ───────────────
+  # Second app instance, same image, but wired to the test-server's mock
+  # /v1/chat/completions endpoint. Uses its OWN database file so LLM tests
+  # never cross-talk with the primary instance. Do NOT point the primary app
+  # at the mock LLM — existing tests depend on heuristic (no-LLM) behavior.
+  # Flush coverage the same way as the primary app:
+  #   docker compose -f docker-compose.test.yml kill -s SIGINT app-llm && sleep 5
+  #   docker compose -f docker-compose.test.yml stop app-llm
+  app-llm:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test_llm.db
+      - QUEUE_BACKEND=memory
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters-llm
+      # Scheduler ON here (off on the primary app): the minutely global jobs
+      # (download sync) and channel job scheduling get coverage without
+      # destabilizing the primary app's deterministic no-scheduler behavior.
+      - SCHEDULER_ENABLED=true
+      - LLM_BASE_URL=http://test-server:8080/v1
+      - LLM_API_KEY=mock-key
+      - LLM_MODEL=mock-model
+    volumes:
+      - ./data:/app/data
+      - ./.coveragerc:/app/.coveragerc:ro
+    command:
+      - "sh"
+      - "-c"
+      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.integration-llm -m uvicorn app.main:app --host 0.0.0.0 --port 9001"
     depends_on:
       test-server:
         condition: service_healthy
@@ -63,6 +116,9 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db
       - TEST_SERVER_URL=http://test-server:8080
       - RSSRIPPLE_URL=http://app:9001
+      # Second app instance wired to the mock LLM (tests/integration/http/
+      # test_llm_mock.py); skipped automatically when unset.
+      - RSSRIPPLE_LLM_URL=http://app-llm:9001
       # REDIS_APP_URL intentionally omitted — test_task_queue.py runs
       # MemoryQueue-only mode and skips Redis-specific dedup tests.
     volumes:
@@ -72,12 +128,40 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      app-llm:
+        condition: service_healthy
       test-server:
         condition: service_healthy
+      # Started so the real-Transmission RPC paths (add/pause/resume/remove,
+      # torrent listing) can be exercised by test_transmission_actions.py.
+      transmission:
+        condition: service_started
     command:
       - "sh"
       - "-c"
       - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py -v --tb=short"
+
+  # ── Integration coverage report ──────────────────────────────────────────
+  # Combines up to three data files (identical /app/app source paths):
+  #   .coverage.integration      — primary app (uvicorn under coverage)
+  #   .coverage.integration-llm  — mock-LLM app instance
+  #   .coverage.scripts          — dedup script run against the test DB below
+  # The daily metadata-dedup job has no HTTP trigger, so its coverage comes
+  # from running app.scripts.dedup_metadata under coverage here, after the
+  # suite has seeded duplicate rows (tests/integration/http/test_dedup_seed.py).
+  # Usage (after the test-runner service has finished):
+  #   docker compose -f docker-compose.test.yml kill -s SIGINT app app-llm && sleep 5
+  #   docker compose -f docker-compose.test.yml stop app app-llm
+  #   docker compose -f docker-compose.test.yml run --rm --no-deps coverage-report
+  coverage-report:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./.coveragerc:/app/.coveragerc:ro
+    command:
+      - "sh"
+      - "-c"
+      - "export DATABASE_URL=sqlite+aiosqlite:///data/rss_ripple_test.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=70"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

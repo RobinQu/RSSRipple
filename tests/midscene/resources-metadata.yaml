@@ -1,6 +1,8 @@
-# RSSRipple Resources & Metadata — Resource browsing, MetadataAgent search and linking
-# Covers: view resources grouped by work, open resource detail, run MetadataAgent-backed
-# manual metadata search, link metadata, and open metadata correction modal.
+# RSSRipple Resources & Metadata — resource browsing, drawer, metadata correction
+# Self-contained: creates a channel from a live feed, fetches it, then exercises
+# the Parsed/Unparsed tabs, the resource detail drawer and the metadata
+# correction modal. Metadata search uses the server's configured data sources;
+# assertions tolerate a no-results / error state when no source is configured.
 
 web:
   url: ${RSSRIPPLE_URL:-http://localhost:9001}
@@ -11,88 +13,96 @@ agent:
   groupDescription: Resource browsing and metadata management flows
 
 tasks:
-  # ── Navigate to channel resources ───────────────────────────────
-  - name: Navigate to channels and open a channel
+  - name: Switch UI language to English
+    flow:
+      - ai: Click the "语言" (Language) dropdown at the very bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The left sidebar menu shows English labels such as "Dashboard" and "Channels"
+        timeout: 10000
+
+  # ── Setup: channel with fetched resources ───────────────────────
+  - name: Create a channel from a live feed
     flow:
       - ai: Click "Channels" in the left sidebar
-      - aiWaitFor: The channels list page loads with a table
+      - aiWaitFor: The Channels page loads
         timeout: 10000
-
-  - name: Open first available channel detail
-    flow:
-      - ai: Click on the first channel in the table to view its detail
-      - aiWaitFor: The channel detail page loads with channel information
+      - ai: Click the "New Channel" primary button
+      - aiWaitFor: The "New Channel" form loads
         timeout: 10000
+      - aiInput: The "Name" input field in the channel form
+        value: Resource Test Channel
+      - aiInput: The "RSS URL" input field
+        value: ${RSSRIPPLE_TEST_FEED_URL:-https://rss.art19.com/apology-line}
+      - ai: Click the "Validate" button attached to the RSS URL field
+      - aiWaitFor: A green "Valid RSS" validation result appears below the RSS URL field
+        timeout: 30000
+      - ai: Click the "Create Channel" primary submit button
+      - aiWaitFor: The Channels list page shows a row named "Resource Test Channel"
+        timeout: 15000
 
-  # ── View grouped resources ──────────────────────────────────────
-  - name: View resources section
+  - name: Open the channel and fetch resources
     flow:
-      - ai: Scroll down to the resources section of the channel detail page
+      - ai: In the channels table, click the "Resource Test Channel" name link
+      - aiWaitFor: The channel detail page loads
+        timeout: 10000
+      - ai: Click the "Fetch Now" button at the top of the page
+      - aiWaitFor: A success toast saying the channel was updated appears, or the button finishes its fetching state
+        timeout: 60000
+
+  # ── Parsed / Unparsed tabs ──────────────────────────────────────
+  - name: Verify Parsed tab structure
+    flow:
+      - ai: Click the "Parsed" tab
       - sleep: 2000
+      - aiAssert: The Parsed tab shows collapsible work groups with resource tables (columns like Ep, Resolution, Video, Audio, Container, Subs, Group, Published), or an empty state saying there are no resources yet
 
-  - name: Verify resource groups are displayed
+  - name: Verify Unparsed tab structure
     flow:
-      - aiAssert: The resources area displays collapsible groups grouped by series/movie/unidentified when data exists, or a clear empty state when the channel has no resources
-
-  - name: Expand a resource group
-    flow:
-      - ai: If resource groups are present, click on a group header to expand it; if no resources are present, leave the empty state visible
+      - ai: Click the "Unparsed" tab
       - sleep: 2000
-      - aiAssert: Expanded groups show individual resource entries with titles and metadata fields, or the empty resources state remains visible
+      - aiAssert: The Unparsed tab shows an "Unidentified Resources" card with a table of raw titles, or an empty state
 
-  # ── Open resource detail drawer ─────────────────────────────────
-  - name: Open resource detail
+  # ── Resource detail drawer ──────────────────────────────────────
+  - name: Open a resource detail drawer
     flow:
-      - ai: If a resource entry is available, click it to open its detail drawer; if there are no resources, keep the channel detail page on the empty state
-      - aiWaitFor: A detail drawer or panel is visible when a resource exists, otherwise the channel detail empty state is visible
-        timeout: 10000
-
-  - name: Verify resource detail content
-    flow:
-      - aiAssert: If the drawer is open, it shows fields like Title, Resolution, Video Codec, Audio Codec, Subtitle Group, Source, File Size, and a torrent/magnet link; if no drawer is open, the empty resources state is still shown
-
-  - name: Copy magnet link
-    flow:
-      - ai: If the resource detail drawer is open, look for a "Copy" button next to the torrent/magnet link and click it when present
-      - sleep: 1000
-
-  # ── Metadata search and link ────────────────────────────────────
-  - name: Open metadata correction
-    flow:
-      - ai: If a resource detail drawer is open, click the "Correct Metadata" or "Fix Metadata" or "Edit Metadata" button; if no resources exist, keep the empty state visible
+      - ai: If any resource row is visible in the current tab, click the first resource row to open its detail drawer; if there are no resources at all, switch back to the Parsed tab and continue
       - sleep: 2000
-      - aiWaitFor: A metadata search panel/modal appears with fields for search title and content type when a resource exists, otherwise the empty resources state remains visible
-        timeout: 10000
+      - aiAssert: Either a right-side detail drawer is open showing the resource title and parsed fields (Group, Episode, Resolution, Source, Video Codec, File Size, Published, Download Link), or the channel genuinely has no resources and an empty state is shown
 
-  - name: Search for TV series metadata through MetadataAgent
+  - name: Verify drawer metadata section
     flow:
-      - ai: If the metadata modal is open, keep the prefilled search title if it exists; if the input is empty, type "Ascendance of a Bookworm"
-      - sleep: 300
-      - ai: If the metadata modal is open, select "tv" as the content type if a selector is available
-      - sleep: 300
-      - ai: If the metadata modal is open, click the "Search" button
+      - aiAssert: If the drawer is open, it has a "Metadata" section showing either a linked work card or a "Not yet linked to metadata" placeholder with a "Manual Fix" button; otherwise the empty resources state is visible
+
+  # ── Metadata correction modal ───────────────────────────────────
+  - name: Open metadata correction modal
+    flow:
+      - ai: If the drawer is open, click the "Correct Metadata" primary button at the top right of the drawer; if no drawer is open, continue without action
+      - sleep: 2000
+      - aiAssert: Either a "Correct Metadata" modal is open with a search input, a content-type selector (TV Series / Movie) and a "Search" button, or there was no resource to correct
+
+  - name: Run a metadata search
+    flow:
+      - ai: If the "Correct Metadata" modal is open, click its "Search" primary button (keep the pre-filled search text)
       - sleep: 8000
-      - aiAssert: If the metadata modal is open, the MetadataAgent search returns candidate TV series entries or a clear no-results/error state; if no resource exists, the channel detail empty state remains visible
+      - aiAssert: If the modal is open, it now shows metadata candidate cards each with a "Confirm Selection" button, or a clear no-results / error message
 
-  - name: Select and confirm a metadata result if available
+  - name: Close modal and drawer
     flow:
-      - ai: If search results are shown, choose one candidate result
+      - ai: If the "Correct Metadata" modal is open, close it via its X button or the Cancel control
       - sleep: 1000
-      - ai: If a candidate result was chosen, click "Confirm Selection", "Confirm", or "Link" to associate the selected metadata with the resource
-      - sleep: 3000
-      - aiAssert: If metadata was linked, the resource detail updates showing the linked metadata (series name, poster, etc.); otherwise the modal stays in a clear results/no-results state or the page remains on the empty resources state
-
-  # ── Close drawer and navigate ───────────────────────────────────
-  - name: Close the resource detail drawer
-    flow:
-      - ai: If a resource detail drawer is open, click the close button (X icon) on the drawer or click outside
+      - ai: If the resource detail drawer is open, close it via its X button
       - sleep: 1000
-      - aiAssert: The channel detail page is visible; any resource detail drawer is closed if it had been opened
+      - aiAssert: The channel detail page is visible with no modal or drawer left open
 
-  # ── Unidentified resources ──────────────────────────────────────
-  - name: Check unidentified resources group
+  # ── Cleanup ─────────────────────────────────────────────────────
+  - name: Delete the test channel
     flow:
-      - ai: Look for an "Unidentified" or "Unknown" resource group on the channel detail page
-      - ai: If the group exists, expand it to see unlinked resources
-      - sleep: 2000
-      - aiAssert: If an unidentified group exists, it contains resources not yet linked to any series or movie metadata; if no such group exists, the page still shows valid grouped resources or a clear empty state
+      - ai: Click "Channels" in the left sidebar
+      - aiWaitFor: The channels table is visible
+        timeout: 10000
+      - ai: In the "Resource Test Channel" row, click the delete icon button in the Actions column (tooltip "Delete")
+      - sleep: 1000
+      - ai: In the confirmation dialog, click the danger "Delete" button
+      - aiWaitFor: The channels table no longer contains "Resource Test Channel"
+        timeout: 15000

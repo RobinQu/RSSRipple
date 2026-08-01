@@ -1,6 +1,7 @@
 [run]
 concurrency = greenlet,thread
 branch = False
+source = app
 
 [report]
 show_missing = True

@@ -1,5 +1,7 @@
 # RSSRipple Channel Lifecycle — Full CRUD + operations
-# Covers: create channel, view list/detail, manual fetch, edit, metadata agent setting, summarize filters, delete.
+# Covers: create channel (with URL validation + feed preview), list/detail, manual fetch,
+# edit, delete. The create form pre-fills a default field mapping, so creation does NOT
+# require the AI field-mapping analysis (which would need a configured LLM).
 
 web:
   url: ${RSSRIPPLE_URL:-http://localhost:9001}
@@ -10,17 +12,22 @@ agent:
   groupDescription: Complete channel management lifecycle tests
 
 tasks:
-  # ── Create Channel ───────────────────────────────────────────────
-  - name: Navigate to channel creation form
+  - name: Switch UI language to English
     flow:
-      - ai: Click "Channels" in the left sidebar
-      - aiWaitFor: The channels page loads with a table listing RSS channels
+      - ai: Click the "语言" (Language) dropdown at the very bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The left sidebar menu shows English labels such as "Dashboard" and "Channels"
         timeout: 10000
 
+  # ── Create Channel ───────────────────────────────────────────────
   - name: Open new channel form
     flow:
-      - ai: Click the button to create a new channel (look for "New Channel", "Create", or a plus/add icon)
-      - aiWaitFor: A form appears with fields for Name, URL, and other channel settings
+      - ai: Click "Channels" in the left sidebar
+      - aiWaitFor: The Channels page loads with a table listing RSS channels
+        timeout: 10000
+      - ai: Click the "New Channel" primary button at the top right
+      - aiWaitFor: The "New Channel" form loads with fields for Name, RSS URL, Fetch Interval and a Field Mapping JSON textarea that is pre-filled
         timeout: 10000
 
   - name: Fill channel name
@@ -31,94 +38,69 @@ tasks:
 
   - name: Validate RSS URL
     flow:
-      - aiInput: The "URL" input field for the RSS feed
-        value: https://rss.art19.com/apology-line
+      - aiInput: The "RSS URL" input field
+        value: ${RSSRIPPLE_TEST_FEED_URL:-https://rss.art19.com/apology-line}
       - sleep: 500
-      - ai: Click the "Validate" button next to the URL field
-      - sleep: 3000
-      - aiAssert: The URL validation shows a success message or the feed is recognized as valid
+      - ai: Click the "Validate" button attached to the right of the RSS URL field
+      - aiWaitFor: A green validation result appears below the RSS URL field, starting with "Valid RSS" and showing entry counts
+        timeout: 30000
 
   - name: Preview RSS feed
     flow:
-      - ai: Click the "Preview" button to see feed contents
-      - aiWaitFor: A preview panel shows RSS entries with titles or the feed is displayed
+      - ai: Click the "Preview" small button in the Field Mapping section
+      - aiWaitFor: The right-hand Preview panel lists feed entries with parsed-field tags
         timeout: 15000
 
-  - name: Set fetch interval and submit
+  - name: Submit the channel form
     flow:
-      - aiInput: The "Fetch Interval" input field
-        value: 1800
-      - sleep: 500
-      - ai: Verify the Metadata Agent option is enabled if the form shows a metadata agent toggle
-      - ai: Click the "Save" or "Create" or "Submit" button to save the channel
-      - sleep: 3000
-
-  - name: Verify channel appears in list
-    flow:
-      - aiWaitFor: The channels list table shows "Test RSS Feed" as one of the channels
-        timeout: 10000
-      - aiAssert: The channel "Test RSS Feed" has a status badge visible in the table
+      - ai: Click the "Create Channel" primary submit button at the bottom of the form
+      - aiWaitFor: The Channels list page is shown again and the table contains a row named "Test RSS Feed"
+        timeout: 15000
+      - aiAssert: The "Test RSS Feed" row has a status badge in the Status column
 
   # ── View Channel Detail ─────────────────────────────────────────
   - name: Open channel detail page
     flow:
-      - ai: In the channels table, click on the row or name for "Test RSS Feed" to view its detail
-      - aiWaitFor: The channel detail page loads showing channel information like Name, URL, Status, and Fetch Interval
+      - ai: In the channels table, click the "Test RSS Feed" channel name link
+      - aiWaitFor: The channel detail page loads showing the channel name, its RSS URL, "Fetch Now" and "Edit" buttons, and tabs labeled "Parsed" and "Unparsed"
         timeout: 10000
-      - aiAssert: The page shows the channel name "Test RSS Feed"
+      - aiAssert: The page heading shows "Test RSS Feed"
 
   - name: Manual fetch
     flow:
-      - ai: Click the "Fetch" or "Fetch Now" button to trigger a manual RSS fetch
-      - sleep: 5000
-      - aiAssert: A fetch status indicator appears showing success or a running status message
+      - ai: Click the "Fetch Now" button at the top of the channel detail page
+      - aiWaitFor: A success toast saying the channel was updated appears, or the button shows a fetching state and then completes
+        timeout: 60000
 
-  - name: View resources grouped by work
+  - name: View resources tabs
     flow:
-      - ai: Scroll down to the resources section
-      - aiWaitFor: Resources are displayed either grouped by series/movie or showing an empty state
-        timeout: 8000
-
-  # ── Metadata Agent Setting ─────────────────────────────────────
-  - name: Verify metadata agent setting is shown
-    flow:
-      - ai: Look at the channel summary area for a metadata agent indicator or tag
-      - sleep: 1000
-      - aiAssert: The channel detail makes it clear whether Metadata Agent processing is enabled; no deprecated title-regex generation control is shown
-
-  # ── Summarize Filters ───────────────────────────────────────────
-  - name: Select resources and generate filter rules
-    flow:
-      - ai: If resources are listed, select one or more resource checkboxes
-      - ai: Look for a "Generate Filter Rules" or "Summarize Filters" button
-      - ai: If the button exists, click it
-      - sleep: 5000
-      - aiAssert: A modal or panel appears showing suggested filter configuration, or a message indicates the feature state
+      - aiAssert: The channel detail page shows "Parsed" and "Unparsed" tabs; the Parsed tab shows resource groups or an empty state prompting to fetch from RSS
 
   # ── Edit Channel ────────────────────────────────────────────────
   - name: Navigate to edit channel
     flow:
-      - ai: Click the "Edit" button on the channel detail page (pencil icon or "Edit" text)
-      - aiWaitFor: The channel edit form loads with pre-filled values including the name "Test RSS Feed"
+      - ai: Click the "Edit" button at the top right of the channel detail page
+      - aiWaitFor: The "Edit Channel" form loads with the name field pre-filled with "Test RSS Feed"
         timeout: 10000
 
   - name: Update channel name
     flow:
-      - ai: Clear the channel name field and type a new name
+      - ai: Clear the Name input field
       - aiInput: The "Name" input field in the channel form
         value: Test RSS Feed Updated
       - sleep: 500
-      - ai: Click the "Save" or "Update" button to save changes
-      - sleep: 3000
-      - aiWaitFor: The page shows "Test RSS Feed Updated" confirming the update succeeded
-        timeout: 10000
+      - ai: Click the "Save Changes" primary button at the bottom of the form
+      - aiWaitFor: The channel detail page is shown again with the heading "Test RSS Feed Updated"
+        timeout: 15000
 
   # ── Delete Channel ──────────────────────────────────────────────
   - name: Delete the test channel
     flow:
-      - ai: Click the "Delete" button on the channel (trash icon or "Delete" text)
-      - sleep: 1500
-      - ai: Confirm the deletion in any confirmation dialog that appears
-      - sleep: 2000
-      - aiWaitFor: The channels list page loads and "Test RSS Feed Updated" is no longer in the table
+      - ai: Click "Channels" in the left sidebar
+      - aiWaitFor: The channels list table is visible with the "Test RSS Feed Updated" row
         timeout: 10000
+      - ai: In the "Test RSS Feed Updated" row, click the delete icon button in the Actions column (tooltip "Delete")
+      - sleep: 1000
+      - ai: In the confirmation dialog titled "Delete this channel?", click the danger "Delete" button
+      - aiWaitFor: A toast says the channel was deleted and the channels table no longer contains "Test RSS Feed Updated"
+        timeout: 15000

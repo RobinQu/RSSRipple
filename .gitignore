@@ -52,3 +52,6 @@ htmlcov/
 
 # Dogfood / QA scratch output
 dogfood-output/
+
+# Midscene E2E run reports
+tests/midscene/midscene_run/

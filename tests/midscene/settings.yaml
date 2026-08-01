@@ -1,0 +1,45 @@
+# RSSRipple Settings — read-only smoke test of the System Settings page
+# Verifies the LLM API card and external data source rows render correctly.
+# Does NOT modify or save any setting (no secrets are touched).
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
+
+agent:
+  testId: settings-smoke
+  groupName: RSSRipple E2E
+  groupDescription: System settings page smoke tests (read-only)
+
+tasks:
+  - name: Switch UI language to English
+    flow:
+      - ai: Click the "语言" (Language) dropdown at the very bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The left sidebar menu shows English labels such as "Dashboard" and "Settings"
+        timeout: 10000
+
+  - name: Open System Settings
+    flow:
+      - ai: Click "Settings" in the left sidebar
+      - aiWaitFor: The "System Settings" page loads with "Reset" and "Save Changes" buttons at the top
+        timeout: 10000
+
+  - name: Verify LLM API card
+    flow:
+      - aiAssert: The "LLM API" card shows an API Key password field with a Configured/Not-configured tag, a Model field, a Base URL field and an "Enable Thinking" switch
+
+  - name: Verify external data sources card
+    flow:
+      - ai: Scroll down to the "External Search Data Sources" card
+      - aiAssert: The card lists TMDB, Jina Search + Reader and Exa Agent rows, each with an Enabled switch and an API Key field, plus a Wikipedia switch that needs no API key
+
+  - name: Save button is disabled without changes
+    flow:
+      - aiAssert: The "Save Changes" primary button at the top is disabled because nothing has been modified
+
+  - name: Return to dashboard
+    flow:
+      - ai: Click "Dashboard" in the left sidebar
+      - aiWaitFor: The Dashboard page loads with statistics cards
+        timeout: 10000

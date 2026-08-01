@@ -27,18 +27,37 @@ tests/integration/
     test_task_queue.py             # 后台 job 生命周期（Memory/Redis 后端）
     test_torrent_lifecycle.py      # test-server BT 协议链路
     test_fetch_with_real_feed.py   # 真实 nyaa.si + 实时 LLM（compose 默认 ignore）
+    # ── 2026-08 覆盖率批次（integration ≥70% 目标）──
+    test_agent_dispatch.py         # Mock downloader + rules-preview 回填派发 + 任务操作 + 派发错误路径
+    test_decisions_flow.py         # ask 冲突 PendingDecision 全流程 + 集号修正 + suggestions
+    test_metadata_local.py         # 本地 metadata 匹配（Layer2/3）+ FTS local search + manual link + CRUD + settings
+    test_filter_dsl.py             # Filter DSL 操作符矩阵 + 保存期校验 422
+    test_batch_dispatch.py         # 合集（is_batch）资源派发与去重
+    test_misc_api.py               # validate-url / preview-feed / fetch 失败 / downloader 409 / works PUT
+    test_dedup_seed.py             # 为 coverage-report 的去重脚本播种重复 series/movie 行
+    test_llm_mock.py               # 打 app-llm（mock LLM）：analyze(-stream) + LLM 候选选择 + metadata ReAct + 解析变体
+    test_metadata_sources_mock.py  # 打 app-llm：tmdb/jina/exa 单源 ReAct（假 key 快速失败）
+    test_transmission_actions.py   # 真实 Transmission RPC：磁力派发 + pause/resume/retry/delete
   external/                        # 直连 Python + 真实外部 API（无需 docker 栈，只需 API key）
     __init__.py
     test_metadata_agent_accuracy.py     # MetadataAgent.process_title_only 对 ground_truth_v1 准确率（LLM）
     test_metadata_search_agent.py       # search_metadata 多源（22 标题）+ _search_tmdb TMDB-only（17 CBC 标题）合并
   eval/                            # 独立 Metadata Eval 应用（应用代码 + test_api.py，不变）
-  server/                          # 假 test-server 应用代码（RSS / tracker / torrent，不变）
+  server/                          # 假 test-server 应用代码（RSS / tracker / torrent / mock LLM）
+    mock_llm.py                    # OpenAI 兼容 /v1/chat/completions：canned 字段映射、LLM pick、ReAct tool_calls 状态机
 ```
 
 **两类测试已物理隔离**：
 - `http/`：分布式 HTTP 测试，session autouse `setup_test_environment` 种子化 test-server。
 - `external/`：直连 Python 打真实 LLM/TMDB/Exa，**不继承** `setup_test_environment`，可独立运行（只需 `LLM_API_KEY`/`TMDB_API_KEY`）。
 - `eval/`：eval 应用测试，同样不继承种子化。
+
+**mock-LLM 第二实例（app-llm）**：docker-compose.test.yml 中的 `app-llm` 服务与主 app 同镜像，
+但 `LLM_BASE_URL=http://test-server:8080/v1`（确定性 mock）、独立 DB 文件、`SCHEDULER_ENABLED=true`。
+`test_llm_mock.py` / `test_metadata_sources_mock.py` 通过 `RSSRIPPLE_LLM_URL` 寻址该实例（未设置时自动 skip，
+如 distributed 栈）。覆盖率数据由 coverage-report 服务合并三份：主 app、app-llm、以及
+`app.scripts.dedup_metadata` 脚本（去重无 HTTP 触发，由 coverage-report 在测试结束后对测试库运行，
+`test_dedup_seed.py` 负责播种可合并的重复行）。
 
 ## 2. 用例计数
 
@@ -55,6 +74,16 @@ tests/integration/
 | http/test_task_queue.py | 16 |
 | http/test_torrent_lifecycle.py | 5 |
 | http/test_fetch_with_real_feed.py | 7 |
+| http/test_agent_dispatch.py | 16 |
+| http/test_decisions_flow.py | 14 |
+| http/test_metadata_local.py | 28 |
+| http/test_filter_dsl.py | 23 |
+| http/test_batch_dispatch.py | 1 |
+| http/test_misc_api.py | 13 |
+| http/test_dedup_seed.py | 1 |
+| http/test_llm_mock.py | 11 |
+| http/test_metadata_sources_mock.py | 3 |
+| http/test_transmission_actions.py | 3 |
 | external/test_metadata_agent_accuracy.py | 5 |
 | external/test_metadata_search_agent.py | 6 |
 | eval/test_api.py | 31 |

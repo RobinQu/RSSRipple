@@ -45,9 +45,20 @@
 ## Works Repository
 
 1. Open `/works`.
-2. Assert the repository heading, all/tv/movie segmented control, and search box are visible.
-3. Enter a known title fragment.
-4. Assert matching work cards remain visible.
+2. Assert the repository heading, the 4-way segmented control (全部/剧集/电影/音频), the search box, and the 元数据源设置 button are visible.
+3. Assert the works table shows columns 类型/标题/评分/状态/季集(年份)/分类, or the 暂无作品数据 empty state.
+4. Enter a known title fragment in the search box.
+5. Assert the table filters to matching rows.
+6. Switch the segmented control to 剧集 and then 电影; assert only rows with the corresponding type tag remain.
+7. Click a row; assert the work detail page opens (series detail shows 剧集列表 + 最近资源 cards; movie detail shows 最近资源), then navigate back.
+8. Open `/series` and `/movies` directly; assert both redirect to `/works`.
+
+## System Settings
+
+1. Open `/settings`.
+2. Assert the LLM API card (API Key with 已配置/未配置 tag, 模型, Base URL, 启用思考 switch) is visible.
+3. Assert the 外部搜索数据源 card lists TMDB / Jina Search + Reader / Exa Agent rows (启用 switch + API Key field each) and a Wikipedia switch without API key.
+4. Assert 保存更改 is disabled while nothing has been modified.
 
 ## Metadata Eval Labeling Tool
 

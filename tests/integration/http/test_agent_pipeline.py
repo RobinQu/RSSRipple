@@ -648,10 +648,13 @@ class TestAgentFilterDSL:
                 }
             },
         )
-        # The API stores the filter as-is; validation happens during matching
-        assert r.status_code == 200, (
-            f"Expected 200 for filter update, got {r.status_code}: {r.text}"
+        # Unknown fields are rejected at save time with a validation error.
+        assert r.status_code == 422, (
+            f"Expected 422 for unknown filter field, got {r.status_code}: {r.text}"
         )
+        error = r.json()["error"]
+        assert error["code"] == "VALIDATION_ERROR"
+        assert "unknown field" in error["message"]
 
     def test_test_filters_no_args(self, _filter_agent):
         """POST /agents/{id}/test-filters with no resource_ids — verify response."""
@@ -673,16 +676,12 @@ class TestAgentFilterDSL:
         """Set filter that matches everything, test-filters should pass all."""
         agent_id = _filter_agent["id"]
 
-        # Set a filter that passes everything (no conditions)
+        # A null filter means pass-all (empty condition lists are rejected
+        # at save time per the filter DSL validation rules).
         r = _api(
             f"/api/v1/agents/{agent_id}",
             method="put",
-            json={
-                "filter_config": {
-                    "combinator": "and",
-                    "conditions": [],
-                }
-            },
+            json={"filter_config": None},
         )
         assert r.status_code == 200
 

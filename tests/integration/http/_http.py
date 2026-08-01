@@ -111,3 +111,23 @@ DEFAULT_FIELD_MAPPING = {
         "torrent_url": {"source": "link"},
     },
 }
+
+# Richer mapping for the test-server's mikanani-style feeds:
+#   "[Group] Title / Alt - 01 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
+# Extracts the structured fields the agent pipeline needs (episode keys the
+# dedup/conflict grouping; resolution drives score_and_pick).
+RICH_FIELD_MAPPING = {
+    "list_locator": {"source": "entries"},
+    "field_mappings": {
+        "title_raw": {"source": "title"},
+        "torrent_url": {"source": "link"},
+        "subtitle_group": {"source": "title", "regex": r"^\[([^\]]+)\]", "group": 1},
+        "episode": {
+            "source": "title",
+            "regex": r" - (\d{1,3}) \[",
+            "group": 1,
+            "transform": "int",
+        },
+        "resolution": {"source": "title", "regex": r"(\d{3,4}p)"},
+    },
+}

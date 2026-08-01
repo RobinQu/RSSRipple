@@ -173,7 +173,10 @@ class TestChannelsMore:
             json={"resource_ids": [_uuid()]},
         )
         assert res.status_code == 200
-        assert res.json()["data"]["filter_config"] is None
+        data = res.json()["data"]
+        assert data["works"] == []
+        assert data["global_filter_config"] is None
+        assert data["unlinked_count"] == 0
 
     async def test_fetch_status_404(self, client):
         res = await client.get("/api/v1/channels/nope/fetch-status")

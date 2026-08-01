@@ -1,0 +1,95 @@
+# RSSRipple Works Repository — browse, filter, search, work detail
+# Replaces the old series/movies suites: the standalone /series and /movies list
+# pages were removed and now redirect to the unified /works Repository page.
+# Covers: segmented type filter, search, pagination, and series/movie detail pages.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
+
+agent:
+  testId: works-repository
+  groupName: RSSRipple E2E
+  groupDescription: Works repository browsing and series/movie detail tests
+
+tasks:
+  - name: Switch UI language to English
+    flow:
+      - ai: Click the "语言" (Language) dropdown at the very bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The left sidebar menu shows English labels such as "Dashboard" and "Repository"
+        timeout: 10000
+
+  # ── Repository page ─────────────────────────────────────────────
+  - name: Open the Repository page
+    flow:
+      - ai: Click "Repository" in the left sidebar
+      - aiWaitFor: The Repository page loads with a heading "Repository", a segmented type filter (All / TV Series / Movies / Audio), a search box and a works table
+        timeout: 10000
+
+  - name: Verify works table structure
+    flow:
+      - aiAssert: The works table has columns Type, Title, Rating, Status, Seasons/Year and Genre, or an empty state saying there is no works data
+
+  - name: Filter by TV Series
+    flow:
+      - ai: Click the "TV Series" segment in the type filter control
+      - sleep: 2000
+      - aiAssert: The table now shows only TV Series entries (blue "TV Series" type tags), or an empty state
+
+  - name: Filter by Movies
+    flow:
+      - ai: Click the "Movies" segment in the type filter control
+      - sleep: 2000
+      - aiAssert: The table now shows only Movie entries (green "Movie" type tags), or an empty state
+
+  - name: Search works
+    flow:
+      - ai: Click the "All" segment in the type filter control to reset the filter
+      - aiInput: The search input with placeholder "Search works..."
+        value: the
+      - sleep: 2000
+      - aiAssert: The works table is filtered to titles matching the search term, or shows an empty state
+
+  - name: Clear search
+    flow:
+      - ai: Clear the search input
+      - sleep: 2000
+
+  # ── Work detail ─────────────────────────────────────────────────
+  - name: Open the first work's detail page
+    flow:
+      - ai: If the works table has any rows, click the first row to open its detail page; if the table is empty, skip to the next task
+      - aiWaitFor: A work detail page loads showing the work title, a type tag (TV Series / Movie / audio type), a "Refresh metadata" button, and a metadata descriptions card
+        timeout: 10000
+
+  - name: Verify work detail sections
+    flow:
+      - aiAssert: If a work detail page is open, it shows stat cards (Resources, Download Tasks, and for series also Linked Agents) and a "Recent Resources" card; series pages also show an "Episode List" card
+      - ai: Scroll down to view the Recent Resources section
+      - sleep: 1500
+
+  - name: Back to Repository
+    flow:
+      - ai: If a work detail page is open, click the back arrow button at the top left of the page
+      - aiWaitFor: The Repository page with the works table is visible again
+        timeout: 10000
+
+  # ── Legacy redirects ────────────────────────────────────────────
+  - name: Legacy /series URL redirects to Repository
+    flow:
+      - ai: Type the URL of the current server with path /series into the browser address bar and navigate to it (e.g. http://localhost:9001/series)
+      - sleep: 2000
+      - aiAssert: The browser ends up on the Repository page (/works) instead of a standalone series list
+
+  - name: Legacy /movies URL redirects to Repository
+    flow:
+      - ai: Type the URL of the current server with path /movies into the browser address bar and navigate to it (e.g. http://localhost:9001/movies)
+      - sleep: 2000
+      - aiAssert: The browser ends up on the Repository page (/works) instead of a standalone movies list
+
+  - name: Return to dashboard via sidebar
+    flow:
+      - ai: Click "Dashboard" in the left sidebar
+      - aiWaitFor: The Dashboard overview page loads with statistics cards
+        timeout: 10000

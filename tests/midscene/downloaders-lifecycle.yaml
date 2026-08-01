@@ -1,5 +1,7 @@
 # RSSRipple Downloader Lifecycle — Full CRUD + operations
-# Covers: create downloader, test connection, view detail/live torrents, edit, delete.
+# Covers: create downloader, test connection, view detail, edit, delete.
+# Uses the built-in Mock downloader type so the suite is deterministic and does
+# NOT require a running Transmission instance.
 
 web:
   url: ${RSSRIPPLE_URL:-http://localhost:9001}
@@ -10,106 +12,78 @@ agent:
   groupDescription: Complete downloader instance management lifecycle
 
 tasks:
-  # ── Navigate to Downloaders ─────────────────────────────────────
-  - name: Navigate to downloaders list
+  - name: Switch UI language to English
     flow:
-      - ai: Click "Downloaders" in the left sidebar
-      - aiWaitFor: The downloaders page loads with a table of downloader instances
+      - ai: Click the "语言" (Language) dropdown at the very bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The left sidebar menu shows English labels such as "Dashboard" and "Downloaders"
         timeout: 10000
 
   # ── Create Downloader ───────────────────────────────────────────
   - name: Open new downloader form
     flow:
-      - ai: Click the button to add a new downloader ("New Downloader", "Create", or plus icon)
-      - aiWaitFor: A form appears with fields for Name, Type, URL, Username, Password, and Download Directory
+      - ai: Click "Downloaders" in the left sidebar
+      - aiWaitFor: The Downloaders page loads with a table of downloader instances
+        timeout: 10000
+      - ai: Click the "Add Downloader" primary button at the top right
+      - aiWaitFor: The "Add Downloader" form loads with a "Downloader Type" selector and a "Name" field
         timeout: 10000
 
-  - name: Fill downloader name and type
+  - name: Select Mock downloader type
+    flow:
+      - ai: Click the "Downloader Type" selector
+      - sleep: 500
+      - ai: Select the "Mock (for testing)" option from the dropdown
+      - sleep: 500
+      - aiAssert: An info alert explains that the Mock downloader does not really download any files
+
+  - name: Fill downloader name and submit
     flow:
       - aiInput: The "Name" input field
-        value: Test Transmission
+        value: Test Mock Downloader
       - sleep: 500
-
-  - name: Fill Transmission RPC URL
-    flow:
-      - aiInput: The "URL" input field for the RPC endpoint
-        value: http://127.0.0.1:9091/transmission/rpc
-      - sleep: 500
-
-  - name: Fill credentials (optional)
-    flow:
-      - aiInput: The "Username" input field if present
-        value: admin
-      - sleep: 300
-      - aiInput: The "Password" input field if present
-        value: password
-      - sleep: 500
-
-  - name: Fill download directory
-    flow:
-      - aiInput: The "Download Directory" input field
-        value: /tmp/rssripple-test-downloads
-      - sleep: 500
-
-  - name: Test connection to Transmission
-    flow:
-      - ai: Click the "Test Connection" button
-      - sleep: 8000
-      - aiAssert: The connection test result is displayed — either a "connected" success message or an error message indicating Transmission is unreachable
-
-  - name: Save downloader
-    flow:
-      - ai: Click the "Save" or "Create" button to save the downloader
-      - sleep: 3000
-      - aiWaitFor: The downloaders list page shows "Test Transmission" in the table
-        timeout: 10000
+      - ai: Click the "Add Downloader" primary submit button at the bottom of the form
+      - aiWaitFor: The downloader detail page loads for "Test Mock Downloader" (a toast says the downloader was saved)
+        timeout: 15000
 
   # ── View Downloader Detail ──────────────────────────────────────
-  - name: Open downloader detail
+  - name: Verify downloader detail content
     flow:
-      - ai: In the downloaders table, click on "Test Transmission" to view its detail
-      - aiWaitFor: The downloader detail page loads showing connection status, statistics, or configuration details
-        timeout: 10000
-      - aiAssert: The page displays the downloader name "Test Transmission"
+      - aiAssert: The detail page shows the name "Test Mock Downloader", a descriptions card with URL / Default Download Directory / Status / Last Check, and sections for torrents and local task records
+      - aiAssert: The "Local Task Records" section shows a table or an empty state
 
-  - name: View live Transmission torrents
+  - name: Test connection
     flow:
-      - ai: Look for a "Torrents" or "Live Torrents" section or tab
-      - ai: Click on the torrents section if available
-      - sleep: 3000
-      - aiAssert: Either a list of torrents is displayed, or an error/empty state is shown (if Transmission is unreachable or has no torrents)
-
-  - name: View local download tasks for this downloader
-    flow:
-      - ai: Look for a "Tasks" section or tab showing download tasks associated with this downloader
-      - ai: Click on the tasks section if available
-      - sleep: 2000
-      - aiAssert: A table or list of download tasks is displayed, or an empty state message is shown
+      - ai: Click the "Test Connection" button on the downloader detail page
+      - aiWaitFor: A toast or status message shows the connection test result (success for a Mock downloader)
+        timeout: 20000
 
   # ── Edit Downloader ─────────────────────────────────────────────
   - name: Navigate to edit downloader
     flow:
       - ai: Click the "Edit" button on the downloader detail page
-      - aiWaitFor: The downloader edit form loads with pre-filled values including the name "Test Transmission"
+      - aiWaitFor: The "Edit Downloader" form loads with the name pre-filled as "Test Mock Downloader" and the Downloader Type selector disabled
         timeout: 10000
 
   - name: Update downloader name
     flow:
-      - ai: Clear the name field
+      - ai: Clear the Name input field
       - aiInput: The "Name" input field
-        value: Test Transmission Updated
+        value: Test Mock Downloader Updated
       - sleep: 500
-      - ai: Click "Save" or "Update" button
-      - sleep: 3000
-      - aiWaitFor: The page shows "Test Transmission Updated" confirming the update
-        timeout: 10000
+      - ai: Click the "Save Changes" primary button
+      - aiWaitFor: The downloader detail page shows "Test Mock Downloader Updated"
+        timeout: 15000
 
   # ── Delete Downloader ───────────────────────────────────────────
   - name: Delete the test downloader
     flow:
-      - ai: Click the "Delete" button on the downloader (trash icon or "Delete" text)
-      - sleep: 1500
-      - ai: Confirm the deletion in any confirmation dialog
-      - sleep: 2000
-      - aiWaitFor: The downloaders list page loads and "Test Transmission Updated" is removed
+      - ai: Click "Downloaders" in the left sidebar
+      - aiWaitFor: The downloaders table is visible with the "Test Mock Downloader Updated" row
         timeout: 10000
+      - ai: In the "Test Mock Downloader Updated" row, click the delete icon button in the Actions column (tooltip "Delete")
+      - sleep: 1000
+      - ai: In the confirmation dialog titled "Delete this downloader?", click the danger "Delete" button
+      - aiWaitFor: The downloaders table no longer contains "Test Mock Downloader Updated"
+        timeout: 15000

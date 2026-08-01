@@ -302,6 +302,56 @@ def generate_movie_feed(
     return "\n".join(xml_parts)
 
 
+def generate_mikanani_batch_feed(
+    server_url: str = "http://test-server:8080",
+) -> str:
+    """Mikanani-style feed containing a batch (合集) release plus one single
+    episode of the same work (葬送的芙莉莲).
+
+    The batch title matches ``detect_batch``'s ``01~28 合集`` pattern so the
+    pre-parser flags it ``is_batch`` with episode_start/end set — used to
+    exercise the batch-dispatch branch of the agent pipeline.
+    """
+    titles = [
+        "[VCB-Studio] 葬送的芙莉莲 - 01~28 合集 [BDRip 1080p HEVC-10bit FLAC][简繁内封字幕]",
+        "[VCB-Studio] 葬送的芙莉莲 / Frieren: Beyond Journey's End - 29 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
+    ]
+    now = datetime.now(UTC)
+
+    xml_parts = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<rss version="2.0">',
+        "<channel>",
+        "<title>Mikan Project - Batch Test</title>",
+        f"<link>{server_url}/rss/mikanani-batch</link>",
+        "<description>Mikan Project - batch test feed</description>",
+    ]
+
+    for i, title in enumerate(titles):
+        ep_hash = hashlib.sha1(title.encode()).hexdigest()
+        torrent_url = f"{server_url}/torrents/{_fake_info_hash(title)}.torrent"
+        file_size = 813275520
+        pub_date = now - timedelta(hours=len(titles) - i)
+
+        xml_parts.extend([
+            "<item>",
+            f'<guid isPermaLink="false">{title}</guid>',
+            f"<link>{server_url}/Home/Episode/{ep_hash}</link>",
+            f"<title>{title}</title>",
+            f"<description>{title}[{file_size / 1024 / 1024:.1f}MB]</description>",
+            '<torrent xmlns="https://mikanani.me/0.1/">',
+            f"<link>{server_url}/Home/Episode/{ep_hash}</link>",
+            f"<contentLength>{file_size}</contentLength>",
+            f"<pubDate>{_iso8601(pub_date)}</pubDate>",
+            "</torrent>",
+            f'<enclosure type="application/x-bittorrent" length="{file_size}" url="{torrent_url}" />',
+            "</item>",
+        ])
+
+    xml_parts.extend(["</channel>", "</rss>"])
+    return "\n".join(xml_parts)
+
+
 def generate_kisssub_feed(
     series_index: int = 0,
     server_url: str = "http://test-server:8080",

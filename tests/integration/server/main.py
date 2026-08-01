@@ -20,10 +20,12 @@ from fastapi.responses import PlainTextResponse
 
 _SERVER_DIR = Path(__file__).parent
 
+from .mock_llm import router as mock_llm_router
 from .rss_server import (
     generate_dmhy_feed,
     generate_eztv_feed,
     generate_kisssub_feed,
+    generate_mikanani_batch_feed,
     generate_mikanani_feed,
     generate_movie_feed,
 )
@@ -41,6 +43,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RSSRipple Integration Test Server")
+app.include_router(mock_llm_router)
 
 # ─── Global State ────────────────────────────────────────────────────
 
@@ -130,6 +133,13 @@ async def rss_movies():
         server_url=SERVER_URL,
         tracker_url=TRACKER_URL,
     )
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
+
+
+@app.get("/rss/mikanani-batch")
+async def rss_mikanani_batch():
+    """Mikanani-style feed with a batch (合集) release + one single episode."""
+    xml = generate_mikanani_batch_feed(server_url=SERVER_URL)
     return Response(content=xml, media_type="application/rss+xml; charset=utf-8")
 
 
