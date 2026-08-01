@@ -1,4 +1,6 @@
-FROM node:20-slim AS frontend-builder
+# Vite 8 requires Node 20.19+ / 22.12+ — use the Node 22 LTS line (a stale
+# cached node:20-slim image can be older than 20.19 and break npm run build).
+FROM node:22-slim AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
