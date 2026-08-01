@@ -24,17 +24,15 @@ import {
   ArrowDown,
   ArrowUp,
   Clock,
-  Download,
   Pause,
-  CheckCircle,
-  AlertTriangle,
-  Ban,
   Loader,
 } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
 import type { DownloaderInstance, DownloadTask, TorrentInfo } from '../types';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import StatusBadge from '../components/StatusBadge';
+import EllipsisText from '../components/EllipsisText';
+import TaskStatusIcon from '../components/TaskStatusIcon';
 
 const { Title, Text } = Typography;
 
@@ -48,17 +46,6 @@ const TORRENT_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = 
   seeding: { icon: <ArrowUp size={15} />, color: '#003c33' },
   'seed pending': { icon: <Clock size={15} />, color: '#616161' },
   stopped: { icon: <Pause size={15} />, color: '#c4502a' },
-};
-
-// DownloadTask status → icon-only mapping (colors mirror StatusBadge).
-const TASK_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
-  pending: { icon: <Clock size={15} />, color: '#616161' },
-  queued: { icon: <Clock size={15} />, color: '#1863dc' },
-  downloading: { icon: <Download size={15} />, color: '#1863dc' },
-  paused: { icon: <Pause size={15} />, color: '#c4502a' },
-  completed: { icon: <CheckCircle size={15} />, color: '#003c33' },
-  error: { icon: <AlertTriangle size={15} />, color: '#b30000' },
-  cancelled: { icon: <Ban size={15} />, color: '#b30000' },
 };
 
 const ACTIVE_STATUSES = new Set([
@@ -150,24 +137,8 @@ export default function DownloaderDetail() {
       dataIndex: 'name',
       key: 'name',
       // No fixed width: the name flexes to take whatever the compact columns
-      // leave; single-line ellipsis with tooltip keeps rows tidy.
-      render: (name: string, t) => (
-        <Tooltip title={name} placement="topLeft">
-          <Text
-            type={t.error > 0 ? 'danger' : undefined}
-            style={{
-              fontSize: 13,
-              display: 'block',
-              maxWidth: '100%',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {name}
-          </Text>
-        </Tooltip>
-      ),
+      // leave.
+      render: (name: string, t) => <EllipsisText text={name} danger={t.error > 0} />,
     },
     {
       title: t('common.directory'),
@@ -248,25 +219,9 @@ export default function DownloaderDetail() {
       title: t('common.title'),
       key: 'title',
       // Flexes to take the remaining width (same as the torrent name column).
-      render: (_, r) => {
-        const display = r.file_resource?.title_raw || r.file_resource_id.slice(0, 8);
-        return (
-          <Tooltip title={display} placement="topLeft">
-            <Text
-              style={{
-                fontSize: 13,
-                display: 'block',
-                maxWidth: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {display}
-            </Text>
-          </Tooltip>
-        );
-      },
+      render: (_, r) => (
+        <EllipsisText text={r.file_resource?.title_raw || r.file_resource_id.slice(0, 8)} />
+      ),
     },
     {
       title: t('common.status'),
@@ -274,14 +229,7 @@ export default function DownloaderDetail() {
       key: 'status',
       width: 56,
       align: 'center',
-      render: (s: string) => {
-        const conf = TASK_STATUS_ICON[(s || '').toLowerCase()] ?? TASK_STATUS_ICON.pending;
-        return (
-          <Tooltip title={t(`status.${(s || '').toLowerCase()}`, { defaultValue: s })}>
-            <span style={{ color: conf.color, display: 'inline-flex' }}>{conf.icon}</span>
-          </Tooltip>
-        );
-      },
+      render: (s: string) => <TaskStatusIcon status={s} />,
     },
     {
       title: t('common.progress'),

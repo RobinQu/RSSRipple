@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
@@ -44,9 +43,6 @@ import {
   CalendarClock,
   ArrowLeft,
   Edit,
-  Clock,
-  Download,
-  Ban,
   AlertTriangle,
   Copy,
 } from 'lucide-react';
@@ -54,6 +50,8 @@ import { agentsApi } from '../api/agents';
 import { tasksApi, decisionsApi } from '../api/tasks';
 import StatusBadge from '../components/StatusBadge';
 import ProgressBar from '../components/ProgressBar';
+import EllipsisText from '../components/EllipsisText';
+import TaskStatusIcon from '../components/TaskStatusIcon';
 import FilterBuilder, {
   collectFieldConditions,
   describeCondition,
@@ -536,18 +534,6 @@ export default function AgentDetail() {
     else message.error(r.error?.message || t('agents.testFailed'));
   };
 
-  // Status → icon-only mapping (colors mirror StatusBadge's palette). The
-  // text label moves to a tooltip so the column can shrink to icon width.
-  const TASK_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
-    pending: { icon: <Clock size={15} />, color: '#616161' },
-    queued: { icon: <Clock size={15} />, color: '#1863dc' },
-    downloading: { icon: <Download size={15} />, color: '#1863dc' },
-    paused: { icon: <Pause size={15} />, color: '#c4502a' },
-    completed: { icon: <CheckCircle size={15} />, color: '#003c33' },
-    error: { icon: <AlertTriangle size={15} />, color: '#b30000' },
-    cancelled: { icon: <Ban size={15} />, color: '#b30000' },
-  };
-
   const copyText = async (text: string) => {
     // navigator.clipboard requires a secure context; fall back for plain http.
     try {
@@ -573,25 +559,9 @@ export default function AgentDetail() {
       // single-line ellipsis keeps the table from being crushed in narrow
       // viewports; the full raw title is available via the tooltip.
       fixed: 'left',
-      render: (text: string, record) => {
-        const display = text || record.file_resource_id.slice(0, 8);
-        return (
-          <Tooltip title={display} placement="topLeft">
-            <Text
-              style={{
-                fontSize: 13,
-                display: 'block',
-                maxWidth: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {display}
-            </Text>
-          </Tooltip>
-        );
-      },
+      render: (text: string, record) => (
+        <EllipsisText text={text || record.file_resource_id.slice(0, 8)} />
+      ),
     },
     {
       title: t('agents.taskStatus'),
@@ -599,15 +569,7 @@ export default function AgentDetail() {
       key: 'status',
       width: 56,
       align: 'center',
-      render: (status: string) => {
-        const key = (status || '').toLowerCase();
-        const conf = TASK_STATUS_ICON[key] ?? TASK_STATUS_ICON.pending;
-        return (
-          <Tooltip title={t(`status.${key}`, { defaultValue: status })}>
-            <span style={{ color: conf.color, display: 'inline-flex' }}>{conf.icon}</span>
-          </Tooltip>
-        );
-      },
+      render: (status: string) => <TaskStatusIcon status={status} />,
     },
     {
       title: t('agents.taskProgress'),

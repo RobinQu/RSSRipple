@@ -42,6 +42,15 @@ type AgentListItem = Agent & {
   active_task_count?: number;
 };
 
+// Download-group type → tag color and label key. Anything not listed (the
+// "unknown" group) falls back to the unidentified styling.
+const GROUP_TYPE_TAG: Record<string, { color: string; labelKey: string }> = {
+  series: { color: 'blue', labelKey: 'dashboard.series' },
+  movie: { color: 'green', labelKey: 'dashboard.movie' },
+  untracked: { color: 'orange', labelKey: 'dashboard.untracked' },
+};
+const UNKNOWN_GROUP_TAG = { color: 'default', labelKey: 'dashboard.unidentified' };
+
 export default function Dashboard() {
   const { t } = useTranslation();
   useDocumentTitle(t('nav.dashboard'));
@@ -440,9 +449,11 @@ export default function Dashboard() {
         ) : (
           <List
             dataSource={filteredGroups}
-            renderItem={(group, index) => (
+            renderItem={(group, index) => {
               // Divider color comes from the theme token (dark-mode safe) and
               // is skipped on the last row so the card has no trailing line.
+              const tag = GROUP_TYPE_TAG[group.type] ?? UNKNOWN_GROUP_TAG;
+              return (
               <List.Item
                 key={`${group.type}-${group.id || 'unknown'}`}
                 style={{
@@ -468,9 +479,7 @@ export default function Dashboard() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Space size={8} style={{ marginBottom: 8 }}>
                       <Text strong>{group.type === 'untracked' ? t('dashboard.untracked') : group.title}</Text>
-                      <Tag color={group.type === 'series' ? 'blue' : group.type === 'movie' ? 'green' : group.type === 'untracked' ? 'orange' : 'default'}>
-                        {group.type === 'series' ? t('dashboard.series') : group.type === 'movie' ? t('dashboard.movie') : group.type === 'untracked' ? t('dashboard.untracked') : t('dashboard.unidentified')}
-                      </Tag>
+                      <Tag color={tag.color}>{t(tag.labelKey)}</Tag>
                     </Space>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {group.tasks.map((task) => (
@@ -508,7 +517,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               </List.Item>
-            )}
+              );
+            }}
           />
         )}
       </Card>
