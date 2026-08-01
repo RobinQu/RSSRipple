@@ -305,7 +305,11 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
         _cache_set("tmdb", title, [])
         return []
 
-    image_base = _tmdb_image_base(api_key)
+    # Both helpers use a sync httpx.Client internally — run them in a worker
+    # thread so the (one-time, then cached) HTTP fetches never block the event
+    # loop. After this warm-up, _resolve_genre_ids below is a pure dict lookup.
+    image_base = await asyncio.to_thread(_tmdb_image_base, api_key)
+    await asyncio.to_thread(_tmdb_genre_map, api_key)
 
     candidates: list[dict[str, Any]] = []
     for tmdb_id, m in sorted(merged.items(), key=lambda x: x[1].get("vote_average") or 0, reverse=True):

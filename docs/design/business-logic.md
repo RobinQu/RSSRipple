@@ -154,7 +154,9 @@ Wikipedia 数据源没有 TMDB media_type 这类权威字段，tv/movie 由页�
 
 ### Agent 运行生命周期（run_agent）
 
-入口：task queue worker `_handle_run_agent(payload)`（`app/main.py`），payload 为 `{"agent_id", "resource_ids"?}`。每次运行持久化一条 `AgentRun` 记录（开始即插入 `status="running"`，结束回填计数与状态）。三种运行模式：
+入口：task queue worker `_handle_run_agent(payload)`（`app/main.py`），payload 为 `{"agent_id", "resource_ids"?}`。每次运行持久化一条 `AgentRun` 记录（开始即插入 `status="running"`，结束回填计数与状态）。
+
+**事务边界**（避免长时间持有 SQLite 写锁阻塞前台写请求）：handler 分两个阶段——阶段 1 短事务内插入 AgentRun、选定本次资源并立即提交；阶段 2 处理阶段（含 LLM 调用与 Transmission RPC）以 `process_resources(..., autocommit=True)` 运行，每完成一次派发/决策即增量提交，写锁绝不跨越外部调用持有。各单元操作幂等（任务去重 / 决策 upsert），块级锁重试或中途崩溃后重跑会跳过已提交部分。三种运行模式：
 
 | 模式 | 触发条件 | 处理范围 | 水位线 |
 |------|----------|----------|--------|
@@ -166,7 +168,7 @@ Wikipedia 数据源没有 TMDB media_type 这类权威字段，tv/movie 由页�
 
 ### Agent 过滤流程（agent_service）
 
-入口：`process_resources(agent: Agent, resources: list[FileResource], db)`，对**已由 run_agent 选定**的资源列表执行过滤、去重、冲突处理与派发。`resources` 的筛选（增量/定向）在上层完成，本函数只关心单次处理逻辑。
+入口：`process_resources(agent: Agent, resources: list[FileResource], db, *, autocommit=False)`，对**已由 run_agent 选定**的资源列表执行过滤、去重、冲突处理与派发。`resources` 的筛选（增量/定向）在上层完成，本函数只关心单次处理逻辑。`autocommit=True`（仅后台 run_agent handler 使用）在每次派发/决策后增量 `commit`；请求路径保持默认，由请求结束统一提交。
 
 ```
 process_resources(agent, resources, db)
@@ -249,13 +251,14 @@ process_resources(agent, resources, db)
 **LLM 候选选择器**（`_generate_llm_pick`）：`conflict_resolution="auto"` 多候选自动选择、`"ask"` 模式下的 LLM 建议、以及 `POST /decisions/{id}/ai-pick` 共用同一逻辑。返回 `(picked_resource_id, reason)`：使用 `agent.llm_prompt`（若非空）否则内置默认 prompt（metadata 字段最完整 > 清晰度最高 > 带字幕 > 发布时间最新），要求 LLM 返回 JSON `{"pick": <候选编号>, "reason": "<一句话理由>"}`，`_parse_llm_pick` 兼容 markdown 包裹与裸数字兜底。LLM 未启用 / 无 API key / 调用失败 / 未给出有效选择时返回 `(None, None)`，`"auto"` 回退到纯启发式评分。结果缓存在 `PendingDecision.llm_picked_resource_id`，AI 自动处理优先复用缓存值。
 
 `dispatch_download(agent, resource)`：
-1. 创建 `DownloadTask(status="pending")`，写入 db。
+1. 创建 `DownloadTask(status="pending")` 并 `db.add()`（**不立即 flush**：flush 会发出 INSERT 并持有 SQLite 写锁跨过整个 Transmission RPC）。
 2. 解析下载目录：`effective_download_dir = join(downloader.download_dir, agent.download_subdir)`；若 `download_subdir` 为空则直接使用 `downloader.download_dir`。
 3. 校验 `download_subdir`：必须是相对路径，禁止绝对路径、`..`、空段逃逸、控制字符；标准化后不得跳出 `downloader.download_dir`。
 4. 将 `effective_download_dir` 写入 `DownloadTask.download_dir`，用于审计、重试与后续配置变更隔离。
 5. 调用 `TransmissionWrapper.add_torrent(resource.torrent_url, download_dir=effective_download_dir)`。
 6. 成功 → 更新 `task.status="downloading"`, `task.transmission_torrent_id=返回值`, `task.confirmed_at=now`。
 7. 失败 → 更新 `task.status="error"`, `task.error_message=异常信息`；触发重试逻辑（若 retry_count < max_retries 则入队重试）。
+8. RPC 结束后统一 `flush`，由调用方（请求路径）或 autocommit（后台路径）提交。
 
 ### 手动 metadata 搜索与修正流程
 
@@ -366,6 +369,8 @@ sync_download_progress():
   │         for task in downloader.tasks:
   │             task.status = "error"
   │             task.error_message = f"Transmission unreachable: {e}"
+  │     # 每个 downloader 处理后立即 commit：否则下一轮迭代的查询会 autoflush
+  │     # 这些 UPDATE，导致 SQLite 写锁在整个 list_torrents RPC 期间被持有
   │
   └─ 3. db.commit()
 ```

@@ -217,8 +217,11 @@ async def dispatch_download(
         max_retries=settings.max_retry_count,
     )
     db.add(task)
-    await db.flush()
-
+    # NOTE: no flush before the RPC on purpose. Flushing would emit the INSERT
+    # and acquire the SQLite write lock for the whole duration of the
+    # Transmission call (up to ``transmission_timeout`` seconds), stalling all
+    # foreground writes. The RPC only needs constructor-set attributes, so we
+    # flush once at the end instead.
     from app.clients.downloader import get_downloader_client
 
     wrapper = get_downloader_client(downloader)
@@ -238,6 +241,7 @@ async def dispatch_download(
         task.status = "error"
         task.error_message = str(e)[:2000]
 
+    await db.flush()
     return task
 
 
@@ -475,8 +479,19 @@ async def process_resources(
     agent: Agent,
     resources: list[FileResource],
     db: AsyncSession,
+    *,
+    autocommit: bool = False,
 ) -> RunResult:
-    """Process a list of resources through filtering, dedup, and dispatch."""
+    """Process a list of resources through filtering, dedup, and dispatch.
+
+    ``autocommit`` is used by the background run-agent handler: commit after
+    each dispatch / decision so the SQLite write lock is released between
+    units of work instead of being held for the entire run (which contains
+    slow LLM calls and Transmission RPCs). Request-scoped callers keep the
+    default (single commit at request end). Operations are idempotent
+    (task-dedup / decision upsert), so a mid-run crash simply leaves the
+    already-committed units in place.
+    """
     result = RunResult()
 
     rule_set = _build_rule_set(agent)
@@ -535,6 +550,8 @@ async def process_resources(
                     reason_override=_AMBIGUOUS_EPISODE_REASON,
                     skip_llm=True,
                 )
+                if autocommit:
+                    await db.commit()
                 result.pending_decisions += 1
                 result.unrecognized += 1
             except Exception as e:
@@ -562,6 +579,8 @@ async def process_resources(
                 continue
             try:
                 await dispatch_download(agent, resource, db)
+                if autocommit:
+                    await db.commit()
                 result.dispatched += 1
                 result.matched += 1
                 result.matched_resource_ids.append(resource.id)
@@ -620,6 +639,8 @@ async def process_resources(
                     chosen = score_and_pick(cands, None, agent)
                     await dispatch_download(agent, chosen, db)
                     result.dispatched += 1
+            if autocommit:
+                await db.commit()
         except Exception as e:
             logger.exception("Failed to process candidates for %s: %s", key, e)
             result.errors.append(str(e))

@@ -326,11 +326,10 @@ async def _sync_download_progress() -> None:
                     if task.status in ("pending", "queued", "downloading"):
                         task.status = "error"
                         task.error_message = f"Transmission unreachable: {e}"[:2000]
-                for task in dl_tasks:
-                    # Don't override tasks that are already complete/cancelled
-                    if task.status in ("pending", "queued", "downloading"):
-                        task.status = "error"
-                        task.error_message = f"Transmission unreachable: {e}"[:2000]
+            # Commit per downloader: the next iteration's queries would
+            # otherwise autoflush these pending UPDATEs right before its RPC,
+            # holding the SQLite write lock for the whole list_torrents call.
+            await db.commit()
 
 
 async def _cleanup_expired() -> None:

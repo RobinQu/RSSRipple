@@ -53,32 +53,38 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 
     agent_id: str = payload["agent_id"]
     resource_ids: list[str] | None = payload.get("resource_ids")
+
+    # Phase 1 (short transaction): persist the "running" record up front and
+    # pick the resources this run covers, then COMMIT. The slow processing
+    # phase below must not run inside this transaction — holding the SQLite
+    # write lock across LLM calls / Transmission RPCs stalls every foreground
+    # write request until the retry middleware gives up.
     async with committed_session() as session:
         agent = await session.get(Agent, agent_id)
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
 
-        # Persist a run record up front so a "running" row exists even if the
-        # handler crashes; finalised at the end with counts + matched ids.
         run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
         session.add(run)
         await session.flush()
+        run_id = run.id
+        channel_id = agent.channel_id
 
+        advance_to = None
         if resource_ids:
             # Targeted run (scenario ③, e.g. correct_episode): process exactly
             # the given resources against the agent's *current* rules. Bypasses
             # the watermark and does NOT advance it — the resource may be old,
             # and advancing would skip its neighbours.
-            result = await session.execute(
-                select(FileResource)
+            stmt = (
+                select(FileResource.id)
                 .where(
-                    FileResource.channel_id == agent.channel_id,
+                    FileResource.channel_id == channel_id,
                     FileResource.id.in_(resource_ids),
                 )
                 .order_by(FileResource.created_at.asc())
             )
-            resources = result.scalars().all()
-            run_result = await process_resources(agent, resources, session)
+            selected_ids = list((await session.execute(stmt)).scalars().all())
         else:
             # Delta run (scenario ①): only resources newer than the agent's
             # consumption watermark. Replaces the old hard-coded ``limit(200)``
@@ -90,25 +96,49 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 # auto-dispatch historical backfill — that must go through the
                 # rules-preview selection flow.
                 agent.last_consumed_at = utcnow()
-                resources = []
+                selected_ids = []
             else:
-                result = await session.execute(
-                    select(FileResource)
+                stmt = (
+                    select(FileResource.id, FileResource.created_at)
                     .where(
-                        FileResource.channel_id == agent.channel_id,
+                        FileResource.channel_id == channel_id,
                         FileResource.created_at > wm,
                     )
                     .order_by(FileResource.created_at.asc())
                 )
-                resources = result.scalars().all()
-            run_result = await process_resources(agent, resources, session)
+                rows = (await session.execute(stmt)).all()
+                selected_ids = [r.id for r in rows]
+                # Advance the watermark past everything we just considered
+                # (delta run only). Targeted runs leave it untouched.
+                if rows:
+                    advance_to = max(r.created_at for r in rows)
 
-            # Advance the watermark past everything we just considered (delta
-            # run only). Targeted runs leave it untouched.
-            if resources:
-                agent.last_consumed_at = max(r.created_at for r in resources)
-            elif agent.last_consumed_at is None:
-                agent.last_consumed_at = utcnow()
+    # Phase 2 (incremental commits): the slow part — filtering, LLM picks,
+    # Transmission RPCs. ``autocommit=True`` makes process_resources commit
+    # after each dispatch/decision, so the write lock is never held across an
+    # external call. The block-level retry of committed_session is safe here:
+    # every unit is idempotent (task dedup / decision upsert), so a re-run
+    # after a lock error just skips already-committed work.
+    async with committed_session() as session:
+        agent = await session.get(Agent, agent_id)
+        if not agent:
+            raise RuntimeError(f"Agent {agent_id} not found")
+        run = await session.get(AgentRun, run_id)
+        if not run:
+            raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
+
+        resources: list[FileResource] = []
+        if selected_ids:
+            result = await session.execute(
+                select(FileResource)
+                .where(FileResource.id.in_(selected_ids))
+                .order_by(FileResource.created_at.asc())
+            )
+            resources = list(result.scalars().all())
+        run_result = await process_resources(agent, resources, session, autocommit=True)
+
+        if advance_to is not None:
+            agent.last_consumed_at = advance_to
 
         agent.last_run_at = utcnow()
         # More granular status so the UI can badge "待决策" instead of a
@@ -165,31 +195,36 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no c
     items: list[dict] = payload.get("items", []) or []
     source: str | None = payload.get("source")
     results: list[dict] = []
-    async with committed_session() as session:
-        for item in items:
-            work_id = item.get("id")
-            content_type = item.get("content_type")
-            try:
+    # One short transaction per work. A single transaction wrapping the whole
+    # batch would hold the SQLite write lock across every external metadata
+    # search (up to ``_REFRESH_WORK_TIMEOUT`` each), stalling foreground writes
+    # for minutes. (refresh_work_metadata also commits internally; the wrapper
+    # gives per-work lock-retry semantics instead of retrying the whole batch.)
+    for item in items:
+        work_id = item.get("id")
+        content_type = item.get("content_type")
+        try:
+            async with committed_session() as session:
                 r = await asyncio.wait_for(
                     refresh_work_metadata(session, work_id, content_type, source),
                     timeout=_REFRESH_WORK_TIMEOUT,
                 )
-                results.append({"id": work_id, "content_type": content_type, **r})
-            except TimeoutError:
-                logger.warning(
-                    "[refresh_works] timed out after %ds for %s/%s",
-                    _REFRESH_WORK_TIMEOUT, content_type, work_id,
-                )
-                results.append(
-                    {"id": work_id, "content_type": content_type, "found": False, "error": "timeout"}
-                )
-            except Exception as e:  # noqa: BLE001 — keep processing the rest
-                logger.warning(
-                    "[refresh_works] failed for %s/%s: %s", content_type, work_id, e
-                )
-                results.append(
-                    {"id": work_id, "content_type": content_type, "found": False, "error": str(e)}
-                )
+            results.append({"id": work_id, "content_type": content_type, **r})
+        except TimeoutError:
+            logger.warning(
+                "[refresh_works] timed out after %ds for %s/%s",
+                _REFRESH_WORK_TIMEOUT, content_type, work_id,
+            )
+            results.append(
+                {"id": work_id, "content_type": content_type, "found": False, "error": "timeout"}
+            )
+        except Exception as e:  # noqa: BLE001 — keep processing the rest
+            logger.warning(
+                "[refresh_works] failed for %s/%s: %s", content_type, work_id, e
+            )
+            results.append(
+                {"id": work_id, "content_type": content_type, "found": False, "error": str(e)}
+            )
     return {"status": "done", "processed": len(results), "results": results}
 
 
