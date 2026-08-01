@@ -13,6 +13,7 @@ import {
   Descriptions,
   Popover,
   InputNumber,
+  theme,
 } from 'antd';
 import { Copy, Pencil, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -62,6 +63,7 @@ export default function ResourceDetailDrawer({
 }: ResourceDetailDrawerProps) {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [meta, setMeta] = useState<LinkedMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [correctionOpen, setCorrectionOpen] = useState(false);
@@ -316,7 +318,7 @@ export default function ResourceDetailDrawer({
               href={r.detail_url}
               target="_blank"
               rel="noreferrer"
-              style={{ color: '#1863dc' }}
+              style={{ color: token.colorInfo }}
             >
               {t('resource.open')}
             </a>
@@ -332,7 +334,7 @@ export default function ResourceDetailDrawer({
               <Tooltip title={r.torrent_url}>
                 <Text
                   ellipsis
-                  style={{ maxWidth: 220, color: '#1863dc', fontSize: 12 }}
+                  style={{ maxWidth: 220, color: token.colorInfo, fontSize: 12 }}
                 >
                   {r.torrent_url.startsWith('magnet:')
                     ? 'magnet:?xt=...'
@@ -356,25 +358,29 @@ export default function ResourceDetailDrawer({
   return (
     <>
       <Drawer
-        title={r ? r.title_cn || r.title_raw : t('resource.detail')}
+        title={
+          // Keep the (often very long) resource title on one line so the
+          // header never wraps or pushes the close button around.
+          <Text ellipsis style={{ display: 'block', maxWidth: '100%' }}>
+            {r ? r.title_cn || r.title_raw : t('resource.detail')}
+          </Text>
+        }
         open={open}
         onClose={onClose}
         width={window.innerWidth < 768 ? '100%' : 520}
         destroyOnHidden
         styles={{ body: { padding: 20 } }}
-        extra={
-          <Space>
+        footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button
-              size="small"
-              icon={<Download size={12} />}
+              icon={<Download size={14} />}
               onClick={() => setCreateTaskOpen(true)}
             >
               {t('tasks.createTask')}
             </Button>
             <Button
               type="primary"
-              size="small"
-              icon={<Pencil size={12} />}
+              icon={<Pencil size={14} />}
               onClick={() => setCorrectionOpen(true)}
             >
               {t('resource.correctMetadata')}
@@ -385,7 +391,7 @@ export default function ResourceDetailDrawer({
         {r && (
           <div>
             {/* Raw title */}
-            <Paragraph style={{ color: '#93939f', fontSize: 12, marginBottom: 16 }}>
+            <Paragraph style={{ color: token.colorTextTertiary, fontSize: 12, marginBottom: 16 }}>
               {r.title_raw}
             </Paragraph>
 
@@ -404,9 +410,9 @@ export default function ResourceDetailDrawer({
                     display: 'flex',
                     gap: 12,
                     padding: 12,
-                    border: '1px solid #b7d9d3',
+                    border: `1px solid ${token.colorSuccessBorder}`,
                     borderRadius: 8,
-                    background: '#edfce9',
+                    background: token.colorSuccessBg,
                   }}
                 >
                   <PosterBlock url={meta.poster_url} />
@@ -423,7 +429,7 @@ export default function ResourceDetailDrawer({
                 <div
                   style={{
                     padding: 16,
-                    border: '1px dashed #d9d9dd',
+                    border: `1px dashed ${token.colorBorder}`,
                     borderRadius: 8,
                     textAlign: 'center',
                   }}
@@ -449,7 +455,7 @@ export default function ResourceDetailDrawer({
               )}
             </div>
 
-            <Divider style={{ margin: '16px 0', borderColor: '#d9d9dd' }} />
+            <Divider style={{ margin: '16px 0', borderColor: token.colorBorder }} />
 
             {/* Parsed details */}
             <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
@@ -458,8 +464,8 @@ export default function ResourceDetailDrawer({
             <Descriptions
               column={1}
               size="small"
-              labelStyle={{ color: '#93939f', width: 100, padding: '4px 8px' }}
-              contentStyle={{ color: '#cdcdcd', padding: '4px 8px' }}
+              labelStyle={{ color: token.colorTextTertiary, width: 100, padding: '4px 8px' }}
+              contentStyle={{ color: token.colorTextSecondary, padding: '4px 8px' }}
               style={{ fontSize: 12 }}
               items={parsedItems}
             />
