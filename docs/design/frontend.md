@@ -2,7 +2,7 @@
 
 | Route | Page | 内容说明 |
 |-------|------|----------|
-| `/` | Dashboard | 顶部统计卡（活跃 Agent/活跃频道/下载中/待决策），统计卡可点击跳转至对应列表页；**无待决策时**在统计卡正下方显示一行"暂无待决策事项"提示（不渲染待决策卡片）；**下载代理区块**（统计卡下方）：按进行中任务数排序的 Top4 活跃 Agent，每个 item 占半宽，展示名称（点击跳 `/agents/:id`）、频道（可点击）、下载器、订阅作品数/全频道标记、作品海报缩略图、全部订阅条件摘要（全局条件 + 各作品 `filter_overrides`，作品级条件为蓝色 Tag 并带作品名前缀，超过 6 个折叠为 `+N`）、进行中任务数角标；区块下方列出进行中 Top10 下载任务（作品名 · 资源名 + 进度条 + Agent 链接），无任务时显示默认文案；**活跃下载**区块位于下载代理区块下方，按作品分组卡片（卡片含 poster、作品名、该作品下任务列表；任务行显示资源标题、进度、速度、Agent 与 Channel 链接可点击跳转）；**待决策**仅在有内容时渲染，标题与边框使用警告橙以区别于其他区块，支持快速 confirm/skip |
+| `/` | Dashboard | 顶部统计卡（活跃 Agent/活跃频道/下载中/待决策），统计卡可点击跳转至对应列表页；**无待决策时**在统计卡正下方显示一行"暂无待决策事项"提示（不渲染待决策卡片）；**下载代理区块**（统计卡下方）：按进行中任务数排序的 Top4 活跃 Agent，每个 item 占半宽，展示名称（点击跳 `/agents/:id`）、频道（可点击）、下载器、订阅作品数/全频道标记、作品海报缩略图、全部订阅条件摘要（全局条件 + 各作品 `filter_overrides`，作品级条件为蓝色 Tag 并带作品名前缀，超过 6 个折叠为 `+N`）、进行中任务数角标；区块下方列出进行中 Top10 下载任务（作品名 · 资源名 + 进度条 + Agent 链接），无任务时显示默认文案；**活跃下载**区块位于下载代理区块下方，卡片内带 Tab 筛选（所有 / 下载代理管理下载任务 / 未跟踪下载任务），按作品分组卡片（卡片含 poster、作品名、该作品下任务列表；任务行显示资源标题、进度、速度、Agent 与 Channel 链接可点击跳转；下载器中活跃但无 DownloadTask 的种子归入"未跟踪"分组，任务行显示下载器链接而非 Agent 链接；分隔线使用主题 token 以适配 dark 模式）；**待决策**仅在有内容时渲染，标题与边框使用警告橙以区别于其他区块，支持快速 confirm/skip |
 | `/works` | WorksPage | 作品仓库海报墙：All/TV/Movie 筛选标签、搜索栏、响应式海报网格，点击跳转至详情页 |
 | `/channels` | ChannelList | 频道列表表格（名称/状态/抓取间隔/上次抓取/资源数/Agent 数）；支持新建、编辑、删除、手动抓取 |
 | `/channels/new` | ChannelForm | 创建频道表单（URL 验证、自动 LLM 分析）；右侧 RSS 预览 |
@@ -13,7 +13,7 @@
 | `/agents/:id` | AgentDetail | Tab 布局：订阅作品管理 Tab（列表 / 新增 / 移除 / 编辑 per-work 覆盖；**inline 持久化** —— 新增/移除立即调用 `/agents/{id}/works` 接口，per-work 编辑（filter_overrides / enable_episode_dedup / display_name_override）通过每条作品右下角的"保存"按钮显式提交，脏状态用 `Unsaved changes` 提示；列表级"保存"批量替换 works 时同样走 rules-preview 回填弹窗）；下载任务 Tab（按状态过滤、操作按钮 pause/resume/retry/delete；标题列固定左侧+单行省略+悬浮全名，状态列为纯图标+悬浮文字，进度条与速度/ETA 上下堆叠合并为一列，错误信息以图标按钮+Popover 展示并支持一键复制，操作列固定右侧）；待决策 Tab（confirm/skip/**AI 自动处理** 操作，支持多选批量 skip/ai）；过滤器编辑器 Tab（可视化树形 bool-query 构建器 + 测试面板）；运行控制 Tab（手动 run：**"立即运行"**=增量运行，右侧**"指定起始时间运行"**弹窗选择扫描起始时间（从指定时间开始，默认 14 天前 / 不限制=全量历史），提交 `POST /agents/{id}/run` body `{"scan_since": ISO | null}`；状态轮询、**运行历史**：分页列出每次 run 的计数/状态，指定起始时间的运行带扫描窗口标记，点击单条弹出抽屉展示该次匹配的资源明细） |
 | `/downloaders` | DownloaderList | 下载器列表 |
 | `/downloaders/new` | DownloaderForm | 创建 Transmission 实例；默认下载目录预填 `/downloads/complete`（mock 类型为 `/tmp/mock-downloads`） |
-| `/downloaders/:id` | DownloaderDetail | 连接状态；实时速度与总量统计；Transmission 种子列表（直连 RPC 实时刷新）；本地 DownloadTask 分页 |
+| `/downloaders/:id` | DownloaderDetail | 连接状态；实时速度与总量统计；Transmission 种子列表（直连 RPC 实时刷新；名称列弹性占宽，状态为图标+Tooltip，速度/ETA/大小合并为"下载信息"列）；本地 DownloadTask 分页（同样式：图标状态，进度条下方内嵌速度与 ETA） |
 | `/downloaders/:id/edit` | DownloaderForm | 编辑下载器与默认下载目录（已存值为空时回填 `/downloads/complete`）；"测试连接"按**表单中未保存的当前值**探测（`POST /downloaders/{id}/test` 请求体携带 url/username/password/download_dir 覆盖值，空密码 = 沿用已存密码），带覆盖值的探测不更新下载器 status |
 | `/series` | SeriesList | 剧集列表，支持模糊搜索 |
 | `/series/:id` | SeriesDetail | 剧集详情，资源列表、任务列表、相关 Agent 列表 |

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   Typography,
   Card,
@@ -9,13 +10,27 @@ import {
   Space,
   Table,
   Progress,
-  Tag,
   Spin,
   App,
   Alert,
+  Tooltip,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { Edit, Zap, RefreshCw, ArrowDown, ArrowUp } from 'lucide-react';
+import type { ReactNode } from 'react';
+import {
+  Edit,
+  Zap,
+  RefreshCw,
+  ArrowDown,
+  ArrowUp,
+  Clock,
+  Download,
+  Pause,
+  CheckCircle,
+  AlertTriangle,
+  Ban,
+  Loader,
+} from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
 import type { DownloaderInstance, DownloadTask, TorrentInfo } from '../types';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
@@ -23,14 +38,27 @@ import StatusBadge from '../components/StatusBadge';
 
 const { Title, Text } = Typography;
 
-const STATUS_COLOR: Record<string, string> = {
-  stopped: 'default',
-  'check pending': 'warning',
-  checking: 'processing',
-  'download pending': 'warning',
-  downloading: 'blue',
-  'seed pending': 'warning',
-  seeding: 'success',
+// Transmission status → icon-only mapping; the text label moves to a tooltip
+// so the column can shrink to icon width (same pattern as the agent task list).
+const TORRENT_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
+  downloading: { icon: <ArrowDown size={15} />, color: '#1863dc' },
+  'download pending': { icon: <Clock size={15} />, color: '#616161' },
+  checking: { icon: <Loader size={15} />, color: '#1863dc' },
+  'check pending': { icon: <Clock size={15} />, color: '#616161' },
+  seeding: { icon: <ArrowUp size={15} />, color: '#003c33' },
+  'seed pending': { icon: <Clock size={15} />, color: '#616161' },
+  stopped: { icon: <Pause size={15} />, color: '#c4502a' },
+};
+
+// DownloadTask status → icon-only mapping (colors mirror StatusBadge).
+const TASK_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
+  pending: { icon: <Clock size={15} />, color: '#616161' },
+  queued: { icon: <Clock size={15} />, color: '#1863dc' },
+  downloading: { icon: <Download size={15} />, color: '#1863dc' },
+  paused: { icon: <Pause size={15} />, color: '#c4502a' },
+  completed: { icon: <CheckCircle size={15} />, color: '#003c33' },
+  error: { icon: <AlertTriangle size={15} />, color: '#b30000' },
+  cancelled: { icon: <Ban size={15} />, color: '#b30000' },
 };
 
 const ACTIVE_STATUSES = new Set([
@@ -48,6 +76,7 @@ export default function DownloaderDetail() {
   const { message } = App.useApp();
 
   const [dl, setDl] = useState<DownloaderInstance | null>(null);
+  useDocumentTitle(dl?.name ?? t('downloaders.title'));
   const [torrents, setTorrents] = useState<TorrentInfo[]>([]);
   const [loadingDl, setLoadingDl] = useState(true);
   const [loadingTorrents, setLoadingTorrents] = useState(true);
@@ -120,18 +149,31 @@ export default function DownloaderDetail() {
       title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
-      ellipsis: true,
-      render: (name: string, t) =>
-        t.error > 0 ? (
-          <Text type="danger">{name}</Text>
-        ) : (
-          name
-        ),
+      // No fixed width: the name flexes to take whatever the compact columns
+      // leave; single-line ellipsis with tooltip keeps rows tidy.
+      render: (name: string, t) => (
+        <Tooltip title={name} placement="topLeft">
+          <Text
+            type={t.error > 0 ? 'danger' : undefined}
+            style={{
+              fontSize: 13,
+              display: 'block',
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {name}
+          </Text>
+        </Tooltip>
+      ),
     },
     {
       title: t('common.directory'),
       dataIndex: 'download_dir',
       key: 'download_dir',
+      width: 150,
       ellipsis: true,
       render: (v: string | null) => <Text type="secondary">{v || t('format.dash')}</Text>,
     },
@@ -139,18 +181,27 @@ export default function DownloaderDetail() {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
-      width: 130,
-      render: (s: string) => <Tag color={STATUS_COLOR[s] ?? 'default'}>{s}</Tag>,
+      width: 56,
+      align: 'center',
+      render: (s: string) => {
+        const conf = TORRENT_STATUS_ICON[s] ?? TORRENT_STATUS_ICON.stopped;
+        return (
+          <Tooltip title={s}>
+            <span style={{ color: conf.color, display: 'inline-flex' }}>{conf.icon}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('common.progress'),
       dataIndex: 'percent_done',
       key: 'percent_done',
-      width: 160,
+      width: 180,
       render: (p: number, t) => (
         <Progress
-          percent={Math.round(p * 100)}
+          percent={Math.min(100, Math.max(0, p * 100))}
           size="small"
+          format={(v) => `${v?.toFixed(2)}%`}
           status={
             t.error > 0
               ? 'exception'
@@ -165,34 +216,30 @@ export default function DownloaderDetail() {
       ),
     },
     {
-      title: () => <Space size={4}><ArrowDown size={13} />{t('downloaders.download')}</Space>,
-      dataIndex: 'rate_download',
-      key: 'rate_download',
-      width: 100,
-      render: (v: number) =>
-        v > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatSpeed(v)}</span> : <Text type="secondary">{t('format.dash')}</Text>,
-    },
-    {
-      title: () => <Space size={4}><ArrowUp size={13} />{t('downloaders.upload')}</Space>,
-      dataIndex: 'rate_upload',
-      key: 'rate_upload',
-      width: 100,
-      render: (v: number) =>
-        v > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatSpeed(v)}</span> : <Text type="secondary">{t('format.dash')}</Text>,
-    },
-    {
-      title: t('downloaders.eta'),
-      dataIndex: 'eta_seconds',
-      key: 'eta',
-      width: 80,
-      render: (v: number | null) => <Text type="secondary">{formatEta(v)}</Text>,
-    },
-    {
-      title: t('downloaders.size'),
-      dataIndex: 'total_size',
-      key: 'total_size',
-      width: 90,
-      render: (v: number) => <Text type="secondary">{formatBytes(v)}</Text>,
+      // Combined transfer info: down/up speeds on the first line, ETA and
+      // total size on the second — replaces four separate narrow columns.
+      title: t('downloaders.transferInfo'),
+      key: 'transfer',
+      width: 200,
+      render: (_, tor) => (
+        <div style={{ fontSize: 12, lineHeight: '18px', fontVariantNumeric: 'tabular-nums' }}>
+          <Space size={8}>
+            <span>
+              <ArrowDown size={11} style={{ verticalAlign: -1 }} />{' '}
+              {tor.rate_download > 0 ? formatSpeed(tor.rate_download) : t('format.dash')}
+            </span>
+            <span>
+              <ArrowUp size={11} style={{ verticalAlign: -1 }} />{' '}
+              {tor.rate_upload > 0 ? formatSpeed(tor.rate_upload) : t('format.dash')}
+            </span>
+          </Space>
+          <div>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              ETA {formatEta(tor.eta_seconds)} · {formatBytes(tor.total_size)}
+            </Text>
+          </div>
+        </div>
+      ),
     },
   ];
 
@@ -200,26 +247,68 @@ export default function DownloaderDetail() {
     {
       title: t('common.title'),
       key: 'title',
-      ellipsis: true,
-      render: (_, r) => (
-        <Text ellipsis>{r.file_resource?.title_raw || r.file_resource_id.slice(0, 8)}</Text>
-      ),
+      // Flexes to take the remaining width (same as the torrent name column).
+      render: (_, r) => {
+        const display = r.file_resource?.title_raw || r.file_resource_id.slice(0, 8);
+        return (
+          <Tooltip title={display} placement="topLeft">
+            <Text
+              style={{
+                fontSize: 13,
+                display: 'block',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {display}
+            </Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
-      width: 110,
-      render: (s: string) => <StatusBadge status={s} />,
+      width: 56,
+      align: 'center',
+      render: (s: string) => {
+        const conf = TASK_STATUS_ICON[(s || '').toLowerCase()] ?? TASK_STATUS_ICON.pending;
+        return (
+          <Tooltip title={t(`status.${(s || '').toLowerCase()}`, { defaultValue: s })}>
+            <span style={{ color: conf.color, display: 'inline-flex' }}>{conf.icon}</span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: t('common.progress'),
       dataIndex: 'progress',
       key: 'progress',
-      width: 180,
-      render: (p: number) => <Progress percent={Math.round(p * 100)} size="small" />,
+      width: 200,
+      // Progress bar on top, live speed + ETA stacked below while running —
+      // the separate speed column is folded into this one.
+      render: (p: number, record) => (
+        <div>
+          <Progress
+            percent={Math.min(100, Math.max(0, p * 100))}
+            size="small"
+            format={(v) => `${v?.toFixed(2)}%`}
+          />
+          <div style={{ marginTop: 2 }}>
+            {['pending', 'queued', 'downloading'].includes(record.status) ? (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                ↓{formatSpeed(record.download_speed)} · ETA {formatEta(record.eta)}
+              </Text>
+            ) : (
+              <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
+            )}
+          </div>
+        </div>
+      ),
     },
-    { title: t('common.speed'), dataIndex: 'download_speed', key: 'speed', width: 110, render: (v: number) => formatSpeed(v) },
   ];
 
   if (loadingDl) return <Spin />;

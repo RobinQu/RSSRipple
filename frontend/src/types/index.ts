@@ -583,7 +583,7 @@ export interface FilterTestResponse {
 
 // Dashboard
 export interface DashboardDownloadGroup {
-  type: 'series' | 'movie' | 'unknown';
+  type: 'series' | 'movie' | 'unknown' | 'untracked';
   id: string | null;
   title: string;
   poster_url: string | null;
@@ -591,10 +591,13 @@ export interface DashboardDownloadGroup {
     task_id: string;
     resource_title: string;
     progress: number;
-    agent_id: string;
-    agent_name: string;
-    channel_id: string;
-    channel_name: string;
+    agent_id: string | null;
+    agent_name: string | null;
+    channel_id: string | null;
+    channel_name: string | null;
+    // Present on 'untracked' entries (torrents RSSRipple did not dispatch).
+    downloader_id?: string | null;
+    downloader_name?: string | null;
   }>;
 }
 

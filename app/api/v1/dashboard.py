@@ -1,14 +1,19 @@
 """Dashboard API routes."""
 
+import asyncio
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.clients.downloader import get_downloader_client
+from app.config import settings
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
+from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.pending_decision import PendingDecision
 from app.schemas.common import success_response
@@ -87,6 +92,63 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     # Only include unknown if it has tasks
     active_download_groups = [g for g in groups.values() if g["tasks"] or g["type"] != "unknown"]
 
+    # Untracked torrents: actively downloading in a downloader but without a
+    # matching non-terminal DownloadTask (e.g. added directly in Transmission).
+    # Lets users see downloads RSSRipple did not dispatch.
+    untracked_tasks: list[dict] = []
+    tracked_q = await db.execute(
+        select(DownloadTask.downloader_id, DownloadTask.transmission_torrent_id).where(
+            DownloadTask.status.in_(["pending", "queued", "downloading", "paused"]),
+            DownloadTask.transmission_torrent_id.isnot(None),
+        )
+    )
+    tracked: dict[str, set[int]] = {}
+    for dl_id, tid in tracked_q.all():
+        tracked.setdefault(dl_id, set()).add(tid)
+
+    downloaders = (await db.execute(select(DownloaderInstance))).scalars().all()
+
+    async def _list_torrents(downloader: DownloaderInstance) -> list[dict]:
+        try:
+            wrapper = get_downloader_client(downloader)
+            return await asyncio.wait_for(
+                wrapper.list_torrents(), timeout=settings.transmission_timeout
+            )
+        except Exception:
+            # An unreachable downloader must not break the dashboard.
+            return []
+
+    torrent_lists = await asyncio.gather(*(_list_torrents(d) for d in downloaders))
+    for downloader, torrents in zip(downloaders, torrent_lists, strict=True):
+        tracked_ids = tracked.get(downloader.id, set())
+        for torrent in torrents:
+            if (
+                torrent.get("status") in ("downloading", "download pending")
+                and not torrent.get("is_finished")
+                and torrent.get("id") not in tracked_ids
+            ):
+                untracked_tasks.append({
+                    # Synthetic id — there is no DownloadTask row for these.
+                    "task_id": f"untracked-{downloader.id}-{torrent['id']}",
+                    "resource_title": torrent.get("name", ""),
+                    "progress": torrent.get("percent_done", 0.0),
+                    "agent_id": None,
+                    "agent_name": None,
+                    "channel_id": None,
+                    "channel_name": None,
+                    "downloader_id": downloader.id,
+                    "downloader_name": downloader.name,
+                })
+
+    if untracked_tasks:
+        active_download_groups.append({
+            "type": "untracked",
+            "id": None,
+            "title": "未跟踪",
+            "poster_url": None,
+            "tasks": untracked_tasks,
+        })
+
     # Pending decisions (top 10)
     pd_q = await db.execute(
         select(PendingDecision)
@@ -138,7 +200,7 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     return success_response({
         "active_agents": active_agents,
         "active_channels": active_channels,
-        "active_download_count": len(tasks),
+        "active_download_count": len(tasks) + len(untracked_tasks),
         "active_download_groups": active_download_groups,
         "pending_decisions": pending_decisions,
     })

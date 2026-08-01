@@ -64,6 +64,10 @@
     "series": "剧集",
     "movie": "电影",
     "unidentified": "未识别",
+    "untracked": "未跟踪",
+    "dlFilterAll": "所有",
+    "dlFilterAgent": "下载代理管理下载任务",
+    "dlFilterUntracked": "未跟踪下载任务",
     "eta": "ETA：",
     "failedToLoad": "无法加载数据",
     "confirmed": "已确认，开始下载",
@@ -390,6 +394,7 @@
     "upload": "上传",
     "eta": "ETA",
     "size": "大小",
+    "transferInfo": "下载信息",
     "connected": "已连接",
     "disconnected": "未连接"
   },

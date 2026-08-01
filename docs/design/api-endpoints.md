@@ -17,7 +17,7 @@
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组）、前 10 条 pending_decisions |
+| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、前 10 条 pending_decisions |
 
 `GET /dashboard` 响应 `data` 结构：
 ```json
@@ -27,7 +27,7 @@
   "active_download_count": 12,
   "active_download_groups": [
     {
-      "type": "series" | "movie" | "unknown",
+      "type": "series" | "movie" | "unknown" | "untracked",
       "id": "uuid-or-null",
       "title": "作品名或未识别",
       "poster_url": "/posters/xxx.jpg",
@@ -37,6 +37,8 @@
   "pending_decisions": [ { ... } ]
 }
 ```
+
+`untracked` 组：对每个下载器调用 `list_torrents`，筛选 `status ∈ {downloading, download pending}` 且 `is_finished=false` 且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name`；计入 `active_download_count`。
 
 ### Channels
 

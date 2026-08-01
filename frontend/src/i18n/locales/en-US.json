@@ -64,6 +64,10 @@
     "series": "Series",
     "movie": "Movie",
     "unidentified": "Unidentified",
+    "untracked": "Untracked",
+    "dlFilterAll": "All",
+    "dlFilterAgent": "Agent-managed tasks",
+    "dlFilterUntracked": "Untracked tasks",
     "eta": "ETA:",
     "failedToLoad": "Failed to load data",
     "confirmed": "Confirmed, starting download",
@@ -389,6 +393,7 @@
     "upload": "Upload",
     "eta": "ETA",
     "size": "Size",
+    "transferInfo": "Transfer",
     "connected": "Connected",
     "disconnected": "Disconnected"
   },

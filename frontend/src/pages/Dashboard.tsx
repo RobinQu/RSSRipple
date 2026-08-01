@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Bot, AlertTriangle, CheckCircle, Download, Rss } from 'lucide-react';
 import {
   Typography,
@@ -15,6 +16,8 @@ import {
   Tag,
   List,
   App,
+  Tabs,
+  theme,
 } from 'antd';
 import { dashboardApi, decisionsApi } from '../api/tasks';
 import { agentsApi } from '../api/agents';
@@ -41,11 +44,14 @@ type AgentListItem = Agent & {
 
 export default function Dashboard() {
   const { t } = useTranslation();
+  useDocumentTitle(t('nav.dashboard'));
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [topAgents, setTopAgents] = useState<AgentListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [candidateCache, setCandidateCache] = useState<Record<string, FileResource>>({});
+  const [dlFilter, setDlFilter] = useState<'all' | 'agent' | 'untracked'>('all');
 
   // Preload candidate resources for pending decisions
   const loadCandidates = useCallback(
@@ -122,9 +128,15 @@ export default function Dashboard() {
   if (!dashboard) return <Empty description={t('dashboard.failedToLoad')} />;
 
   // Flatten grouped downloads into a flat top-10 task list for the agents section.
+  // Untracked torrents (no agent) belong to the downloads card only.
   const inProgressTasks = dashboard.active_download_groups
-    .flatMap((g) => g.tasks.map((task) => ({ ...task, workTitle: g.title })))
+    .flatMap((g) => (g.type === 'untracked' ? [] : g.tasks.map((task) => ({ ...task, workTitle: g.title }))))
     .slice(0, 10);
+
+  // Tab filter for the active downloads card.
+  const filteredGroups = dashboard.active_download_groups.filter((g) =>
+    dlFilter === 'all' ? true : dlFilter === 'untracked' ? g.type === 'untracked' : g.type !== 'untracked',
+  );
 
   return (
     <div>
@@ -410,15 +422,35 @@ export default function Dashboard() {
         style={{ marginBottom: 24 }}
         styles={{ body: { padding: 0 } }}
       >
-        {dashboard.active_download_groups.length === 0 ? (
+        <Tabs
+          activeKey={dlFilter}
+          onChange={(k) => setDlFilter(k as typeof dlFilter)}
+          size="small"
+          style={{ paddingLeft: 24, paddingRight: 24 }}
+          items={[
+            { key: 'all', label: t('dashboard.dlFilterAll') },
+            { key: 'agent', label: t('dashboard.dlFilterAgent') },
+            { key: 'untracked', label: t('dashboard.dlFilterUntracked') },
+          ]}
+        />
+        {filteredGroups.length === 0 ? (
           <div style={{ padding: 32 }}>
             <Empty description={t('dashboard.noActiveDownloads')} image={Empty.PRESENTED_IMAGE_SIMPLE} />
           </div>
         ) : (
           <List
-            dataSource={dashboard.active_download_groups}
-            renderItem={(group) => (
-              <List.Item key={`${group.type}-${group.id || 'unknown'}`} style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb' }}>
+            dataSource={filteredGroups}
+            renderItem={(group, index) => (
+              // Divider color comes from the theme token (dark-mode safe) and
+              // is skipped on the last row so the card has no trailing line.
+              <List.Item
+                key={`${group.type}-${group.id || 'unknown'}`}
+                style={{
+                  padding: '16px 24px',
+                  borderBottom:
+                    index < filteredGroups.length - 1 ? `1px solid ${token.colorBorderSecondary}` : 'none',
+                }}
+              >
                 <div style={{ display: 'flex', width: '100%', gap: 16 }}>
                   <img
                     src={posterUrl(group.poster_url)}
@@ -429,15 +461,15 @@ export default function Dashboard() {
                       objectFit: 'cover',
                       borderRadius: 6,
                       flexShrink: 0,
-                      background: '#eeece7',
+                      background: token.colorFillSecondary,
                     }}
                     onError={useDefaultPoster}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Space size={8} style={{ marginBottom: 8 }}>
-                      <Text strong>{group.title}</Text>
-                      <Tag color={group.type === 'series' ? 'blue' : group.type === 'movie' ? 'green' : 'default'}>
-                        {group.type === 'series' ? t('dashboard.series') : group.type === 'movie' ? t('dashboard.movie') : t('dashboard.unidentified')}
+                      <Text strong>{group.type === 'untracked' ? t('dashboard.untracked') : group.title}</Text>
+                      <Tag color={group.type === 'series' ? 'blue' : group.type === 'movie' ? 'green' : group.type === 'untracked' ? 'orange' : 'default'}>
+                        {group.type === 'series' ? t('dashboard.series') : group.type === 'movie' ? t('dashboard.movie') : group.type === 'untracked' ? t('dashboard.untracked') : t('dashboard.unidentified')}
                       </Tag>
                     </Space>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -458,9 +490,15 @@ export default function Dashboard() {
                             <Space size="small" style={{ color: '#93939f', fontSize: 12, flexShrink: 0 }}>
                               <span>{formatSpeed(0)}</span>
                               <span>{t('dashboard.eta')} {formatEta(null)}</span>
-                              <Link to={`/agents/${task.agent_id}`}>
-                                <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>
-                              </Link>
+                              {task.agent_id ? (
+                                <Link to={`/agents/${task.agent_id}`}>
+                                  <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>
+                                </Link>
+                              ) : task.downloader_id ? (
+                                <Link to={`/downloaders/${task.downloader_id}`}>
+                                  <Text style={{ fontSize: 12 }}>{task.downloader_name}</Text>
+                                </Link>
+                              ) : null}
                             </Space>
                           </div>
                           <ProgressBar progress={task.progress} />

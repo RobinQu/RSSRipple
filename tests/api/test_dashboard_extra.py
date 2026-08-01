@@ -116,3 +116,52 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
 
 
 from types import SimpleNamespace
+
+
+class TestDashboardUntrackedTorrents:
+    """Torrents downloading in the downloader without a matching DownloadTask."""
+
+    async def test_untracked_torrents_form_own_group(
+        self, client, db_session_factory, mock_transmission, setup_with_task_and_decision
+    ):
+        from app.models.download_task import DownloadTask
+
+        fx = setup_with_task_and_decision
+        # Bind task t1 to transmission torrent id=1 so it counts as tracked.
+        async with db_session_factory() as s:
+            task = await s.get(DownloadTask, fx.t1)
+            task.transmission_torrent_id = 1
+            await s.commit()
+
+        mock_transmission.list_torrents.return_value = [
+            {"id": 1, "name": "tracked", "status": "downloading",
+             "percent_done": 0.5, "is_finished": False},
+            {"id": 2, "name": "untracked-movie", "status": "downloading",
+             "percent_done": 0.1, "is_finished": False},
+            # Seeding torrents are not "active downloads" — excluded.
+            {"id": 3, "name": "seeding", "status": "seeding",
+             "percent_done": 1.0, "is_finished": True},
+        ]
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        untracked = [g for g in data["active_download_groups"] if g["type"] == "untracked"]
+        assert len(untracked) == 1
+        entries = untracked[0]["tasks"]
+        assert len(entries) == 1
+        assert entries[0]["resource_title"] == "untracked-movie"
+        assert entries[0]["progress"] == 0.1
+        assert entries[0]["agent_id"] is None
+        assert entries[0]["downloader_name"] == "DDl"
+        # 3 tracked active tasks + 1 untracked torrent
+        assert data["active_download_count"] == 4
+
+    async def test_unreachable_downloader_does_not_break_dashboard(
+        self, client, mock_transmission, setup_with_task_and_decision
+    ):
+        mock_transmission.list_torrents.side_effect = Exception("connection refused")
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert all(g["type"] != "untracked" for g in data["active_download_groups"])

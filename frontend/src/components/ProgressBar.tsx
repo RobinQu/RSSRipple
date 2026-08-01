@@ -12,7 +12,7 @@ export default function ProgressBar({ progress }: ProgressBarProps) {
       size="small"
       strokeColor="#1863dc"
       trailColor="#d9d9dd"
-      format={(p) => `${p?.toFixed(0)}%`}
+      format={(p) => `${p?.toFixed(2)}%`}
     />
   );
 }
