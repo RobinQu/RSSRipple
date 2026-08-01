@@ -220,10 +220,39 @@ export default function Dashboard() {
         ) : (
           <Row gutter={[16, 16]}>
             {topAgents.map((agent) => {
-              const conditions =
+              // Subscription summary = global filter conditions + every
+              // work-level override (tagged with the work title).
+              const globalConds =
                 agent.filter_config && !isFilterEmpty(agent.filter_config)
                   ? collectFieldConditions(agent.filter_config)
                   : [];
+              const condTags: { key: string; label: string; work?: string }[] =
+                globalConds.map((c, i) => ({
+                  key: `g${i}`,
+                  label: describeCondition(c, t),
+                }));
+              (agent.works ?? []).forEach((w) => {
+                if (!w.filter_overrides || isFilterEmpty(w.filter_overrides)) return;
+                const workTitle =
+                  w.display_name_override ||
+                  w.series?.title_cn ||
+                  w.series?.title_en ||
+                  w.series?.original_title ||
+                  w.movie?.title_cn ||
+                  w.movie?.title_en ||
+                  w.movie?.original_title ||
+                  t('common.unknown');
+                collectFieldConditions(w.filter_overrides).forEach((c, i) => {
+                  condTags.push({
+                    key: `w${w.id}-${i}`,
+                    label: describeCondition(c, t),
+                    work: workTitle,
+                  });
+                });
+              });
+              const MAX_COND_TAGS = 6;
+              const visibleConds = condTags.slice(0, MAX_COND_TAGS);
+              const hiddenConds = condTags.length - visibleConds.length;
               const posters = (agent.works ?? [])
                 .map((w) => ({
                   id: w.id,
@@ -303,16 +332,29 @@ export default function Dashboard() {
                       <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
                         {t('dashboard.filterConditions')}
                       </Text>
-                      {conditions.length === 0 ? (
+                      {condTags.length === 0 ? (
                         <Text type="secondary" style={{ fontSize: 12 }}>
                           {t('dashboard.noFilterConditions')}
                         </Text>
                       ) : (
-                        conditions.map((c, i) => (
-                          <Tag key={i} style={{ fontSize: 11, margin: 2 }}>
-                            {describeCondition(c, t)}
-                          </Tag>
-                        ))
+                        <>
+                          {visibleConds.map((c) =>
+                            c.work ? (
+                              <Tag key={c.key} color="blue" style={{ fontSize: 11, margin: 2 }}>
+                                {c.work} · {c.label}
+                              </Tag>
+                            ) : (
+                              <Tag key={c.key} style={{ fontSize: 11, margin: 2 }}>
+                                {c.label}
+                              </Tag>
+                            ),
+                          )}
+                          {hiddenConds > 0 && (
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              +{hiddenConds}
+                            </Text>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

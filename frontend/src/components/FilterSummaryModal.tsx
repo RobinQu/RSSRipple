@@ -122,6 +122,12 @@ export default function FilterSummaryModal({
   const [loading, setLoading] = useState(false);
   const [works, setWorks] = useState<FilterSuggestionWork[]>([]);
   const [globalConfig, setGlobalConfig] = useState<BoolCondition | null>(null);
+  // The global rules as originally generated from the selected resources.
+  // Used to tell generated rules apart from manual edits: when applying to
+  // an existing agent, generated global rules are redistributed to the work
+  // level (so the agent's own global filter is never silently changed);
+  // only hand-edited global rules may touch the agent's global filter.
+  const [generatedGlobal, setGeneratedGlobal] = useState<BoolCondition | null>(null);
   const [unlinkedCount, setUnlinkedCount] = useState(0);
   const [explanation, setExplanation] = useState<string>('');
   const [mode, setMode] = useState<'create' | 'apply'>('create');
@@ -135,6 +141,7 @@ export default function FilterSummaryModal({
     setLoading(true);
     setWorks([]);
     setGlobalConfig(null);
+    setGeneratedGlobal(null);
     setUnlinkedCount(0);
     setExplanation('');
     setApplyAgentId(null);
@@ -157,6 +164,7 @@ export default function FilterSummaryModal({
         if (filterRes.success) {
           setWorks(filterRes.data.works ?? []);
           setGlobalConfig(filterRes.data.global_filter_config);
+          setGeneratedGlobal(filterRes.data.global_filter_config);
           setUnlinkedCount(filterRes.data.unlinked_count ?? 0);
           setExplanation(filterRes.data.explanation || '');
         } else {
@@ -236,13 +244,42 @@ export default function FilterSummaryModal({
         message.error(detail.error?.message || t('filter.applyFailed'));
         return;
       }
-      const gc = nullIfEmptyFilter(globalConfig);
-      const mergedFilter = gc
-        ? nullIfEmptyFilter(mergeFilters(detail.data.filter_config, gc))
-        : nullIfEmptyFilter(detail.data.filter_config);
+      const gcNow = nullIfEmptyFilter(globalConfig);
+      const gcGenerated = nullIfEmptyFilter(generatedGlobal);
+      const globalTouched = JSON.stringify(gcNow) !== JSON.stringify(gcGenerated);
+
+      // Generated rules from the selected resources must NOT change the
+      // target agent's global filter — that would silently alter behavior
+      // for every work the agent already handles. They are redistributed
+      // into each suggested work's override instead. Only a hand-edited
+      // global section (differs from what was generated) is AND-merged into
+      // the agent's global filter — global rules stay a manual-only affair.
+      let mergedFilter = nullIfEmptyFilter(detail.data.filter_config);
+      let foldGlobal: BoolCondition | null = null;
+      if (globalTouched) {
+        if (gcNow) {
+          mergedFilter = nullIfEmptyFilter(mergeFilters(detail.data.filter_config, gcNow));
+        }
+      } else {
+        foldGlobal = gcNow;
+      }
+
+      if (foldGlobal && works.length === 0) {
+        // Rules were generated but there is no work to attach them to —
+        // refuse rather than touching the agent's global filter.
+        message.warning(t('filter.applyNeedsWork'));
+        return;
+      }
+
+      const foldOverride = (override: BoolCondition | null | undefined) => {
+        const base = nullIfEmptyFilter(override);
+        if (!foldGlobal) return base;
+        return base ? mergeFilters(base, foldGlobal) : foldGlobal;
+      };
+
       const mergedWorks: AgentWork[] = [...(detail.data.works ?? [])];
       works.forEach((sw) => {
-        const override = nullIfEmptyFilter(sw.filter_overrides);
+        const override = foldOverride(sw.filter_overrides);
         const idx = mergedWorks.findIndex((w) => workKey(w) === workKey(sw));
         if (idx >= 0) {
           if (override) {
@@ -252,7 +289,7 @@ export default function FilterSummaryModal({
             };
           }
         } else {
-          mergedWorks.push(buildTempWork(sw));
+          mergedWorks.push(buildTempWork({ ...sw, filter_overrides: override }));
         }
       });
       const res = await agentsApi.update(applyAgentId, {

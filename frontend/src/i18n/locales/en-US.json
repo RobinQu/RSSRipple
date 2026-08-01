@@ -590,7 +590,8 @@
     "noAgentHint": "No agents under this channel. Please select \"New Agent\".",
     "selectTargetAgent": "Select Target Agent",
     "selectAgentPlaceholder": "Select agent...",
-    "mergeHint": "New rules will be AND-merged into the existing ones; overrides of already-subscribed works are merged too, and new works are appended as subscriptions.",
+    "mergeHint": "Rules generated from the selected resources are written into each work's own conditions (AND-merged with existing ones) and never modify the agent's global filter; only if you hand-edit the global rules above will they be AND-merged into the global filter. New works are appended as subscriptions.",
+    "applyNeedsWork": "The generated global rules must be attached to a work, but none of the selected resources is linked to a work. To proceed, hand-edit the global rules and retry (they will be AND-merged into the agent's global filter).",
     "applyRules": "Apply Rules"
   },
   "work": {

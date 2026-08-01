@@ -590,7 +590,8 @@
     "noAgentHint": "当前频道下暂无 Agent，请选择\"新建 Agent\"。",
     "selectTargetAgent": "选择目标 Agent",
     "selectAgentPlaceholder": "选择 Agent...",
-    "mergeHint": "新规则将与现有规则按 AND 合并；已订阅作品的差异化条件一并合并，新作品将追加为订阅。",
+    "mergeHint": "选中资源生成的规则将全部写入各作品的订阅条件（与已有条件按 AND 合并），不会修改该 Agent 的全局过滤规则；仅当你在上方手动编辑了全局规则时，才会将其按 AND 合并到全局。新作品将追加为订阅。",
+    "applyNeedsWork": "生成的全局规则需要依附于作品才能应用，但所选资源未关联任何作品。如需应用，请手动编辑全局规则后重试（将按 AND 合并到该 Agent 的全局过滤规则）。",
     "applyRules": "应用规则"
   },
   "work": {

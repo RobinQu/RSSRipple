@@ -73,6 +73,15 @@ body {
   box-shadow: none !important;
 }
 
+/* antd's hoverable card relies on `border-color: transparent` + a box-shadow
+   for hover feedback — but card shadows are disabled globally above, so the
+   card appeared borderless on hover (notably the dashboard stat cards in
+   light mode). Keep a visible border instead. Specificity is bumped to win
+   over the cssinjs-generated rule. */
+.ant-card.ant-card-hoverable:hover {
+  border-color: var(--rr-border);
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
