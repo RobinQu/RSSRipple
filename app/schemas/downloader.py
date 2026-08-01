@@ -73,6 +73,20 @@ class DownloaderTestResult(BaseModel):
     free_space: int | None = None
 
 
+class DownloaderTestRequest(BaseModel):
+    """Optional overrides for ``POST /downloaders/{id}/test``.
+
+    Lets the edit form probe the *unsaved* form values instead of the stored
+    config. Any field left null falls back to the stored value — notably a
+    blank password means "keep the stored one" (the form never echoes it).
+    """
+
+    url: str | None = None
+    username: str | None = None
+    password: str | None = None
+    download_dir: str | None = None
+
+
 class TorrentInfo(BaseModel):
     id: int
     name: str

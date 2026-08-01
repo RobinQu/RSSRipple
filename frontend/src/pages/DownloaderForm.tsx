@@ -20,6 +20,9 @@ const { Title } = Typography;
 
 type DownloaderType = 'transmission' | 'mock';
 
+/** Default download root for new downloaders (Transmission daemon's view). */
+const DEFAULT_DOWNLOAD_DIR = '/downloads/complete';
+
 export default function DownloaderForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -43,7 +46,7 @@ export default function DownloaderForm() {
           type: t,
           name: res.data.name,
           url: res.data.url,
-          download_dir: res.data.download_dir,
+          download_dir: res.data.download_dir || DEFAULT_DOWNLOAD_DIR,
           username: res.data.username ?? '',
           password: '',
         });
@@ -57,11 +60,29 @@ export default function DownloaderForm() {
 
   const handleTest = async () => {
     if (mode !== 'edit' || !id) return;
+    // Probe the *unsaved* form values, not the stored config — the backend
+    // falls back to stored values for anything left blank (e.g. password).
+    let values: { url?: string; username?: string; password?: string; download_dir?: string };
+    try {
+      values = await form.validateFields();
+    } catch {
+      return; // validation errors are already shown inline
+    }
     setTesting(true);
-    const res = await downloadersApi.test(id);
+    const res = await downloadersApi.test(id, {
+      url: values.url || undefined,
+      username: values.username || undefined,
+      password: values.password || undefined,
+      download_dir: values.download_dir || undefined,
+    });
     setTesting(false);
-    if (res.success) message.success(res.data.message || t('downloaders.connectionSuccess'));
-    else message.error(res.error?.message || t('downloaders.connectionFailed'));
+    if (res.success && res.data?.success !== false) {
+      message.success(res.data.message || t('downloaders.connectionSuccess'));
+    } else {
+      message.error(
+        res.error?.message || res.data?.message || t('downloaders.connectionFailed'),
+      );
+    }
   };
 
   const handleSubmit = async (values: {
@@ -114,7 +135,7 @@ export default function DownloaderForm() {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{ type: 'transmission' }}
+          initialValues={{ type: 'transmission', download_dir: DEFAULT_DOWNLOAD_DIR }}
         >
           <Form.Item name="type" label={t('downloaders.type')}>
             <Select
@@ -161,7 +182,7 @@ export default function DownloaderForm() {
           >
             <Input
               prefix={<Folder size={14} />}
-              placeholder={isMock ? '/tmp/mock-downloads' : '/volume1/downloads/rssripple'}
+              placeholder={isMock ? '/tmp/mock-downloads' : DEFAULT_DOWNLOAD_DIR}
             />
           </Form.Item>
 

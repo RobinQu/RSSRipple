@@ -105,11 +105,11 @@ export default function DownloaderDetail() {
   const handleTest = async () => {
     if (!id) return;
     const res = await downloadersApi.test(id);
-    if (res.success) {
+    if (res.success && res.data?.success !== false) {
       const freeSpace = res.data.free_space != null ? `, ${formatBytes(res.data.free_space)}` : '';
       message.success(res.data.message || `${t('downloaders.connectionSuccess')}${freeSpace}`);
     } else {
-      message.error(res.error?.message || t('downloaders.connectionFailed'));
+      message.error(res.error?.message || res.data?.message || t('downloaders.connectionFailed'));
     }
     fetchDl();
     fetchTorrents();

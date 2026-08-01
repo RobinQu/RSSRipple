@@ -1,5 +1,7 @@
 """DownloaderInstance API routes."""
 
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
@@ -12,7 +14,12 @@ from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.schemas.common import paginated_response, success_response
 from app.schemas.download_task import DownloadTaskResponse
-from app.schemas.downloader import DownloaderCreate, DownloaderResponse, DownloaderUpdate
+from app.schemas.downloader import (
+    DownloaderCreate,
+    DownloaderResponse,
+    DownloaderTestRequest,
+    DownloaderUpdate,
+)
 from app.utils.download_paths import DownloadPathError
 from app.utils.time import utcnow
 
@@ -227,7 +234,11 @@ async def list_downloader_live_torrents(
 
 
 @router.post("/downloaders/{downloader_id}/test")
-async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)):
+async def test_downloader(
+    downloader_id: str,
+    body: DownloaderTestRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
 
     dl = await db.get(DownloaderInstance, downloader_id)
     if not dl:
@@ -240,21 +251,45 @@ async def test_downloader(downloader_id: str, db: AsyncSession = Depends(get_db)
             },
         )
 
-    wrapper = get_downloader_client(dl)
+    # The edit form probes the *unsaved* form values: any field present in the
+    # request body overrides the stored config for this probe only. A missing
+    # field (e.g. blank password) falls back to the stored value.
+    has_overrides = body is not None and any(
+        v is not None for v in (body.url, body.username, body.password, body.download_dir)
+    )
+    if has_overrides:
+        target = SimpleNamespace(
+            id=dl.id,
+            name=dl.name,
+            type=dl.type,
+            url=body.url or dl.url,
+            username=body.username if body.username is not None else dl.username,
+            password=body.password if body.password is not None else dl.password,
+            download_dir=body.download_dir or dl.download_dir,
+        )
+    else:
+        target = dl
+
+    wrapper = get_downloader_client(target)
     success, detail = await wrapper.test_connection()
     version = detail if success else None
 
-    dl.status = "connected" if success else "error"
-    dl.last_checked_at = utcnow()
+    status = "connected" if success else "error"
     free_space = None
     if success:
         try:
-            free_space = await wrapper.free_space(dl.download_dir)
+            free_space = await wrapper.free_space(target.download_dir)
         except Exception as e:
             success = False
             detail = f"{detail}; download_dir check failed: {e}" if detail else f"download_dir check failed: {e}"
-            dl.status = "error"
-    await db.flush()
+            status = "error"
+
+    # Persist the health status only when probing the *stored* config — a
+    # form-values probe says nothing about the saved instance.
+    if not has_overrides:
+        dl.status = status
+        dl.last_checked_at = utcnow()
+        await db.flush()
 
     if success:
         return success_response({"success": True, "message": detail, "version": version, "free_space": free_space})

@@ -86,6 +86,36 @@ class TestDownloaderActions:
         assert res.json()["data"]["success"] is False
         assert "download_dir check failed" in res.json()["data"]["message"]
 
+    async def test_test_endpoint_with_form_overrides(
+        self, client, sample_downloader, mock_transmission, monkeypatch, db_session
+    ):
+        """Edit-form probe: unsaved form values override the stored config for
+        the probe only, and the stored health status is left untouched."""
+        from app.clients import transmission as tx_mod
+
+        seen = {}
+        orig_init = tx_mod.TransmissionWrapper.__init__
+
+        def spy_init(self, *a, **kw):
+            downloader = kw.get("downloader") if "downloader" in kw else (a[0] if a else None)
+            seen["url"] = downloader.url if downloader is not None else kw.get("url")
+            orig_init(self, *a, **kw)
+
+        monkeypatch.setattr(tx_mod.TransmissionWrapper, "__init__", spy_init)
+
+        res = await client.post(
+            f"/api/v1/downloaders/{sample_downloader.id}/test",
+            json={"url": "http://10.0.0.2:9091/transmission/rpc", "download_dir": "/downloads/complete"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["success"] is True
+        # The probe used the form's URL and download_dir, not the stored ones.
+        assert seen["url"] == "http://10.0.0.2:9091/transmission/rpc"
+        mock_transmission.free_space.assert_awaited_with("/downloads/complete")
+        # Status is persisted only for stored-config probes.
+        await db_session.refresh(sample_downloader)
+        assert sample_downloader.status == "disconnected"
+
     async def test_torrents_live_error(self, client, sample_downloader, mock_transmission):
         mock_transmission.list_torrents.side_effect = Exception("conn err")
         res = await client.get(f"/api/v1/downloaders/{sample_downloader.id}/torrents")

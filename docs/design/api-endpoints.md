@@ -170,7 +170,7 @@
 | GET | `/downloaders/{id}` | 下载器详情 |
 | PUT | `/downloaders/{id}` | 更新下载器 |
 | DELETE | `/downloaders/{id}` | 删除下载器；若仍有关联 Agent 返回 `409 CONFLICT` 并在 `error.details.agents` 中带出 `[{id, name}]` 列表，UI 可据此指引用户先解绑/删除这些 Agent |
-| POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录，更新 status |
+| POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录。请求体可选 `{url, username, password, download_dir}`：用于编辑表单按未保存的表单值探测（缺省字段回退到已存值，空密码 = 沿用已存密码）；带覆盖值的探测不更新 status，仅探测已存配置时才更新 status |
 | GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表 |
 | GET | `/downloaders/{id}/torrents` | Transmission 实时种子列表（直连 RPC 返回） |
 
