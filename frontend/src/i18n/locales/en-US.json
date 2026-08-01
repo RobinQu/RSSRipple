@@ -337,6 +337,7 @@
     "taskUpdatedAt": "Updated",
     "deleteTaskConfirm": "Delete download task?",
     "deleteTaskWarning": "Downloaded data will not be deleted by default. Check \"Delete data\" to also remove files.",
+    "deleteTaskData": "Also delete downloaded data",
     "channelLabel": "Channel: ",
     "downloaderLabel": "Downloader: ",
     "subdirLabel": "Subdir: ",
@@ -586,8 +587,8 @@
     "workResourceCount": "{n} resources",
     "noWorksHint": "The selected resources are not linked to any work, so no work subscriptions can be formed.",
     "unlinkedNote": "{n} of the selected resources are not linked to a work.",
-    "globalRules": "Global Rules (shared, editable)",
-    "globalRulesEmptyHint": "No shared conditions detected — you can add them directly.",
+    "globalRules": "Global Rules (manual only)",
+    "globalRulesEmptyHint": "Global rules are manual-only here; rules generated from the selected resources have been folded into each work's conditions.",
     "newAgent": "New Agent",
     "applyToExisting": "Apply to Existing Agent",
     "agentName": "Agent Name",
@@ -598,8 +599,7 @@
     "noAgentHint": "No agents under this channel. Please select \"New Agent\".",
     "selectTargetAgent": "Select Target Agent",
     "selectAgentPlaceholder": "Select agent...",
-    "mergeHint": "Rules generated from the selected resources are written into each work's own conditions (AND-merged with existing ones) and never modify the agent's global filter; only if you hand-edit the global rules above will they be AND-merged into the global filter. New works are appended as subscriptions.",
-    "applyNeedsWork": "The generated global rules must be attached to a work, but none of the selected resources is linked to a work. To proceed, hand-edit the global rules and retry (they will be AND-merged into the agent's global filter).",
+    "mergeHint": "Rules generated from the selected resources have all been written into each work's own conditions (AND-merged with existing ones) and never modify the agent's global filter; only global rules you add by hand above are AND-merged into the global filter. New works are appended as subscriptions.",
     "applyRules": "Apply Rules"
   },
   "work": {

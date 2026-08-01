@@ -338,6 +338,7 @@
     "taskUpdatedAt": "最后更新时间",
     "deleteTaskConfirm": "删除下载任务？",
     "deleteTaskWarning": "已下载的数据不会被删除（默认），勾选\"同时删除数据\"一并移除文件。",
+    "deleteTaskData": "同时删除数据",
     "channelLabel": "频道：",
     "downloaderLabel": "下载器：",
     "subdirLabel": "子目录：",
@@ -586,8 +587,8 @@
     "workResourceCount": "{n} 个资源",
     "noWorksHint": "所选资源未关联到任何作品，无法形成作品订阅。",
     "unlinkedNote": "其中 {n} 个所选资源未关联到作品。",
-    "globalRules": "全局共性规则（可编辑）",
-    "globalRulesEmptyHint": "未发现所选资源的共性条件，可直接添加。",
+    "globalRules": "全局规则（仅人工编辑）",
+    "globalRulesEmptyHint": "全局规则仅支持人工添加；选中资源生成的规则已归入各作品的订阅条件。",
     "newAgent": "新建 Agent",
     "applyToExisting": "应用到已有 Agent",
     "agentName": "Agent 名称",
@@ -598,8 +599,7 @@
     "noAgentHint": "当前频道下暂无 Agent，请选择\"新建 Agent\"。",
     "selectTargetAgent": "选择目标 Agent",
     "selectAgentPlaceholder": "选择 Agent...",
-    "mergeHint": "选中资源生成的规则将全部写入各作品的订阅条件（与已有条件按 AND 合并），不会修改该 Agent 的全局过滤规则；仅当你在上方手动编辑了全局规则时，才会将其按 AND 合并到全局。新作品将追加为订阅。",
-    "applyNeedsWork": "生成的全局规则需要依附于作品才能应用，但所选资源未关联任何作品。如需应用，请手动编辑全局规则后重试（将按 AND 合并到该 Agent 的全局过滤规则）。",
+    "mergeHint": "选中资源生成的规则已全部写入各作品的订阅条件（与已有条件按 AND 合并），不会修改该 Agent 的全局过滤规则；仅当上方全局规则为你人工添加时，才会按 AND 合并到全局。新作品将追加为订阅。",
     "applyRules": "应用规则"
   },
   "work": {

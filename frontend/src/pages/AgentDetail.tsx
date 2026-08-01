@@ -324,13 +324,26 @@ export default function AgentDetail() {
     loadTasks();
   };
   const handleDeleteTask = (tid: string) => {
+    let deleteData = false;
     modal.confirm({
       title: t('agents.deleteTaskConfirm'),
-      content: t('agents.deleteTaskWarning'),
+      content: (
+        <div>
+          <div>{t('agents.deleteTaskWarning')}</div>
+          <Checkbox
+            style={{ marginTop: 8 }}
+            onChange={(e) => {
+              deleteData = e.target.checked;
+            }}
+          >
+            {t('agents.deleteTaskData')}
+          </Checkbox>
+        </div>
+      ),
       okText: t('common.delete'),
       okButtonProps: { danger: true },
       onOk: async () => {
-        await tasksApi.delete(tid);
+        await tasksApi.delete(tid, deleteData);
         loadTasks();
       },
     });
