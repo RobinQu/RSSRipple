@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///data/rss_ripple_dev.db"
+    database_url: str = "sqlite+aioturso:///data/rss_ripple_turso.db"
 
     # Scheduler
     default_fetch_interval: int = 1800  # 30 minutes
