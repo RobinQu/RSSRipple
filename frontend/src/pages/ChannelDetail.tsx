@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   ArrowLeft,
   Pencil,
@@ -92,6 +93,7 @@ export default function ChannelDetail() {
   const navigate = useNavigate();
 
   const [channel, setChannel] = useState<ChannelDetailData | null>(null);
+  useDocumentTitle(channel?.name ?? t('channels.title'));
   const [tab, setTab] = useState<'parsed' | 'unparsed'>('parsed');
   const [parsedGroups, setParsedGroups] = useState<GroupedResource[]>([]);
   const [parsedPage, setParsedPage] = useState(1);

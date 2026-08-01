@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Plus, Trash2, Edit, RefreshCw } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty, Spin, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -13,6 +14,7 @@ const { Title } = Typography;
 
 export default function Channels() {
   const { t } = useTranslation();
+  useDocumentTitle(t('channels.title'));
   const [channels, setChannels] = useState<Channel[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   Form,
   Input,
@@ -54,6 +55,7 @@ export default function AgentForm() {
   const { id } = useParams<{ id: string }>();
   const mode: 'create' | 'edit' = id ? 'edit' : 'create';
   const { t } = useTranslation();
+  useDocumentTitle(t(mode === 'edit' ? 'agents.editAgent' : 'agents.newAgent'));
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
   const [channels, setChannels] = useState<Channel[]>([]);

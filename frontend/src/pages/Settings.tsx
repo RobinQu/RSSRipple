@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Typography, Card, Spin, Input, Switch, Button, Select, Tag, Space, App, Alert } from 'antd';
 import { Sparkles, Database, Save, RotateCcw } from 'lucide-react';
 import { settingsApi, type SystemSettings, type SystemSettingsUpdate } from '../api/settings';
@@ -17,6 +18,7 @@ function isSecretKey(key: string): key is SecretKey {
 
 export default function SettingsPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('settings.title'));
   const { message } = App.useApp();
 
   const [data, setData] = useState<SystemSettings | null>(null);

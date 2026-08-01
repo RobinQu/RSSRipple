@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Plus, Trash2, Zap, Edit } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -17,6 +18,7 @@ export default function Downloaders() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
+  useDocumentTitle(t('downloaders.title'));
   const { message, modal } = App.useApp();
 
   const fetchItems = async () => {

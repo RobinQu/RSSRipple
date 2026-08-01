@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
 import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
@@ -18,6 +19,7 @@ export default function MovieDetail() {
   const { id } = useParams<{ id: string }>();
   const { modal, message } = App.useApp();
   const [movie, setMovie] = useState<Movie | null>(null);
+  useDocumentTitle(movie ? movie.title_cn || movie.title_en || movie.original_title : t('movies.title'));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);

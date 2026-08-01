@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   Tabs,
   Table,
@@ -82,6 +83,7 @@ export default function AgentDetail() {
   const { t } = useTranslation();
   const { message, modal } = App.useApp();
   const [agent, setAgent] = useState<Agent | null>(null);
+  useDocumentTitle(agent?.name ?? t('agents.title'));
   const [tab, setTab] = useState('works');
   const [loadingAgent, setLoadingAgent] = useState(true);
 

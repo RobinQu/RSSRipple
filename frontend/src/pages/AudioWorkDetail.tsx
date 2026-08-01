@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
@@ -16,6 +17,7 @@ export default function AudioWorkDetail() {
   const { id } = useParams<{ id: string }>();
   const { modal, message } = App.useApp();
   const [work, setWork] = useState<AudioWork | null>(null);
+  useDocumentTitle(work ? work.title_cn || work.title_en || work.original_title : t('works.title'));
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   Form,
   Input,
@@ -29,6 +30,7 @@ export default function DownloaderForm() {
   const mode = id ? 'edit' : 'create';
   const [form] = Form.useForm();
   const { t } = useTranslation();
+  useDocumentTitle(t(mode === 'edit' ? 'downloaders.editDownloader' : 'downloaders.addDownloader'));
   const { message } = App.useApp();
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');

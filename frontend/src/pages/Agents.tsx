@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Plus, Trash2, Play } from 'lucide-react';
 import { Table, Button, Space, Typography, App, Empty, Tag } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -13,6 +14,7 @@ const { Title } = Typography;
 
 export default function Agents() {
   const { t } = useTranslation();
+  useDocumentTitle(t('agents.title'));
   const [items, setItems] = useState<Agent[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);

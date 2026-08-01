@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Library, Search, Settings2, RefreshCw, CheckCircle } from 'lucide-react';
 import {
   Typography,
@@ -35,6 +36,7 @@ function workKey(w: Work): string {
 
 export default function WorksPage() {
   const { t } = useTranslation();
+  useDocumentTitle(t('works.title'));
   const navigate = useNavigate();
   const { message } = App.useApp();
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
 import {
@@ -22,6 +23,7 @@ export default function SeriesDetail() {
   const navigate = useNavigate();
   const { message } = App.useApp();
   const [series, setSeries] = useState<TVSeries | null>(null);
+  useDocumentTitle(series ? series.title_cn || series.title_en || series.original_title : t('series.title'));
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import useDocumentTitle from '../hooks/useDocumentTitle';
 import {
   Form,
   Input,
@@ -56,6 +57,7 @@ export default function ChannelForm() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const mode: Mode = id ? 'edit' : 'create';
+  useDocumentTitle(t(mode === 'edit' ? 'channels.editChannel' : 'channels.newChannel'));
 
   const [form] = Form.useForm();
   const { message } = App.useApp();
