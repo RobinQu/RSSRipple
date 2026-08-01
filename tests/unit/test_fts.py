@@ -2,8 +2,11 @@
 TVSeries, Movie, and AudioWork against real in-memory SQLite.
 """
 
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+import pytest
 
 from app.models.audio_work import AudioWork
 from app.services.fts import (
@@ -20,6 +23,16 @@ from app.services.fts import (
     upsert_movie_fts,
     upsert_series_fts,
 )
+
+_FTS5 = os.environ.get("TEST_DB_BACKEND", "aiosqlite") != "aioturso"
+
+# FTS5 index maintenance (upsert/delete/rebuild) is a no-op on backends
+# without FTS5 — these tests assert FTS5-specific index behavior.
+requires_fts5 = pytest.mark.skipif(
+    not _FTS5, reason="FTS5 maintenance is a no-op without FTS5 (LIKE fallback)"
+)
+# LIKE-fallback tests only exercise the fallback on non-FTS5 backends.
+requires_no_fts5 = pytest.mark.skipif(_FTS5, reason="LIKE fallback only without FTS5")
 
 
 def _audio_work(**kw) -> AudioWork:
@@ -40,6 +53,7 @@ def _audio_work(**kw) -> AudioWork:
 # ---------------------------------------------------------------------------
 
 
+@requires_fts5
 async def test_series_fts_upsert_search_delete(db_session, sample_series):
     await upsert_series_fts(db_session, sample_series)
 
@@ -74,6 +88,7 @@ async def test_search_fts_query_with_quotes_is_escaped(db_session, sample_series
     assert await search_series_fts(db_session, 'test "quoted" series') == []
 
 
+@requires_fts5
 async def test_rebuild_series_fts(db_session, sample_series):
     count = await rebuild_series_fts(db_session)
     assert count == 1
@@ -85,6 +100,7 @@ async def test_rebuild_series_fts(db_session, sample_series):
 # ---------------------------------------------------------------------------
 
 
+@requires_fts5
 async def test_movie_fts_upsert_search_delete(db_session, sample_movie):
     await upsert_movie_fts(db_session, sample_movie)
 
@@ -97,6 +113,7 @@ async def test_movie_fts_upsert_search_delete(db_session, sample_movie):
     assert sample_movie.id not in await search_movie_fts(db_session, "测试电影")
 
 
+@requires_fts5
 async def test_rebuild_movie_fts(db_session, sample_movie):
     count = await rebuild_movie_fts(db_session)
     assert count == 1
@@ -108,6 +125,7 @@ async def test_rebuild_movie_fts(db_session, sample_movie):
 # ---------------------------------------------------------------------------
 
 
+@requires_fts5
 async def test_audio_work_fts_upsert_search_delete(db_session):
     aw = _audio_work()
     db_session.add(aw)
@@ -124,6 +142,7 @@ async def test_audio_work_fts_upsert_search_delete(db_session):
     assert aw.id not in await search_audio_work_fts(db_session, "深夜音声作品")
 
 
+@requires_fts5
 async def test_rebuild_audio_work_fts(db_session):
     aw = _audio_work()
     db_session.add(aw)
@@ -158,9 +177,35 @@ async def test_delete_swallows_db_errors():
     await delete_audio_work_fts(db, "x")
 
 
+@requires_fts5
 async def test_search_swallows_db_errors():
     db = AsyncMock()
     db.execute.side_effect = RuntimeError("no such table")
     for search in (search_series_fts, search_movie_fts, search_audio_work_fts):
         assert await search(db, "long enough query") == []  # MATCH path
         assert await search(db, "ab") == []  # LIKE path
+
+
+# ---------------------------------------------------------------------------
+# LIKE fallback (backends without FTS5, e.g. Turso)
+# ---------------------------------------------------------------------------
+
+
+@requires_no_fts5
+async def test_fallback_search_reads_base_table(db_session, sample_series, sample_movie):
+    # No FTS index maintenance happens — search reads the base tables directly.
+    assert sample_series.id in await search_series_fts(db_session, "测试剧集")
+    assert sample_series.id in await search_series_fts(db_session, "test series")
+    assert sample_series.id in await search_series_fts(db_session, "测试")
+    assert sample_movie.id in await search_movie_fts(db_session, "测试电影")
+    assert sample_movie.id in await search_movie_fts(db_session, "test movie")
+    assert await search_series_fts(db_session, "") == []
+
+
+@requires_no_fts5
+async def test_fallback_rebuild_is_noop(db_session, sample_series):
+    assert await rebuild_series_fts(db_session) == 0
+    assert await rebuild_movie_fts(db_session) == 0
+    assert await rebuild_audio_work_fts(db_session) == 0
+    # ...but search still works off the base table.
+    assert sample_series.id in await search_series_fts(db_session, "测试剧集")

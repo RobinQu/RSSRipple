@@ -61,12 +61,20 @@ from app.main import (  # noqa: E402
 _TMP_DB_DIR: tempfile.TemporaryDirectory[str] | None = None
 _TMP_DB_PATH: Path | None = None
 
+# TEST_DB_BACKEND=aioturso runs the suite against the embedded Turso engine.
+_DB_BACKEND = os.environ.get("TEST_DB_BACKEND", "aiosqlite")
+
 
 def _fresh_db_url() -> str:
     global _TMP_DB_DIR, _TMP_DB_PATH
     _TMP_DB_DIR = tempfile.TemporaryDirectory(prefix="rssripple-apitests-")
     _TMP_DB_PATH = Path(_TMP_DB_DIR.name) / "test.db"
-    return f"sqlite+aiosqlite:///{_TMP_DB_PATH}"
+    url = f"sqlite+{_DB_BACKEND}:///{_TMP_DB_PATH}"
+    if _DB_BACKEND == "aioturso":
+        from app.database import normalize_database_url
+
+        url = normalize_database_url(url)
+    return url
 
 
 def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
@@ -122,6 +130,11 @@ async def db_engine():
     enable_sqlite_fk(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if _DB_BACKEND == "aioturso":
+            # MVCC is persistent per file; required by isolation_level=CONCURRENT.
+            from sqlalchemy import text
+
+            await conn.execute(text("PRAGMA journal_mode='mvcc'"))
         from app.services.fts import ensure_fts_tables
         await ensure_fts_tables(conn)
     try:

@@ -14,6 +14,11 @@ Design:
 
 For queries shorter than 3 characters (no trigrams), falls back to ``LIKE`` on
 the FTS table columns.
+
+Backends without FTS5 (Turso, PostgreSQL): FTS maintenance is a no-op and
+searches fall back to substring matching over the base tables, normalized the
+same way in Python. The work tables are small (hundreds of rows), so the
+full-table scan is cheap.
 """
 
 from __future__ import annotations
@@ -24,9 +29,28 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from app.config import settings
 from app.services.text_normalizer import normalize_title
 
 logger = logging.getLogger(__name__)
+
+
+def _backend_url(bind: Any) -> str:
+    """Resolve the database URL from an AsyncSession / AsyncConnection / Engine."""
+    engine = getattr(bind, "engine", None)  # AsyncConnection / AsyncSession
+    if engine is None:
+        sync_session = getattr(bind, "sync_session", None)  # AsyncSession
+        if sync_session is not None:
+            engine = sync_session.get_bind()
+        else:
+            engine = bind  # AsyncEngine
+    return str(engine.url) if engine is not None else settings.database_url
+
+
+def _fts5_available(bind: Any) -> bool:
+    """FTS5 virtual tables only exist on the aiosqlite backend."""
+    url = _backend_url(bind)
+    return "sqlite" in url and "turso" not in url
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -58,7 +82,9 @@ _CREATE_AUDIO_WORK_FTS = """
 
 
 async def ensure_fts_tables(conn: AsyncConnection) -> None:
-    """Create FTS5 virtual tables if they don't exist (SQLite only)."""
+    """Create FTS5 virtual tables if they don't exist (aiosqlite only)."""
+    if not _fts5_available(conn):
+        return
     try:
         await conn.execute(text(_CREATE_SERIES_FTS))
         await conn.execute(text(_CREATE_MOVIE_FTS))
@@ -93,6 +119,34 @@ def _escape_fts_query(s: str) -> str:
     return '"' + s.replace('"', '""') + '"'
 
 
+async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
+    """FTS-less substring search over a work table (Turso / PostgreSQL).
+
+    Scans the (small) work table and matches the normalized query against the
+    normalized titles/aliases in Python — same normalization as the FTS5
+    indexed content, so matching semantics stay consistent across backends.
+    """
+    ids: list[str] = []
+    try:
+        result = await db.execute(select(model))
+        entities = result.scalars().all()
+    except Exception as e:
+        logger.warning("[fts] LIKE fallback search failed: %s", e)
+        return []
+    for e in entities:
+        haystack = " ".join(filter(None, [
+            normalize_title(e.title_cn),
+            normalize_title(e.title_en),
+            normalize_title(e.original_title),
+            " ".join(normalize_title(a) for a in (e.aliases or []) if a),
+        ]))
+        if norm in haystack:
+            ids.append(e.id)
+            if len(ids) >= limit:
+                break
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Series FTS
 # ---------------------------------------------------------------------------
@@ -100,6 +154,8 @@ def _escape_fts_query(s: str) -> str:
 
 async def upsert_series_fts(db: AsyncSession, series: Any) -> None:
     """Insert or update a series in the FTS index."""
+    if not _fts5_available(db):
+        return
     try:
         # Delete existing entry for this entity
         await db.execute(
@@ -121,6 +177,8 @@ async def upsert_series_fts(db: AsyncSession, series: Any) -> None:
 
 async def delete_series_fts(db: AsyncSession, series_id: str) -> None:
     """Remove a series from the FTS index."""
+    if not _fts5_available(db):
+        return
     try:
         await db.execute(
             text("DELETE FROM tv_series_fts WHERE entity_id = :id"),
@@ -137,6 +195,11 @@ async def search_series_fts(
     norm = normalize_title(query)
     if not norm:
         return []
+
+    if not _fts5_available(db):
+        from app.models.series import TVSeries
+
+        return await _search_entities_like(db, TVSeries, norm, limit)
 
     # For queries < 3 chars, trigram tokenizer produces no tokens — use LIKE
     if len(norm) < 3:
@@ -175,6 +238,8 @@ async def search_series_fts(
 
 async def rebuild_series_fts(db: AsyncSession) -> int:
     """Rebuild the entire series FTS index from the tv_series table."""
+    if not _fts5_available(db):
+        return 0
     from app.models.series import TVSeries
 
     try:
@@ -196,6 +261,8 @@ async def rebuild_series_fts(db: AsyncSession) -> int:
 
 async def upsert_movie_fts(db: AsyncSession, movie: Any) -> None:
     """Insert or update a movie in the FTS index."""
+    if not _fts5_available(db):
+        return
     try:
         await db.execute(
             text("DELETE FROM movie_fts WHERE entity_id = :id"),
@@ -216,6 +283,8 @@ async def upsert_movie_fts(db: AsyncSession, movie: Any) -> None:
 
 async def delete_movie_fts(db: AsyncSession, movie_id: str) -> None:
     """Remove a movie from the FTS index."""
+    if not _fts5_available(db):
+        return
     try:
         await db.execute(
             text("DELETE FROM movie_fts WHERE entity_id = :id"),
@@ -232,6 +301,11 @@ async def search_movie_fts(
     norm = normalize_title(query)
     if not norm:
         return []
+
+    if not _fts5_available(db):
+        from app.models.movie import Movie
+
+        return await _search_entities_like(db, Movie, norm, limit)
 
     if len(norm) < 3:
         try:
@@ -269,6 +343,8 @@ async def search_movie_fts(
 
 async def rebuild_movie_fts(db: AsyncSession) -> int:
     """Rebuild the entire movie FTS index from the movies table."""
+    if not _fts5_available(db):
+        return 0
     from app.models.movie import Movie
 
     try:
@@ -290,6 +366,8 @@ async def rebuild_movie_fts(db: AsyncSession) -> int:
 
 async def upsert_audio_work_fts(db: AsyncSession, audio_work: Any) -> None:
     """Insert or update an audio work in the FTS index."""
+    if not _fts5_available(db):
+        return
     try:
         await db.execute(
             text("DELETE FROM audio_work_fts WHERE entity_id = :id"),
@@ -310,6 +388,8 @@ async def upsert_audio_work_fts(db: AsyncSession, audio_work: Any) -> None:
 
 async def delete_audio_work_fts(db: AsyncSession, audio_work_id: str) -> None:
     """Remove an audio work from the FTS index."""
+    if not _fts5_available(db):
+        return
     try:
         await db.execute(
             text("DELETE FROM audio_work_fts WHERE entity_id = :id"),
@@ -326,6 +406,11 @@ async def search_audio_work_fts(
     norm = normalize_title(query)
     if not norm:
         return []
+
+    if not _fts5_available(db):
+        from app.models.audio_work import AudioWork
+
+        return await _search_entities_like(db, AudioWork, norm, limit)
 
     if len(norm) < 3:
         try:
@@ -363,6 +448,8 @@ async def search_audio_work_fts(
 
 async def rebuild_audio_work_fts(db: AsyncSession) -> int:
     """Rebuild the entire audio work FTS index from the audio_works table."""
+    if not _fts5_available(db):
+        return 0
     from app.models.audio_work import AudioWork
 
     try:

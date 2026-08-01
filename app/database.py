@@ -7,13 +7,45 @@ import random
 from collections.abc import AsyncGenerator, AsyncIterator
 
 from sqlalchemy import event, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Turso (embedded, SQLite-compatible) backend
+#
+# ``sqlite+aioturso://`` URLs use the pyturso SQLAlchemy dialect with two
+# compatibility patches (see ``app/db_turso_dialect.py``).
+#
+# MVCC concurrent writes are enabled per database file via
+# ``PRAGMA journal_mode='mvcc'`` (persistent), and per connection via the
+# ``isolation_level=CONCURRENT`` URL query parameter, which makes the driver
+# issue ``BEGIN CONCURRENT`` for implicit transactions. Conflicts surface as
+# "Write-write conflict" errors and are retried like SQLite lock errors.
+# ---------------------------------------------------------------------------
+
+from app.db_turso_dialect import register as _register_turso_dialect  # noqa: E402
+
+
+def is_turso_url(url: str) -> bool:
+    """Whether the given database URL uses the embedded Turso engine."""
+    return "turso" in url
+
+
+def normalize_database_url(url: str) -> str:
+    """Append Turso-specific defaults to the URL when missing."""
+    if is_turso_url(url) and "isolation_level=" not in url:
+        sep = "&" if "?" in url else "?"
+        url = f"{url}{sep}isolation_level=CONCURRENT"
+    return url
+
+
+_register_turso_dialect()
 
 # ---------------------------------------------------------------------------
 # SQLite concurrency handling
@@ -36,10 +68,16 @@ _DB_RETRY_BASE_S = 0.125  # 125 ms initial backoff
 
 
 def _is_sqlite_lock_error(exc: Exception) -> bool:
-    """Check if an exception is a SQLite "database is locked" error."""
-    if not isinstance(exc, OperationalError):
+    """Check if an exception is a retryable SQLite/Turso lock or write conflict.
+
+    SQLite raises OperationalError "database is locked"; Turso MVCC raises
+    DatabaseError "Write-write conflict" when concurrent transactions touch
+    the same rows. Both are transient and safe to retry.
+    """
+    if not isinstance(exc, DatabaseError):
         return False
-    return "database is locked" in str(exc)
+    msg = str(exc).lower()
+    return "database is locked" in msg or "write-write conflict" in msg
 
 
 def _backoff_delay(attempt: int) -> float:
@@ -64,7 +102,7 @@ async def retry_on_lock(coro_factory) -> object:
     for attempt in range(_MAX_DB_RETRIES):
         try:
             return await coro_factory()
-        except OperationalError as e:
+        except DatabaseError as e:
             if not _is_sqlite_lock_error(e):
                 raise
             if attempt == _MAX_DB_RETRIES - 1:
@@ -111,7 +149,7 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
                 yield session
                 await session.commit()
                 return
-            except OperationalError as e:
+            except DatabaseError as e:
                 await session.rollback()
                 last_exc = e
                 if not _is_sqlite_lock_error(e):
@@ -147,7 +185,7 @@ def install_db_retry_middleware(app):
             try:
                 response: Response = await call_next(request)
                 return response
-            except OperationalError as e:
+            except DatabaseError as e:
                 last_exc = e
                 if not _is_sqlite_lock_error(e):
                     raise
@@ -163,15 +201,28 @@ def install_db_retry_middleware(app):
 
 
 def _engine_connect_args() -> dict:
-    """Extra connection kwargs for SQLite. Ignored for other drivers."""
-    if "sqlite" in settings.database_url:
+    """Extra connection kwargs for aiosqlite. Ignored for other drivers."""
+    if "sqlite" in settings.database_url and not is_turso_url(settings.database_url):
         return {"timeout": 15}  # wait up to 15 s before raising "database is locked"
     return {}
 
 
 def enable_sqlite_fk(async_engine) -> None:
-    """Enable foreign key enforcement and good concurrency defaults for SQLite."""
-    if "sqlite" not in str(async_engine.url):
+    """Enable foreign key enforcement and good concurrency defaults for SQLite/Turso."""
+    url_str = str(async_engine.url)
+
+    if is_turso_url(url_str):
+        # Turso: WAL/busy_timeout/synchronous pragmas don't exist; MVCC mode is
+        # a persistent property of the database file (set by create_tables or
+        # the migration script), so only FK enforcement is per-connection.
+        @event.listens_for(async_engine.sync_engine, "connect")
+        def _set_turso_pragma(dbapi_conn, _record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.close()
+        return
+
+    if "sqlite" not in url_str:
         return
 
     @event.listens_for(async_engine.sync_engine, "connect")
@@ -186,7 +237,7 @@ def enable_sqlite_fk(async_engine) -> None:
 
 
 engine = create_async_engine(
-    settings.database_url,
+    normalize_database_url(settings.database_url),
     echo=settings.debug,
     connect_args=_engine_connect_args(),
 )
@@ -218,6 +269,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def create_tables() -> None:
     """Create all database tables (drop-and-recreate dev strategy)."""
     async with engine.begin() as conn:
+        if is_turso_url(settings.database_url):
+            # Turso: no FTS5 (unsupported) — full-text search falls back to
+            # LIKE over the base tables. MVCC mode is persistent per file and
+            # unlocks BEGIN CONCURRENT (isolation_level=CONCURRENT in the URL).
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+            await _apply_light_migrations(conn)
+            return
+
         if "sqlite" in settings.database_url:
             # WAL mode allows concurrent reads alongside a single writer and
             # dramatically reduces "database is locked" errors under load.
@@ -254,7 +314,8 @@ async def _apply_light_migrations(conn) -> None:
     repeatedly: we probe the current columns and skip when the target is
     already there.
     """
-    is_sqlite = "sqlite" in settings.database_url
+    is_sqlite = "sqlite" in settings.database_url  # includes Turso (sqlite+aioturso)
+    is_turso = is_turso_url(settings.database_url)
     is_postgres = "postgresql" in settings.database_url
 
     # Column additions: (table, column_name, ddl_type_and_default)
@@ -330,7 +391,7 @@ async def _apply_light_migrations(conn) -> None:
     # ``'mock'`` as well (and the column has been widened to a plain String
     # in the ORM). Rewrite the CHECK / native enum in place.
     try:
-        if is_sqlite:
+        if is_sqlite and not is_turso:
             row = (await conn.execute(text(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='downloader_instances'"
             ))).first()
@@ -361,9 +422,11 @@ async def _apply_light_migrations(conn) -> None:
     # Older DBs created the column as ``NOT NULL`` with ``ON DELETE CASCADE``.
     # We now want to keep tasks after an Agent is deleted (marked cancelled)
     # so ``agent_id`` must be nullable. SQLite can't ALTER column nullability
-    # in-place, so rebuild the table when we detect the old shape.
+    # in-place, so rebuild the table when we detect the old shape. (Skipped on
+    # Turso: writable_schema / table rebuilds are aiosqlite-only, and Turso
+    # databases are always created from — or migrated after — the new shape.)
     try:
-        if is_sqlite:
+        if is_sqlite and not is_turso:
             info = (await conn.execute(text("PRAGMA table_info(download_tasks)"))).fetchall()
             agent_col = next((row for row in info if row[1] == "agent_id"), None)
             # row: (cid, name, type, notnull, dflt, pk)
