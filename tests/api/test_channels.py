@@ -383,3 +383,53 @@ class TestCreateAutoFetch:
         assert res.json()["meta"]["fetch_triggered"] is False
         fake.enqueue.assert_awaited_once()
         assert fake.enqueue.call_args.args[0] == "fetch_channel"
+
+
+class TestChannelDeleteCascade:
+    """Regression: deleting a channel that owns download tasks used to 500
+    with IntegrityError — the ORM nullified download_tasks.file_resource_id
+    (NOT NULL) instead of deleting the tasks."""
+
+    async def test_delete_channel_with_download_tasks(self, client, sample_channel, db_session_factory):
+        import uuid as _uuid_mod
+        from datetime import UTC, datetime
+
+        from app.models.agent import Agent
+        from app.models.download_task import DownloadTask
+        from app.models.downloader import DownloaderInstance
+        from app.models.file_resource import FileResource
+
+        def _u():
+            return str(_uuid_mod.uuid4())
+
+        async with db_session_factory() as s:
+            dl = DownloaderInstance(
+                id=_u(), name="DL", type="transmission",
+                url="http://127.0.0.1:9091/transmission/rpc", download_dir="/downloads",
+            )
+            agent = Agent(
+                id=_u(), name="A", channel_id=sample_channel.id, downloader_id=dl.id,
+                scope_channel_wide=True,
+            )
+            res = FileResource(
+                id=_u(), channel_id=sample_channel.id, guid=_u(), title_raw="[G] T - 01",
+                search_title="T", torrent_url=f"magnet:?xt=urn:btih:{_u()}",
+                parsed_at=datetime.now(UTC),
+            )
+            s.add_all([dl, agent, res])
+            await s.flush()
+            s.add(DownloadTask(
+                id=_u(), agent_id=agent.id, file_resource_id=res.id, downloader_id=dl.id,
+                status="pending", download_dir="/downloads/A",
+            ))
+            await s.commit()
+
+        res_del = await client.delete(f"/api/v1/channels/{sample_channel.id}")
+        assert res_del.status_code == 200, res_del.text
+        assert res_del.json()["data"]["deleted"] is True
+
+        # Download tasks must be gone too (cascaded), not left with a nulled FK.
+        from sqlalchemy import select as _select
+        async with db_session_factory() as s:
+            remaining = (await s.execute(_select(DownloadTask))).scalars().all()
+        assert remaining == []

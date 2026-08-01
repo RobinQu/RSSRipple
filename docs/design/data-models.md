@@ -270,7 +270,7 @@ class DownloadTask(Base):
 
     id: str                              # UUID
     agent_id: str → Agent                # 所属 Agent FK
-    file_resource_id: str → FileResource # 对应资源 FK
+    file_resource_id: str → FileResource # 对应资源 FK（资源删除时级联删除任务）
     downloader_id: str → DownloaderInstance  # 使用的下载器 FK
     download_dir: str                       # 创建任务时解析出的最终下载目录（绝对路径）
                                             # = downloader.download_dir[/agent.download_subdir]

@@ -142,6 +142,11 @@ class MemoryQueue(BaseQueue):
         self._jobs_by_key: dict[str, _MemJob] = {}
         self._sem: asyncio.Semaphore | None = None
         self._dispatcher: asyncio.Task | None = None
+        # Strong references to in-flight run tasks. The event loop only holds
+        # weak refs to tasks, so a fire-and-forget create_task() can be
+        # garbage-collected mid-flight — the job would never run and its
+        # dedup key would leak in _active_keys.
+        self._run_tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         self._sem = asyncio.Semaphore(self._max_concurrent)
@@ -178,7 +183,9 @@ class MemoryQueue(BaseQueue):
         while True:
             try:
                 job = await self._queue.get()
-                asyncio.create_task(self._run(job))
+                task = asyncio.create_task(self._run(job))
+                self._run_tasks.add(task)
+                task.add_done_callback(self._run_tasks.discard)
             except asyncio.CancelledError:
                 break
 

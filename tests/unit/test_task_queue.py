@@ -125,6 +125,35 @@ class TestMemoryQueue:
         await queue.start()
         assert await queue.status("never_enqueued") is None
 
+    async def test_run_tasks_survive_gc(self, queue):
+        """Regression: the dispatcher's fire-and-forget create_task held no
+        strong reference, so a run task could be garbage-collected mid-flight —
+        the job never ran and its dedup key leaked in _active_keys."""
+        import gc
+
+        started = asyncio.Event()
+
+        async def handler(payload):
+            started.set()
+            await asyncio.sleep(0.05)
+            return {"ok": True}
+
+        queue.register("gc-job", handler)
+        await queue.start()
+        await queue.enqueue("gc-job", "k-gc", {})
+        # Hammer the GC while the job is queued/running; the run task must
+        # stay alive and release the dedup key afterwards.
+        for _ in range(20):
+            gc.collect()
+            await asyncio.sleep(0.01)
+        state = await _wait_done(queue, "k-gc")
+        assert state["status"] == JobStatus.DONE
+        assert started.is_set()
+        # Dedup key released: a fresh enqueue for the same key succeeds.
+        job = await queue.enqueue("gc-job", "k-gc", {})
+        assert job is not None
+        await _wait_done(queue, "k-gc")
+
     async def test_status_transitions(self, queue):
         started = asyncio.Event()
         done = asyncio.Event()

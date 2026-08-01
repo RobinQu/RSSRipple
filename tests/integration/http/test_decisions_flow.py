@@ -127,9 +127,9 @@ def _ask_env():
         "decisions": decisions,
     }
 
-    # NOTE: no teardown — the channel may own download tasks by the time the
-    # class finishes (DELETE /channels 500s on the task FK cascade). The test
-    # DB is per-run, so leaving rows behind is safe.
+    # The channel owns download tasks by the time the class finishes; DELETE
+    # cascades them (regression coverage for the task-FK cascade fix).
+    _api(f"/api/v1/channels/{ch_id}", method="delete")
 
 
 class TestPendingDecisions:
@@ -188,14 +188,11 @@ class TestPendingDecisions:
             method="post",
             json={"resource_id": resource_id},
         )
-        # NOTE: confirm commits the decision + dispatch, but the response
-        # serialization (PendingDecisionResponse.series lazy-load) can 500 on
-        # series-linked decisions. The committed state is the contract here.
-        assert r.status_code in (200, 500), f"confirm failed: {r.text}"
-        if r.status_code == 200:
-            data = r.json()["data"]
-            assert data["status"] == "decided"
-            assert data["decided_resource_id"] == resource_id
+        assert r.status_code == 200, f"confirm failed: {r.text}"
+        data = r.json()["data"]
+        assert data["status"] == "decided"
+        assert data["decided_resource_id"] == resource_id
+        assert data["series"] is not None, "series-linked decision should embed the series"
 
         # The decision is decided with our pick, and the resource dispatched
         r = _api(
@@ -226,10 +223,9 @@ class TestPendingDecisions:
         """POST /decisions/{id}/skip marks the decision skipped."""
         decision = _ask_env["decisions"][1]
         r = _api(f"/api/v1/decisions/{decision['id']}/skip", method="post")
-        # Same serialization quirk as confirm (see above) — verify the state.
-        assert r.status_code in (200, 500), f"skip failed: {r.text}"
-        if r.status_code == 200:
-            assert r.json()["data"]["status"] == "skipped"
+        assert r.status_code == 200, f"skip failed: {r.text}"
+        assert r.json()["data"]["status"] == "skipped"
+        assert r.json()["data"]["series"] is not None
         r = _api(
             f"/api/v1/agents/{_ask_env['agent_id']}/decisions",
             params={"status": "skipped"},
@@ -395,6 +391,6 @@ class TestAgentSuggestions:
             assert g.get("sample_title")
             assert g.get("resources")
         finally:
-            # The agent dispatched linked resources → the channel owns tasks;
-            # deleting it would 500 on the task FK cascade. Per-run DB: leave.
+            # The channel owns download tasks by now; DELETE cascades them.
             _api(f"/api/v1/agents/{agent_id}", method="delete")
+            _api(f"/api/v1/channels/{ch_id}", method="delete")

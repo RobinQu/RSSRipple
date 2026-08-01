@@ -142,7 +142,17 @@ async def confirm_decision(
         await dispatch_download(agent, resource, db)
 
     await db.commit()
-    await db.refresh(decision)
+    # Reload with relationships eager-loaded: commit() expires the ORM object
+    # and PendingDecisionResponse includes series/movie, so a plain refresh
+    # would trigger implicit lazy IO (MissingGreenlet) during serialization.
+    decision = (await db.execute(
+        select(PendingDecision)
+        .where(PendingDecision.id == decision_id)
+        .options(
+            selectinload(PendingDecision.series),
+            selectinload(PendingDecision.movie),
+        )
+    )).scalar_one()
     return success_response(PendingDecisionResponse.model_validate(decision).model_dump())
 
 
@@ -163,7 +173,16 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     decision.decided_at = utcnow()
     await db.flush()
     await db.commit()
-    await db.refresh(decision)
+    # See confirm_decision: reload with series/movie eager-loaded to avoid
+    # implicit lazy IO during response serialization.
+    decision = (await db.execute(
+        select(PendingDecision)
+        .where(PendingDecision.id == decision_id)
+        .options(
+            selectinload(PendingDecision.series),
+            selectinload(PendingDecision.movie),
+        )
+    )).scalar_one()
     return success_response(PendingDecisionResponse.model_validate(decision).model_dump())
 
 

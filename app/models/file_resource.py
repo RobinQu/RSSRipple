@@ -112,4 +112,9 @@ class FileResource(Base):
     series = relationship("TVSeries", back_populates="file_resources")
     movie = relationship("Movie", back_populates="file_resources")
     audio_work = relationship("AudioWork", back_populates="file_resources")
-    download_tasks = relationship("DownloadTask", back_populates="file_resource")
+    # delete-orphan is required: without it the ORM nullifies
+    # download_tasks.file_resource_id when a resource is deleted (e.g. via
+    # channel cascade), which violates the NOT NULL constraint.
+    download_tasks = relationship(
+        "DownloadTask", back_populates="file_resource", cascade="all, delete-orphan"
+    )

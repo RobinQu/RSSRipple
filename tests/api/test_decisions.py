@@ -189,3 +189,47 @@ class TestDecisions:
             "decision_ids": [], "action": "bogus",
         })
         assert res.status_code == 422
+
+
+class TestDecisionSerializationWithSeries:
+    """Regression: confirm/skip on a series-linked decision used to 500 on
+    response serialization (MissingGreenlet — commit expired the ORM object
+    and PendingDecisionResponse lazy-loaded series/movie)."""
+
+    async def _make_series_decision(self, db_session_factory, agent_id, ch_id):
+        from app.models.pending_decision import PendingDecision
+        from app.models.series import TVSeries
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", content_type="tv"))
+            await s.commit()
+        r1 = await _create_resource(db_session_factory, ch_id, "[G] ShowA - 01", series_id=sid, episode=1)
+        r2 = await _create_resource(db_session_factory, ch_id, "[G2] ShowA - 01", series_id=sid, episode=1)
+        did = _uuid()
+        async with db_session_factory() as s:
+            s.add(PendingDecision(
+                id=did, agent_id=agent_id, status="pending", series_id=sid, episode=1,
+                candidates=[r1["id"], r2["id"]], reason="冲突",
+                expires_at=datetime.now(UTC) + timedelta(days=7),
+            ))
+            await s.commit()
+        return did, r1
+
+    async def test_confirm_with_series_returns_200(self, client, setup, db_session_factory, mock_transmission):
+        ch, dl, aid = setup
+        did, r1 = await self._make_series_decision(db_session_factory, aid, ch)
+        res = await client.post(f"/api/v1/decisions/{did}/confirm", json={"resource_id": r1["id"]})
+        assert res.status_code == 200, res.text
+        data = res.json()["data"]
+        assert data["status"] == "decided"
+        assert data["decided_resource_id"] == r1["id"]
+        assert data["series"] is not None
+
+    async def test_skip_with_series_returns_200(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        did, _ = await self._make_series_decision(db_session_factory, aid, ch)
+        res = await client.post(f"/api/v1/decisions/{did}/skip")
+        assert res.status_code == 200, res.text
+        data = res.json()["data"]
+        assert data["status"] == "skipped"
+        assert data["series"] is not None
