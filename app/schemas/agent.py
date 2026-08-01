@@ -193,6 +193,18 @@ class RulesPreviewResponse(BaseModel):
     in_queue_skipped: int = 0
 
 
+class AgentRunRequest(BaseModel):
+    """Optional body for POST /agents/{id}/run.
+
+    ``scan_since`` overrides the consumption watermark for this run only:
+    the run scans channel resources with ``created_at > scan_since`` (i.e.
+    by ingestion time, not publish time). An explicit ``null`` means "no
+    limit" — a full-history scan. Omitting the body entirely keeps the
+    normal delta-run behaviour. The watermark advances as usual afterwards.
+    """
+    scan_since: datetime | None = None
+
+
 class AgentRunResource(ORMModel):
     """Lightweight resource summary embedded in a run record for display."""
     id: str
@@ -219,6 +231,10 @@ class AgentRunResponse(ORMModel):
     unrecognized: int
     matched_resource_ids: list[str] = []
     errors: list[str] = []
+    # Scan-window lower bound for manual windowed runs (see AgentRunRequest).
+    # NULL for delta/targeted runs; 1970-01-01 marks an explicit "no limit"
+    # full-history scan.
+    scan_since: datetime | None = None
     # Full resource summaries (same shape as the rules-preview diff) so the
     # run-history drawer can show rich metadata without an extra fetch.
     matched_resources: list[RulesPreviewResource] = []

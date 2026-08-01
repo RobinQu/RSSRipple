@@ -394,6 +394,9 @@ export interface AgentRun {
   unrecognized: number;
   matched_resource_ids: string[];
   errors: string[];
+  // Scan-window lower bound for manual windowed runs; null/absent for
+  // delta/targeted runs, 1970-01-01 for an explicit "no limit" full scan.
+  scan_since?: string | null;
   matched_resources: RulesPreviewResource[];
 }
 

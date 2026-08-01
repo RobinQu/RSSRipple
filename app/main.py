@@ -43,6 +43,8 @@ async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
 
 
 async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
+    from datetime import datetime
+
     from sqlalchemy import select
 
     from app.models.agent import Agent
@@ -53,6 +55,16 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 
     agent_id: str = payload["agent_id"]
     resource_ids: list[str] | None = payload.get("resource_ids")
+    # Manual windowed run (scenario ④): the key's presence marks the run as
+    # "scan from a user-chosen start time"; a null value means "no limit"
+    # (full channel history). Already normalised to naive UTC by the API.
+    scan_since: datetime | None = None
+    scan_windowed = "scan_since" in payload
+    if scan_windowed and payload["scan_since"] is not None:
+        scan_since = datetime.fromisoformat(payload["scan_since"])
+    # Lower bound recorded on the AgentRun for run-history display. None =
+    # delta/targeted run; 1970-01-01 = explicit "no limit" full scan.
+    run_scan_since: datetime | None = None
 
     # Phase 1 (short transaction): persist the "running" record up front and
     # pick the resources this run covers, then COMMIT. The slow processing
@@ -85,6 +97,25 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 .order_by(FileResource.created_at.asc())
             )
             selected_ids = list((await session.execute(stmt)).scalars().all())
+        elif scan_windowed:
+            # Windowed run (scenario ④): scan channel resources created after
+            # the user-chosen start time, or the full channel history when
+            # scan_since is null ("no limit"). Only the scan range of THIS
+            # run is affected — the watermark still advances past everything
+            # considered (dedup makes re-processing idempotent), so the next
+            # delta run resumes normal incremental behaviour.
+            stmt = (
+                select(FileResource.id, FileResource.created_at)
+                .where(FileResource.channel_id == channel_id)
+                .order_by(FileResource.created_at.asc())
+            )
+            if scan_since is not None:
+                stmt = stmt.where(FileResource.created_at > scan_since)
+            rows = (await session.execute(stmt)).all()
+            selected_ids = [r.id for r in rows]
+            if rows:
+                advance_to = max(r.created_at for r in rows)
+            run_scan_since = scan_since if scan_since is not None else datetime(1970, 1, 1)
         else:
             # Delta run (scenario ①): only resources newer than the agent's
             # consumption watermark. Replaces the old hard-coded ``limit(200)``
@@ -154,6 +185,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         # Finalise the run record.
         run.status = agent.last_run_status
         run.finished_at = utcnow()
+        run.scan_since = run_scan_since
         run.total_resources = run_result.total_resources
         run.matched = run_result.matched
         run.dispatched = run_result.dispatched

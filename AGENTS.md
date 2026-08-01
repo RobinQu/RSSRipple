@@ -45,7 +45,7 @@
 
 ### 核心业务逻辑（详见 business-logic.md）
 
-- Agent 三种运行模式：增量（水位线之后）、定向（`resource_ids`，绕过水位线）、回填提交（rules-preview 后保存，推进水位线到频道 max）。旧的 `limit(200)` 已废弃。
+- Agent 四种运行模式：增量（水位线之后）、定向（`resource_ids`，绕过水位线）、回填提交（rules-preview 后保存，推进水位线到频道 max）、指定起始时间（手动 run 带 `scan_since`，按入库时间过滤，null=全量；只影响本次扫描范围，水位线照常推进）。旧的 `limit(200)` 已废弃。
 - Metadata 匹配四层：已链接 → ChannelRawTitleMapping（`search_title_key` 优先，`raw_title` fallback）→ 本地 DB 精确/模糊（fuzzy ≥ 85 自动链接）→ 统一 MetadataAgent。
 - MetadataAgent 单次搜索**只用一个数据源**（`exa` 默认 / `jina` / `tmdb` / `wikipedia` / `local`），禁止跨源 fallback；`combined` 仅为旧评测遗留，运行时归一化为 `exa`。
 - LLM 候选选择器 `_generate_llm_pick` 共用逻辑：`auto` 自动选择、`ask` 建议、`ai-pick` 三处复用；失败时 `auto` 回退启发式评分。

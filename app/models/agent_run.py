@@ -24,6 +24,9 @@ class AgentRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # "running" | "success" | "failed" | "pending_decisions"
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    # Scan-window lower bound for manual windowed runs (scenario ④). NULL for
+    # delta/targeted runs; 1970-01-01 marks an explicit "no limit" full scan.
+    scan_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     total_resources: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     matched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     dispatched: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

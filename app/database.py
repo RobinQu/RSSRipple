@@ -308,6 +308,9 @@ async def _apply_light_migrations(conn) -> None:
         # Agent consumption watermark (P4): latest FileResource.created_at the
         # agent has considered. Delta runs scan only newer resources.
         ("agents", "last_consumed_at", "DATETIME"),
+        # Scan-window lower bound recorded on AgentRun for manual windowed
+        # runs (NULL = delta/targeted; 1970-01-01 = explicit "no limit").
+        ("agent_runs", "scan_since", "DATETIME"),
         # Optional user-supplied LLM candidate-picker instruction.
         ("agents", "llm_prompt", "TEXT"),
         # The candidate the LLM picked for a PendingDecision (resource id).

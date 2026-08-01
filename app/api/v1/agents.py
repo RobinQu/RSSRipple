@@ -15,6 +15,7 @@ from app.models.file_resource import FileResource
 from app.schemas.agent import (
     AgentCreate,
     AgentResponse,
+    AgentRunRequest,
     AgentRunResponse,
     AgentUpdate,
     AgentWorkCreate,
@@ -340,12 +341,38 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.post("/agents/{agent_id}/run")
-async def run_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+async def run_agent(
+    agent_id: str,
+    body: AgentRunRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
     agent = await db.get(Agent, agent_id)
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
+    payload: dict = {"agent_id": agent_id}
+    if body is not None:
+        # Manual run with an explicit scan window (scenario ④, see
+        # _handle_run_agent). The key's presence distinguishes a windowed
+        # run (past datetime / null = "no limit") from a plain delta run
+        # (no body at all). Normalise to naive UTC to match the DB columns.
+        from app.utils.time import utcnow
+
+        scan_since = body.scan_since
+        if scan_since is not None:
+            if scan_since.tzinfo is not None:
+                from datetime import UTC
+
+                scan_since = scan_since.astimezone(UTC).replace(tzinfo=None)
+            if scan_since > utcnow():
+                return JSONResponse(status_code=422, content={
+                    "success": False, "data": None,
+                    "error": {"code": "VALIDATION_ERROR",
+                              "message": "scan_since must be a past datetime"},
+                    "meta": {},
+                })
+        payload["scan_since"] = scan_since.isoformat() if scan_since else None
     from app.services.task_queue import task_queue
-    job = await task_queue.enqueue("run_agent", f"agent:{agent_id}", {"agent_id": agent_id})
+    job = await task_queue.enqueue("run_agent", f"agent:{agent_id}", payload)
     if job is None:
         current = await task_queue.status(f"agent:{agent_id}")
         return JSONResponse(status_code=409, content={

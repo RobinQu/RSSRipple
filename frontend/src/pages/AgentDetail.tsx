@@ -24,7 +24,12 @@ import {
   Checkbox,
   Drawer,
   Popover,
+  Modal,
+  Radio,
+  DatePicker,
 } from 'antd';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import type { TableColumnsType } from 'antd';
 import {
   Pause,
@@ -35,6 +40,7 @@ import {
   SkipForward,
   FlaskConical,
   PlayCircle,
+  CalendarClock,
   ArrowLeft,
   Edit,
   Clock,
@@ -131,6 +137,10 @@ export default function AgentDetail() {
   // Run status
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [runPolling, setRunPolling] = useState(false);
+  // Windowed run ("run from a chosen start time") modal.
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scanMode, setScanMode] = useState<'since' | 'all'>('since');
+  const [scanTime, setScanTime] = useState<Dayjs>(() => dayjs().subtract(14, 'day'));
   // Run history (run-control tab).
   const [runs, setRuns] = useState<AgentRun[]>([]);
   const [runPage, setRunPage] = useState(1);
@@ -283,16 +293,22 @@ export default function AgentDetail() {
     return () => clearInterval(t);
   }, [runPolling, id, loadTasks, loadRuns]);
 
-  const handleRun = async () => {
-    if (!id) return;
-    const r = await agentsApi.run(id);
+  const handleRun = async (scanWindow?: { scan_since: string | null }): Promise<boolean> => {
+    if (!id) return false;
+    const r = await agentsApi.run(id, scanWindow);
     if (r.success) {
       message.success(t('agents.runTriggered'));
       setRunStatus('queued');
       setRunPolling(true);
-    } else {
-      message.error(r.error?.message || t('agents.runFailed'));
+      return true;
     }
+    message.error(r.error?.message || t('agents.runFailed'));
+    return false;
+  };
+
+  const handleWindowedRun = async () => {
+    const scan_since = scanMode === 'all' ? null : scanTime.toISOString();
+    if (await handleRun({ scan_since })) setScanModalOpen(false);
   };
 
   const handlePause = async (tid: string) => {
@@ -1139,18 +1155,60 @@ export default function AgentDetail() {
                     {t('agents.runControlDesc')}
                   </Text>
                   <div>
-                    <Tooltip title={t('agents.runNowHint')}>
-                      <Button
-                        type="primary"
-                        size="large"
-                        icon={<PlayCircle size={16} />}
-                        loading={runPolling}
-                        onClick={handleRun}
-                      >
-                        {t('agents.runNow')}
-                      </Button>
-                    </Tooltip>
+                    <Space size={12}>
+                      <Tooltip title={t('agents.runNowHint')}>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<PlayCircle size={16} />}
+                          loading={runPolling}
+                          onClick={() => handleRun()}
+                        >
+                          {t('agents.runNow')}
+                        </Button>
+                      </Tooltip>
+                      <Tooltip title={t('agents.runSinceHint')}>
+                        <Button
+                          size="large"
+                          icon={<CalendarClock size={16} />}
+                          loading={runPolling}
+                          onClick={() => setScanModalOpen(true)}
+                        >
+                          {t('agents.runSince')}
+                        </Button>
+                      </Tooltip>
+                    </Space>
                   </div>
+                  <Modal
+                    title={t('agents.runSinceTitle')}
+                    open={scanModalOpen}
+                    onOk={handleWindowedRun}
+                    onCancel={() => setScanModalOpen(false)}
+                    okText={t('agents.runNow')}
+                    confirmLoading={runPolling}
+                    destroyOnHidden
+                  >
+                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                      <Radio.Group
+                        value={scanMode}
+                        onChange={(e) => setScanMode(e.target.value)}
+                      >
+                        <Radio value="since">{t('agents.runSinceModeSince')}</Radio>
+                        <Radio value="all">{t('agents.runSinceModeAll')}</Radio>
+                      </Radio.Group>
+                      {scanMode === 'since' && (
+                        <DatePicker
+                          showTime
+                          value={scanTime}
+                          onChange={(v) => { if (v) setScanTime(v); }}
+                          disabledDate={(d) => d.isAfter(dayjs().endOf('day'))}
+                          allowClear={false}
+                          style={{ width: '100%' }}
+                        />
+                      )}
+                      <Alert type="info" showIcon message={t('agents.runSinceNotice')} />
+                    </Space>
+                  </Modal>
                   {runStatus && (
                     <div>
                       <StatusBadge status={runStatus} />
@@ -1265,7 +1323,18 @@ const runColumns = (
     dataIndex: 'started_at',
     key: 'started_at',
     width: 180,
-    render: (v: string) => <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>,
+    render: (v: string, r: AgentRun) => (
+      <Space size={4}>
+        <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
+        {r.scan_since && (
+          <Tag color="blue" style={{ fontSize: 10, marginInlineEnd: 0 }}>
+            {new Date(r.scan_since).getFullYear() <= 1970
+              ? t('agents.runSinceAllShort')
+              : t('agents.runSinceTag', { time: new Date(r.scan_since).toLocaleDateString() })}
+          </Tag>
+        )}
+      </Space>
+    ),
   },
   {
     title: t('agents.runFinished'),

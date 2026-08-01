@@ -352,6 +352,49 @@ class TestAgentActions:
         res = await client.post(f"/api/v1/agents/{aid}/run")
         assert res.status_code == 200
 
+    async def test_run_with_scan_since_enqueues(self, client, channel_and_dl):
+        """Windowed run: a past scan_since is accepted and enqueued."""
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        res = await client.post(
+            f"/api/v1/agents/{aid}/run",
+            json={"scan_since": "2026-07-18T09:00:00Z"},
+        )
+        assert res.status_code == 200
+
+    async def test_run_with_scan_since_null_enqueues(self, client, channel_and_dl):
+        """Windowed run: explicit null means "no limit" (full history)."""
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        res = await client.post(
+            f"/api/v1/agents/{aid}/run", json={"scan_since": None},
+        )
+        assert res.status_code == 200
+
+    async def test_run_with_future_scan_since_422(self, client, channel_and_dl):
+        """A scan_since in the future is rejected with VALIDATION_ERROR."""
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        future = datetime.now(UTC).replace(year=datetime.now(UTC).year + 1)
+        res = await client.post(
+            f"/api/v1/agents/{aid}/run",
+            json={"scan_since": future.isoformat()},
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
     async def test_run_status(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl
         create = await client.post("/api/v1/agents", json={
