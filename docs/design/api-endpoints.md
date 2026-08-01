@@ -197,12 +197,20 @@
 
 | Method | Path | 说明 |
 |--------|------|------|
+| POST | `/tasks` | 手动创建下载任务（绕过 Agent，见下文） |
 | GET | `/agents/{agent_id}/tasks` | Agent 的下载任务（分页，可按 status 过滤） |
 | GET | `/tasks/{id}` | 任务详情（含 file_resource、agent、channel 信息） |
 | POST | `/tasks/{id}/pause` | 暂停（调用 Transmission RPC） |
 | POST | `/tasks/{id}/resume` | 恢复 |
 | POST | `/tasks/{id}/retry` | 重试（重置 retry_count，重新添加 torrent） |
 | DELETE | `/tasks/{id}` | 删除任务；query 参数 `delete_data=false` 控制是否同时删除 Transmission 中已下载数据 |
+
+`POST /tasks` 手动创建下载任务：
+
+- 请求体：`{ "resource_id": "uuid", "downloader_id": "uuid" }`。
+- 成功返回 **201**，`data` 为 `DownloadTaskResponse`；提交下载器成功时 `status="downloading"` 且带 `transmission_torrent_id`/`confirmed_at`，失败时任务仍创建但 `status="error"` 并带 `error_message`。
+- 错误码：`NOT_FOUND`（404，resource 或 downloader 不存在）、`VALIDATION_ERROR`（422，请求体缺字段）。
+- 手动任务的 `agent_id` 固定为 `null`；`download_dir` 直接使用 Downloader 根目录（不加子目录）；不做去重检查（手动创建是显式用户意图，允许重复）。
 
 任务重试规则：`POST /tasks/{id}/retry` 必须优先使用该任务已持久化的 `download_dir` 重新添加 torrent，而不是重新读取当前 Agent/Downloader 配置；这样 Downloader 默认目录或 Agent 子目录后续变更不会改变历史任务的落点。
 

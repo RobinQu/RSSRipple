@@ -15,6 +15,7 @@ from app.config import settings
 from app.models.agent import Agent
 from app.models.agent_suggestion import AgentSuggestion
 from app.models.download_task import DownloadTask
+from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
@@ -168,11 +169,58 @@ def _resolution_score(resolution: str | None) -> int:
     return _RESOLUTION_SCORE.get(resolution.lower().strip(), 0)
 
 
+async def create_and_submit_task(
+    resource: FileResource,
+    downloader: DownloaderInstance,
+    db: AsyncSession,
+    agent_id: str | None = None,
+    download_dir: str = "",
+) -> DownloadTask:
+    """Create a DownloadTask and attempt to add it to the downloader.
+
+    Shared by agent dispatch and manual creation (``POST /tasks``).
+    """
+    task = DownloadTask(
+        agent_id=agent_id,
+        file_resource_id=resource.id,
+        downloader_id=downloader.id,
+        download_dir=download_dir,
+        status="pending",
+        max_retries=settings.max_retry_count,
+    )
+    db.add(task)
+    # NOTE: no flush before the RPC on purpose. Flushing would emit the INSERT
+    # and acquire the SQLite write lock for the whole duration of the
+    # downloader call (up to ``transmission_timeout`` seconds), stalling all
+    # foreground writes. The RPC only needs constructor-set attributes, so we
+    # flush once at the end instead.
+    from app.clients.downloader import get_downloader_client
+
+    wrapper = get_downloader_client(downloader)
+    try:
+        result = await asyncio.wait_for(
+            wrapper.add_torrent(
+                resource.torrent_url,
+                download_dir=task.download_dir,
+            ),
+            timeout=settings.transmission_timeout,
+        )
+        task.status = "downloading"
+        task.transmission_torrent_id = result["torrent_id"]
+        task.confirmed_at = utcnow()
+    except Exception as e:
+        logger.warning("Failed to add torrent for resource %s: %s", resource.id, e)
+        task.status = "error"
+        task.error_message = str(e)[:2000]
+
+    await db.flush()
+    return task
+
+
 async def dispatch_download(
     agent: Agent, resource: FileResource, db: AsyncSession
 ) -> DownloadTask:
     """Create a DownloadTask and attempt to add it to Transmission."""
-    from app.models.downloader import DownloaderInstance
     downloader = await db.get(DownloaderInstance, agent.downloader_id)
     if not downloader:
         task = DownloadTask(
@@ -208,41 +256,13 @@ async def dispatch_download(
         await db.flush()
         return task
 
-    task = DownloadTask(
+    return await create_and_submit_task(
+        resource,
+        downloader,
+        db,
         agent_id=agent.id,
-        file_resource_id=resource.id,
-        downloader_id=agent.downloader_id,
         download_dir=download_dir,
-        status="pending",
-        max_retries=settings.max_retry_count,
     )
-    db.add(task)
-    # NOTE: no flush before the RPC on purpose. Flushing would emit the INSERT
-    # and acquire the SQLite write lock for the whole duration of the
-    # Transmission call (up to ``transmission_timeout`` seconds), stalling all
-    # foreground writes. The RPC only needs constructor-set attributes, so we
-    # flush once at the end instead.
-    from app.clients.downloader import get_downloader_client
-
-    wrapper = get_downloader_client(downloader)
-    try:
-        result = await asyncio.wait_for(
-            wrapper.add_torrent(
-                resource.torrent_url,
-                download_dir=task.download_dir,
-            ),
-            timeout=settings.transmission_timeout,
-        )
-        task.status = "downloading"
-        task.transmission_torrent_id = result["torrent_id"]
-        task.confirmed_at = utcnow()
-    except Exception as e:
-        logger.warning("Failed to add torrent for resource %s: %s", resource.id, e)
-        task.status = "error"
-        task.error_message = str(e)[:2000]
-
-    await db.flush()
-    return task
 
 
 _DEFAULT_LLM_PICK_PROMPT = (

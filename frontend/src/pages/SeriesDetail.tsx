@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Trash2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
 import {
   Typography, Spin, Card, Button, Space, Tag, Descriptions,
   Row, Col, Statistic, Table, Modal, App,
@@ -12,6 +12,7 @@ import { worksApi } from '../api/works';
 import type { TVSeries, Episode, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
+import CreateTaskModal from '../components/CreateTaskModal';
 
 const { Title, Text } = Typography;
 
@@ -23,6 +24,7 @@ export default function SeriesDetail() {
   const [series, setSeries] = useState<TVSeries | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
 
   const loadSeries = useCallback(async () => {
     if (!id) return;
@@ -123,6 +125,20 @@ export default function SeriesDetail() {
     { title: t('series.resolution'), dataIndex: 'resolution', key: 'resolution', width: 100, render: (v: string | null) => v ? <Tag>{v}</Tag> : '—' },
     { title: t('series.subtitleGroup'), dataIndex: 'subtitle_group', key: 'subtitle_group', width: 140, render: (v: string | null) => v || '—' },
     { title: t('series.publishedAt'), dataIndex: 'published_at', key: 'published_at', width: 160, render: (v: string | null) => (v ? timeAgo(v) : '—') },
+    {
+      title: t('common.actions'),
+      key: 'actions',
+      width: 150,
+      render: (_: unknown, record: FileResource) => (
+        <Button
+          size="small"
+          icon={<Download size={12} />}
+          onClick={() => setCreateTaskResourceId(record.id)}
+        >
+          {t('tasks.createTask')}
+        </Button>
+      ),
+    },
   ];
 
   if (loading) return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
@@ -232,6 +248,12 @@ export default function SeriesDetail() {
           />
         </Card>
       )}
+
+      <CreateTaskModal
+        resourceId={createTaskResourceId}
+        open={!!createTaskResourceId}
+        onClose={() => setCreateTaskResourceId(null)}
+      />
     </div>
   );
 }

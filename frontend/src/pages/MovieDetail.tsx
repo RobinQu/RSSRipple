@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Trash2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
 import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
@@ -9,6 +9,7 @@ import { worksApi } from '../api/works';
 import type { Movie, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
+import CreateTaskModal from '../components/CreateTaskModal';
 
 const { Title, Text } = Typography;
 
@@ -19,6 +20,7 @@ export default function MovieDetail() {
   const [movie, setMovie] = useState<Movie | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -118,6 +120,20 @@ export default function MovieDetail() {
         </Text>
       ),
     },
+    {
+      title: t('common.actions'),
+      key: 'actions',
+      width: 150,
+      render: (_: unknown, record: FileResource) => (
+        <Button
+          size="small"
+          icon={<Download size={12} />}
+          onClick={() => setCreateTaskResourceId(record.id)}
+        >
+          {t('tasks.createTask')}
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -203,6 +219,12 @@ export default function MovieDetail() {
           />
         </Card>
       )}
+
+      <CreateTaskModal
+        resourceId={createTaskResourceId}
+        open={!!createTaskResourceId}
+        onClose={() => setCreateTaskResourceId(null)}
+      />
     </div>
   );
 }

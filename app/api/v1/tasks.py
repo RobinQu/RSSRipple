@@ -9,7 +9,11 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.download_task import DownloadTask
 from app.schemas.common import paginated_response, success_response
-from app.schemas.download_task import DownloadTaskResponse, TaskActionResponse
+from app.schemas.download_task import (
+    DownloadTaskResponse,
+    ManualTaskCreate,
+    TaskActionResponse,
+)
 
 router = APIRouter()
 
@@ -92,6 +96,46 @@ async def get_task(task_id: str, db: AsyncSession = Depends(get_db)):
                 "meta": {},
             },
         )
+    return success_response(DownloadTaskResponse.model_validate(task).model_dump())
+
+
+@router.post("/tasks", status_code=201)
+async def create_task(body: ManualTaskCreate, db: AsyncSession = Depends(get_db)):
+    """Manually create a download task from a FileResource, bypassing agents."""
+    from app.models.downloader import DownloaderInstance
+    from app.models.file_resource import FileResource
+    from app.services.agent_service import create_and_submit_task
+
+    resource = await db.get(FileResource, body.resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Resource not found"},
+                "meta": {},
+            },
+        )
+    downloader = await db.get(DownloaderInstance, body.downloader_id)
+    if not downloader:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
+                "meta": {},
+            },
+        )
+    task = await create_and_submit_task(
+        resource,
+        downloader,
+        db,
+        agent_id=None,
+        download_dir=downloader.download_dir,
+    )
+    await db.commit()
     return success_response(DownloadTaskResponse.model_validate(task).model_dump())
 
 

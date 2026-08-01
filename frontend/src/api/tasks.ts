@@ -11,6 +11,8 @@ export const tasksApi = {
     return api.get<DownloadTask[]>(`/agents/${agentId}/tasks?${qs.toString()}`);
   },
   get: (id: string) => api.get<DownloadTask>(`/tasks/${id}`),
+  create: (body: { resource_id: string; downloader_id: string }) =>
+    api.post<DownloadTask>('/tasks', body),
   pause: (id: string) =>
     api.post<{ id: string; status: string }>(`/tasks/${id}/pause`),
   resume: (id: string) =>

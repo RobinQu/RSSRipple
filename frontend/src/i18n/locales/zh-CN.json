@@ -393,6 +393,14 @@
     "connected": "已连接",
     "disconnected": "未连接"
   },
+  "tasks": {
+    "createTask": "创建下载任务",
+    "selectDownloader": "选择下载器",
+    "selectDownloaderPlaceholder": "请选择下载器实例",
+    "noDownloaders": "暂无可用下载器",
+    "createSuccess": "下载任务已创建",
+    "createFailed": "创建下载任务失败"
+  },
   "series": {
     "title": "剧集",
     "detail": "剧集详情",

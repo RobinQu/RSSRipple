@@ -392,6 +392,14 @@
     "connected": "Connected",
     "disconnected": "Disconnected"
   },
+  "tasks": {
+    "createTask": "Create Download Task",
+    "selectDownloader": "Downloader",
+    "selectDownloaderPlaceholder": "Select a downloader instance",
+    "noDownloaders": "No downloaders available",
+    "createSuccess": "Download task created",
+    "createFailed": "Failed to create download task"
+  },
   "series": {
     "title": "Series",
     "detail": "Series Detail",

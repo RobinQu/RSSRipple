@@ -14,11 +14,12 @@ import {
   Popover,
   InputNumber,
 } from 'antd';
-import { Copy, Pencil } from 'lucide-react';
+import { Copy, Pencil, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import { formatBytes, formatDate } from '../utils/format';
 import MetadataCorrectionModal from './MetadataCorrectionModal';
+import CreateTaskModal from './CreateTaskModal';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { FileResource } from '../types';
 
@@ -64,6 +65,7 @@ export default function ResourceDetailDrawer({
   const [meta, setMeta] = useState<LinkedMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
   const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [resourceData, setResourceData] = useState<FileResource | null>(null);
   const [episodeEditOpen, setEpisodeEditOpen] = useState(false);
   const [seasonDraft, setSeasonDraft] = useState<number | null>(null);
@@ -361,14 +363,23 @@ export default function ResourceDetailDrawer({
         destroyOnHidden
         styles={{ body: { padding: 20 } }}
         extra={
-          <Button
-            type="primary"
-            size="small"
-            icon={<Pencil size={12} />}
-            onClick={() => setCorrectionOpen(true)}
-          >
-            {t('resource.correctMetadata')}
-          </Button>
+          <Space>
+            <Button
+              size="small"
+              icon={<Download size={12} />}
+              onClick={() => setCreateTaskOpen(true)}
+            >
+              {t('tasks.createTask')}
+            </Button>
+            <Button
+              type="primary"
+              size="small"
+              icon={<Pencil size={12} />}
+              onClick={() => setCorrectionOpen(true)}
+            >
+              {t('resource.correctMetadata')}
+            </Button>
+          </Space>
         }
       >
         {r && (
@@ -466,6 +477,14 @@ export default function ResourceDetailDrawer({
             loadMeta(r.id);
             onCorrected?.();
           }}
+        />
+      )}
+
+      {r && (
+        <CreateTaskModal
+          resourceId={r.id}
+          open={createTaskOpen}
+          onClose={() => setCreateTaskOpen(false)}
         />
       )}
     </>

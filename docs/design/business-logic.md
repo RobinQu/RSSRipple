@@ -39,6 +39,25 @@ fetch_channel_resources(channel, db)
   └─ 5. 为该 channel 下所有 status="active" 的 Agent enqueue run_agent
 ```
 
+### Resource Parser（字段映射解析引擎）
+
+入口：`parse_entry(entry, field_mapping)`（`app/services/resource_parser.py`），按 Channel 的 `field_mapping` 配置把 feedparser entry dict 解析为 FileResource 字段。
+
+支持两种格式：
+- 新格式：`{"list_locator": {...}, "field_mappings": {field: {source, regex?, group?, transform?}}}`
+- 旧格式（兼容）：`{field_name: {source, regex?, ...}, ...}`，整个 dict 视作 field_mappings。
+
+单字段提取流程（`_extract_value`）：
+1. `_resolve_source(entry, source)`：支持点路径与数组索引（如 `enclosures[0].url`）；路径任一段解析失败返回 None。
+2. 可选 `regex` + `group`（默认 0）提取；一律按 `re.IGNORECASE` 匹配；正则不命中返回 None。
+3. 可选 `transform`：`int` / `float` / `iso_datetime` / `lowercase` / `uppercase`；数值/时间转换失败返回 None。
+
+其他约定：
+- 单字段提取异常只记 debug 日志并置该字段为 None，不影响其他字段。
+- `_postprocess_parsed` 把 `resolution` 统一为正则化小写 `Np` 形式（`"1080P"`→`"1080p"`；`"1920x1080"` 等原样保留）。
+- `normalize_parsed_fields(title_raw, parsed)` 对 LLM 生成的 field_mapping 常见 regex miss 做**保守修复**：仅当 `title_cn`/`title_en` 泄漏方括号（多 bracket 标题只剥离了首个 `[...]`）时，从 raw title 重切作品名分段回填（`search_title` 优先取 latin 段）；并只在 tech 字段（resolution/source/video_codec/audio_codec/container）为 None 时从 raw title 补齐。已干净解析的资源不受影响。
+- 同模块还提供抓取期预解析器：`detect_batch`（合集识别）、`detect_absolute_episode`（`NN(MM)` 双标记提取）、`detect_subtitle_langs`（字幕语言 BCP-47 标签）、`strip_season_from_title`（去尾部季后缀），语义详见 data-models.md 的合集与集号 reconciliation 章节。
+
 ### Metadata 匹配流程（metadata_service）
 
 入口：`fetch_and_link_metadata(db, resource, channel)`。
@@ -94,6 +113,14 @@ fetch_and_link_metadata(resource, channel, db)
   │
   └─ 全部失败 → resource 保持未链接（series_id/movie_id 均为 null）
 ```
+
+`extract_search_title(resource)`（同步、无 LLM；Layer 2/3 的匹配 key 来源）优先级：
+
+1. `title_cn` 或 `title_en`（field_mapping 已解析），剥离尾部季后缀（`第三季` / `S04` / `Season 4` / `3期`）后返回。
+2. `title_raw` 正则清洗：去除首个 `[字幕组]` 括号对、按 ` / ` 分隔只取第一个 alt-title 段、依次剥离 `- 集数` 尾部 / `SxxExx` / 游离季标记（`S04`）/ 尾部独立集数 / 尾部单个质量标签括号，最后去季后缀并修剪装饰分隔符。
+3. 清洗结果为空时兜底返回原始 `title_raw`。
+
+该函数设计上是保守的：多括号标题（`[Group][Work][S04][13]`）无法用正则可靠分离作品名与发布元数据，交由 LLM agent 处理；本函数只需"足够好"以支撑本地 DB/FTS 匹配和 agent 禁用/失败时的兜底。
 
 `create_or_update_series_from_external(db, data)` 逻辑：
 - 按 `external_id + external_source IN (data.external_source, 'llm_search')` 查询是否已存在。
@@ -262,6 +289,8 @@ process_resources(agent, resources, db)
 6. 成功 → 更新 `task.status="downloading"`, `task.transmission_torrent_id=返回值`, `task.confirmed_at=now`。
 7. 失败 → 更新 `task.status="error"`, `task.error_message=异常信息`；触发重试逻辑（若 retry_count < max_retries 则入队重试）。
 8. RPC 结束后统一 `flush`，由调用方（请求路径）或 autocommit（后台路径）提交。
+
+`dispatch_download` 的"创建任务 + 提交下载器"主体已抽取为 `create_and_submit_task(resource, downloader, db, agent_id, download_dir)`，供手动创建复用。手动创建下载任务（`POST /tasks`）完全绕过 Agent：用户从资源列表/资源详情选择 Downloader，后端直接以 `agent_id=None`、`download_dir=downloader.download_dir`（根目录，不加子目录）调用同一 `create_and_submit_task` 提交；不做去重检查（手动创建是显式用户意图，允许重复任务）。
 
 ### 手动 metadata 搜索与修正流程
 

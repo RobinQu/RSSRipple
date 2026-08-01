@@ -31,6 +31,13 @@ class DownloadTaskResponse(BaseModel):
     agent: Any | None = None
 
 
+class ManualTaskCreate(BaseModel):
+    """Manual download task creation (bypasses agents)."""
+
+    resource_id: str
+    downloader_id: str
+
+
 class TaskActionResponse(BaseModel):
     id: str
     status: str

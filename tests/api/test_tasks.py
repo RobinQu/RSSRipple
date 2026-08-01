@@ -80,3 +80,72 @@ class TestTasksEndpoints:
         ch, dl, aid = setup
         res = await client.delete(f"/api/v1/tasks/{_uuid()}")
         assert res.status_code == 404
+
+
+async def _create_resource(db_session_factory, ch_id, title_raw):
+    from datetime import UTC, datetime
+
+    from app.models.file_resource import FileResource
+    rid = _uuid()
+    async with db_session_factory() as s:
+        r = FileResource(
+            id=rid, channel_id=ch_id, guid=_uuid(),
+            title_raw=title_raw, search_title=title_raw,
+            torrent_url=f"magnet:?xt=urn:btih:{rid}",
+            parsed_at=datetime.now(UTC),
+        )
+        s.add(r)
+        await s.commit()
+    return rid
+
+
+class TestManualTaskCreate:
+    async def test_create_success(self, client, setup, db_session_factory, mock_transmission):
+        ch, dl, aid = setup
+        rid = await _create_resource(db_session_factory, ch, "[G] ShowA - 01")
+        res = await client.post("/api/v1/tasks", json={
+            "resource_id": rid, "downloader_id": dl,
+        })
+        assert res.status_code == 201
+        data = res.json()["data"]
+        assert data["agent_id"] is None
+        assert data["file_resource_id"] == rid
+        assert data["downloader_id"] == dl
+        assert data["download_dir"] == "/downloads/rssripple"
+        assert data["status"] == "downloading"
+        assert data["transmission_torrent_id"] == 42
+        assert data["confirmed_at"] is not None
+        mock_transmission.add_torrent.assert_awaited()
+
+    async def test_create_submit_failure_marks_error(
+        self, client, setup, db_session_factory, mock_transmission
+    ):
+        ch, dl, aid = setup
+        rid = await _create_resource(db_session_factory, ch, "[G] ShowA - 02")
+        mock_transmission.add_torrent.side_effect = RuntimeError("boom")
+        res = await client.post("/api/v1/tasks", json={
+            "resource_id": rid, "downloader_id": dl,
+        })
+        assert res.status_code == 201
+        data = res.json()["data"]
+        assert data["status"] == "error"
+        assert "boom" in data["error_message"]
+
+    async def test_create_resource_not_found(self, client, setup):
+        ch, dl, aid = setup
+        res = await client.post("/api/v1/tasks", json={
+            "resource_id": _uuid(), "downloader_id": dl,
+        })
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
+
+    async def test_create_downloader_not_found(
+        self, client, setup, db_session_factory
+    ):
+        ch, dl, aid = setup
+        rid = await _create_resource(db_session_factory, ch, "[G] ShowA - 03")
+        res = await client.post("/api/v1/tasks", json={
+            "resource_id": rid, "downloader_id": _uuid(),
+        })
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
