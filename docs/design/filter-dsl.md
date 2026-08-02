@@ -19,7 +19,8 @@ FieldCondition = {
            "episode" | "season" | "episode_start" | "episode_end" |
            "absolute_episode" | "is_batch" | "subtitle_langs" |
            "episode_confidence" |
-           "title_cn" | "title_en" | "search_title",
+           "title_cn" | "title_en" | "search_title" |
+           "movie.rating" | "movie.year" | "series.rating" | "series.year",
   "operator": "eq" | "ne" | "contains" | "fuzzy" | "in" | "regex" |
               "gt" | "gte" | "lt" | "lte" |
               "is_empty" | "is_not_empty",
@@ -36,6 +37,11 @@ FieldCondition = {
   - `is_not=true`：对最终结果取反。
 - **字段类型与 operator 支持**：
   - 数字字段（`file_size`, `episode`, `season`, `episode_start`, `episode_end`, `absolute_episode`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
+  - 关联作品字段（`movie.rating`, `movie.year`, `series.rating`, `series.year`）是带命名空间的数字字段，取值来自资源关联的 Movie/TVSeries，支持的操作符同数字字段：
+    - `rating`：作品评分，0-10 量程（TMDB `vote_average` 等来源，见 data-models.md）。
+    - `year`：作品年份，由 `Movie.release_date` / `TVSeries.start_date` 取年份派生。
+    - 资源未关联作品（或关联关系未加载）时字段值为空，适用空值语义：`gte 7` 不通过、`ne 7` 通过、可用 `is_empty`/`is_not_empty` 显式匹配。
+    - 求值路径（rules-preview、test-filter、Agent 运行、回填提交）查询 FileResource 时必须 `selectinload` `series`/`movie` 关系，异步会话禁止触发 lazy load；未加载的关系按"无关联作品"处理。
   - 布尔字段（`is_batch`）支持：`eq`, `ne`。value 接受原生 bool、数字 `1/0`、字符串 `"true"/"false"/"yes"/"no"/"1"/"0"`。
   - 列表字段（`subtitle_langs`）支持：`eq`, `ne`, `contains`, `in`。
     - `contains`：value 是单个 tag，若列表元素包含该 tag（大小写不敏感）则通过。
@@ -157,6 +163,24 @@ FieldCondition = {
 
 ```json
 { "field": "subtitle_group", "operator": "is_empty" }
+```
+
+**示例 10**：只要评分不低于 7 的作品（电影或剧集均可；未关联作品的资源不通过）。
+
+```json
+{
+  "combinator": "or",
+  "conditions": [
+    { "field": "movie.rating", "operator": "gte", "value": 7 },
+    { "field": "series.rating", "operator": "gte", "value": 7 }
+  ]
+}
+```
+
+**示例 11**：只要 2020 年及以后的剧集。
+
+```json
+{ "field": "series.year", "operator": "gte", "value": 2020 }
 ```
 
 ---

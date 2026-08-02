@@ -107,6 +107,11 @@ async def _apply_backfill(
             select(FileResource).where(
                 FileResource.channel_id == agent.channel_id,
                 FileResource.id.in_(resource_ids),
+            ).options(
+                # Filter DSL / LLM pick summary read series/movie — eager-load
+                # to avoid async lazy loads during evaluation.
+                selectinload(FileResource.series),
+                selectinload(FileResource.movie),
             )
         )).scalars().all()
         if rows:
@@ -500,6 +505,10 @@ async def test_filters(
         base_q = base_q.where(FileResource.id.in_(resource_ids))
     else:
         base_q = base_q.order_by(FileResource.published_at.desc()).limit(50)
+    # Work-namespaced DSL fields (movie.rating …) resolve via these relations.
+    base_q = base_q.options(
+        selectinload(FileResource.series), selectinload(FileResource.movie)
+    )
     result = await db.execute(base_q)
     resources = result.scalars().all()
 
@@ -563,7 +572,10 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
 
     new = _rule_set_from_request(body)
     resources = (await db.execute(
-        select(FileResource).where(FileResource.channel_id == channel_id)
+        select(FileResource).where(FileResource.channel_id == channel_id).options(
+            # Work-namespaced DSL fields (movie.rating …) resolve via these.
+            selectinload(FileResource.series), selectinload(FileResource.movie),
+        )
     )).scalars().all()
     diff = await compute_rule_diff(old, new, list(resources), db)
     return success_response(RulesPreviewResponse(

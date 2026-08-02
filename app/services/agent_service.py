@@ -20,7 +20,7 @@ from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
-from app.services.filter_engine import evaluate_filter_config, merge_filters
+from app.services.filter_engine import evaluate_filter_config, loaded_relation, merge_filters
 from app.services.runtime_config import runtime_config
 from app.services.text_normalizer import partial_similarity_score
 from app.utils.download_paths import DownloadPathError, resolve_download_dir
@@ -320,6 +320,13 @@ async def _generate_llm_pick(
 
         instruction = (agent.llm_prompt or "").strip() or _DEFAULT_LLM_PICK_PROMPT
         lines = [instruction, ""]
+        # Field glossary so custom prompts can rely on the extra work fields.
+        lines.append(
+            "候选字段说明：title 为资源原始标题；year/rating 来自关联作品"
+            "（电影取 release_date 年份、剧集取首播年份；rating 满分 10 分），"
+            "null 表示无关联作品或该字段无数据。"
+        )
+        lines.append("")
         for i, c in enumerate(candidates, 1):
             meta_fields = sum(
                 1 for v in (
@@ -328,8 +335,15 @@ async def _generate_llm_pick(
                 ) if v not in (None, "", [])
             )
             has_sub = bool(getattr(c, "subtitle_langs", None)) or bool(c.subtitle_type)
+            work = loaded_relation(c, "movie") or loaded_relation(c, "series")
+            work_year, work_rating = None, None
+            if work is not None:
+                work_date = getattr(work, "release_date", None) or getattr(work, "start_date", None)
+                work_year = work_date.year if work_date else None
+                work_rating = getattr(work, "rating", None)
             lines.append(
-                f"{i}. subtitle_group={c.subtitle_group} resolution={c.resolution} "
+                f"{i}. title={c.title_raw} year={work_year} rating={work_rating} "
+                f"subtitle_group={c.subtitle_group} resolution={c.resolution} "
                 f"source={c.source} video_codec={c.video_codec} audio_codec={c.audio_codec} "
                 f"size={c.file_size} subtitle_langs={getattr(c, 'subtitle_langs', None)} "
                 f"has_subtitle={has_sub} meta_completeness={meta_fields}/8 "
@@ -656,7 +670,14 @@ async def process_resources(
                     await create_pending_decision(agent, key, cands, db)
                     result.pending_decisions += 1
                 else:
-                    chosen = score_and_pick(cands, None, agent)
+                    # "auto": try the LLM pick first (self-gated on
+                    # llm_enabled + API key, same as the ask path); fall back
+                    # to the heuristic scorer when the LLM is unavailable or
+                    # returns no valid pick.
+                    picked_id, _pick_reason = await _generate_llm_pick(agent, cands, key)
+                    chosen = next((c for c in cands if c.id == picked_id), None)
+                    if chosen is None:
+                        chosen = score_and_pick(cands, None, agent)
                     await dispatch_download(agent, chosen, db)
                     result.dispatched += 1
             if autocommit:

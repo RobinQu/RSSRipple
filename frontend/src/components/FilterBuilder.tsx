@@ -56,6 +56,12 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   absolute_episode: 'number',
   is_batch: 'bool',
   subtitle_langs: 'list',
+  // Work-namespaced fields resolve through the linked Movie/TVSeries on the
+  // server (rating 0-10; year from release_date / start_date).
+  'movie.rating': 'number',
+  'movie.year': 'number',
+  'series.rating': 'number',
+  'series.year': 'number',
 };
 
 // Fields with a bounded, meaningful autocomplete set. Autocomplete is only
@@ -117,6 +123,9 @@ function useFieldOptions(t: TFunction) {
   const bool_fields: FilterField[] = ['is_batch'];
   const list_fields: FilterField[] = ['subtitle_langs'];
   const enum_fields: FilterField[] = ['episode_confidence'];
+  const work_fields: FilterField[] = [
+    'series.rating', 'series.year', 'movie.rating', 'movie.year',
+  ];
 
   const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });
 
@@ -126,6 +135,7 @@ function useFieldOptions(t: TFunction) {
     { label: t('filter.boolField'), options: bool_fields.map(toOption) },
     { label: t('filter.listField'), options: list_fields.map(toOption) },
     { label: t('filter.enumField'), options: enum_fields.map(toOption) },
+    { label: t('filter.workField'), options: work_fields.map(toOption) },
   ];
 
   const operatorLabel = (op: FilterOperator) => t(`filter.${op}`);

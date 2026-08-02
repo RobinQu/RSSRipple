@@ -43,6 +43,9 @@ async def _ai_pick_and_dispatch(
         cands = (await db.execute(
             select(FileResource).where(
                 FileResource.id.in_(decision.candidates or [])
+            ).options(
+                # The LLM pick summary reads title/year/rating via these.
+                selectinload(FileResource.series), selectinload(FileResource.movie),
             )
         )).scalars().all()
         if not cands:

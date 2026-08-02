@@ -311,6 +311,71 @@ class TestGenerateLlmPick:
         assert picked_id == r2.id
         assert reason == "higher resolution"
 
+    async def test_summary_includes_title_year_rating(self, db_session, channel, downloader, monkeypatch):
+        """Candidate summary sent to the LLM carries raw title plus the linked
+        work's year (from start_date/release_date) and 0-10 rating."""
+        import datetime as _dt
+
+        agent = Agent(
+            id=_uuid(), name="a", channel_id=channel.id,
+            downloader_id=downloader.id, scope_channel_wide=True,
+            llm_enabled=True,
+        )
+        work = TVSeries(
+            id=_uuid(), title_cn="剧集X", content_type="tv",
+            rating=8.5, start_date=_dt.date(2020, 4, 1),
+        )
+        db_session.add_all([agent, work])
+        await db_session.flush()
+        # Attach via the relationship so loaded_relation picks it up.
+        res = _make_resource(channel.id, series=work)
+
+        from app.config import settings
+        monkeypatch.setattr(settings, "llm_api_key", "test-key-123")
+
+        captured: dict = {}
+
+        async def _fake_call_llm(messages, **kwargs):
+            captured["messages"] = messages
+            return '{"pick": 1, "reason": "ok"}'
+
+        with patch("app.services.feed_analyzer.call_llm", new=_fake_call_llm):
+            picked_id, reason = await _generate_llm_pick(agent, [res], ("series", work.id, 1))
+
+        assert picked_id == res.id
+        content = captured["messages"][1]["content"]
+        assert f"title={res.title_raw}" in content
+        assert "year=2020" in content
+        assert "rating=8.5" in content
+        assert "满分 10" in content
+
+    async def test_summary_work_fields_null_without_link(self, db_session, channel, downloader, monkeypatch):
+        """Without a linked work the summary shows null year/rating."""
+        agent = Agent(
+            id=_uuid(), name="a", channel_id=channel.id,
+            downloader_id=downloader.id, scope_channel_wide=True,
+            llm_enabled=True,
+        )
+        db_session.add(agent)
+        await db_session.flush()
+        res = _make_resource(channel.id)
+
+        from app.config import settings
+        monkeypatch.setattr(settings, "llm_api_key", "test-key-123")
+
+        captured: dict = {}
+
+        async def _fake_call_llm(messages, **kwargs):
+            captured["messages"] = messages
+            return '{"pick": 1, "reason": "ok"}'
+
+        with patch("app.services.feed_analyzer.call_llm", new=_fake_call_llm):
+            await _generate_llm_pick(agent, [res], ("series", "x", 1))
+
+        content = captured["messages"][1]["content"]
+        assert "year=None" in content
+        assert "rating=None" in content
+
 
 def test_parse_llm_pick_json():
     assert _parse_llm_pick('{"pick": 1, "reason": "best"}', 2) == (1, "best")
@@ -547,6 +612,96 @@ class TestProcessResources:
         result = await process_resources(agent, [r1, r2], db_session)
         assert result.dispatched == 1
         assert result.pending_decisions == 0
+
+    async def test_conflict_auto_prefers_llm_pick(
+        self, db_session, channel, downloader, series
+    ):
+        """auto mode: when the LLM returns a valid pick it wins over the
+        heuristic scorer (which would pick the 2160p candidate here)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="auto",
+        )
+        r1 = _make_resource(channel.id, series_id=series.id,
+                            episode=5, guid=_uuid(),
+                            resolution="1080p", file_size=500)
+        r2 = _make_resource(channel.id, series_id=series.id,
+                            episode=5, guid=_uuid(),
+                            resolution="2160p", file_size=100)
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        with patch(
+            "app.services.agent_service._generate_llm_pick",
+            new_callable=AsyncMock,
+            return_value=(r1.id, "better subs"),
+        ) as llm_pick:
+            result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 1
+        llm_pick.assert_awaited_once()
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+        )).scalars().one()
+        assert task.file_resource_id == r1.id
+
+    async def test_conflict_auto_falls_back_to_heuristic(
+        self, db_session, channel, downloader, series
+    ):
+        """auto mode: LLM unavailable / no valid pick → heuristic score_and_pick
+        (2160p wins)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="auto",
+        )
+        r1 = _make_resource(channel.id, series_id=series.id,
+                            episode=5, guid=_uuid(),
+                            resolution="1080p", file_size=500)
+        r2 = _make_resource(channel.id, series_id=series.id,
+                            episode=5, guid=_uuid(),
+                            resolution="2160p", file_size=100)
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        with patch(
+            "app.services.agent_service._generate_llm_pick",
+            new_callable=AsyncMock,
+            return_value=(None, None),
+        ):
+            result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 1
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+        )).scalars().one()
+        assert task.file_resource_id == r2.id
+
+    async def test_filter_by_work_rating(
+        self, db_session, channel, downloader
+    ):
+        """Work-namespaced DSL field: only resources whose linked series has
+        rating >= 7 pass the filter."""
+        import datetime as _dt
+
+        good = TVSeries(id=_uuid(), title_cn="高分剧", content_type="tv",
+                        rating=8.1, start_date=_dt.date(2021, 1, 1))
+        bad = TVSeries(id=_uuid(), title_cn="低分剧", content_type="tv",
+                       rating=5.5, start_date=_dt.date(2021, 1, 1))
+        db_session.add_all([good, bad])
+        await db_session.flush()
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True,
+            filter_config={"combinator": "and", "conditions": [
+                {"field": "series.rating", "operator": "gte", "value": 7},
+            ]},
+        )
+        # Attach via relationships so the sync evaluator can resolve
+        # series.rating without an async lazy load.
+        ok = _make_resource(channel.id, series=good, episode=1, guid=_uuid())
+        nope = _make_resource(channel.id, series=bad, episode=1, guid=_uuid())
+        db_session.add_all([ok, nope])
+        await db_session.flush()
+        result = await process_resources(agent, [ok, nope], db_session)
+        assert result.matched == 1
+        assert result.filter_failed == 1
+        assert result.dispatched == 1
 
     async def test_filter_overrides_merged(
         self, db_session, channel, downloader, series

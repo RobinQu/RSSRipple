@@ -46,6 +46,16 @@ export interface ChannelDetail extends Channel {
   agent_count?: number;
 }
 
+// Linked work summary embedded in FileResource payloads (flat resources API
+// serializes the loaded series/movie relationships).
+export interface ResourceWorkRef {
+  id: string;
+  title_cn?: string | null;
+  title_en?: string | null;
+  original_title?: string | null;
+  poster_url?: string | null;
+}
+
 // FileResource
 export interface FileResource {
   id: string;
@@ -77,6 +87,8 @@ export interface FileResource {
   parsed_at: string | null;
   series_id: string | null;
   movie_id: string | null;
+  series?: ResourceWorkRef | null;
+  movie?: ResourceWorkRef | null;
   metadata_matched_at: string | null;
   created_at: string;
 }
@@ -228,13 +240,19 @@ export type FilterField =
   | 'episode_confidence'
   | 'title_cn'
   | 'title_en'
-  | 'search_title';
+  | 'search_title'
+  | 'movie.rating'
+  | 'movie.year'
+  | 'series.rating'
+  | 'series.year';
 
 export type StringFilterField = Exclude<
   FilterField,
-  'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
+  | 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
+  | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year'
 >;
-export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode';
+export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode'
+  | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year';
 export type BoolFilterField = 'is_batch';
 export type ListFilterField = 'subtitle_langs';
 

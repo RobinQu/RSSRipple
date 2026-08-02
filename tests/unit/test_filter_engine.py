@@ -733,3 +733,106 @@ class TestEmptinessOperatorEvaluation:
         ]}
         assert evaluate_filter_config(cfg, _res(resolution=None)) is True
         assert evaluate_filter_config(cfg, _res(resolution="1080p")) is False
+
+
+# ---------------------------------------------------------------------------
+# Work-namespaced fields (movie.rating / movie.year / series.rating / series.year)
+# ---------------------------------------------------------------------------
+
+
+def _work(**kwargs):
+    """Build a Movie/TVSeries-like object."""
+    return SimpleNamespace(**kwargs)
+
+
+class TestWorkFieldValidation:
+    def test_rating_numeric_ops_valid(self):
+        for op in ("eq", "ne", "gt", "gte", "lt", "lte"):
+            cfg = {"combinator": "and", "conditions": [
+                {"field": "movie.rating", "operator": op, "value": 7}
+            ]}
+            assert validate_filter_config(cfg) == []
+
+    def test_year_gte_valid(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "series.year", "operator": "gte", "value": 2020}
+        ]}
+        assert validate_filter_config(cfg) == []
+
+    def test_string_op_rejected_on_work_field(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "movie.rating", "operator": "contains", "value": "7"}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("not supported for number field" in e for e in errs)
+
+    def test_unknown_namespaced_field_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "movie.title", "operator": "eq", "value": "x"}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("unknown field" in e for e in errs)
+
+    def test_no_value_ops_valid_on_work_field(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "series.rating", "operator": "is_empty"}
+        ]}
+        assert validate_filter_config(cfg) == []
+
+
+class TestWorkFieldEvaluation:
+    def test_movie_rating_comparison(self):
+        res = _res(movie=_work(rating=8.5, release_date=None))
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "gte", "value": 7}, res) is True
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "lt", "value": 7}, res) is False
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "eq", "value": 8.5}, res) is True
+
+    def test_movie_year_from_release_date(self):
+        import datetime as _dt
+
+        res = _res(movie=_work(rating=None, release_date=_dt.date(2021, 5, 4)))
+        assert evaluate_field_condition(
+            {"field": "movie.year", "operator": "eq", "value": 2021}, res) is True
+        assert evaluate_field_condition(
+            {"field": "movie.year", "operator": "gte", "value": 2022}, res) is False
+
+    def test_series_year_from_start_date(self):
+        import datetime as _dt
+
+        res = _res(series=_work(rating=7.2, start_date=_dt.date(2019, 10, 1)))
+        assert evaluate_field_condition(
+            {"field": "series.year", "operator": "lt", "value": 2020}, res) is True
+        assert evaluate_field_condition(
+            {"field": "series.rating", "operator": "gte", "value": 7}, res) is True
+
+    def test_missing_relation_is_empty(self):
+        # No linked work (attribute absent entirely) → empty-value semantics:
+        # positive ops fail, ne passes, is_empty matches.
+        res = _res()
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "gte", "value": 7}, res) is False
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "ne", "value": 7}, res) is True
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "is_empty"}, res) is True
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "is_not_empty"}, res) is False
+
+    def test_null_work_field_is_empty(self):
+        res = _res(movie=_work(rating=None, release_date=None))
+        assert evaluate_field_condition(
+            {"field": "movie.rating", "operator": "gte", "value": 7}, res) is False
+        assert evaluate_field_condition(
+            {"field": "movie.year", "operator": "is_empty"}, res) is True
+
+    def test_get_field_value_namespaced(self):
+        import datetime as _dt
+
+        movie = _work(rating=6.5, release_date=_dt.date(2018, 1, 1))
+        res = _res(movie=movie)
+        assert get_field_value(res, "movie.rating") == 6.5
+        assert get_field_value(res, "movie.year") == 2018
+        assert get_field_value(res, "series.rating") is None

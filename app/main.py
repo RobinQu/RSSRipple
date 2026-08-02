@@ -46,6 +46,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from datetime import datetime
 
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
 
     from app.models.agent import Agent
     from app.models.agent_run import AgentRun
@@ -163,6 +164,12 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
             result = await session.execute(
                 select(FileResource)
                 .where(FileResource.id.in_(selected_ids))
+                # series/movie are read by the filter DSL (movie.rating …) and
+                # the LLM pick summary — eager-load to avoid async lazy loads.
+                .options(
+                    selectinload(FileResource.series),
+                    selectinload(FileResource.movie),
+                )
                 .order_by(FileResource.created_at.asc())
             )
             resources = list(result.scalars().all())

@@ -21,6 +21,13 @@ STRING_FIELDS = {
     "episode_confidence",
 }
 NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end", "absolute_episode"}
+# Namespaced fields resolved through the resource's linked work (Movie /
+# TVSeries) instead of the FileResource itself. ``rating`` is the work's
+# 0-10 score; ``year`` derives from Movie.release_date / TVSeries.start_date.
+# When the resource has no linked work (or the relationship wasn't loaded),
+# the value is None and the usual empty-value semantics apply.
+WORK_NUMBER_FIELDS = {"movie.rating", "movie.year", "series.rating", "series.year"}
+NUMBER_FIELDS |= WORK_NUMBER_FIELDS
 BOOL_FIELDS = {"is_batch"}
 # List-of-string fields — value semantics differ from scalar strings; the
 # operators below act element-wise.
@@ -323,8 +330,42 @@ def _coerce_in_list(value: Any) -> list:
     return [value]
 
 
+def loaded_relation(resource: Any, rel_name: str) -> Any:
+    """Return an already-loaded relationship value without triggering a lazy
+    load.
+
+    Async SQLAlchemy raises ``MissingGreenlet`` when an unloaded relationship
+    is touched, so query sites feeding the filter engine / LLM pick summary
+    must eager-load ``series``/``movie`` via ``selectinload``. A value that
+    isn't loaded is treated as absent (None) — empty-value semantics then
+    apply instead of crashing the run.
+    """
+    inst_dict = getattr(resource, "__dict__", None)
+    if inst_dict is not None and rel_name in inst_dict:
+        return inst_dict[rel_name]
+    try:
+        return getattr(resource, rel_name, None)
+    except Exception:  # e.g. MissingGreenlet on an unloaded async relationship
+        return None
+
+
 def get_field_value(resource: Any, field: str) -> Any:
-    """Get attribute from resource, supporting common ORM object access."""
+    """Get attribute from resource, supporting common ORM object access.
+
+    Namespaced work fields (``movie.rating``, ``series.year`` …) resolve
+    through the linked Movie/TVSeries; ``year`` derives from the work's
+    date field (Movie.release_date / TVSeries.start_date).
+    """
+    if "." in field:
+        rel_name, attr = field.split(".", 1)
+        related = loaded_relation(resource, rel_name)
+        if related is None:
+            return None
+        if attr == "year":
+            date_attr = "release_date" if rel_name == "movie" else "start_date"
+            d = getattr(related, date_attr, None)
+            return d.year if d else None
+        return getattr(related, attr, None)
     return getattr(resource, field, None)
 
 

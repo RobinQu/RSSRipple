@@ -265,10 +265,12 @@ process_resources(agent, resources, db)
   │                 # llm_enabled 时调用 _generate_llm_pick 填充 llm_picked_resource_id
   │                 # 与 llm_suggestion（用户可点 "AI 自动处理" 一键采纳）
   │             else:  # "auto"
-  │                 chosen = score_and_pick(candidates, agent, work)
-  │                 # 评分：命中 filter_overrides 字段多 > 分辨率高（2160p>1080p>720p）
-  │                 #       > 文件体积大 > 发布时间新；llm_enabled 时 _generate_llm_pick
-  │                 #       给出选择（agent.llm_prompt 优先，否则内置默认 prompt）
+  │                 picked_id, _ = await _generate_llm_pick(agent, candidates, key)
+  │                 # LLM 优先：llm_enabled 且配置 API key 时由 LLM 选择
+  │                 # （agent.llm_prompt 优先，否则内置默认 prompt）；
+  │                 # 未启用 / 调用失败 / 无有效选择时回退启发式 score_and_pick
+  │                 chosen = LLM 选中候选 or score_and_pick(candidates, agent, work)
+  │                 # 启发式评分：分辨率高（2160p>1080p>720p）> 文件体积大 > 发布时间新
   │                 dispatch_download(agent, chosen)
   │
   ├─ 5. 清理过期集号不确定决策（_resolve_corrected_ambiguous_decisions）:
@@ -284,7 +286,7 @@ process_resources(agent, resources, db)
         ——run_agent 据此回填 AgentRun 记录与 Agent.last_run_status
 ```
 
-**LLM 候选选择器**（`_generate_llm_pick`）：`conflict_resolution="auto"` 多候选自动选择、`"ask"` 模式下的 LLM 建议、以及 `POST /decisions/{id}/ai-pick` 共用同一逻辑。返回 `(picked_resource_id, reason)`：使用 `agent.llm_prompt`（若非空）否则内置默认 prompt（metadata 字段最完整 > 清晰度最高 > 带字幕 > 发布时间最新），要求 LLM 返回 JSON `{"pick": <候选编号>, "reason": "<一句话理由>"}`，`_parse_llm_pick` 兼容 markdown 包裹与裸数字兜底。LLM 未启用 / 无 API key / 调用失败 / 未给出有效选择时返回 `(None, None)`，`"auto"` 回退到纯启发式评分。结果缓存在 `PendingDecision.llm_picked_resource_id`，AI 自动处理优先复用缓存值。
+**LLM 候选选择器**（`_generate_llm_pick`）：`conflict_resolution="auto"` 多候选自动选择、`"ask"` 模式下的 LLM 建议、以及 `POST /decisions/{id}/ai-pick` 共用同一逻辑。返回 `(picked_resource_id, reason)`：使用 `agent.llm_prompt`（若非空）否则内置默认 prompt（metadata 字段最完整 > 清晰度最高 > 带字幕 > 发布时间最新），要求 LLM 返回 JSON `{"pick": <候选编号>, "reason": "<一句话理由>"}`，`_parse_llm_pick` 兼容 markdown 包裹与裸数字兜底。发给 LLM 的候选摘要包含 `title`（资源原始标题）与关联作品的 `year`（电影 `release_date` / 剧集 `start_date` 的年份）、`rating`（0-10 分），无关联作品或字段为空时为 `null`；prompt 中附带字段说明。LLM 未启用 / 无 API key / 调用失败 / 未给出有效选择时返回 `(None, None)`，`"auto"` 回退到纯启发式评分（分辨率 > 体积 > 发布时间）。结果缓存在 `PendingDecision.llm_picked_resource_id`，AI 自动处理优先复用缓存值。
 
 `dispatch_download(agent, resource)`：
 1. 创建 `DownloadTask(status="pending")` 并 `db.add()`（**不立即 flush**：flush 会发出 INSERT 并持有 SQLite 写锁跨过整个 Transmission RPC）。
