@@ -68,7 +68,6 @@
     "dlFilterAll": "All",
     "dlFilterAgent": "Agent-managed tasks",
     "dlFilterUntracked": "Untracked tasks",
-    "eta": "ETA:",
     "failedToLoad": "Failed to load data",
     "confirmed": "Confirmed, starting download",
     "failed": "Operation failed",
@@ -81,8 +80,6 @@
     "worksCount": "{n} subscribed works",
     "filterConditions": "Conditions:",
     "noFilterConditions": "No filter conditions",
-    "inProgressTasks": "In-progress Downloads",
-    "noActiveTasks": "No in-progress downloads",
     "noPendingHint": "No pending decisions"
   },
   "channels": {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
@@ -28,7 +28,7 @@ import {
   describeCondition,
   isFilterEmpty,
 } from '../components/FilterBuilder';
-import { formatSpeed, formatEta, timeAgo, formatBytes } from '../utils/format';
+import { timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { Agent, DashboardData, DashboardPendingItem, FileResource } from '../types';
 import { resourcesApi } from '../api/channels';
@@ -61,6 +61,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [candidateCache, setCandidateCache] = useState<Record<string, FileResource>>({});
   const [dlFilter, setDlFilter] = useState<'all' | 'agent' | 'untracked'>('all');
+  // Set by clicking an agent's "downloading" badge: filters the active
+  // downloads card to that agent's tasks only.
+  const [dlAgentFilter, setDlAgentFilter] = useState<{ id: string; name: string } | null>(null);
+  const downloadsRef = useRef<HTMLDivElement>(null);
 
   // Preload candidate resources for pending decisions
   const loadCandidates = useCallback(
@@ -136,16 +140,19 @@ export default function Dashboard() {
   }
   if (!dashboard) return <Empty description={t('dashboard.failedToLoad')} />;
 
-  // Flatten grouped downloads into a flat top-10 task list for the agents section.
-  // Untracked torrents (no agent) belong to the downloads card only.
-  const inProgressTasks = dashboard.active_download_groups
-    .flatMap((g) => (g.type === 'untracked' ? [] : g.tasks.map((task) => ({ ...task, workTitle: g.title }))))
-    .slice(0, 10);
-
-  // Tab filter for the active downloads card.
-  const filteredGroups = dashboard.active_download_groups.filter((g) =>
-    dlFilter === 'all' ? true : dlFilter === 'untracked' ? g.type === 'untracked' : g.type !== 'untracked',
-  );
+  // Tab filter + optional per-agent filter (from the agent badge) for the
+  // active downloads card. The agent filter narrows tasks within each group
+  // and drops groups left empty.
+  const filteredGroups = dashboard.active_download_groups
+    .filter((g) =>
+      dlFilter === 'all' ? true : dlFilter === 'untracked' ? g.type === 'untracked' : g.type !== 'untracked',
+    )
+    .map((g) =>
+      dlAgentFilter
+        ? { ...g, tasks: g.tasks.filter((task) => task.agent_id === dlAgentFilter.id) }
+        : g,
+    )
+    .filter((g) => g.tasks.length > 0);
 
   return (
     <div>
@@ -231,7 +238,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Download agents: top 4 active agents + top 10 in-progress tasks */}
+      {/* Download agents: top 4 active agents, busiest first. The task-count
+          badge filters the active downloads card below to that agent. */}
       <Card title={t('dashboard.agentsSection')} style={{ marginBottom: 24 }}>
         {topAgents.length === 0 ? (
           <Empty
@@ -306,7 +314,15 @@ export default function Dashboard() {
                         </Text>
                       </Link>
                       {(agent.active_task_count ?? 0) > 0 && (
-                        <Tag color="blue" style={{ flexShrink: 0 }}>
+                        <Tag
+                          color="blue"
+                          style={{ flexShrink: 0, cursor: 'pointer' }}
+                          onClick={() => {
+                            setDlAgentFilter({ id: agent.id, name: agent.name });
+                            setDlFilter('all');
+                            downloadsRef.current?.scrollIntoView({ behavior: 'smooth' });
+                          }}
+                        >
                           {t('dashboard.downloadingCount', { n: agent.active_task_count })}
                         </Tag>
                       )}
@@ -384,48 +400,11 @@ export default function Dashboard() {
             })}
           </Row>
         )}
-
-        <div style={{ marginTop: 16 }}>
-          <Text strong style={{ fontSize: 13 }}>
-            {t('dashboard.inProgressTasks')}
-          </Text>
-          {inProgressTasks.length === 0 ? (
-            <div style={{ padding: '8px 0 0' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('dashboard.noActiveTasks')}
-              </Text>
-            </div>
-          ) : (
-            <div
-              style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}
-            >
-              {inProgressTasks.map((task) => (
-                <div key={task.task_id}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: 4,
-                      gap: 12,
-                    }}
-                  >
-                    <Text ellipsis style={{ flex: 1, fontSize: 13 }}>
-                      {task.workTitle} · {task.resource_title}
-                    </Text>
-                    <Link to={`/agents/${task.agent_id}`} style={{ flexShrink: 0 }}>
-                      <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>
-                    </Link>
-                  </div>
-                  <ProgressBar progress={task.progress} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </Card>
 
-      {/* Active downloads */}
+      {/* Active downloads — the page's single task-level download list.
+          The agents card above links here via the per-agent filter chip. */}
+      <div ref={downloadsRef}>
       <Card
         title={t('dashboard.activeDownloads')}
         style={{ marginBottom: 24 }}
@@ -441,6 +420,13 @@ export default function Dashboard() {
             { key: 'agent', label: t('dashboard.dlFilterAgent') },
             { key: 'untracked', label: t('dashboard.dlFilterUntracked') },
           ]}
+          tabBarExtraContent={
+            dlAgentFilter ? (
+              <Tag closable color="blue" onClose={() => setDlAgentFilter(null)}>
+                {dlAgentFilter.name}
+              </Tag>
+            ) : null
+          }
         />
         {filteredGroups.length === 0 ? (
           <div style={{ padding: 32 }}>
@@ -497,8 +483,6 @@ export default function Dashboard() {
                               {task.resource_title}
                             </Text>
                             <Space size="small" style={{ color: '#93939f', fontSize: 12, flexShrink: 0 }}>
-                              <span>{formatSpeed(0)}</span>
-                              <span>{t('dashboard.eta')} {formatEta(null)}</span>
                               {task.agent_id ? (
                                 <Link to={`/agents/${task.agent_id}`}>
                                   <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>
@@ -522,6 +506,7 @@ export default function Dashboard() {
           />
         )}
       </Card>
+      </div>
 
       {/* Pending decisions — only shown when there is something to decide;
           the warning border/title sets it apart from the other sections. */}

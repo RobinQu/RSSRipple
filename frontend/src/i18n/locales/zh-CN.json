@@ -68,7 +68,6 @@
     "dlFilterAll": "所有",
     "dlFilterAgent": "下载代理管理下载任务",
     "dlFilterUntracked": "未跟踪下载任务",
-    "eta": "ETA：",
     "failedToLoad": "无法加载数据",
     "confirmed": "已确认，开始下载",
     "failed": "操作失败",
@@ -81,8 +80,6 @@
     "worksCount": "{n} 个订阅作品",
     "filterConditions": "订阅条件：",
     "noFilterConditions": "无过滤条件",
-    "inProgressTasks": "进行中的下载任务",
-    "noActiveTasks": "暂无进行中的下载任务",
     "noPendingHint": "暂无待决策事项"
   },
   "channels": {
