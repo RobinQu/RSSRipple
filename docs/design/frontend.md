@@ -6,7 +6,7 @@
 | `/works` | WorksPage | 作品仓库海报墙：All/TV/Movie 筛选标签、搜索栏、响应式海报网格，点击跳转至详情页 |
 | `/channels` | ChannelList | 频道列表表格（名称/状态/抓取间隔/上次抓取/资源数/Agent 数）；支持新建、编辑、删除、手动抓取 |
 | `/channels/new` | ChannelForm | 创建频道表单（URL 验证、自动 LLM 分析）；右侧 RSS 预览 |
-| `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；主体资源按作品分组展示（每组可折叠，含 poster、作品名、剧集数、最新更新时间）；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
+| `/channels/:id` | ChannelDetail | 顶部频道信息+抓取控制按钮；已解析资源支持**分组/平铺两种视图**（右上角 Segmented 切换，选择按频道持久化到 localStorage；未手动选择时按内容自适应：movie 分组占比 ≥60% 且平均每组资源数 ≤1.5 时默认平铺，否则分组）——分组视图按作品折叠面板展示（含 poster、作品名、剧集数、最新更新时间），平铺视图为单张表格（一行一资源，首列为作品海报缩略图+标题链接，表头复选框可全选当前页）；平铺数据走 `grouped=false&matched=true`，分页/统计与分组视图独立；"未识别"组单独展示，点资源可唤起 metadata 修正抽屉；表格多选 → "生成过滤规则"弹窗（后端调用 summarize-filters，返回建议 FilterConfig，可编辑）→ 可选"新建 Agent"或"应用到已有 Agent" |
 | `/channels/:id/edit` | ChannelForm | 编辑频道表单，包含 field_mapping 可视化编辑器、metadata_agent_enabled 开关 |
 | `/agents` | AgentList | Agent 列表（名称/频道/下载器/状态/作品数/任务数） |
 | `/agents/new` | AgentForm | 创建 Agent：选择 Channel + Downloader；可选填写下载子目录；scope_channel_wide 开关；conflict_resolution（默认 `auto`）；`llm_enabled` 开启时显示 `llm_prompt` 自定义指令输入框；可视化 Filter DSL 编辑器；订阅作品选择器（点击"添加作品"打开对话框，宽 920px，含**剧集/电影/音频**三个 tab：剧集/电影可直接添加，音频 tab 仅供浏览并提示"音频作品暂不支持按作品订阅"（`AgentWork` 仅支持 series/movie），每个 tab 独立分页（每页 10 条、显示总数），空查询展示最新一页，键入 300ms 防抖搜索；从频道的已识别作品中多选，最多 10 个）。保存前先调 `/agents/rules-preview` 预览匹配差异，若有新增/不再匹配资源则弹出 **BackfillPreviewModal** 供用户勾选回填资源（选中 id 作为 `dispatch_resource_ids` 提交）；无匹配影响时直接保存（空回填列表，仍推进水位线） |

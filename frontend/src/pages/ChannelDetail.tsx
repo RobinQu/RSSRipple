@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
@@ -14,6 +14,8 @@ import {
   Copy,
   Package,
   ExternalLink,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import {
   Typography,
@@ -30,12 +32,14 @@ import {
   Empty,
   Tooltip,
   Tabs,
+  Segmented,
 } from 'antd';
 import { channelsApi } from '../api/channels';
 import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import { timeAgo } from '../utils/format';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
@@ -84,6 +88,135 @@ function formatEpisodeCell(r: FileResource): {
   return { label: perSeason, batch: false, confidence, absoluteEpisode };
 }
 
+function EpisodeCell({ r }: { r: FileResource }) {
+  const { t } = useTranslation();
+  const ep = formatEpisodeCell(r);
+  // Confidence indicators — only render when the metadata agent flagged the
+  // number, so the common "raw" case stays visually quiet.
+  const showReconciled = ep.confidence === 'reconciled';
+  const showAmbiguous = ep.confidence === 'ambiguous';
+  const showManual = ep.confidence === 'manual';
+  const reconciledTip = ep.absoluteEpisode != null
+    ? t('channels.episodeReconciledFrom', { n: ep.absoluteEpisode })
+    : t('channels.episodeReconciled');
+  return (
+    <Space size={4} style={{ flexWrap: 'nowrap' }}>
+      <span>{ep.label}</span>
+      {ep.batch && (
+        <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
+          {t('channels.batch')}
+        </Tag>
+      )}
+      {showReconciled && (
+        <Tooltip title={reconciledTip}>
+          <Tag color="blue" style={{ marginRight: 0 }}>
+            {t('channels.episodeReconciledTag')}
+          </Tag>
+        </Tooltip>
+      )}
+      {showAmbiguous && (
+        <Tooltip title={t('channels.episodeAmbiguousTip')}>
+          <Tag color="warning" style={{ marginRight: 0 }}>
+            {t('channels.episodeAmbiguousTag')}
+          </Tag>
+        </Tooltip>
+      )}
+      {showManual && (
+        <Tag color="green" style={{ marginRight: 0 }}>
+          {t('channels.episodeManualTag')}
+        </Tag>
+      )}
+    </Space>
+  );
+}
+
+function SubtitleLangsCell({ langs }: { langs: string[] | null }) {
+  const { t } = useTranslation();
+  const list = langs || [];
+  if (list.length === 0) return <span style={{ color: '#93939f' }}>—</span>;
+  const shown = list.slice(0, 2);
+  const rest = list.length - shown.length;
+  const inner = (
+    <Space size={2} style={{ flexWrap: 'nowrap' }}>
+      {shown.map((l) => (
+        <Tag key={l} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
+          {l === 'multi' ? t('channels.langMulti') : l}
+        </Tag>
+      ))}
+      {rest > 0 && (
+        <Tag style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>+{rest}</Tag>
+      )}
+    </Space>
+  );
+  return list.length > shown.length ? (
+    <Tooltip
+      title={
+        <span>
+          {list.map((l) => (l === 'multi' ? t('channels.langMulti') : l)).join(', ')}
+        </span>
+      }
+    >
+      {inner}
+    </Tooltip>
+  ) : inner;
+}
+
+function ResourceRowActions({ r }: { r: FileResource }) {
+  const { t } = useTranslation();
+  const { message } = App.useApp();
+  const copyRawTitle = async () => {
+    try {
+      await navigator.clipboard.writeText(r.title_raw);
+      message.success(t('channels.rawTitleCopied'));
+    } catch {
+      message.error(t('channels.copyFailed'));
+    }
+  };
+  return (
+    <Space size={2}>
+      <Tooltip
+        title={<span className="raw-title-tooltip-content">{r.title_raw}</span>}
+        placement="topRight"
+        classNames={{ root: 'raw-title-tooltip' }}
+      >
+        <Button
+          type="text"
+          size="small"
+          icon={<Info size={14} />}
+          aria-label={t('channels.showRawTitle')}
+        />
+      </Tooltip>
+      <Tooltip title={t('channels.copyRawTitle')}>
+        <Button
+          type="text"
+          size="small"
+          icon={<Copy size={14} />}
+          aria-label={t('channels.copyRawTitle')}
+          onClick={copyRawTitle}
+        />
+      </Tooltip>
+    </Space>
+  );
+}
+
+// Parsed tab view modes. 'flat' renders one row per resource in a single
+// table (better for movie channels where most works have a single resource);
+// 'grouped' keeps the per-work collapse panels.
+type ParsedView = 'grouped' | 'flat';
+
+function viewStorageKey(channelId: string) {
+  return `rssripple:channel-parsed-view:${channelId}`;
+}
+
+function readStoredView(channelId: string): ParsedView | null {
+  try {
+    const v = localStorage.getItem(viewStorageKey(channelId));
+    return v === 'flat' || v === 'grouped' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 const PAGE_SIZE = 30;
 
 export default function ChannelDetail() {
@@ -109,6 +242,15 @@ export default function ChannelDetail() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  // null = no explicit user choice yet; the default view is then derived from
+  // the channel's content (see autoView below). An explicit toggle is
+  // persisted per channel in localStorage.
+  const [storedView, setStoredView] = useState<ParsedView | null>(() =>
+    id ? readStoredView(id) : null,
+  );
+  const [flatResources, setFlatResources] = useState<FileResource[]>([]);
+  const [flatTotal, setFlatTotal] = useState(0);
+  const [flatLoading, setFlatLoading] = useState(true);
 
   const loadChannel = useCallback(async () => {
     if (!id) return;
@@ -128,6 +270,17 @@ export default function ChannelDetail() {
     if (!silent) setParsedLoading(false);
   }, [id]);
 
+  const loadFlat = useCallback(async (p: number, silent = false) => {
+    if (!id) return;
+    if (!silent) setFlatLoading(true);
+    const r = await channelsApi.resources(id, p, PAGE_SIZE, false, true);
+    if (r.success) {
+      setFlatResources(r.data as FileResource[]);
+      if (r.meta) setFlatTotal(r.meta.total);
+    }
+    if (!silent) setFlatLoading(false);
+  }, [id]);
+
   const loadUnparsed = useCallback(async (p: number, silent = false) => {
     if (!id) return;
     if (!silent) setUnparsedLoading(true);
@@ -139,20 +292,56 @@ export default function ChannelDetail() {
     if (!silent) setUnparsedLoading(false);
   }, [id]);
 
+  // Default view for channels the user has never toggled: movie-dominated
+  // channels whose works almost always hold a single resource read better as
+  // a flat table (a group panel + table header per one-row group is pure
+  // overhead). TV channels keep the grouped panels.
+  const autoView: ParsedView = useMemo(() => {
+    if (parsedGroups.length === 0) return 'grouped';
+    const movieGroups = parsedGroups.filter((g) => g.type === 'movie').length;
+    const totalResources = parsedGroups.reduce((n, g) => n + g.resources.length, 0);
+    const avgResourcesPerGroup = totalResources / parsedGroups.length;
+    return movieGroups / parsedGroups.length >= 0.6 && avgResourcesPerGroup <= 1.5
+      ? 'flat'
+      : 'grouped';
+  }, [parsedGroups]);
+
+  const parsedView: ParsedView = storedView ?? autoView;
+
   const reloadActiveTab = useCallback(async () => {
     // Silent: polling calls this every few seconds during a fetch. Toggling
     // the loading spinners each time caused the page to flicker, so refresh
     // the data in place without the loading state.
-    if (tab === 'parsed') await loadParsed(parsedPage, true);
-    else await loadUnparsed(unparsedPage, true);
-  }, [tab, parsedPage, unparsedPage, loadParsed, loadUnparsed]);
+    if (tab === 'parsed') {
+      if (parsedView === 'flat') await loadFlat(parsedPage, true);
+      else await loadParsed(parsedPage, true);
+    } else {
+      await loadUnparsed(unparsedPage, true);
+    }
+  }, [tab, parsedView, parsedPage, unparsedPage, loadParsed, loadFlat, loadUnparsed]);
 
   useEffect(() => {
     setChannelLoading(true);
     loadChannel();
-    loadParsed(1);
-    loadUnparsed(1);
-  }, [loadChannel, loadParsed, loadUnparsed]);
+  }, [loadChannel]);
+
+  // Single data-loading effect for both tabs and both parsed views; also
+  // refetches on page changes.
+  useEffect(() => {
+    if (tab === 'parsed') {
+      if (parsedView === 'flat') loadFlat(parsedPage);
+      else loadParsed(parsedPage);
+    } else {
+      loadUnparsed(unparsedPage);
+    }
+  }, [tab, parsedView, parsedPage, unparsedPage, loadParsed, loadFlat, loadUnparsed]);
+
+  // The "work groups" stat card needs the grouped total even when the stored
+  // view is flat (in which case the grouped query otherwise never runs).
+  useEffect(() => {
+    if (storedView === 'flat') loadParsed(1, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -205,13 +394,16 @@ export default function ChannelDetail() {
     }
   };
 
-  const toggleAllInGroup = (group: GroupedResource, checked: boolean) => {
+  const toggleAllInList = (resources: FileResource[], checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      group.resources.forEach((r) => (checked ? next.add(r.id) : next.delete(r.id)));
+      resources.forEach((r) => (checked ? next.add(r.id) : next.delete(r.id)));
       return next;
     });
   };
+
+  const toggleAllInGroup = (group: GroupedResource, checked: boolean) =>
+    toggleAllInList(group.resources, checked);
 
   const toggleResource = (rid: string, checked: boolean) => {
     setSelectedIds((prev) => {
@@ -221,16 +413,20 @@ export default function ChannelDetail() {
     });
   };
 
-  const copyRawTitle = async (raw: string) => {
-    try {
-      await navigator.clipboard.writeText(raw);
-      message.success(t('channels.rawTitleCopied'));
-    } catch {
-      message.error(t('channels.copyFailed'));
+  const handleViewChange = (view: ParsedView) => {
+    setStoredView(view);
+    if (id) {
+      try {
+        localStorage.setItem(viewStorageKey(id), view);
+      } catch {
+        // localStorage unavailable (private mode etc.) — keep session state only.
+      }
     }
+    setParsedPage(1);
   };
 
-  const parsedTotalPages = Math.ceil(parsedTotal / PAGE_SIZE);
+  const parsedViewTotal = parsedView === 'flat' ? flatTotal : parsedTotal;
+  const parsedTotalPages = Math.ceil(parsedViewTotal / PAGE_SIZE);
   const unparsedTotalPages = Math.ceil(unparsedTotal / PAGE_SIZE);
 
   if (channelLoading) {
@@ -353,13 +549,194 @@ export default function ChannelDetail() {
             label: (
               <Space size={6}>
                 {t('channels.parsedResources')}
-                {parsedTotal > 0 && <Tag>{parsedTotal}</Tag>}
+                {parsedViewTotal > 0 && <Tag>{parsedViewTotal}</Tag>}
               </Space>
             ),
             children: (
               <>
-                {/* Parsed groups */}
-                {parsedLoading ? (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                  <Segmented
+                    size="small"
+                    value={parsedView}
+                    onChange={(v) => handleViewChange(v as ParsedView)}
+                    options={[
+                      {
+                        value: 'grouped',
+                        label: (
+                          <Space size={4}>
+                            <LayoutGrid size={13} />
+                            {t('channels.viewGrouped')}
+                          </Space>
+                        ),
+                      },
+                      {
+                        value: 'flat',
+                        label: (
+                          <Space size={4}>
+                            <List size={13} />
+                            {t('channels.viewFlat')}
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                </div>
+                {/* Parsed resources — flat table or per-work groups, per view mode */}
+                {parsedView === 'flat' ? (
+                  flatLoading ? (
+                    <Spin style={{ display: 'flex', justifyContent: 'center', padding: 24 }} />
+                  ) : flatResources.length === 0 ? (
+                    <Card>
+                      <Empty
+                        description={
+                          isFetching ? t('channels.fetching') : t('channels.noResources')
+                        }
+                      />
+                    </Card>
+                  ) : (
+                  <Card size="small" styles={{ body: { padding: 0 } }}>
+                    <div className="resource-table-wrap">
+                    <table className="resource-table resource-table-known">
+                      <colgroup>
+                        <col style={{ width: 40 }} />
+                        <col style={{ width: 260 }} />
+                        <col style={{ width: 120 }} />
+                        <col style={{ width: 84 }} />
+                        <col style={{ width: 88 }} />
+                        <col style={{ width: 84 }} />
+                        <col style={{ width: 150 }} />
+                        <col />
+                        <col style={{ width: 120 }} />
+                        <col style={{ width: 76 }} />
+                      </colgroup>
+                      <thead>
+                        <tr style={{ color: '#93939f', fontSize: 12 }}>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>
+                            <Checkbox
+                              aria-label={t('common.selectAll')}
+                              checked={
+                                flatResources.length > 0 &&
+                                flatResources.every((r) => selectedIds.has(r.id))
+                              }
+                              indeterminate={
+                                flatResources.some((r) => selectedIds.has(r.id)) &&
+                                !flatResources.every((r) => selectedIds.has(r.id))
+                              }
+                              onChange={(e) => toggleAllInList(flatResources, e.target.checked)}
+                            />
+                          </th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.work')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.episode')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.videoCodec')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.audioCodec')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleLangs')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
+                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
+                          <th style={{ textAlign: 'right', padding: '6px 8px' }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {flatResources.map((r) => {
+                          const work = r.series ?? r.movie ?? null;
+                          const workUrl = r.series_id
+                            ? `/series/${r.series_id}`
+                            : r.movie_id
+                              ? `/movies/${r.movie_id}`
+                              : null;
+                          const workTitle =
+                            (work && (work.title_cn || work.title_en || work.original_title)) ||
+                            r.title_cn ||
+                            r.search_title ||
+                            r.title_raw;
+                          return (
+                            <tr
+                              key={r.id}
+                              style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
+                              onClick={() => setSelectedResource(r)}
+                              className="resource-row"
+                            >
+                              <td
+                                className="resource-check-cell"
+                                style={{ padding: '6px 8px' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Checkbox
+                                  checked={selectedIds.has(r.id)}
+                                  onChange={(e) => toggleResource(r.id, e.target.checked)}
+                                />
+                              </td>
+                              <td style={{ padding: '6px 8px' }} data-label={t('channels.work')}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                  <img
+                                    src={posterUrl(work?.poster_url)}
+                                    alt=""
+                                    style={{
+                                      width: 28,
+                                      height: 40,
+                                      objectFit: 'cover',
+                                      borderRadius: 4,
+                                      flexShrink: 0,
+                                      background: 'var(--rr-border-soft)',
+                                    }}
+                                    onError={useDefaultPoster}
+                                  />
+                                  <div style={{ minWidth: 0 }}>
+                                    {workUrl ? (
+                                      <Link to={workUrl} onClick={(e) => e.stopPropagation()}>
+                                        <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                                          {workTitle}
+                                        </Text>
+                                      </Link>
+                                    ) : (
+                                      <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                                        {workTitle}
+                                      </Text>
+                                    )}
+                                    {(r.series_id || r.movie_id) && (
+                                      <Tag
+                                        color={r.series_id ? 'blue' : 'green'}
+                                        icon={r.series_id ? <Tv size={10} /> : <Film size={10} />}
+                                        style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
+                                      >
+                                        {r.series_id ? t('dashboard.series') : t('dashboard.movie')}
+                                      </Tag>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} data-label={t('channels.episode')}>
+                                <EpisodeCell r={r} />
+                              </td>
+                              <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
+                              <td style={{ padding: '6px 8px' }} data-label={t('channels.videoCodec')}>{r.video_codec || '—'}</td>
+                              <td style={{ padding: '6px 8px' }} data-label={t('channels.audioCodec')}>{r.audio_codec || '—'}</td>
+                              <td style={{ padding: '6px 8px' }} data-label={t('channels.subtitleLangs')}>
+                                <SubtitleLangsCell langs={r.subtitle_langs} />
+                              </td>
+                              <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
+                                <Text ellipsis style={{ display: 'block' }}>
+                                  {r.subtitle_group || '—'}
+                                </Text>
+                              </td>
+                              <td style={{ padding: '6px 8px', color: '#93939f' }} data-label={t('channels.publishedAt')}>
+                                {r.published_at ? timeAgo(r.published_at) : '—'}
+                              </td>
+                              <td
+                                style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ResourceRowActions r={r} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    </div>
+                  </Card>
+                  )
+                ) : parsedLoading ? (
                   <Spin style={{ display: 'flex', justifyContent: 'center', padding: 24 }} />
                 ) : parsedGroups.length === 0 ? (
                   <Card>
@@ -460,82 +837,14 @@ export default function ChannelDetail() {
                         />
                       </td>
                       <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} data-label={t('channels.episode')}>
-                        {(() => {
-                          const ep = formatEpisodeCell(r);
-                          // Confidence indicators — only render when the
-                          // metadata agent flagged the number, so the common
-                          // "raw" case stays visually quiet.
-                          const showReconciled = ep.confidence === 'reconciled';
-                          const showAmbiguous = ep.confidence === 'ambiguous';
-                          const showManual = ep.confidence === 'manual';
-                          const reconciledTip = ep.absoluteEpisode != null
-                            ? t('channels.episodeReconciledFrom', { n: ep.absoluteEpisode })
-                            : t('channels.episodeReconciled');
-                          return (
-                            <Space size={4} style={{ flexWrap: 'nowrap' }}>
-                              <span>{ep.label}</span>
-                              {ep.batch && (
-                                <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
-                                  {t('channels.batch')}
-                                </Tag>
-                              )}
-                              {showReconciled && (
-                                <Tooltip title={reconciledTip}>
-                                  <Tag color="blue" style={{ marginRight: 0 }}>
-                                    {t('channels.episodeReconciledTag')}
-                                  </Tag>
-                                </Tooltip>
-                              )}
-                              {showAmbiguous && (
-                                <Tooltip title={t('channels.episodeAmbiguousTip')}>
-                                  <Tag color="warning" style={{ marginRight: 0 }}>
-                                    {t('channels.episodeAmbiguousTag')}
-                                  </Tag>
-                                </Tooltip>
-                              )}
-                              {showManual && (
-                                <Tag color="green" style={{ marginRight: 0 }}>
-                                  {t('channels.episodeManualTag')}
-                                </Tag>
-                              )}
-                            </Space>
-                          );
-                        })()}
+                        <EpisodeCell r={r} />
                       </td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.videoCodec')}>{r.video_codec || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.audioCodec')}>{r.audio_codec || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.container')}>{r.container || '—'}</td>
                       <td style={{ padding: '6px 8px' }} data-label={t('channels.subtitleLangs')}>
-                        {(() => {
-                          const langs = r.subtitle_langs || [];
-                          if (langs.length === 0) return <span style={{ color: '#93939f' }}>—</span>;
-                          const shown = langs.slice(0, 2);
-                          const rest = langs.length - shown.length;
-                          const inner = (
-                            <Space size={2} style={{ flexWrap: 'nowrap' }}>
-                              {shown.map((l) => (
-                                <Tag key={l} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-                                  {l === 'multi' ? t('channels.langMulti') : l}
-                                </Tag>
-                              ))}
-                              {rest > 0 && (
-                                <Tag style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>+{rest}</Tag>
-                              )}
-                            </Space>
-                          );
-                          return langs.length > shown.length ? (
-                            <Tooltip
-                              title={
-                                <span>
-                                  {langs.map((l) => (l === 'multi' ? t('channels.langMulti') : l)).join(', ')}
-                                </span>
-                              }
-                            >
-                              {inner}
-                            </Tooltip>
-                          ) : inner;
-                        })()}
+                        <SubtitleLangsCell langs={r.subtitle_langs} />
                       </td>
                       <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
                         <Text ellipsis style={{ display: 'block' }}>
@@ -549,29 +858,7 @@ export default function ChannelDetail() {
                         style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <Space size={2}>
-                          <Tooltip
-                            title={<span className="raw-title-tooltip-content">{r.title_raw}</span>}
-                            placement="topRight"
-                            classNames={{ root: 'raw-title-tooltip' }}
-                          >
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<Info size={14} />}
-                              aria-label={t('channels.showRawTitle')}
-                            />
-                          </Tooltip>
-                          <Tooltip title={t('channels.copyRawTitle')}>
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<Copy size={14} />}
-                              aria-label={t('channels.copyRawTitle')}
-                              onClick={() => copyRawTitle(r.title_raw)}
-                            />
-                          </Tooltip>
-                        </Space>
+                        <ResourceRowActions r={r} />
                       </td>
                     </tr>
                   ))}
@@ -585,7 +872,7 @@ export default function ChannelDetail() {
                 )}
 
       {/* Parsed pagination */}
-      {parsedTotal > PAGE_SIZE && (
+      {parsedViewTotal > PAGE_SIZE && (
         <Space style={{ marginTop: 16, justifyContent: 'flex-end', width: '100%' }}>
           <Button size="small" disabled={parsedPage <= 1} onClick={() => setParsedPage(parsedPage - 1)}>
             {t('common.previous')}
