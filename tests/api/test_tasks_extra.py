@@ -112,3 +112,82 @@ class TestTaskActions:
         res = await client.get(f"/api/v1/agents/{setup.aid}/tasks")
         assert res.status_code == 200
         assert res.json()["meta"]["total"] >= 1
+
+
+async def _create_task(db_session_factory, setup, status, agent_id="__default__"):
+    from app.models.download_task import DownloadTask
+    rid = await _create_resource(db_session_factory, setup.ch_id, f"[G] BatchT - {_uuid()}")
+    tid = _uuid()
+    async with db_session_factory() as s:
+        s.add(DownloadTask(
+            id=tid, agent_id=setup.aid if agent_id == "__default__" else agent_id,
+            file_resource_id=rid["id"], downloader_id=setup.dl_id,
+            transmission_torrent_id=42,
+            download_dir="/downloads/rssripple/AgentA",
+            status=status, progress=0.0,
+            download_speed=0, upload_speed=0, retry_count=0, max_retries=3,
+        ))
+        await s.commit()
+    return tid
+
+
+class TestBatchRetry:
+    async def test_retry_all_failed(self, client, setup, db_session_factory, mock_transmission):
+        err1 = await _create_task(db_session_factory, setup, "error")
+        err2 = await _create_task(db_session_factory, setup, "error")
+        paused = await _create_task(db_session_factory, setup, "paused")
+        completed = await _create_task(db_session_factory, setup, "completed")
+        manual = await _create_task(db_session_factory, setup, "error", agent_id=None)
+
+        res = await client.post(f"/api/v1/agents/{setup.aid}/tasks/batch-retry", json={})
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["processed"] == 3
+        assert data["retried"] == 3
+        assert data["failed"] == 0
+
+        res = await client.get(f"/api/v1/agents/{setup.aid}/tasks?page_size=100")
+        by_id = {t["id"]: t for t in res.json()["data"]}
+        for tid in (err1, err2, paused):
+            assert by_id[tid]["status"] == "downloading"
+            assert by_id[tid]["retry_count"] == 1
+            assert by_id[tid]["error_message"] is None
+        assert by_id[completed]["status"] == "completed"
+        # Manual task (agent_id=None) must not be touched.
+        res = await client.get(f"/api/v1/tasks/{manual}")
+        assert res.json()["data"]["status"] == "error"
+
+    async def test_retry_selected_ids(self, client, setup, db_session_factory, mock_transmission):
+        err1 = await _create_task(db_session_factory, setup, "error")
+        err2 = await _create_task(db_session_factory, setup, "error")
+
+        res = await client.post(
+            f"/api/v1/agents/{setup.aid}/tasks/batch-retry",
+            json={"task_ids": [err1]},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["processed"] == 1
+        assert data["retried"] == 1
+
+        res = await client.get(f"/api/v1/agents/{setup.aid}/tasks?page_size=100")
+        by_id = {t["id"]: t for t in res.json()["data"]}
+        assert by_id[err1]["status"] == "downloading"
+        assert by_id[err2]["status"] == "error"
+
+    async def test_partial_failure(self, client, setup, db_session_factory, mock_transmission):
+        await _create_task(db_session_factory, setup, "error")
+        await _create_task(db_session_factory, setup, "error")
+        mock_transmission.add_torrent.side_effect = [
+            RuntimeError("boom"),
+            {"torrent_id": 42, "name": "x", "hash": "h"},
+        ]
+
+        res = await client.post(f"/api/v1/agents/{setup.aid}/tasks/batch-retry", json={})
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["processed"] == 2
+        assert data["retried"] == 1
+        assert data["failed"] == 1
+        assert len(data["errors"]) == 1
+        assert "boom" in data["errors"][0]

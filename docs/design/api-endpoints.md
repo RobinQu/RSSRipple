@@ -205,6 +205,7 @@
 | POST | `/tasks/{id}/pause` | 暂停（调用 Transmission RPC） |
 | POST | `/tasks/{id}/resume` | 恢复 |
 | POST | `/tasks/{id}/retry` | 重试（重置 retry_count，重新添加 torrent） |
+| POST | `/agents/{agent_id}/tasks/batch-retry` | 批量重试：对 Agent 下多个 error/paused 任务统一执行重试 |
 | DELETE | `/tasks/{id}` | 删除任务；query 参数 `delete_data=false` 控制是否同时删除 Transmission 中已下载数据 |
 
 `POST /tasks` 手动创建下载任务：
@@ -215,6 +216,11 @@
 - 手动任务的 `agent_id` 固定为 `null`；`download_dir` 直接使用 Downloader 根目录（不加子目录）；不做去重检查（手动创建是显式用户意图，允许重复）。
 
 任务重试规则：`POST /tasks/{id}/retry` 必须优先使用该任务已持久化的 `download_dir` 重新添加 torrent，而不是重新读取当前 Agent/Downloader 配置；这样 Downloader 默认目录或 Agent 子目录后续变更不会改变历史任务的落点。
+
+`POST /agents/{agent_id}/tasks/batch-retry` 请求体：`{ "task_ids": ["..."] }`；`task_ids` 为 `null`/缺省表示重试该 Agent 全部可重试任务。仅 `status` 为 `error`/`paused` 的任务参与（与行级重试按钮条件一致），其余状态跳过；每个任务复用单任务重试语义（使用任务持久化的 `download_dir`），逐条捕获错误，最后统一 commit。响应 `data`：
+```json
+{ "processed": 10, "retried": 9, "failed": 1, "errors": ["<task_id>: <原因>"] }
+```
 
 ### Pending Decisions
 

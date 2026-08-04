@@ -19,6 +19,12 @@ export const tasksApi = {
     api.post<{ id: string; status: string }>(`/tasks/${id}/resume`),
   retry: (id: string) =>
     api.post<{ id: string; status: string }>(`/tasks/${id}/retry`),
+  // taskIds omitted/empty = retry every error/paused task of the agent.
+  batchRetry: (agentId: string, taskIds?: string[]) =>
+    api.post<{ processed: number; retried: number; failed: number; errors: string[] }>(
+      `/agents/${agentId}/tasks/batch-retry`,
+      taskIds && taskIds.length ? { task_ids: taskIds } : {},
+    ),
   delete: (id: string, deleteData = false) =>
     api.delete<null>(`/tasks/${id}?delete_data=${deleteData}`),
 };

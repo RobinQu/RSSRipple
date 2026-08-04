@@ -10,6 +10,8 @@ from app.database import get_db
 from app.models.download_task import DownloadTask
 from app.schemas.common import paginated_response, success_response
 from app.schemas.download_task import (
+    BatchTaskRetryRequest,
+    BatchTaskRetryResponse,
     DownloadTaskResponse,
     ManualTaskCreate,
     TaskActionResponse,
@@ -204,6 +206,43 @@ async def retry_task(task_id: str, db: AsyncSession = Depends(get_db)):
     return success_response(
         TaskActionResponse(id=task.id, status=task.status, message="retried" if ok else "failed").model_dump()
     )
+
+
+@router.post("/agents/{agent_id}/tasks/batch-retry")
+async def batch_retry_tasks(
+    agent_id: str,
+    body: BatchTaskRetryRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry many tasks of an agent at once.
+
+    Only ``error``/``paused`` tasks participate (same condition as the
+    row-level retry button); other statuses are skipped. ``task_ids=None``
+    retries every retryable task of the agent.
+    """
+    q = select(DownloadTask).where(
+        DownloadTask.agent_id == agent_id,
+        DownloadTask.status.in_(["error", "paused"]),
+    )
+    if body.task_ids:
+        q = q.where(DownloadTask.id.in_(body.task_ids))
+    rows = (await db.execute(q)).scalars().all()
+
+    resp = BatchTaskRetryResponse()
+    for task in rows:
+        resp.processed += 1
+        try:
+            ok = await _apply_torrent_action(db, task, "retry")
+            if ok:
+                resp.retried += 1
+            else:
+                resp.failed += 1
+                resp.errors.append(f"{task.id}: {task.error_message or 'retry failed'}")
+        except Exception as e:  # noqa: BLE001
+            resp.failed += 1
+            resp.errors.append(f"{task.id}: {e}")
+    await db.commit()
+    return success_response(resp.model_dump())
 
 
 @router.delete("/tasks/{task_id}")

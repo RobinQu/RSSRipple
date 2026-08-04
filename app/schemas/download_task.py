@@ -42,3 +42,16 @@ class TaskActionResponse(BaseModel):
     id: str
     status: str
     message: str = ""
+
+
+class BatchTaskRetryRequest(BaseModel):
+    """Batch retry request; ``task_ids=None`` retries all retryable tasks of the agent."""
+
+    task_ids: list[str] | None = None
+
+
+class BatchTaskRetryResponse(BaseModel):
+    processed: int = 0
+    retried: int = 0
+    failed: int = 0
+    errors: list[str] = []

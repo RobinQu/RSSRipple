@@ -91,6 +91,9 @@ export default function AgentDetail() {
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskStatus, setTaskStatus] = useState<string | undefined>();
   const [loadingTasks, setLoadingTasks] = useState(false);
+  // Batch retry: selected task ids + in-flight flag for the tasks tab.
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [taskBatchLoading, setTaskBatchLoading] = useState(false);
 
   // Decisions
   const [decisions, setDecisions] = useState<PendingDecision[]>([]);
@@ -322,6 +325,26 @@ export default function AgentDetail() {
   const handleRetry = async (tid: string) => {
     await tasksApi.retry(tid);
     loadTasks();
+  };
+  const handleBatchRetry = async (taskIds?: string[]) => {
+    if (!id) return;
+    setTaskBatchLoading(true);
+    const r = await tasksApi.batchRetry(id, taskIds);
+    setTaskBatchLoading(false);
+    if (r.success) {
+      const { retried, failed } = r.data;
+      message.success(t('agents.batchRetryDone', { retried, failed }));
+      setSelectedTaskIds([]);
+      loadTasks();
+    } else {
+      message.error(r.error?.message || t('agents.saveFailed'));
+    }
+  };
+  const handleBatchRetryAll = () => {
+    modal.confirm({
+      title: t('agents.batchRetryAllConfirm'),
+      onOk: () => handleBatchRetry(),
+    });
   };
   const handleDeleteTask = (tid: string) => {
     let deleteData = false;
@@ -798,6 +821,22 @@ export default function AgentDetail() {
                       { value: 'error', label: t('status.error') },
                     ]}
                   />
+                  <Button
+                    size="small"
+                    loading={taskBatchLoading}
+                    onClick={handleBatchRetryAll}
+                  >
+                    {t('agents.batchRetryAll')}
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={taskBatchLoading}
+                    disabled={selectedTaskIds.length === 0}
+                    onClick={() => handleBatchRetry(selectedTaskIds)}
+                  >
+                    {t('agents.batchRetrySelected', { n: selectedTaskIds.length })}
+                  </Button>
                 </Space>
                 <Table<DownloadTask>
                   columns={taskColumns}
@@ -806,6 +845,14 @@ export default function AgentDetail() {
                   loading={loadingTasks}
                   size="small"
                   scroll={{ x: 872 }}
+                  rowSelection={{
+                    selectedRowKeys: selectedTaskIds,
+                    onChange: (keys) => setSelectedTaskIds(keys as string[]),
+                    // Only error/paused tasks are retryable (same as the backend filter).
+                    getCheckboxProps: (record) => ({
+                      disabled: !['error', 'paused'].includes(record.status),
+                    }),
+                  }}
                   pagination={{
                     current: taskPage,
                     pageSize: 20,
