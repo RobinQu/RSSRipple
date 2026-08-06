@@ -36,13 +36,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
-这会同时启动应用 **和** 一个 Transmission 实例：
+这只会启动应用本身（Transmission 需自备 —— 在 UI 中把它的 RPC 地址注册为下载器）：
 
 | 服务 | 地址 | 用途 |
 | --- | --- | --- |
 | RSSRipple | http://localhost:9001 | Web UI |
 | API 文档 | http://localhost:9001/docs | OpenAPI / Swagger |
-| Transmission | http://localhost:9091 | 下载后端 |
 
 默认使用 Turso（嵌入式，兼容 SQLite 文件格式）+ 内存队列；数据持久化在 `./data/` 下。
 

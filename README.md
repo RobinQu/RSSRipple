@@ -36,13 +36,12 @@ cp .env.example .env
 docker compose up --build
 ```
 
-This starts the app **and** a Transmission instance:
+This starts the app (bring your own Transmission — you register its RPC URL as a downloader in the UI):
 
 | Service | URL | Purpose |
 | --- | --- | --- |
 | RSSRipple | http://localhost:9001 | Web UI |
 | API docs | http://localhost:9001/docs | OpenAPI / Swagger |
-| Transmission | http://localhost:9091 | Download backend |
 
 Turso (embedded, SQLite-compatible) + in-memory queue by default; data is persisted under `./data/`.
 

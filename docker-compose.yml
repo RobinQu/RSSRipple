@@ -1,5 +1,7 @@
-# Default stack: app + transmission. The eval service lives in
-# docker-compose.eval.yml and is started separately.
+# Default stack: app only — configure your own downloader (Transmission RPC)
+# via the UI. The eval service lives in docker-compose.eval.yml and is started
+# separately; the test stacks (docker-compose.test*.yml) bundle their own
+# transmission service.
 services:
   app:
     build: .
@@ -9,8 +11,7 @@ services:
       # Named volume (not a bind mount) for the SQLite DB + posters. The DB on a
       # bind mount hit recurring "disk I/O error" under concurrent writes on
       # Docker Desktop/macOS (virtiofs EIO); a named volume is backed by the
-      # Linux VM's filesystem and avoids that. downloads/watch stay bind-mounted
-      # on the transmission service below.
+      # Linux VM's filesystem and avoids that.
       - app-data:/app/data
     env_file: .env
     environment:
@@ -32,28 +33,7 @@ services:
           path: uv.lock
         - action: rebuild
           path: frontend
-    depends_on:
-      - transmission
-    restart: unless-stopped
-
-  transmission:
-    image: lscr.io/linuxserver/transmission:latest
-    ports:
-      - "9091:9091"
-      - "51413:51413"
-      - "51413:51413/udp"
-    volumes:
-      - transmission-config:/config
-      - ./docker/transmission/custom-cont-init.d:/custom-cont-init.d:ro
-      - ./data/downloads:/downloads
-      - ./data/watch:/watch
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Asia/Shanghai
-      - PEERPORT=51413
     restart: unless-stopped
 
 volumes:
-  transmission-config:
   app-data:
