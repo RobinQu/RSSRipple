@@ -386,7 +386,10 @@ startup:
 ```
 sync_download_progress():
   │
-  ├─ 1. 查询所有 status in ("downloading","queued","pending") 的 DownloadTask
+  ├─ 1. 查询所有 status in ("downloading","queued","pending") 的 DownloadTask；
+  │     另带自愈条件：status="error" 且 error_message 以 "Transmission unreachable"
+  │     开头（历史故障级联遗留）且 transmission_torrent_id 非空的任务也纳入同步，
+  │     下载器恢复后自动回到正常跟踪（无 torrent id 的任务从未提交成功，须走重试）
   │     按 downloader_id 分组，减少 RPC 调用
   │
   ├─ 2. 对每个 downloader:
@@ -402,6 +405,7 @@ sync_download_progress():
   │             task.download_speed = t.rate_download
   │             task.upload_speed = t.rate_upload
   │             task.eta = t.eta
+  │             task.error_message = None  # 同步成功即清除历史故障遗留的错误信息
   │             if t.is_finished or (t.left_until_done == 0 and t.total_size > 0):
   │                 # left_until_done 需搭配 total_size>0：magnet 元数据未下载时两者皆为 0
   │                 task.status = "completed"
@@ -410,10 +414,11 @@ sync_download_progress():
   │                 task.status = "paused"
   │             elif t.status in ("downloading","queued"):
   │                 task.status = "downloading" if t.rate_download > 0 else "queued"
-  │     except TransmissionError as e:
-  │         for task in downloader.tasks:
-  │             task.status = "error"
-  │             task.error_message = f"Transmission unreachable: {e}"
+  │     except TransmissionError:
+  │         # RPC 失败不代表任务失败（种子在 daemon 中照常运行）：
+  │         # 只标记 downloader.status = "error"，任务保持最后已知状态，
+  │         # 下次同步成功后自动恢复；不再级联把任务标记为 error
+  │         downloader.status = "error"
   │     # 每个 downloader 处理后立即 commit：否则下一轮迭代的查询会 autoflush
   │     # 这些 UPDATE，导致 SQLite 写锁在整个 list_torrents RPC 期间被持有
   │

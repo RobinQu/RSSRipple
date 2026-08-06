@@ -276,7 +276,7 @@ async def _run_metadata_refresh() -> None:  # pragma: no cover - wiring only
 
 
 async def _sync_download_progress() -> None:
-    from sqlalchemy import select
+    from sqlalchemy import and_, or_, select
 
     from app.clients.downloader import get_downloader_client
     from app.database import committed_session
@@ -285,7 +285,20 @@ async def _sync_download_progress() -> None:
 
     async with committed_session() as db:
         stmt = select(DownloadTask).where(
-            DownloadTask.status.in_(["pending", "queued", "downloading"])
+            or_(
+                DownloadTask.status.in_(["pending", "queued", "downloading"]),
+                # Self-heal: tasks flipped to error by a past outage cascade
+                # (their error_message carries the "Transmission unreachable"
+                # prefix) still have live torrents in the daemon. Re-include
+                # them so tracking resumes once the downloader is back.
+                # Tasks without a torrent id were never submitted successfully
+                # and must go through retry instead.
+                and_(
+                    DownloadTask.status == "error",
+                    DownloadTask.error_message.like("Transmission unreachable%"),
+                    DownloadTask.transmission_torrent_id.isnot(None),
+                ),
+            )
         )
         tasks = (await db.execute(stmt)).scalars().all()
         by_downloader: dict[str, list[DownloadTask]] = {}
@@ -311,6 +324,8 @@ async def _sync_download_progress() -> None:
                     task.download_speed = torrent["rate_download"]
                     task.upload_speed = torrent["rate_upload"]
                     task.eta = torrent.get("eta_seconds")
+                    # Clear a stale outage error once the torrent syncs again.
+                    task.error_message = None
                     if torrent["is_finished"] or (
                         # leftUntilDone is also 0 before a magnet's metadata
                         # arrives - require a known size so fresh magnets are
@@ -328,14 +343,13 @@ async def _sync_download_progress() -> None:
                         task.status = "downloading"
                 downloader.status = "connected"
                 downloader.last_checked_at = utcnow()
-            except Exception as e:
+            except Exception:
+                # A failed RPC says nothing about the tasks themselves — the
+                # torrents keep running in the daemon. Only flag the
+                # downloader; task statuses stay as last known and resume
+                # syncing on the next successful pass.
                 downloader.status = "error"
                 downloader.last_checked_at = utcnow()  # type: ignore[arg-type]
-                for task in dl_tasks:
-                    # Don't override tasks that are already complete/cancelled
-                    if task.status in ("pending", "queued", "downloading"):
-                        task.status = "error"
-                        task.error_message = f"Transmission unreachable: {e}"[:2000]
             # Commit per downloader: the next iteration's queries would
             # otherwise autoflush these pending UPDATEs right before its RPC,
             # holding the SQLite write lock for the whole list_torrents call.

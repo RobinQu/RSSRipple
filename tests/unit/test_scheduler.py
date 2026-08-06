@@ -150,7 +150,9 @@ async def test_sync_download_progress_marks_cancelled_when_torrent_missing(db_se
 
 
 @pytest.mark.asyncio
-async def test_sync_download_progress_transmission_error_marks_error(db_session, _seed, monkeypatch):
+async def test_sync_download_progress_rpc_failure_keeps_task_status(db_session, _seed, monkeypatch):
+    """A transient RPC failure must not cascade error onto tasks: only the
+    downloader is flagged; tasks keep their last-known status."""
     class _Ctx:
         async def __aenter__(self_inner):
             return db_session
@@ -167,9 +169,69 @@ async def test_sync_download_progress_transmission_error_marks_error(db_session,
         await sch._sync_download_progress()
 
     await db_session.refresh(_seed.t1)
+    await db_session.refresh(_seed.t2)
     await db_session.refresh(_seed.dl)
-    assert _seed.t1.status == "error"
+    assert _seed.t1.status == "downloading"
+    assert _seed.t2.status == "downloading"
+    assert _seed.t1.error_message is None
     assert _seed.dl.status == "error"
+
+
+@pytest.mark.asyncio
+async def test_sync_download_progress_self_heals_outage_error_tasks(db_session, _seed, monkeypatch):
+    """Error tasks caused by a past outage cascade (message prefix
+    'Transmission unreachable', torrent still in the daemon) are picked up
+    by the sync again and resume normal tracking."""
+    class _Ctx:
+        async def __aenter__(self_inner):
+            return db_session
+        async def __aexit__(self_inner, *a):
+            await db_session.commit()
+            return False
+    factory = MagicMock(return_value=_Ctx())
+    import app.database as dbmod
+    monkeypatch.setattr(dbmod, "async_session_factory", factory)
+
+    # t1: outage-cascade error, torrent alive and finished -> completed.
+    _seed.t1.status = "error"
+    _seed.t1.error_message = "Transmission unreachable: timeout"
+    # t2: outage-cascade error, torrent alive and downloading -> downloading.
+    _seed.t2.status = "error"
+    _seed.t2.error_message = "Transmission unreachable: timeout"
+    # t_err: genuine dispatch error (no cascade prefix) -> untouched.
+    t_err = DownloadTask(
+        id=_uuid(), agent_id=_seed.agent.id, file_resource_id=_seed.r1.id,
+        downloader_id=_seed.dl.id, download_dir="/downloads/rssripple",
+        transmission_torrent_id=77, status="error", progress=0.0,
+        error_message="magnet parse failed",
+    )
+    db_session.add(t_err)
+    await db_session.commit()
+
+    torrents = [
+        {"id": 42, "percent_done": 1.0, "rate_download": 0, "rate_upload": 0,
+         "eta_seconds": 0, "is_finished": True, "left_until_done": 0,
+         "total_size": 100, "status": "stopped"},
+        {"id": 43, "percent_done": 0.5, "rate_download": 1024, "rate_upload": 0,
+         "eta_seconds": 10, "is_finished": False, "left_until_done": 50,
+         "total_size": 100, "status": "downloading"},
+    ]
+    wrapper = MagicMock()
+    wrapper.list_torrents = AsyncMock(return_value=torrents)
+    with patch("app.clients.transmission.TransmissionWrapper", return_value=wrapper):
+        await sch._sync_download_progress()
+
+    await db_session.refresh(_seed.t1)
+    await db_session.refresh(_seed.t2)
+    await db_session.refresh(t_err)
+    assert _seed.t1.status == "completed"
+    assert _seed.t1.error_message is None
+    assert _seed.t2.status == "downloading"
+    assert _seed.t2.progress == 0.5
+    assert _seed.t2.error_message is None
+    # Non-outage error tasks are left alone.
+    assert t_err.status == "error"
+    assert t_err.error_message == "magnet parse failed"
 
 
 @pytest.mark.asyncio
