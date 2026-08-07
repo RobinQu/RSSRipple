@@ -34,6 +34,10 @@ class AgentWorkResponse(ORMModel):
     enable_episode_dedup: bool = True
     filter_overrides: dict | None = None
     display_name_override: str | None = None
+    # Latest completed download position for TV works (None when nothing has
+    # completed yet or for movie works). Computed in GET /agents/{id}.
+    latest_completed_season: int | None = None
+    latest_completed_episode: int | None = None
     series: Any | None = None
     movie: Any | None = None
     created_at: datetime

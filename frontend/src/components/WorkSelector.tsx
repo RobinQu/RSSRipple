@@ -521,6 +521,16 @@ export default function WorkSelector({
                       <Tag color={isTv ? 'blue' : 'green'}>
                         {t(isTv ? 'work.series' : 'work.movie')}
                       </Tag>
+                      {isTv && work.latest_completed_episode != null && (
+                        <Tag color="cyan">
+                          {t('work.downloadedTo', {
+                            pos:
+                              work.latest_completed_season != null
+                                ? `S${String(work.latest_completed_season).padStart(2, '0')}E${String(work.latest_completed_episode).padStart(2, '0')}`
+                                : `E${String(work.latest_completed_episode).padStart(2, '0')}`,
+                          })}
+                        </Tag>
+                      )}
                       <Button
                         htmlType="button"
                         type="text"

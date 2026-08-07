@@ -303,6 +303,9 @@ export interface AgentWork {
   enable_episode_dedup: boolean;
   filter_overrides: BoolCondition | null;
   display_name_override: string | null;
+  // Latest completed download position for TV works (GET /agents/{id}).
+  latest_completed_season?: number | null;
+  latest_completed_episode?: number | null;
   created_at: string;
   updated_at: string;
   // populated by frontend joins

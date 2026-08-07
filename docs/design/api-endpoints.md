@@ -87,7 +87,7 @@
 |--------|------|------|
 | GET | `/agents` | Agent 列表（分页） |
 | POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `dispatch_resource_ids`（规则预览回填提交） |
-| GET | `/agents/{id}` | Agent 详情（含 works、统计信息） |
+| GET | `/agents/{id}` | Agent 详情（含 works、统计信息；TV 类型 works 附带 `latest_completed_season/episode`——该剧集全库范围内最新已完成下载的季/集号，无完成记录或为电影时为 null） |
 | PUT | `/agents/{id}` | 更新 Agent（整体替换，含 works 列表） |
 | DELETE | `/agents/{id}` | 删除 Agent（级联删除其 works、pending_decisions、runs；tasks 标记 cancelled） |
 | POST | `/agents/{id}/run` | 手动触发处理（入队处理该 Agent 频道下未处理资源）。可选 body `{"scan_since": "<ISO 8601>" \| null}`：指定本次运行的扫描起始时间（按资源入库时间，必须为过去时间，否则 422）；显式 `null` = 不限制（全量历史）；不带 body = 普通增量运行 |

@@ -149,6 +149,64 @@ class TestAgentsCRUD:
         assert res.status_code == 200
         assert res.json()["data"]["id"] == aid
 
+    async def test_get_agent_includes_latest_completed_episode(
+        self, client, channel_and_dl, db_session
+    ):
+        """GET /agents/{id} annotates TV works with the latest completed S/E."""
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+        from app.models.series import TVSeries
+
+        ch_id, dl_id = channel_and_dl
+        s = TVSeries(id=_uuid(), title_cn="S")
+        s_idle = TVSeries(id=_uuid(), title_cn="Idle")
+        db_session.add_all([s, s_idle])
+        await db_session.flush()
+
+        def _res(guid, season, episode, is_batch=False):
+            return FileResource(
+                id=_uuid(), channel_id=ch_id, guid=guid,
+                title_raw=guid, torrent_url=f"magnet:?xt=urn:btih:{guid}",
+                series_id=s.id, season=season, episode=episode, is_batch=is_batch,
+            )
+
+        r13 = _res("e13", 1, 3)
+        r15 = _res("e15", 1, 5)
+        r_batch = _res("eb", 1, None, is_batch=True)  # excluded: batch
+        r_active = _res("e18", 1, 8)                   # excluded: not completed
+        db_session.add_all([r13, r15, r_batch, r_active])
+        await db_session.flush()
+
+        def _task(rid, status):
+            return DownloadTask(
+                id=_uuid(), agent_id=None, file_resource_id=rid,
+                downloader_id=dl_id, download_dir="/d", status=status,
+            )
+
+        db_session.add_all([
+            _task(r13.id, "completed"),
+            _task(r15.id, "completed"),
+            _task(r_active.id, "downloading"),
+        ])
+        await db_session.commit()
+
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": False,
+            "works": [
+                {"content_type": "tv", "series_id": s.id},
+                {"content_type": "tv", "series_id": s_idle.id},
+            ],
+        })
+        aid = create.json()["data"]["id"]
+        res = await client.get(f"/api/v1/agents/{aid}")
+        assert res.status_code == 200
+        works = {w["series_id"]: w for w in res.json()["data"]["works"]}
+        assert works[s.id]["latest_completed_season"] == 1
+        assert works[s.id]["latest_completed_episode"] == 5
+        assert works[s_idle.id]["latest_completed_season"] is None
+        assert works[s_idle.id]["latest_completed_episode"] is None
+
     async def test_rules_preview_diff(self, client, channel_and_dl, db_session):
         """rules-preview returns newly/no_longer matching for a rule change."""
         from app.models.file_resource import FileResource

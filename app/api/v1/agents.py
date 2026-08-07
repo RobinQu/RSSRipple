@@ -248,7 +248,35 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     )).scalar_one_or_none()
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
-    return success_response(AgentResponse.model_validate(agent).model_dump())
+    resp = AgentResponse.model_validate(agent).model_dump()
+
+    # Latest completed download position per subscribed TV series (across all
+    # agents' tasks — it reflects the library's progress on that series).
+    series_ids = [w.series_id for w in agent.works if w.series_id]
+    if series_ids:
+        from app.models.download_task import DownloadTask
+        rows = (await db.execute(
+            select(FileResource.series_id, FileResource.season, FileResource.episode)
+            .join(DownloadTask, DownloadTask.file_resource_id == FileResource.id)
+            .where(
+                FileResource.series_id.in_(series_ids),
+                FileResource.is_batch.is_(False),
+                FileResource.episode.isnot(None),
+                DownloadTask.status == "completed",
+            )
+        )).all()
+        latest: dict[str, tuple[int, int]] = {}
+        for sid, season, ep in rows:
+            key = (season or 0, ep)
+            if sid not in latest or key > latest[sid]:
+                latest[sid] = key
+        for w in resp["works"]:
+            sid = w.get("series_id")
+            if sid and sid in latest:
+                season_key, w["latest_completed_episode"] = latest[sid]
+                # season_key is (season or 0); store back None when unset.
+                w["latest_completed_season"] = season_key or None
+    return success_response(resp)
 
 
 @router.put("/agents/{agent_id}")
