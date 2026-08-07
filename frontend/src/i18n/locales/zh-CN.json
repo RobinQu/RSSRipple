@@ -318,6 +318,7 @@
     "processing": "正在处理资源...",
     "runComplete": "运行完成",
     "runHistory": "运行记录",
+    "runsNonEmptyOnly": "仅显示非空运行记录",
     "noRuns": "暂无运行记录",
     "runStarted": "开始时间",
     "runFinished": "结束时间",

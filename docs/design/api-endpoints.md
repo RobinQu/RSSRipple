@@ -94,7 +94,7 @@
 | GET | `/agents/{id}/run-status` | 轮询处理状态 |
 | POST | `/agents/{id}/test-filters` | 给定资源或全部资源测试 filter_config 匹配情况，返回匹配结果明细 |
 | GET | `/agents/{id}/suggestions` | 读取持久化的未识别资源建议分组，供用户一键添加为订阅作品 |
-| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表、`scan_since`（指定起始时间运行的扫描下界；null=增量/定向，`1970-01-01`=全量） |
+| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表、`scan_since`（指定起始时间运行的扫描下界；null=增量/定向，`1970-01-01`=全量）；`non_empty=true` 时仅返回"非空"运行（dispatched>0 或 pending_decisions>0 或 status 为 running/failed），隐藏无产出的例行空跑 |
 | POST | `/agents/rules-preview` | 提交拟变更的订阅规则，预览匹配差异（新增匹配 / 不再匹配 / 已在队列跳过），供用户选择回填资源 |
 
 `POST /agents` 请求体示例：

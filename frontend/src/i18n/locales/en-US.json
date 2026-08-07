@@ -317,6 +317,7 @@
     "processing": "Processing resources...",
     "runComplete": "Run complete",
     "runHistory": "Run history",
+    "runsNonEmptyOnly": "Non-empty runs only",
     "noRuns": "No runs yet",
     "runStarted": "Started",
     "runFinished": "Finished",

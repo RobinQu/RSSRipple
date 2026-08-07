@@ -317,6 +317,46 @@ class TestAgentsCRUD:
         assert data[0]["matched_resource_ids"] == [r.id]
         assert data[0]["matched_resources"][0]["id"] == r.id
 
+    async def test_list_agent_runs_non_empty_filter(self, client, channel_and_dl, db_session):
+        """GET /agents/{id}/runs?non_empty=true hides routine no-op runs."""
+        from app.models.agent_run import AgentRun
+
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        now = datetime.now(UTC)
+        async with db_session.begin():
+            db_session.add_all([
+                # no-op routine run -> hidden
+                AgentRun(agent_id=aid, status="success", started_at=now,
+                         finished_at=now, total_resources=5, matched=0),
+                # dispatched -> kept
+                AgentRun(agent_id=aid, status="success", started_at=now,
+                         finished_at=now, total_resources=5, matched=1, dispatched=1),
+                # produced pending decisions -> kept
+                AgentRun(agent_id=aid, status="pending_decisions", started_at=now,
+                         finished_at=now, total_resources=5, matched=1,
+                         pending_decisions=1),
+                # running -> kept
+                AgentRun(agent_id=aid, status="running", started_at=now),
+                # failed (even with zero counts) -> kept, errors stay visible
+                AgentRun(agent_id=aid, status="failed", started_at=now,
+                         finished_at=now, errors=["boom"]),
+            ])
+        res = await client.get(f"/api/v1/agents/{aid}/runs?non_empty=true")
+        assert res.status_code == 200
+        assert res.json()["meta"]["total"] == 4
+        statuses = {r["status"] for r in res.json()["data"]}
+        assert statuses == {"success", "pending_decisions", "running", "failed"}
+        # success appears twice (dispatched run + hidden no-op would be 3)
+        assert sum(1 for r in res.json()["data"] if r["status"] == "success") == 1
+        # Default (no param) returns everything.
+        res = await client.get(f"/api/v1/agents/{aid}/runs")
+        assert res.json()["meta"]["total"] == 5
+
     async def test_delete_agent(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl
         create = await client.post("/api/v1/agents", json={

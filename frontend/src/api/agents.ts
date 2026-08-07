@@ -30,8 +30,10 @@ export const agentsApi = {
     api.post<FilterTestResponse>(`/agents/${id}/test-filters`, body ?? {}),
   rulesPreview: (body: RulesPreviewRequest) =>
     api.post<RulesPreviewResponse>('/agents/rules-preview', body),
-  listRuns: (agentId: string, page = 1, pageSize = 20) =>
-    api.get<AgentRun[]>(`/agents/${agentId}/runs?page=${page}&page_size=${pageSize}`),
+  listRuns: (agentId: string, page = 1, pageSize = 20, nonEmpty?: boolean) =>
+    api.get<AgentRun[]>(
+      `/agents/${agentId}/runs?page=${page}&page_size=${pageSize}${nonEmpty ? '&non_empty=true' : ''}`,
+    ),
   suggestions: (id: string) =>
     api.get<{ scope_channel_wide: boolean; suggestions: AgentSuggestionGroup[] }>(
       `/agents/${id}/suggestions`,

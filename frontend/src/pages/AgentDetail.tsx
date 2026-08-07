@@ -149,6 +149,9 @@ export default function AgentDetail() {
   const [runPage, setRunPage] = useState(1);
   const [runTotal, setRunTotal] = useState(0);
   const [loadingRuns, setLoadingRuns] = useState(false);
+  // Hide routine no-op runs by default; only runs that dispatched tasks,
+  // produced decisions, or are running/failed show up unless unchecked.
+  const [runsNonEmptyOnly, setRunsNonEmptyOnly] = useState(true);
   // Drawer showing a single run's matched file resources.
   const [runDrawerRun, setRunDrawerRun] = useState<AgentRun | null>(null);
 
@@ -216,13 +219,13 @@ export default function AgentDetail() {
   const loadRuns = useCallback(async () => {
     if (!id) return;
     setLoadingRuns(true);
-    const r = await agentsApi.listRuns(id, runPage, 20);
+    const r = await agentsApi.listRuns(id, runPage, 20, runsNonEmptyOnly);
     if (r.success) {
       setRuns(r.data);
       if (r.meta) setRunTotal(r.meta.total);
     }
     setLoadingRuns(false);
-  }, [id, runPage]);
+  }, [id, runPage, runsNonEmptyOnly]);
 
   useEffect(() => {
     loadAgent();
@@ -1246,9 +1249,20 @@ export default function AgentDetail() {
                   )}
                   <Divider style={{ margin: '8px 0' }} />
                   <div>
-                    <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                      {t('agents.runHistory')}
-                    </Text>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Text strong>
+                        {t('agents.runHistory')}
+                      </Text>
+                      <Checkbox
+                        checked={runsNonEmptyOnly}
+                        onChange={(e) => {
+                          setRunsNonEmptyOnly(e.target.checked);
+                          setRunPage(1);
+                        }}
+                      >
+                        {t('agents.runsNonEmptyOnly')}
+                      </Checkbox>
+                    </div>
                     <Table<AgentRun>
                       columns={runColumns(t, (r) => setRunDrawerRun(r))}
                       dataSource={runs}

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -411,16 +411,29 @@ async def list_agent_runs(
     agent_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    non_empty: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     """Run history: one row per agent execution with counts, status, and the
-    list of resources that matched (passed work-scope + filter) that run."""
+    list of resources that matched (passed work-scope + filter) that run.
+
+    ``non_empty=true`` hides routine no-op runs, keeping only runs that
+    dispatched tasks or produced pending decisions, plus running/failed ones.
+    """
     from app.models.agent_run import AgentRun
 
     agent = await db.get(Agent, agent_id)
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
     base_q = select(AgentRun).where(AgentRun.agent_id == agent_id)
+    if non_empty:
+        base_q = base_q.where(
+            or_(
+                AgentRun.dispatched > 0,
+                AgentRun.pending_decisions > 0,
+                AgentRun.status.in_(["running", "failed"]),
+            )
+        )
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = total_q.scalar_one()
     rows = (await db.execute(
