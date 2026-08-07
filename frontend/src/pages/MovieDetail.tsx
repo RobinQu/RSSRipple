@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
-import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
+import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
 import { worksApi } from '../api/works';
@@ -140,11 +140,11 @@ export default function MovieDetail() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         <Link to="/works">
           <Button type="text" icon={<ArrowLeft size={18} />} />
         </Link>
-        <Title level={3} style={{ margin: 0 }}>
+        <Title level={3} style={{ margin: 0, flex: '1 1 200px', minWidth: 0, wordBreak: 'break-word' }}>
           {movie.title_cn || movie.title_en || movie.original_title}
         </Title>
         <Tag color="green">{t('movies.title')}</Tag>
@@ -158,17 +158,17 @@ export default function MovieDetail() {
         <Button danger type="primary" icon={<Trash2 size={16} />} onClick={handleDelete}>
           {t('common.delete')}
         </Button>
-      </Space>
+      </div>
 
       <Card>
-        <Space align="start" size={16}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <img
             src={posterUrl(movie.poster_url)}
             alt=""
             style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
             onError={useDefaultPoster}
           />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label={t('movies.cnTitle')}>{movie.title_cn || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.enTitle')}>{movie.title_en || '—'}</Descriptions.Item>
@@ -185,12 +185,12 @@ export default function MovieDetail() {
               </Text>
             )}
           </div>
-        </Space>
+        </div>
       </Card>
 
       {/* Stats */}
       <Card style={{ marginTop: 16 }}>
-        <Row gutter={48}>
+        <Row gutter={[24, 16]}>
           <Col>
             <Statistic
               title={t('movies.resourceCount')}

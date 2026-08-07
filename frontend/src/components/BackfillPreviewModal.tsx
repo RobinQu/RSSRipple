@@ -126,6 +126,7 @@ export default function BackfillPreviewModal({
         dataSource={newly}
         rowKey="id"
         size="small"
+        scroll={{ x: 'max-content' }}
         pagination={{ pageSize: 10, showSizeChanger: false }}
         rowSelection={{
           selectedRowKeys: selectedIds,

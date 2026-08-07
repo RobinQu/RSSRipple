@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Layout, Menu, Button, Dropdown } from 'antd';
+import { Layout, Menu, Button, Dropdown, Drawer } from 'antd';
 import type { MenuProps } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -10,6 +10,7 @@ import {
   Languages,
   LayoutDashboard,
   Library,
+  Menu as MenuIcon,
   PanelLeftClose,
   PanelLeftOpen,
   Rss,
@@ -26,10 +27,116 @@ const iconButtonStyle = {
   width: 36,
 };
 
-export default function Sidebar() {
-  const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
+function buildMenuItems(t: (k: string) => string): MenuProps['items'] {
+  return [
+    { key: '/', icon: <LayoutDashboard size={16} />, label: t('nav.dashboard') },
+    { key: '/works', icon: <Library size={16} />, label: t('nav.repository') },
+    { key: '/channels', icon: <Rss size={16} />, label: t('nav.channels') },
+    { key: '/agents', icon: <Bot size={16} />, label: t('nav.agents') },
+    { key: '/downloaders', icon: <HardDrive size={16} />, label: t('nav.downloaders') },
+    { key: '/settings', icon: <Settings size={16} />, label: t('nav.settings') },
+  ];
+}
+
+function useSelectedKey(menuItems: MenuProps['items']): string {
   const location = useLocation();
+  const selected = (menuItems as { key: string }[])?.find((item) => {
+    const key = item.key;
+    if (key === '/') return location.pathname === '/';
+    return location.pathname.startsWith(key as string);
+  });
+  return (selected as { key: string })?.key || '/';
+}
+
+function useLanguage() {
+  const { i18n } = useTranslation();
+  const switchLanguage = (lang: string) => {
+    i18n.changeLanguage(lang);
+    localStorage.setItem('rssripple-lang', lang);
+  };
+  return { i18n, switchLanguage };
+}
+
+/** Top bar + off-canvas drawer nav for small screens (< lg). */
+export function MobileNav() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { i18n, switchLanguage } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const menuItems = buildMenuItems(t);
+  const selectedKey = useSelectedKey(menuItems);
+
+  return (
+    <>
+      <div
+        style={{
+          alignItems: 'center',
+          borderBottom: '1px solid var(--rr-border)',
+          display: 'flex',
+          gap: 8,
+          height: 56,
+          padding: '0 12px',
+        }}
+      >
+        <Button
+          type="text"
+          aria-label={t('nav.menu')}
+          icon={<MenuIcon size={20} />}
+          onClick={() => setOpen(true)}
+          style={iconButtonStyle}
+        />
+        <button
+          type="button"
+          aria-label="RSSRipple"
+          onClick={() => navigate('/')}
+          style={{ background: 'transparent', border: 0, cursor: 'pointer', padding: 0 }}
+        >
+          <BrandLogo collapsed={false} />
+        </button>
+      </div>
+      <Drawer
+        placement="left"
+        open={open}
+        onClose={() => setOpen(false)}
+        width={240}
+        styles={{ body: { padding: '8px 0', display: 'flex', flexDirection: 'column' } }}
+      >
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          items={menuItems}
+          onClick={({ key }) => {
+            navigate(key);
+            setOpen(false);
+          }}
+          style={{ borderRight: 'none', flex: 1 }}
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px' }}>
+          <Button
+            type="text"
+            icon={<Languages size={16} />}
+            onClick={() => switchLanguage(i18n.language === 'zh-CN' ? 'en-US' : 'zh-CN')}
+            style={{ color: 'var(--rr-text-secondary)' }}
+          >
+            {t('language.switch')}
+          </Button>
+          <Button
+            type="text"
+            href={githubUrl}
+            target="_blank"
+            rel="noreferrer"
+            icon={<ExternalLink size={16} />}
+            style={iconButtonStyle}
+          />
+        </div>
+      </Drawer>
+    </>
+  );
+}
+
+export default function Sidebar() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
@@ -40,53 +147,9 @@ export default function Sidebar() {
     localStorage.setItem('sidebarCollapsed', String(value));
   };
 
-  const menuItems: MenuProps['items'] = [
-    {
-      key: '/',
-      icon: <LayoutDashboard size={16} />,
-      label: t('nav.dashboard'),
-    },
-    {
-      key: '/works',
-      icon: <Library size={16} />,
-      label: t('nav.repository'),
-    },
-    {
-      key: '/channels',
-      icon: <Rss size={16} />,
-      label: t('nav.channels'),
-    },
-    {
-      key: '/agents',
-      icon: <Bot size={16} />,
-      label: t('nav.agents'),
-    },
-    {
-      key: '/downloaders',
-      icon: <HardDrive size={16} />,
-      label: t('nav.downloaders'),
-    },
-    {
-      key: '/settings',
-      icon: <Settings size={16} />,
-      label: t('nav.settings'),
-    },
-  ];
-
-  const selectedKey = (menuItems as { key: string }[])?.find((item) => {
-    const key = item.key;
-    if (key === '/') return location.pathname === '/';
-    return location.pathname.startsWith(key as string);
-  });
-
-  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-    navigate(key);
-  };
-
-  const switchLanguage = (lang: string) => {
-    i18n.changeLanguage(lang);
-    localStorage.setItem('rssripple-lang', lang);
-  };
+  const menuItems = buildMenuItems(t);
+  const selectedKey = useSelectedKey(menuItems);
+  const { i18n, switchLanguage } = useLanguage();
 
   const langItems: MenuProps['items'] = [
     {
@@ -146,9 +209,9 @@ export default function Sidebar() {
       </div>
       <Menu
         mode="inline"
-        selectedKeys={[(selectedKey as { key: string })?.key || '/']}
+        selectedKeys={[selectedKey]}
         items={menuItems}
-        onClick={handleMenuClick}
+        onClick={({ key }) => navigate(key)}
         style={{
           borderRight: 'none',
           padding: '8px 0',

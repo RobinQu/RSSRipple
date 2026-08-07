@@ -47,7 +47,8 @@
     "channels": "频道",
     "agents": "下载代理",
     "downloaders": "下载器",
-    "settings": "系统设置"
+    "settings": "系统设置",
+    "menu": "菜单"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -641,6 +642,7 @@
     "customName": "自定义展示名",
     "customNameHint": "留空使用作品原名",
     "episodeDedup": "按集数去重",
+    "downloadedTo": "已下载至 {pos}",
     "workFilter": "作品级过滤条件（与全局过滤按 AND 合并）",
     "mergedWithGlobal": "与全局过滤合并后：",
     "addWorkModal": "添加订阅作品",

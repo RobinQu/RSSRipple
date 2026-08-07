@@ -47,7 +47,8 @@
     "channels": "Channels",
     "agents": "Download Agents",
     "downloaders": "Downloaders",
-    "settings": "Settings"
+    "settings": "Settings",
+    "menu": "Menu"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -641,6 +642,7 @@
     "customName": "Custom Display Name",
     "customNameHint": "Leave blank to use original title",
     "episodeDedup": "Deduplicate by Episode",
+    "downloadedTo": "Downloaded up to {pos}",
     "workFilter": "Work-level Filter Conditions (merged with global filter via AND)",
     "mergedWithGlobal": "Combined with global filter:",
     "addWorkModal": "Add Subscribed Work",

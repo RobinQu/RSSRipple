@@ -768,6 +768,7 @@ export default function AgentDetail() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
+                    flexWrap: 'wrap',
                     gap: 12,
                   }}
                 >
@@ -775,7 +776,7 @@ export default function AgentDetail() {
                     type="info"
                     showIcon
                     message={t('agents.worksEditNote')}
-                    style={{ flex: 1 }}
+                    style={{ flex: '1 1 260px' }}
                   />
                   <Button
                     type="primary"
@@ -1088,6 +1089,8 @@ export default function AgentDetail() {
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 8,
                       marginBottom: 12,
                     }}
                   >
@@ -1111,17 +1114,17 @@ export default function AgentDetail() {
                 {filterTest && (
                   <Card title={t('agents.testResults')} size="small">
                     <Row gutter={16} style={{ marginBottom: 16 }}>
-                      <Col span={8}>
+                      <Col xs={24} sm={8}>
                         <Statistic title={t('agents.totalResources')} value={filterTest.stats.total} />
                       </Col>
-                      <Col span={8}>
+                      <Col xs={24} sm={8}>
                         <Statistic
                           title={t('agents.passed')}
                           value={filterTest.stats.passed}
                           valueStyle={{ color: '#003c33' }}
                         />
                       </Col>
-                      <Col span={8}>
+                      <Col xs={24} sm={8}>
                         <Statistic
                           title={t('agents.failed')}
                           value={filterTest.stats.failed}
@@ -1290,7 +1293,7 @@ export default function AgentDetail() {
         open={!!runDrawerRun}
         onClose={() => setRunDrawerRun(null)}
         title={runDrawerRun ? `${t('agents.runMatchedResources')} · ${timeAgo(runDrawerRun.started_at)}` : ''}
-        width={680}
+        width={window.innerWidth < 768 ? '100%' : 680}
         destroyOnClose
       >
         {runDrawerRun && (

@@ -4,7 +4,7 @@ import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
 import {
-  Typography, Spin, Card, Button, Space, Tag, Descriptions,
+  Typography, Spin, Card, Button, Tag, Descriptions,
   Row, Col, Statistic, Table, Modal, App,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
@@ -148,11 +148,11 @@ export default function SeriesDetail() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         <Link to="/works">
           <Button type="text" icon={<ArrowLeft size={18} />} />
         </Link>
-        <Title level={3} style={{ margin: 0 }}>
+        <Title level={3} style={{ margin: 0, flex: '1 1 200px', minWidth: 0, wordBreak: 'break-word' }}>
           {series.title_cn || series.title_en || series.original_title}
         </Title>
         <Tag color="blue">{t('series.title')}</Tag>
@@ -160,7 +160,6 @@ export default function SeriesDetail() {
           icon={<RefreshCw size={14} />}
           loading={refreshing}
           onClick={handleRefreshMetadata}
-          style={{ marginLeft: 8 }}
         >
           {t('works.refreshMetadata')}
         </Button>
@@ -172,18 +171,18 @@ export default function SeriesDetail() {
         >
           {t('common.delete')}
         </Button>
-      </Space>
+      </div>
 
       {/* Metadata card */}
       <Card style={{ marginBottom: 16 }}>
-        <Space align="start" size={16}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <img
             src={posterUrl(series.poster_url)}
             alt=""
             style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
             onError={useDefaultPoster}
           />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label={t('series.cnTitle')}>{series.title_cn || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('series.enTitle')}>{series.title_en || '—'}</Descriptions.Item>
@@ -203,22 +202,22 @@ export default function SeriesDetail() {
               </Text>
             )}
           </div>
-        </Space>
+        </div>
       </Card>
 
       {/* Stats */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+        <Col xs={24} sm={8}>
           <Card size="small">
             <Statistic title={t('series.resourceCount')} value={series.resource_count ?? 0} />
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} sm={8}>
           <Card size="small">
             <Statistic title={t('series.downloadTasks')} value={series.task_count ?? 0} />
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} sm={8}>
           <Card size="small">
             <Statistic title={t('series.linkedAgents')} value={series.agent_work_count ?? 0} />
           </Card>

@@ -187,6 +187,8 @@ export default function Channels() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 8,
           marginBottom: 24,
         }}
       >

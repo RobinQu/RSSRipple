@@ -264,7 +264,7 @@ export default function DownloaderDetail() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>{dl.name}</Title>
           <Text type="secondary">{dl.type}</Text>

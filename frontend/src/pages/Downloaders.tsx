@@ -153,7 +153,7 @@ export default function Downloaders() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>{t('downloaders.title')}</Title>
         <Link to="/downloaders/new">
           <Button type="primary" icon={<Plus size={14} />}>{t('downloaders.addDownloader')}</Button>

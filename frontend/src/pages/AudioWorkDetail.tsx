@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Trash2 } from 'lucide-react';
-import { Typography, Spin, Card, Button, Space, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
+import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { audioWorksApi } from '../api/audioWorks';
 import type { AudioWork, FileResource } from '../types';
@@ -91,28 +91,28 @@ export default function AudioWorkDetail() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         <Link to="/works">
           <Button type="text" icon={<ArrowLeft size={18} />} />
         </Link>
-        <Title level={3} style={{ margin: 0 }}>
+        <Title level={3} style={{ margin: 0, flex: '1 1 200px', minWidth: 0, wordBreak: 'break-word' }}>
           {work.title_cn || work.title_en || work.original_title}
         </Title>
         <Tag color="purple">{typeLabel}</Tag>
         <Button danger type="primary" icon={<Trash2 size={16} />} onClick={handleDelete}>
           {t('common.delete')}
         </Button>
-      </Space>
+      </div>
 
       <Card>
-        <Space align="start" size={16}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <img
             src={posterUrl(work.poster_url)}
             alt=""
             style={{ width: 160, height: 240, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }}
             onError={useDefaultPoster}
           />
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
             <Descriptions column={1} size="small">
               <Descriptions.Item label={t('movies.cnTitle')}>{work.title_cn || '-'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.enTitle')}>{work.title_en || '-'}</Descriptions.Item>
@@ -134,11 +134,11 @@ export default function AudioWorkDetail() {
               </Text>
             )}
           </div>
-        </Space>
+        </div>
       </Card>
 
       <Card style={{ marginTop: 16 }}>
-        <Row gutter={48}>
+        <Row gutter={[24, 16]}>
           <Col>
             <Statistic
               title={t('movies.resourceCount')}

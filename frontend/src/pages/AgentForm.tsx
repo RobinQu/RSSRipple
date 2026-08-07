@@ -288,7 +288,7 @@ export default function AgentForm() {
           </Form.Item>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="channel_id"
                 label={t('agents.channel')}
@@ -301,7 +301,7 @@ export default function AgentForm() {
                 />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="downloader_id"
                 label={t('agents.downloader')}
@@ -329,12 +329,12 @@ export default function AgentForm() {
           </Form.Item>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="task_expire_days" label={t('agents.taskRetention')}>
                 <InputNumber min={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="conflict_resolution" label={t('agents.conflictResolution')}>
                 <Radio.Group>
                   <Radio value="ask">{t('agents.ask')}</Radio>
@@ -345,7 +345,7 @@ export default function AgentForm() {
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="llm_enabled"
                 label={t('agents.llmDecision')}
@@ -354,7 +354,7 @@ export default function AgentForm() {
                 <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item
                 name="scope_channel_wide"
                 label={t('agents.subscribeScope')}
