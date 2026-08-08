@@ -15,6 +15,7 @@ import { timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
+import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
 
 const { Title, Text } = Typography;
 
@@ -224,6 +225,14 @@ export default function SeriesDetail() {
           </Card>
         </Col>
       </Row>
+
+      {/* Collection siblings (franchise grouping) */}
+      {series.collection && (
+        <CollectionSiblingsCard
+          collection={series.collection}
+          siblings={series.collection_siblings ?? []}
+        />
+      )}
 
       {/* Episodes */}
       {series.episodes && series.episodes.length > 0 && (

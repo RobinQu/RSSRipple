@@ -398,7 +398,12 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
     linked = None
     if resource.series:
         from app.schemas.series import TVSeriesResponse
-        linked = {"type": "series", "entity": TVSeriesResponse.model_validate(resource.series).model_dump()}
+        entity = TVSeriesResponse.model_validate(resource.series).model_dump()
+        # Per-season episode counts so the episode-correction UI can prefill
+        # the season from an absolute episode number client-side (mirrors
+        # locate_absolute_episode on PATCH /resources/{id}/episode).
+        entity["seasons"] = resource.series.seasons
+        linked = {"type": "series", "entity": entity}
     elif resource.movie:
         from app.schemas.movie import MovieResponse
         linked = {"type": "movie", "entity": MovieResponse.model_validate(resource.movie).model_dump()}
@@ -500,6 +505,11 @@ async def correct_episode(
     and the Filter DSL can distinguish manual corrections via
     ``episode_confidence eq manual``.
 
+    When the caller omits ``season`` but an absolute episode number is known
+    and the linked series' per-season counts are available, the season (and
+    episode, if also omitted) is derived via ``locate_absolute_episode`` —
+    explicit values always win over the derivation.
+
     Re-runs the channel's active agents so a previously-ambiguous resource
     can be picked up immediately after correction.
     """
@@ -522,6 +532,34 @@ async def correct_episode(
     # absolute value we captured during reconciliation.
     if body.absolute_episode is not None:
         resource.absolute_episode = body.absolute_episode
+
+    # Derive the season from the absolute number when the caller did NOT
+    # explicitly send a season: an absolute-across-seasons number plus the
+    # linked series' known per-season counts pins down (season, episode)
+    # exactly. Explicit values in the request always win — the derivation
+    # only fills fields the caller left out.
+    if (
+        "season" not in body.model_fields_set
+        and resource.series_id
+        and resource.absolute_episode is not None
+    ):
+        from app.models.series import TVSeries
+        from app.services.metadata_episode_reconcile import (
+            locate_absolute_episode,
+            seasons_map_from_list,
+        )
+        series_row = await db.get(TVSeries, resource.series_id)
+        seasons_map = (
+            seasons_map_from_list(series_row.seasons)
+            if series_row is not None and series_row.seasons
+            else {}
+        )
+        located = locate_absolute_episode(resource.absolute_episode, seasons_map)
+        if located is not None:
+            resource.season = located[0]
+            if "episode" not in body.model_fields_set:
+                resource.episode = located[1]
+
     resource.episode_confidence = "manual"
 
     # Capture the channel id before commit (the ORM object may be expired

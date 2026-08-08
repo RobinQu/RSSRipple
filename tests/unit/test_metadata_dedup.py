@@ -19,6 +19,7 @@ from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 from app.services import metadata_dedup as dedup
 
 
@@ -328,3 +329,87 @@ async def test_cross_type_shared_title_without_external_id(db_session, channel):
     assert (await db_session.execute(select(Movie))).scalars().all() == []
     await db_session.refresh(r)
     assert r.series_id == series.id
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: collection_id preservation across merges
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_movies_inherits_collection_when_survivor_has_none(db_session):
+    """Survivor without a collection inherits the duplicate's membership."""
+    coll_id = _uuid()
+    db_session.add(WorkCollection(id=coll_id, title_cn="狮子王（系列）"))
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:a", external_source="exa",
+        content_type="movie", created_at=t0, updated_at=t0,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:b", external_source="exa",
+        content_type="movie", created_at=t0 + timedelta(minutes=1),
+        updated_at=t0, collection_id=coll_id,
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    from sqlalchemy import select
+    survivor = (await db_session.execute(select(Movie))).scalars().one()
+    assert survivor.id == m1.id  # oldest survives
+    assert survivor.collection_id == coll_id
+
+
+async def test_merge_movies_keeps_survivor_collection(db_session):
+    """A survivor with its own collection keeps it over the duplicate's."""
+    keep_id, dup_id = _uuid(), _uuid()
+    db_session.add_all([
+        WorkCollection(id=keep_id, title_cn="A"),
+        WorkCollection(id=dup_id, title_cn="B"),
+    ])
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    m1 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:a", external_source="exa",
+        content_type="movie", created_at=t0, updated_at=t0, collection_id=keep_id,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="狮子王", external_id="exa:b", external_source="exa",
+        content_type="movie", created_at=t0 + timedelta(minutes=1),
+        updated_at=t0, collection_id=dup_id,
+    )
+    db_session.add_all([m1, m2])
+    await db_session.flush()
+
+    await dedup.merge_duplicate_movies(db_session)
+    await db_session.flush()
+
+    from sqlalchemy import select
+    survivor = (await db_session.execute(select(Movie))).scalars().one()
+    assert survivor.collection_id == keep_id
+
+
+async def test_merge_series_inherits_collection_when_survivor_has_none(db_session):
+    coll_id = _uuid()
+    db_session.add(WorkCollection(id=coll_id, title_cn="攻壳机动队（系列）"))
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", external_id="exa:a", external_source="exa",
+        content_type="tv", created_at=t0, updated_at=t0,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", external_id="exa:b", external_source="exa",
+        content_type="tv", created_at=t0 + timedelta(minutes=1),
+        updated_at=t0, collection_id=coll_id,
+    )
+    db_session.add_all([s1, s2])
+    await db_session.flush()
+
+    await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    from sqlalchemy import select
+    survivor = (await db_session.execute(select(TVSeries))).scalars().one()
+    assert survivor.id == s1.id
+    assert survivor.collection_id == coll_id

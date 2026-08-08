@@ -357,6 +357,16 @@ async def _apply_light_migrations(conn) -> None:
         # episode_count}, ...]) so episode reconciliation works on the
         # agent-free link paths (known-work short-circuit, fuzzy auto-link).
         ("tv_series", "seasons", "TEXT" if is_turso else "JSONB"),
+        # Release year parsed from the raw title — drives the Layer-3
+        # local-match year guard (same-title remakes like 攻壳机动队 2026).
+        ("file_resources", "title_year", "INTEGER"),
+        # Season on PendingDecision — part of the idempotency key so S1E3
+        # and S4E3 of the same series no longer collide.
+        ("pending_decisions", "season", "INTEGER"),
+        # Franchise grouping (WorkCollection) — the work_collections table
+        # itself is created by create_all.
+        ("tv_series", "collection_id", "VARCHAR(36)"),
+        ("movies", "collection_id", "VARCHAR(36)"),
     ]
 
     for table, column, ddl in additions:

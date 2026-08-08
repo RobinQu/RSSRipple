@@ -12,6 +12,7 @@ import { timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
+import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
 
 const { Title, Text } = Typography;
 
@@ -208,6 +209,14 @@ export default function MovieDetail() {
           </Col>
         </Row>
       </Card>
+
+      {/* Collection siblings (franchise grouping) */}
+      {movie.collection && (
+        <CollectionSiblingsCard
+          collection={movie.collection}
+          siblings={movie.collection_siblings ?? []}
+        />
+      )}
 
       {/* Recent Resources */}
       {movie.resources && movie.resources.length > 0 && (

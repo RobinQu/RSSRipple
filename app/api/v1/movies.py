@@ -117,6 +117,22 @@ async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
     )
     data["agent_work_count"] = len(aw_q.scalars().all())
 
+    # Collection summary + siblings (franchise grouping)
+    data["collection"] = None
+    data["collection_siblings"] = []
+    if movie.collection_id:
+        from app.models.work_collection import WorkCollection
+        from app.services.collection_service import collection_work_summaries
+        collection = await db.get(WorkCollection, movie.collection_id)
+        if collection:
+            data["collection"] = {
+                "id": collection.id,
+                "name": collection.title_cn or collection.title_en,
+            }
+            data["collection_siblings"] = await collection_work_summaries(
+                db, collection.id, exclude=("movie", movie_id)
+            )
+
     return success_response(data)
 
 

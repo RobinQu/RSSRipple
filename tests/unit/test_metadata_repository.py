@@ -347,3 +347,112 @@ async def test_audio_verdict_links_audio_work(db_session):
     assert resource.audio_work_id == aw.id
     assert resource.series_id is None
     assert resource.movie_id is None
+
+
+# ---------------------------------------------------------------------------
+# Batch 2: season-uncertain marking (after reconciliation, never before)
+# ---------------------------------------------------------------------------
+
+
+def _season_uncertain_resource(**kw) -> SimpleNamespace:
+    base = dict(
+        search_title=None, episode=14, season=None, is_batch=False,
+        episode_start=None, episode_end=None, title_cn=None, title_en=None,
+        subtitle_langs=None, episode_confidence=None, absolute_episode=None,
+        series_id=None, movie_id=None, audio_work_id=None,
+        metadata_matched_at=None,
+    )
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+async def _apply_tv(meta: ResourceMetadata, resource, db_session) -> None:
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+
+
+async def test_season_ambiguous_marks_resource_ambiguous(db_session):
+    """Multi-season work + no season marker → season None + ambiguous."""
+    meta = _meta(
+        season_ambiguous=True,
+        matched_entity={
+            "external_id": "tmdb:501", "external_source": "tmdb",
+            "title_en": "Multi Season Show", "number_of_seasons": 3,
+            "seasons": [{"season_number": n, "episode_count": 24} for n in (1, 2, 3)],
+        },
+    )
+    resource = _season_uncertain_resource()
+    await _apply_tv(meta, resource, db_session)
+
+    assert resource.series_id is not None
+    assert resource.season is None
+    assert resource.episode_confidence == "ambiguous"
+
+
+async def test_season_ambiguous_skipped_when_reconcile_derives_season(db_session):
+    """Reconcile runs FIRST: an absolute number that pins down the season is a
+    legitimate derivation — the season-uncertain marking must not fire."""
+    meta = _meta(
+        season_ambiguous=True,
+        matched_entity={
+            "external_id": "tmdb:502", "external_source": "tmdb",
+            "title_en": "Multi Season Show 2", "number_of_seasons": 2,
+            "seasons": [{"season_number": n, "episode_count": 24} for n in (1, 2)],
+        },
+    )
+    # NN(MM) double-label: absolute 30 → S2E6.
+    resource = _season_uncertain_resource(episode=6, absolute_episode=30,
+                                          episode_confidence="reconciled")
+    await _apply_tv(meta, resource, db_session)
+
+    assert resource.season == 2
+    assert resource.episode_confidence == "reconciled"
+
+
+async def test_season_ambiguous_skipped_for_batch(db_session):
+    """A 合集 bypasses per-episode flow — no season-uncertain marking."""
+    meta = _meta(
+        season_ambiguous=True,
+        matched_entity={
+            "external_id": "tmdb:503", "external_source": "tmdb",
+            "title_en": "Multi Season Show 3", "number_of_seasons": 2,
+            "seasons": [{"season_number": n, "episode_count": 24} for n in (1, 2)],
+        },
+    )
+    resource = _season_uncertain_resource(episode=None, is_batch=True)
+    await _apply_tv(meta, resource, db_session)
+
+    assert resource.season is None
+    assert resource.episode_confidence is None
+
+
+async def test_single_season_entity_sets_season_1(db_session):
+    """Verified single-season work → meta.season=1 applied to the resource."""
+    meta = _meta(
+        season=1,
+        matched_entity={
+            "external_id": "tmdb:504", "external_source": "tmdb",
+            "title_en": "One Season Show", "number_of_seasons": 1,
+            "seasons": [{"season_number": 1, "episode_count": 12}],
+        },
+    )
+    resource = _season_uncertain_resource(episode=5)
+    await _apply_tv(meta, resource, db_session)
+
+    assert resource.season == 1
+    assert resource.episode_confidence == "raw"
+
+
+async def test_season_ambiguous_cache_roundtrip(db_session):
+    """season_ambiguous must survive the MetadataCache round-trip."""
+    meta = _meta(season_ambiguous=True, ambiguous=True,
+                 ambiguous_candidates=[{"season": 2}])
+    await _set_cache("Season Uncertain Title", "exa", meta, db_session)
+    cached = await _get_cache("Season Uncertain Title", "exa", db_session)
+    assert cached is not None
+    assert cached.season_ambiguous is True
+    assert cached.ambiguous is True
+    assert cached.ambiguous_candidates == [{"season": 2}]

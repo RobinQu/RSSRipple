@@ -212,6 +212,10 @@ async def _merge_series_group(
             survivor.number_of_episodes = d.number_of_episodes
         if survivor.number_of_seasons is None and d.number_of_seasons is not None:
             survivor.number_of_seasons = d.number_of_seasons
+        # Collection membership survives the merge: the survivor keeps its
+        # own; only inherit a duplicate's when the survivor has none.
+        if survivor.collection_id is None and d.collection_id is not None:
+            survivor.collection_id = d.collection_id
 
     # Delete duplicates
     for d in duplicates:
@@ -280,6 +284,10 @@ async def _merge_movie_group(
             survivor.genre = d.genre
         if survivor.runtime is None and d.runtime is not None:
             survivor.runtime = d.runtime
+        # Collection membership survives the merge: the survivor keeps its
+        # own; only inherit a duplicate's when the survivor has none.
+        if survivor.collection_id is None and d.collection_id is not None:
+            survivor.collection_id = d.collection_id
 
     for d in duplicates:
         await db.delete(d)

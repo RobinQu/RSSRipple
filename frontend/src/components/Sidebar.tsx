@@ -8,6 +8,7 @@ import {
   ExternalLink,
   HardDrive,
   Languages,
+  Layers,
   LayoutDashboard,
   Library,
   Menu as MenuIcon,
@@ -31,6 +32,7 @@ function buildMenuItems(t: (k: string) => string): MenuProps['items'] {
   return [
     { key: '/', icon: <LayoutDashboard size={16} />, label: t('nav.dashboard') },
     { key: '/works', icon: <Library size={16} />, label: t('nav.repository') },
+    { key: '/collections', icon: <Layers size={16} />, label: t('nav.collections') },
     { key: '/channels', icon: <Rss size={16} />, label: t('nav.channels') },
     { key: '/agents', icon: <Bot size={16} />, label: t('nav.agents') },
     { key: '/downloaders', icon: <HardDrive size={16} />, label: t('nav.downloaders') },

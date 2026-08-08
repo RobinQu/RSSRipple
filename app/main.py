@@ -51,6 +51,8 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from app.models.agent import Agent
     from app.models.agent_run import AgentRun
     from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
     from app.services.agent_service import process_resources
     from app.utils.time import utcnow
 
@@ -166,9 +168,11 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 .where(FileResource.id.in_(selected_ids))
                 # series/movie are read by the filter DSL (movie.rating …) and
                 # the LLM pick summary — eager-load to avoid async lazy loads.
+                # The work's collection feeds the series.collection /
+                # movie.collection DSL fields, so chain-load it too.
                 .options(
-                    selectinload(FileResource.series),
-                    selectinload(FileResource.movie),
+                    selectinload(FileResource.series).selectinload(TVSeries.collection),
+                    selectinload(FileResource.movie).selectinload(Movie.collection),
                 )
                 .order_by(FileResource.created_at.asc())
             )
@@ -467,6 +471,7 @@ from app.api.v1 import (  # noqa: E402
     agents,
     audio_works,
     channels,
+    collections,
     dashboard,
     decisions,
     downloaders,
@@ -489,6 +494,7 @@ app.include_router(series.router, prefix="/api/v1", tags=["series"])
 app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
 app.include_router(audio_works.router, prefix="/api/v1", tags=["audio-works"])
 app.include_router(works.router, prefix="/api/v1", tags=["works"])
+app.include_router(collections.router, prefix="/api/v1", tags=["collections"])
 app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])
 
 # Poster image cache - mount even if empty/default

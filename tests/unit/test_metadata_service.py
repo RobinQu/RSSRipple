@@ -793,3 +793,331 @@ async def test_create_or_update_movie_converges_on_alt_titles(db_session):
     assert m1.id == m2.id
     assert m2.title_en == "Movie A"
     assert "劇場版 甲" in (m2.aliases or [])
+
+
+# ---------------------------------------------------------------------------
+# Layer-3 auto-link guards (year mismatch + same-title collision)
+# ---------------------------------------------------------------------------
+
+
+class TestYearMismatch:
+    def test_no_title_year_never_mismatches(self):
+        from datetime import date
+        assert ms._year_mismatch(None, date(1995, 1, 1)) is False
+        assert ms._year_mismatch(None, None) is False
+
+    def test_no_work_date_never_mismatches(self):
+        assert ms._year_mismatch(2026, None) is False
+        assert ms._year_mismatch(2026, "") is False
+
+    def test_date_and_str_work_dates(self):
+        from datetime import date, datetime
+        assert ms._year_mismatch(2026, date(1995, 11, 18)) is True
+        assert ms._year_mismatch(2026, datetime(2026, 4, 1)) is False
+        assert ms._year_mismatch(2026, "1995-11-18") is True
+        assert ms._year_mismatch(2026, "2026-04-01") is False
+
+    def test_plus_minus_one_slack(self):
+        from datetime import date
+        assert ms._year_mismatch(2026, date(2025, 12, 1)) is False
+        assert ms._year_mismatch(2026, date(2027, 1, 1)) is False
+        assert ms._year_mismatch(2026, date(2024, 1, 1)) is True
+
+
+async def test_layer3_year_mismatch_blocks_autolink(db_session, channel):
+    """攻壳机动队 2026 must not auto-link to the 1995 攻壳机动队 series."""
+    from datetime import date
+    s = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", title_en="The Ghost in the Shell",
+        content_type="tv", start_date=date(1995, 11, 18),
+    )
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, search_title="攻壳机动队", title_year=2026)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.series_id is None  # blocked → falls through to (disabled) Layer 4
+
+
+async def test_layer3_year_match_still_autolinks(db_session, channel):
+    from datetime import date
+    s = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", content_type="tv",
+        start_date=date(2026, 4, 1),
+    )
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, search_title="攻壳机动队", title_year=2026)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.series_id == s.id
+
+
+async def test_layer3_same_title_collision_blocks_autolink(db_session, channel):
+    """Two works with the exact same normalized title → no top-1 auto-link."""
+    s1 = TVSeries(id=_uuid(), title_cn="攻壳机动队", content_type="tv")
+    s2 = TVSeries(id=_uuid(), title_cn="攻壳机动队", title_en="GitS 2026", content_type="tv")
+    db_session.add_all([s1, s2])
+    await db_session.flush()
+    res = _resource(channel.id, search_title="攻壳机动队")
+    db_session.add(res)
+    await db_session.flush()
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.series_id is None
+    assert res.movie_id is None
+
+
+async def test_has_same_title_collision(db_session):
+    s1 = TVSeries(id=_uuid(), title_cn="标题甲", content_type="tv")
+    db_session.add(s1)
+    await db_session.flush()
+    # A single matching work is not a collision — empty list (falsy).
+    assert await ms._find_same_title_works(db_session, "标题甲") == []
+    m1 = Movie(id=_uuid(), title_cn="标题甲", content_type="movie")
+    db_session.add(m1)
+    await db_session.flush()
+    # Same title across TVSeries + Movie counts as a collision; the returned
+    # list carries both works for the prompt injection.
+    works = await ms._find_same_title_works(db_session, "标题甲")
+    assert len(works) == 2
+    by_type = {w["content_type"]: w for w in works}
+    assert by_type["tv"]["id"] == s1.id
+    assert by_type["movie"]["id"] == m1.id
+    assert await ms._find_same_title_works(db_session, "不存在的标题") == []
+
+
+async def test_find_same_title_works_fields(db_session):
+    """Collision list carries year/seasons for the prompt injection."""
+    from datetime import date
+    s1 = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", content_type="tv",
+        start_date=date(2002, 10, 1), number_of_seasons=2,
+    )
+    m1 = Movie(
+        id=_uuid(), title_cn="攻壳机动队", content_type="movie",
+        release_date=date(1995, 11, 18),
+    )
+    db_session.add_all([s1, m1])
+    await db_session.flush()
+    works = await ms._find_same_title_works(db_session, "攻壳机动队")
+    assert len(works) == 2
+    by_type = {w["content_type"]: w for w in works}
+    assert by_type["tv"]["year"] == 2002
+    assert by_type["tv"]["number_of_seasons"] == 2
+    assert by_type["movie"]["year"] == 1995
+
+    text = ms.format_same_title_works_context(works)
+    assert "本地库存在同名作品" in text
+    assert "攻壳机动队 (2002, tv, 2 seasons)" in text
+    assert "攻壳机动队 (1995, movie)" in text
+    assert "结合标题年份选择正确作品" in text
+
+
+# ---------------------------------------------------------------------------
+# Batch 2: agent-free verified season rule (_reconcile_with_series)
+# ---------------------------------------------------------------------------
+
+
+def _mapping(channel_id, series_id=None, movie_id=None, raw="[G] Title - 01 [1080p]"):
+    return ChannelRawTitleMapping(
+        id=_uuid(), channel_id=channel_id, raw_title=raw,
+        search_title_key="title", content_type="tv",
+        series_id=series_id, movie_id=movie_id,
+    )
+
+
+async def test_single_season_series_defaults_season_1(db_session, channel):
+    """Linked to a provably single-season series → season=1 (verified)."""
+    s = TVSeries(id=_uuid(), title_cn="单季剧", content_type="tv", number_of_seasons=1,
+                 seasons=[{"season_number": 1, "episode_count": 12}])
+    db_session.add(s)
+    db_session.add(_mapping(channel.id, series_id=s.id))
+    res = _resource(channel.id, season=None, episode=3)
+    db_session.add(res)
+    await db_session.flush()
+
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+
+    assert res.series_id == s.id
+    assert res.season == 1
+    assert res.episode_confidence == "raw"  # in-range per-season number
+
+
+async def test_multi_season_series_marks_season_uncertain(db_session, channel):
+    """Multi-season series + no season marker → ambiguous, never a guess."""
+    s = TVSeries(id=_uuid(), title_cn="多季剧", content_type="tv", number_of_seasons=3,
+                 seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3)])
+    db_session.add(s)
+    db_session.add(_mapping(channel.id, series_id=s.id))
+    res = _resource(channel.id, season=None, episode=3)
+    db_session.add(res)
+    await db_session.flush()
+
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+
+    assert res.series_id == s.id
+    assert res.season is None
+    assert res.episode_confidence == "ambiguous"
+
+
+async def test_unknown_season_count_marks_season_uncertain(db_session, channel):
+    """Series without any seasons evidence → season can't be verified."""
+    s = TVSeries(id=_uuid(), title_cn="无季数据剧", content_type="tv")
+    db_session.add(s)
+    db_session.add(_mapping(channel.id, series_id=s.id))
+    res = _resource(channel.id, season=None, episode=3)
+    db_session.add(res)
+    await db_session.flush()
+
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+
+    assert res.series_id == s.id
+    assert res.season is None
+    assert res.episode_confidence == "ambiguous"
+
+
+async def test_batch_resource_not_marked_season_uncertain(db_session, channel):
+    """A 合集 bypasses per-episode flow — no season-uncertain marking even
+    for a multi-season series."""
+    s = TVSeries(id=_uuid(), title_cn="多季剧B", content_type="tv", number_of_seasons=2,
+                 seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2)])
+    db_session.add(s)
+    db_session.add(_mapping(channel.id, series_id=s.id))
+    res = _resource(channel.id, season=None, episode=None, is_batch=True)
+    db_session.add(res)
+    await db_session.flush()
+
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+
+    assert res.series_id == s.id
+    assert res.season is None
+    assert res.episode_confidence is None
+
+
+async def test_movie_link_untouched_by_season_rule(db_session, channel):
+    m = Movie(id=_uuid(), title_en="Film", content_type="movie")
+    db_session.add(m)
+    db_session.add(_mapping(channel.id, movie_id=m.id))
+    res = _resource(channel.id, season=None, episode=None)
+    db_session.add(res)
+    await db_session.flush()
+
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+
+    assert res.movie_id == m.id
+    assert res.season is None
+    assert res.episode_confidence is None
+
+
+async def test_layer4_work_level_ambiguous_not_linked(db_session):
+    """Layer 4: an agent verdict flagged work-level ambiguous is never
+    auto-linked — the resource stays manually linkable (not_found)."""
+    ch = Channel(
+        id=_uuid(), name="ch-llm", type="rss_feed", url="https://example.com/rss2",
+        field_mapping=TEST_FIELD_MAPPING, metadata_agent_enabled=True,
+    )
+    db_session.add(ch)
+    res = _resource(ch.id, title_raw="[G] NoLocalMatch - 01 [1080p]",
+                    search_title="NoLocalMatch", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+
+    with patch.object(
+        ms, "search_metadata_via_llm",
+        AsyncMock(return_value=[{
+            "ambiguous": True, "content_type": "tv",
+            "external_id": "tmdb:777", "external_source": "tmdb",
+            "title_en": "Maybe This Show",
+        }]),
+    ):
+        await ms.fetch_and_link_metadata(db_session, res, ch)
+
+    assert res.series_id is None
+    assert res.movie_id is None
+    assert res.metadata_failure_type == "not_found"
+    from sqlalchemy import select
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: manual_link_metadata season rule (resolve_missing_season)
+# ---------------------------------------------------------------------------
+
+
+async def test_manual_link_applies_verified_season_default(db_session, channel):
+    """Manual link to a provably single-season series defaults a season-less
+    resource to season=1 (the manual-link path bypasses _apply_to_resource)."""
+    res = _resource(channel.id, title_raw="[G] Solo Show - 03 [1080p]",
+                    season=None, episode=3)
+    db_session.add(res)
+    await db_session.flush()
+    selected = {
+        "content_type": "tv",
+        "title_en": "Solo Show",
+        "external_id": "ext-solo",
+        "external_source": "llm_search",
+        "number_of_seasons": 1,
+        "seasons": [{"season_number": 1, "episode_count": 12}],
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        entity = await ms.manual_link_metadata(db_session, res, channel, selected)
+    assert res.series_id == entity.id
+    assert res.season == 1
+    assert res.episode_confidence == "raw"
+
+
+async def test_manual_link_marks_season_uncertain(db_session, channel):
+    """Manual link to a multi-season series marks a season-less resource
+    季号不确定 instead of guessing a season."""
+    res = _resource(channel.id, title_raw="[G] Multi Show - 03 [1080p]",
+                    season=None, episode=3)
+    db_session.add(res)
+    await db_session.flush()
+    selected = {
+        "content_type": "tv",
+        "title_en": "Multi Show",
+        "external_id": "ext-multi",
+        "external_source": "llm_search",
+        "number_of_seasons": 3,
+        "seasons": [{"season_number": n, "episode_count": 24} for n in (1, 2, 3)],
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        entity = await ms.manual_link_metadata(db_session, res, channel, selected)
+    assert res.series_id == entity.id
+    assert res.season is None
+    assert res.episode_confidence == "ambiguous"
+
+
+async def test_manual_link_reconciles_absolute_episode(db_session, channel):
+    """Manual link also runs episode reconciliation against the freshly
+    upserted series' seasons (absolute number -> per-season)."""
+    res = _resource(channel.id, title_raw="[G] Abs Show - 30 [1080p]",
+                    season=None, episode=30, absolute_episode=30,
+                    episode_confidence="reconciled")
+    db_session.add(res)
+    await db_session.flush()
+    selected = {
+        "content_type": "tv",
+        "title_en": "Abs Show",
+        "external_id": "ext-abs",
+        "external_source": "llm_search",
+        "number_of_seasons": 2,
+        "seasons": [{"season_number": 1, "episode_count": 24},
+                    {"season_number": 2, "episode_count": 24}],
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms.manual_link_metadata(db_session, res, channel, selected)
+    # absolute 30 across two 24-episode seasons -> S2E6, no season-uncertain.
+    assert (res.season, res.episode) == (2, 6)
+    assert res.episode_confidence == "reconciled"

@@ -64,6 +64,13 @@ class ResourceMetadata:
     # ── Ambiguity (for manual resolution) ──
     ambiguous: bool = False
     ambiguous_candidates: list[dict] = field(default_factory=list)
+    # Season-uncertain marker: the work was found but the title carries no
+    # season marker AND the matched entity's seasons evidence can't pin the
+    # season down (multi-season work or no usable seasons data). Distinct
+    # from work-level ``ambiguous`` — ``_apply_to_resource`` turns this into
+    # ``episode_confidence="ambiguous"`` so the resource is routed to a
+    # "季号不确定" PendingDecision instead of guessing a season.
+    season_ambiguous: bool = False
 
     # ── Search tracking (for eval) ──
     search_method: str | None = None
@@ -99,6 +106,7 @@ class ResourceMetadata:
             reason=data.get("reason"),
             ambiguous=data.get("ambiguous", False),
             ambiguous_candidates=data.get("ambiguous_candidates", []),
+            season_ambiguous=bool(data.get("season_ambiguous", False)),
             search_method=data.get("search_method"),
             data_sources_used=data.get("data_sources_used") or [],
             source_errors=data.get("source_errors") or {},

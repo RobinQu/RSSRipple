@@ -28,6 +28,7 @@ class FileResourceResponse(BaseModel):
     subtitle_group: str | None = None
     episode: int | None = None
     season: int | None = None
+    title_year: int | None = None
     is_batch: bool = False
     episode_start: int | None = None
     episode_end: int | None = None

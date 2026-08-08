@@ -248,10 +248,10 @@
 | GET | `/channels/{channel_id}/resources` | 频道资源列表。默认（`grouped=false`）按 `published_at` 倒序、按行分页返回。`grouped=true` 时按 **作品分组**分页——每一页返回若干个 group（TVSeries / Movie / 未识别），每个 group 内包含该作品全部资源（不跨页拆分），group 顺序按各自最新资源的 `published_at` 倒序；`meta.total` 表示 group 总数。 |
 | GET | `/channels/{channel_id}/field-values` | Filter DSL 编辑器的自动补全数据源。Query 参数 `field`（必填，仅支持字符串字段与 `subtitle_langs`）、`q`（可选，忽略大小写的前缀匹配）、`limit`（默认 10，最大 50）。返回该频道下 top-N 出现频率最高的候选值数组。数值型字段被拒绝（422）。|
 | GET | `/resources/{id}` | 资源详情 |
-| GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询） |
+| GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询）；链接为剧集时 `linked.entity` 额外携带 `seasons`（每季 `season_number`/`episode_count`），供集号修正 UI 从绝对集号前端预填季号 |
 | POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"? }` → 返回候选列表 |
 | PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤 |
-| PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
+| PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "season": int?, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。未显式发送 `season` 且已知 absolute 集号、资源已链接剧集且该剧集有逐季集数数据时，服务端用 `locate_absolute_episode` 推导 season（episode 也未显式发送时一并推导）——显式值永远优先。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
 
 `POST /resources/{id}/metadata/search` 请求体示例：
 ```json
@@ -302,6 +302,22 @@
 | GET | `/movies/{id}` | 电影详情 |
 | PUT | `/movies/{id}` | 更新电影元数据 |
 | DELETE | `/movies/{id}` | 删除电影 |
+
+系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，来自本地库共享 collection_id 查询）。
+
+### WorkCollections（作品合集）
+
+大 IP 系列分组（CRUD-lite）。一个作品至多属于一个合集；挂载已属其他合集的作品返回 409 DUPLICATE_SUBMISSION。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/collections` | 合集列表（分页，支持 search 名称模糊搜索；每项额外带 `work_count` 成员作品数） |
+| POST | `/collections` | 创建合集（body: title_cn 必填，title_en/description/poster_url 可选） |
+| GET | `/collections/{id}` | 合集详情（含 `works`: `[{id, title, year, type}]`；`?include_parts=true` 且合集为 `tmdb_collection` 源时额外返回 `untracked_parts`: `[{tmdb_id, title, year, poster_url}]` —— TMDB collection parts 中本地库未收录的作品，按需拉取、进程内 10 分钟缓存、不落库；拉取失败返回空数组） |
+| PATCH | `/collections/{id}` | 更新合集（title_cn/title_en/description/poster_url） |
+| DELETE | `/collections/{id}` | 删除合集（成员作品的 collection_id 置空，不删作品） |
+| POST | `/collections/{id}/works` | 挂载作品（body: `{work_type: "series"\|"movie", work_id}`；重复挂载同合集幂等） |
+| DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（collection_id 置空） |
 
 ---
 

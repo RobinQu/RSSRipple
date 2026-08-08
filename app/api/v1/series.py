@@ -127,6 +127,22 @@ async def get_series(series_id: str, db: AsyncSession = Depends(get_db)):
     )
     data["agent_work_count"] = len(aw_q.scalars().all())
 
+    # Collection summary + siblings (franchise grouping)
+    data["collection"] = None
+    data["collection_siblings"] = []
+    if series.collection_id:
+        from app.models.work_collection import WorkCollection
+        from app.services.collection_service import collection_work_summaries
+        collection = await db.get(WorkCollection, series.collection_id)
+        if collection:
+            data["collection"] = {
+                "id": collection.id,
+                "name": collection.title_cn or collection.title_en,
+            }
+            data["collection_siblings"] = await collection_work_summaries(
+                db, collection.id, exclude=("series", series_id)
+            )
+
     return success_response(data)
 
 

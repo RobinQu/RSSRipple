@@ -18,6 +18,7 @@ from app.models.metadata_cache import MetadataCache
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 
 __all__ = [
     "Channel",
@@ -38,4 +39,5 @@ __all__ = [
     "GroundTruthEntry",
     "EvalJob",
     "AppSetting",
+    "WorkCollection",
 ]

@@ -440,7 +440,13 @@ async def search_metadata_via_llm(
 
     candidates: list[dict] = []
     if result.matched_entity:
-        candidates.append(result.matched_entity)
+        # Propagate a work-level ambiguity flag onto the lead candidate so
+        # callers (Layer-4 auto-link) can refuse to link a match the agent
+        # itself was unsure about.
+        lead = dict(result.matched_entity)
+        if result.ambiguous:
+            lead["ambiguous"] = True
+        candidates.append(lead)
     if result.ambiguous and result.ambiguous_candidates:
         candidates.extend(result.ambiguous_candidates)
 
@@ -1057,6 +1063,98 @@ async def refresh_work_metadata(
 
 
 # ---------------------------------------------------------------------------
+# Layer-3 auto-link guards
+# ---------------------------------------------------------------------------
+
+
+def _year_mismatch(title_year: int | None, work_date: Any) -> bool:
+    """True when the title-parsed year conflicts with the work's year.
+
+    ``work_date`` may be a ``date``/``datetime`` or an ISO string (or None —
+    no evidence either way → not a mismatch). A ±1 year slack absorbs
+    broadcast-year vs production-year differences.
+    """
+    if not title_year or not work_date:
+        return False
+    if isinstance(work_date, (date, datetime)):
+        work_year = work_date.year
+    else:
+        m = re.match(r"\s*(\d{4})", str(work_date))
+        work_year = int(m.group(1)) if m else None
+    if work_year is None:
+        return False
+    return abs(title_year - work_year) > 1
+
+
+async def _find_same_title_works(db: AsyncSession, search_title: str) -> list[dict]:
+    """Local works sharing the normalized search title exactly (>1 = collision).
+
+    Same-title works (remakes, reboots like 攻壳机动队 vs 攻壳机动队 2026) must
+    not be top-1 auto-linked on similarity alone, and the metadata agent needs
+    the list injected into its prompt to pick the right one. Cheap exact-match
+    query (no fuzzy scan): fetch rows whose title_cn/title_en equals the raw
+    search title or its normalized form, then compare normalized titles in
+    Python.
+
+    Returns a list of ``{id, title_cn, title_en, year, content_type,
+    number_of_seasons}`` dicts — empty unless MORE THAN ONE work collides, so
+    truthiness matches the old bool semantics for the Layer-3 caller.
+    """
+    norm = normalize_title(search_title)
+    if not norm:
+        return []
+    candidates = {search_title, norm}
+    works: list[dict] = []
+    seen: set[str] = set()
+    for model, date_attr, ctype in (
+        (TVSeries, "start_date", "tv"),
+        (Movie, "release_date", "movie"),
+    ):
+        result = await db.execute(
+            select(model).where(
+                or_(
+                    model.title_cn.in_(candidates),
+                    model.title_en.in_(candidates),
+                )
+            )
+        )
+        for row in result.scalars().all():
+            if row.id in seen:
+                continue
+            if normalize_title(row.title_cn) == norm or normalize_title(row.title_en) == norm:
+                seen.add(row.id)
+                d = getattr(row, date_attr, None)
+                works.append({
+                    "id": row.id,
+                    "title_cn": row.title_cn,
+                    "title_en": row.title_en,
+                    "year": d.year if d else None,
+                    "content_type": ctype,
+                    "number_of_seasons": getattr(row, "number_of_seasons", None),
+                })
+    return works if len(works) > 1 else []
+
+
+def format_same_title_works_context(works: list[dict]) -> str:
+    """Prompt fragment listing local same-title works for the metadata agent.
+
+    Injected when ≥2 local works collide on the search title — the actual
+    error mode is linking to the wrong EXISTING local work, so the agent is
+    told the candidates and asked to use the title's year to pick correctly.
+    """
+    items = []
+    for w in works:
+        title = w.get("title_cn") or w.get("title_en") or "?"
+        bits = [str(w["year"]) if w.get("year") else "年份未知", w["content_type"]]
+        if w["content_type"] == "tv" and w.get("number_of_seasons"):
+            bits.append(f"{w['number_of_seasons']} seasons")
+        items.append(f"{title} ({', '.join(bits)})")
+    return (
+        f"本地库存在同名作品: [{'; '.join(items)}]; 结合标题年份选择正确作品"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main entry points
 # ---------------------------------------------------------------------------
 
@@ -1072,17 +1170,34 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     async def _reconcile_with_series() -> None:
         """Episode reconciliation for agent-free link paths: uses the linked
         series' persisted per-season counts (absolute-numbered releases like
-        "第四季 - 89" would otherwise never be converted)."""
+        "第四季 - 89" would otherwise never be converted).
+
+        Verified season default (never guess): after reconciliation, a linked
+        resource whose season is still unknown is handled by the shared
+        ``resolve_missing_season`` helper — set to 1 ONLY when the series
+        provably has a single season; a multi-season (or unknown) series means
+        the season can't be verified — the resource is marked season-uncertain
+        (``episode_confidence="ambiguous"``) and routed to a "季号不确定"
+        PendingDecision downstream. Batch resources are excluded (a 合集
+        doesn't need a verified single season number to dispatch), and
+        movie-linked resources are untouched."""
         if not resource.series_id:
             return
         from app.models.series import TVSeries
         from app.services.metadata_episode_reconcile import (
             apply_episode_reconcile,
+            resolve_missing_season,
             seasons_map_from_list,
         )
         series_row = await db.get(TVSeries, resource.series_id)
-        if series_row is not None and series_row.seasons:
+        if series_row is None:
+            return
+        if series_row.seasons:
             apply_episode_reconcile(resource, seasons_map_from_list(series_row.seasons))
+        resolve_missing_season(resource, {
+            "number_of_seasons": series_row.number_of_seasons,
+            "seasons": series_row.seasons,
+        })
 
     # Layer 2: ChannelRawTitleMapping
     # Primary lookup: by normalized search_title_key (handles episode/resolution variations)
@@ -1127,20 +1242,40 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     series, s_ratio = await match_series_by_title(db, search_title)
     movie, m_ratio = await match_movie_by_title(db, search_title)
 
-    # Auto-link only at >=85 ratio
-    if series and s_ratio >= AUTO_LINK_THRESHOLD and (movie is None or s_ratio >= m_ratio):
-        resource.series_id = series.id
-        resource.metadata_matched_at = utcnow()
-        if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
-            pass  # poster already handled if set
-        await _reconcile_with_series()
-        return
-    if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
-        resource.movie_id = movie.id
-        resource.metadata_matched_at = utcnow()
-        return
+    # Auto-link only at >=85 ratio — guarded:
+    #  * resource.title_year conflicts with the work's start/release year
+    #    (beyond ±1) → likely a same-title remake (攻壳机动队 2026), don't
+    #    auto-link;
+    #  * the normalized search title exactly matches MORE THAN ONE local work
+    #    → ambiguous top-1, don't auto-link.
+    # Blocked matches fall through to Layer 4 (metadata-source search).
+    title_year = getattr(resource, "title_year", None)
+    collision: list | None = None  # lazy — only queried when a candidate qualifies
 
-    # NOTE: 70-84 matches are skipped (too ambiguous) and fall through to LLM layer.
+    async def _auto_link_blocked(work_date: Any) -> bool:
+        nonlocal collision
+        if _year_mismatch(title_year, work_date):
+            return True
+        if collision is None:
+            collision = await _find_same_title_works(db, search_title)
+        return bool(collision)
+
+    if series and s_ratio >= AUTO_LINK_THRESHOLD and (movie is None or s_ratio >= m_ratio):
+        if not await _auto_link_blocked(getattr(series, "start_date", None)):
+            resource.series_id = series.id
+            resource.metadata_matched_at = utcnow()
+            if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
+                pass  # poster already handled if set
+            await _reconcile_with_series()
+            return
+    if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
+        if not await _auto_link_blocked(getattr(movie, "release_date", None)):
+            resource.movie_id = movie.id
+            resource.metadata_matched_at = utcnow()
+            return
+
+    # NOTE: 70-84 matches (and ≥85 matches blocked by the guards above) are
+    # skipped and fall through to the LLM layer.
 
     # Layer 4: selected-source metadata search
     if not channel.metadata_agent_enabled:
@@ -1164,11 +1299,19 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         _record_unmatched_attempt(resource, "not_found")
         return
     best = results[0]
+    # Work-level ambiguous verdict (the agent itself flagged the match as
+    # uncertain): never auto-link — record not_found so the resource stays
+    # manually linkable instead of binding to a guessed work.
+    if best.get("ambiguous"):
+        _record_unmatched_attempt(resource, "not_found")
+        return
     try:
         if best.get("content_type") == "movie":
             movie_entity = await create_or_update_movie_from_external(db, best)
             resource.movie_id = movie_entity.id
             resource.series_id = None
+            from app.services.collection_service import link_movie_collection
+            await link_movie_collection(db, movie_entity)
         else:
             series_entity = await create_or_update_series_from_external(db, best)
             resource.series_id = series_entity.id
@@ -1352,6 +1495,8 @@ async def manual_link_metadata(
         series_id = None
         movie_id = entity.id
         content_type = "movie"
+        from app.services.collection_service import link_movie_collection
+        await link_movie_collection(db, entity)
     else:
         entity = await create_or_update_series_from_external(db, selected_result)
         resource.series_id = entity.id
@@ -1359,6 +1504,21 @@ async def manual_link_metadata(
         series_id = entity.id
         movie_id = None
         content_type = "tv"
+        # Manual relink bypasses _apply_to_resource: run the same episode
+        # reconciliation + verified season rule (resolve_missing_season)
+        # against the freshly-upserted series' seasons evidence, so a
+        # season-less resource doesn't keep a guessed/empty season.
+        from app.services.metadata_episode_reconcile import (
+            apply_episode_reconcile,
+            resolve_missing_season,
+            seasons_map_from_list,
+        )
+        if entity.seasons:
+            apply_episode_reconcile(resource, seasons_map_from_list(entity.seasons))
+        resolve_missing_season(resource, {
+            "number_of_seasons": entity.number_of_seasons,
+            "seasons": entity.seasons,
+        })
 
     resource.metadata_matched_at = utcnow()
 

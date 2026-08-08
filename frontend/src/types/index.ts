@@ -104,6 +104,50 @@ export interface GroupedResource {
 }
 
 // TV Series
+export interface CollectionSummary {
+  id: string;
+  name: string | null;
+}
+
+export interface CollectionSibling {
+  id: string;
+  title: string | null;
+  year: number | null;
+  type: 'series' | 'movie';
+}
+
+// WorkCollection — franchise grouping (management page at /collections)
+export interface WorkCollection {
+  id: string;
+  title_cn: string;
+  title_en: string | null;
+  external_id: string | null;
+  external_source: string | null;
+  poster_url: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  // List-only field
+  work_count?: number;
+  // Detail-only fields
+  works?: CollectionWork[];
+  untracked_parts?: CollectionPart[];
+}
+
+export interface CollectionWork {
+  id: string;
+  title: string | null;
+  year: number | null;
+  type: 'series' | 'movie';
+}
+
+export interface CollectionPart {
+  tmdb_id: string;
+  title: string | null;
+  year: number | null;
+  poster_url: string | null;
+}
+
 export interface TVSeries {
   id: string;
   title_cn: string | null;
@@ -119,9 +163,14 @@ export interface TVSeries {
   status: string | null;
   number_of_episodes: number | null;
   number_of_seasons: number | null;
+  // Per-season episode counts — only present where the backend injects them
+  // (resource metadata endpoint), used to prefill season from an absolute
+  // episode number in the correction popover.
+  seasons?: { season_number: number; episode_count: number }[] | null;
   start_date: string | null;
   end_date: string | null;
   content_type: string | null;
+  collection_id?: string | null;
   created_at: string;
   updated_at: string;
   // Detail-only fields
@@ -130,6 +179,8 @@ export interface TVSeries {
   resource_count?: number;
   task_count?: number;
   agent_work_count?: number;
+  collection?: CollectionSummary | null;
+  collection_siblings?: CollectionSibling[];
 }
 
 // Movie
@@ -149,6 +200,7 @@ export interface Movie {
   release_date: string | null;
   runtime: number | null;
   content_type: string | null;
+  collection_id?: string | null;
   created_at: string;
   updated_at: string;
   // Detail-only fields
@@ -156,6 +208,8 @@ export interface Movie {
   resource_count?: number;
   task_count?: number;
   agent_work_count?: number;
+  collection?: CollectionSummary | null;
+  collection_siblings?: CollectionSibling[];
 }
 
 // Unified Work (TVSeries | Movie | AudioWork) for repository view

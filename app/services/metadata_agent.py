@@ -29,7 +29,11 @@ from app.services import metadata_audio_resolver as _resolver
 from app.services import metadata_repository as _repo
 from app.services import metadata_wiki_judge as _wiki_judge
 from app.services.metadata_audio import _detect_audio_work_type, _is_non_media
-from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile_episode
+from app.services.metadata_episode_reconcile import (
+    _seasons_map_from,
+    reconcile_episode,
+    verified_season_count,
+)
 from app.services.metadata_failure import _classify_failure, _record_metadata_attempt
 from app.services.metadata_prompts import _SYSTEM_PROMPT
 from app.services.metadata_repository import _cache_source_key
@@ -63,6 +67,7 @@ from app.services.metadata_wikipedia_client import (
     _is_disambiguation_category,
     _wikipedia_client,
 )
+from app.services.resource_parser import extract_title_year
 from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
 
@@ -247,11 +252,47 @@ def finalize(result_json: str) -> str:
           When found=false: reason(str)
           Optional: inferred_episode(int), inferred_season(int), inferred_fields,
             ambiguous(bool), ambiguous_candidates(list), confidence(float)
+          Season rule: when the title carries NO season marker, never guess —
+            verify against the tool results' number_of_seasons/seasons: a
+            single-season work → inferred_season=1; a multi-season work (or
+            missing seasons data) → leave inferred_season null and return
+            ambiguous=true with the plausible seasons in ambiguous_candidates.
+          Year rule: when the input includes a title_year hint, prefer
+            candidates whose year matches; a conflicting year (beyond ±1) is
+            strong evidence AGAINST a candidate.
 
     Returns:
         "FINALIZED"
     """
     return "FINALIZED"
+
+
+def _title_year_hint(year: int) -> str:
+    """Explicit title-year hint line for the agent's user message."""
+    return (
+        f"\nRelease year parsed from the title: {year}. Prefer candidates "
+        "whose year matches; a conflicting year (beyond ±1) is strong evidence "
+        "AGAINST a candidate (likely a same-title remake or a different "
+        "franchise entry)."
+    )
+
+
+def _apply_verified_season_default(meta: ResourceMetadata) -> None:
+    """Verified season default: the season number is never guessed.
+
+    A TV result whose title carries no season marker (``meta.season is None``)
+    is defaulted to season 1 ONLY when the matched entity's seasons evidence
+    (``number_of_seasons`` / ``seasons``) proves the work has exactly one
+    season. Multi-season works — or works with no usable seasons data — stay
+    season-less and are marked ``season_ambiguous`` so the apply layer routes
+    the resource to a "季号不确定" human decision instead.
+    """
+    if meta.content_type != "tv" or meta.season is not None or not meta.found:
+        return
+    if verified_season_count(meta.matched_entity) == 1:
+        meta.season = 1
+    else:
+        meta.season_ambiguous = True
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +458,33 @@ class UnifiedMetadataAgent:
         )
         return "\n".join(parts)
 
+    async def _build_same_title_context(
+        self, resource: Any, db: AsyncSession
+    ) -> str | None:
+        """Local same-title works list for the production prompt.
+
+        Only local-DB info exists when the message is built (before the ReAct
+        loop), so instead of collection-based injection we list the local
+        works that collide on the search title — the actual error mode is
+        linking to the wrong EXISTING local work (攻壳机动队 1995 movie vs
+        攻壳机动队 2026 series). Injected only when ≥2 works collide.
+        """
+        from app.services.metadata_service import (  # lazy: import cycle
+            _find_same_title_works,
+            extract_search_title,
+            format_same_title_works_context,
+        )
+
+        search_title = getattr(resource, "search_title", None)
+        if not search_title and hasattr(resource, "title_cn"):
+            search_title = extract_search_title(resource)
+        if not search_title:
+            return None
+        works = await _find_same_title_works(db, search_title)
+        if len(works) < 2:
+            return None
+        return format_same_title_works_context(works)
+
     # ── Production entry ──
 
     async def process(
@@ -489,11 +557,12 @@ class UnifiedMetadataAgent:
                 from app.models.series import TVSeries
                 from app.services.metadata_episode_reconcile import (
                     apply_episode_reconcile,
+                    resolve_missing_season,
                     seasons_map_from_list,
                 )
                 series_row = await db.get(TVSeries, work_id)
-                if series_row is not None and series_row.seasons:
-                    if apply_episode_reconcile(
+                if series_row is not None:
+                    if series_row.seasons and apply_episode_reconcile(
                         resource, seasons_map_from_list(series_row.seasons)
                     ):
                         logger.info(
@@ -501,6 +570,13 @@ class UnifiedMetadataAgent:
                             raw_title[:60], resource.season, resource.episode,
                             resource.absolute_episode,
                         )
+                    # Same verified season rule as _apply_to_resource: after
+                    # reconciliation, a season-less resource gets season=1 only
+                    # for a provably single-season work, else 季号不确定.
+                    resolve_missing_season(resource, {
+                        "number_of_seasons": series_row.number_of_seasons,
+                        "seasons": series_row.seasons,
+                    })
             resource.metadata_matched_at = utcnow()
             resource.metadata_attempts = int(
                 getattr(resource, "metadata_attempts", 0) or 0
@@ -565,6 +641,7 @@ class UnifiedMetadataAgent:
         message = self._build_production_message(
             resource, channel, data_source_type,
             series_context=await self._build_series_history_context(resource, db),
+            same_title_context=await self._build_same_title_context(resource, db),
         )
 
         # 2. Run metadata: search-first + single-LLM-judge for wikipedia (S3,
@@ -594,9 +671,8 @@ class UnifiedMetadataAgent:
         if meta.matched_entity:
             meta.matched_entity.pop("categories", None)
 
-        # Default season to 1 for TV when not inferable
-        if meta.content_type == "tv" and meta.season is None and meta.found:
-            meta.season = 1
+        # Verified season default (never guess; see helper docstring).
+        _apply_verified_season_default(meta)
 
         # 4. Persist — record the attempt (success or failure) and cache only
         # definitive outcomes. Transient failures are intentionally NOT cached
@@ -643,9 +719,8 @@ class UnifiedMetadataAgent:
         finalize_dict["search_error"] = search_info.get("error")
         meta = ResourceMetadata.from_dict(finalize_dict)
 
-        # Default season to 1 for TV when not inferable
-        if meta.content_type == "tv" and meta.season is None and meta.found:
-            meta.season = 1
+        # Verified season default (never guess; see helper docstring).
+        _apply_verified_season_default(meta)
 
         return meta
 
@@ -676,7 +751,11 @@ class UnifiedMetadataAgent:
                 "the identifier source)."
             ),
         }[source]
-        return f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
+        message = f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
+        year = extract_title_year(raw_title)
+        if year is not None:
+            message += _title_year_hint(year)
+        return message
 
     def _build_production_message(
         self,
@@ -684,6 +763,7 @@ class UnifiedMetadataAgent:
         channel: Any,
         data_source_type: str = DEFAULT_METADATA_SOURCE,
         series_context: str | None = None,
+        same_title_context: str | None = None,
     ) -> str:
         raw = getattr(resource, "title_raw", "")
         source = normalize_metadata_source_type(data_source_type)
@@ -706,8 +786,15 @@ class UnifiedMetadataAgent:
             parts.append("\nPre-parsed fields (from field_mapping, may be unreliable):")
             parts.extend(hints)
 
+        title_year = getattr(resource, "title_year", None)
+        if title_year is not None:
+            parts.append(_title_year_hint(title_year))
+
         if series_context:
             parts.append(series_context)
+
+        if same_title_context:
+            parts.append(same_title_context)
 
         parts.append(
             f"\nChannel: {getattr(channel, 'name', 'unknown')}"

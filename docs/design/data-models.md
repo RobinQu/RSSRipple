@@ -49,6 +49,8 @@ class FileResource(Base):
     subtitle_group: str | None           # 字幕组
     episode: int | None                  # 集数
     season: int | None                   # 季数
+    title_year: int | None               # 从原始标题解析的作品年份（"[2026]" 或独立年份 token，
+                                         # 1950..2100 合理区间外丢弃）；驱动 Layer-3 本地匹配的年份守卫
     resolution: str | None               # 分辨率 (1080p, 2160p, 720p...)
     source: str | None                   # 来源 (WebRip, WEB-DL, BDRip...)
     video_codec: str | None              # 视频编码 (HEVC, HEVC-10bit, AVC, H264...)
@@ -92,10 +94,11 @@ class FileResource(Base):
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
 
-**跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
+**跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, season, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
 
-- **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。
+- **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。若标题未解析出季数（`season=None`），`apply_episode_reconcile()` 会用 `locate_absolute_episode()` 按各季集数累减反推 `(season, episode)` 并**同时写回两个字段**；超出总集数 + tolerance(2) 时记为 `ambiguous`。
 - **只标了 MM**（如 `S04 - 84`）——`reconcile_episode()` 检查 `raw_episode ≤ season_count + tolerance(2)`：符合就保留（`raw`）；否则减去前几季累计集数得到 candidate；candidate 落在 `[1, season_count + tolerance]` → 记为 `reconciled`（写回 `absolute_episode`），否则记为 `ambiguous`。
+- `apply_episode_reconcile()` 跳过条件：合集资源；`episode` 与 `absolute_episode` 均为空；`episode_confidence == "manual"`；以及 `season` 已知且已为 `reconciled` 的资源（不重算）。无判定依据（空 map / 未知季）时仅给无标记资源补上 `raw`。
 - `ambiguous` 的资源**不参与派发**。`agent_service` 在通过 work-scope + filter 之后，将其创建为一条 PendingDecision（reason 以 `"集号不确定，需要人工确认集号: {title}"` 标记、`candidates` 仅含该资源本身、跳过 LLM 候选选择），等待用户在前端手动修正集号；**不再**归入 `AgentSuggestion`。用户修正集号（`episode_confidence` 变为 `manual`）后，下一次运行会自动把这条过期决策标记为 `decided`，资源重新进入正常 filter→派发流程。
 - `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
@@ -129,6 +132,10 @@ class TVSeries(Base):
     start_date: date | None              # 首播日期
     end_date: date | None                # 完结日期
     content_type: str | None             # "tv" | "anime" | "mixed"
+    canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
+    wikipedia_url: str | None            # 维基百科条目 URL
+    wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
+    collection_id: str | None → WorkCollection  # 所属合集 FK（组织层；一个作品至多属于一个合集）
     created_at: datetime
     updated_at: datetime
 
@@ -138,6 +145,7 @@ class TVSeries(Base):
     agent_works: list[AgentWork]
     raw_title_mappings: list[ChannelRawTitleMapping]
     pending_decisions: list[PendingDecision]
+    collection: WorkCollection | None
 ```
 
 ### Movie（电影 - Metadata 缓存）
@@ -161,6 +169,10 @@ class Movie(Base):
     release_date: date | None            # 上映日期（区别于 TVSeries 的 start_date）
     runtime: int | None                  # 片长（分钟）
     content_type: str | None             # "movie"
+    canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
+    wikipedia_url: str | None            # 维基百科条目 URL
+    wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
+    collection_id: str | None → WorkCollection  # 所属合集 FK（组织层；一个作品至多属于一个合集）
     created_at: datetime
     updated_at: datetime
 
@@ -168,6 +180,35 @@ class Movie(Base):
     file_resources: list[FileResource]
     pending_decisions: list[PendingDecision]
     agent_works: list[AgentWork]
+    collection: WorkCollection | None
+```
+
+### WorkCollection（作品合集 - 大 IP 系列分组）
+
+将同一 IP（攻壳机动队、蜘蛛侠、狮子王 …）的多个 TVSeries/Movie 归为一组。**合集是组织层而非消歧核心**：匹配/派发仍以单个作品行（TVSeries/Movie）为准。一个作品至多属于一个合集（由单个可空 `collection_id` FK 保证）。
+
+```python
+class WorkCollection(Base):
+    __tablename__ = "work_collections"
+    __table_args__ = (
+        UniqueConstraint("external_source", "external_id"),  # 幂等 upsert
+    )
+
+    id: str                              # UUID
+    title_cn: str                        # 合集名（必填）
+    title_en: str | None                 # 英文名（TMDB 电影详情不含，保持 NULL）
+    external_id: str | None              # 外部 ID（TMDB collection 为原始数字 id；Wikidata 为 franchise QID）
+    external_source: str | None          # "tmdb_collection" | "wikidata" | None；不用 canonicalize_external_id
+                                         # （其 TMDB 规则会把 tmdb-collection:131295 改写为
+                                         # tmdb:131295，与电影 id 空间冲突）
+    poster_url: str | None               # TMDB 远程图片 URL（phase 1 不做本地缓存）
+    description: str | None              # 简介（TMDB 电影详情不含，保持 NULL，可手动编辑）
+    created_at: datetime
+    updated_at: datetime
+
+    # Relationships
+    series: list[TVSeries]
+    movies: list[Movie]
 ```
 
 ### Episode（剧集单集 - Metadata 缓存）
@@ -326,7 +367,7 @@ class AgentSuggestion(Base):
 1. 同一作品的同一剧集（或同一电影）出现多个符合条件的候选资源，且 `conflict_resolution="ask"` 时创建（候选选择类）。
 2. `episode_confidence="ambiguous"` 的资源（集号无法判定是单季集号还是绝对集号）创建，等待用户手动确认集号——此时 `candidates` 只含该资源本身，reason 以 `"集号不确定"` 前缀标记，且**跳过 LLM 候选选择**（无"挑最优候选"语义）。
 
-**幂等性保证**：同一 `(agent_id, series_id | movie_id, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`，不会像 v1 那样堆积重复记录。`reason_override` 参数支持非冲突类决策（如集号不确定）复用同一 upsert 路径，并通过 `skip_llm` 跳过 LLM 调用。
+**幂等性保证**：同一 `(agent_id, series_id | movie_id, season, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`，不会像 v1 那样堆积重复记录。`season` 计入键值（S1E3 与 S4E3 不再互相合并）；调用方传入的 key 为 4 元组 `(type, target_id, season, episode)`，旧 3 元组 `(type, target_id, episode)` 仍兼容（season=None）。`reason_override` 参数支持非冲突类决策（如集号不确定）复用同一 upsert 路径，并通过 `skip_llm` 跳过 LLM 调用。
 
 ```python
 class PendingDecision(Base):
@@ -337,6 +378,7 @@ class PendingDecision(Base):
     series_id: str | None → TVSeries     # 剧集系列 FK（TV 作品非空）
     movie_id: str | None → Movie         # 电影 FK（电影非空）
     episode: int | None                  # 集数（TV 作品）
+    season: int | None                   # 季数（TV 作品；幂等键的一部分，NULL=电影/无季资源）
     candidates: list[str]                # 候选 FileResource ID 列表（按匹配度预排序）
     reason: str                          # 需要决策的原因（如："多个资源匹配第03集"；
                                          #   集号不确定类以 "集号不确定" 前缀标记）

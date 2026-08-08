@@ -60,5 +60,6 @@ class TVSeriesResponse(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     content_type: str | None = None
+    collection_id: str | None = None
     created_at: datetime
     updated_at: datetime

@@ -25,6 +25,9 @@ class PendingDecision(Base):
         String(36), ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
     )
     episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Season of the disputed episode (NULL = movie / season-less series).
+    # Part of the idempotency key so S1E3 and S4E3 don't collide.
+    season: Mapped[int | None] = mapped_column(Integer, nullable=True)
     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)

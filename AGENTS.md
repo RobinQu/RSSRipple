@@ -26,10 +26,11 @@
 - 所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键为 UUID v4 字符串，时间字段均为 UTC。
 - `FileResource` 的 FK 互斥：剧集资源 `series_id` 非空且 `movie_id` 为空；电影资源反之；未识别两者皆空。TV 集数统一用 `episode` 字段。
 - 合集资源（`is_batch=true`）：`episode` 固定为空，`episode_start/end` 尽力而为；不参与 `(series_id, episode)` 聚合和 PendingDecision。
-- `episode_confidence`：`raw | reconciled | ambiguous | manual | None`；`ambiguous` 资源不参与派发，创建"集号不确定"PendingDecision（跳过 LLM），用户修正为 `manual` 后自动回流。
+- `episode_confidence`：`raw | reconciled | ambiguous | manual | None`；`ambiguous` 资源不参与派发，按资源状态创建 PendingDecision（跳过 LLM）：`season` 非空为"集号不确定"，`season=None` 为"季号不确定"；用户修正为 `manual` 后自动回流。季号绝不猜测：无季标记时仅当作品可验证为单季（`number_of_seasons`/`seasons` 证据）才落 `season=1`，多季或未知一律 `season=None` + `ambiguous`。
 - `Agent.last_consumed_at` 是消费水位线：增量运行只处理 `created_at > last_consumed_at` 的资源；null 表示从未运行（推进到 now、不处理任何资源，回填必须走 rules-preview 流程）。
-- `PendingDecision` 幂等：同一 `(agent_id, series_id|movie_id, episode, status='pending')` 全局唯一，重复运行 upsert 合并 candidates。
+- `PendingDecision` 幂等：同一 `(agent_id, series_id|movie_id, season, episode, status='pending')` 全局唯一，重复运行 upsert 合并 candidates。
 - `AgentWork` 最多 10 个（`scope_channel_wide=false` 时生效）；CheckConstraint 保证 series/movie 二选一。
+- `WorkCollection` 大 IP 合集分组（组织层而非消歧核心）：作品经可空 `collection_id` 至多属一个合集；TMDB 链接走确定性 `link_movie_collection`（`tmdb_collection` 源 + 原始数字 id，禁止 `canonicalize_external_id`）；DSL 新增 `series.collection`/`movie.collection`（显示名），所有过滤求值点须链式 selectinload 作品的 `collection` 关系。
 
 ### Filter DSL（详见 filter-dsl.md）
 
@@ -40,7 +41,7 @@
 
 - 前缀 `/api/v1`，统一响应结构 `{ success, data, error, meta }`；分页参数 `page`/`page_size`（最大 100）。
 - `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空 `[]`）= 经过 rules-preview，派发选中资源并推进水位线到频道 max `created_at`。
-- `PATCH /resources/{id}/episode` 修正集号：**先 commit 再入队**定向运行（绕过且不推进水位线）。
+- `PATCH /resources/{id}/episode` 修正集号：未显式发送 `season` 且有 absolute 集号 + 剧集逐季数据时服务端推导 season（显式值优先）；**先 commit 再入队**定向运行（绕过且不推进水位线）。
 - 任务重试必须使用 `DownloadTask.download_dir` 持久化值，不重读当前配置。
 
 ### 核心业务逻辑（详见 business-logic.md）

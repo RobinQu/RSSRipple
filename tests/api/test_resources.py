@@ -292,6 +292,80 @@ class TestEpisodeCorrection:
         )
         assert res.status_code == 404
 
+    async def _make_series_with_seasons(self, db_session_factory):
+        from app.models.series import TVSeries
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(
+                id=sid, title_cn="剧", title_en="Show", content_type="tv",
+                number_of_seasons=4,
+                seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3, 4)],
+            ))
+            await s.commit()
+        return sid
+
+    async def test_derives_season_from_absolute_when_omitted(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """absolute 89 + known per-season counts pins down S4E17 — the caller
+        only confirmed the episode, so the season is derived."""
+        sid = await self._make_series_with_seasons(db_session_factory)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            series_id=sid, season=None, episode=89, absolute_episode=89,
+            episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 17},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["season"] == 4
+        assert body["episode"] == 17
+        assert body["episode_confidence"] == "manual"
+
+    async def test_explicit_season_wins_over_derivation(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series_with_seasons(db_session_factory)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            series_id=sid, season=None, episode=89, absolute_episode=89,
+            episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 17, "season": 2},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["season"] == 2  # explicit value wins; no derivation
+
+    async def test_no_seasons_data_no_derivation(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """Series without per-season counts → nothing to derive from."""
+        from app.models.series import TVSeries
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", title_en="Show", content_type="tv"))
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            series_id=sid, season=None, episode=89, absolute_episode=89,
+            episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": 17},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["season"] is None
+        assert body["episode"] == 17
+        assert body["episode_confidence"] == "manual"
+
 
 class TestResourceMatchedFilter:
     """The channel page splits parsed/unparsed into tabs via the `matched` param."""
