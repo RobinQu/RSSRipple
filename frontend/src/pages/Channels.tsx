@@ -8,6 +8,7 @@ import type { TableColumnsType } from 'antd';
 import { channelsApi } from '../api/channels';
 import StatusBadge from '../components/StatusBadge';
 import { timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import type { Channel } from '../types';
 
 const { Title } = Typography;
@@ -203,7 +204,8 @@ export default function Channels() {
       </div>
 
       <Table
-        columns={columns}
+        className="stack-table"
+        columns={withMobileLabels(columns)}
         dataSource={channels}
         rowKey="id"
         loading={loading}

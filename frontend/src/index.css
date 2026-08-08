@@ -321,8 +321,79 @@ a:hover {
   }
 }
 
-/* ─── Works page: dense table ─── */
+/* ─── Generic stacked antd tables on narrow screens ───
+   Add className="stack-table" to an antd Table and wrap its columns with
+   withMobileLabels() (utils/table.ts); below 760px each row becomes a card:
+   one full-width line per cell, prefixed by the column's data-label, and
+   text cells wrap to multiple lines instead of truncating. */
 
+@media (max-width: 760px) {
+  .stack-table .ant-table,
+  .stack-table .ant-table-container,
+  .stack-table .ant-table-content {
+    overflow: visible !important;
+  }
+
+  .stack-table table {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  .stack-table table,
+  .stack-table thead,
+  .stack-table tbody,
+  .stack-table tr,
+  .stack-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .stack-table thead,
+  .stack-table .ant-table-measure-row {
+    display: none;
+  }
+
+  .stack-table tr.ant-table-row {
+    border-top: 1px solid var(--rr-border-soft);
+    padding: 8px 0;
+  }
+
+  .stack-table td.ant-table-cell {
+    background: transparent !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+    padding: 2px 0 !important;
+    position: static !important;
+    text-align: left !important;
+  }
+
+  .stack-table td.ant-table-cell::before {
+    color: var(--rr-text-muted);
+    content: attr(data-label);
+    display: inline-block;
+    font-size: 12px;
+    margin-right: 6px;
+  }
+
+  .stack-table td.ant-table-cell:not([data-label])::before {
+    content: none;
+  }
+
+  /* Cells whose render output is empty (e.g. no error message) add noise in
+     stacked mode — hide them entirely. */
+  .stack-table td.ant-table-cell:empty {
+    display: none;
+  }
+
+  .stack-table td .ant-typography {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+}
+
+/* ─── Works page: dense table ─── */
 .works-table .works-row.selected {
   background: color-mix(in srgb, var(--rr-primary) 10%, transparent);
 }

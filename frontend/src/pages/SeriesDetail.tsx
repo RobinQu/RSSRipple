@@ -12,6 +12,7 @@ import { seriesApi } from '../api/series';
 import { worksApi } from '../api/works';
 import type { TVSeries, Episode, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 
@@ -228,7 +229,8 @@ export default function SeriesDetail() {
       {series.episodes && series.episodes.length > 0 && (
         <Card title={`${t('series.episodeList')} (${series.episodes.length})`} style={{ marginBottom: 16 }} size="small">
           <Table
-            columns={episodeColumns}
+            className="stack-table"
+            columns={withMobileLabels(episodeColumns)}
             dataSource={series.episodes}
             rowKey={(e) => `${e.season}-${e.episode}`}
             pagination={false}
@@ -241,7 +243,8 @@ export default function SeriesDetail() {
       {series.resources && series.resources.length > 0 && (
         <Card title={`${t('series.recentResources')} (${series.resource_count ?? series.resources.length})`} size="small">
           <Table
-            columns={resourceColumns}
+            className="stack-table"
+            columns={withMobileLabels(resourceColumns)}
             dataSource={series.resources}
             rowKey="id"
             pagination={false}

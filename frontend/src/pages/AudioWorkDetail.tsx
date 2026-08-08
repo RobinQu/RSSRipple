@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { audioWorksApi } from '../api/audioWorks';
 import type { AudioWork, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 
 const { Title, Text } = Typography;
@@ -152,7 +153,8 @@ export default function AudioWorkDetail() {
       {work.resources && work.resources.length > 0 && (
         <Card title={t('series.recentResources')} style={{ marginTop: 16 }}>
           <Table<FileResource>
-            columns={resourceColumns}
+            className="stack-table"
+            columns={withMobileLabels(resourceColumns)}
             dataSource={work.resources}
             rowKey="id"
             size="small"

@@ -17,6 +17,7 @@ import {
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import type { ReactNode } from 'react';
+import { withMobileLabels } from '../utils/table';
 import {
   Edit,
   Zap,
@@ -306,7 +307,8 @@ export default function DownloaderDetail() {
         <Alert type="error" message={t('downloaders.transmissionUnreachable')} description={torrentError} showIcon style={{ marginBottom: 16 }} />
       ) : (
         <Table
-          columns={torrentColumns}
+          className="stack-table"
+          columns={withMobileLabels(torrentColumns)}
           dataSource={torrents}
           rowKey="id"
           loading={loadingTorrents}
@@ -319,7 +321,8 @@ export default function DownloaderDetail() {
 
       <Title level={4} style={{ marginBottom: 12 }}>{t('downloaders.localTasks')}</Title>
       <Table
-        columns={taskColumns}
+        className="stack-table"
+        columns={withMobileLabels(taskColumns)}
         dataSource={tasks}
         rowKey="id"
         size="small"

@@ -8,6 +8,7 @@ import type { TableColumnsType } from 'antd';
 import { downloadersApi } from '../api/downloaders';
 import type { DownloaderInstance } from '../types';
 import { timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import StatusBadge from '../components/StatusBadge';
 
 const { Title } = Typography;
@@ -161,7 +162,8 @@ export default function Downloaders() {
       </div>
 
       <Table
-        columns={columns}
+        className="stack-table"
+        columns={withMobileLabels(columns)}
         dataSource={items}
         rowKey="id"
         loading={loading}

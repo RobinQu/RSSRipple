@@ -8,6 +8,7 @@ import type { TableColumnsType } from 'antd';
 import { agentsApi } from '../api/agents';
 import StatusBadge from '../components/StatusBadge';
 import { timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import type { Agent } from '../types';
 
 const { Title } = Typography;
@@ -162,7 +163,8 @@ export default function Agents() {
       </div>
 
       <Table
-        columns={columns}
+        className="stack-table"
+        columns={withMobileLabels(columns)}
         dataSource={items}
         rowKey="id"
         loading={loading}

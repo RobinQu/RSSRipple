@@ -9,6 +9,7 @@ import { moviesApi } from '../api/movies';
 import { worksApi } from '../api/works';
 import type { Movie, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 
@@ -212,7 +213,8 @@ export default function MovieDetail() {
       {movie.resources && movie.resources.length > 0 && (
         <Card title={t('series.recentResources')} style={{ marginTop: 16 }}>
           <Table<FileResource>
-            columns={resourceColumns}
+            className="stack-table"
+            columns={withMobileLabels(resourceColumns)}
             dataSource={movie.resources}
             rowKey="id"
             size="small"

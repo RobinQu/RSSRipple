@@ -62,6 +62,7 @@ import FilterBuilder, {
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
+import { withMobileLabels } from '../utils/table';
 import type {
   Agent,
   AgentRun,
@@ -805,8 +806,8 @@ export default function AgentDetail() {
             label: `${t('agents.downloadTasks')} (${taskTotal})`,
             children: (
               <Card>
-                <Space style={{ marginBottom: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{t('agents.statusFilter')}</Text>
+                <Space wrap style={{ marginBottom: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{t('agents.statusFilter')}</Text>
                   <Select
                     allowClear
                     placeholder={t('common.all')}
@@ -843,7 +844,8 @@ export default function AgentDetail() {
                   </Button>
                 </Space>
                 <Table<DownloadTask>
-                  columns={taskColumns}
+                  className="stack-table"
+                  columns={withMobileLabels(taskColumns)}
                   dataSource={tasks}
                   rowKey="id"
                   loading={loadingTasks}
@@ -1267,7 +1269,8 @@ export default function AgentDetail() {
                       </Checkbox>
                     </div>
                     <Table<AgentRun>
-                      columns={runColumns(t, (r) => setRunDrawerRun(r))}
+                      className="stack-table"
+                      columns={withMobileLabels(runColumns(t, (r) => setRunDrawerRun(r)))}
                       dataSource={runs}
                       rowKey="id"
                       loading={loadingRuns}
