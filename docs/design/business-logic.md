@@ -62,6 +62,7 @@ fetch_channel_resources(channel, db)
 - 单字段提取异常只记 debug 日志并置该字段为 None，不影响其他字段。
 - `_postprocess_parsed` 把 `resolution` 统一为正则化小写 `Np` 形式（`"1080P"`→`"1080p"`；`"1920x1080"` 等原样保留）。
 - `normalize_parsed_fields(title_raw, parsed)` 对 LLM 生成的 field_mapping 常见 regex miss 做**保守修复**：仅当 `title_cn`/`title_en` 泄漏方括号（多 bracket 标题只剥离了首个 `[...]`）时，从 raw title 重切作品名分段回填（`search_title` 优先取 latin 段）；并只在 tech 字段（resolution/source/video_codec/audio_codec/container）为 None 时从 raw title 补齐。已干净解析的资源不受影响。
+- 同模块的 `extract_episode_fallback` 提供 episode/season 通用回退（`normalize_parsed_fields` 在 episode/season 为 None 时调用）：覆盖方括号集号 `[NN]`（限 1-3 位数字，`[1080p]`/`[2026]` 不误判）、`SxxExx`、`Season N`、`S N`、`第N季`（含中文数字）。各频道 field_mapping 的 episode 正则通常只覆盖 `- NN` 形式，该回退保证 fansub 方括号编号在抓取期即可解析；存量修复见 `scripts/repair_episode_parse.py`。
 - 同模块还提供抓取期预解析器：`detect_batch`（合集识别）、`detect_absolute_episode`（`NN(MM)` 双标记提取）、`detect_subtitle_langs`（字幕语言 BCP-47 标签）、`strip_season_from_title`（去尾部季后缀），语义详见 data-models.md 的合集与集号 reconciliation 章节。
 
 ### Metadata 匹配流程（metadata_service）

@@ -444,6 +444,51 @@ _VIDEO_CODEC_RE = re.compile(
 )
 _CONTAINER_RE = re.compile(r"\b(MP4|MKV|AVI)\b", re.IGNORECASE)
 
+# Episode/season fallbacks for formats the LLM-generated per-channel regexes
+# commonly miss: bracketed episode numbers (``[03]``) and SxxExx / "Season 3"
+# / 第N季 season markers. Applied only when the field_mapping left the field
+# empty - a correctly parsed value is never overwritten.
+_SXXEXX_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})\b", re.IGNORECASE)
+_BRACKET_EPISODE_RE = re.compile(r"\[(\d{1,3})\]")
+_FB_SEASON_SUFFIX_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.IGNORECASE)
+_FB_SEASON_S_RE = re.compile(r"\bS(\d{1,2})\b(?!E)", re.IGNORECASE)
+_FB_SEASON_KANJI_RE = re.compile(r"第([一二三四五六七八九十\d]{1,3})季")
+_KANJI_DIGITS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _kanji_to_int(text: str) -> int | None:
+    if text.isdigit():
+        return int(text)
+    if text in _KANJI_DIGITS:
+        return _KANJI_DIGITS[text]
+    if len(text) == 2 and text[0] == "十":  # 十一..十九
+        return 10 + _KANJI_DIGITS.get(text[1], 0)
+    if len(text) == 2 and text[1] == "十":  # 二十..九十
+        return _KANJI_DIGITS.get(text[0], 0) * 10
+    return None
+
+
+def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
+    """Best-effort (episode, season) from common fansub numbering formats.
+
+    Returns ``(None, None)`` when nothing matches. ``[NN]`` is capped at
+    three digits so tech brackets like ``[1080p]``/``[2026]`` never match.
+    """
+    m = _SXXEXX_RE.search(title_raw)
+    if m:
+        return int(m.group(2)), int(m.group(1))
+    m = _BRACKET_EPISODE_RE.search(title_raw)
+    episode = int(m.group(1)) if m else None
+    season = None
+    m = _FB_SEASON_SUFFIX_RE.search(title_raw)
+    if m:
+        season = int(m.group(1))
+    elif (m := _FB_SEASON_S_RE.search(title_raw)):
+        season = int(m.group(1))
+    elif (m := _FB_SEASON_KANJI_RE.search(title_raw)):
+        season = _kanji_to_int(m.group(1))
+    return episode, season
+
 _CJK_RE = re.compile(r"[一-鿿]")
 _ASCII_ONLY_RE = re.compile(r"[\x00-\x7f\s]+")
 _LATIN_RE = re.compile(r"[A-Za-z]")
@@ -523,5 +568,14 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
         m = _CONTAINER_RE.search(title_raw)
         if m:
             out["container"] = m.group(1)
+
+    # Episode/season fallbacks (bracket "[03]", SxxExx, "Season 3", 第N季) —
+    # the per-channel episode regexes typically only cover the "- NN" form.
+    if out.get("episode") is None or out.get("season") is None:
+        fb_episode, fb_season = extract_episode_fallback(title_raw)
+        if out.get("episode") is None and fb_episode is not None:
+            out["episode"] = fb_episode
+        if out.get("season") is None and fb_season is not None:
+            out["season"] = fb_season
 
     return out

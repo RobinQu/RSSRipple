@@ -531,3 +531,70 @@ class TestCaseInsensitiveExtraction:
         }
         result = parse_entry(entry, mapping)
         assert result["resolution"] == "1920x1080"
+
+
+# ---------------------------------------------------------------------------
+# extract_episode_fallback / normalize episode-season fallback
+# ---------------------------------------------------------------------------
+
+from app.services.resource_parser import extract_episode_fallback  # noqa: E402
+
+
+class TestExtractEpisodeFallback:
+    def test_bracket_episode(self):
+        assert extract_episode_fallback(
+            "[绿茶字幕组] 攻壳机动队 The Ghost in the Shell / Koukaku Kidoutai 2026 [03][WebRip][1080p][简日内嵌]"
+        ) == (3, None)
+
+    def test_bracket_episode_with_s_season(self):
+        assert extract_episode_fallback(
+            "[绿茶字幕组] 无职转生 第三季 / Mushoku Tensei S3 [03][WebRip][1080p]"
+        ) == (3, 3)
+
+    def test_season_suffix(self):
+        assert extract_episode_fallback(
+            "[北宇治字幕组] 无职转生Ⅲ / Mushoku Tensei - Season 3 [04][WebRip]"
+        ) == (4, 3)
+
+    def test_sxxexx(self):
+        assert extract_episode_fallback(
+            "[Nix-Raws] 无职转生Ⅲ / Mushoku Tensei Isekai Ittara Honki Dasu S03E06 [CR WEB-DL 1080p]"
+        ) == (6, 3)
+
+    def test_kanji_season(self):
+        assert extract_episode_fallback(
+            "[ANi]  关于我转生变成史莱姆这档事 第四季 - 89 [1080P][Baha]"
+        ) == (None, 4)
+
+    def test_tech_brackets_never_match(self):
+        # [1080p] is 4 digits; [2026] is a year — neither is an episode.
+        assert extract_episode_fallback(
+            "[Group] Some Work [1080p][2026]"
+        ) == (None, None)
+
+    def test_dash_format_left_to_field_mapping(self):
+        # The "- NN" form is covered by the per-channel mapping; the fallback
+        # intentionally does not grab it (it runs only when mapping missed).
+        assert extract_episode_fallback(
+            "[LoliHouse] 黄泉使者 / Yomi no Tsugai - 14 [1080p]"
+        ) == (None, None)
+
+
+def test_normalize_fills_episode_and_season_from_brackets():
+    from app.services.resource_parser import normalize_parsed_fields
+    out = normalize_parsed_fields(
+        "[绿茶字幕组] 无职转生 第三季 / Mushoku Tensei S3 [03][WebRip][1080p]",
+        {"episode": None, "season": None},
+    )
+    assert out["episode"] == 3
+    assert out["season"] == 3
+
+
+def test_normalize_does_not_override_parsed_episode():
+    from app.services.resource_parser import normalize_parsed_fields
+    out = normalize_parsed_fields(
+        "[绿茶字幕组] 无职转生 第三季 / Mushoku Tensei S3 [03][WebRip][1080p]",
+        {"episode": 3, "season": 1},
+    )
+    assert out["episode"] == 3
+    assert out["season"] == 1  # untouched even though the title says S3
