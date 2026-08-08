@@ -28,6 +28,11 @@ class TVSeries(Base):
     status: Mapped[str | None] = mapped_column(String(100), nullable=True)
     number_of_episodes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     number_of_seasons: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Per-season episode counts as returned by TMDB/Exa
+    # ([{season_number, episode_count}, ...]). Drives cross-season episode
+    # reconciliation for resources that link to this series without going
+    # through the metadata agent (known-work short-circuit / fuzzy auto-link).
+    seasons: Mapped[list | None] = mapped_column(JSON, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -609,6 +609,8 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             series.number_of_episodes = data.get("number_of_episodes")
         if data.get("number_of_seasons") is not None:
             series.number_of_seasons = data.get("number_of_seasons")
+        if data.get("seasons"):
+            series.seasons = data["seasons"]
         sd = _parse_date(data.get("start_date"))
         if sd:
             series.start_date = sd
@@ -678,6 +680,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         status=data.get("status"),
         number_of_episodes=data.get("number_of_episodes"),
         number_of_seasons=data.get("number_of_seasons"),
+        seasons=data.get("seasons") or None,
         start_date=_parse_date(data.get("start_date")),
         end_date=_parse_date(data.get("end_date")),
         content_type="tv",
@@ -1066,6 +1069,21 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     if resource.series_id or resource.movie_id:
         return
 
+    async def _reconcile_with_series() -> None:
+        """Episode reconciliation for agent-free link paths: uses the linked
+        series' persisted per-season counts (absolute-numbered releases like
+        "第四季 - 89" would otherwise never be converted)."""
+        if not resource.series_id:
+            return
+        from app.models.series import TVSeries
+        from app.services.metadata_episode_reconcile import (
+            apply_episode_reconcile,
+            seasons_map_from_list,
+        )
+        series_row = await db.get(TVSeries, resource.series_id)
+        if series_row is not None and series_row.seasons:
+            apply_episode_reconcile(resource, seasons_map_from_list(series_row.seasons))
+
     # Layer 2: ChannelRawTitleMapping
     # Primary lookup: by normalized search_title_key (handles episode/resolution variations)
     search_key = normalize_title(extract_search_title(resource))
@@ -1097,6 +1115,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         if mapping.search_title_override:
             resource.search_title = mapping.search_title_override
         resource.metadata_matched_at = utcnow()
+        await _reconcile_with_series()
         return
 
     # Layer 3: local match
@@ -1114,6 +1133,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         resource.metadata_matched_at = utcnow()
         if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
             pass  # poster already handled if set
+        await _reconcile_with_series()
         return
     if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
         resource.movie_id = movie.id
@@ -1154,6 +1174,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             resource.series_id = series_entity.id
             resource.movie_id = None
         resource.metadata_matched_at = utcnow()
+        await _reconcile_with_series()
     except Exception as e:
         logger.warning("[metadata] Failed to link via LLM for %r: %s", search_title[:60], e)
         _record_unmatched_attempt(resource, "transient")

@@ -1580,3 +1580,183 @@ async def test_search_then_judge_autolink_fills_cross_language_titles(monkeypatc
     assert me["title_cn"] == "黃泉使者"          # filled from langlinks
     assert me["alt_titles"] == ["黃泉使者"]
     assert finalize["title_cn"] == "黃泉使者"
+
+
+# ---------------------------------------------------------------------------
+# Episode reconciliation on agent-free link paths
+# ---------------------------------------------------------------------------
+
+from app.services.metadata_episode_reconcile import (  # noqa: E402
+    apply_episode_reconcile,
+    seasons_map_from_list,
+)
+
+
+def test_seasons_map_from_list():
+    seasons = [
+        {"season_number": 0, "episode_count": 3},   # specials ignored
+        {"season_number": 1, "episode_count": 24},
+        {"season_number": 2, "episode_count": 24},
+    ]
+    assert seasons_map_from_list(seasons) == {1: 24, 2: 24}
+    assert seasons_map_from_list(None) == {}
+    assert seasons_map_from_list([]) == {}
+
+
+class TestApplyEpisodeReconcile:
+    def test_converts_absolute_to_per_season(self):
+        r = SimpleNamespace(episode=89, season=4, is_batch=False, episode_confidence=None,
+                absolute_episode=None)
+        ok = apply_episode_reconcile(r, {1: 24, 2: 24, 3: 24, 4: 24})
+        assert ok is True
+        assert r.episode == 17
+        assert r.absolute_episode == 89
+        assert r.episode_confidence == "reconciled"
+
+    def test_marks_ambiguous_when_arithmetic_fails(self):
+        r = SimpleNamespace(episode=89, season=1, is_batch=False, episode_confidence=None,
+                absolute_episode=None)
+        ok = apply_episode_reconcile(r, {1: 24, 2: 24, 3: 24, 4: 24})
+        assert ok is True
+        assert r.episode == 89  # kept
+        assert r.episode_confidence == "ambiguous"
+
+    def test_marks_raw_when_no_basis(self):
+        r = SimpleNamespace(episode=89, season=4, is_batch=False, episode_confidence=None,
+                absolute_episode=None)
+        ok = apply_episode_reconcile(r, {})
+        assert ok is False
+        assert r.episode_confidence == "raw"
+
+    def test_keeps_per_season_episode(self):
+        r = SimpleNamespace(episode=17, season=4, is_batch=False, episode_confidence=None,
+                absolute_episode=None)
+        ok = apply_episode_reconcile(r, {1: 24, 2: 24, 3: 24, 4: 24})
+        assert ok is True
+        assert r.episode == 17
+        assert r.episode_confidence == "raw"
+
+    def test_skips_manual_and_reconciled(self):
+        for conf in ("manual", "reconciled"):
+            r = SimpleNamespace(episode=89, season=4, is_batch=False, episode_confidence=conf,
+                    absolute_episode=None)
+            assert apply_episode_reconcile(r, {1: 24, 2: 24, 3: 24, 4: 24}) is False
+            assert r.episode == 89
+            assert r.episode_confidence == conf
+
+    def test_skips_batch(self):
+        r = SimpleNamespace(episode=89, season=4, is_batch=True, episode_confidence=None,
+                absolute_episode=None)
+        assert apply_episode_reconcile(r, {1: 24, 2: 24, 3: 24, 4: 24}) is False
+        assert r.episode_confidence is None
+
+
+async def test_process_short_circuit_reconciles_absolute_episode(db_session, sample_channel):
+    """Known-work short-circuit must reconcile absolute-across-seasons episode
+    numbers using the series' persisted seasons (the agent's apply path is
+    bypassed on short-circuit)."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=str(uuid.uuid4()), title_cn="關於我轉生變成史萊姆這檔事",
+        title_en="That Time I Got Reincarnated as a Slime",
+        seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3, 4)],
+    )
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_slime",
+        title_raw="[X] 關於我轉生變成史萊姆這檔事 / That Time I Got Reincarnated as a Slime - 89 [1080p]",
+        title_cn="關於我轉生變成史萊姆這檔事", episode=89, season=4,
+        torrent_url="magnet:?xt=urn:btih:slime89",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()  # must NOT be called - short-circuit wins
+    res = await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert res.found is True
+    assert resource.series_id == series.id
+    assert resource.episode == 17
+    assert resource.season == 4
+    assert resource.absolute_episode == 89
+    assert resource.episode_confidence == "reconciled"
+
+
+async def test_process_short_circuit_without_seasons_marks_nothing(db_session, sample_channel):
+    """Short-circuit with a series lacking seasons data leaves the episode
+    untouched (and does not crash)."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="黄泉使者", title_en="Yomi no Tsugai")
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_yomi",
+        title_raw="[LoliHouse] 黄泉使者 / Yomi no Tsugai - 14 [1080p]",
+        title_cn="黄泉使者", episode=14, season=1,
+        torrent_url="magnet:?xt=urn:btih:yomi14",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()
+    await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert resource.episode == 14
+    assert resource.episode_confidence is None
+
+
+async def test_series_history_context_includes_siblings(monkeypatch, db_session, sample_channel):
+    """The few-shot context lists the candidate series' numbering convention
+    and past sibling parses."""
+    import uuid
+
+    import app.services.metadata_service as ms
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=str(uuid.uuid4()), title_cn="關於我轉生變成史萊姆這檔事",
+        seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3, 4)],
+    )
+    db_session.add(series)
+    sibling = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_sib",
+        title_raw="【豌豆字幕组】[... S4][17(89)][1080P]",
+        series_id=series.id, episode=17, season=4, absolute_episode=89,
+        episode_confidence="reconciled",
+        torrent_url="magnet:?xt=urn:btih:sib",
+    )
+    db_session.add_all([sibling])
+    await db_session.commit()
+
+    monkeypatch.setattr(ms, "match_series_by_title", AsyncMock(return_value=(series, 88)))
+    resource = SimpleNamespace(search_title="關於我轉生變成史萊姆這檔事", title_raw="[X] ... - 90")
+
+    agent = UnifiedMetadataAgent()
+    ctx = await agent._build_series_history_context(resource, db_session)
+
+    assert ctx is not None
+    assert "關於我轉生變成史萊姆這檔事" in ctx
+    assert "{1: 24, 2: 24, 3: 24, 4: 24}" in ctx
+    assert "S4E17" in ctx
+    assert "absolute 89" in ctx
+
+
+async def test_series_history_context_none_without_match(monkeypatch, db_session):
+    import app.services.metadata_service as ms
+
+    monkeypatch.setattr(ms, "match_series_by_title", AsyncMock(return_value=(None, 0)))
+    agent = UnifiedMetadataAgent()
+    resource = SimpleNamespace(search_title="unknown work", title_raw="[X] unknown - 01")
+    assert await agent._build_series_history_context(resource, db_session) is None

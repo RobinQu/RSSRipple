@@ -15,7 +15,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.metadata_audio import AUDIO_CONTENT_TYPES
-from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile_episode
+from app.services.metadata_episode_reconcile import (
+    _seasons_map_from,
+    apply_episode_reconcile,
+    seasons_map_from_list,
+)
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_sources import normalize_metadata_source_type
 from app.utils.time import utcnow
@@ -76,31 +80,8 @@ async def _apply_to_resource(
     # carry an episode number. The pre-parser's NN(MM) hit is already
     # recorded on the resource (episode_confidence == "reconciled");
     # skip further work when that ran.
-    if (
-        meta.found
-        and meta.content_type == "tv"
-        and not resource.is_batch
-        and resource.episode is not None
-        and resource.season is not None
-        and getattr(resource, "episode_confidence", None) not in ("manual", "reconciled")
-    ):
-        seasons_map = _seasons_map_from(meta.matched_entity)
-        reconciled = reconcile_episode(
-            raw_episode=resource.episode,
-            raw_season=resource.season,
-            seasons_map=seasons_map,
-        )
-        if reconciled is not None:
-            new_episode, abs_ep, confidence = reconciled
-            resource.episode = new_episode
-            if abs_ep is not None:
-                resource.absolute_episode = abs_ep
-            resource.episode_confidence = confidence
-        elif getattr(resource, "episode_confidence", None) is None:
-            # No seasons_map / no basis to reconcile — mark as raw so
-            # downstream code can distinguish "never reconciled" from
-            # "reconciled and unchanged".
-            resource.episode_confidence = "raw"
+    if meta.found and meta.content_type == "tv":
+        apply_episode_reconcile(resource, _seasons_map_from(meta.matched_entity))
 
     # Link to TVSeries / Movie / AudioWork
     if meta.found and meta.matched_entity:
@@ -159,6 +140,18 @@ async def _apply_to_resource(
                 resource.series_id = series.id
                 resource.movie_id = None
                 resource.audio_work_id = None
+
+        # Fallback reconciliation: the agent's own search result may carry no
+        # usable seasons list, but the (already known) series may have
+        # per-season counts persisted from an earlier upsert.
+        if (
+            resource.series_id
+            and getattr(resource, "episode_confidence", None) is None
+        ):
+            from app.models.series import TVSeries
+            series_row = await db.get(TVSeries, resource.series_id)
+            if series_row is not None and series_row.seasons:
+                apply_episode_reconcile(resource, seasons_map_from_list(series_row.seasons))
 
         resource.metadata_matched_at = utcnow()
 

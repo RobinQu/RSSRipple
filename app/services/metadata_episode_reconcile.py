@@ -96,3 +96,46 @@ def reconcile_episode(
         return final_ep, raw_episode, "reconciled"
 
     return raw_episode, None, "ambiguous"
+
+
+def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
+    """Apply :func:`reconcile_episode` to a resource in place.
+
+    Shared by every link path (metadata-agent apply, known-work
+    short-circuit, mapping/fuzzy auto-link) so a resource that skips the
+    agent still gets its absolute-across-seasons episode number converted
+    once the linked series' per-season counts are known.
+
+    Skips (returns False) when there is nothing to do: batch resources,
+    missing episode/season, or an already vetted value
+    (``manual``/``reconciled`` confidence). When there is no basis to make
+    a call (empty map / unknown season) the resource is marked ``"raw"``
+    only if it carries no confidence tag yet.
+    """
+    if (
+        getattr(resource, "is_batch", False)
+        or resource.episode is None
+        or resource.season is None
+        or getattr(resource, "episode_confidence", None) in ("manual", "reconciled")
+    ):
+        return False
+    result = reconcile_episode(
+        raw_episode=resource.episode,
+        raw_season=resource.season,
+        seasons_map=seasons_map,
+    )
+    if result is None:
+        if getattr(resource, "episode_confidence", None) is None:
+            resource.episode_confidence = "raw"
+        return False
+    episode, abs_ep, confidence = result
+    resource.episode = episode
+    if abs_ep is not None:
+        resource.absolute_episode = abs_ep
+    resource.episode_confidence = confidence
+    return True
+
+
+def seasons_map_from_list(seasons: list | None) -> dict[int, int]:
+    """Build the reconcile map from the stored ``TVSeries.seasons`` column."""
+    return _seasons_map_from({"seasons": seasons})

@@ -353,6 +353,10 @@ async def _apply_light_migrations(conn) -> None:
         # Logic-generation tag on cached metadata verdicts. Legacy rows get 0
         # (< METADATA_CACHE_GENERATION) and are treated as misses on read.
         ("metadata_cache", "generation", "INTEGER NOT NULL DEFAULT 0"),
+        # Per-season episode counts on TVSeries ([{season_number,
+        # episode_count}, ...]) so episode reconciliation works on the
+        # agent-free link paths (known-work short-circuit, fuzzy auto-link).
+        ("tv_series", "seasons", "TEXT" if is_turso else "JSONB"),
     ]
 
     for table, column, ddl in additions:

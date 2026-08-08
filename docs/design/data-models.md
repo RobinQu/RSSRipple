@@ -99,6 +99,12 @@ class FileResource(Base):
 - `ambiguous` 的资源**不参与派发**。`agent_service` 在通过 work-scope + filter 之后，将其创建为一条 PendingDecision（reason 以 `"集号不确定，需要人工确认集号: {title}"` 标记、`candidates` 仅含该资源本身、跳过 LLM 候选选择），等待用户在前端手动修正集号；**不再**归入 `AgentSuggestion`。用户修正集号（`episode_confidence` 变为 `manual`）后，下一次运行会自动把这条过期决策标记为 `decided`，资源重新进入正常 filter→派发流程。
 - `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
+**reconciliation 的触发路径**：早期只在 MetadataAgent 的 `_apply_to_resource` 里执行，导致免 Agent 的链接路径（已知作品短路 S1、ChannelRawTitleMapping、本地模糊 auto-link ≥85）完全绕过 reconcile——同一作品的新集恰恰都走这些路径。现在 `apply_episode_reconcile()` 作为统一的链接后步骤挂到全部四条路径：agent 完整路径优先用当次 `matched_entity.seasons`，其余路径（及 entity 缺 seasons 的兜底）用 `TVSeries.seasons` 持久化列。`NN(MM)` 预解析不受影响，仍在抓取期先行处理。
+
+**Metadata prompt 的作品历史 few-shot**：MetadataAgent 构造生产 prompt 时，若标题与本地库中某 series 模糊匹配（≥70），注入该系列的集数编号约定（`seasons` 每季集数）和最近 5 条 sibling 解析示例（`episode_confidence` 为 `reconciled`/`manual` 的资源：title → S/E + absolute），引导模型与历史解析保持一致的季/集编号。
+
+存量修复脚本：`scripts/series_seasons_backfill.py`——为缺 `seasons` 的 series 从 TMDB 补齐每季集数，并对 `episode_confidence` 为 NULL/`raw` 的单集资源重跑 reconcile（dry-run 默认，`--apply` 生效；需在 app 停止时运行，Turso 单进程文件锁）。
+
 ### TVSeries（剧集系列 - Metadata 缓存）
 
 ```python
@@ -119,6 +125,7 @@ class TVSeries(Base):
     status: str | None                   # 剧集状态: "Ended" | "Returning Series" | "Canceled" 等
     number_of_episodes: int | None       # 总集数
     number_of_seasons: int | None        # 总季数
+    seasons: list[dict] | None           # 每季集数 [{season_number, episode_count}, ...]，来自 TMDB/Exa 实体；驱动免 Agent 链接路径（短路/模糊匹配）的跨季集数 reconciliation
     start_date: date | None              # 首播日期
     end_date: date | None                # 完结日期
     content_type: str | None             # "tv" | "anime" | "mixed"

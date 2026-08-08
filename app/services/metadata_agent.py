@@ -357,6 +357,66 @@ class UnifiedMetadataAgent:
             resource, channel, db, audio_type, force_refresh
         )
 
+    async def _build_series_history_context(
+        self, resource: Any, db: AsyncSession
+    ) -> str | None:
+        """Few-shot context for the production prompt: when the title likely
+        belongs to an already-known series (local fuzzy match), include that
+        series' numbering convention and a few past sibling parses, so the
+        model assigns season/episode consistently with previous runs (e.g.
+        absolute-across-seasons vs per-season numbering).
+        """
+        from app.services.metadata_service import (  # lazy: import cycle
+            extract_search_title,
+            match_series_by_title,
+        )
+
+        search_title = getattr(resource, "search_title", None)
+        if not search_title and hasattr(resource, "title_cn"):
+            search_title = extract_search_title(resource)
+        if not search_title:
+            return None
+        series, ratio = await match_series_by_title(db, search_title)
+        if series is None or ratio < 70:
+            return None
+
+        from sqlalchemy import select
+
+        from app.models.file_resource import FileResource
+        from app.services.metadata_episode_reconcile import seasons_map_from_list
+
+        siblings = (await db.execute(
+            select(FileResource).where(
+                FileResource.series_id == series.id,
+                FileResource.is_batch.is_(False),
+                FileResource.episode.isnot(None),
+                FileResource.episode_confidence.in_(["reconciled", "manual"]),
+            ).order_by(FileResource.created_at.desc()).limit(5)
+        )).scalars().all()
+
+        title = series.title_cn or series.title_en or series.original_title or "?"
+        parts = [
+            f"\nPossible same-work series in the local library: {title} "
+            f"(title similarity {ratio}%).",
+        ]
+        seasons = seasons_map_from_list(series.seasons)
+        if seasons:
+            parts.append(f"Per-season episode counts: {seasons}")
+        if siblings:
+            parts.append("Past parsed releases of this work (title -> numbering):")
+            for r in siblings:
+                num = f"S{r.season}E{r.episode}"
+                if r.absolute_episode:
+                    num += f" (absolute {r.absolute_episode}, {r.episode_confidence})"
+                parts.append(f"  {r.title_raw[:90]} -> {num}")
+        parts.append(
+            "If this title belongs to that work, keep season/episode consistent "
+            "with the examples above; when the title only gives an "
+            "absolute-across-seasons number, convert it to the per-season "
+            "number using the counts above."
+        )
+        return "\n".join(parts)
+
     # ── Production entry ──
 
     async def process(
@@ -421,6 +481,26 @@ class UnifiedMetadataAgent:
             else:
                 resource.series_id = work_id
                 resource.movie_id = None
+                # The short-circuit bypasses _apply_to_resource, so episode
+                # reconciliation must run here: a new release of an already
+                # known work that numbers episodes absolutely across seasons
+                # ("... 第四季 - 89") would otherwise keep the absolute number
+                # forever. Uses the series' persisted per-season counts.
+                from app.models.series import TVSeries
+                from app.services.metadata_episode_reconcile import (
+                    apply_episode_reconcile,
+                    seasons_map_from_list,
+                )
+                series_row = await db.get(TVSeries, work_id)
+                if series_row is not None and series_row.seasons:
+                    if apply_episode_reconcile(
+                        resource, seasons_map_from_list(series_row.seasons)
+                    ):
+                        logger.info(
+                            "[metadata_agent] short-circuit reconciled %r -> S%sE%s (abs %s)",
+                            raw_title[:60], resource.season, resource.episode,
+                            resource.absolute_episode,
+                        )
             resource.metadata_matched_at = utcnow()
             resource.metadata_attempts = int(
                 getattr(resource, "metadata_attempts", 0) or 0
@@ -482,7 +562,10 @@ class UnifiedMetadataAgent:
                 "missing credentials); search will return no external candidates",
                 getattr(channel, "id", "?"), data_source_type,
             )
-        message = self._build_production_message(resource, channel, data_source_type)
+        message = self._build_production_message(
+            resource, channel, data_source_type,
+            series_context=await self._build_series_history_context(resource, db),
+        )
 
         # 2. Run metadata: search-first + single-LLM-judge for wikipedia (S3,
         # 1 LLM call + parallel searches); ReAct for other sources.
@@ -600,6 +683,7 @@ class UnifiedMetadataAgent:
         resource: Any,
         channel: Any,
         data_source_type: str = DEFAULT_METADATA_SOURCE,
+        series_context: str | None = None,
     ) -> str:
         raw = getattr(resource, "title_raw", "")
         source = normalize_metadata_source_type(data_source_type)
@@ -621,6 +705,9 @@ class UnifiedMetadataAgent:
         if hints:
             parts.append("\nPre-parsed fields (from field_mapping, may be unreliable):")
             parts.extend(hints)
+
+        if series_context:
+            parts.append(series_context)
 
         parts.append(
             f"\nChannel: {getattr(channel, 'name', 'unknown')}"
