@@ -281,7 +281,7 @@
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie） |
+| GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null），音频条目无合集恒为 null） |
 
 ### TVSeries
 
@@ -314,6 +314,7 @@
 | GET | `/collections` | 合集列表（分页，支持 search 名称模糊搜索；每项额外带 `work_count` 成员作品数） |
 | POST | `/collections` | 创建合集（body: title_cn 必填，title_en/description/poster_url 可选） |
 | GET | `/collections/{id}` | 合集详情（含 `works`: `[{id, title, year, type}]`；`?include_parts=true` 且合集为 `tmdb_collection` 源时额外返回 `untracked_parts`: `[{tmdb_id, title, year, poster_url}]` —— TMDB collection parts 中本地库未收录的作品，按需拉取、进程内 10 分钟缓存、不落库；拉取失败返回空数组） |
+| GET | `/collections/{id}/works` | 合集成员作品分页列表（`page`/`page_size`；每项与 `GET /works` 相同的归一化结构，content_type 为 `tv`/`movie`，按 created_at 倒序合并剧集+电影） |
 | PATCH | `/collections/{id}` | 更新合集（title_cn/title_en/description/poster_url） |
 | DELETE | `/collections/{id}` | 删除合集（成员作品的 collection_id 置空，不删作品） |
 | POST | `/collections/{id}/works` | 挂载作品（body: `{work_type: "series"\|"movie", work_id}`；重复挂载同合集幂等） |

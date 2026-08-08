@@ -48,8 +48,7 @@
     "agents": "下载代理",
     "downloaders": "下载器",
     "settings": "系统设置",
-    "menu": "菜单",
-    "collections": "合集"
+    "menu": "菜单"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -713,10 +712,12 @@
     "batchRefreshFailed": "刷新启动失败",
     "colType": "类型",
     "colTitle": "标题",
+    "colCollection": "合集",
     "colRating": "评分",
     "colStatus": "状态",
     "colInfo": "季集/年份",
-    "colGenre": "分类"
+    "colGenre": "分类",
+    "collections": "合集"
   },
   "collections": {
     "title": "合集",
@@ -729,6 +730,7 @@
     "source_wikidata": "Wikidata",
     "source_manual": "手动",
     "noCollections": "暂无合集",
+    "notFound": "合集不存在",
     "createTitle": "新建合集",
     "editTitle": "编辑合集",
     "nameCn": "中文名",

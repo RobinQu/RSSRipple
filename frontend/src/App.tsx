@@ -14,7 +14,7 @@ import SeriesDetail from './pages/SeriesDetail';
 import MovieDetail from './pages/MovieDetail';
 import AudioWorkDetail from './pages/AudioWorkDetail';
 import WorksPage from './pages/WorksPage';
-import Collections from './pages/Collections';
+import CollectionDetail from './pages/CollectionDetail';
 import SettingsPage from './pages/Settings';
 import PageErrorBoundary from './components/PageErrorBoundary';
 
@@ -25,7 +25,6 @@ function App() {
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="works" element={<WorksPage />} />
-          <Route path="collections" element={<Collections />} />
           <Route path="channels" element={<Channels />} />
           <Route path="channels/new" element={<ChannelForm />} />
           <Route path="channels/:id/edit" element={<ChannelForm />} />
@@ -46,6 +45,9 @@ function App() {
           <Route path="movies" element={<Navigate to="/works" replace />} />
           <Route path="movies/:id" element={<MovieDetail />} />
           <Route path="audio-works/:id" element={<AudioWorkDetail />} />
+          {/* Collection detail is a full page; the list stays inside the
+              /works 合集 browse mode (CollectionsPanel). */}
+          <Route path="collections/:id" element={<CollectionDetail />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

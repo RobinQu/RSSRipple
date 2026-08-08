@@ -48,8 +48,7 @@
     "agents": "Download Agents",
     "downloaders": "Downloaders",
     "settings": "Settings",
-    "menu": "Menu",
-    "collections": "Collections"
+    "menu": "Menu"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -713,10 +712,12 @@
     "batchRefreshFailed": "Failed to start refresh",
     "colType": "Type",
     "colTitle": "Title",
+    "colCollection": "Collection",
     "colRating": "Rating",
     "colStatus": "Status",
     "colInfo": "Seasons/Year",
-    "colGenre": "Genre"
+    "colGenre": "Genre",
+    "collections": "Collections"
   },
   "collections": {
     "title": "Collections",
@@ -729,6 +730,7 @@
     "source_wikidata": "Wikidata",
     "source_manual": "Manual",
     "noCollections": "No collections yet",
+    "notFound": "Collection not found",
     "createTitle": "New Collection",
     "editTitle": "Edit Collection",
     "nameCn": "Chinese name",

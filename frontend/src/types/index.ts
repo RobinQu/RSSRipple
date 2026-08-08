@@ -116,7 +116,7 @@ export interface CollectionSibling {
   type: 'series' | 'movie';
 }
 
-// WorkCollection — franchise grouping (management page at /collections)
+// WorkCollection — franchise grouping (browse/manage in the /works 合集 view)
 export interface WorkCollection {
   id: string;
   title_cn: string;
@@ -231,6 +231,9 @@ export interface Work {
   runtime: number | null;
   year: number | null;
   genre: string[] | null;
+  // Franchise grouping — present on tv/movie items, null for audio/ungrouped
+  collection_id?: string | null;
+  collection_name?: string | null;
   resource_count: number;
   created_at: string;
   updated_at: string;

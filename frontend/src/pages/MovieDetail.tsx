@@ -177,6 +177,11 @@ export default function MovieDetail() {
               <Descriptions.Item label={t('movies.originalTitle')}>{movie.original_title || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.rating')}>{movie.rating ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('common.status')}>{movie.status || '—'}</Descriptions.Item>
+              {movie.collection && (
+                <Descriptions.Item label={t('works.colCollection')}>
+                  <Link to={`/collections/${movie.collection.id}`}>{movie.collection.name}</Link>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label={t('movies.runtime')}>{movie.runtime ? `${movie.runtime}${t('movies.runtimeUnit')}` : '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.releaseDate')}>{movie.release_date || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.updatedAt')}>{timeAgo(movie.updated_at)}</Descriptions.Item>

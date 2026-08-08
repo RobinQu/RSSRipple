@@ -54,7 +54,7 @@
 
 ### 前端（详见 frontend.md）
 
-- 路由：`/` Dashboard、`/works`、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`。
+- 路由：`/` Dashboard、`/works`（合集列表作为浏览模式整合进作品仓库：`?view=collections`）、`/collections/:id`（合集详情页，无独立列表路由）、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`。
 - Agent 保存前必须走 `/agents/rules-preview` + BackfillPreviewModal 回填流程。
 
 ### 错误处理（详见 error-handling.md）

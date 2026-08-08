@@ -10,7 +10,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.api.v1.works import _normalize_movie, _normalize_series
 from app.database import get_db
 from app.models.movie import Movie
 from app.models.series import TVSeries
@@ -133,6 +135,40 @@ async def get_collection(
                 for p in filter_untracked_parts(parts, tracked)
             ]
     return success_response(data)
+
+
+@router.get("/collections/{collection_id}/works")
+async def list_collection_works(
+    collection_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Paginated member works of a collection.
+
+    Items use the same normalized shape as ``GET /works`` (content_type
+    "tv"/"movie" discriminator, collection fields included), merged from
+    TVSeries + Movie and sorted by ``created_at`` descending.
+    """
+    collection = await db.get(WorkCollection, collection_id)
+    if not collection:
+        return _not_found()
+    works: list[dict] = []
+    for model, normalize in ((TVSeries, _normalize_series), (Movie, _normalize_movie)):
+        q = (
+            select(model)
+            .options(selectinload(model.collection))
+            .where(model.collection_id == collection_id)
+            .order_by(model.created_at.desc())
+        )
+        result = await db.execute(q)
+        works.extend(normalize(w) for w in result.scalars().all())
+    works.sort(key=lambda w: w["created_at"] or "", reverse=True)
+    total = len(works)
+    offset = (page - 1) * page_size
+    return paginated_response(
+        works[offset : offset + page_size], total=total, page=page, page_size=page_size
+    )
 
 
 @router.patch("/collections/{collection_id}")

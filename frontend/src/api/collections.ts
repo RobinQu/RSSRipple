@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { WorkCollection } from '../types';
+import type { Work, WorkCollection } from '../types';
 
 export const collectionsApi = {
   list: (page = 1, pageSize = 20, search?: string) => {
@@ -14,6 +14,13 @@ export const collectionsApi = {
     api.post<WorkCollection>('/collections', body),
   get: (id: string, includeParts = false) =>
     api.get<WorkCollection>(`/collections/${id}${includeParts ? '?include_parts=true' : ''}`),
+  works: (id: string, page = 1, pageSize = 20) => {
+    const qs = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    return api.get<Work[]>(`/collections/${id}/works?${qs.toString()}`);
+  },
   update: (id: string, body: { title_cn?: string; title_en?: string | null; description?: string | null }) =>
     api.patch<WorkCollection>(`/collections/${id}`, body),
   remove: (id: string) => api.delete<{ deleted: boolean }>(`/collections/${id}`),

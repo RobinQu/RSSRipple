@@ -191,6 +191,11 @@ export default function SeriesDetail() {
               <Descriptions.Item label={t('series.originalTitle')}>{series.original_title || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('series.rating')}>{series.rating ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('common.status')}>{series.status || '—'}</Descriptions.Item>
+              {series.collection && (
+                <Descriptions.Item label={t('works.colCollection')}>
+                  <Link to={`/collections/${series.collection.id}`}>{series.collection.name}</Link>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label={t('series.seasonsEpisodes')}>
                 {series.number_of_seasons ? `${series.number_of_seasons}${t('series.season')} ${series.number_of_episodes || '?'}${t('series.episode')}` : '—'}
               </Descriptions.Item>

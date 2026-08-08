@@ -152,6 +152,53 @@ class TestCollectionAttach:
         assert res.status_code == 404
 
 
+class TestCollectionWorksPagination:
+    async def test_works_paginated(self, client, sample_series, sample_movie):
+        cid = (await client.post(
+            "/api/v1/collections", json={"title_cn": "A"}
+        )).json()["data"]["id"]
+        await client.post(f"/api/v1/collections/{cid}/works", json={
+            "work_type": "series", "work_id": sample_series.id,
+        })
+        await client.post(f"/api/v1/collections/{cid}/works", json={
+            "work_type": "movie", "work_id": sample_movie.id,
+        })
+
+        res = await client.get(
+            f"/api/v1/collections/{cid}/works", params={"page": 1, "page_size": 1}
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["meta"]["total"] == 2
+        assert len(body["data"]) == 1
+        first = body["data"][0]
+        assert first["content_type"] in ("tv", "movie")
+        assert first["collection_id"] == cid
+
+        res = await client.get(
+            f"/api/v1/collections/{cid}/works", params={"page": 2, "page_size": 1}
+        )
+        body2 = res.json()
+        assert body2["meta"]["total"] == 2
+        assert len(body2["data"]) == 1
+        assert body2["data"][0]["id"] != first["id"]
+
+    async def test_works_empty_collection(self, client):
+        cid = (await client.post(
+            "/api/v1/collections", json={"title_cn": "A"}
+        )).json()["data"]["id"]
+        res = await client.get(f"/api/v1/collections/{cid}/works")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["meta"]["total"] == 0
+        assert body["data"] == []
+
+    async def test_works_404(self, client):
+        res = await client.get("/api/v1/collections/nope/works")
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
+
+
 class TestDetailCollectionFields:
     async def test_movie_detail_includes_collection_and_siblings(self, client, db_session):
         coll = WorkCollection(id=_uuid(), title_cn="狮子王（系列）")
