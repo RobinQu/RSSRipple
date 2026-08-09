@@ -19,6 +19,11 @@ services:
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
     command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001", "--reload"]
+    # Webhook consumers running on the Docker host (e.g. vault-organizer):
+    # the machine hostname resolves to loopback (127.0.1.1) and never works
+    # across containers; this pins host.docker.internal to the host gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     develop:
       watch:
         - action: sync

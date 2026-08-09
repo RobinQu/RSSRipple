@@ -395,23 +395,27 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       title: t('agents.webhookUrlLabel'),
       dataIndex: 'webhook_url',
       key: 'webhook_url',
+      width: 130,
       render: (v: string) => <EllipsisText text={v} />,
     },
     {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 80,
       render: (status: string) => <StatusBadge status={status} />,
     },
     {
       title: t('agents.notifColAttempts'),
       dataIndex: 'attempt_count',
       key: 'attempt_count',
-      width: 80,
+      width: 60,
       render: (v: number) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>,
     },
     {
+      // Flex column (no width): with tableLayout="fixed" it takes whatever
+      // the fixed columns leave, and EllipsisText truncates instead of
+      // stretching the table past the Drawer width.
       title: t('agents.notifColError'),
       dataIndex: 'error_message',
       key: 'error_message',
@@ -422,7 +426,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       title: t('agents.notifColDeliveredAt'),
       dataIndex: 'delivered_at',
       key: 'delivered_at',
-      width: 120,
+      width: 110,
       render: (v: string | null) =>
         v ? (
           <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
@@ -434,7 +438,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       title: t('agents.notifColNextAttempt'),
       dataIndex: 'next_attempt_at',
       key: 'next_attempt_at',
-      width: 120,
+      width: 110,
       render: (v: string | null) =>
         v ? (
           <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
@@ -641,6 +645,8 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
               rowKey="id"
               size="small"
               pagination={false}
+              tableLayout="fixed"
+              scroll={{ x: 600 }}
             />
             <Text strong style={{ fontSize: 13 }}>{t('agents.notifPayloadTitle')}</Text>
             <pre

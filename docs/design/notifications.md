@@ -146,6 +146,7 @@ pending --(2xx / mock)--> done
 - 投递 body：`{"event": "download.completed", "notification": <payload>}`，POST 到 webhook 的 URL，**180s 超时**（`WEBHOOK_TIMEOUT_SECONDS`），2xx 为成功。
 - 失败：`attempt_count += 1`；达到 `NOTIFY_MAX_ATTEMPTS`（默认 5）→ `failed`；否则 `next_attempt_at = now + min(base * 2^attempt, 1800s)`（base 默认 30s，封顶 30 分钟）。
 - mock webhook：不发 HTTP，直接记 `done`（`delivered_at` 落时间），仅用于在界面查看通知内容。
+- **webhook URL 可达性（Docker 部署）**：消费者在宿主机或其他容器时，机器主机名（常解析为 127.0.1.1 回环）在容器内不可达；`docker-compose.yml` 已注入 `extra_hosts: host.docker.internal:host-gateway`，指向宿主机的 webhook 应注册为 `http://host.docker.internal:<port>/...`。
 - 每条 delivery 独立 commit（行变更经 `commit_lock` 串行化，AsyncSession 不可重入），写锁绝不跨 HTTP 调用持有；单个 webhook 失败不回滚其他 delivery。
 
 ## API（前缀 /api/v1）
