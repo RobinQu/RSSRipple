@@ -103,11 +103,11 @@ git config core.hooksPath githooks
 
 ```bash
 uv sync
-cd frontend && npm install && npm run build && cd ..
+cd frontend && corepack pnpm install && corepack pnpm run build && cd ..
 uv run uvicorn app.main:app --reload --port 9001
 ```
 
-compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热重载 — 在 `frontend/` 下运行 `npm run build`，或 `docker compose build app` 把新 bundle 重新打包进镜像。前端构建需要 Node.js 20.19+ 或 22.12+（Vite 8）；Docker 镜像内的前端构建阶段使用 `node:22-slim`。
+compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热重载 — 在 `frontend/` 下运行 `corepack pnpm run build`，或 `docker compose build app` 把新 bundle 重新打包进镜像。前端构建需要 Node.js 20.19+ 或 22.12+（Vite 8），包管理器为 **pnpm**（经 corepack，版本固定在 `frontend/package.json` 的 `packageManager` 字段）；Docker 镜像内的前端构建阶段使用 `node:22-slim` + BuildKit pnpm store 缓存挂载。
 
 ## 测试
 

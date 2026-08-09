@@ -1,11 +1,15 @@
 # Vite 8 requires Node 20.19+ / 22.12+ — use the Node 22 LTS line (a stale
-# cached node:20-slim image can be older than 20.19 and break npm run build).
+# cached node:20-slim image can be older than 20.19 and break the build).
 FROM node:22-slim AS frontend-builder
 WORKDIR /frontend
-COPY frontend/package*.json ./
-RUN npm ci
+RUN corepack enable
+# pnpm with a BuildKit cache mount for the content-addressable store:
+# repeat builds only download what the lockfile diff actually changed.
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm-store \
+    pnpm install --frozen-lockfile --store-dir=/pnpm-store
 COPY frontend/ .
-RUN npm run build
+RUN pnpm run build
 
 FROM python:3.12-slim
 WORKDIR /app
