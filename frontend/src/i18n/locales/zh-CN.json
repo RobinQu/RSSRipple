@@ -722,6 +722,7 @@
     "colType": "类型",
     "colTitle": "标题",
     "colCollection": "合集",
+    "collectionSiblings": "同合集作品",
     "sourceLinks": "数据源",
     "colRating": "评分",
     "colStatus": "状态",

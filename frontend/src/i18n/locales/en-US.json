@@ -85,6 +85,7 @@
   },
   "channels": {
     "title": "Channels",
+    "loadFailed": "Failed to load channel",
     "newChannel": "New Channel",
     "editChannel": "Edit Channel",
     "createChannel": "Create Channel",
@@ -722,6 +723,7 @@
     "colType": "Type",
     "colTitle": "Title",
     "colCollection": "Collection",
+    "collectionSiblings": "Same Collection",
     "sourceLinks": "Sources",
     "colRating": "Rating",
     "colStatus": "Status",
