@@ -215,7 +215,7 @@ async def seed(db_session):
 
 
 async def test_create_notification_snapshots_and_pauses(db_session, seed):
-    n = await create_notification_for_task(db_session, seed.task)
+    n, created = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
 
     assert n.status == "pending"
@@ -236,9 +236,10 @@ async def test_create_notification_snapshots_and_pauses(db_session, seed):
 
 
 async def test_create_notification_idempotent(db_session, seed):
-    first = await create_notification_for_task(db_session, seed.task)
+    first, created1 = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
-    second = await create_notification_for_task(db_session, seed.task)
+    second, created2 = await create_notification_for_task(db_session, seed.task)
+    assert created1 is True and created2 is False
     assert second.id == first.id
 
 
@@ -319,7 +320,7 @@ async def test_deliver_failure_backoff_then_failed(
 ):
     monkeypatch.setattr(settings, "notify_max_attempts", 2)
     seed.agent.notify_webhook_url = "http://organizer:8910/webhook"
-    n = await create_notification_for_task(db_session, seed.task)
+    n, created = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
 
     calls: list = []
@@ -396,7 +397,7 @@ async def test_create_notification_rpc_degraded(db_session, seed, monkeypatch):
         "app.clients.mock_downloader.MockDownloaderWrapper.pause_torrent",
         AsyncMock(side_effect=Exception("rpc down")),
     )
-    n = await create_notification_for_task(db_session, seed.task)
+    n, created = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
     assert n.status == "pending"
     assert "files" not in n.payload
@@ -404,7 +405,7 @@ async def test_create_notification_rpc_degraded(db_session, seed, monkeypatch):
 
 
 async def test_deliver_skips_notification_without_agent(db_session, seed):
-    n = await create_notification_for_task(db_session, seed.task)
+    n, created = await create_notification_for_task(db_session, seed.task)
     n.agent_id = None  # Agent 被删除（SET NULL）后的历史通知
     await db_session.commit()
     stats = await deliver_due_notifications(db_session)
@@ -467,3 +468,35 @@ async def test_scheduler_tick_disabled(db_session, seed, monkeypatch):
     assert (
         await db_session.execute(select(DownloadNotification))
     ).scalars().all() == []
+
+
+async def test_create_notification_survives_concurrent_race(db_session, seed, monkeypatch):
+    """回归：backfill/调度 tick 竞态——预检通过（无行）后、插入前，并发写
+    入者已提交同一 download_task_id 的通知。唯一约束冲突必须被 SAVEPOINT
+    捕获并回读已存在行，而不是炸掉整个请求。"""
+    from sqlalchemy import select as sa_select
+
+    # 预置“并发写入者”已提交的行。
+    await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+
+    # 让第一次预检模拟“过期读”（并发行尚未可见），第二次走真实查询。
+    real_find = notify_service._find_by_task
+    calls = 0
+
+    async def stale_find(db, task_id):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return None
+        return await real_find(db, task_id)
+
+    monkeypatch.setattr(notify_service, "_find_by_task", stale_find)
+
+    n, created = await create_notification_for_task(db_session, seed.task)
+    assert created is False
+    assert n.download_task_id == seed.task.id
+    # 会话仍然可用，且库里只有一行。
+    await db_session.commit()
+    rows = (await db_session.execute(sa_select(DownloadNotification))).scalars().all()
+    assert len(rows) == 1

@@ -524,14 +524,17 @@ async def _process_download_notifications() -> None:
                 DownloadTask.id.notin_(notified),
             )
             tasks = (await db.execute(stmt)).scalars().all()
+            enqueued = 0
             for task in tasks:
-                await create_notification_for_task(db, task)
+                _, was_created = await create_notification_for_task(db, task)
+                if was_created:
+                    enqueued += 1
                 await db.commit()
             stats = await deliver_due_notifications(db)
-            if tasks or stats["delivered"] or stats["failed"]:
+            if enqueued or stats["delivered"] or stats["failed"]:
                 logger.info(
                     "[notify] enqueued=%d delivered=%d failed=%d skipped=%d",
-                    len(tasks), stats["delivered"], stats["failed"], stats["skipped"],
+                    enqueued, stats["delivered"], stats["failed"], stats["skipped"],
                 )
         except Exception as e:
             logger.warning("[notify] processing tick failed: %s", e)

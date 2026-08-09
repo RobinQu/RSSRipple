@@ -26,7 +26,8 @@ class DownloadNotification(Base):
 
     id: str                              # UUID
     agent_id: str | None → Agent         # 队列归属（ON DELETE SET NULL）
-    download_task_id: str → DownloadTask # Unique：一个任务至多一条通知（幂等基础）
+    download_task_id: str → DownloadTask # Unique：一个任务至多一条通知（幂等基础；并发创建
+                                         # 走 SAVEPOINT，输掉竞争回读已存在行）（幂等基础）
     payload: dict                        # 完整快照 JSON（见下）
     status: str                          # "pending" | "processing" | "done" | "failed"
     error_message: str | None            # 投递失败 / 消费者 fail 原因（ack 后也可能带 warning）

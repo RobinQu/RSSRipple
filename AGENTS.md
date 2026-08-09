@@ -33,7 +33,7 @@
 - `AgentWork` 最多 10 个（`scope_channel_wide=false` 时生效）；CheckConstraint 保证 series/movie 二选一。
 - `WorkCollection` 大 IP 合集分组（组织层而非消歧核心）：作品经可空 `collection_id` 至多属一个合集；TMDB 链接走确定性 `link_movie_collection`（`tmdb_collection` 源 + 原始数字 id，禁止 `canonicalize_external_id`）；DSL 新增 `series.collection`/`movie.collection`（显示名），所有过滤求值点须链式 selectinload 作品的 `collection` 关系。
 - `WorkExternalId` 身份袋（P3）：一个作品可携带多个 `source:id`（wikipedia pageid、langlinks 各语言页 pageid、Exa 回退 id 等），袋反查是 upsert 第一查找步；主 id 规则 creator-wins——`external_id/external_source` 列保持创建时值，后来的 id 只入袋绝不抢占；`UniqueConstraint(source, external_id)` 一 id 至多一作品，冲突不抢（记 warning，成去重候选）；去重合并对袋取并集。
-- `DownloadNotification` 下载完成通知：队列从属于 Agent（`agent_id`，每 Agent 单例 FIFO）；`download_task_id` 唯一（补生成幂等的基础）；payload 是创建时冻结的完整快照；webhook 按 Agent 注册（`agents.notify_webhook_url`/`notify_webhook_mock`/`notify_webhook_token` 三列，token 注册时动态生成、回调按 Agent 比对）。RSSRipple 语义到通知为止，文件整理归外部消费者（vault-organizer）。
+- `DownloadNotification` 下载完成通知：队列从属于 Agent（`agent_id`，每 Agent 单例 FIFO）；`download_task_id` 唯一（补生成幂等的基础）；**并发创建安全**：调度 tick 与 backfill/手动补生成可能竞争同一任务，插入走 SAVEPOINT，输掉唯一约束竞争时回读已存在行（不掉整个批次）；payload 是创建时冻结的完整快照；webhook 按 Agent 注册（`agents.notify_webhook_url`/`notify_webhook_mock`/`notify_webhook_token` 三列，token 注册时动态生成、回调按 Agent 比对）。RSSRipple 语义到通知为止，文件整理归外部消费者（vault-organizer）。
 
 ### Filter DSL（详见 filter-dsl.md）
 

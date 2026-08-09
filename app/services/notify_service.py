@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
@@ -133,23 +134,37 @@ async def _load_resource(db, file_resource_id: str) -> FileResource | None:
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-async def create_notification_for_task(db, task: DownloadTask) -> DownloadNotification:
+async def _find_by_task(
+    db, download_task_id: str
+) -> DownloadNotification | None:
+    return (
+        await db.execute(
+            select(DownloadNotification).where(
+                DownloadNotification.download_task_id == download_task_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def create_notification_for_task(
+    db, task: DownloadTask
+) -> tuple[DownloadNotification, bool]:
     """Create the notification for a completed task (idempotent).
+
+    Returns ``(notification, created)``. Concurrency-safe: the pre-check +
+    insert is not atomic against the per-minute scheduler tick (or a
+    concurrent backfill), so the insert runs in a SAVEPOINT and a lost race
+    against the ``download_task_id`` UNIQUE constraint falls back to reading
+    the row the concurrent writer committed.
 
     Stops the torrent (best-effort) and snapshots the torrent's file listing
     via the downloader RPC (best-effort — on failure the row is enqueued
     without ``files`` and the consumer falls back to scanning the download
     directory itself). Does not commit; the caller owns the transaction.
     """
-    existing = (
-        await db.execute(
-            select(DownloadNotification).where(
-                DownloadNotification.download_task_id == task.id
-            )
-        )
-    ).scalar_one_or_none()
+    existing = await _find_by_task(db, task.id)
     if existing is not None:
-        return existing
+        return existing, False
 
     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
     resource = await _load_resource(db, task.file_resource_id)
@@ -192,8 +207,15 @@ async def create_notification_for_task(db, task: DownloadTask) -> DownloadNotifi
     notification.payload = build_payload(
         notification.id, agent, task, resource, torrent_info
     )
-    db.add(notification)
-    return notification
+    try:
+        async with db.begin_nested():  # SAVEPOINT: keep the caller's batch
+            db.add(notification)
+            await db.flush()
+    except IntegrityError:
+        # Lost a race against a concurrent creator (scheduler tick / parallel
+        # backfill): the row exists now — adopt it.
+        return await _find_by_task(db, task.id), False
+    return notification, True
 
 
 async def deliver_due_notifications(db) -> dict:
@@ -275,11 +297,10 @@ async def backfill_notifications(
     batches; delivery is left to the per-minute delivery loop, which
     naturally rate-limits the webhook calls.
     """
-    notified_task_ids = (
-        select(DownloadNotification.download_task_id)
-        .where(DownloadNotification.agent_id == agent_id)
-        .scalar_subquery()
-    )
+    # The uniqueness invariant is global on download_task_id — exclude tasks
+    # with ANY notification, not just this agent's (a concurrent scheduler
+    # tick creates rows under the same agent, but belt and braces).
+    notified_task_ids = select(DownloadNotification.download_task_id).scalar_subquery()
     stmt = (
         select(DownloadTask)
         .where(
@@ -295,9 +316,10 @@ async def backfill_notifications(
 
     created = 0
     for task in tasks:
-        await create_notification_for_task(db, task)
-        created += 1
-        if created % _BACKFILL_COMMIT_EVERY == 0:
+        _, was_created = await create_notification_for_task(db, task)
+        if was_created:
+            created += 1
+        if created and created % _BACKFILL_COMMIT_EVERY == 0:
             await db.commit()
     await db.commit()
     return created
