@@ -1,0 +1,20 @@
+{{Infobox animanga/Headerofja
+{{Infobox animanga/name
+{{Infobox animanga/Novel
+{{Infobox animanga/Manga
+| 話數 = 122話
+{{Infobox animanga/MediaMix|衍生漫畫
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 全51話
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/MediaMixFooter}}
+{{Infobox animanga/Footerofja}}

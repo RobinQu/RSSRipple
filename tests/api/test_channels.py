@@ -96,12 +96,12 @@ class TestChannelsCRUD:
         monkeypatch.setattr(sched_mod, "reschedule_channel", fake_reschedule)
         res = await client.put(
             f"/api/v1/channels/{sample_channel.id}",
-            json={"fetch_interval": 600, "metadata_source": "jina"},
+            json={"fetch_interval": 600, "metadata_source": "tmdb"},
         )
         assert res.status_code == 200
         assert captured.get("channel_id") == sample_channel.id
         assert captured.get("fetch_interval") == 600
-        assert captured.get("metadata_source") == "jina"
+        assert captured.get("metadata_source") == "tmdb"
 
     async def test_delete_channel(self, client, sample_channel):
         res = await client.delete(f"/api/v1/channels/{sample_channel.id}")
@@ -310,9 +310,9 @@ class TestMetadataSources:
         assert res.status_code == 200
         data = res.json()["data"]
         values = [s["value"] for s in data["sources"]]
-        # All four external sources are exposed.
-        assert {"exa", "jina", "wikipedia", "tmdb"} <= set(values)
-        assert data["default"] == "exa"
+        # Channel config is restricted to the two-source architecture.
+        assert set(values) == {"wikipedia", "tmdb"}
+        assert data["default"] == "wikipedia"
         # Each entry carries the availability flags.
         for s in data["sources"]:
             assert set(s.keys()) >= {"value", "label", "available", "enabled", "configured"}
@@ -352,6 +352,50 @@ class TestMetadataSources:
         )
         assert res.status_code == 200
         assert res.json()["data"]["metadata_source"] == "tmdb"
+
+    async def test_create_channel_rejects_deprecated_sources(self, client):
+        # exa/jina/local/combined are deprecated as channel sources (P1).
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 3, 3)),
+        ):
+            for legacy in ("exa", "jina", "local", "combined"):
+                res = await client.post(
+                    "/api/v1/channels",
+                    json=_channel_payload(metadata_source=legacy),
+                )
+                assert res.status_code == 422, legacy
+
+    async def test_update_channel_rejects_deprecated_source(self, client, sample_channel):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"metadata_source": "exa"},
+        )
+        assert res.status_code == 422
+
+    async def test_channel_fallback_sources_roundtrip(self, client, sample_channel):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"metadata_fallback_sources": ["bangumi", "tmdb"]},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["metadata_fallback_sources"] == ["bangumi", "tmdb"]
+        got = await client.get(f"/api/v1/channels/{sample_channel.id}")
+        assert got.json()["data"]["metadata_fallback_sources"] == ["bangumi", "tmdb"]
+        # Empty list = fallback disabled (distinct from None = default order).
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"metadata_fallback_sources": []},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["metadata_fallback_sources"] == []
+
+    async def test_channel_rejects_unknown_fallback_source(self, client, sample_channel):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"metadata_fallback_sources": ["bangumi", "eiga"]},
+        )
+        assert res.status_code == 422
 
 
 class TestCreateAutoFetch:

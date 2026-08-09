@@ -36,6 +36,20 @@ type Mode = 'create' | 'edit';
 type SidebarStatus = 'streaming' | 'done' | 'error' | 'idle';
 
 const { Title, Text } = Typography;
+
+// Ordered Exa-fallback site whitelist (mirrors the backend registry default
+// order in app/services/metadata_source_registry.py). Selection order is
+// meaningful: earlier entries are preferred; clearing all disables the
+// fallback.
+const DEFAULT_FALLBACK_SOURCES = [
+  'bangumi',
+  'mal',
+  'anilist',
+  'tmdb',
+  'wikipedia',
+  'imdb',
+  'douban',
+];
 const DEFAULT_FIELD_MAPPING_TEXT = JSON.stringify(
   {
     list_locator: { source: 'entries' },
@@ -162,6 +176,7 @@ export default function ChannelForm() {
             fetch_interval: ch.fetch_interval,
             metadata_agent_enabled: ch.metadata_agent_enabled ?? true,
             metadata_source: ch.metadata_source ?? null,
+            metadata_fallback_sources: ch.metadata_fallback_sources ?? DEFAULT_FALLBACK_SOURCES,
             auto_cleanup_unresolved_enabled: ch.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: ch.auto_cleanup_unresolved_days ?? 21,
           });
@@ -312,6 +327,7 @@ export default function ChannelForm() {
     fetch_interval: number;
     metadata_agent_enabled?: boolean;
     metadata_source?: MetadataSource | null;
+    metadata_fallback_sources?: string[];
     auto_cleanup_unresolved_enabled?: boolean;
     auto_cleanup_unresolved_days?: number;
   }) => {
@@ -355,6 +371,7 @@ export default function ChannelForm() {
             field_mapping: fm,
             metadata_agent_enabled: values.metadata_agent_enabled ?? true,
             metadata_source: values.metadata_agent_enabled ? (values.metadata_source ?? null) : null,
+            metadata_fallback_sources: values.metadata_fallback_sources ?? [],
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
           },
@@ -379,6 +396,7 @@ export default function ChannelForm() {
             field_mapping: fm,
             metadata_agent_enabled: values.metadata_agent_enabled ?? true,
             metadata_source: values.metadata_agent_enabled ? (values.metadata_source ?? null) : null,
+            metadata_fallback_sources: values.metadata_fallback_sources ?? [],
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
           },
@@ -461,6 +479,7 @@ export default function ChannelForm() {
                     fetch_interval: 1800,
                     metadata_agent_enabled: true,
                     metadata_source: null,
+                    metadata_fallback_sources: DEFAULT_FALLBACK_SOURCES,
                     auto_cleanup_unresolved_enabled: false,
                     auto_cleanup_unresolved_days: 21,
                   }
@@ -542,6 +561,25 @@ export default function ChannelForm() {
                   style={{ maxWidth: 320 }}
                   options={buildSourceOptions()}
                   notFoundContent={t('channels.metadataSourceNone')}
+                />
+              </Form.Item>
+            )}
+
+            {agentEnabled && (
+              <Form.Item
+                name="metadata_fallback_sources"
+                label={t('channels.metadataFallbackLabel')}
+                tooltip={t('channels.metadataFallbackDesc')}
+                extra={t('channels.metadataFallbackHelper')}
+              >
+                <Select
+                  mode="multiple"
+                  placeholder={t('channels.metadataFallbackPlaceholder')}
+                  style={{ maxWidth: 480 }}
+                  options={DEFAULT_FALLBACK_SOURCES.map((s) => ({
+                    value: s,
+                    label: t(`channels.sources.${s}`, { defaultValue: s }),
+                  }))}
                 />
               </Form.Item>
             )}

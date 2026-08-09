@@ -97,6 +97,23 @@ async def get_series(series_id: str, db: AsyncSession = Depends(get_db)):
         )
     data = TVSeriesResponse.model_validate(series).model_dump()
 
+    # External-identity display links (registry-driven; replaces the old
+    # client-side sourceLinks.ts computation). P3: the identity bag's
+    # secondary ids (langlink pageids, Exa-fallback ids, ...) are included,
+    # deduped against the primary external_id.
+    from app.services.external_ids import list_external_ids
+    from app.services.metadata_source_registry import build_source_links
+    bag_ids = [
+        r.external_id
+        for r in await list_external_ids(db, "series", series.id)
+        if r.external_id != series.external_id
+    ]
+    data["source_links"] = build_source_links(
+        series.external_id, series.external_source, "tv",
+        wikipedia_url=series.wikipedia_url,
+        extra_ids=bag_ids,
+    )
+
     # Episodes
     data["episodes"] = [
         EpisodeResponse.model_validate(e).model_dump() for e in (series.episodes or [])

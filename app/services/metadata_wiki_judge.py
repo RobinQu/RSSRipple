@@ -29,9 +29,65 @@ from app.services.metadata_wiki_query import _candidate_queries
 from app.services.metadata_wikipedia_client import (
     _execute_get_wikipedia_page,
     _execute_search_wikipedia,
+    fetch_wikipedia_wikitext,
+)
+from app.services.wikipedia_episode_parser import (
+    parse_episode_list,
+    parse_seasons_from_infobox,
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _attach_wikipedia_content(me: dict, page: dict) -> None:
+    """P2: merge deterministically-parsed seasons/episodes into matched_entity.
+
+    Wikipedia is the CONTENT source for wikipedia-primary channels (the LLM
+    judge only identifies the work). Fetches the selected page's wikitext and
+    runs the deterministic parser; on total parse failure, retries ONCE via
+    the zh<->ja langlink (episode sections often live on only one side).
+    Merges ``seasons`` / ``number_of_seasons`` / ``number_of_episodes`` and
+    the new ``episode_list`` key. Best-effort: any failure leaves ``me``
+    untouched.
+    """
+    title = page.get("title")
+    lang = page.get("lang") or "zh"
+    if not title:
+        return
+    wikitext = await fetch_wikipedia_wikitext(title, lang)
+    infobox = parse_seasons_from_infobox(wikitext) if wikitext else None
+    list_data = parse_episode_list(wikitext) if wikitext else None
+    if infobox is None and list_data is None:
+        alt_lang = {"zh": "ja", "ja": "zh"}.get(lang)
+        alt_title = (page.get("langlinks") or {}).get(alt_lang) if alt_lang else None
+        if alt_title:
+            wikitext = await fetch_wikipedia_wikitext(alt_title, alt_lang)
+            infobox = parse_seasons_from_infobox(wikitext) if wikitext else None
+            list_data = parse_episode_list(wikitext) if wikitext else None
+    if infobox is None and list_data is None:
+        logger.debug(
+            "[metadata_agent] wikipedia content parse: no seasons/episodes on %r (%s)",
+            title, lang,
+        )
+        return
+    list_seasons = (list_data or {}).get("seasons")
+    # Infobox counts are authoritative, but the episode list can know about a
+    # season the infobox doesn't list yet (ongoing works) - take whichever
+    # shows more seasons.
+    seasons = infobox
+    if list_seasons and (not seasons or len(list_seasons) > len(seasons)):
+        seasons = list_seasons
+    if seasons:
+        me["seasons"] = seasons
+        me["number_of_seasons"] = len(seasons)
+        me["number_of_episodes"] = sum(s["episode_count"] for s in seasons)
+    episodes = (list_data or {}).get("episodes")
+    if episodes:
+        me["episode_list"] = episodes
+    logger.info(
+        "[metadata_agent] wikipedia content for %r: %s seasons, %d episodes",
+        title, len(seasons or []), len(episodes or []),
+    )
 
 
 def _parse_finalize_json(text: str) -> dict | None:
@@ -74,6 +130,20 @@ def _cross_language_titles(entry: dict) -> dict:
     }
 
 
+def _wikipedia_alt_external_ids(entry: dict) -> list[dict]:
+    """P3: baggable secondary wikipedia ids from a page's langlink pageids.
+
+    Wikipedia pageids are per-language-wiki; the same work's zh/en/ja pages
+    have different pageids. Bagging all of them (as ``alt_external_ids`` on
+    matched_entity) lets a later upsert that arrives with ANY language's
+    pageid converge on the same work row deterministically.
+    """
+    return [
+        {"source": "wikipedia", "id": f"wikipedia:{pid}"}
+        for pid in (entry.get("langlink_pageids") or {}).values()
+    ]
+
+
 async def run_search_then_judge(
     model,
     raw_title: str,
@@ -83,6 +153,7 @@ async def run_search_then_judge(
     react_runner,
     msg_builder,
     exa_searcher=None,
+    fallback_sources: list[str] | None = None,
 ) -> tuple[dict, dict]:
     """Search-first + single-LLM-judge path (S3) for the wikipedia source.
 
@@ -92,9 +163,11 @@ async def run_search_then_judge(
     is no usable query, the judge call fails, or its JSON is unparseable.
 
     When the wikipedia judge returns found=False, an optional Exa web-search
-    fallback runs before the ReAct second opinion. Exa can close wikipedia's
-    coverage gap (no page / misclassified novel page / bad translated title)
-    by finding bangumi/TMDB/moegirl/Baidu Baike/etc. pages on the open web.
+    fallback runs before the ReAct second opinion, filtered to the channel's
+    ordered whitelist (``fallback_sources``; None = default order, [] =
+    fallback disabled). Exa can close wikipedia's coverage gap (no page /
+    misclassified novel page / bad translated title) by finding pages on the
+    whitelisted identity sites (bangumi/MAL/AniList/TMDB/...).
     """
     source = normalize_metadata_source_type(data_source_type)
     queries = _candidate_queries(raw_title, resource)
@@ -158,6 +231,8 @@ async def run_search_then_judge(
                 entry["poster_url"] = d["poster_url"]
             if d.get("langlinks"):
                 entry["langlinks"] = d["langlinks"]
+            if d.get("langlink_pageids"):
+                entry["langlink_pageids"] = d["langlink_pageids"]
         elif isinstance(pres, Exception):
             source_errors[f"page:{cand.get('lang')}"] = f"{type(pres).__name__}: {pres}"[:200]
         evidence.append(entry)
@@ -218,6 +293,8 @@ async def run_search_then_judge(
                     "title_cn": xl["title_cn"],
                     "title_en": xl["title_en"],
                     "alt_titles": xl["alt_titles"],
+                    # P3: langlink pageids join the identity bag at upsert.
+                    "alt_external_ids": _wikipedia_alt_external_ids(best_auto),
                     "description": (best_auto.get("summary") or "")[:500] or None,
                     "poster_url": best_auto.get("poster_url"),
                     "wikipedia_url": best_auto.get("url"),
@@ -226,6 +303,12 @@ async def run_search_then_judge(
                 "confidence": 0.9,
                 "reason": f"auto-linked wikipedia result (title similarity {best_auto_score})",
             }
+            if ct == "tv":
+                # P2: deterministic seasons/episodes from the selected page's
+                # wikitext (the auto-link short-circuit never runs the judge).
+                await _attach_wikipedia_content(
+                    finalize_dict["matched_entity"], best_auto
+                )
             logger.info(
                 "[metadata_agent] auto-link %r -> %r (sim=%d, work, no judge)",
                 raw_title[:80], wiki_title, best_auto_score,
@@ -302,6 +385,7 @@ async def run_search_then_judge(
     if not finalize_dict.get("found"):
         exa_result = await exa_fallback_judge(
             model, raw_title, resource=resource, exa_searcher=exa_searcher,
+            fallback_sources=fallback_sources,
         )
         if exa_result is not None:
             exa_finalize, exa_info = exa_result
@@ -378,10 +462,18 @@ async def run_search_then_judge(
                     xl = _cross_language_titles(e)
                     if xl["alt_titles"]:
                         me["alt_titles"] = xl["alt_titles"]
+                    # P3: langlink pageids join the identity bag at upsert.
+                    alt_ids = _wikipedia_alt_external_ids(e)
+                    if alt_ids:
+                        me["alt_external_ids"] = alt_ids
                     if not me.get("title_cn") and xl["title_cn"]:
                         me["title_cn"] = xl["title_cn"]
                     if not me.get("title_en") and xl["title_en"]:
                         me["title_en"] = xl["title_en"]
+                    if finalize_dict.get("content_type") == "tv":
+                        # P2: deterministic seasons/episodes from the judged
+                        # page's wikitext (LLM judge schema stays unchanged).
+                        await _attach_wikipedia_content(me, e)
                     break
             finalize_dict["matched_entity"] = me
     finalize_dict.setdefault("clean_title", "")

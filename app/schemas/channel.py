@@ -18,6 +18,7 @@ class ChannelCreate(BaseModel):
     field_mapping: dict
     metadata_agent_enabled: bool = True
     metadata_source: str | None = None
+    metadata_fallback_sources: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
 
@@ -25,6 +26,11 @@ class ChannelCreate(BaseModel):
     @classmethod
     def _validate_source(cls, v: str | None) -> str | None:
         return _normalize_source(v)
+
+    @field_validator("metadata_fallback_sources")
+    @classmethod
+    def _validate_fallback_sources(cls, v: list[str] | None) -> list[str] | None:
+        return _normalize_fallback_sources(v)
 
     @field_validator("auto_cleanup_unresolved_days")
     @classmethod
@@ -39,6 +45,7 @@ class ChannelUpdate(BaseModel):
     field_mapping: dict | None = None
     metadata_agent_enabled: bool | None = None
     metadata_source: str | None = None
+    metadata_fallback_sources: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool | None = None
     auto_cleanup_unresolved_days: int | None = None
 
@@ -46,6 +53,11 @@ class ChannelUpdate(BaseModel):
     @classmethod
     def _validate_source(cls, v: str | None) -> str | None:
         return _normalize_source(v)
+
+    @field_validator("metadata_fallback_sources")
+    @classmethod
+    def _validate_fallback_sources(cls, v: list[str] | None) -> list[str] | None:
+        return _normalize_fallback_sources(v)
 
     @field_validator("auto_cleanup_unresolved_days")
     @classmethod
@@ -63,6 +75,7 @@ class ChannelResponse(ORMModel):
     field_mapping: dict
     metadata_agent_enabled: bool = True
     metadata_source: str | None = None
+    metadata_fallback_sources: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
     last_fetched_at: datetime | None = None
@@ -82,17 +95,41 @@ def _clamp_cleanup_days(v: int) -> int:
 
 
 def _normalize_source(value: str | None) -> str | None:
-    """Lowercase + validate a metadata source. Empty/None passes through."""
-    from app.services.metadata_agent import SUPPORTED_METADATA_SOURCES
+    """Lowercase + validate a channel metadata source. Empty/None passes through.
+
+    Channel config is restricted to the two-source architecture
+    (wikipedia/tmdb); legacy exa/jina/local/combined values are rejected.
+    """
+    from app.services.metadata_sources import SUPPORTED_CHANNEL_METADATA_SOURCES
 
     if value is None:
         return None
     v = value.strip().lower()
     if not v:
         return None
-    if v not in SUPPORTED_METADATA_SOURCES:
+    if v not in SUPPORTED_CHANNEL_METADATA_SOURCES:
         raise ValueError(f"unsupported metadata_source: {value!r}")
     return v
+
+
+def _normalize_fallback_sources(value: list[str] | None) -> list[str] | None:
+    """Validate the ordered Exa-fallback whitelist against the site registry.
+
+    None = use the default order; [] = fallback disabled. Unknown site names
+    are rejected.
+    """
+    from app.services.metadata_source_registry import REGISTRY_SOURCES
+
+    if value is None:
+        return None
+    out: list[str] = []
+    for item in value:
+        v = str(item).strip().lower()
+        if v not in REGISTRY_SOURCES:
+            raise ValueError(f"unsupported metadata fallback source: {item!r}")
+        if v not in out:
+            out.append(v)
+    return out
 
 
 class ChannelListItem(ChannelResponse):

@@ -17,7 +17,7 @@ import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
 
-const { Title, Text } = Typography;
+const { Title, Text, Link: AntdLink } = Typography;
 
 export default function SeriesDetail() {
   const { t } = useTranslation();
@@ -148,6 +148,8 @@ export default function SeriesDetail() {
   if (loading) return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
   if (!series) return <Text type="danger">{t('series.notFound')}</Text>;
 
+  const sourceLinks = series.source_links ?? [];
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
@@ -196,6 +198,16 @@ export default function SeriesDetail() {
                   <Link to={`/collections/${series.collection.id}`}>{series.collection.name}</Link>
                 </Descriptions.Item>
               )}
+              <Descriptions.Item label={t('works.sourceLinks')}>
+                {sourceLinks.length > 0
+                  ? sourceLinks.map((l, i) => (
+                      <span key={l.url}>
+                        {i > 0 && ' · '}
+                        <AntdLink href={l.url} target="_blank" rel="noreferrer">{l.label}</AntdLink>
+                      </span>
+                    ))
+                  : '—'}
+              </Descriptions.Item>
               <Descriptions.Item label={t('series.seasonsEpisodes')}>
                 {series.number_of_seasons ? `${series.number_of_seasons}${t('series.season')} ${series.number_of_episodes || '?'}${t('series.episode')}` : '—'}
               </Descriptions.Item>

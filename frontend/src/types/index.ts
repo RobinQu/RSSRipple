@@ -8,6 +8,9 @@ export interface APIResponse<T> {
 
 // Channel
 export type ChannelStatus = 'active' | 'inactive' | 'error';
+// Channel primary metadata source (two-source architecture). The wider
+// MetadataSource union remains for legacy manual-search paths.
+export type ChannelMetadataSource = 'wikipedia' | 'tmdb';
 export type MetadataSource = 'exa' | 'jina' | 'wikipedia' | 'tmdb' | 'local';
 export interface Channel {
   id: string;
@@ -18,7 +21,9 @@ export interface Channel {
   status: ChannelStatus;
   field_mapping: FieldMapping;
   metadata_agent_enabled: boolean;
-  metadata_source: MetadataSource | null;
+  metadata_source: ChannelMetadataSource | null;
+  // Ordered Exa-fallback site whitelist; null = default order, [] = disabled.
+  metadata_fallback_sources: string[] | null;
   auto_cleanup_unresolved_enabled: boolean;
   auto_cleanup_unresolved_days: number;
   last_fetched_at: string | null;
@@ -26,6 +31,14 @@ export interface Channel {
   last_fetch_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// External-identity display link on work detail pages (computed server-side
+// by the site registry).
+export interface SourceLink {
+  source: string;
+  label: string;
+  url: string;
 }
 
 export interface FieldMapping {
@@ -156,6 +169,8 @@ export interface TVSeries {
   aliases: string[] | null;
   external_id: string | null;
   external_source: string | null;
+  canonical_name?: string | null;
+  wikipedia_url?: string | null;
   description: string | null;
   poster_url: string | null;
   rating: number | null;
@@ -181,6 +196,7 @@ export interface TVSeries {
   agent_work_count?: number;
   collection?: CollectionSummary | null;
   collection_siblings?: CollectionSibling[];
+  source_links?: SourceLink[];
 }
 
 // Movie
@@ -192,6 +208,8 @@ export interface Movie {
   aliases: string[] | null;
   external_id: string | null;
   external_source: string | null;
+  canonical_name?: string | null;
+  wikipedia_url?: string | null;
   description: string | null;
   poster_url: string | null;
   rating: number | null;
@@ -210,6 +228,7 @@ export interface Movie {
   agent_work_count?: number;
   collection?: CollectionSummary | null;
   collection_siblings?: CollectionSibling[];
+  source_links?: SourceLink[];
 }
 
 // Unified Work (TVSeries | Movie | AudioWork) for repository view

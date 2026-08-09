@@ -16,7 +16,7 @@
   - `QUEUE_BACKEND`：队列后端，`"memory"`（默认）或 `"redis"`。
   - `REDIS_URL`：可选 Redis 地址，`QUEUE_BACKEND=redis` 时必填。
   - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`：OpenAI 兼容 LLM，用于 feed 分析、统一 MetadataAgent、PendingDecision 建议。
-  - `EXA_API_KEY` / `EXA_EFFORT_LEVEL`（默认 `low`，可选 `minimal`/`low`/`medium`/`high`/`xhigh`）：Exa Agent Search 数据源。
+  - `EXA_API_KEY` / `EXA_EFFORT_LEVEL`（默认 `low`，可选 `minimal`/`low`/`medium`/`high`/`xhigh`）：Exa Agent Search 数据源（频道源已废弃；仍用于手动搜索/评测与 wikipedia 未命中时的有序 Exa 回退）。
   - `JINA_API_KEY`：Jina Search + Reader 数据源。
   - `TMDB_API_KEY`：TMDB 数据源（可选）。
   - `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下从 UI 隐藏该源。

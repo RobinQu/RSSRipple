@@ -18,6 +18,10 @@ class Channel(Base):
                                          # 格式: {list_locator: {source: "entries"},
                                          #        field_mappings: {field: {source, regex?, group?, transform?}}}
     metadata_agent_enabled: bool         # 是否启用统一 metadata agent（默认 true）
+    metadata_source: str | None          # 频道主元数据源："wikipedia" | "tmdb"（两数据源架构，
+                                         # 其他值被轻迁移归一为 "wikipedia"）；None = 运行时用默认值
+    metadata_fallback_sources: list[str] | None  # Exa 回退有序站点白名单（注册表站点名）；
+                                         # None = 默认顺序，[] = 禁用回退；仅补身份/链接
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
     last_fetch_error: str | None         # 上次抓取错误信息
@@ -183,6 +187,32 @@ class Movie(Base):
     collection: WorkCollection | None
 ```
 
+### WorkExternalId（作品外部身份袋 - Phase P3）
+
+"身份袋"反向索引：一个作品可携带**多个**外部身份（创建时的 wikipedia pageid、langlinks 各语言页的 pageid、Exa 回退命中的 tmdb/bangumi id …），任何一个已知 `(source, external_id)` 都能确定性地反查回作品行，使跨源/跨语言 upsert 收敛不再依赖标题运气。
+
+```python
+class WorkExternalId(Base):
+    __tablename__ = "work_external_ids"
+    __table_args__ = (UniqueConstraint("source", "external_id"),)  # 一个 id 至多映射一个作品
+
+    id: str                              # UUID
+    work_type: str                       # "series" | "movie" —— work_id 指向哪张作品表
+    work_id: str                         # 跨表引用（tv_series.id 或 movies.id），故意不带 FK
+    source: str                          # registry 源名（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban）
+    external_id: str                     # 完整 canonical "source:id" 字符串（镜像 TVSeries.external_id 约定）
+    created_at: datetime
+```
+
+**语义与规则**：
+
+- **主 id 规则（creator-wins）**：`TVSeries.external_id/external_source`（及 Movie）仍是创建时确定的展示/主 id；后续发现的 id 只进袋，绝不抢占主 id 列。
+- **存储约定**：`source` 存 registry 源名，`external_id` 存完整 canonical `source:id`；裸 id（如纯 pageid）写入/查询时一律补 `source:` 前缀归一；非 registry 源（如 `llm_search`）跳过。
+- **no-steal**：`UniqueConstraint(source, external_id)` 保证一个 id 至多映射一个作品；把已属于作品 A 的 id 加给作品 B 时不改指、记 warning（该对成为去重候选）。
+- **写入点**：upsert 成功时写入 matched_entity 的主 id + `alt_external_ids`（如 wikipedia langlinks pageids）；去重合并（`_merge_series_group`/`_merge_movie_group`/跨表合并）对袋取并集（存留方继承重复方的主 id 与袋行）。
+- **回填**：`_apply_light_migrations` 启动时从存量 TVSeries/Movie 行的主 external_id 播种（幂等；仅 registry 源）。
+- **读取**：`find_work_by_external_id` 只按同 `work_type` 反查——另一类型的袋命中在 upsert 中被忽略（跨表收敛由 metadata_repository 跨表守卫与每日去重负责）。
+
 ### WorkCollection（作品合集 - 大 IP 系列分组）
 
 将同一 IP（攻壳机动队、蜘蛛侠、狮子王 …）的多个 TVSeries/Movie 归为一组。**合集是组织层而非消歧核心**：匹配/派发仍以单个作品行（TVSeries/Movie）为准。一个作品至多属于一个合集（由单个可空 `collection_id` FK 保证）。
@@ -227,6 +257,8 @@ class Episode(Base):
     created_at: datetime
     updated_at: datetime
 ```
+
+填充来源（Phase P2）：仅由 wikipedia 主源的确定性剧集解析填充——`create_or_update_series_from_external` 在 `matched_entity.episode_list` 存在时调用 `upsert_episodes` 幂等 upsert（title/air_date；只增不删）；剧集详情 API selectinload 本关系。
 
 ### Agent（智能代理）
 
@@ -497,7 +529,7 @@ class MetadataCache(Base):
     updated_at: datetime
 ```
 
-**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 1）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。
+**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 2；gen 2 = P1 回退身份语义 + P2 wikipedia seasons 附着 + P3 身份袋/`alt_external_ids`）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。
 
 ---
 

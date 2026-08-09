@@ -281,6 +281,102 @@ async def _fetch_wikipedia_page_image(
     return None
 
 
+async def fetch_wikipedia_wikitext(page_url_or_title: str, lang: str = "zh") -> str | None:
+    """Fetch the raw wikitext of one Wikipedia page (P2 episode extraction).
+
+    Uses the MediaWiki ``action=parse&prop=wikitext`` endpoint directly
+    (httpx) rather than the wikipediaapi wrapper, which only exposes rendered
+    extracts. Accepts either a page title or a ``/wiki/<title>`` URL. Returns
+    ``None`` on any failure - callers treat a missing wikitext body as
+    non-fatal (the episode/seasons enrichment is best-effort).
+    """
+    import re
+    from urllib.parse import unquote
+
+    import httpx
+
+    title = page_url_or_title or ""
+    m = re.search(r"/wiki/([^#?]+)", title)
+    if m:
+        title = unquote(m.group(1)).replace("_", " ")
+    if not title:
+        return None
+    wiki_lang = lang if lang in ("en", "zh", "ja") else "zh"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"https://{wiki_lang}.wikipedia.org/w/api.php",
+                params={
+                    "action": "parse",
+                    "prop": "wikitext",
+                    "format": "json",
+                    "formatversion": 2,
+                    "redirects": 1,
+                    "page": title,
+                },
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": _WIKIPEDIA_USER_AGENT,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        wikitext = (data.get("parse") or {}).get("wikitext")
+        return wikitext or None
+    except Exception as e:  # noqa: BLE001 - best-effort content fetch
+        logger.debug(
+            "[metadata_agent] wikipedia wikitext(%r) failed lang=%s: %s",
+            title, wiki_lang, e,
+        )
+        return None
+
+
+async def _fetch_langlink_pageids(langlinks: dict[str, str]) -> dict[str, int]:
+    """Resolve langlink page titles to pageids on their language wikis (P3).
+
+    ``wikipediaapi`` langlinks expose only title/url, so each language costs
+    one ``action=query&prop=info`` call (run in parallel). Returns
+    ``{lang: pageid}`` for the languages that resolved; failures are silent
+    (fewer bag ids, never an error).
+    """
+    if not langlinks:
+        return {}
+    import httpx
+
+    async def _one(lang: str, title: str) -> tuple[str, int | None]:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"https://{lang}.wikipedia.org/w/api.php",
+                    params={
+                        "action": "query",
+                        "format": "json",
+                        "prop": "info",
+                        "titles": title,
+                        "redirects": 1,
+                    },
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": _WIKIPEDIA_USER_AGENT,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            for p in ((data.get("query") or {}).get("pages") or {}).values():
+                pid = p.get("pageid")
+                if isinstance(pid, int) and pid > 0:
+                    return lang, pid
+        except Exception as e:  # noqa: BLE001 - best-effort id resolution
+            logger.debug(
+                "[metadata_agent] wikipedia langlink pageid(%r/%s) failed: %s",
+                title, lang, e,
+            )
+        return lang, None
+
+    results = await asyncio.gather(*(_one(lang, t) for lang, t in langlinks.items()))
+    return {lang: pid for lang, pid in results if pid is not None}
+
+
 async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
     """Get full Wikipedia page with infobox and categories."""
     try:
@@ -353,6 +449,13 @@ async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
         )
         langlinks = {}
 
+    # P3: resolve langlink page titles to their pageids so the cross-language
+    # pageids can join the work's identity bag (alt_external_ids). wikipediaapi
+    # langlinks carry only title/url, so this costs one lightweight
+    # ``prop=info`` query per language. Best-effort: any failure just yields
+    # fewer bag ids, never fails the page fetch.
+    langlink_pageids = await _fetch_langlink_pageids(langlinks)
+
     poster_url = await _fetch_wikipedia_page_image(
         page.title, wiki_lang, page.pageid, expected_title=page.title
     )
@@ -367,5 +470,6 @@ async def _execute_get_wikipedia_page(title: str, lang: str = "en") -> dict:
             "categories": (categories or [])[:20],
             "poster_url": poster_url,
             "langlinks": langlinks,
+            "langlink_pageids": langlink_pageids,
         },
     }

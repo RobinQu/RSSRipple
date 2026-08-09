@@ -679,9 +679,9 @@ async def test_create_or_update_movie_dedups_by_canonical_external_id(db_session
 
 
 async def test_fetch_and_link_metadata_layer4_uses_channel_source(db_session):
-    """Per-resource refresh (Layer 4) must run the channel's configured source,
-    not the hardcoded Exa default - otherwise a Jina channel's refresh silently
-    uses Exa."""
+    """Per-resource refresh (Layer 4) must run the channel's resolved source,
+    not a hardcoded default. Channel resolution is two-source (Phase P1): a
+    deprecated jina channel converges on wikipedia."""
     ch = Channel(
         id=_uuid(), name="ch", type="rss_feed", url="https://example.com/rss",
         field_mapping=TEST_FIELD_MAPPING,
@@ -701,7 +701,7 @@ async def test_fetch_and_link_metadata_layer4_uses_channel_source(db_session):
         await ms.fetch_and_link_metadata(db_session, res, ch)
 
     mock_search.assert_called_once()
-    assert mock_search.call_args.args[1] == "jina"
+    assert mock_search.call_args.args[1] == "wikipedia"
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,317 @@
+{{Infobox animanga/Headerofja
+{{Infobox animanga/name
+{{Infobox animanga/Manga
+| 話數 = 253話{{Small|（2026年8月）}}
+{{Infobox animanga/TVAnime
+| 話數 = {{ubl|第1季：全12話|第2季：全12話}}
+{{Infobox animanga/Footerofja}}
+
+=== 各話列表 ===
+{{劇集列表/base/header
+| LineColor = #FF3399
+| Number = 話數
+| Title = 標題
+| Aux0 = 劇本
+| Aux1 = 分鏡
+| Aux2 = 演出
+| Aux3 = 作畫監督
+| Aux4 = 總作畫監督
+| Aux5 = 首播日期
+| TableStyle = font-size: small; white-space: nowrap
+}}
+{{劇集列表/base
+| Chapter = 第1季
+}}
+{{劇集列表/base
+| Number = 第1話
+| Title = {{ubl|超超超超超喜歡你的|2個女朋友（還有98人）}}
+| Subtitle = {{lang|ja|{{ubl|君のことが大大大大大好きな|2人の彼女（あと98人）}}}}
+| Aux0 = [[青島崇]] | Aux0RowSpan = 2
+| Aux1 = {{spml|佐藤光|宮崎渚}}
+| Aux2 = 青木裕一朗 | Aux2RowSpan = 2
+| Aux3 = {{spml|館岡千明|西山實果|佐藤麻里那}}
+| Aux4 = [[矢野茜]] | Aux4RowSpan = 4
+| Aux5 = '''2023年'''<br />10月8日
+}}
+{{劇集列表/base
+| Number = 第2話
+| Title = 第一次的啾
+| Subtitle = {{lang|ja|はじめてのチュウ}}
+| Aux1 = 吉田泰三
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太}}
+| Aux5 = 10月15日
+}}
+{{劇集列表/base
+| Number = 第3話
+| Title = 寡言的公主與騎士與武士
+| Subtitle = {{lang|ja|無口な姫と騎士と武士}}
+| Aux0 = [[山田靖智]] | Aux0RowSpan = 2
+| Aux1 = 五藤有树 | Aux1ColSpan = 2
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太|五藤有樹}}
+| Aux5 = 10月22日
+}}
+{{劇集列表/base
+| Number = 第4話
+| Title = 還以為是卿卿我我回
+| Subtitle = {{lang|ja|いちゃいちゃ回と思いきや}}
+| Aux1 = 清水聰
+| Aux2 = 青木裕一朗
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太}}
+| Aux5 = 10月29日
+}}
+{{劇集列表/base
+| Number = 第5話
+| Title = 講求效率的女朋友
+| Subtitle = {{lang|ja|効率的な彼女}}
+| Aux0 = [[鴻野貴光]] | Aux0RowSpan = 2
+| Aux1 = 山本隆太
+| Aux2 = 熨斗谷充孝
+| Aux3 = {{spml|德川惠梨|GAONNURI Animation}}
+| Aux4 = {{spml|矢野茜|神谷美也子}} | Aux4RowSpan = 3
+| Aux5 = 11月5日
+}}
+{{劇集列表/base
+| Number = 第6話
+| Title = 大家最喜歡的泳裝回
+| Subtitle = {{lang|ja|皆大好き水着回}}
+| Aux1 = 吉田泰三
+| Aux2 = 平田貴大
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太|佐藤麻里那|佐佐木幸惠}}
+| Aux5 = 11月12日
+}}
+{{劇集列表/base
+| Number = 第7話
+| Title = 初次見面的藥物少女
+| Subtitle = {{lang|ja|はじめましてのお薬少女}}
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 清水聰
+| Aux2 = 山本隆太 | Aux2RowSpan = 2
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太}}
+| Aux5 = 11月19日
+}}
+{{劇集列表/base
+| Number = 第8話
+| Title = 接吻殭屍♡大恐慌
+| Subtitle = {{lang|ja|キスゾンビ♡パニック}}
+| Aux1 = {{spml|山本隆太|佐藤光}}
+| Aux3 = {{spml|館岡千明|西山實果|櫻井木之實|杜偉峰|陳亮|鄰Animation}}
+| Aux4 = 矢野茜
+| Aux5 = 11月26日
+}}
+{{劇集列表/base
+| Number = 第9話
+| Title = 賭上愛與靈魂的聖戰
+| Subtitle = {{lang|ja|愛と魂をかけた聖戦}}
+| Aux0 = 鸿野贵光
+| Aux1 = 岛津裕行
+| Aux2 = [[神保昌登]]
+| Aux3 = {{spml|广富麻由|一居一平|大西贵子}}
+| Aux4 = {{spml|矢野茜|神谷美也子}}
+| Aux5 = 12月3日
+}}
+{{劇集列表/base
+| Number = 第10話
+| Title = 不可能的愛情任務
+| Subtitle = {{lang|ja|ラブミッション：インポッシブル}}
+| Aux0 = 青島崇 | Aux0RowSpan = 3
+| Aux1 = 平田貴大 | Aux1ColSpan = 2
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太|佐藤麻里那}} | Aux3RowSpan = 3
+| Aux4 = {{spml|矢野茜|佐藤麻里那}}
+| Aux5 = 12月10日
+}}
+{{劇集列表/base
+| Number = 第11話
+| Title = 就算要犧牲這條命
+| Subtitle = {{lang|ja|この命にかえても}}
+| Aux1 = [[佐藤卓哉]]
+| Aux2 = 宮田政典
+| Aux4 = {{spml|矢野茜|神谷美也子|佐藤麻里那}}
+| Aux5 = 12月17日
+}}
+{{劇集列表/base
+| Number = 第12話
+| Title = {{ubl|超超超超超喜歡你的|100個女朋友（還有94人）}}
+| Subtitle = {{lang|ja|{{ubl|君のことが大大大大大好きな|100人の彼女（あと94人）}}}}
+| Aux1 = 宮崎渚
+| Aux2 = 青木裕一朗
+| Aux3 = {{spml|矢野茜|神谷美也子}}
+| Aux5 = 12月24日
+}}
+{{劇集列表/base
+| Chapter = 第2季
+}}
+{{劇集列表/base
+| Number = 第13話
+| Title = 她的名字。
+| Subtitle = {{lang|ja|{{ruby|彼|カノ}}の名は。}}
+| Aux0 = 青島崇 | Aux0RowSpan = 2
+| Aux1 = 吉田泰三 | Aux1RowSpan = 2
+| Aux2 = 青木裕一朗 | Aux2RowSpan = 2
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太}} | Aux3RowSpan = 2
+| Aux4 = 矢野茜 | Aux4RowSpan = 6
+| Aux5 = '''2025年'''<br />1月12日
+}}
+{{劇集列表/base
+| Number = 第14話
+| Title = 開幕！激鬥！分出勝負！美食戰鬥嘉年華
+| Subtitle = {{lang|ja|開幕！激闘！決着！フードファイトフェスティバル}}
+| Aux5 = 1月19日
+}}
+{{劇集列表/base
+| Number = 第15話
+| Title = 女僕看得見嗎？
+| Subtitle = {{lang|ja|メイドさんは見えてる？}}
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 宮崎渚
+| Aux2 = 山本隆太
+| Aux3 = {{spml|館岡千明|西山實果|水崎健太|古川三郎}}
+| Aux5 = 1月26日
+}}
+{{劇集列表/base
+| Number = 第16話
+| Title = 濕濕女僕派對
+| Subtitle = {{lang|ja|ぬれぬれメイドパーティー}}
+| Aux1 = 青柳隆平
+| Aux2 = 平田貴大
+| Aux3 = {{spml|館岡千明|西山實果}}
+| Aux5 = 2月2日
+}}
+{{劇集列表/base
+| Number = 第17話
+| Title = 運動员通常是被虐狂
+| Subtitle = {{lang|ja|アスリートは基本ドM}}
+| Aux0 = 鴻野貴光 | Aux0RowSpan = 2
+| Aux1 = 佐藤光 | Aux1ColSpan = 2
+| Aux3 = {{spml|舘岡千明|西山實果|澀谷頌一|野元愛}}
+| Aux5 = 2月9日
+}}
+{{劇集列表/base
+| Number = 第18話
+| Title = 向妳的全壘打發誓
+| Subtitle = {{lang|ja|君のホームランに誓う}}
+| Aux1 = 吉田泰三
+| Aux2 = 山本隆太
+| Aux3 = {{spml|西山實果|水崎健太}}
+| Aux5 = 2月16日
+}}
+{{劇集列表/base
+| Number = 第19話
+| Title = 卡拉OK・危機
+| Subtitle = {{lang|ja|カラオケ・クライシス}}
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 清水聰 | Aux1RowSpan = 2
+| Aux2 = 青木裕一朗
+| Aux3 = {{spml|西山實果|澀谷頌一|野元愛|三澤聖矢}}
+| Aux4 = {{spml|矢野茜|館岡千明}} | Aux4RowSpan = 6
+| Aux5 = 2月23日
+}}
+{{劇集列表/base
+| Number = 第20話
+| Title = 美麗的東西
+| Subtitle ={{lang|ja|美しきものたち}}
+| Aux2 = 山本隆太
+| Aux3 = {{spml|澀谷頌一|野元愛|水崎健太|葉昌|陳丹|吳遠誌|蔣杭岑|五角|方滿|王家梁|王潤雨}}
+| Aux5 = 3月2日
+}}
+{{劇集列表/base
+| Number = 第21話
+| Title = 只有头髮知道的世界
+| Subtitle ={{lang|ja|髪のみぞ知る世界}}
+| Aux0 = 鴻野貴光 | Aux0RowSpan = 2
+| Aux1 = 佐野隆史
+| Aux2 = 青木裕一朗
+| Aux3 = {{spml|西山實果|野元愛|水崎健太|王瑞浩}}
+| Aux5 = 3月9日
+}}
+{{劇集列表/base
+| Number = 第22話
+| Title = 捉迷藏男孩遇見女孩
+| Subtitle = {{lang|ja|かくれんボーイミーツガール}}
+| Aux1 = 青柳隆平
+| Aux2 = {{spml|佐藤光|山本隆太|青木裕一朗}}
+| Aux3 = {{spml|西山實果|澀谷頌一|野元愛|水崎健太}}
+| Aux5 = 3月16日
+}}
+{{劇集列表/base
+| Number = 第23話
+| Title = 失去的傲嬌
+| Subtitle ={{lang|ja|失われしツンデレ}}
+| Aux0 = 青島崇 | Aux0RowSpan = 2
+| Aux1 = {{spml|宮崎渚|佐藤光}}
+| Aux2 = 飯野健太郎
+| Aux3 = {{spml|西山實果|澀谷頌一|奧山裕也|{{lang|ja|ビート}}|細田沙織}}
+| Aux5 = 3月23日
+}}
+{{劇集列表/base
+| Number = 第24話
+| Title = {{ubl|超超超超超喜歡你的|100個女朋友（還有89人）}}
+| Subtitle ={{lang|ja|{{ubl|君のことが大大大大大しゅきな|100人の彼女（あと89人）}}}}
+| Aux1 = 吉田泰三 
+| Aux2 = 山本隆太
+| Aux3 = {{spml|西山實果|澀谷頌一|野元愛|水崎健太|三澤聖矢}}
+| Aux5 = 3月30日
+}}
+{{劇集列表/base
+| Chapter = 第3季
+}}
+{{劇集列表/base
+| Number = 第25話
+| Title = 表妹女朋友
+| Subtitle = {{lang|ja|いとこの彼女}}
+| Aux0 = 青島崇 | Aux0RowSpan = 2
+| Aux1 = {{spml|佐藤光|[[永居慎平]]}}
+| Aux2 = {{spml|佐藤光|山本隆太}}
+| Aux3 = {{spml|西山實果|澀谷頌一|野元愛|水崎健太|高村遼太郎|[[龜田義明|天﨑まなむ]]|田川美沙音}}
+| Aux4 = 矢野茜
+| Aux5 = '''2026年'''<br />7月5日
+}}
+{{劇集列表/base
+| Number = 第26話
+| Title = 知與的Family指導
+| Subtitle = {{lang|ja|知与ちゃんのファミリー指導}}
+| Aux1 = 清水聰
+| Aux2 = 青木裕一朗 | Aux2RowSpan = 2
+| Aux3 = {{spml|西山實果|館岡千明|水崎健太}}
+| Aux4 = {{spml|矢野茜|館岡千明}} | Aux4RowSpan = 4
+| Aux5 = 7月12日
+}}
+{{劇集列表/base
+| Number = 第27話
+| Title = 國文老師留著一頭金髮
+| Subtitle = {{lang|ja|国語教師はブロンドヘア}}
+| Aux0 = 鴻野貴光 | Aux0RowSpan = 2
+| Aux1 = 宮崎渚
+| Aux3 = 池原菜緒
+| Aux5 = 7月19日
+}}
+{{劇集列表/base
+| Number = 第28話
+| Title = 偶像傳說戀太郎Family
+| Subtitle = {{lang|ja|アイドル伝説恋太郎ファミリー}}
+| Aux1 = 春水融 | Aux1ColSpan = 2
+| Aux3 = {{spml|西山實果|野元愛}}
+| Aux5 = 7月26日
+}}
+{{劇集列表/base
+| Number = 第29話
+| Title = 優敷同學的園藝社巡迴之旅 
+| Subtitle = {{lang|ja|優敷さんの園芸部ツアー}}
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 清水聰
+| Aux2 = 田邊慎吾
+| Aux3 = {{spml|吉田智裕|南伸一郎|{{lang|ja|天﨑まなむ}}|田中海人}}
+| Aux5 = 8月2日
+}}
+{{^|劇集列表/base
+| Number = 第30話
+| Title = 
+| Subtitle = {{lang|ja|紅葉ちゃんのもみもみフェスティバル}}
+| Aux0 = 
+| Aux1 = 青柳隆平
+| Aux2 = 山本隆太
+| Aux3 = {{spml|西山實果|野元愛|水崎健太|佐佐木幸惠}}
+| Aux4 = {{spml|矢野茜|西山實果}}
+| Aux5 = 8月9日
+}}
+{{劇集列表/base/footer}}
+

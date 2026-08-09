@@ -9,11 +9,17 @@ using the configured api key.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
+
+# P4: caps for the per-season TMDB episode fetch. 30 seasons covers every
+# realistic work; beyond that the per-season fan-out is not worth the calls.
+TMDB_EPISODE_FETCH_MAX_SEASONS = 30
+TMDB_EPISODE_FETCH_CONCURRENCY = 4
 
 
 async def _execute_search_tmdb(query: str) -> dict:
@@ -102,6 +108,82 @@ async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
         )
         return {"success": False, "data": {}, "error": str(e)}
 
+
+
+async def fetch_tmdb_episode_list(
+    tmdb_id: str | int, seasons: list[dict] | None
+) -> list[dict] | None:
+    """Fetch per-episode data for a TMDB TV work (P4, wikipedia symmetry).
+
+    TMDB series details carry per-season counts only; episode titles/air dates
+    need one ``GET /tv/{id}/season/{n}`` per season. Season 0 (specials) is
+    skipped - it is not part of the main numbering. Per-season failures are
+    tolerated (logged, that season's episodes omitted); the whole call returns
+    None when no season yielded episodes, or when the work has more seasons
+    than ``TMDB_EPISODE_FETCH_MAX_SEASONS`` (fan-out not worth it). Episodes
+    are ``[{season, episode, title, air_date}]`` - the same shape the
+    wikipedia parser produces and ``upsert_episodes`` consumes.
+    """
+    api_key = runtime_config.tmdb_api_key
+    if not api_key:
+        return None
+    digits = re.sub(r"\D", "", str(tmdb_id))
+    if not digits:
+        return None
+    season_numbers: set[int] = set()
+    for s in seasons or []:
+        if not isinstance(s, dict):
+            continue
+        try:
+            n = int(s.get("season_number"))
+        except (TypeError, ValueError):
+            continue
+        if n >= 1:
+            season_numbers.add(n)
+    season_list = sorted(season_numbers)
+    if not season_list or len(season_list) > TMDB_EPISODE_FETCH_MAX_SEASONS:
+        return None
+
+    import asyncio
+
+    import httpx
+
+    sem = asyncio.Semaphore(TMDB_EPISODE_FETCH_CONCURRENCY)
+
+    async def _one(client: Any, n: int) -> dict | None:
+        async with sem:
+            try:
+                resp = await client.get(
+                    f"https://api.themoviedb.org/3/tv/{digits}/season/{n}",
+                    params={"api_key": api_key, "language": "zh-CN"},
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                logger.warning(
+                    "[metadata_agent] tmdb season fetch failed for tv/%s season %d: %s",
+                    digits, n, e,
+                )
+                return None
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        results = await asyncio.gather(*(_one(client, n) for n in season_list))
+
+    episodes: list[dict] = []
+    for n, data in zip(season_list, results):
+        if not isinstance(data, dict):
+            continue
+        for ep in data.get("episodes") or []:
+            num = ep.get("episode_number")
+            if not isinstance(num, int) or num < 1:
+                continue
+            episodes.append({
+                "season": n,
+                "episode": num,
+                "title": ep.get("name"),
+                "air_date": ep.get("air_date") or None,
+            })
+    return episodes or None
 
 
 async def _execute_search_exa_agent(query: str) -> dict:

@@ -221,8 +221,15 @@ async def resolve_series_entity_qid(series: TVSeries) -> str | None:
         qid = await resolve_qid_from_wikipedia_url(series.wikipedia_url)
         if qid:
             return qid
-    if series.wikipedia_page_id:
-        qid = await resolve_qid_from_page_id(series.wikipedia_page_id, titles)
+    # Rows matched by the Wikipedia source store the page id in
+    # ``external_id`` ("wikipedia:<pageid>") — often without filling
+    # ``wikipedia_page_id``/``wikipedia_url``. Treat it as the same evidence.
+    page_id = series.wikipedia_page_id
+    if page_id is None and (series.external_id or "").startswith("wikipedia:"):
+        raw = (series.external_id or "").split(":", 1)[1]
+        page_id = int(raw) if raw.isdigit() else None
+    if page_id:
+        qid = await resolve_qid_from_page_id(page_id, titles)
         if qid:
             return qid
     return await search_entity_qid(titles)
@@ -246,10 +253,16 @@ async def fetch_entity(qid: str) -> dict | None:
             "formatversion": 2,
         },
     )
-    entities = (data or {}).get("entities") or []
-    if not entities or "missing" in entities[0]:
+    # wbgetentities returns ``entities`` as a dict keyed by QID — even with
+    # formatversion=2 (that flag only flattens claims/labels, not the map).
+    entities = (data or {}).get("entities") or {}
+    if isinstance(entities, dict):
+        entity = entities.get(qid) or next(iter(entities.values()), None)
+    else:  # tolerate list-shaped payloads (older mocks/proxies)
+        entity = entities[0] if entities else None
+    if not entity or "missing" in entity:
         return None
-    return entities[0]
+    return entity
 
 
 def extract_p179_qids(entity: dict) -> list[str]:

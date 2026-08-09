@@ -47,6 +47,7 @@
 | GET | `/channels` | 频道列表（分页） |
 | POST | `/channels` | 创建频道（服务端校验 RSS URL 可达与格式合法性） |
 | GET | `/channels/form-token` | 获取表单防重复提交 Token（一次有效，存服务端 Cache） |
+| GET | `/channels/metadata-sources` | 频道表单数据源目录（两数据源架构：仅 wikipedia/tmdb + 可用性标志 + 默认值） |
 | GET | `/channels/{id}` | 频道详情（含最近 20 条 FileResource 预览） |
 | PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存） |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
@@ -58,6 +59,8 @@
 | POST | `/channels/validate-url` | 验证 RSS URL 可达性与格式（创建前校验） |
 | POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
+
+频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb`（其他值 422）；`metadata_fallback_sources` 为 Exa 回退的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。
 
 `POST /channels/{id}/summarize-filters` 请求体：`{ "resource_ids": ["...", "..."] }`；响应 `data`：
 
@@ -303,7 +306,7 @@
 | PUT | `/movies/{id}` | 更新电影元数据 |
 | DELETE | `/movies/{id}` | 删除电影 |
 
-系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，来自本地库共享 collection_id 查询）。
+系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，来自本地库共享 collection_id 查询）。响应顶层同时暴露 `external_id`/`external_source`、`canonical_name`/`wikipedia_url`（Wikipedia 实际 URL，优先于 curid 回退），以及服务端计算的 `source_links`（`[{source, label, url}]`，由站点注册表 `metadata_source_registry.build_source_links` 生成，支持旧复合形 `TMDB:NNN; IMDb:ttNNN` 拆分，TMDB 链接按 tv/movie 区分路径）——前端详情页直接渲染，不再自行解析。
 
 ### WorkCollections（作品合集）
 

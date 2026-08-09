@@ -172,11 +172,11 @@ def _pageprops_handler(work_qid: str, p179_qids: list[str], franchise_labels: di
         if action == "wbgetentities":
             if params["ids"] == work_qid:
                 return {
-                    "entities": [
-                        {"id": work_qid, "claims": {"P179": [_claim(q) for q in p179_qids]}}
-                    ]
+                    "entities": {
+                        work_qid: {"id": work_qid, "claims": {"P179": [_claim(q) for q in p179_qids]}}
+                    }
                 }
-            return {"entities": [{"id": params["ids"], "labels": franchise_labels}]}
+            return {"entities": {params["ids"]: {"id": params["ids"], "labels": franchise_labels}}}
         return {}
 
     return handler

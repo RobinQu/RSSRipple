@@ -1,0 +1,276 @@
+{{Infobox animanga/Header
+{{Infobox animanga/Manga
+| 話数 = 
+{{Infobox animanga/TVAnime
+| 話数 = 第1期：全12話<br /> 第2期：全12話
+{{Infobox animanga/Footer
+
+=== 各話リスト ===
+{{エピソードリスト/base/header
+| LineColor = #f50967
+| Number = 話数
+| Title = サブタイトル
+| Aux0 = シナリオ
+| Aux1 = {{nobr|絵コンテ}}
+| Aux2 = 演出
+| Aux3 = {{nobr|作画監督}}
+| Aux4 = {{nobr|総作画監督}}
+| Aux5 = 初放送日
+| TableStyle = font-size:small
+}}
+{{エピソードリスト/base
+| Chapter  = 第1期
+}}
+{{エピソードリスト/base
+| Number = 第1話
+| Title = 君のことが大大大大大好きな<br />2人の彼女（あと98人）
+| Aux0 = {{nobr|[[あおしまたかし]]}} | Aux0RowSpan = 2
+| Aux1 = {{hlist-comma|[[佐藤光 (アニメーション監督)|佐藤光]]|[[宮崎なぎさ]]}}
+| Aux2 = {{nobr|青木youイチロー}} | Aux2RowSpan = 2
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|佐藤麻莉奈}}
+| Aux4 = [[矢野茜]] | Aux4RowSpan = 4
+| Aux5 = '''2023年'''<br />10月8日
+}}
+{{エピソードリスト/base
+| Number = 第2話
+| Title = はじめてのチュウ
+| Aux1 = 吉田泰三
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太}}
+| Aux5 = {{nobr|10月15日}}
+}}
+{{エピソードリスト/base
+| Number = 第3話
+| Title = 無口な姫と騎士と武士
+| Aux0 = [[山田靖智]] | Aux0RowSpan = 2
+| Aux1 = 五藤有樹 | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太|五藤有樹}}
+| Aux5 = 10月22日
+}}
+{{エピソードリスト/base
+| Number = 第4話
+| Title = いちゃいちゃ回と思いきや
+| Aux1 = 清水聡
+| Aux2 = 青木youイチロー
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太}}
+| Aux5 = 10月29日
+}}
+{{エピソードリスト/base
+| Number = 第5話
+| Title = 効率的な彼女
+| Aux0 = [[鴻野貴光]] | Aux0RowSpan = 2
+| Aux1 = 山本隆太
+| Aux2 = 熨斗谷充孝
+| Aux3 = {{hlist-comma|德川恵梨|GAONNURI Animation}}
+| Aux4 = {{hlist-comma|矢野茜|神谷美也子}} | Aux4RowSpan = 3
+| Aux5 = 11月5日
+}}
+{{エピソードリスト/base
+| Number = 第6話
+| Title = 皆大好き水着回
+| Aux1 = 吉田泰三
+| Aux2 = 平田貴大
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太|佐藤麻里那|佐々木幸恵}}
+| Aux5 = 11月12日
+}}
+{{エピソードリスト/base
+| Number = 第7話
+| Title = はじめましてのお薬少女
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 清水聡
+| Aux2 = 山本隆太 | Aux2RowSpan = 2
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太}}
+| Aux5 = 11月19日
+}}
+{{エピソードリスト/base
+| Number = 第8話
+| Title = キスゾンビ♡パニック
+| Aux1 = {{hlist-comma|山本隆太|佐藤光}}
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|桜井木ノ実|杜伟峰|陈亮|隣アニメーション}}
+| Aux4 = 矢野茜
+| Aux5 = 11月26日
+}}
+{{エピソードリスト/base
+| Number = 第9話
+| Title = 愛と魂をかけた聖戦
+| Aux0 = 鴻野貴光
+| Aux1 = [[島津裕行]]
+| Aux2 = [[神保昌登]]
+| Aux3 = {{hlist-comma|廣冨麻由|一居一平|大西貴子}}
+| Aux4 = {{hlist-comma|矢野茜|神谷美也子}}
+| Aux5 = 12月3日
+}}
+{{エピソードリスト/base
+| Number = 第10話
+| Title = {{nobr|ラブミッション：インポッシブル}}
+| Aux0 = あおしまたかし | Aux0RowSpan = 3
+| Aux1 = 平田貴大 | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太|佐藤麻里那}} | Aux3RowSpan = 3
+| Aux4 = {{hlist-comma|矢野茜|佐藤麻里那}}
+| Aux5 = 12月10日
+}}
+{{エピソードリスト/base
+| Number = 第11話
+| Title = この命にかえても
+| Aux1 = [[佐藤卓哉]]
+| Aux2 = 宮田政典
+| Aux4 = {{hlist-comma|矢野茜|神谷美也子|佐藤麻里那}}
+| Aux5 = 12月17日
+}}
+{{エピソードリスト/base
+| Number = 第12話
+| Title = 君のことが大大大大大好きな<br />100人の彼女（あと94人）
+| Aux1 = {{nobr|宮崎なぎさ}}
+| Aux2 = 青木youイチロー
+| Aux4 = {{hlist-comma|矢野茜|神谷美也子}}
+| Aux5 = 12月24日
+}}
+{{エピソードリスト/base
+| Chapter  = 第2期
+}}
+{{エピソードリスト/base
+| Number = 第13話
+| Title = 彼（カノ）の名は。
+| Aux0 = あおしまたかし | Aux0RowSpan = 2
+| Aux1 = 吉田泰三 | Aux1RowSpan = 2
+| Aux2 = 青木youイチロー | Aux2RowSpan = 2
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太}} | Aux3RowSpan = 2
+| Aux4 = 矢野茜 | Aux4RowSpan = 6
+| Aux5 = '''2025年'''<br />1月12日
+}}
+{{エピソードリスト/base
+| Number = {{nobr|第14話}}
+| Title = 開幕！ 激闘！ 決着！<br /> フードファイトフェスティバル
+| Aux5 = 1月19日
+}}
+{{エピソードリスト/base
+| Number = 第15話
+| Title = メイドさんは見えてる？
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 宮崎なぎさ
+| Aux2 = 山本隆太
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|水崎健太|古川三郎}}
+| Aux5 = 1月26日
+}}
+{{エピソードリスト/base
+| Number = 第16話
+| Title = ぬれぬれメイドパーティー
+| Aux1 = 青柳隆平
+| Aux2 = 平田貴大
+| Aux3 = {{hlist-comma|舘岡千明|西山実果}}
+| Aux5 = 2月2日
+}}
+{{エピソードリスト/base
+| Number = 第17話
+| Title = アスリートは基本ドM
+| Aux0 = 鴻野貴光 | Aux0RowSpan = 2
+| Aux1 = 佐藤光 | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|舘岡千明|西山実果|渋谷頌一|野元愛}}
+| Aux5 = 2月9日
+}}
+{{エピソードリスト/base
+| Number = 第18話
+| Title = 君のホームランに誓う
+| Aux1 = 吉田泰三
+| Aux2 = 山本隆太
+| Aux3 = {{hlist-comma|西山実果|水崎健太}}
+| Aux5 = 2月16日
+}}
+{{エピソードリスト/base
+| Number = 第19話
+| Title = カラオケ・クライシス
+| Aux0 = 山田靖智 | Aux0RowSpan = 2
+| Aux1 = 清水聡 | Aux1RowSpan = 2
+| Aux2 = 青木youイチロー
+| Aux3 = {{hlist-comma|西山実果|渋谷頌一|野元愛|三沢聖矢}}
+| Aux4 = {{hlist-comma|矢野茜|舘岡千明}} | Aux4RowSpan = 6
+| Aux5 = 2月23日
+}}
+{{エピソードリスト/base
+| Number = {{nobr|第20話}}
+| Title = 美しきものたち
+| Aux2 = 山本隆太
+| Aux3 = {{hlist-comma|渋谷頌一|野元愛|水崎健太|葉昌|陳丹|吳遠誌|蔣杭岑|五角|方满|王家梁|王潤雨}}
+| Aux5 = 3月2日
+}}
+{{エピソードリスト/base
+| Number = 第21話
+| Title = 髪のみぞ知る世界
+| Aux0 = 鴻野貴光 | Aux0RowSpan = 2
+| Aux1 = 佐野隆史
+| Aux2 = 青木youイチロー
+| Aux3 = {{hlist-comma|西山実果|野元愛|水崎健太|王瑞浩}}
+| Aux5 = 3月9日
+}}
+{{エピソードリスト/base
+| Number = 第22話
+| Title = かくれんボーイミーツガール
+| Aux1 = 青柳隆平
+| Aux2 = {{hlist-comma|まつもとよしひさ|佐藤光|山本隆太|青木youイチロー}}
+| Aux3 = {{hlist-comma|西山実果|渋谷頌一|野元愛|水崎健太}}
+| Aux5 = 3月16日
+}}
+{{エピソードリスト/base
+| Number = 第23話
+| Title = 失われしツンデレ
+| Aux0 = あおしまたかし | Aux0RowSpan = 2
+| Aux1 = {{hlist-comma|宮崎なぎさ|佐藤光}}
+| Aux2 = 飯野健太郎
+| Aux3 = {{hlist-comma|西山実果|渋谷頌一|奥山裕也|ビート|細田沙織}}
+| Aux5 = 3月23日
+}}
+{{エピソードリスト/base
+| Number = 第24話
+| Title = 君のことが大大大大大しゅきな<br />100人の彼女（あと89人）
+| Aux1 = 吉田泰三
+| Aux2 = 山本隆太
+| Aux3 = {{hlist-comma|西山実果|渋谷頌一|野元愛|水崎健太|三沢聖矢}}
+| Aux5 = 3月30日
+}}
+{{エピソードリスト/base
+| Chapter = 第3期
+}}
+{{エピソードリスト/base
+| Number = 第25話
+| Title = いとこの彼女
+| Aux0 = あおしまたかし| Aux0RowSpan = 2
+| Aux1 = {{hlist-comma|佐藤光|[[永居慎平]]}}
+| Aux2 = {{hlist-comma|佐藤光|山本隆太}}
+| Aux3 = {{hlist-comma|西山実果|渋谷頌一|野元愛|水崎健太|高村遼太郎|天﨑まなむ|田川美沙音}}
+| Aux4 = 矢野茜
+| Aux5 = '''2026年'''<br />7月5日
+}}
+{{エピソードリスト/base
+| Number = 第26話
+| Title = 知与ちゃんのファミリー指導
+| Aux1 = 清水聡
+| Aux2 = 青木youイチロー | Aux2RowSpan = 2
+| Aux3 = {{hlist-comma|西山実果|舘岡千明|水崎健太}}
+| Aux4 = {{hlist-comma|矢野茜|舘岡千明}} | Aux4RowSpan = 4
+| Aux5 = 7月12日
+}}
+{{エピソードリスト/base
+| Number = 第27話
+| Title = 国語教師はブロンドヘア
+| Aux0 = 鴻野貴光 | Aux0RowSpan = 2
+| Aux1 = 宮崎なぎさ
+| Aux3 = 池原菜緒
+| Aux5 = 7月19日
+}}
+{{エピソードリスト/base
+| Number = 第28話
+| Title = アイドル伝説恋太郎ファミリー
+| Aux1 = 春水融 | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|西山実果|野元愛}}
+| Aux5 = 7月26日
+}}
+{{エピソードリスト/base
+| Number = 第29話
+| Title = 優敷さんの園芸部ツアー
+| Aux0 = 山田靖智
+| Aux1 = 清水聡
+| Aux2 = 田辺慎吾
+| Aux3 = {{hlist-comma|吉田智裕|南伸一郎|天﨑まなむ|田中海人}}
+| Aux5 = 8月2日
+}}
+{{エピソードリスト/base/footer}}
+

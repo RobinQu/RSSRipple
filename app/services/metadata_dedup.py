@@ -35,6 +35,7 @@ from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
+from app.services.external_ids import merge_external_id_bags
 from app.services.metadata_service import canonicalize_external_id
 from app.services.text_normalizer import normalize_title
 
@@ -217,6 +218,10 @@ async def _merge_series_group(
         if survivor.collection_id is None and d.collection_id is not None:
             survivor.collection_id = d.collection_id
 
+    # P3: union the identity bags so the survivor stays reachable by every
+    # external id any merged row was ever known under.
+    await merge_external_id_bags(db, survivor, duplicates)
+
     # Delete duplicates
     for d in duplicates:
         await db.delete(d)
@@ -288,6 +293,9 @@ async def _merge_movie_group(
         # own; only inherit a duplicate's when the survivor has none.
         if survivor.collection_id is None and d.collection_id is not None:
             survivor.collection_id = d.collection_id
+
+    # P3: union the identity bags (see _merge_series_group).
+    await merge_external_id_bags(db, survivor, duplicates)
 
     for d in duplicates:
         await db.delete(d)
@@ -442,6 +450,10 @@ async def merge_cross_type_duplicates(
                 if not series.genre and movie.genre:
                     series.genre = movie.genre
 
+                # P3: union identity bags; otherwise the movie's bag rows
+                # would dangle at a deleted work id.
+                await merge_external_id_bags(db, series, [movie])
+
                 await db.delete(movie)
                 removed_movies.add(movie.id)
                 report.cross_type_merges += 1
@@ -488,6 +500,9 @@ async def merge_cross_type_duplicates(
                     movie.rating = series.rating
                 if not movie.genre and series.genre:
                     movie.genre = series.genre
+
+                # P3: union identity bags (symmetric to the branch above).
+                await merge_external_id_bags(db, movie, [series])
 
                 await db.delete(series)
                 removed_series.add(series.id)

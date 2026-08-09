@@ -30,9 +30,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.audio_work import AudioWork
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+from app.models.episode import Episode
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.services import fts as fts_service
+from app.services.external_ids import add_external_id, find_work_by_external_id
+from app.services.metadata_source_registry import canonicalize_external_id  # noqa: F401
 from app.services.resource_parser import strip_season_from_title
 from app.services.text_normalizer import normalize_title, similarity_score
 from app.utils.time import utcnow
@@ -58,67 +61,11 @@ def _record_unmatched_attempt(resource: Any, failure_type: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# external_id canonicalization
-#
-# Exa Agent Search returns TMDB ids in inconsistent shapes:
-#   "TMDB:82684", "TMDB 82684", "TMDB TV 82684 / season 4", "82684"
-# All of them refer to the same TMDB work, but our naive `external_id`
-# lookup would treat each shape as a separate row and keep spawning
-# duplicate TVSeries/Movie entities on every fetch.
-# The canonicalizer collapses those shapes into a single canonical form
-# (e.g. ``tmdb:82684``) so upserts converge.
+# external_id canonicalization — moved to ``metadata_source_registry`` (the
+# single authority for external identity sites, Phase P1). Imported at the
+# top of this module and re-exported here for the many existing callers
+# (upsert paths, dedup, scripts).
 # ---------------------------------------------------------------------------
-
-_TMDB_DIGITS_RE = re.compile(r"tmdb[^0-9]*(\d{2,10})", re.IGNORECASE)
-_LEADING_DIGITS_RE = re.compile(r"^\s*(\d{2,10})\s*$")
-
-
-def canonicalize_external_id(
-    raw_id: str | None,
-    source: str | None,
-    content_type: str | None = None,
-) -> str | None:
-    """Return a stable canonical form of ``raw_id`` for upsert matching.
-
-    Rules:
-      * Any string containing ``tmdb`` and digits → ``tmdb:{digits}``.
-      * ``source == "tmdb"`` combined with a pure-digit id → ``tmdb:{digits}``.
-      * IMDb ids (``tt`` + digits) → ``imdb:{tt…}``.
-      * Otherwise: lowercase + collapse whitespace, and drop known clutter
-        such as ``/ season N`` tails.
-
-    Never fabricates an id; returns None only when the input is falsy.
-    """
-    if raw_id is None:
-        return None
-    s = str(raw_id).strip()
-    if not s:
-        return None
-
-    # Strip trailing "/ season N" or similar decoration.
-    s_clean = re.sub(r"[\s/,;|]+season[\s#:_-]*\d+\s*$", "", s, flags=re.IGNORECASE)
-    s_clean = re.sub(r"\s+", " ", s_clean).strip()
-
-    lower = s_clean.lower()
-    # TMDB detection — any "tmdb" prefix or when source declares tmdb.
-    if "tmdb" in lower:
-        m = _TMDB_DIGITS_RE.search(lower)
-        if m:
-            return f"tmdb:{m.group(1)}"
-    if (source or "").strip().lower() == "tmdb":
-        m = _LEADING_DIGITS_RE.match(lower)
-        if m:
-            return f"tmdb:{m.group(1)}"
-        m = re.search(r"(\d{2,10})", lower)
-        if m:
-            return f"tmdb:{m.group(1)}"
-
-    # IMDb ids
-    m = re.match(r"^(tt\d{5,})$", lower)
-    if m:
-        return f"imdb:{m.group(1)}"
-
-    return lower or None
 
 
 # ---------------------------------------------------------------------------
@@ -536,37 +483,122 @@ async def find_movie_by_external_id(db: AsyncSession, data: dict) -> Movie | Non
     return (await db.execute(stmt)).scalars().first()
 
 
-async def create_or_update_series_from_external(db: AsyncSession, data: dict) -> TVSeries:
-    """Upsert a TVSeries by canonicalized external_id, then by exact title fallback.
+def seasons_overwrite_allowed(
+    existing_seasons: list | None,
+    existing_number_of_seasons: int | None,
+    incoming_seasons: list | None,
+) -> bool:
+    """P2 anti-regression guard for the wikipedia seasons override.
 
-    External sources (especially Exa Agent) can return the same TMDB id in
-    inconsistent shapes on subsequent fetches; naive equality on ``external_id``
-    would then keep inserting duplicate rows. We normalize the id via
-    :func:`canonicalize_external_id` for the primary lookup, and, if that
-    still misses, fall back to an exact case-sensitive match on
-    ``title_cn`` / ``title_en`` / ``original_title`` — the strong signal that
-    a fresh Exa response describes an already-known work.
+    Overwrite is allowed when (a) no season structure exists yet, (b) the
+    incoming data has MORE seasons than existing, or (c) the count is equal
+    (structure refresh). It is BLOCKED when the incoming data has FEWER
+    seasons than existing - e.g. a zh page whose infobox models the work
+    merged ({1: 51}) must not regress a verified 4-season row.
+    """
+    existing_count = len(existing_seasons or []) or (existing_number_of_seasons or 0)
+    if existing_count == 0:
+        return True
+    return len(incoming_seasons or []) >= existing_count
+
+
+async def upsert_episodes(db: AsyncSession, series: TVSeries, episode_list: list[dict]) -> int:
+    """Idempotently upsert Episode rows from a parsed Wikipedia episode_list.
+
+    Keyed by (series_id, season, episode); existing rows get their title /
+    air_date refreshed (when the incoming value is non-null), missing rows
+    are inserted. Additive only - extra rows (e.g. manually curated or from
+    a source no longer listing them) are never deleted this phase. Returns
+    the number of episode entries processed.
+    """
+    items = [
+        e for e in (episode_list or [])
+        if e.get("season") is not None and e.get("episode") is not None
+    ]
+    if not items:
+        return 0
+    result = await db.execute(select(Episode).where(Episode.series_id == series.id))
+    existing = {(r.season, r.episode): r for r in result.scalars().all()}
+    for e in items:
+        key = (int(e["season"]), int(e["episode"]))
+        air_date = _parse_date(e.get("air_date"))
+        row = existing.get(key)
+        if row is None:
+            db.add(Episode(
+                series_id=series.id,
+                season=key[0],
+                episode=key[1],
+                title=e.get("title"),
+                air_date=air_date,
+            ))
+        else:
+            if e.get("title"):
+                row.title = e["title"]
+            if air_date:
+                row.air_date = air_date
+    await db.flush()
+    return len(items)
+
+
+async def _bag_matched_entity_ids(
+    db: AsyncSession, work_type: str, work_id: str, data: dict
+) -> None:
+    """P3: write every external id a matched_entity carries into the identity bag.
+
+    The incoming primary id (``external_source``/``external_id``) plus any
+    ``alt_external_ids: [{source, id}]`` (e.g. wikipedia langlink pageids) are
+    bagged. The work's PRIMARY ``external_id`` column is never touched here —
+    creator-wins; later-discovered ids only enter the bag. Non-registry
+    sources (e.g. ``llm_search``) are skipped by ``add_external_id``.
+    """
+    await add_external_id(
+        db, work_type, work_id, data.get("external_source"), data.get("external_id")
+    )
+    for alt in data.get("alt_external_ids") or []:
+        if not isinstance(alt, dict):
+            continue
+        await add_external_id(db, work_type, work_id, alt.get("source"), alt.get("id"))
+
+
+async def create_or_update_series_from_external(db: AsyncSession, data: dict) -> TVSeries:
+    """Upsert a TVSeries by identity-bag, canonical external_id, then exact title.
+
+    Lookup order (P3):
+      1. Identity-bag reverse lookup — any id ever bagged for the work
+         (langlink pageids, Exa-fallback ids, ...) converges deterministically.
+      2. Legacy ``external_id`` column lookup (canonical + raw shapes) — kept
+         for rows written before canonicalization/the bag existed.
+      3. Exact case-sensitive match on ``title_cn`` / ``title_en`` /
+         ``original_title`` / alt_titles — the strong signal that a fresh
+         Exa response describes an already-known work.
+
+    On every successful upsert the incoming id(s) are written into the bag;
+    the primary column keeps its creator-wins semantics.
     """
     raw_external_id = data.get("external_id")
     raw_source = data.get("external_source")
     content_type = data.get("content_type")
     canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
 
-    # Primary lookup — canonical id preferred, but keep matching legacy rows
-    # written before canonicalization existed. ``llm_search`` is a legacy
-    # source label kept for compatibility.
+    # (1) Identity bag — deterministic cross-source/cross-language convergence.
+    series: TVSeries | None = None
+    if raw_external_id:
+        series = await find_work_by_external_id(db, "series", raw_source, raw_external_id)
+
+    # (2) Legacy column lookup — canonical id preferred, but keep matching
+    # legacy rows written before canonicalization existed. ``llm_search`` is a
+    # legacy source label kept for compatibility.
     lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
     lookup_sources = {s for s in (raw_source, "llm_search") if s}
 
-    series: TVSeries | None = None
-    if lookup_ids:
+    if series is None and lookup_ids:
         stmt = select(TVSeries).where(TVSeries.external_id.in_(lookup_ids))
         if lookup_sources:
             stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
         result = await db.execute(stmt)
         series = result.scalars().first()
 
-    # Fallback: same work returned with a fresh external_id shape. Match by
+    # (3) Fallback: same work returned with a fresh external_id shape. Match by
     # any of the canonical title columns (case-sensitive; titles are already
     # normalized by upstream extraction). Include season-stripped forms too:
     # stored series titles are base (season-stripped at write time), so an
@@ -611,11 +643,30 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             series.rating = data.get("rating")
         series.original_title = data.get("original_title") or series.original_title
         series.status = data.get("status") or series.status
-        if data.get("number_of_episodes") is not None:
+        # P2 anti-regression guard (wikipedia source only): never overwrite a
+        # richer existing season structure with a poorer one (e.g. a merged/
+        # manga-modeled zh infobox yielding {1: 51} over a verified 4-season
+        # row). tmdb/exa paths are unaffected. number_of_episodes is gated
+        # together with seasons because the parser derives it from the same
+        # (suspect) season counts.
+        seasons_override = True
+        if raw_source == "wikipedia" and data.get("seasons"):
+            seasons_override = seasons_overwrite_allowed(
+                series.seasons, series.number_of_seasons, data["seasons"]
+            )
+            if not seasons_override:
+                logger.warning(
+                    "[metadata] wikipedia seasons guard: series %s keeps existing "
+                    "%d-season structure; incoming wikipedia seasons=%s rejected",
+                    series.id,
+                    len(series.seasons or []) or (series.number_of_seasons or 0),
+                    data["seasons"],
+                )
+        if data.get("number_of_episodes") is not None and seasons_override:
             series.number_of_episodes = data.get("number_of_episodes")
-        if data.get("number_of_seasons") is not None:
+        if data.get("number_of_seasons") is not None and seasons_override:
             series.number_of_seasons = data.get("number_of_seasons")
-        if data.get("seasons"):
+        if data.get("seasons") and seasons_override:
             series.seasons = data["seasons"]
         sd = _parse_date(data.get("start_date"))
         if sd:
@@ -648,7 +699,13 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             local_url = await download_and_cache_poster(remote_poster)
             series.poster_url = local_url or remote_poster
         series.content_type = "tv"
+        # P2: wikipedia-sourced episode_list populates Episode rows (additive
+        # upsert; seasons/number_of_seasons were already overwritten above).
+        if data.get("episode_list"):
+            await upsert_episodes(db, series, data["episode_list"])
         await fts_service.upsert_series_fts(db, series)
+        # P3: bag every id this entity carries (primary + alt_external_ids).
+        await _bag_matched_entity_ids(db, "series", series.id, data)
         return series
 
     # Create
@@ -693,25 +750,35 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     )
     db.add(series)
     await db.flush()
+    if data.get("episode_list"):
+        await upsert_episodes(db, series, data["episode_list"])
     await fts_service.upsert_series_fts(db, series)
+    # P3: bag every id this entity carries (primary + alt_external_ids).
+    await _bag_matched_entity_ids(db, "series", series.id, data)
     return series
 
 
 async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
-    """Upsert a Movie by canonicalized external_id, then by exact title fallback.
+    """Upsert a Movie by identity-bag, canonical external_id, then exact title.
 
-    See :func:`create_or_update_series_from_external` for the rationale.
+    See :func:`create_or_update_series_from_external` for the lookup order and
+    identity-bag (P3) rationale.
     """
     raw_external_id = data.get("external_id")
     raw_source = data.get("external_source")
     content_type = data.get("content_type")
     canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
 
+    # (1) Identity bag — deterministic cross-source convergence.
+    movie: Movie | None = None
+    if raw_external_id:
+        movie = await find_work_by_external_id(db, "movie", raw_source, raw_external_id)
+
+    # (2) Legacy column lookup.
     lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
     lookup_sources = {s for s in (raw_source, "llm_search") if s}
 
-    movie: Movie | None = None
-    if lookup_ids:
+    if movie is None and lookup_ids:
         stmt = select(Movie).where(Movie.external_id.in_(lookup_ids))
         if lookup_sources:
             stmt = stmt.where(Movie.external_source.in_(lookup_sources))
@@ -780,6 +847,8 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             movie.poster_url = local_url or remote_poster
         movie.content_type = "movie"
         await fts_service.upsert_movie_fts(db, movie)
+        # P3: bag every id this entity carries (primary + alt_external_ids).
+        await _bag_matched_entity_ids(db, "movie", movie.id, data)
         return movie
 
     remote_poster = data.get("poster_url")
@@ -809,6 +878,8 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     db.add(movie)
     await db.flush()
     await fts_service.upsert_movie_fts(db, movie)
+    # P3: bag every id this entity carries (primary + alt_external_ids).
+    await _bag_matched_entity_ids(db, "movie", movie.id, data)
     return movie
 
 

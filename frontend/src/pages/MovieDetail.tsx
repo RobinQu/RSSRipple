@@ -14,7 +14,7 @@ import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
 
-const { Title, Text } = Typography;
+const { Title, Text, Link: AntdLink } = Typography;
 
 export default function MovieDetail() {
   const { t } = useTranslation();
@@ -86,6 +86,8 @@ export default function MovieDetail() {
 
   if (loading) return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
   if (!movie) return <Text type="danger">{t('movies.notFound')}</Text>;
+
+  const sourceLinks = movie.source_links ?? [];
 
   const resourceColumns: ColumnsType<FileResource> = [
     {
@@ -182,6 +184,16 @@ export default function MovieDetail() {
                   <Link to={`/collections/${movie.collection.id}`}>{movie.collection.name}</Link>
                 </Descriptions.Item>
               )}
+              <Descriptions.Item label={t('works.sourceLinks')}>
+                {sourceLinks.length > 0
+                  ? sourceLinks.map((l, i) => (
+                      <span key={l.url}>
+                        {i > 0 && ' · '}
+                        <AntdLink href={l.url} target="_blank" rel="noreferrer">{l.label}</AntdLink>
+                      </span>
+                    ))
+                  : '—'}
+              </Descriptions.Item>
               <Descriptions.Item label={t('movies.runtime')}>{movie.runtime ? `${movie.runtime}${t('movies.runtimeUnit')}` : '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.releaseDate')}>{movie.release_date || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.updatedAt')}>{timeAgo(movie.updated_at)}</Descriptions.Item>

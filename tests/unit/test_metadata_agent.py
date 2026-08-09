@@ -16,12 +16,29 @@ def _tool_names(agent: UnifiedMetadataAgent, source: str) -> set[str]:
     return {tool.name for tool in agent._tools_for_source(source)}
 
 
-def test_metadata_source_normalization_maps_legacy_combined_to_exa():
-    assert normalize_metadata_source_type(None) == "exa"
-    assert normalize_metadata_source_type("combined") == "exa"
+def test_metadata_source_normalization_defaults_to_wikipedia():
+    # Legacy values (combined/unknown/None) map to the two-source default.
+    assert normalize_metadata_source_type(None) == "wikipedia"
+    assert normalize_metadata_source_type("combined") == "wikipedia"
     assert normalize_metadata_source_type("TMDB") == "tmdb"
     assert normalize_metadata_source_type("wikipedia") == "wikipedia"
-    assert normalize_metadata_source_type("unknown") == "exa"
+    assert normalize_metadata_source_type("unknown") == "wikipedia"
+    # Legacy ReAct sources still normalize through for manual search / eval.
+    assert normalize_metadata_source_type("exa") == "exa"
+    assert normalize_metadata_source_type("local") == "local"
+
+
+def test_channel_metadata_source_resolution_is_two_source():
+    from app.services.metadata_sources import (
+        normalize_channel_metadata_source,
+        resolve_metadata_source,
+    )
+    assert resolve_metadata_source(None) == "wikipedia"
+    assert resolve_metadata_source("tmdb") == "tmdb"
+    assert resolve_metadata_source("Wikipedia") == "wikipedia"
+    # Deprecated channel sources converge on wikipedia.
+    for legacy in ("exa", "jina", "local", "combined", "unknown"):
+        assert normalize_channel_metadata_source(legacy) == "wikipedia"
 
 
 def test_tools_are_restricted_to_selected_source():
@@ -783,8 +800,8 @@ def test_cache_source_key_namespaces_by_source():
     assert _cache_source_key("jina") == "metadata_agent:jina"
     assert _cache_source_key("exa") == "metadata_agent:exa"
     assert _cache_source_key("local") == "metadata_agent:local"
-    # Unset source resolves to the default (exa), still its own namespace.
-    assert _cache_source_key(None) == "metadata_agent:exa"
+    # Unset source resolves to the default (wikipedia), still its own namespace.
+    assert _cache_source_key(None) == "metadata_agent:wikipedia"
 
 
 async def test_get_cache_is_source_scoped(db_session):

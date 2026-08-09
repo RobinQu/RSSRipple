@@ -91,6 +91,22 @@ async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
         )
     data = MovieResponse.model_validate(movie).model_dump()
 
+    # External-identity display links (registry-driven; replaces the old
+    # client-side sourceLinks.ts computation). P3: the identity bag's
+    # secondary ids are included, deduped against the primary external_id.
+    from app.services.external_ids import list_external_ids
+    from app.services.metadata_source_registry import build_source_links
+    bag_ids = [
+        r.external_id
+        for r in await list_external_ids(db, "movie", movie.id)
+        if r.external_id != movie.external_id
+    ]
+    data["source_links"] = build_source_links(
+        movie.external_id, movie.external_source, "movie",
+        wikipedia_url=movie.wikipedia_url,
+        extra_ids=bag_ids,
+    )
+
     # Resources
     res_q = await db.execute(
         select(FileResource)

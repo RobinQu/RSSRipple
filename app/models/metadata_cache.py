@@ -29,7 +29,12 @@ from app.database import Base
 # deleted on read, so stale verdicts from superseded logic can never
 # short-circuit the fixed code. Legacy rows (pre-versioning) migrated to
 # ``generation = 0`` and are therefore always stale.
-METADATA_CACHE_GENERATION = 1
+# Generation history:
+#   1 — initial versioning (tv-vs-movie classifier fix).
+#   2 — P1 (Exa-fallback identity semantics) + P2 (wikipedia seasons/episodes
+#       attach) + P3 (identity bag: alt_external_ids / langlink pageids)
+#       changed verdict logic; stale cached verdicts must refetch.
+METADATA_CACHE_GENERATION = 2
 
 
 class MetadataCache(Base):

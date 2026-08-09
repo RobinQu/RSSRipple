@@ -10,8 +10,14 @@ from typing import Any
 
 from app.services.runtime_config import runtime_config
 
-DEFAULT_METADATA_SOURCE = "exa"
+DEFAULT_METADATA_SOURCE = "wikipedia"
+# All runtime-supported sources. exa/jina/local are DEPRECATED as *channel*
+# sources but their ReAct code paths stay (manual search + eval may still use
+# them); only wikipedia/tmdb are selectable on a channel.
 SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}
+# Sources selectable as a channel's primary metadata source (two-source
+# architecture, Phase P1).
+SUPPORTED_CHANNEL_METADATA_SOURCES = {"wikipedia", "tmdb"}
 
 # User-selectable external metadata sources (ordered as presented in the UI).
 # ``key`` is the credential attr on Settings; sources without a key
@@ -52,15 +58,20 @@ def is_metadata_source_available(source: str) -> bool:
     return is_metadata_source_enabled(source) and is_metadata_source_configured(source)
 
 
-def get_metadata_source_catalog() -> list[dict[str, Any]]:
-    """Return all external metadata sources with their availability flags.
+def get_metadata_source_catalog(channel_only: bool = False) -> list[dict[str, Any]]:
+    """Return external metadata sources with their availability flags.
 
     Each entry: ``{value, label, description, enabled, configured, available}``.
-    The frontend offers only ``available`` sources in the channel form.
+    With ``channel_only=True`` the result is restricted to the two-source
+    channel architecture (wikipedia/tmdb); the full catalog is still used by
+    the works-page refresh config, where the legacy manual sources remain
+    selectable.
     """
     catalog: list[dict[str, Any]] = []
     for d in _EXTERNAL_SOURCE_DEFS:
         value = d["value"]
+        if channel_only and value not in SUPPORTED_CHANNEL_METADATA_SOURCES:
+            continue
         catalog.append({
             "value": value,
             "label": d["label"],
@@ -80,11 +91,25 @@ def get_available_metadata_sources() -> list[dict[str, Any]]:
 def resolve_metadata_source(value: str | None) -> str:
     """Resolve a channel's stored source to a runnable source.
 
-    Returns the normalized source if it is supported, else the default. Callers
-    that need an *available* source should additionally check
+    Channel resolution is restricted to the two-source architecture
+    (wikipedia/tmdb): deprecated channel sources (exa/jina/local/combined),
+    None, and unknown values all resolve to the default. Callers that need an
+    *available* source should additionally check
     :func:`is_metadata_source_available` and fall back.
     """
-    return normalize_metadata_source_type(value)
+    return normalize_channel_metadata_source(value)
+
+
+def normalize_channel_metadata_source(value: str | None) -> str:
+    """Normalize a *channel* metadata source to wikipedia or tmdb.
+
+    Deprecated channel sources (exa/jina/local/combined), None, and unknown
+    values map to the default (wikipedia). Used only for channel resolution;
+    manual search / eval paths that still exercise the legacy ReAct sources
+    go through :func:`normalize_metadata_source_type` instead.
+    """
+    source = (value or "").strip().lower()
+    return source if source in SUPPORTED_CHANNEL_METADATA_SOURCES else DEFAULT_METADATA_SOURCE
 
 
 def normalize_metadata_source_type(value: str | None) -> str:
@@ -92,8 +117,10 @@ def normalize_metadata_source_type(value: str | None) -> str:
 
     ``combined`` is accepted only as a legacy dataset value and maps to the
     default single source. ``local`` searches the in-app TVSeries/Movie library
-    via FTS5 instead of calling an external API. New calls should pass
-    tmdb/exa/wikipedia/local explicitly.
+    via FTS5 instead of calling an external API. New channel configurations
+    should pass wikipedia/tmdb explicitly (see
+    :func:`normalize_channel_metadata_source`); exa/jina/local remain valid
+    here only for the legacy manual-search / eval paths.
     """
     source = (value or DEFAULT_METADATA_SOURCE).strip().lower()
     if source == "combined":

@@ -1,0 +1,325 @@
+"""Authoritative registry of external metadata identity sites.
+
+Single source of truth for the 7 authoritative sites (two-source channel
+architecture, Phase P1): wikipedia, tmdb, bangumi, mal, anilist, imdb,
+douban. ``baidu_baike`` and ``eiga`` were dropped from the identity scheme.
+
+Each entry declares:
+  * ``name`` — the canonical source tag used in ``external_source`` and the
+    ``source:id`` canonical id form;
+  * ``label`` — display name for UI links;
+  * ``canonical_id_form`` — human-readable documentation of the id shape;
+  * a URL → (source, id) extractor (host suffix + path regex), used by the
+    Exa fallback to pin a stable identity onto an LLM-chosen web page;
+  * a display link template (TMDB is content-type aware: /tv/ vs /movie/).
+
+Provides:
+  * :func:`canonicalize_external_id` — primary-id normalization (moved here
+    from ``metadata_service``; that module re-exports it for compat);
+  * :func:`source_and_id_from_url` — URL → (source, "source:id");
+  * :func:`build_source_links` — server-side display links for work detail
+    pages (replaces the frontend ``sourceLinks.ts`` helper).
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from urllib.parse import urlparse
+
+# Registry order is also the default Exa-fallback whitelist order: anime-
+# centric DBs first, then general DBs, then identity-only databases.
+DEFAULT_EXA_FALLBACK_SOURCES: list[str] = [
+    "bangumi", "mal", "anilist", "tmdb", "wikipedia", "imdb", "douban",
+]
+
+
+@dataclass(frozen=True)
+class SourceSpec:
+    name: str
+    label: str
+    canonical_id_form: str
+    host_pattern: str
+    id_pattern: re.Pattern | None = None
+    # link_template: "{id}" is the extracted id, "{seg}" is tmdb's tv/movie
+    # path segment (content-type aware).
+    link_template: str | None = None
+    extra: dict = field(default_factory=dict)
+
+
+_SOURCE_SPECS: tuple[SourceSpec, ...] = (
+    SourceSpec(
+        name="wikipedia",
+        label="Wikipedia",
+        canonical_id_form="wikipedia:{page_id} (numeric; slug form from URL extraction)",
+        host_pattern=r"(^|\.)wikipedia\.org$",
+        id_pattern=re.compile(r"/wiki/(?P<id>[^/?#]+)"),
+        # Numeric page ids link via curid; slug ids have no stable link.
+        link_template="https://en.wikipedia.org/?curid={id}",
+    ),
+    SourceSpec(
+        name="tmdb",
+        label="TMDB",
+        canonical_id_form="tmdb:{digits}",
+        host_pattern=r"(^|\.)themoviedb\.org$",
+        id_pattern=re.compile(r"/(?:tv|movie)/(?P<id>\d+)"),
+        link_template="https://www.themoviedb.org/{seg}/{id}",
+    ),
+    SourceSpec(
+        name="bangumi",
+        label="Bangumi",
+        canonical_id_form="bangumi:{digits}",
+        host_pattern=r"(^|\.)(bangumi|bgm)\.tv$",
+        id_pattern=re.compile(r"/subject/(?P<id>\d+)"),
+        link_template="https://bangumi.tv/subject/{id}",
+    ),
+    SourceSpec(
+        name="mal",
+        label="MyAnimeList",
+        canonical_id_form="mal:{digits}",
+        host_pattern=r"(^|\.)myanimelist\.net$",
+        id_pattern=re.compile(r"/anime/(?P<id>\d+)"),
+        link_template="https://myanimelist.net/anime/{id}",
+    ),
+    SourceSpec(
+        name="anilist",
+        label="AniList",
+        canonical_id_form="anilist:{digits}",
+        host_pattern=r"(^|\.)anilist\.co$",
+        id_pattern=re.compile(r"/anime/(?P<id>\d+)"),
+        link_template="https://anilist.co/anime/{id}",
+    ),
+    SourceSpec(
+        name="imdb",
+        label="IMDb",
+        canonical_id_form="imdb:{tt_digits}",
+        host_pattern=r"(^|\.)imdb\.com$",
+        id_pattern=re.compile(r"/(?:title/)?(?P<id>tt\d+)"),
+        link_template="https://www.imdb.com/title/{id}/",
+    ),
+    SourceSpec(
+        name="douban",
+        label="豆瓣",
+        canonical_id_form="douban:{digits}",
+        host_pattern=r"(^|\.)douban\.com$",
+        id_pattern=re.compile(r"/subject/(?P<id>\d+)"),
+        link_template="https://movie.douban.com/subject/{id}/",
+    ),
+)
+
+REGISTRY: dict[str, SourceSpec] = {s.name: s for s in _SOURCE_SPECS}
+# Names of the 7 authoritative sites (validation set for channel fallback
+# whitelists and any other "registry source" checks).
+REGISTRY_SOURCES: frozenset[str] = frozenset(REGISTRY)
+
+
+def _link_for(spec: SourceSpec, raw_id: str, content_type: str | None) -> str | None:
+    if not spec.link_template:
+        return None
+    if spec.name == "wikipedia" and not raw_id.isdigit():
+        return None  # slug-form ids have no stable display link
+    seg = "movie" if content_type == "movie" else "tv"
+    return spec.link_template.format(id=raw_id, seg=seg)
+
+
+# ---------------------------------------------------------------------------
+# external_id canonicalization
+#
+# Exa Agent Search returns TMDB ids in inconsistent shapes:
+#   "TMDB:82684", "TMDB 82684", "TMDB TV 82684 / season 4", "82684"
+# All of them refer to the same TMDB work, but our naive `external_id`
+# lookup would treat each shape as a separate row and keep spawning
+# duplicate TVSeries/Movie entities on every fetch.
+# The canonicalizer collapses those shapes into a single canonical form
+# (e.g. ``tmdb:82684``) so upserts converge.
+# ---------------------------------------------------------------------------
+
+_TMDB_DIGITS_RE = re.compile(r"tmdb[^0-9]*(\d{2,10})", re.IGNORECASE)
+_LEADING_DIGITS_RE = re.compile(r"^\s*(\d{2,10})\s*$")
+
+
+def canonicalize_external_id(
+    raw_id: str | None,
+    source: str | None,
+    content_type: str | None = None,
+) -> str | None:
+    """Return a stable canonical form of ``raw_id`` for upsert matching.
+
+    Rules:
+      * Any string containing ``tmdb`` and digits → ``tmdb:{digits}``.
+      * ``source == "tmdb"`` combined with a pure-digit id → ``tmdb:{digits}``.
+      * IMDb ids (``tt`` + digits) → ``imdb:{tt…}``.
+      * Otherwise: lowercase + collapse whitespace, and drop known clutter
+        such as ``/ season N`` tails. Already-canonical ``source:id`` forms
+        for the other registry sites (wikipedia/bangumi/mal/anilist/douban)
+        pass through this rule unchanged.
+
+    Never fabricates an id; returns None only when the input is falsy.
+    """
+    if raw_id is None:
+        return None
+    s = str(raw_id).strip()
+    if not s:
+        return None
+
+    # Strip trailing "/ season N" or similar decoration.
+    s_clean = re.sub(r"[\s/,;|]+season[\s#:_-]*\d+\s*$", "", s, flags=re.IGNORECASE)
+    s_clean = re.sub(r"\s+", " ", s_clean).strip()
+
+    lower = s_clean.lower()
+    # TMDB detection — any "tmdb" prefix or when source declares tmdb.
+    if "tmdb" in lower:
+        m = _TMDB_DIGITS_RE.search(lower)
+        if m:
+            return f"tmdb:{m.group(1)}"
+    if (source or "").strip().lower() == "tmdb":
+        m = _LEADING_DIGITS_RE.match(lower)
+        if m:
+            return f"tmdb:{m.group(1)}"
+        m = re.search(r"(\d{2,10})", lower)
+        if m:
+            return f"tmdb:{m.group(1)}"
+
+    # IMDb ids
+    m = re.match(r"^(tt\d{5,})$", lower)
+    if m:
+        return f"imdb:{m.group(1)}"
+
+    return lower or None
+
+
+# ---------------------------------------------------------------------------
+# URL → (source, "source:id") extraction
+# ---------------------------------------------------------------------------
+
+def source_and_id_from_url(url: str) -> tuple[str, str] | None:
+    """Map an authoritative media-DB URL to (source, "source:id").
+
+    Returns None for unrecognised pages; callers (e.g. the Exa fallback)
+    decide what the no-identity marker should be.
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    for spec in _SOURCE_SPECS:
+        if not spec.id_pattern or not re.search(spec.host_pattern, host):
+            continue
+        m = spec.id_pattern.search(path)
+        if not m:
+            continue
+        raw_id = m.group("id")
+        return spec.name, f"{spec.name}:{raw_id}"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Display links for work detail pages
+# ---------------------------------------------------------------------------
+
+def build_source_links(
+    external_id: str | None,
+    external_source: str | None,
+    content_type: str | None,
+    wikipedia_url: str | None = None,
+    extra_ids: list[str] | None = None,
+) -> list[dict]:
+    """Build display links for a work from its identity fields.
+
+    Handles the legacy compound form (``TMDB:632617; IMDb:tt10986222`` — ids
+    combined in one string, split on ';'/'|'), canonical ``source:id`` forms
+    for all 7 registry sites, and a bare digit id with
+    ``external_source == "tmdb"``. ``extra_ids`` (P3) carries the identity
+    bag's secondary canonical ids (already deduped against the primary by the
+    caller) so a work shows every known authoritative link. Returns
+    ``[{source, label, url}]``, deduped by (source, url) preserving order.
+    """
+    links: list[dict] = []
+    has_wikipedia = False
+
+    if wikipedia_url:
+        links.append({"source": "wikipedia", "label": "Wikipedia", "url": wikipedia_url})
+        has_wikipedia = True
+
+    if external_id:
+        declared = (external_source or "").strip().lower()
+        for part in re.split(r"[;|]", external_id):
+            token = part.strip()
+            if not token:
+                continue
+            # Legacy explicit forms: tmdb / imdb / wikipedia prefixes.
+            m = re.search(r"tmdb[:：\s]*(\d+)", token, flags=re.IGNORECASE)
+            if m:
+                links.append({
+                    "source": "tmdb", "label": "TMDB",
+                    "url": _link_for(REGISTRY["tmdb"], m.group(1), content_type),
+                })
+                continue
+            m = re.search(r"imdb[:：\s]*(tt\d+)", token, flags=re.IGNORECASE) or re.match(
+                r"^(tt\d+)$", token, flags=re.IGNORECASE
+            )
+            if m:
+                links.append({
+                    "source": "imdb", "label": "IMDb",
+                    "url": _link_for(REGISTRY["imdb"], m.group(1), content_type),
+                })
+                continue
+            m = re.search(r"wikipedia[:：\s]*(\d+)", token, flags=re.IGNORECASE)
+            if m:
+                if not has_wikipedia:
+                    links.append({
+                        "source": "wikipedia", "label": "Wikipedia",
+                        "url": _link_for(REGISTRY["wikipedia"], m.group(1), content_type),
+                    })
+                    has_wikipedia = True
+                continue
+            # Canonical "source:id" form for the other registry sites.
+            m = re.match(r"^([a-z_]+)[:：](.+)$", token)
+            if m and m.group(1) in REGISTRY and m.group(1) != "wikipedia":
+                spec = REGISTRY[m.group(1)]
+                url = _link_for(spec, m.group(2).strip(), content_type)
+                if url:
+                    links.append({"source": spec.name, "label": spec.label, "url": url})
+                continue
+            # source-declared bare id, e.g. external_source='tmdb', external_id='632617'
+            if declared == "tmdb" and token.isdigit():
+                links.append({
+                    "source": "tmdb", "label": "TMDB",
+                    "url": _link_for(REGISTRY["tmdb"], token, content_type),
+                })
+
+    # P3: identity-bag secondary ids (canonical "source:id" only; the bag
+    # convention guarantees the form). Unlike the primary wikipedia token,
+    # each bag pageid gets its own curid link — langlink pageids are distinct
+    # pages and all worth showing. Final dedupe removes any repeat of the
+    # primary link.
+    for token in (extra_ids or []):
+        m = re.match(r"^([a-z_]+)[:：](.+)$", token.strip())
+        if not m or m.group(1) not in REGISTRY:
+            continue
+        spec = REGISTRY[m.group(1)]
+        url = _link_for(spec, m.group(2).strip(), content_type)
+        if url:
+            links.append({"source": spec.name, "label": spec.label, "url": url})
+
+    # Dedupe by (source, url), preserving order.
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for link in links:
+        if not link.get("url"):
+            continue
+        key = (link["source"], link["url"])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(link)
+    return out
+
+
+__all__ = [
+    "DEFAULT_EXA_FALLBACK_SOURCES",
+    "REGISTRY",
+    "REGISTRY_SOURCES",
+    "SourceSpec",
+    "build_source_links",
+    "canonicalize_external_id",
+    "source_and_id_from_url",
+]

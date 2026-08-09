@@ -1,0 +1,9 @@
+{{Infobox animanga/Header
+{{Infobox animanga/TVAnime
+|話数=全26話
+{{Infobox animanga/Novel
+|話数=全5話
+{{Infobox animanga/Manga
+|話数= 全42話
+{{Infobox animanga/Manga
+{{Infobox animanga/Footer

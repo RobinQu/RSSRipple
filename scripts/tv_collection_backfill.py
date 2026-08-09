@@ -35,7 +35,11 @@ async def main(apply: bool) -> None:
         candidates = (await db.execute(
             select(TVSeries).where(TVSeries.collection_id.is_(None))
         )).scalars().all()
-        print(f"{len(candidates)} series without collection")
+        # Capture ids up front and re-fetch per item: a mid-loop rollback or
+        # batch commit expires every ORM attribute, and touching an expired
+        # attribute on an AsyncSession raises MissingGreenlet.
+        candidate_ids = [s.id for s in candidates]
+        print(f"{len(candidate_ids)} series without collection")
 
         counts = {
             wc.STATUS_LINKED: 0,
@@ -45,9 +49,13 @@ async def main(apply: bool) -> None:
             wc.STATUS_FAILED: 0,
         }
         pending = 0
-        for s in candidates:
-            title = s.title_cn or s.title_en or s.original_title
+        for sid in candidate_ids:
+            title = str(sid)[:8]
             try:
+                s = await db.get(TVSeries, sid)
+                if s is None:
+                    continue
+                title = s.title_cn or s.title_en or s.original_title
                 status = await wc.link_series_wikidata_collection(db, s, apply=apply)
             except Exception as e:  # noqa: BLE001
                 status = wc.STATUS_FAILED
@@ -76,7 +84,7 @@ async def main(apply: bool) -> None:
             )
         else:
             print(
-                f"dry-run: would link {counts[wc.STATUS_LINKED]}/{len(candidates)} "
+                f"dry-run: would link {counts[wc.STATUS_LINKED]}/{len(candidate_ids)} "
                 f"(no-p179={counts[wc.STATUS_NO_P179]} "
                 f"no-entity={counts[wc.STATUS_NO_ENTITY]} "
                 f"ambiguous-skipped={counts[wc.STATUS_AMBIGUOUS]} "

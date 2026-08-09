@@ -50,6 +50,8 @@ class TVSeriesResponse(BaseModel):
     aliases: list[str] | None = None
     external_id: str | None = None
     external_source: str | None = None
+    canonical_name: str | None = None
+    wikipedia_url: str | None = None
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
