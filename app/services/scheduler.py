@@ -79,6 +79,15 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(minutes=1),
     )
+    # Download notifications: enqueue rows for freshly completed tasks, then
+    # deliver every due pending notification to its Agent's webhook.
+    _scheduler.add_job(
+        _process_download_notifications,
+        trigger=IntervalTrigger(minutes=1),
+        id="download_notifications",
+        replace_existing=True,
+        next_run_time=utcnow() + timedelta(minutes=1),
+    )
     _scheduler.start()
     logger.info("Scheduler started")
 
@@ -377,6 +386,17 @@ async def _cleanup_expired() -> None:
         for d in stale:
             d.status = "expired"
 
+        # Tasks with an unconsumed download notification must survive: the
+        # notification's payload references the task, and ack removes the
+        # torrent via it.
+        from app.models.download_notification import DownloadNotification
+
+        open_notifications = (
+            select(DownloadNotification.download_task_id)
+            .where(DownloadNotification.status != "done")
+            .scalar_subquery()
+        )
+
         # Cleanup expired completed tasks per agent's task_expire_days
         agents_result = await db.execute(select(Agent))
         agents = agents_result.scalars().all()
@@ -389,16 +409,31 @@ async def _cleanup_expired() -> None:
                 DownloadTask.status == "completed",
                 DownloadTask.completed_at.isnot(None),
                 DownloadTask.completed_at < cutoff,
+                DownloadTask.id.notin_(open_notifications),
             ))
             expired_tasks = (await db.execute(tasks_stmt)).scalars().all()
             for t in expired_tasks:
                 await db.delete(t)
                 deleted_count += 1
 
+        # Retention for consumed notifications
+        from app.config import settings
+
+        notify_cutoff = now - timedelta(days=settings.notify_retention_days)
+        old_notifications = (await db.execute(select(DownloadNotification).where(and_(
+            DownloadNotification.status == "done",
+            DownloadNotification.processed_at.isnot(None),
+            DownloadNotification.processed_at < notify_cutoff,
+        )))).scalars().all()
+        for n in old_notifications:
+            await db.delete(n)
+
         if stale:
             logger.info("Expired %d stale pending decisions", len(stale))
         if deleted_count:
             logger.info("Cleaned up %d expired completed tasks", deleted_count)
+        if old_notifications:
+            logger.info("Cleaned up %d consumed notifications", len(old_notifications))
 
         # Auto-cleanup of stale unresolved FileResources for channels that have
         # opted in (per-channel enable + age threshold).
@@ -461,6 +496,45 @@ async def _dedup_metadata() -> None:
             report.series_removed,
             report.movies_removed,
         )
+
+
+async def _process_download_notifications() -> None:
+    """Per-minute: enqueue notifications for newly completed tasks, then
+    deliver due pending ones (backoff retries included). Disabled unless
+    NOTIFY_ENABLED=true so deployments without a consumer pay nothing."""
+    from app.config import settings
+
+    if not settings.notify_enabled:
+        return
+    from sqlalchemy import select
+
+    from app.database import committed_session
+    from app.models.download_notification import DownloadNotification
+    from app.models.download_task import DownloadTask
+    from app.services.notify_service import (
+        create_notification_for_task,
+        deliver_due_notifications,
+    )
+
+    async with committed_session() as db:
+        try:
+            notified = select(DownloadNotification.download_task_id).scalar_subquery()
+            stmt = select(DownloadTask).where(
+                DownloadTask.status == "completed",
+                DownloadTask.id.notin_(notified),
+            )
+            tasks = (await db.execute(stmt)).scalars().all()
+            for task in tasks:
+                await create_notification_for_task(db, task)
+                await db.commit()
+            stats = await deliver_due_notifications(db)
+            if tasks or stats["delivered"] or stats["failed"]:
+                logger.info(
+                    "[notify] enqueued=%d delivered=%d failed=%d skipped=%d",
+                    len(tasks), stats["delivered"], stats["failed"], stats["skipped"],
+                )
+        except Exception as e:
+            logger.warning("[notify] processing tick failed: %s", e)
 
 
 async def _reconcile_fts() -> None:

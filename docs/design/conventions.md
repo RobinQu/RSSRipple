@@ -26,6 +26,9 @@
   - `MAX_RETRY_COUNT`：失败下载最大重试次数（默认 `3`）。
   - `TASK_EXPIRE_DAYS`：已完成任务自动清理天数（默认 `30`）。
   - `DEV_MODE`：为 `true` 时内部错误响应含堆栈（默认 `false`）。
+  - `NOTIFY_ENABLED`：下载完成通知总开关/熔断（默认 `true`）。webhook 按 Agent 在 UI 注册（Agent 详情 → 通知记录 Tab）；回调 token 在注册时按 Agent 动态生成（非环境变量）。
+  - `NOTIFY_MAX_ATTEMPTS`（默认 `5`）/ `NOTIFY_RETRY_BASE_SECONDS`（默认 `30`）：webhook 投递退避策略，`base * 2^attempt` 封顶 30 分钟，超限转 `failed`。
+  - `NOTIFY_RETENTION_DAYS`：已消费（`done`）通知的保留天数（默认 `30`）。
   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
   - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。

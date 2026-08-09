@@ -371,6 +371,12 @@ async def _apply_light_migrations(conn) -> None:
         # itself is created by create_all.
         ("tv_series", "collection_id", "VARCHAR(36)"),
         ("movies", "collection_id", "VARCHAR(36)"),
+        # Per-agent webhook registration for download notifications — the
+        # download_notifications table itself is created by create_all.
+        ("agents", "notify_webhook_url", "VARCHAR(1024)"),
+        ("agents", "notify_webhook_mock",
+         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("agents", "notify_webhook_token", "VARCHAR(128)"),
     ]
 
     for table, column, ddl in additions:

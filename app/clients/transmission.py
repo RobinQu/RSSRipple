@@ -191,6 +191,22 @@ class TransmissionWrapper:
             return _torrent_to_dict(torrents[0])
         return await asyncio.to_thread(_run)
 
+    async def get_torrent_files(self, torrent_id: int) -> dict[str, Any]:
+        """Return the torrent name and its file listing ``[{name, size}]``.
+
+        Used by the download-notification snapshot so external consumers can
+        locate this task's files inside a shared download directory without
+        their own Transmission access.
+        """
+        def _run():
+            c = self._client()
+            t = c.get_torrent(torrent_id)
+            files = [
+                {"name": f.name, "size": int(f.size)} for f in t.files()
+            ]
+            return {"name": t.name, "files": files}
+        return await asyncio.to_thread(_run)
+
     async def pause_torrent(self, torrent_id: int) -> bool:
         def _run():
             self._client().stop_torrent(torrent_id)

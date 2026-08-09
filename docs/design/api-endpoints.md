@@ -244,6 +244,25 @@
 { "processed": 10, "dispatched": 7, "skipped": 2, "failed": 1, "errors": ["<decision_id>: <原因>"] }
 ```
 
+### Download Notifications（下载完成通知）
+
+完整语义（状态机、payload 契约、退避策略）见 [notifications.md](notifications.md)。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/agents/{agent_id}/notifications` | 该 Agent 的通知队列（分页，`status` 过滤；列表项不含 payload） |
+| GET | `/notifications/{id}` | 通知详情（含完整 payload 快照） |
+| GET | `/agents/{agent_id}/webhook` | webhook 注册状态 `{ registered, url, mock, token }` |
+| PUT | `/agents/{agent_id}/webhook` | 注册/更新 webhook：`{ "url": "...", "mock": false }`；非 mock 必须 http(s) url，mock 时 url 清空；**每次注册动态换发回调 token**（响应含 token，供配置到消费者） |
+| DELETE | `/agents/{agent_id}/webhook` | 注销 webhook（清空 url/mock/token；队列继续积累，重新注册后自动恢复投递） |
+| POST | `/agents/{agent_id}/notifications/backfill` | 补生成：`{ "since": datetime \| null }`（null=从最早 completed 任务检查），为从未生成过通知的 completed 任务补建；返回 `{ "created": n }` |
+| POST | `/notifications/{id}/retry` | 界面手动重试：重置回 `pending` 并立即到期（`done` 时 409 `INVALID_STATE`） |
+| POST | `/notifications/{id}/start` | 消费者回调：`pending → processing`（幂等） |
+| POST | `/notifications/{id}/ack` | 消费者回调：`→ done` 并 `remove_torrent(delete_data=False)` |
+| POST | `/notifications/{id}/fail` | 消费者回调：`→ failed`，请求体 `{ "error": "..." }` |
+
+回调端点（start/ack/fail）要求 `Authorization: Bearer <Agent 回调 token>`（注册 webhook 时动态生成，按通知所属 Agent 比对）：Agent 未注册（无 token）返回 503 `CALLBACK_TOKEN_NOT_CONFIGURED`，不匹配返回 401 `UNAUTHORIZED`。
+
 ### File Resources
 
 | Method | Path | 说明 |

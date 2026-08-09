@@ -431,8 +431,16 @@ startup:
   │     fts_reconcile                  # FTS 影子表对账：全量 diff 基表 vs 影子表，
   │                                    # 修补调用点遗漏（脚本、去重合并、写入失败吞没）
   │
-  └─ 6. 全局每日任务:
+  ├─ 6. 每分钟任务（NOTIFY_ENABLED 开启时）:
+  │     _process_download_notifications  # 为 completed 且无通知的任务停种 + 补建
+  │                                    # DownloadNotification；随后投递所有到期的
+  │                                    # pending 通知（指数退避，超限转 failed）。
+  │                                    # 唯一投递路径，详见 notifications.md
+  │
+  └─ 7. 全局每日任务:
         cleanup_expired_tasks()  # 删除 completed 且 completed_at < now - task_expire_days 的任务
+                                 # （跳过存在未 done 通知的任务；done 通知按
+                                 # NOTIFY_RETENTION_DAYS 保留期清理）
         expire_pending_decisions()  # 过期 pending decision → status="expired"
         _dedup_metadata()  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
                             # 防止 metadata agent 偶尔为同一作品新建第二行）。聚类 key 基于
@@ -500,7 +508,7 @@ sync_download_progress():
 - **pause/resume/remove** 均支持；pause 冻结 elapsed 计时，resume 继续。
 - **状态存储**：模块级 `_STATE` dict，进程重启即清空——这正是测试所需的行为。
 
-通过统一工厂 `app.clients.downloader.get_downloader_client(downloader)` 根据 `downloader.type` 分派到 `TransmissionWrapper` 或 `MockDownloaderWrapper`；两者共享同一异步接口（`test_connection` / `add_torrent` / `list_torrents` / `get_torrent` / `pause_torrent` / `resume_torrent` / `remove_torrent` / `free_space`），所有 Agent / scheduler / API 调用点均无需感知具体类型。
+通过统一工厂 `app.clients.downloader.get_downloader_client(downloader)` 根据 `downloader.type` 分派到 `TransmissionWrapper` 或 `MockDownloaderWrapper`；两者共享同一异步接口（`test_connection` / `add_torrent` / `list_torrents` / `get_torrent` / `get_torrent_files` / `pause_torrent` / `resume_torrent` / `remove_torrent` / `free_space`），所有 Agent / scheduler / API 调用点均无需感知具体类型。`get_torrent_files` 返回 `{name, files: [{name, size}]}`，供下载通知快照锁定 torrent 内文件清单（mock 默认单文件，测试可向 `_TorrentState.files` 注入多文件）。
 
 Mock downloader 面向本地开发和自动化测试；生产环境应使用 `transmission` 类型。
 

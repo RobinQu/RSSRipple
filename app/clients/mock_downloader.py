@@ -45,6 +45,9 @@ class _TorrentState:
     paused_at: float | None = None
     paused_elapsed: float = 0.0
     removed: bool = False
+    # Optional explicit file listing; defaults to a single file named after
+    # the torrent. Tests can populate this to simulate batch torrents.
+    files: list[dict[str, Any]] | None = None
 
     # Cached total bytes so rate_download works out to something reasonable.
     total_size: int = FAKE_TOTAL_SIZE
@@ -187,6 +190,14 @@ class MockDownloaderWrapper:
         if not state or state.removed:
             raise ValueError(f"Torrent {torrent_id} not found")
         return state.snapshot()
+
+    async def get_torrent_files(self, torrent_id: int) -> dict[str, Any]:
+        store = _store(self._downloader_id)
+        state = store.torrents.get(torrent_id)
+        if not state or state.removed:
+            raise ValueError(f"Torrent {torrent_id} not found")
+        files = state.files or [{"name": state.name, "size": state.total_size}]
+        return {"name": state.name, "files": files}
 
     async def pause_torrent(self, torrent_id: int) -> bool:
         store = _store(self._downloader_id)

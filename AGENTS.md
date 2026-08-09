@@ -8,6 +8,7 @@
 | [docs/design/filter-dsl.md](docs/design/filter-dsl.md) | Filter DSL 类型定义、求值语义、示例 |
 | [docs/design/api-endpoints.md](docs/design/api-endpoints.md) | 全部 REST API 端点与请求/响应结构 |
 | [docs/design/business-logic.md](docs/design/business-logic.md) | 抓取、metadata 匹配、Agent 运行/过滤、调度、下载同步、Mock Downloader |
+| [docs/design/notifications.md](docs/design/notifications.md) | 下载完成通知：模型、快照契约、webhook 注册/投递/退避、回调 API、补生成、mock webhook |
 | [docs/design/frontend.md](docs/design/frontend.md) | 前端路由、页面与关键交互 |
 | [docs/design/error-handling.md](docs/design/error-handling.md) | 统一响应结构、错误码、全局异常处理 |
 | [docs/design/conventions.md](docs/design/conventions.md) | 时间格式、下载目录规则、环境变量、海报、日志、幂等性 |
@@ -32,6 +33,7 @@
 - `AgentWork` 最多 10 个（`scope_channel_wide=false` 时生效）；CheckConstraint 保证 series/movie 二选一。
 - `WorkCollection` 大 IP 合集分组（组织层而非消歧核心）：作品经可空 `collection_id` 至多属一个合集；TMDB 链接走确定性 `link_movie_collection`（`tmdb_collection` 源 + 原始数字 id，禁止 `canonicalize_external_id`）；DSL 新增 `series.collection`/`movie.collection`（显示名），所有过滤求值点须链式 selectinload 作品的 `collection` 关系。
 - `WorkExternalId` 身份袋（P3）：一个作品可携带多个 `source:id`（wikipedia pageid、langlinks 各语言页 pageid、Exa 回退 id 等），袋反查是 upsert 第一查找步；主 id 规则 creator-wins——`external_id/external_source` 列保持创建时值，后来的 id 只入袋绝不抢占；`UniqueConstraint(source, external_id)` 一 id 至多一作品，冲突不抢（记 warning，成去重候选）；去重合并对袋取并集。
+- `DownloadNotification` 下载完成通知：队列从属于 Agent（`agent_id`，每 Agent 单例 FIFO）；`download_task_id` 唯一（补生成幂等的基础）；payload 是创建时冻结的完整快照；webhook 按 Agent 注册（`agents.notify_webhook_url`/`notify_webhook_mock`/`notify_webhook_token` 三列，token 注册时动态生成、回调按 Agent 比对）。RSSRipple 语义到通知为止，文件整理归外部消费者（vault-organizer）。
 
 ### Filter DSL（详见 filter-dsl.md）
 
@@ -52,7 +54,8 @@
 - MetadataAgent 单次搜索**只用一个数据源**；频道源为两数据源架构 `wikipedia | tmdb`（默认 `wikipedia`；exa/jina/local/combined 已废弃为频道源，频道解析归一为 `wikipedia`，存量由轻迁移改写；其 ReAct 路径仅手动搜索/评测保留）。两主源未命中（judge/ReAct found=False；transient 不触发）统一走**有序 Exa 回退**：频道 `metadata_fallback_sources`（JSON 白名单，NULL=默认顺序 bangumi→mal→anilist→tmdb→wikipedia→imdb→douban，`[]`=禁用）硬过滤候选、靠前站点优先，**仅补身份/链接**（剥离 seasons/集数，内容以主源为准）。身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike/eiga 已移除）。
 - LLM 候选选择器 `_generate_llm_pick` 共用逻辑：`auto` 自动选择、`ask` 建议、`ai-pick` 三处复用；失败时 `auto` 回退启发式评分。
 - Wikipedia 季/集内容提取（P2）：页面选中后（auto-link 与 judge 两路径）取 wikitext 走**确定性解析**（`wikipedia_episode_parser`，无 LLM；zh `{{劇集列表/base}}` + ja `{{エピソードリスト/base}}`，infobox **仅取 `{{Infobox animanga/TVAnime}}` 块**的 話數/集數，Novel/Manga 块诱饵一律拒绝、无 TV 块返回 None + `各話列表` 章节），合并 `seasons`/`number_of_seasons`/`number_of_episodes`/`episode_list` 进 matched_entity（随 MetadataCache 往返）；wikipedia 来源 `seasons` **覆盖** series 字段但带**防退化 guard**（`seasons_overwrite_allowed`：现有为空或解析季数 ≥ 现有才覆盖，更少则拒绝，service 与 `--apply` 回填共用），`upsert_episodes` 按 `(series_id, season, episode)` 幂等落 Episode 行（只增不删）。LLM judge schema 不变、不猜季数；Exa 回退仍仅补身份。TMDB 对称填充（P4）：tmdb ReAct finalize 后 `_attach_tmdb_episode_list` 用 `fetch_tmdb_episode_list`（逐季 `GET /tv/{id}/season/{n}`，并发 4、跳 season 0、单季失败容忍、>30 季跳过）填 `episode_list` 复用同一落库路径，仅对 tmdb 身份实体触发；存量回填走 `scripts/wikipedia_seasons_eval.py --apply`（wikipedia，覆盖 seasons）与 `scripts/tmdb_episodes_backfill.py --apply`（tmdb），均 dry-run 默认 + 批量提交。
-- 调度：APScheduler 按频道 `fetch_interval` 定时抓取；全局每分钟同步下载进度、每小时检查下载器连通、每日清理过期任务/决策 + 04:00 metadata 去重。
+- 调度：APScheduler 按频道 `fetch_interval` 定时抓取；全局每分钟同步下载进度、每小时检查下载器连通、每日清理过期任务/决策 + 04:00 metadata 去重；每分钟处理下载通知（为 completed 任务停种 + 补建通知，并投递到期的 pending 通知，指数退避；`NOTIFY_ENABLED` 默认开，仅作熔断开关）。
+- 下载完成通知（详见 notifications.md）：completed → 停种 + 建 `pending` 通知 → webhook 投递（退避超限转 `failed`）→ 消费者 start/ack/fail 回调；ack 时 `remove_torrent(delete_data=False)`；`_cleanup_expired` 跳过有未 `done` 通知的任务。投递只走每分钟循环这一条路径（新建/退避/手动重试/backfill 统一）。
 
 ### 前端（详见 frontend.md）
 

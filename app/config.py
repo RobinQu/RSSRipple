@@ -70,6 +70,18 @@ class Settings(BaseSettings):
     # ALREADY_RUNNING races.
     scheduler_enabled: bool = True
 
+    # Download notifications (webhook delivery to external consumers such as
+    # vault-organizer). Enabled by default; webhooks are registered per Agent
+    # in the UI, and each registration issues its own callback token.
+    notify_enabled: bool = True
+    # Delivery retry policy: exponential backoff base * 2^attempt (capped at
+    # 30 min); after this many failed attempts the notification is "failed"
+    # and can only be recovered via manual retry in the UI.
+    notify_max_attempts: int = 5
+    notify_retry_base_seconds: int = 30
+    # Retention for consumed ("done") notifications.
+    notify_retention_days: int = 30
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
