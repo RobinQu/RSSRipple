@@ -8,7 +8,7 @@
 | [docs/design/filter-dsl.md](docs/design/filter-dsl.md) | Filter DSL 类型定义、求值语义、示例 |
 | [docs/design/api-endpoints.md](docs/design/api-endpoints.md) | 全部 REST API 端点与请求/响应结构 |
 | [docs/design/business-logic.md](docs/design/business-logic.md) | 抓取、metadata 匹配、Agent 运行/过滤、调度、下载同步、Mock Downloader |
-| [docs/design/notifications.md](docs/design/notifications.md) | 下载完成通知：模型、快照契约、webhook 注册/投递/退避、回调 API、补生成、mock webhook |
+| [docs/design/notifications.md](docs/design/notifications.md) | 下载完成通知：模型、快照契约、多 webhook 注册/fan-out 投递/退避、聚合状态机、重试、下游清理 API、补生成、mock webhook |
 | [docs/design/frontend.md](docs/design/frontend.md) | 前端路由、页面与关键交互 |
 | [docs/design/error-handling.md](docs/design/error-handling.md) | 统一响应结构、错误码、全局异常处理 |
 | [docs/design/conventions.md](docs/design/conventions.md) | 时间格式、下载目录规则、环境变量、海报、日志、幂等性 |
@@ -33,7 +33,7 @@
 - `AgentWork` 最多 10 个（`scope_channel_wide=false` 时生效）；CheckConstraint 保证 series/movie 二选一。
 - `WorkCollection` 大 IP 合集分组（组织层而非消歧核心）：作品经可空 `collection_id` 至多属一个合集；TMDB 链接走确定性 `link_movie_collection`（`tmdb_collection` 源 + 原始数字 id，禁止 `canonicalize_external_id`）；DSL 新增 `series.collection`/`movie.collection`（显示名），所有过滤求值点须链式 selectinload 作品的 `collection` 关系。
 - `WorkExternalId` 身份袋（P3）：一个作品可携带多个 `source:id`（wikipedia pageid、langlinks 各语言页 pageid、Exa 回退 id 等），袋反查是 upsert 第一查找步；主 id 规则 creator-wins——`external_id/external_source` 列保持创建时值，后来的 id 只入袋绝不抢占；`UniqueConstraint(source, external_id)` 一 id 至多一作品，冲突不抢（记 warning，成去重候选）；去重合并对袋取并集。
-- `DownloadNotification` 下载完成通知：队列从属于 Agent（`agent_id`，每 Agent 单例 FIFO）；`download_task_id` 唯一（补生成幂等的基础）；**并发创建安全**：调度 tick 与 backfill/手动补生成可能竞争同一任务，插入走 SAVEPOINT，输掉唯一约束竞争时回读已存在行（不掉整个批次）；payload 是创建时冻结的完整快照；webhook 按 Agent 注册（`agents.notify_webhook_url`/`notify_webhook_mock`/`notify_webhook_token` 三列，token 注册时动态生成、回调按 Agent 比对）。RSSRipple 语义到通知为止，文件整理归外部消费者（vault-organizer）。
+- `DownloadNotification` 下载完成通知：队列从属于 Agent（`agent_id`，每 Agent 单例 FIFO）；`download_task_id` 唯一（补生成幂等的基础）；**并发创建安全**：调度 tick 与 backfill/手动补生成可能竞争同一任务，插入走 SAVEPOINT，输掉唯一约束竞争时回读已存在行（不掉整个批次）；payload 是创建时冻结的完整快照；本表**只保留快照锚点**（投递列已从 ORM 移除，存量库走重建/DROP NOT NULL 轻迁移）。投递走**多 webhook fan-out**：`agent_webhooks` 表按 Agent 注册任意多个 webhook（url/mock/enabled；旧 `agents.notify_webhook_*` 三列成孤儿，启动轻迁移复制到 agent_webhooks），每条通知对每启用 webhook 生成一条 `webhook_deliveries`（`(notification_id, webhook_id)` 唯一，独立状态/退避）；纯出站——POST `{"event":"download.completed","notification":<payload>}`，**180s 超时**，2xx 即 done，**无 token、无消费者回调**（start/ack/fail 已删除）。通知展示状态由 delivery 聚合：无 delivery 或有 pending → pending，全 done → done，否则 failed。RSSRipple 语义到通知为止，文件整理归外部消费者（vault-organizer），消费者清理走任务 API（`GET /tasks`、`POST /tasks/{id}/pause`、`DELETE /tasks/{id}`）。
 
 ### Filter DSL（详见 filter-dsl.md）
 
@@ -43,6 +43,7 @@
 ### API（详见 api-endpoints.md）
 
 - 前缀 `/api/v1`，统一响应结构 `{ success, data, error, meta }`；分页参数 `page`/`page_size`（最大 100）。
+- **认证**（`AUTH_ENABLED` 默认开）：`/api/v1/*` 与 `/posters/*` 需凭证（AuthMiddleware），`/api/v1/auth/*` 与 SPA/静态资源开放；无凭证 401 `UNAUTHORIZED`。两车道：Web 端 TOTP 登录（`POST /auth/otp` → HttpOnly Cookie `rssripple_auth`，30 天）；程序端全局 API key（`api_keys` 表，仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次；`Authorization: Bearer` 或 `X-API-Key`；环境变量 `API_KEY` 为可选静态引导 key）。
 - `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空 `[]`）= 经过 rules-preview，派发选中资源并推进水位线到频道 max `created_at`。
 - `PATCH /resources/{id}/episode` 修正集号：未显式发送 `season` 且有 absolute 集号 + 剧集逐季数据时服务端推导 season（显式值优先）；**先 commit 再入队**定向运行（绕过且不推进水位线）。
 - 任务重试必须使用 `DownloadTask.download_dir` 持久化值，不重读当前配置。
@@ -54,17 +55,17 @@
 - MetadataAgent 单次搜索**只用一个数据源**；频道源为两数据源架构 `wikipedia | tmdb`（默认 `wikipedia`；exa/jina/local/combined 已废弃为频道源，频道解析归一为 `wikipedia`，存量由轻迁移改写；其 ReAct 路径仅手动搜索/评测保留）。两主源未命中（judge/ReAct found=False；transient 不触发）统一走**有序 Exa 回退**：频道 `metadata_fallback_sources`（JSON 白名单，NULL=默认顺序 bangumi→mal→anilist→tmdb→wikipedia→imdb→douban，`[]`=禁用）硬过滤候选、靠前站点优先，**仅补身份/链接**（剥离 seasons/集数，内容以主源为准）。身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike/eiga 已移除）。
 - LLM 候选选择器 `_generate_llm_pick` 共用逻辑：`auto` 自动选择、`ask` 建议、`ai-pick` 三处复用；失败时 `auto` 回退启发式评分。
 - Wikipedia 季/集内容提取（P2）：页面选中后（auto-link 与 judge 两路径）取 wikitext 走**确定性解析**（`wikipedia_episode_parser`，无 LLM；zh `{{劇集列表/base}}` + ja `{{エピソードリスト/base}}`，infobox **仅取 `{{Infobox animanga/TVAnime}}` 块**的 話數/集數，Novel/Manga 块诱饵一律拒绝、无 TV 块返回 None + `各話列表` 章节），合并 `seasons`/`number_of_seasons`/`number_of_episodes`/`episode_list` 进 matched_entity（随 MetadataCache 往返）；wikipedia 来源 `seasons` **覆盖** series 字段但带**防退化 guard**（`seasons_overwrite_allowed`：现有为空或解析季数 ≥ 现有才覆盖，更少则拒绝，service 与 `--apply` 回填共用），`upsert_episodes` 按 `(series_id, season, episode)` 幂等落 Episode 行（只增不删）。LLM judge schema 不变、不猜季数；Exa 回退仍仅补身份。TMDB 对称填充（P4）：tmdb ReAct finalize 后 `_attach_tmdb_episode_list` 用 `fetch_tmdb_episode_list`（逐季 `GET /tv/{id}/season/{n}`，并发 4、跳 season 0、单季失败容忍、>30 季跳过）填 `episode_list` 复用同一落库路径，仅对 tmdb 身份实体触发；存量回填走 `scripts/wikipedia_seasons_eval.py --apply`（wikipedia，覆盖 seasons）与 `scripts/tmdb_episodes_backfill.py --apply`（tmdb），均 dry-run 默认 + 批量提交。
-- 调度：APScheduler 按频道 `fetch_interval` 定时抓取；全局每分钟同步下载进度、每小时检查下载器连通、每日清理过期任务/决策 + 04:00 metadata 去重；每分钟处理下载通知（为 completed 任务停种 + 补建通知，并投递到期的 pending 通知，指数退避；`NOTIFY_ENABLED` 默认开，仅作熔断开关）。
-- 下载完成通知（详见 notifications.md）：completed → 停种 + 建 `pending` 通知 → webhook 投递（退避超限转 `failed`）→ 消费者 start/ack/fail 回调；ack 时 `remove_torrent(delete_data=False)`；`_cleanup_expired` 跳过有未 `done` 通知的任务。投递只走每分钟循环这一条路径（新建/退避/手动重试/backfill 统一）。
+- 调度：APScheduler 按频道 `fetch_interval` 定时抓取；全局每分钟同步下载进度、每小时检查下载器连通、每日清理过期任务/决策 + 04:00 metadata 去重；每分钟处理下载通知（三段式 tick：为 completed 任务停种 + 补建通知 → `ensure_deliveries` fan-out → `deliver_due_deliveries` 并发投递到期 delivery，指数退避；`NOTIFY_ENABLED` 默认开，仅作熔断开关）。
+- 下载完成通知（详见 notifications.md）：completed → 停种 + 建通知（**仅当 Agent 有启用 webhook**，否则不生成）→ fan-out 到每启用 webhook 各一条 delivery → webhook 投递（180s 超时，退避超限该 delivery 转 `failed`，界面重试可重置 failed 或全部非 pending）；纯出站无回调，消费者清理走任务 API。通知（含 delivery）超过 `NOTIFY_RETENTION_DAYS`（默认 30 天）删除；`_cleanup_expired` 跳过有任一非 `done` delivery 的任务。投递只走每分钟循环这一条路径（新建/退避/手动重试/backfill 统一；webhook 注册/更新 API 额外触发一次即时 fan-out）。
 
 ### 前端（详见 frontend.md）
 
-- 路由：`/` Dashboard、`/works`（合集列表作为浏览模式整合进作品仓库：`?view=collections`）、`/collections/:id`（合集详情页，无独立列表路由）、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`。
+- 路由：`/login`（登录页，独立于侧边栏布局；API client 401 自动跳转）、`/` Dashboard、`/works`（合集列表作为浏览模式整合进作品仓库：`?view=collections`）、`/collections/:id`（合集详情页，无独立列表路由）、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`、`/settings`（含 API Keys 卡片）。
 - Agent 保存前必须走 `/agents/rules-preview` + BackfillPreviewModal 回填流程。
 
 ### 错误处理（详见 error-handling.md）
 
-- 错误码：`NOT_FOUND`(404)、`VALIDATION_ERROR`(422)、`INVALID_FEED`(422)、`DUPLICATE_SUBMISSION`(409)、`ALREADY_RUNNING`(409)、`TRANSMISSION_ERROR`(502)、`LLM_ERROR`(502)、`INTERNAL_SERVER_ERROR`(500，dev_mode 带 stack)。
+- 错误码：`UNAUTHORIZED`(401)、`NOT_FOUND`(404)、`VALIDATION_ERROR`(422)、`INVALID_FEED`(422)、`DUPLICATE_SUBMISSION`(409)、`ALREADY_RUNNING`(409)、`TRANSMISSION_ERROR`(502)、`LLM_ERROR`(502)、`INTERNAL_SERVER_ERROR`(500，dev_mode 带 stack)。
 - 未捕获异常统一转 `INTERNAL_SERVER_ERROR`；SSE 端点错误发 `event: error`。
 
 ### 其他约定（详见 conventions.md）
@@ -72,7 +73,7 @@
 - API 时间一律 ISO 8601 UTC 字符串。
 - 数据库后端二选一：`sqlite+aioturso:///`（默认，嵌入式 Turso，MVCC 并发写；**单进程独占文件锁**，多容器/多实例不得共享同一文件，需共享用 PostgreSQL；旧库迁移走 `scripts/migrate_to_turso.py`）、`postgresql+asyncpg://`。锁/冲突重试设施对两者语义一致。全文检索为 Turso 原生 FTS（ngram），因与 MVCC 互斥而放在边车库 `<主库名>_fts.db`（WAL），可随时重建、启动自动回填；同步 = 写入路径调用点 + 每 5 分钟对账任务兜底。
 - `DownloaderInstance.download_dir` 以 Transmission daemon 视角为准（POSIX/Windows/UNC）；`Agent.download_subdir` 必须是相对路径，禁止 `..`/绝对路径/控制字符；不调用 `session_set` 改全局目录。
-- 关键环境变量：`DATABASE_URL`、`QUEUE_BACKEND`、`LLM_API_KEY/BASE_URL/MODEL`、`EXA_API_KEY`、`JINA_API_KEY`、`TMDB_API_KEY`、`*_ENABLED` 数据源开关、`POSTER_CACHE_DIR` 等（完整列表见子文档）。
+- 关键环境变量：`DATABASE_URL`、`QUEUE_BACKEND`、`LLM_API_KEY/BASE_URL/MODEL`、`EXA_API_KEY`、`JINA_API_KEY`、`TMDB_API_KEY`、`*_ENABLED` 数据源开关、`POSTER_CACHE_DIR`、`AUTH_ENABLED`（认证总开关，默认开）、`API_KEY`（可选静态引导 key）等（完整列表见子文档）。
 
 ### 分支与 CI（详见 branching.md）
 

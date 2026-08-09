@@ -79,8 +79,8 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(minutes=1),
     )
-    # Download notifications: enqueue rows for freshly completed tasks, then
-    # deliver every due pending notification to its Agent's webhook.
+    # Download notifications: enqueue rows for freshly completed tasks, fan
+    # out to per-webhook deliveries, then deliver every due pending one.
     _scheduler.add_job(
         _process_download_notifications,
         trigger=IntervalTrigger(minutes=1),
@@ -386,14 +386,19 @@ async def _cleanup_expired() -> None:
         for d in stale:
             d.status = "expired"
 
-        # Tasks with an unconsumed download notification must survive: the
-        # notification's payload references the task, and ack removes the
-        # torrent via it.
+        # Tasks whose notification has any undelivered (non-done) webhook
+        # delivery must survive: the delivery retry loop still needs the
+        # task row the notification's payload references.
         from app.models.download_notification import DownloadNotification
+        from app.models.webhook_delivery import WebhookDelivery
 
         open_notifications = (
             select(DownloadNotification.download_task_id)
-            .where(DownloadNotification.status != "done")
+            .join(
+                WebhookDelivery,
+                WebhookDelivery.notification_id == DownloadNotification.id,
+            )
+            .where(WebhookDelivery.status != "done")
             .scalar_subquery()
         )
 
@@ -416,15 +421,13 @@ async def _cleanup_expired() -> None:
                 await db.delete(t)
                 deleted_count += 1
 
-        # Retention for consumed notifications
+        # Retention for old notifications (deliveries cascade via ORM delete)
         from app.config import settings
 
         notify_cutoff = now - timedelta(days=settings.notify_retention_days)
-        old_notifications = (await db.execute(select(DownloadNotification).where(and_(
-            DownloadNotification.status == "done",
-            DownloadNotification.processed_at.isnot(None),
-            DownloadNotification.processed_at < notify_cutoff,
-        )))).scalars().all()
+        old_notifications = (await db.execute(select(DownloadNotification).where(
+            DownloadNotification.created_at < notify_cutoff,
+        ))).scalars().all()
         for n in old_notifications:
             await db.delete(n)
 
@@ -433,7 +436,7 @@ async def _cleanup_expired() -> None:
         if deleted_count:
             logger.info("Cleaned up %d expired completed tasks", deleted_count)
         if old_notifications:
-            logger.info("Cleaned up %d consumed notifications", len(old_notifications))
+            logger.info("Cleaned up %d expired notifications", len(old_notifications))
 
         # Auto-cleanup of stale unresolved FileResources for channels that have
         # opted in (per-channel enable + age threshold).
@@ -499,9 +502,10 @@ async def _dedup_metadata() -> None:
 
 
 async def _process_download_notifications() -> None:
-    """Per-minute: enqueue notifications for newly completed tasks, then
-    deliver due pending ones (backoff retries included). Disabled unless
-    NOTIFY_ENABLED=true so deployments without a consumer pay nothing."""
+    """Per-minute: enqueue notifications for newly completed tasks, fan them
+    out to per-webhook deliveries, then deliver due pending ones (backoff
+    retries included). Disabled unless NOTIFY_ENABLED=true so deployments
+    without a consumer pay nothing."""
     from app.config import settings
 
     if not settings.notify_enabled:
@@ -509,19 +513,31 @@ async def _process_download_notifications() -> None:
     from sqlalchemy import select
 
     from app.database import committed_session
+    from app.models.agent_webhook import AgentWebhook
     from app.models.download_notification import DownloadNotification
     from app.models.download_task import DownloadTask
     from app.services.notify_service import (
         create_notification_for_task,
-        deliver_due_notifications,
+        deliver_due_deliveries,
+        ensure_deliveries,
     )
 
     async with committed_session() as db:
         try:
             notified = select(DownloadNotification.download_task_id).scalar_subquery()
+            # 未注册启用 webhook 的 agent 不生成通知，避免堆积无用记录
+            has_webhook = (
+                select(AgentWebhook.id)
+                .where(
+                    AgentWebhook.agent_id == DownloadTask.agent_id,
+                    AgentWebhook.enabled.is_(True),
+                )
+                .exists()
+            )
             stmt = select(DownloadTask).where(
                 DownloadTask.status == "completed",
                 DownloadTask.id.notin_(notified),
+                has_webhook,
             )
             tasks = (await db.execute(stmt)).scalars().all()
             enqueued = 0
@@ -530,11 +546,13 @@ async def _process_download_notifications() -> None:
                 if was_created:
                     enqueued += 1
                 await db.commit()
-            stats = await deliver_due_notifications(db)
-            if enqueued or stats["delivered"] or stats["failed"]:
+            fanned = await ensure_deliveries(db)
+            stats = await deliver_due_deliveries(db)
+            if enqueued or fanned or stats["delivered"] or stats["failed"]:
                 logger.info(
-                    "[notify] enqueued=%d delivered=%d failed=%d skipped=%d",
-                    enqueued, stats["delivered"], stats["failed"], stats["skipped"],
+                    "[notify] enqueued=%d fanned=%d delivered=%d failed=%d skipped=%d",
+                    enqueued, fanned,
+                    stats["delivered"], stats["failed"], stats["skipped"],
                 )
         except Exception as e:
             logger.warning("[notify] processing tick failed: %s", e)

@@ -149,3 +149,91 @@ class TestManualTaskCreate:
         })
         assert res.status_code == 404
         assert res.json()["error"]["code"] == "NOT_FOUND"
+
+
+class TestGlobalTaskList:
+    async def _create_task(self, db_session_factory, ch_id, dl_id, status="downloading",
+                           agent_id=None, created_at=None):
+        from app.models.download_task import DownloadTask
+        rid = await _create_resource(db_session_factory, ch_id, f"[G] GlobalT - {_uuid()}")
+        tid = _uuid()
+        async with db_session_factory() as s:
+            s.add(DownloadTask(
+                id=tid, agent_id=agent_id, file_resource_id=rid,
+                downloader_id=dl_id, transmission_torrent_id=42,
+                download_dir="/downloads/rssripple/AgentA",
+                status=status, progress=0.0,
+                download_speed=0, upload_speed=0, retry_count=0, max_retries=3,
+                **({"created_at": created_at} if created_at else {}),
+            ))
+            await s.commit()
+        return tid
+
+    async def test_default_list_newest_first(self, client, setup, db_session_factory):
+        from datetime import UTC, datetime
+        ch, dl, aid = setup
+        t1 = await self._create_task(db_session_factory, ch, dl,
+                                     created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        t2 = await self._create_task(db_session_factory, ch, dl,
+                                     created_at=datetime(2024, 1, 3, tzinfo=UTC))
+        t3 = await self._create_task(db_session_factory, ch, dl,
+                                     created_at=datetime(2024, 1, 2, tzinfo=UTC))
+        res = await client.get("/api/v1/tasks")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["meta"]["total"] == 3
+        assert [t["id"] for t in body["data"]] == [t2, t3, t1]
+        item = body["data"][0]
+        assert item["downloader_id"] == dl
+        assert "file_resource" in item and "agent" in item
+
+    async def test_filter_downloader_id(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        await self._create_task(db_session_factory, ch, dl)
+        res = await client.get(f"/api/v1/tasks?downloader_id={dl}")
+        assert res.status_code == 200
+        assert res.json()["meta"]["total"] == 1
+        res = await client.get(f"/api/v1/tasks?downloader_id={_uuid()}")
+        assert res.status_code == 200
+        assert res.json()["meta"]["total"] == 0
+
+    async def test_filter_agent_id(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        await self._create_task(db_session_factory, ch, dl, agent_id=aid)
+        await self._create_task(db_session_factory, ch, dl, agent_id=None)
+        res = await client.get(f"/api/v1/tasks?agent_id={aid}")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["meta"]["total"] == 1
+        assert body["data"][0]["agent_id"] == aid
+
+    async def test_filter_status(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        await self._create_task(db_session_factory, ch, dl, status="error")
+        await self._create_task(db_session_factory, ch, dl, status="completed")
+        res = await client.get("/api/v1/tasks?status=error")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["meta"]["total"] == 1
+        assert body["data"][0]["status"] == "error"
+
+    async def test_invalid_status_422(self, client, setup):
+        res = await client.get("/api/v1/tasks?status=bogus")
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_pagination(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        for _ in range(3):
+            await self._create_task(db_session_factory, ch, dl)
+        res = await client.get("/api/v1/tasks?page=1&page_size=2")
+        assert res.status_code == 200
+        body = res.json()
+        assert len(body["data"]) == 2
+        assert body["meta"]["total"] == 3
+        res = await client.get("/api/v1/tasks?page=2&page_size=2")
+        assert len(res.json()["data"]) == 1
+
+    async def test_page_size_cap(self, client, setup):
+        res = await client.get("/api/v1/tasks?page_size=101")
+        assert res.status_code == 422

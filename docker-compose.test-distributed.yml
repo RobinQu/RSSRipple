@@ -71,6 +71,9 @@ services:
       # tests drive fetches explicitly — an auto fetch racing the explicit
       # one makes fetch-status/resource assertions flaky.
       - SCHEDULER_ENABLED=false
+      # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
+      # true); integration tests send it as X-API-Key.
+      - API_KEY=test-integration-key
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,7 +82,7 @@ services:
       test-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:9001/api/v1/channels', headers={'X-API-Key': 'test-integration-key'}), timeout=3)"]
       interval: 5s
       timeout: 15s
       retries: 30
@@ -99,6 +102,9 @@ services:
       - POSTER_CACHE_DIR=/app/data/posters
       # See app-1: scheduler stays off so tests control every fetch.
       - SCHEDULER_ENABLED=false
+      # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
+      # true); integration tests send it as X-API-Key.
+      - API_KEY=test-integration-key
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,7 +113,7 @@ services:
       test-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:9001/api/v1/channels', headers={'X-API-Key': 'test-integration-key'}), timeout=3)"]
       interval: 5s
       timeout: 15s
       retries: 30

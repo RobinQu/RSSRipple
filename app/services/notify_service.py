@@ -1,20 +1,23 @@
 """Download notification service.
 
-Builds the per-task notification snapshot and delivers it to the Agent's
-registered webhook with exponential backoff. RSSRipple's responsibility ends
-at "persist the notification and deliver it" — all file planning/execution
+Builds the per-task notification snapshot and fans it out to the Agent's
+registered webhooks as individual ``WebhookDelivery`` rows, each delivered
+with its own exponential backoff. RSSRipple's responsibility ends at
+"persist the notification and deliver it" — all file planning/execution
 lives in the external consumer (vault-organizer). See
 docs/design/notifications.md.
 
 Delivery has a single code path: the scheduler's per-minute tick calls
-:func:`deliver_due_notifications`, which picks up every due ``pending`` row —
-fresh ones (``next_attempt_at`` set to now at creation), backoff retries, and
-manual UI retries (which reset the row to due-now). Nothing else sends
-webhooks.
+:func:`ensure_deliveries` (create missing fan-out rows) and then
+:func:`deliver_due_deliveries`, which picks up every due ``pending``
+delivery — fresh ones (``next_attempt_at`` set to now at creation), backoff
+retries, and manual UI retries (which reset rows to due-now). Nothing else
+sends webhooks.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta
@@ -26,19 +29,22 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.agent import Agent
+from app.models.agent_webhook import AgentWebhook
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.webhook_delivery import WebhookDelivery
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
 
 MAX_BACKOFF_SECONDS = 1800  # 30 min cap on the exponential backoff
-WEBHOOK_TIMEOUT_SECONDS = 5.0
-_DELIVERY_BATCH = 50  # max notifications delivered per scheduler tick
+WEBHOOK_TIMEOUT_SECONDS = 180.0
+_DELIVERY_BATCH = 50  # max deliveries attempted per scheduler tick
+_DELIVERY_CONCURRENCY = 10  # max simultaneous webhook HTTP calls
 _BACKFILL_COMMIT_EVERY = 20
 
 
@@ -201,8 +207,6 @@ async def create_notification_for_task(
         agent_id=task.agent_id,
         download_task_id=task.id,
         payload={},  # placeholder, filled below once the id exists
-        status="pending",
-        next_attempt_at=utcnow(),
     )
     notification.payload = build_payload(
         notification.id, agent, task, resource, torrent_info
@@ -218,73 +222,174 @@ async def create_notification_for_task(
     return notification, True
 
 
-async def deliver_due_notifications(db) -> dict:
-    """Deliver every due ``pending`` notification to its Agent's webhook.
+async def ensure_deliveries(db, agent_id: str | None = None) -> int:
+    """Fan out: create missing ``pending`` deliveries for every notification
+    × every ENABLED webhook of the notification's agent.
 
-    - mock webhook: delivery counts as success without any HTTP call (payload
-      inspection only; a mock consumer never acks, so the torrent is kept).
-    - no webhook registered: the row waits in the queue; delivery resumes
-      automatically once a webhook is registered.
+    Idempotent via the ``(notification_id, webhook_id)`` unique constraint:
+    existing pairs are pre-selected and skipped, and a lost race against a
+    concurrent fan-out (scheduler tick vs. webhook registration) is absorbed
+    by a SAVEPOINT, like :func:`create_notification_for_task`. A webhook
+    registered (or re-enabled) later receives the whole backlog on the next
+    run. Commits in batches.
+    """
+    n_stmt = select(DownloadNotification).where(
+        DownloadNotification.agent_id.isnot(None)
+    )
+    if agent_id is not None:
+        n_stmt = n_stmt.where(DownloadNotification.agent_id == agent_id)
+    notifications = (await db.execute(n_stmt)).scalars().all()
+    if not notifications:
+        return 0
+
+    agent_ids = {n.agent_id for n in notifications}
+    webhooks = (
+        await db.execute(
+            select(AgentWebhook).where(
+                AgentWebhook.agent_id.in_(agent_ids),
+                AgentWebhook.enabled.is_(True),
+            )
+        )
+    ).scalars().all()
+    if not webhooks:
+        return 0
+
+    by_agent: dict[str, list[AgentWebhook]] = {}
+    for w in webhooks:
+        by_agent.setdefault(w.agent_id, []).append(w)
+    wanted = {
+        (n.id, w.id)
+        for n in notifications
+        for w in by_agent.get(n.agent_id, [])  # type: ignore[arg-type]
+    }
+    if not wanted:
+        return 0
+
+    existing = {
+        (row[0], row[1])
+        for row in (
+            await db.execute(
+                select(
+                    WebhookDelivery.notification_id, WebhookDelivery.webhook_id
+                ).where(
+                    WebhookDelivery.notification_id.in_(
+                        {n.id for n in notifications}
+                    )
+                )
+            )
+        ).all()
+    }
+    missing = wanted - existing
+
+    created = 0
+    for notification_id, webhook_id in sorted(missing):
+        delivery = WebhookDelivery(
+            notification_id=notification_id,
+            webhook_id=webhook_id,
+            status="pending",
+            next_attempt_at=utcnow(),
+        )
+        try:
+            async with db.begin_nested():  # SAVEPOINT: keep the batch alive
+                db.add(delivery)
+                await db.flush()
+        except IntegrityError:
+            continue  # lost a race — the row exists now
+        created += 1
+        if created % _DELIVERY_BATCH == 0:
+            await db.commit()
+    await db.commit()
+    return created
+
+
+async def deliver_due_deliveries(db) -> dict:
+    """Deliver every due ``pending`` delivery to its webhook.
+
+    - mock webhook: delivery counts as success without any HTTP call
+      (payload inspection only).
+    - webhook deleted or disabled since fan-out: skipped, stays pending;
+      delivery resumes automatically once a webhook is available again.
     - HTTP failure: exponential backoff; exhausting ``notify_max_attempts``
       flips the row to ``failed`` (recoverable via manual UI retry).
 
-    Commits per notification so the DB write lock is never held across an
-    HTTP call.
+    Deliveries run concurrently (bounded by ``_DELIVERY_CONCURRENCY``); each
+    delivery commits individually so one failure never rolls back another,
+    and the DB write lock is never held across an HTTP call. Row mutation +
+    commit are serialized through ``commit_lock``: an AsyncSession is not
+    re-entrant, and mutating one row while another delivery's flush is in
+    flight would get those changes silently discarded.
     """
     now = utcnow()
     stmt = (
-        select(DownloadNotification)
+        select(WebhookDelivery)
         .where(
-            DownloadNotification.status == "pending",
+            WebhookDelivery.status == "pending",
             (
-                DownloadNotification.next_attempt_at.is_(None)
-                | (DownloadNotification.next_attempt_at <= now)
+                WebhookDelivery.next_attempt_at.is_(None)
+                | (WebhookDelivery.next_attempt_at <= now)
             ),
         )
-        .order_by(DownloadNotification.created_at.asc())
+        .options(
+            selectinload(WebhookDelivery.notification),
+            selectinload(WebhookDelivery.webhook),
+        )
+        .order_by(WebhookDelivery.created_at.asc())
         .limit(_DELIVERY_BATCH)
     )
     due = (await db.execute(stmt)).scalars().all()
     stats = {"delivered": 0, "failed": 0, "skipped": 0}
+    semaphore = asyncio.Semaphore(_DELIVERY_CONCURRENCY)
+    commit_lock = asyncio.Lock()
 
-    for n in due:
-        agent = await db.get(Agent, n.agent_id) if n.agent_id else None
-        if agent is None:
-            stats["skipped"] += 1
-            continue
-        if agent.notify_webhook_mock:
-            n.notified_at = utcnow()
-            n.error_message = None
-            stats["delivered"] += 1
-            await db.commit()
-            continue
-        if not agent.notify_webhook_url:
-            stats["skipped"] += 1
-            continue
-        try:
-            async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT_SECONDS) as client:
-                resp = await client.post(
-                    agent.notify_webhook_url,
-                    json={"event": "download.completed", "notification": n.payload},
-                )
-                resp.raise_for_status()
-            n.notified_at = utcnow()
-            n.error_message = None
-            stats["delivered"] += 1
-        except Exception as e:
-            n.attempt_count += 1
-            if n.attempt_count >= settings.notify_max_attempts:
-                n.status = "failed"
-                n.error_message = (
-                    f"webhook 投递失败（已达最大重试次数）: {e}"[:2000]
-                )
-                stats["failed"] += 1
-            else:
-                n.next_attempt_at = utcnow() + backoff_delay(n.attempt_count)
-                n.error_message = f"webhook 投递失败，将退避重试: {e}"[:2000]
+    async def _deliver_one(d: WebhookDelivery) -> None:
+        async with semaphore:
+            webhook = d.webhook
+            if webhook is None or not webhook.enabled:
                 stats["skipped"] += 1
-        await db.commit()
+                return
+            error: Exception | None = None
+            if not webhook.mock:
+                try:
+                    async with httpx.AsyncClient(
+                        timeout=WEBHOOK_TIMEOUT_SECONDS
+                    ) as client:
+                        resp = await client.post(
+                            webhook.url,
+                            json={
+                                "event": "download.completed",
+                                "notification": d.notification.payload,
+                            },
+                        )
+                        resp.raise_for_status()
+                except Exception as e:
+                    error = e
+            async with commit_lock:
+                if error is None:
+                    # HTTP 2xx, or mock webhook (payload inspection only —
+                    # no HTTP call at all).
+                    d.status = "done"
+                    d.delivered_at = utcnow()
+                    d.error_message = None
+                    stats["delivered"] += 1
+                else:
+                    d.attempt_count += 1
+                    if d.attempt_count >= settings.notify_max_attempts:
+                        d.status = "failed"
+                        d.error_message = (
+                            f"webhook 投递失败（已达最大重试次数）: {error}"[:2000]
+                        )
+                        stats["failed"] += 1
+                    else:
+                        d.next_attempt_at = utcnow() + backoff_delay(
+                            d.attempt_count
+                        )
+                        d.error_message = (
+                            f"webhook 投递失败，将退避重试: {error}"[:2000]
+                        )
+                        stats["skipped"] += 1
+                await db.commit()
 
+    await asyncio.gather(*(_deliver_one(d) for d in due))
     return stats
 
 
@@ -294,7 +399,7 @@ async def backfill_notifications(
     """Create notifications for completed tasks that never had one.
 
     ``since=None`` checks from the earliest completed task. Commits in
-    batches; delivery is left to the per-minute delivery loop, which
+    batches; fan-out and delivery are left to the per-minute loop, which
     naturally rate-limits the webhook calls.
     """
     # The uniqueness invariant is global on download_task_id — exclude tasks
@@ -325,9 +430,40 @@ async def backfill_notifications(
     return created
 
 
-def reset_for_retry(notification: DownloadNotification) -> None:
-    """Manual UI retry: make the row due for immediate redelivery."""
-    notification.status = "pending"
-    notification.attempt_count = 0
-    notification.next_attempt_at = utcnow()
-    notification.error_message = None
+async def reset_deliveries_for_retry(
+    db,
+    mode: str,
+    since: datetime | None = None,
+    agent_id: str | None = None,
+    notification_id: str | None = None,
+) -> int:
+    """Manual retry: make matching deliveries due for immediate redelivery.
+
+    ``mode="failed"`` resets only ``failed`` deliveries; ``mode="all"``
+    resets every non-pending delivery (``done`` + ``failed``). Optionally
+    scoped by the notification's ``created_at >= since``, ``agent_id``
+    and/or a single ``notification_id``. Returns the number reset.
+    """
+    statuses = ("failed",) if mode == "failed" else ("done", "failed")
+    stmt = (
+        select(WebhookDelivery)
+        .join(
+            DownloadNotification,
+            WebhookDelivery.notification_id == DownloadNotification.id,
+        )
+        .where(WebhookDelivery.status.in_(statuses))
+    )
+    if since is not None:
+        stmt = stmt.where(DownloadNotification.created_at >= since)
+    if agent_id is not None:
+        stmt = stmt.where(DownloadNotification.agent_id == agent_id)
+    if notification_id is not None:
+        stmt = stmt.where(DownloadNotification.id == notification_id)
+    rows = (await db.execute(stmt)).scalars().all()
+    for d in rows:
+        d.status = "pending"
+        d.attempt_count = 0
+        d.next_attempt_at = utcnow()
+        d.error_message = None
+    await db.commit()
+    return len(rows)

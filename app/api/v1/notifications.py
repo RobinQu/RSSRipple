@@ -1,33 +1,37 @@
 """Download notification API routes.
 
-Read endpoints serve the UI (Agent detail → 通知记录 tab); the start/ack/fail
-callback endpoints serve the external consumer (vault-organizer) and
-authenticate with the per-Agent callback token issued at webhook
-registration (Bearer).
+Read endpoints serve the UI (Agent detail → 通知记录 tab). Delivery state
+lives on per-webhook ``WebhookDelivery`` rows; a notification's displayed
+status is aggregated from its deliveries. Consumer callbacks (start/ack/fail)
+were removed with the single-webhook model — delivery is fire-and-forget
+with retries; consumers simply receive the webhook POST.
 """
 
-import secrets
-
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.agent import Agent
+from app.models.agent_webhook import AgentWebhook
 from app.models.download_notification import DownloadNotification
-from app.models.download_task import DownloadTask
-from app.models.downloader import DownloaderInstance
+from app.models.webhook_delivery import WebhookDelivery
 from app.schemas.common import paginated_response, success_response
 from app.schemas.notification import (
     BackfillRequest,
-    FailRequest,
-    NotificationDetail,
-    NotificationListItem,
-    WebhookRegisterRequest,
+    NotificationRetryRequest,
+    RetryRequest,
+    WebhookCreateRequest,
+    WebhookOut,
+    WebhookUpdateRequest,
 )
-from app.services.notify_service import backfill_notifications, reset_for_retry
-from app.utils.time import utcnow
+from app.services.notify_service import (
+    backfill_notifications,
+    ensure_deliveries,
+    reset_deliveries_for_retry,
+)
 
 router = APIRouter()
 
@@ -42,30 +46,6 @@ def _error(status_code: int, code: str, message: str) -> JSONResponse:
             "meta": {},
         },
     )
-
-
-def _check_callback_token(
-    request: Request, agent: Agent | None
-) -> JSONResponse | None:
-    """Authenticate a consumer callback against the owning Agent's token."""
-    if agent is None or not agent.notify_webhook_token:
-        return _error(
-            503, "CALLBACK_TOKEN_NOT_CONFIGURED",
-            "该 Agent 未注册 webhook，回调端点不可用",
-        )
-    auth = request.headers.get("authorization", "")
-    if not secrets.compare_digest(auth, f"Bearer {agent.notify_webhook_token}"):
-        return _error(401, "UNAUTHORIZED", "回调 token 无效")
-    return None
-
-
-def _webhook_status(agent: Agent) -> dict:
-    return {
-        "registered": bool(agent.notify_webhook_url or agent.notify_webhook_mock),
-        "url": agent.notify_webhook_url,
-        "mock": agent.notify_webhook_mock,
-        "token": agent.notify_webhook_token,
-    }
 
 
 async def _get_agent_or_404(db: AsyncSession, agent_id: str) -> Agent | JSONResponse:
@@ -84,8 +64,85 @@ async def _get_notification_or_404(
     return n
 
 
+async def _get_webhook_or_404(
+    db: AsyncSession, agent_id: str, webhook_id: str
+) -> AgentWebhook | JSONResponse:
+    w = (
+        await db.execute(
+            select(AgentWebhook).where(
+                AgentWebhook.id == webhook_id,
+                AgentWebhook.agent_id == agent_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if w is None:
+        return _error(404, "NOT_FOUND", "Webhook not found")
+    return w
+
+
 # ---------------------------------------------------------------------------
-# Agent-scoped: queue listing, webhook registration, backfill
+# Aggregation helpers — the single source of truth for a notification's
+# displayed status. The list endpoint's SQL filter mirrors these rules via
+# correlated EXISTS subqueries (keep the two in sync).
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_status(deliveries: list[WebhookDelivery]) -> str:
+    if not deliveries or any(d.status == "pending" for d in deliveries):
+        return "pending"
+    if all(d.status == "done" for d in deliveries):
+        return "done"
+    return "failed"
+
+
+def _delivery_summary(deliveries: list[WebhookDelivery]) -> dict:
+    return {
+        "total": len(deliveries),
+        "done": sum(1 for d in deliveries if d.status == "done"),
+        "failed": sum(1 for d in deliveries if d.status == "failed"),
+        "pending": sum(1 for d in deliveries if d.status == "pending"),
+    }
+
+
+def _list_item(n: DownloadNotification) -> dict:
+    return {
+        "id": n.id,
+        "agent_id": n.agent_id,
+        "download_task_id": n.download_task_id,
+        "status": _aggregate_status(n.deliveries),
+        "delivery_summary": _delivery_summary(n.deliveries),
+        "created_at": n.created_at,
+        "updated_at": n.updated_at,
+    }
+
+
+def _delivery_out(d: WebhookDelivery) -> dict:
+    return {
+        "id": d.id,
+        "webhook_id": d.webhook_id,
+        "webhook_url": d.webhook.url if d.webhook else None,
+        "status": d.status,
+        "attempt_count": d.attempt_count,
+        "error_message": d.error_message,
+        "delivered_at": d.delivered_at,
+        "next_attempt_at": d.next_attempt_at,
+        "created_at": d.created_at,
+    }
+
+
+def _deliveries_exist(*statuses: str):
+    """Correlated EXISTS subquery: the outer notification has a delivery
+    (optionally restricted to the given statuses)."""
+    q = select(WebhookDelivery.id).where(
+        WebhookDelivery.notification_id == DownloadNotification.id
+    )
+    if statuses:
+        q = q.where(WebhookDelivery.status.in_(statuses))
+    return q.exists()
+
+
+# ---------------------------------------------------------------------------
+# Agent-scoped: queue listing, webhook collection, backfill
 # ---------------------------------------------------------------------------
 
 
@@ -100,11 +157,28 @@ async def list_notifications(
     agent = await _get_agent_or_404(db, agent_id)
     if isinstance(agent, JSONResponse):
         return agent
+    if status is not None and status not in ("pending", "done", "failed"):
+        return _error(422, "VALIDATION_ERROR", f"未知状态: {status}")
     base_q = select(DownloadNotification).where(
         DownloadNotification.agent_id == agent_id
     )
-    if status:
-        base_q = base_q.where(DownloadNotification.status == status)
+    # Filter on the aggregated status via delivery subqueries so pagination
+    # stays correct (mirrors _aggregate_status):
+    #   pending = no deliveries OR any pending delivery
+    #   done    = has deliveries AND none pending/failed
+    #   failed  = some failed AND none pending
+    if status == "pending":
+        base_q = base_q.where(
+            ~_deliveries_exist() | _deliveries_exist("pending")
+        )
+    elif status == "done":
+        base_q = base_q.where(
+            _deliveries_exist() & ~_deliveries_exist("pending", "failed")
+        )
+    elif status == "failed":
+        base_q = base_q.where(
+            _deliveries_exist("failed") & ~_deliveries_exist("pending")
+        )
     total = (
         await db.execute(select(func.count()).select_from(base_q.subquery()))
     ).scalar_one()
@@ -116,49 +190,89 @@ async def list_notifications(
         )
     ).scalars().all()
     return paginated_response(
-        [NotificationListItem.model_validate(n).model_dump() for n in rows],
-        total, page, page_size,
+        [_list_item(n) for n in rows], total, page, page_size,
     )
 
 
-@router.get("/agents/{agent_id}/webhook")
-async def get_webhook(agent_id: str, db: AsyncSession = Depends(get_db)):
+@router.get("/agents/{agent_id}/webhooks")
+async def list_webhooks(agent_id: str, db: AsyncSession = Depends(get_db)):
     agent = await _get_agent_or_404(db, agent_id)
     if isinstance(agent, JSONResponse):
         return agent
-    return success_response(_webhook_status(agent))
+    rows = (
+        await db.execute(
+            select(AgentWebhook)
+            .where(AgentWebhook.agent_id == agent_id)
+            .order_by(AgentWebhook.created_at.asc())
+        )
+    ).scalars().all()
+    return success_response(
+        [WebhookOut.model_validate(w).model_dump() for w in rows]
+    )
 
 
-@router.put("/agents/{agent_id}/webhook")
-async def register_webhook(
+@router.post("/agents/{agent_id}/webhooks", status_code=201)
+async def create_webhook(
     agent_id: str,
-    body: WebhookRegisterRequest,
+    body: WebhookCreateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Register/update the webhook. Each registration issues a fresh callback
-    token — the consumer must be reconfigured with the new token."""
     agent = await _get_agent_or_404(db, agent_id)
     if isinstance(agent, JSONResponse):
         return agent
-    if not body.mock and not body.url:
-        return _error(422, "VALIDATION_ERROR", "非 mock webhook 必须提供 url")
-    agent.notify_webhook_mock = body.mock
-    agent.notify_webhook_url = None if body.mock else body.url
-    agent.notify_webhook_token = secrets.token_urlsafe(32)
+    webhook = AgentWebhook(
+        agent_id=agent_id, url=body.url, mock=body.mock, enabled=body.enabled
+    )
+    db.add(webhook)
+    await db.flush()
+    # Fan out immediately so the new webhook receives the existing backlog
+    # instead of waiting for the next scheduler tick.
+    await ensure_deliveries(db, agent_id=agent_id)
     await db.commit()
-    return success_response(_webhook_status(agent))
+    await db.refresh(webhook)
+    return success_response(WebhookOut.model_validate(webhook).model_dump())
 
 
-@router.delete("/agents/{agent_id}/webhook")
-async def unregister_webhook(agent_id: str, db: AsyncSession = Depends(get_db)):
+@router.put("/agents/{agent_id}/webhooks/{webhook_id}")
+async def update_webhook(
+    agent_id: str,
+    webhook_id: str,
+    body: WebhookUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
     agent = await _get_agent_or_404(db, agent_id)
     if isinstance(agent, JSONResponse):
         return agent
-    agent.notify_webhook_url = None
-    agent.notify_webhook_mock = False
-    agent.notify_webhook_token = None
+    webhook = await _get_webhook_or_404(db, agent_id, webhook_id)
+    if isinstance(webhook, JSONResponse):
+        return webhook
+    if body.url is not None:
+        webhook.url = body.url
+    if body.mock is not None:
+        webhook.mock = body.mock
+    if body.enabled is not None:
+        webhook.enabled = body.enabled
+    # Re-enabling (or any update) picks up the backlog on the next tick;
+    # fan out now so it happens immediately.
+    await ensure_deliveries(db, agent_id=agent_id)
     await db.commit()
-    return success_response(_webhook_status(agent))
+    await db.refresh(webhook)
+    return success_response(WebhookOut.model_validate(webhook).model_dump())
+
+
+@router.delete("/agents/{agent_id}/webhooks/{webhook_id}")
+async def delete_webhook(
+    agent_id: str, webhook_id: str, db: AsyncSession = Depends(get_db)
+):
+    agent = await _get_agent_or_404(db, agent_id)
+    if isinstance(agent, JSONResponse):
+        return agent
+    webhook = await _get_webhook_or_404(db, agent_id, webhook_id)
+    if isinstance(webhook, JSONResponse):
+        return webhook
+    await db.delete(webhook)
+    await db.commit()
+    return success_response({"deleted": True})
 
 
 @router.post("/agents/{agent_id}/notifications/backfill")
@@ -169,8 +283,9 @@ async def backfill_agent_notifications(
 ):
     """Create notifications for completed tasks that never had one.
 
-    ``since=null`` checks from the earliest completed task. Delivery is
-    handled by the per-minute delivery loop (natural rate limiting).
+    ``since=null`` checks from the earliest completed task. Fan-out and
+    delivery are handled by the per-minute delivery loop (natural rate
+    limiting).
     """
     agent = await _get_agent_or_404(db, agent_id)
     if isinstance(agent, JSONResponse):
@@ -180,7 +295,7 @@ async def backfill_agent_notifications(
 
 
 # ---------------------------------------------------------------------------
-# Notification-scoped: detail, retry (UI), start/ack/fail (consumer callbacks)
+# Notification-scoped: detail, retry (UI)
 # ---------------------------------------------------------------------------
 
 
@@ -188,115 +303,54 @@ async def backfill_agent_notifications(
 async def get_notification(
     notification_id: str, db: AsyncSession = Depends(get_db)
 ):
-    n = await _get_notification_or_404(db, notification_id)
-    if isinstance(n, JSONResponse):
-        return n
-    return success_response(NotificationDetail.model_validate(n).model_dump())
+    n = (
+        await db.execute(
+            select(DownloadNotification)
+            .where(DownloadNotification.id == notification_id)
+            .options(
+                selectinload(DownloadNotification.deliveries).selectinload(
+                    WebhookDelivery.webhook
+                )
+            )
+        )
+    ).scalar_one_or_none()
+    if n is None:
+        return _error(404, "NOT_FOUND", "Notification not found")
+    return success_response({
+        **_list_item(n),
+        "payload": n.payload,
+        "deliveries": [_delivery_out(d) for d in n.deliveries],
+    })
+
+
+@router.post("/notifications/retry")
+async def retry_notifications(
+    body: RetryRequest, db: AsyncSession = Depends(get_db)
+):
+    """Bulk retry: reset matching deliveries to due-immediately.
+
+    ``mode="failed"`` resets only failed deliveries; ``mode="all"`` resets
+    every non-pending delivery. Optionally scoped by notification
+    ``created_at >= since`` and/or ``agent_id``.
+    """
+    reset = await reset_deliveries_for_retry(
+        db, body.mode, since=body.since, agent_id=body.agent_id
+    )
+    return success_response({"reset": reset})
 
 
 @router.post("/notifications/{notification_id}/retry")
 async def retry_notification(
-    notification_id: str, db: AsyncSession = Depends(get_db)
-):
-    """Manual UI retry: reset to pending and make it due immediately."""
-    n = await _get_notification_or_404(db, notification_id)
-    if isinstance(n, JSONResponse):
-        return n
-    if n.status == "done":
-        return _error(409, "INVALID_STATE", "已消费成功的通知不能重试")
-    reset_for_retry(n)
-    await db.commit()
-    await db.refresh(n)  # pick up server-side onupdate columns (updated_at)
-    return success_response(NotificationDetail.model_validate(n).model_dump())
-
-
-@router.post("/notifications/{notification_id}/start")
-async def start_notification(
     notification_id: str,
-    request: Request,
+    body: NotificationRetryRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    """Manual UI retry for one notification: reset its deliveries to
+    pending and make them due immediately."""
     n = await _get_notification_or_404(db, notification_id)
     if isinstance(n, JSONResponse):
         return n
-    denied = _check_callback_token(request, await db.get(Agent, n.agent_id))
-    if denied is not None:
-        return denied
-    if n.status == "pending":
-        n.status = "processing"
-        await db.commit()
-        await db.refresh(n)  # pick up server-side onupdate columns (updated_at)
-    elif n.status != "processing":
-        return _error(
-            409, "INVALID_STATE",
-            f"当前状态 {n.status} 不能标记为 processing",
-        )
-    return success_response(NotificationDetail.model_validate(n).model_dump())
-
-
-@router.post("/notifications/{notification_id}/ack")
-async def ack_notification(
-    notification_id: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """Consumer confirms successful processing → remove the torrent."""
-    n = await _get_notification_or_404(db, notification_id)
-    if isinstance(n, JSONResponse):
-        return n
-    denied = _check_callback_token(request, await db.get(Agent, n.agent_id))
-    if denied is not None:
-        return denied
-    if n.status not in ("pending", "processing"):
-        return _error(
-            409, "INVALID_STATE", f"当前状态 {n.status} 不能 ack"
-        )
-    n.status = "done"
-    n.processed_at = utcnow()
-    n.error_message = None
-
-    task = await db.get(DownloadTask, n.download_task_id)
-    if (
-        task is not None
-        and task.transmission_torrent_id is not None
-        and task.downloader_id
-    ):
-        downloader = await db.get(DownloaderInstance, task.downloader_id)
-        if downloader is not None:
-            from app.clients.downloader import get_downloader_client
-
-            wrapper = get_downloader_client(downloader)
-            try:
-                ok = await wrapper.remove_torrent(
-                    task.transmission_torrent_id, delete_data=False
-                )
-                if not ok:
-                    n.error_message = "warning: torrent 删除失败（可能已被移除）"
-            except Exception as e:
-                n.error_message = f"warning: torrent 删除失败: {e}"[:2000]
-    await db.commit()
-    await db.refresh(n)  # pick up server-side onupdate columns (updated_at)
-    return success_response(NotificationDetail.model_validate(n).model_dump())
-
-
-@router.post("/notifications/{notification_id}/fail")
-async def fail_notification(
-    notification_id: str,
-    body: FailRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    n = await _get_notification_or_404(db, notification_id)
-    if isinstance(n, JSONResponse):
-        return n
-    denied = _check_callback_token(request, await db.get(Agent, n.agent_id))
-    if denied is not None:
-        return denied
-    if n.status == "done":
-        return _error(409, "INVALID_STATE", "已消费成功的通知不能标记失败")
-    n.status = "failed"
-    n.error_message = body.error[:2000]
-    n.processed_at = utcnow()
-    await db.commit()
-    await db.refresh(n)  # pick up server-side onupdate columns (updated_at)
-    return success_response(NotificationDetail.model_validate(n).model_dump())
+    reset = await reset_deliveries_for_retry(
+        db, body.mode, notification_id=notification_id
+    )
+    return success_response({"reset": reset})

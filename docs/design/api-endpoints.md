@@ -13,6 +13,25 @@
 
 分页端点使用查询参数 `page`（默认 1）和 `page_size`（默认 20，最大 100），在 `meta` 中返回分页信息。非分页端点 `meta` 可省略或返回空对象。
 
+### 认证（Auth）
+
+`AUTH_ENABLED=true`（默认）时，`/api/v1/*` 与 `/posters/*` 全部受 `AuthMiddleware` 保护，需携带有效凭证；`/api/v1/auth/*` 开放（登录与状态查询）；SPA 页面与静态资源开放（前端在收到 401 后自行跳转 `/login`）。无凭证或凭证无效一律返回 401 `{success:false, data:null, error:{code:"UNAUTHORIZED",...}, meta:{}}`。
+
+两类凭证（任一有效即可）：
+- **会话 Cookie**（Web 端）：`POST /auth/otp` 签发的 HttpOnly Cookie `rssripple_auth`。
+- **API Key**（程序端）：`Authorization: Bearer <key>` 或 `X-API-Key: <key>` 头；接受环境变量 `API_KEY`（可选静态引导 key）或 `api_keys` 表中的 key。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| POST | `/auth/otp` | TOTP 登录：body `{"code": "123456"}`；校验通过（容忍 ±1 时间窗）后签发 HttpOnly Cookie `rssripple_auth`（30 天，SameSite=Lax），返回 `{authenticated: true}`；验证码错误 401 `UNAUTHORIZED` |
+| POST | `/auth/logout` | 清除会话 Cookie，返回 `{authenticated: false}` |
+| GET | `/auth/status` | 当前请求是否已认证 `{authenticated: bool}`，始终 200 |
+| GET | `/api-keys` | API key 列表（`[{id, name, prefix, created_at}]`；不暴露 hash/明文） |
+| POST | `/api-keys` | 创建 API key：body `{"name": "..."}` → 201，`data` 额外含 `key`（`rr_...` 明文，**仅本次响应返回一次**） |
+| DELETE | `/api-keys/{id}` | 删除 API key；不存在 404 |
+
+TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）；provisioning URI（`otpauth://totp/RSSRipple:admin?...`）每次启动以 WARNING 级别打印，由运维手动添加到认证器。
+
 ### Dashboard
 
 | Method | Path | 说明 |
@@ -203,13 +222,14 @@
 | Method | Path | 说明 |
 |--------|------|------|
 | POST | `/tasks` | 手动创建下载任务（绕过 Agent，见下文） |
+| GET | `/tasks` | **全局**下载任务列表（分页，`page_size`≤100；可选过滤 `downloader_id`/`agent_id`/`status`，status 非法值 422；`created_at` 倒序）。供外部消费者（如 vault-organizer）按通知 payload 的 `download_task_id` 寻址查询 |
 | GET | `/agents/{agent_id}/tasks` | Agent 的下载任务（分页，可按 status 过滤） |
 | GET | `/tasks/{id}` | 任务详情（含 file_resource、agent、channel 信息） |
-| POST | `/tasks/{id}/pause` | 暂停（调用 Transmission RPC） |
+| POST | `/tasks/{id}/pause` | 停止（暂停，调用 Transmission RPC） |
 | POST | `/tasks/{id}/resume` | 恢复 |
 | POST | `/tasks/{id}/retry` | 重试（重置 retry_count，重新添加 torrent） |
 | POST | `/agents/{agent_id}/tasks/batch-retry` | 批量重试：对 Agent 下多个 error/paused 任务统一执行重试 |
-| DELETE | `/tasks/{id}` | 删除任务；query 参数 `delete_data=false` 控制是否同时删除 Transmission 中已下载数据 |
+| DELETE | `/tasks/{id}` | 删除任务（删除 Transmission 种子并将任务标记 `cancelled`）；query 参数 `delete_data=false` 控制是否同时删除已下载数据 |
 
 `POST /tasks` 手动创建下载任务：
 
@@ -246,22 +266,19 @@
 
 ### Download Notifications（下载完成通知）
 
-完整语义（状态机、payload 契约、退避策略）见 [notifications.md](notifications.md)。
+完整语义（模型、聚合状态机、payload 契约、fan-out 与退避策略、下游清理 API）见 [notifications.md](notifications.md)。投递为纯出站：无 token、无消费者回调端点（旧版 start/ack/fail 已删除）。
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/agents/{agent_id}/notifications` | 该 Agent 的通知队列（分页，`status` 过滤；列表项不含 payload） |
-| GET | `/notifications/{id}` | 通知详情（含完整 payload 快照） |
-| GET | `/agents/{agent_id}/webhook` | webhook 注册状态 `{ registered, url, mock, token }` |
-| PUT | `/agents/{agent_id}/webhook` | 注册/更新 webhook：`{ "url": "...", "mock": false }`；非 mock 必须 http(s) url，mock 时 url 清空；**每次注册动态换发回调 token**（响应含 token，供配置到消费者） |
-| DELETE | `/agents/{agent_id}/webhook` | 注销 webhook（清空 url/mock/token；队列继续积累，重新注册后自动恢复投递） |
+| GET | `/agents/{agent_id}/notifications` | 该 Agent 的通知队列（分页；`status` 按**聚合状态**过滤 pending/done/failed，其他值 422；列表项不含 payload，带聚合 `status` 与 `delivery_summary {total,done,failed,pending}`） |
+| GET | `/notifications/{id}` | 通知详情：完整 payload 快照 + `deliveries` 数组（每条含 webhook_url/status/attempt_count/error_message/delivered_at/next_attempt_at） |
+| GET | `/agents/{agent_id}/webhooks` | webhook 列表（`[{id, url, mock, enabled, created_at}]`） |
+| POST | `/agents/{agent_id}/webhooks` | 注册 webhook：`{ "url": "...", "mock": false, "enabled": true }` → **201**；非 mock 必须 http(s) url（422）；注册后立即对积压通知 fan-out |
+| PUT | `/agents/{agent_id}/webhooks/{webhook_id}` | 更新 webhook（部分更新 `{url?, mock?, enabled?}`；重新启用后同样立即 fan-out 恢复投递） |
+| DELETE | `/agents/{agent_id}/webhooks/{webhook_id}` | 删除 webhook（delivery 历史随 CASCADE 删除；通知行保留） |
 | POST | `/agents/{agent_id}/notifications/backfill` | 补生成：`{ "since": datetime \| null }`（null=从最早 completed 任务检查），为从未生成过通知的 completed 任务补建；返回 `{ "created": n }` |
-| POST | `/notifications/{id}/retry` | 界面手动重试：重置回 `pending` 并立即到期（`done` 时 409 `INVALID_STATE`） |
-| POST | `/notifications/{id}/start` | 消费者回调：`pending → processing`（幂等） |
-| POST | `/notifications/{id}/ack` | 消费者回调：`→ done` 并 `remove_torrent(delete_data=False)` |
-| POST | `/notifications/{id}/fail` | 消费者回调：`→ failed`，请求体 `{ "error": "..." }` |
-
-回调端点（start/ack/fail）要求 `Authorization: Bearer <Agent 回调 token>`（注册 webhook 时动态生成，按通知所属 Agent 比对）：Agent 未注册（无 token）返回 503 `CALLBACK_TOKEN_NOT_CONFIGURED`，不匹配返回 401 `UNAUTHORIZED`。
+| POST | `/notifications/{id}/retry` | 单条手动重试：body `{ "mode": "failed" \| "all" }` → `{ "reset": n }`；`failed` 仅重置 failed delivery，`all` 重置全部非 pending（done + failed）delivery，重置后立即到期 |
+| POST | `/notifications/retry` | 批量重试：body `{ "mode": "failed" \| "all", "since"?: datetime, "agent_id"?: uuid }` → `{ "reset": n }`；`since` 按通知 `created_at` 过滤，缺省为全库范围 |
 
 ### File Resources
 

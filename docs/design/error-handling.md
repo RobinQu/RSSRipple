@@ -40,6 +40,7 @@
 
 | 错误码 | HTTP 状态码 | 说明 |
 |--------|-------------|------|
+| `UNAUTHORIZED` | 401 | 未认证或凭证无效（AuthMiddleware 对受保护路径统一返回；OTP 验证码错误同码） |
 | `NOT_FOUND` | 404 | 请求的资源不存在 |
 | `VALIDATION_ERROR` | 422 | 请求参数验证失败（字段缺失/格式错误/枚举非法） |
 | `INVALID_FEED` | 422 | RSS URL 无效、不可达或解析失败 |

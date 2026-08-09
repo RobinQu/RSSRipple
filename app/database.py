@@ -371,12 +371,6 @@ async def _apply_light_migrations(conn) -> None:
         # itself is created by create_all.
         ("tv_series", "collection_id", "VARCHAR(36)"),
         ("movies", "collection_id", "VARCHAR(36)"),
-        # Per-agent webhook registration for download notifications — the
-        # download_notifications table itself is created by create_all.
-        ("agents", "notify_webhook_url", "VARCHAR(1024)"),
-        ("agents", "notify_webhook_mock",
-         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
-        ("agents", "notify_webhook_token", "VARCHAR(128)"),
     ]
 
     for table, column, ddl in additions:
@@ -397,6 +391,56 @@ async def _apply_light_migrations(conn) -> None:
         async with _best_effort(conn, f"add column {table}.{column}"):
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
+
+    # ── agents.notify_webhook_* → agent_webhooks rows ────────────────────
+    # Webhook registration moved from three columns on ``agents`` to the
+    # ``agent_webhooks`` fan-out table. Copy each legacy registration over
+    # once (agents that already have any agent_webhooks row are skipped);
+    # the old columns stay in place as inert orphans. Guarded by a column
+    # probe so it is a no-op on fresh databases where the legacy columns
+    # never existed.
+    async with _best_effort(conn, "agents.notify_webhook → agent_webhooks"):
+        if is_turso:
+            info = (await conn.execute(text("PRAGMA table_info(agents)"))).fetchall()
+            agent_cols = {row[1] for row in info}
+        elif is_postgres:
+            info = (await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'agents'"
+            ))).fetchall()
+            agent_cols = {row[0] for row in info}
+        else:
+            agent_cols = set()
+        if {"notify_webhook_url", "notify_webhook_mock"} <= agent_cols:
+            import uuid as _uuid
+
+            migrated = {
+                row[0]
+                for row in (await conn.execute(
+                    text("SELECT agent_id FROM agent_webhooks")
+                )).fetchall()
+            }
+            legacy = (await conn.execute(text(
+                "SELECT id, notify_webhook_url, notify_webhook_mock FROM agents "
+                "WHERE notify_webhook_url IS NOT NULL"
+            ))).fetchall()
+            copied = 0
+            for agent_id, url, mock in legacy:
+                if agent_id in migrated:
+                    continue
+                await conn.execute(text(
+                    "INSERT INTO agent_webhooks"
+                    "(id, agent_id, url, mock, enabled, created_at, updated_at) "
+                    "VALUES (:id, :aid, :url, :mock, :enabled, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ), {"id": str(_uuid.uuid4()), "aid": agent_id, "url": url,
+                    "mock": bool(mock), "enabled": True})
+                copied += 1
+            if copied:
+                logger.info(
+                    "[migrate] copied %d legacy webhook registrations to agent_webhooks",
+                    copied,
+                )
 
     # ── channels.metadata_source two-source convergence ──────────────────
     # Channel metadata sources are now restricted to wikipedia/tmdb (Phase
@@ -611,3 +655,69 @@ async def _apply_light_migrations(conn) -> None:
                 "src": source, "ext": ext})
         if seeds:
             logger.info("[migrate] seeded %d work_external_ids rows", len(seeds))
+
+    # ── download_notifications legacy delivery columns ─────────────────
+    # The pre-fan-out schema carried ``status``, ``error_message``,
+    # ``attempt_count``, ``next_attempt_at``, ``notified_at`` and
+    # ``processed_at`` on the ORM. The fan-out refactor removed them, but on
+    # existing databases the physical columns remain — and ``status`` /
+    # ``attempt_count`` are NOT NULL without defaults, so every insert through
+    # the new ORM fails. Turso/SQLite cannot drop NOT NULL in place, so the
+    # table is rebuilt with exactly the current model columns; PostgreSQL
+    # just drops the NOT NULL constraints and keeps the orphan columns.
+    async with _best_effort(conn, "download_notifications legacy columns"):
+        if is_turso:
+            info = (await conn.execute(
+                text("PRAGMA table_info(download_notifications)")
+            )).fetchall()
+            cols = {row[1] for row in info}
+        elif is_postgres:
+            info = (await conn.execute(text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'download_notifications'"
+            ))).fetchall()
+            cols = {row[0] for row in info}
+        else:
+            cols = set()
+
+        if "status" in cols and is_turso:
+            await conn.execute(text(
+                "CREATE TABLE download_notifications_new ("
+                "id VARCHAR(36) NOT NULL, "
+                "agent_id VARCHAR(36), "
+                "download_task_id VARCHAR(36) NOT NULL, "
+                "payload JSON NOT NULL, "
+                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, "
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, "
+                "PRIMARY KEY (id), "
+                "FOREIGN KEY(agent_id) REFERENCES agents (id) ON DELETE SET NULL, "
+                "UNIQUE (download_task_id), "
+                "FOREIGN KEY(download_task_id) REFERENCES download_tasks (id) ON DELETE CASCADE"
+                ")"
+            ))
+            await conn.execute(text(
+                "INSERT INTO download_notifications_new "
+                "(id, agent_id, download_task_id, payload, created_at, updated_at) "
+                "SELECT id, agent_id, download_task_id, payload, created_at, updated_at "
+                "FROM download_notifications"
+            ))
+            # webhook_deliveries references this table but was just created
+            # (empty) by create_all, so the implicit DELETE on DROP is a no-op.
+            await conn.execute(text("DROP TABLE download_notifications"))
+            await conn.execute(text(
+                "ALTER TABLE download_notifications_new "
+                "RENAME TO download_notifications"
+            ))
+            logger.info(
+                "[migrate] rebuilt download_notifications without legacy delivery columns"
+            )
+        elif is_postgres:
+            for legacy_col in ("status", "attempt_count"):
+                if legacy_col in cols:
+                    await conn.execute(text(
+                        f"ALTER TABLE download_notifications "
+                        f"ALTER COLUMN {legacy_col} DROP NOT NULL"
+                    ))
+                    logger.info(
+                        "[migrate] download_notifications.%s NOT NULL dropped", legacy_col
+                    )

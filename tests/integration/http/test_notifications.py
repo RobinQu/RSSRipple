@@ -3,14 +3,15 @@
 Runs against the app-llm instance (the only service in docker-compose.test.yml
 with SCHEDULER_ENABLED=true) because the notification pipeline is driven by
 the per-minute scheduler tick: completed task → stop torrent + create
-notification → deliver to the Agent's registered webhook.
+notification → fan out per-webhook deliveries → deliver to the Agent's
+registered webhooks.
 
 Covers:
-  - mock-webhook registration (per-Agent callback token issuance)
+  - mock-webhook registration (collection endpoint)
   - automatic notification creation for a completed mock download
-  - delivery to a mock webhook (notified_at set without HTTP)
-  - consumer callbacks with the per-Agent token: start → ack (torrent removed
-    from the mock downloader) ; fail → retry re-pends
+  - fan-out + delivery to a mock webhook (delivery done without HTTP)
+  - retry endpoint (mode=all re-pends a done delivery; the next tick
+    re-delivers it)
   - backfill idempotency (all tasks already have notifications → created=0)
 
 Skips automatically when RSSRIPPLE_LLM_URL is not set (e.g. distributed
@@ -26,6 +27,7 @@ import httpx
 import pytest
 
 from tests.integration.http._http import (
+    API_HEADERS,
     MIKANANI_1_URL,
     RICH_FIELD_MAPPING,
     _poll_fetch,
@@ -43,7 +45,7 @@ def _api(path: str, method: str = "get", **kw) -> httpx.Response:
     last_exc = None
     for attempt in range(3):
         try:
-            c = httpx.Client(timeout=TIMEOUT)
+            c = httpx.Client(timeout=TIMEOUT, headers=API_HEADERS)
             fn = getattr(c, method.lower())
             return fn(f"{LLM_APP}{path}", **kw)
         except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError) as e:
@@ -111,26 +113,28 @@ def test_notification_pipeline_end_to_end():
     assert r.status_code == 201, r.text
     agent_id = r.json()["data"]["id"]
 
-    # ── 2. register a mock webhook → per-Agent callback token issued ─────
+    # ── 2. register a mock webhook (url is inert for mock webhooks) ──────
     r = _api(
-        f"/api/v1/agents/{agent_id}/webhook",
-        method="put",
-        json={"mock": True},
+        f"/api/v1/agents/{agent_id}/webhooks",
+        method="post",
+        json={"url": "http://mock.invalid/hook", "mock": True},
     )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 201, r.text
     webhook = r.json()["data"]
-    assert webhook["registered"] is True and webhook["mock"] is True
-    token = webhook["token"]
-    assert token, "registration must issue a callback token"
-    headers = {"Authorization": f"Bearer {token}"}
+    assert webhook["mock"] is True and webhook["enabled"] is True
+
+    r = _api(f"/api/v1/agents/{agent_id}/webhooks")
+    assert any(w["id"] == webhook["id"] for w in r.json()["data"])
 
     # ── 3. scheduler ticks: download completes → notification created ────
     # mock torrents finish in 1-10s; sync (1min) marks completed, then the
-    # notify tick (1min) creates + delivers the notification.
+    # notify tick (1min) creates the notification, fans out and delivers.
     def _delivered_notification():
         r = _api(f"/api/v1/agents/{agent_id}/notifications")
         items = r.json().get("data", [])
-        delivered = [n for n in items if n.get("notified_at")]
+        delivered = [
+            n for n in items if n.get("delivery_summary", {}).get("done")
+        ]
         return delivered[0] if delivered else None
 
     notification = _poll(
@@ -138,44 +142,38 @@ def test_notification_pipeline_end_to_end():
         timeout=300,
         desc="notification created and delivered (mock webhook)",
     )
-    assert notification["status"] == "pending"  # delivered, awaiting consumer
+    assert notification["status"] == "done"  # all deliveries done
 
-    # Detail carries the frozen payload snapshot.
+    # Detail carries the frozen payload snapshot and the delivery rows.
     r = _api(f"/api/v1/notifications/{notification['id']}")
-    payload = r.json()["data"]["payload"]
-    assert payload["task"]["download_task_id"]
-    assert payload["work"]["type"] in ("series", "movie", None)
+    detail = r.json()["data"]
+    assert detail["payload"]["task"]["download_task_id"]
+    assert detail["payload"]["work"]["type"] in ("series", "movie", None)
+    deliveries = detail["deliveries"]
+    assert len(deliveries) == 1
+    assert deliveries[0]["status"] == "done"
+    assert deliveries[0]["delivered_at"]
+    assert deliveries[0]["webhook_id"] == webhook["id"]
 
-    # ── 4. consumer callbacks: start → ack removes the torrent ──────────
+    # ── 4. retry: mode=all re-pends the done delivery ────────────────────
     r = _api(
-        f"/api/v1/notifications/{notification['id']}/start",
+        f"/api/v1/notifications/{notification['id']}/retry",
         method="post",
-        headers=headers,
+        json={"mode": "all"},
     )
     assert r.status_code == 200, r.text
-    assert r.json()["data"]["status"] == "processing"
+    assert r.json()["data"]["reset"] == 1
 
-    r = _api(
-        f"/api/v1/notifications/{notification['id']}/ack",
-        method="post",
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["data"]["status"] == "done"
+    r = _api(f"/api/v1/notifications/{notification['id']}")
+    assert r.json()["data"]["status"] == "pending"
 
-    # The mock downloader registry no longer holds the torrent.
-    r = _api(f"/api/v1/downloaders/{dl_id}/torrents")
-    assert r.status_code == 200
-    # (ack removes by id; just assert the call succeeded — the mock list may
-    # legitimately contain other tests' torrents.)
+    # The next tick re-delivers (mock) → done again.
+    def _redelivered():
+        r = _api(f"/api/v1/notifications/{notification['id']}")
+        d = r.json()["data"]
+        return d if d["status"] == "done" else None
 
-    # Wrong token → 401.
-    r = _api(
-        f"/api/v1/notifications/{notification['id']}/start",
-        method="post",
-        headers={"Authorization": "Bearer wrong-token"},
-    )
-    assert r.status_code == 401
+    _poll(_redelivered, timeout=180, desc="re-delivery after retry")
 
     # ── 5. backfill is idempotent (all tasks already have notifications) ──
     r = _api(
@@ -185,26 +183,6 @@ def test_notification_pipeline_end_to_end():
     )
     assert r.status_code == 200, r.text
     assert r.json()["data"]["created"] == 0
-
-    # ── 6. fail → retry re-pends (needs a non-done notification) ─────────
-    r = _api(f"/api/v1/agents/{agent_id}/notifications")
-    remaining = [
-        n for n in r.json().get("data", []) if n["status"] != "done"
-    ]
-    if remaining:
-        nid = remaining[0]["id"]
-        r = _api(
-            f"/api/v1/notifications/{nid}/fail",
-            method="post",
-            json={"error": "集成测试模拟失败"},
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-        assert r.json()["data"]["status"] == "failed"
-
-        r = _api(f"/api/v1/notifications/{nid}/retry", method="post")
-        assert r.status_code == 200, r.text
-        assert r.json()["data"]["status"] == "pending"
 
     # ── cleanup ──────────────────────────────────────────────────────────
     _api(f"/api/v1/agents/{agent_id}", method="delete")

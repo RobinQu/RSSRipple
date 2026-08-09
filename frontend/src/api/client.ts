@@ -59,6 +59,11 @@ async function request<T>(url: string, options?: RequestInit): Promise<APIRespon
     headers,
   });
   if (!response.ok) {
+    if (response.status === 401 && location.pathname !== '/login') {
+      // Session expired or never established — send the user to login. The
+      // login page itself is excluded so its failed-OTP 401 stays local.
+      location.href = '/login';
+    }
     try {
       return normalizeResponse<T>(await response.json(), response.statusText);
     } catch {

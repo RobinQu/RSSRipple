@@ -16,12 +16,15 @@ import AudioWorkDetail from './pages/AudioWorkDetail';
 import WorksPage from './pages/WorksPage';
 import CollectionDetail from './pages/CollectionDetail';
 import SettingsPage from './pages/Settings';
+import Login from './pages/Login';
 import PageErrorBoundary from './components/PageErrorBoundary';
 
 function App() {
   return (
     <PageErrorBoundary>
       <Routes>
+        {/* Login sits outside AppLayout — no sidebar until authenticated. */}
+        <Route path="/login" element={<Login />} />
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="works" element={<WorksPage />} />

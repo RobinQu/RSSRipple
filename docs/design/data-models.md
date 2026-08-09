@@ -301,11 +301,6 @@ class Agent(Base):
                                          # 的新资源。Null=从未运行（按"推进到 now、不处理
                                          # 任何资源"处理，避免静默自动派发历史回填——回填
                                          # 必须经 rules-preview 选择流程）
-    notify_webhook_url: str | None       # 下载通知 webhook（按 Agent 注册）；null=未注册
-                                         # （不投递，队列继续积累，注册后自动恢复）
-    notify_webhook_mock: bool            # mock webhook：投递直接记成功不发 HTTP，仅查看内容
-    notify_webhook_token: str | None     # 回调 token：注册 webhook 时动态生成（重新注册换发、
-                                         # 注销清空）；消费者 start/ack/fail 回调按 Agent 比对
     created_at: datetime
     updated_at: datetime
 
@@ -317,7 +312,11 @@ class Agent(Base):
     download_tasks: list[DownloadTask]
     pending_decisions: list[PendingDecision]
     runs: list[AgentRun]                 # 执行历史记录（每次 run 一条，cascade 删除）
+    notifications: list[DownloadNotification]
+    webhooks: list[AgentWebhook]         # 下载通知 webhook 注册（多 webhook fan-out）
 ```
+
+> **webhook 注册迁移说明**：下载通知的 webhook 订阅已从 Agent 的三列（`notify_webhook_url`/`notify_webhook_mock`/`notify_webhook_token`）迁移到独立 `agent_webhooks` 表（见下）。旧列留在物理表中成为**惰性孤儿列**（无 DROP migration）；启动时 light migration 把存量注册一次性复制为 `agent_webhooks` 行。回调 token 机制已随消费者回调（start/ack/fail）一起删除。
 
 ### AgentWork（订阅作品）
 
@@ -383,7 +382,7 @@ class DownloadTask(Base):
 
 ### DownloadNotification（下载完成通知）
 
-下载任务驱动的通知队列，从属于下载 Agent（每 Agent 单例 FIFO，按 `created_at` 升序）。payload 为创建时冻结的完整快照（任务 + 资源 + 作品 + torrent 文件清单）。投递、退避、回调状态机的完整语义见 [notifications.md](notifications.md)。
+下载任务驱动的通知队列，从属于下载 Agent（每 Agent 单例 FIFO，按 `created_at` 升序）。payload 为创建时冻结的完整快照（任务 + 资源 + 作品 + torrent 文件清单）。fan-out 重构后本表**只保留快照锚点**；投递状态全部下放到 `WebhookDelivery`（通知的展示状态由 delivery 聚合计算，不落库）。完整语义见 [notifications.md](notifications.md)。
 
 ```python
 class DownloadNotification(Base):
@@ -391,21 +390,83 @@ class DownloadNotification(Base):
 
     id: str                              # UUID
     agent_id: str | None → Agent         # 队列归属（ON DELETE SET NULL 保留历史）
-    download_task_id: str → DownloadTask # Unique：一个任务至多一条通知
+    download_task_id: str → DownloadTask # Unique：一个任务至多一条通知（幂等基础；
+                                         # 并发创建走 SAVEPOINT，输掉唯一约束竞争回读）
     payload: dict                        # 完整快照 JSON
-    status: str                          # "pending" | "processing" | "done" | "failed"
-    error_message: str | None
-    attempt_count: int                   # 已投递次数（含失败）
-    next_attempt_at: datetime | None     # 下次投递时间（指数退避）
-    notified_at: datetime | None         # 最近一次投递成功时间
-    processed_at: datetime | None        # ack/fail 时间
     created_at: datetime
     updated_at: datetime
 
     # Relationships
     agent: Agent
     download_task: DownloadTask
+    deliveries: list[WebhookDelivery]    # cascade delete-orphan
 ```
+
+> **存量库迁移**：fan-out 之前的投递列（`status`/`error_message`/`attempt_count`/`next_attempt_at`/`notified_at`/`processed_at`）已从 ORM 移除。SQLite/Turso 上 light migration **重建整张表**为当前模型列（无法原地 DROP NOT NULL）；PostgreSQL 仅对 `status`/`attempt_count` 执行 `DROP NOT NULL`，孤儿列保留。
+
+### AgentWebhook（webhook 注册）
+
+一个 Agent 可注册任意多个 webhook；每条通知 fan-out 到其 Agent 全部**启用**的 webhook，每个 webhook 一条 `WebhookDelivery`。
+
+```python
+class AgentWebhook(Base):
+    __tablename__ = "agent_webhooks"
+
+    id: str                              # UUID
+    agent_id: str → Agent                # FK CASCADE
+    url: str                             # 投递目标（非 mock 必须 http(s)）
+    mock: bool                           # mock webhook：投递直接记成功、不发 HTTP（测试通道）
+    enabled: bool                        # 停用保留行与投递历史但不再接收新 delivery；
+                                         # 重新启用后从积压 backlog 恢复
+    created_at: datetime
+    updated_at: datetime
+
+    # Relationships
+    agent: Agent
+    deliveries: list[WebhookDelivery]
+```
+
+### WebhookDelivery（投递执行记录）
+
+每对 `(notification, webhook)` 一行——通知管道的 fan-out 单元。每条 delivery 携带自己的状态与重试簿记，单个 webhook 失败绝不阻塞其他 webhook。
+
+```python
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (UniqueConstraint("notification_id", "webhook_id"),)  # fan-out 幂等
+
+    id: str                              # UUID
+    notification_id: str → DownloadNotification  # FK CASCADE
+    webhook_id: str → AgentWebhook       # FK CASCADE
+    status: str                          # "pending" | "done" | "failed"
+    attempt_count: int                   # 已失败次数
+    next_attempt_at: datetime | None     # 下次投递时间（指数退避）；pending 且 null = 立即到期
+    error_message: str | None            # 最近失败原因
+    delivered_at: datetime | None        # 投递成功时间
+    created_at: datetime
+    updated_at: datetime
+
+    # Relationships
+    notification: DownloadNotification
+    webhook: AgentWebhook
+```
+
+### ApiKey（全局 API key）
+
+程序端访问凭证。仅存储 SHA-256 摘要；明文（`rr_` 前缀）只在创建响应中返回一次。
+
+```python
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id: str                              # UUID
+    name: str                            # 用户自定义名称
+    prefix: str                          # 明文前 10 个字符（仅展示用，不参与匹配）
+    key_hash: str                        # 明文的 SHA-256 hex 摘要（unique）
+    created_at: datetime
+```
+
+接受方式：`Authorization: Bearer <key>` 或 `X-API-Key: <key>` 头；暂无过期机制。TOTP 秘钥与 Cookie 签名秘钥不建表——首次启动生成后持久化在 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）。
 
 ### AgentSuggestion（Agent 未识别资源建议）
 

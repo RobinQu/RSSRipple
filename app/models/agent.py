@@ -50,19 +50,11 @@ class Agent(Base):
     # nothing, set to now" to avoid silently auto-dispatching backfill —
     # backfill must go through the rules-preview selection flow).
     last_consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # Per-agent webhook registration for download notifications (one queue ↔
-    # one subscription). NULL url = not registered: notifications accumulate
-    # in the queue and delivery resumes once a webhook is registered.
-    # ``notify_webhook_mock=True`` registers a mock webhook: delivery counts
-    # as successful without any HTTP call, purely for inspecting payloads.
-    notify_webhook_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    notify_webhook_mock: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
-    # Callback token issued at webhook registration; consumers authenticate
-    # start/ack/fail callbacks with it (Bearer). Regenerated on each
-    # registration; cleared on unregister.
-    notify_webhook_token: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Webhook subscriptions for download notifications live in their own
+    # table (``agent_webhooks``) — an Agent may fan out to several webhooks.
+    # The legacy ``notify_webhook_url/_mock/_token`` columns remain in the
+    # physical table as inert orphans (no DROP migration; registrations are
+    # copied over by a light migration on startup).
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -106,6 +98,12 @@ class Agent(Base):
     )
     notifications = relationship(
         "DownloadNotification",
+        back_populates="agent",
+        lazy="selectin",
+        passive_deletes=True,
+    )
+    webhooks = relationship(
+        "AgentWebhook",
         back_populates="agent",
         lazy="selectin",
         passive_deletes=True,

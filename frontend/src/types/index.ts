@@ -564,34 +564,70 @@ export interface PendingDecision {
 }
 
 // DownloadNotification
-export type NotificationStatus = 'pending' | 'processing' | 'done' | 'failed';
+// Aggregated across the notification's per-webhook deliveries: pending while
+// any delivery is still deliverable, done when all are done, failed otherwise.
+export type NotificationStatus = 'pending' | 'done' | 'failed';
+
+export interface DeliverySummary {
+  total: number;
+  done: number;
+  failed: number;
+  pending: number;
+}
 
 export interface DownloadNotification {
   id: string;
   agent_id: string;
   download_task_id: string;
   status: NotificationStatus;
-  error_message: string | null;
-  attempt_count: number;
-  next_attempt_at: string | null;
-  notified_at: string | null;
-  processed_at: string | null;
+  delivery_summary: DeliverySummary;
   created_at: string;
   updated_at: string;
 }
 
-// Detail view adds the full payload snapshot (absent from list items).
-export interface DownloadNotificationDetail extends DownloadNotification {
-  payload: Record<string, unknown> | null;
+export interface WebhookDelivery {
+  id: string;
+  webhook_id: string;
+  webhook_url: string;
+  status: NotificationStatus;
+  attempt_count: number;
+  error_message: string | null;
+  delivered_at: string | null;
+  next_attempt_at: string | null;
+  created_at: string;
 }
 
+// Detail view adds the full payload snapshot and per-webhook deliveries
+// (absent from list items).
+export interface DownloadNotificationDetail extends DownloadNotification {
+  payload: Record<string, unknown> | null;
+  deliveries: WebhookDelivery[];
+}
+
+/** One of possibly several webhook registrations on an agent. */
 export interface AgentWebhook {
-  registered: boolean;
-  url: string | null;
+  id: string;
+  url: string;
   mock: boolean;
-  /** Per-agent callback token issued at registration; consumer sends it as
-   * Bearer on start/ack/fail callbacks. */
-  token: string | null;
+  enabled: boolean;
+  created_at: string;
+}
+
+// Auth
+export interface AuthStatus {
+  authenticated: boolean;
+}
+
+// API keys — `key` is returned only once, at creation time.
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+}
+
+export interface ApiKeyCreated extends ApiKey {
+  key: string;
 }
 
 // Downloader

@@ -10,6 +10,7 @@ import {
   Languages,
   LayoutDashboard,
   Library,
+  LogOut,
   Menu as MenuIcon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -17,9 +18,15 @@ import {
   Settings,
 } from 'lucide-react';
 import BrandLogo from './BrandLogo';
+import { authApi } from '../api/auth';
 
 const { Sider } = Layout;
 const githubUrl = 'https://github.com/RobinQu/RSSRipple';
+
+async function handleLogout() {
+  await authApi.logout();
+  location.href = '/login';
+}
 
 const iconButtonStyle = {
   color: 'var(--rr-text-secondary)',
@@ -128,6 +135,14 @@ export function MobileNav() {
             icon={<ExternalLink size={16} />}
             style={iconButtonStyle}
           />
+          <Button
+            type="text"
+            icon={<LogOut size={16} />}
+            onClick={() => void handleLogout()}
+            style={iconButtonStyle}
+          >
+            {t('auth.logout')}
+          </Button>
         </div>
       </Drawer>
     </>
@@ -301,6 +316,14 @@ export default function Sidebar() {
             onClick={() => handleCollapse(!collapsed)}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           style={collapsed ? iconButtonStyle : { color: 'var(--rr-text-secondary)' }}
+          />
+          <Button
+            className="sidebar-control-button"
+            type="text"
+            icon={<LogOut size={16} />}
+            onClick={() => void handleLogout()}
+            title={t('auth.logout')}
+            style={iconButtonStyle}
           />
         </div>
         {collapsed ? null : (

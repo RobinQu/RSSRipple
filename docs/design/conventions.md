@@ -26,9 +26,12 @@
   - `MAX_RETRY_COUNT`：失败下载最大重试次数（默认 `3`）。
   - `TASK_EXPIRE_DAYS`：已完成任务自动清理天数（默认 `30`）。
   - `DEV_MODE`：为 `true` 时内部错误响应含堆栈（默认 `false`）。
-  - `NOTIFY_ENABLED`：下载完成通知总开关/熔断（默认 `true`）。webhook 按 Agent 在 UI 注册（Agent 详情 → 通知记录 Tab）；回调 token 在注册时按 Agent 动态生成（非环境变量）。
-  - `NOTIFY_MAX_ATTEMPTS`（默认 `5`）/ `NOTIFY_RETRY_BASE_SECONDS`（默认 `30`）：webhook 投递退避策略，`base * 2^attempt` 封顶 30 分钟，超限转 `failed`。
-  - `NOTIFY_RETENTION_DAYS`：已消费（`done`）通知的保留天数（默认 `30`）。
+  - `NOTIFY_ENABLED`：下载完成通知总开关/熔断（默认 `true`）。webhook 按 Agent 在 UI 多注册（Agent 详情 → 通知记录 Tab）；投递为纯出站（无回调 token，无消费者回调端点），单次 POST 超时 180s（代码常量）。
+  - `NOTIFY_MAX_ATTEMPTS`（默认 `5`）/ `NOTIFY_RETRY_BASE_SECONDS`（默认 `30`）：webhook delivery 退避策略，`base * 2^attempt` 封顶 30 分钟，超限该 delivery 转 `failed`（界面可重试）。
+  - `NOTIFY_RETENTION_DAYS`：通知（及其 delivery，级联删除）的保留天数（默认 `30`）。
+  - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*` 与 SPA/静态资源开放。
+  - `API_KEY`：可选静态引导 API key（运维恢复与集成测试用；与 `api_keys` 表中的 key 同等效力）。
+- **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
   - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
 - **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。

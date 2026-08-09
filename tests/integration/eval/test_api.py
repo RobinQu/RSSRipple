@@ -12,12 +12,15 @@ import httpx
 import pytest
 
 EVAL_URL = os.environ.get("EVAL_URL", "http://localhost:8090")
+# Auth gate key; matches the API_KEY env on the app stack. Override locally
+# via INTEGRATION_API_KEY.
+API_HEADERS = {"X-API-Key": os.environ.get("INTEGRATION_API_KEY", "test-integration-key")}
 
 
 @pytest.fixture
 async def client():
     """Async HTTP client bound to the running eval server."""
-    async with httpx.AsyncClient(base_url=EVAL_URL, timeout=30.0) as c:
+    async with httpx.AsyncClient(base_url=EVAL_URL, timeout=30.0, headers=API_HEADERS) as c:
         yield c
 
 

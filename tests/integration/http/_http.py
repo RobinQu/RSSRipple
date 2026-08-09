@@ -21,10 +21,16 @@ MIKANANI_EXT_URL = f"{TEST_SERVER}/rss/mikanani-ext"
 MIKANANI_1_URL = f"{TEST_SERVER}/rss/mikanani-1"
 TIMEOUT = 60.0
 
+# API key for the app's auth gate (AUTH_ENABLED defaults to true). Must match
+# the ``API_KEY`` env var set on the app services in docker-compose.test*.yml;
+# override locally via INTEGRATION_API_KEY.
+API_KEY = os.environ.get("INTEGRATION_API_KEY", "test-integration-key")
+API_HEADERS = {"X-API-Key": API_KEY}
+
 
 def _client() -> httpx.Client:
     """Fresh HTTP client against the RSSRipple app."""
-    return httpx.Client(timeout=TIMEOUT)
+    return httpx.Client(timeout=TIMEOUT, headers=API_HEADERS)
 
 
 def _api(path: str, method: str = "get", **kw):

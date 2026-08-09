@@ -19,6 +19,11 @@ from app.schemas.download_task import (
 
 router = APIRouter()
 
+TASK_STATUSES = (
+    "pending", "queued", "downloading", "paused",
+    "completed", "error", "cancelled",
+)
+
 
 async def _apply_torrent_action(db, task: DownloadTask, action: str, delete_data: bool = False) -> bool:
     """Call Transmission for pause/resume/retry/delete actions."""
@@ -66,6 +71,48 @@ async def list_agent_tasks(
 ):
     offset = (page - 1) * page_size
     base_q = select(DownloadTask).where(DownloadTask.agent_id == agent_id)
+    if status:
+        base_q = base_q.where(DownloadTask.status == status)
+    total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
+    total = total_q.scalar_one()
+    result = await db.execute(
+        base_q.options(selectinload(DownloadTask.file_resource), selectinload(DownloadTask.agent))
+        .order_by(DownloadTask.created_at.desc())
+        .offset(offset).limit(page_size)
+    )
+    tasks = result.scalars().all()
+    return paginated_response(
+        [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks],
+        total=total, page=page, page_size=page_size,
+    )
+
+
+@router.get("/tasks")
+async def list_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    downloader_id: str | None = Query(None),
+    agent_id: str | None = Query(None),
+    status: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Global download task list (newest first), for external consumers."""
+    if status is not None and status not in TASK_STATUSES:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "success": False,
+                "data": None,
+                "error": {"code": "VALIDATION_ERROR", "message": f"invalid status: {status}"},
+                "meta": {},
+            },
+        )
+    offset = (page - 1) * page_size
+    base_q = select(DownloadTask)
+    if downloader_id:
+        base_q = base_q.where(DownloadTask.downloader_id == downloader_id)
+    if agent_id:
+        base_q = base_q.where(DownloadTask.agent_id == agent_id)
     if status:
         base_q = base_q.where(DownloadTask.status == status)
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))

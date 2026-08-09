@@ -7,20 +7,25 @@ import {
   Checkbox,
   DatePicker,
   Drawer,
+  Dropdown,
   Empty,
   Form,
   Input,
   Modal,
   Popconfirm,
+  Radio,
   Space,
+  Switch,
   Table,
   Tag,
+  theme,
   Typography,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import type { Dayjs } from 'dayjs';
-import { Eye, RefreshCw, RotateCcw } from 'lucide-react';
-import { notificationsApi } from '../api/notifications';
+import { Eye, History, Plus, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+import { notificationsApi, type RetryMode } from '../api/notifications';
+import { usePolling } from '../hooks/usePolling';
 import StatusBadge from './StatusBadge';
 import EllipsisText from './EllipsisText';
 import { timeAgo } from '../utils/format';
@@ -29,6 +34,7 @@ import type {
   AgentWebhook,
   DownloadNotification,
   DownloadNotificationDetail,
+  WebhookDelivery,
 } from '../types';
 
 const { Text } = Typography;
@@ -36,20 +42,24 @@ const { Text } = Typography;
 const PAGE_SIZE = 20;
 
 interface WebhookFormValues {
-  url: string | null;
+  url: string;
   mock: boolean;
 }
 
-/** Notifications tab of the agent detail page: webhook registration,
- * backfill ("regenerate") and the paginated notification log. Mounted lazily
- * by AgentDetail's Tabs, so all fetching happens on mount. */
+/** Notifications tab of the agent detail page: webhook registrations
+ * (multi-webhook), backfill ("regenerate"), retries and the paginated
+ * notification log. Mounted lazily by AgentDetail's Tabs, so all fetching
+ * happens on mount. */
 export default function NotificationsPanel({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const { token } = theme.useToken();
 
-  // Webhook
-  const [webhook, setWebhook] = useState<AgentWebhook | null>(null);
+  // Webhooks
+  const [webhooks, setWebhooks] = useState<AgentWebhook[]>([]);
+  const [loadingWebhooks, setLoadingWebhooks] = useState(true);
   const [webhookModalOpen, setWebhookModalOpen] = useState(false);
+  const [editingWebhook, setEditingWebhook] = useState<AgentWebhook | null>(null);
   const [savingWebhook, setSavingWebhook] = useState(false);
   const [webhookForm] = Form.useForm<WebhookFormValues>();
 
@@ -57,6 +67,12 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
   const [backfillModalOpen, setBackfillModalOpen] = useState(false);
   const [backfillSince, setBackfillSince] = useState<Dayjs | null>(null);
   const [backfilling, setBackfilling] = useState(false);
+
+  // Bulk retry
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkMode, setBulkMode] = useState<RetryMode>('failed');
+  const [bulkSince, setBulkSince] = useState<Dayjs | null>(null);
+  const [bulkRetrying, setBulkRetrying] = useState(false);
 
   // Notification list. `loading` starts true: the mount effect fetches
   // immediately, and later fetches are triggered by bumping `reloadKey`
@@ -79,11 +95,28 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
     setReloadKey((k) => k + 1);
   }, []);
 
+  const loadWebhooks = useCallback(async () => {
+    setLoadingWebhooks(true);
+    try {
+      const r = await notificationsApi.listWebhooks(agentId);
+      if (r.success) setWebhooks(r.data);
+    } finally {
+      setLoadingWebhooks(false);
+    }
+  }, [agentId]);
+
+  // Mount fetch only — `loadingWebhooks` already starts true, so the effect
+  // itself runs no synchronous setState; event handlers use `loadWebhooks`.
   useEffect(() => {
     let cancelled = false;
-    notificationsApi.getWebhook(agentId).then((r) => {
-      if (!cancelled && r.success) setWebhook(r.data);
-    });
+    notificationsApi
+      .listWebhooks(agentId)
+      .then((r) => {
+        if (!cancelled && r.success) setWebhooks(r.data);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingWebhooks(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -108,9 +141,17 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
     };
   }, [agentId, page, reloadKey]);
 
-  const openWebhookModal = () => {
+  // Poll while any row is still pending: deliveries are driven by the
+  // per-minute scheduler tick, so a fresh notification can show "pending"
+  // for up to ~1 minute. Silent — the fetch effect never flashes the
+  // loading spinner on reloadKey bumps.
+  const hasPending = notifications.some((n) => n.status === 'pending');
+  usePolling(() => setReloadKey((k) => k + 1), 10000, hasPending);
+
+  const openWebhookModal = (webhook: AgentWebhook | null) => {
+    setEditingWebhook(webhook);
     webhookForm.setFieldsValue({
-      url: webhook?.url ?? null,
+      url: webhook?.url ?? '',
       mock: webhook?.mock ?? false,
     });
     setWebhookModalOpen(true);
@@ -119,25 +160,39 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
   const handleSaveWebhook = async () => {
     const values = await webhookForm.validateFields();
     setSavingWebhook(true);
-    const r = await notificationsApi.putWebhook(agentId, {
-      mock: values.mock,
-      url: values.mock ? null : values.url,
-    });
+    const r = editingWebhook
+      ? await notificationsApi.updateWebhook(agentId, editingWebhook.id, {
+          url: values.url,
+          mock: values.mock,
+        })
+      : await notificationsApi.createWebhook(agentId, {
+          url: values.url,
+          mock: values.mock,
+        });
     setSavingWebhook(false);
     if (r.success) {
       message.success(t('agents.webhookSaved'));
       setWebhookModalOpen(false);
-      setWebhook(r.data);
+      await loadWebhooks();
     } else {
       message.error(r.error?.message || t('agents.saveFailed'));
     }
   };
 
-  const handleUnregisterWebhook = async () => {
-    const r = await notificationsApi.deleteWebhook(agentId);
+  const handleToggleWebhook = async (webhook: AgentWebhook, enabled: boolean) => {
+    const r = await notificationsApi.updateWebhook(agentId, webhook.id, { enabled });
     if (r.success) {
-      message.success(t('agents.webhookUnregistered'));
-      setWebhook({ registered: false, url: null, mock: false, token: null });
+      await loadWebhooks();
+    } else {
+      message.error(r.error?.message || t('agents.saveFailed'));
+    }
+  };
+
+  const handleDeleteWebhook = async (webhook: AgentWebhook) => {
+    const r = await notificationsApi.deleteWebhook(agentId, webhook.id);
+    if (r.success) {
+      message.success(t('agents.webhookDeleted'));
+      await loadWebhooks();
     } else {
       message.error(r.error?.message || t('agents.saveFailed'));
     }
@@ -161,6 +216,24 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
     }
   };
 
+  const handleBulkRetry = async () => {
+    setBulkRetrying(true);
+    const r = await notificationsApi.retryBulk({
+      mode: bulkMode,
+      agent_id: agentId,
+      ...(bulkSince ? { since: bulkSince.toISOString() } : {}),
+    });
+    setBulkRetrying(false);
+    if (r.success) {
+      message.success(t('agents.notifBulkRetried', { n: r.data.reset }));
+      setBulkModalOpen(false);
+      setBulkSince(null);
+      reloadNotifications();
+    } else {
+      message.error(r.error?.message || t('agents.notifRetryFailed'));
+    }
+  };
+
   const handleOpenDetail = async (id: string) => {
     setLoadingDetail(true);
     const r = await notificationsApi.get(id);
@@ -172,17 +245,82 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
     }
   };
 
-  const handleRetry = async (record: DownloadNotification) => {
+  const handleRetry = async (record: DownloadNotification, mode: RetryMode) => {
     setRetryingId(record.id);
-    const r = await notificationsApi.retry(record.id);
+    const r = await notificationsApi.retry(record.id, mode);
     setRetryingId(null);
     if (r.success) {
-      message.success(t('agents.notifRetried'));
+      message.success(t('agents.notifBulkRetried', { n: r.data.reset }));
       reloadNotifications();
     } else {
       message.error(r.error?.message || t('agents.notifRetryFailed'));
     }
   };
+
+  const webhookColumns: TableColumnsType<AgentWebhook> = [
+    {
+      title: t('agents.webhookUrlLabel'),
+      dataIndex: 'url',
+      key: 'url',
+      render: (v: string) => <EllipsisText text={v} />,
+    },
+    {
+      title: t('agents.webhookMockLabel'),
+      dataIndex: 'mock',
+      key: 'mock',
+      width: 110,
+      render: (v: boolean) =>
+        v ? (
+          <Tag color="purple" style={{ margin: 0 }}>{t('agents.webhookMockTag')}</Tag>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
+      title: t('agents.webhookEnabled'),
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 100,
+      render: (v: boolean, record) => (
+        <Switch
+          size="small"
+          checked={v}
+          onChange={(checked) => handleToggleWebhook(record, checked)}
+        />
+      ),
+    },
+    {
+      title: t('agents.notifColCreatedAt'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 140,
+      render: (v: string) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
+      ),
+    },
+    {
+      title: t('common.actions'),
+      key: 'actions',
+      width: 100,
+      align: 'right',
+      render: (_, record) => (
+        <Space size={0}>
+          <Button type="text" size="small" onClick={() => openWebhookModal(record)}>
+            {t('common.edit')}
+          </Button>
+          <Popconfirm
+            title={t('agents.webhookDeleteConfirm')}
+            okText={t('common.confirm')}
+            cancelText={t('common.cancel')}
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleDeleteWebhook(record)}
+          >
+            <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   const columns: TableColumnsType<DownloadNotification> = [
     {
@@ -195,18 +333,6 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       ),
     },
     {
-      title: t('agents.notifColNotifiedAt'),
-      dataIndex: 'notified_at',
-      key: 'notified_at',
-      width: 160,
-      render: (v: string | null) =>
-        v ? (
-          <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
-    },
-    {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
@@ -214,11 +340,15 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       render: (status: string) => <StatusBadge status={status} />,
     },
     {
-      title: t('agents.notifColError'),
-      dataIndex: 'error_message',
-      key: 'error_message',
-      render: (v: string | null) =>
-        v ? <EllipsisText text={v} danger /> : <Text type="secondary">—</Text>,
+      title: t('agents.notifColDeliveries'),
+      dataIndex: 'delivery_summary',
+      key: 'delivery_summary',
+      width: 130,
+      render: (s: DownloadNotification['delivery_summary']) => (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          {t('agents.notifDeliverySummary', { done: s.done, total: s.total })}
+        </Text>
+      ),
     },
     {
       title: t('common.actions'),
@@ -235,84 +365,131 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
           >
             {t('agents.notifDetail')}
           </Button>
-          <Button
-            type="text"
-            size="small"
-            icon={<RotateCcw size={14} />}
-            disabled={record.status === 'done'}
-            loading={retryingId === record.id}
-            onClick={() => handleRetry(record)}
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'failed', label: t('agents.notifRetryFailedOnly') },
+                { key: 'all', label: t('agents.notifRetryAll') },
+              ],
+              onClick: ({ key }) => handleRetry(record, key as RetryMode),
+            }}
+            trigger={['click']}
           >
-            {t('common.retry')}
-          </Button>
+            <Button
+              type="text"
+              size="small"
+              icon={<RotateCcw size={14} />}
+              disabled={record.status === 'done'}
+              loading={retryingId === record.id}
+            >
+              {t('common.retry')}
+            </Button>
+          </Dropdown>
         </Space>
       ),
     },
   ];
 
+  const deliveryColumns: TableColumnsType<WebhookDelivery> = [
+    {
+      title: t('agents.webhookUrlLabel'),
+      dataIndex: 'webhook_url',
+      key: 'webhook_url',
+      render: (v: string) => <EllipsisText text={v} />,
+    },
+    {
+      title: t('common.status'),
+      dataIndex: 'status',
+      key: 'status',
+      width: 90,
+      render: (status: string) => <StatusBadge status={status} />,
+    },
+    {
+      title: t('agents.notifColAttempts'),
+      dataIndex: 'attempt_count',
+      key: 'attempt_count',
+      width: 80,
+      render: (v: number) => <Text type="secondary" style={{ fontSize: 12 }}>{v}</Text>,
+    },
+    {
+      title: t('agents.notifColError'),
+      dataIndex: 'error_message',
+      key: 'error_message',
+      render: (v: string | null) =>
+        v ? <EllipsisText text={v} danger /> : <Text type="secondary">—</Text>,
+    },
+    {
+      title: t('agents.notifColDeliveredAt'),
+      dataIndex: 'delivered_at',
+      key: 'delivered_at',
+      width: 120,
+      render: (v: string | null) =>
+        v ? (
+          <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
+      title: t('agents.notifColNextAttempt'),
+      dataIndex: 'next_attempt_at',
+      key: 'next_attempt_at',
+      width: 120,
+      render: (v: string | null) =>
+        v ? (
+          <Text type="secondary" style={{ fontSize: 12 }}>{timeAgo(v)}</Text>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+  ];
+
   return (
     <div>
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: 12,
-          }}
-        >
-          <Space size={8} wrap>
-            <Text strong>{t('agents.webhookTitle')}</Text>
-            {webhook?.registered ? (
-              webhook.mock ? (
-                <Tag color="purple" style={{ margin: 0 }}>{t('agents.webhookMockTag')}</Tag>
-              ) : (
-                <Text code style={{ fontSize: 12 }}>{webhook.url}</Text>
-              )
-            ) : (
-              <Text type="secondary">{t('agents.webhookNotRegistered')}</Text>
-            )}
-          </Space>
-          <Space size={8}>
-            <Button size="small" onClick={openWebhookModal}>
-              {webhook?.registered ? t('common.edit') : t('agents.webhookRegister')}
-            </Button>
-            {webhook?.registered && (
-              <Popconfirm
-                title={t('agents.webhookUnregisterConfirm')}
-                okText={t('common.confirm')}
-                cancelText={t('common.cancel')}
-                okButtonProps={{ danger: true }}
-                onConfirm={handleUnregisterWebhook}
-              >
-                <Button size="small" danger>
-                  {t('agents.webhookUnregister')}
-                </Button>
-              </Popconfirm>
-            )}
-          </Space>
-        </div>
-        {webhook?.registered && webhook.token && (
-          <div style={{ marginTop: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('agents.webhookTokenLabel')}
-            </Text>
-            <Text code copyable={{ text: webhook.token }} style={{ fontSize: 12 }}>
-              {webhook.token}
-            </Text>
-          </div>
-        )}
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={<Text strong>{t('agents.webhookTitle')}</Text>}
+        extra={
+          <Button size="small" icon={<Plus size={14} />} onClick={() => openWebhookModal(null)}>
+            {t('agents.webhookAdd')}
+          </Button>
+        }
+      >
+        <Table<AgentWebhook>
+          className="stack-table"
+          columns={withMobileLabels(webhookColumns)}
+          dataSource={webhooks}
+          rowKey="id"
+          loading={loadingWebhooks}
+          size="small"
+          pagination={false}
+          locale={{ emptyText: <Empty description={t('agents.webhookListEmpty')} /> }}
+        />
       </Card>
 
       <Card>
-        <Space style={{ marginBottom: 12 }}>
+        <Space style={{ marginBottom: 12 }} wrap>
           <Button
             size="small"
-            icon={<RefreshCw size={14} />}
+            icon={<RotateCcw size={14} />}
+            onClick={() => setBulkModalOpen(true)}
+          >
+            {t('agents.notifBulkRetry')}
+          </Button>
+          <Button
+            size="small"
+            icon={<History size={14} />}
             onClick={() => setBackfillModalOpen(true)}
           >
             {t('agents.notifRegenerate')}
+          </Button>
+          <Button
+            size="small"
+            icon={<RefreshCw size={14} />}
+            onClick={reloadNotifications}
+          >
+            {t('common.refresh')}
           </Button>
         </Space>
         <Table<DownloadNotification>
@@ -338,7 +515,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       </Card>
 
       <Modal
-        title={webhook?.registered ? t('agents.webhookEditTitle') : t('agents.webhookModalTitle')}
+        title={editingWebhook ? t('agents.webhookEditTitle') : t('agents.webhookAddTitle')}
         open={webhookModalOpen}
         onOk={handleSaveWebhook}
         onCancel={() => setWebhookModalOpen(false)}
@@ -389,6 +566,36 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       </Modal>
 
       <Modal
+        title={t('agents.notifBulkRetryTitle')}
+        open={bulkModalOpen}
+        onOk={handleBulkRetry}
+        onCancel={() => setBulkModalOpen(false)}
+        okText={t('common.confirm')}
+        cancelText={t('common.cancel')}
+        confirmLoading={bulkRetrying}
+        destroyOnHidden
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%', marginTop: 12 }}>
+          <Radio.Group
+            value={bulkMode}
+            onChange={(e) => setBulkMode(e.target.value as RetryMode)}
+            options={[
+              { value: 'failed', label: t('agents.notifRetryFailedOnly') },
+              { value: 'all', label: t('agents.notifRetryAll') },
+            ]}
+          />
+          <DatePicker
+            showTime
+            allowClear
+            value={bulkSince}
+            onChange={(v) => setBulkSince(v)}
+            placeholder={t('agents.notifBulkRetrySince')}
+            style={{ width: '100%' }}
+          />
+        </Space>
+      </Modal>
+
+      <Modal
         title={t('agents.notifRegenerateTitle')}
         open={backfillModalOpen}
         onOk={handleBackfill}
@@ -421,20 +628,30 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
             <Space size={12} wrap>
               <StatusBadge status={detail.status} />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {t('agents.notifAttempts', { n: detail.attempt_count })}
+                {t('agents.notifDeliverySummary', {
+                  done: detail.delivery_summary.done,
+                  total: detail.delivery_summary.total,
+                })}
               </Text>
-              {detail.error_message && (
-                <Text type="danger" style={{ fontSize: 12 }}>{detail.error_message}</Text>
-              )}
             </Space>
+            <Text strong style={{ fontSize: 13 }}>{t('agents.notifDeliveriesTitle')}</Text>
+            <Table<WebhookDelivery>
+              columns={deliveryColumns}
+              dataSource={detail.deliveries}
+              rowKey="id"
+              size="small"
+              pagination={false}
+            />
+            <Text strong style={{ fontSize: 13 }}>{t('agents.notifPayloadTitle')}</Text>
             <pre
               style={{
                 margin: 0,
                 padding: 12,
                 borderRadius: 8,
-                background: '#f5f5f5',
+                background: token.colorFillQuaternary,
+                color: token.colorText,
                 fontSize: 12,
-                maxHeight: '70vh',
+                maxHeight: '40vh',
                 overflow: 'auto',
                 wordBreak: 'break-all',
                 whiteSpace: 'pre-wrap',

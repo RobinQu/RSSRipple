@@ -4,6 +4,7 @@ import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Typography, Card, Spin, Input, Switch, Button, Select, Tag, Space, App, Alert } from 'antd';
 import { Sparkles, Database, Save, RotateCcw } from 'lucide-react';
 import { settingsApi, type SystemSettings, type SystemSettingsUpdate } from '../api/settings';
+import ApiKeysCard from '../components/ApiKeysCard';
 
 const { Title, Text } = Typography;
 
@@ -311,6 +312,9 @@ export default function SettingsPage() {
           message={t('settings.envNote')}
         />
       </Card>
+
+      {/* Personal API keys */}
+      <ApiKeysCard />
     </div>
   );
 }

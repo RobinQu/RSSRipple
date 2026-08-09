@@ -20,7 +20,7 @@ import os
 import httpx
 import pytest
 
-from tests.integration.http._http import RICH_FIELD_MAPPING, TEST_SERVER
+from tests.integration.http._http import API_HEADERS, RICH_FIELD_MAPPING, TEST_SERVER
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
 MIKANANI_S1_URL = f"{TEST_SERVER}/rss/mikanani?series=1"  # 葬送的芙莉莲
@@ -36,7 +36,7 @@ TIMEOUT = 60.0
 
 
 def _api(path: str, method: str = "get", **kw) -> httpx.Response:
-    c = httpx.Client(timeout=TIMEOUT)
+    c = httpx.Client(timeout=TIMEOUT, headers=API_HEADERS)
     return getattr(c, method.lower())(f"{LLM_APP}{path}", **kw)
 
 

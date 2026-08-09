@@ -33,6 +33,9 @@ services:
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
       - SCHEDULER_ENABLED=false
+      # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
+      # true); integration tests send it as X-API-Key.
+      - API_KEY=test-integration-key
     volumes:
       - ./data:/app/data
       - ./.coveragerc:/app/.coveragerc:ro
@@ -44,7 +47,7 @@ services:
       test-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:9001/api/v1/channels', headers={'X-API-Key': 'test-integration-key'}), timeout=3)"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -75,6 +78,7 @@ services:
       - LLM_BASE_URL=http://test-server:8080/v1
       - LLM_API_KEY=mock-key
       - LLM_MODEL=mock-model
+      - API_KEY=test-integration-key
     volumes:
       - ./data:/app/data
       - ./.coveragerc:/app/.coveragerc:ro
@@ -86,7 +90,7 @@ services:
       test-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/api/v1/channels', timeout=3)"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:9001/api/v1/channels', headers={'X-API-Key': 'test-integration-key'}), timeout=3)"]
       interval: 5s
       timeout: 5s
       retries: 20

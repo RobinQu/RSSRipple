@@ -40,6 +40,8 @@ import app.models  # noqa: E402, F401
 # Import routers directly (avoid pulling in lifespan)
 from app.api.v1 import (  # noqa: E402
     agents,
+    api_keys,
+    auth,
     channels,
     collections,
     dashboard,
@@ -73,13 +75,23 @@ def _fresh_db_url() -> str:
     return normalize_database_url(f"sqlite+aioturso:///{_TMP_DB_PATH}")
 
 
-def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
+def _build_test_app(session_factory: async_sessionmaker, with_auth: bool = False) -> FastAPI:
     """Build a stripped-down FastAPI app that mirrors production exception
-    handlers and routers but skips the lifespan (scheduler/queue init)."""
+    handlers and routers but skips the lifespan (scheduler/queue init).
+
+    Pass ``with_auth=True`` to also install the production AuthMiddleware
+    (auth tests); the middleware resolves DB sessions via
+    ``app.database.async_session_factory`` at request time, so point that at
+    the per-test factory with monkeypatch as well."""
     test_app = FastAPI()
     test_app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     test_app.add_exception_handler(RequestValidationError, validation_exception_handler)
     test_app.add_exception_handler(Exception, unhandled_exception_handler)
+
+    if with_auth:
+        from app.middleware.auth import AuthMiddleware
+
+        test_app.add_middleware(AuthMiddleware)
 
     # Install DB lock retry middleware (Turso-only, no-op on PostgreSQL)
     install_db_retry_middleware(test_app)
@@ -104,6 +116,8 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
         collections.router,
         system_settings.router,
         notifications.router,
+        auth.router,
+        api_keys.router,
     ):
         test_app.include_router(router, prefix="/api/v1")
 

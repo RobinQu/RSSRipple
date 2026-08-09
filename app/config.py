@@ -82,6 +82,14 @@ class Settings(BaseSettings):
     # Retention for consumed ("done") notifications.
     notify_retention_days: int = 30
 
+    # Application authentication. When enabled, /api/v1/* and /posters/*
+    # require a TOTP-issued session cookie or an API key (env bootstrap key
+    # below, or keys created via /api/v1/api-keys). Env vars: AUTH_ENABLED,
+    # API_KEY.
+    auth_enabled: bool = True
+    # Static bootstrap key for ops recovery and integration tests.
+    api_key: str | None = None
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
 

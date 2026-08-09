@@ -1,21 +1,25 @@
 """Unit tests for app.services.notify_service.
 
 Covers the pure payload builder, notification creation (idempotency, torrent
-pause + file-listing snapshot), webhook delivery (mock / unregistered /
-success / backoff exhaustion), and backfill. Downloader RPC is exercised
-through the mock downloader; HTTP delivery is stubbed at httpx.AsyncClient.
+pause + file-listing snapshot), delivery fan-out (idempotency, backlog for
+newly added webhooks), webhook delivery (mock / disabled / success /
+concurrent isolation / backoff exhaustion), retry resets, retention cleanup,
+and the scheduler tick. Downloader RPC is exercised through the mock
+downloader; HTTP delivery is stubbed at httpx.AsyncClient.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 
 from app.config import settings
 from app.models.agent import Agent
+from app.models.agent_webhook import AgentWebhook
 from app.models.channel import Channel
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
@@ -23,14 +27,16 @@ from app.models.downloader import DownloaderInstance
 from app.models.episode import Episode
 from app.models.file_resource import FileResource
 from app.models.series import TVSeries
+from app.models.webhook_delivery import WebhookDelivery
 from app.services import notify_service
 from app.services.notify_service import (
     backfill_notifications,
     backoff_delay,
     build_payload,
     create_notification_for_task,
-    deliver_due_notifications,
-    reset_for_retry,
+    deliver_due_deliveries,
+    ensure_deliveries,
+    reset_deliveries_for_retry,
 )
 from app.utils.time import utcnow
 
@@ -152,6 +158,10 @@ def test_backoff_delay_grows_and_caps(monkeypatch):
     assert backoff_delay(20).total_seconds() == notify_service.MAX_BACKOFF_SECONDS
 
 
+def test_webhook_timeout_is_three_minutes():
+    assert notify_service.WEBHOOK_TIMEOUT_SECONDS == 180.0
+
+
 # ---------------------------------------------------------------------------
 # DB-backed tests
 # ---------------------------------------------------------------------------
@@ -162,7 +172,7 @@ async def seed(db_session):
     """Channel + mock downloader + agent + series + resource + completed task.
 
     Also registers a torrent in the mock downloader store so the file-listing
-    RPC path returns real data.
+    RPC path returns real data. No webhooks by default — tests add their own.
     """
     from app.clients.mock_downloader import MockDownloaderWrapper, reset_state
 
@@ -214,11 +224,27 @@ async def seed(db_session):
     )
 
 
+def _webhook(agent_id: str, **overrides) -> AgentWebhook:
+    defaults = dict(
+        id=_uuid(), agent_id=agent_id,
+        url="http://organizer:8910/webhook", mock=False, enabled=True,
+    )
+    defaults.update(overrides)
+    return AgentWebhook(**defaults)
+
+
+async def _deliveries(db_session, notification_id: str | None = None):
+    stmt = select(WebhookDelivery)
+    if notification_id is not None:
+        stmt = stmt.where(WebhookDelivery.notification_id == notification_id)
+    return (await db_session.execute(stmt)).scalars().all()
+
+
 async def test_create_notification_snapshots_and_pauses(db_session, seed):
     n, created = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
 
-    assert n.status == "pending"
+    assert created is True
     assert n.agent_id == seed.agent.id
     assert n.payload["notification_id"] == n.id
     assert n.payload["work"]["title_en"] == "Test Series"
@@ -243,29 +269,104 @@ async def test_create_notification_idempotent(db_session, seed):
     assert second.id == first.id
 
 
-async def test_deliver_mock_webhook_succeeds_without_http(db_session, seed):
-    seed.agent.notify_webhook_mock = True
-    await create_notification_for_task(db_session, seed.task)
+# ---------------------------------------------------------------------------
+# Fan-out
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_deliveries_fans_out_to_enabled_webhooks_only(
+    db_session, seed
+):
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    db_session.add_all([
+        _webhook(seed.agent.id, url="http://a/hook"),
+        _webhook(seed.agent.id, url="http://b/hook"),
+        _webhook(seed.agent.id, url="http://disabled/hook", enabled=False),
+    ])
     await db_session.commit()
 
-    stats = await deliver_due_notifications(db_session)
-    assert stats["delivered"] == 1
-    assert stats["failed"] == 0
-    n = (
-        await db_session.execute(
-            __import__("sqlalchemy").select(DownloadNotification)
-        )
-    ).scalar_one()
-    assert n.notified_at is not None
-    assert n.status == "pending"  # delivered, awaiting consumer callbacks
+    created = await ensure_deliveries(db_session)
+    assert created == 2
+    rows = await _deliveries(db_session, n.id)
+    assert len(rows) == 2
+    assert all(d.status == "pending" for d in rows)
+    assert all(d.next_attempt_at is not None for d in rows)
+
+    # Idempotent: a second fan-out creates nothing.
+    assert await ensure_deliveries(db_session) == 0
+    assert len(await _deliveries(db_session, n.id)) == 2
 
 
-async def test_deliver_unregistered_webhook_waits(db_session, seed):
-    await create_notification_for_task(db_session, seed.task)
+async def test_ensure_deliveries_new_webhook_receives_backlog(db_session, seed):
+    n, _ = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
-    stats = await deliver_due_notifications(db_session)
-    assert stats["delivered"] == 0
-    assert stats["skipped"] == 1
+    assert await ensure_deliveries(db_session) == 0  # no webhooks yet
+
+    db_session.add(_webhook(seed.agent.id))
+    await db_session.commit()
+    assert await ensure_deliveries(db_session) == 1
+    rows = await _deliveries(db_session, n.id)
+    assert len(rows) == 1 and rows[0].status == "pending"
+
+
+async def test_ensure_deliveries_scoped_by_agent(db_session, seed):
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    other_agent = Agent(
+        id=_uuid(), name="Other", channel_id=seed.channel.id,
+        downloader_id=seed.downloader.id,
+    )
+    db_session.add(other_agent)
+    await db_session.flush()
+    db_session.add(_webhook(other_agent.id))
+    db_session.add(_webhook(seed.agent.id))
+    await db_session.commit()
+
+    # Scoped to the other agent: seed's notification gets no delivery.
+    assert await ensure_deliveries(db_session, agent_id=other_agent.id) == 0
+    assert await ensure_deliveries(db_session, agent_id=seed.agent.id) == 1
+    assert len(await _deliveries(db_session, n.id)) == 1
+
+
+async def test_ensure_deliveries_skips_agentless_notifications(db_session, seed):
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    n.agent_id = None  # Agent 被删除（SET NULL）后的历史通知
+    db_session.add(_webhook(seed.agent.id))
+    await db_session.commit()
+    assert await ensure_deliveries(db_session) == 0
+    assert await _deliveries(db_session, n.id) == []
+
+
+# ---------------------------------------------------------------------------
+# Delivery
+# ---------------------------------------------------------------------------
+
+
+async def test_deliver_mock_webhook_done_without_http(db_session, seed):
+    db_session.add(_webhook(seed.agent.id, mock=True, url="http://unused/x"))
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+    await ensure_deliveries(db_session)
+
+    stats = await deliver_due_deliveries(db_session)
+    assert stats == {"delivered": 1, "failed": 0, "skipped": 0}
+    d = (await _deliveries(db_session, n.id))[0]
+    assert d.status == "done"
+    assert d.delivered_at is not None
+
+
+async def test_deliver_disabled_webhook_skipped(db_session, seed):
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+    await ensure_deliveries(db_session)
+
+    webhook.enabled = False
+    await db_session.commit()
+    stats = await deliver_due_deliveries(db_session)
+    assert stats["skipped"] == 1 and stats["delivered"] == 0
+    d = (await _deliveries(db_session, n.id))[0]
+    assert d.status == "pending"  # waits for re-enable
 
 
 class _FakeResp:
@@ -273,7 +374,9 @@ class _FakeResp:
         return None
 
 
-def _stub_httpx(monkeypatch, calls: list, fail: bool = False):
+def _stub_httpx(monkeypatch, calls: list, fail_urls: set[str] | None = None):
+    import httpx
+
     class _FakeClient:
         def __init__(self, *a, **kw):
             pass
@@ -286,64 +389,181 @@ def _stub_httpx(monkeypatch, calls: list, fail: bool = False):
 
         async def post(self, url, json=None):
             calls.append((url, json))
-            if fail:
-                raise httpx_error()
+            if fail_urls and url in fail_urls:
+                raise httpx.ConnectError("connection refused")
             return _FakeResp()
-
-    def httpx_error():
-        import httpx
-
-        return httpx.ConnectError("connection refused")
 
     monkeypatch.setattr(notify_service.httpx, "AsyncClient", _FakeClient)
 
 
 async def test_deliver_http_success(db_session, seed, monkeypatch):
-    seed.agent.notify_webhook_url = "http://organizer:8910/webhook"
-    await create_notification_for_task(db_session, seed.task)
+    db_session.add(_webhook(seed.agent.id))
+    n, _ = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
+    await ensure_deliveries(db_session)
 
     calls: list = []
     _stub_httpx(monkeypatch, calls)
-    stats = await deliver_due_notifications(db_session)
+    stats = await deliver_due_deliveries(db_session)
 
     assert stats["delivered"] == 1
     assert len(calls) == 1
     url, body = calls[0]
     assert url == "http://organizer:8910/webhook"
     assert body["event"] == "download.completed"
-    assert body["notification"]["notification_id"]
+    assert body["notification"]["notification_id"] == n.id
+    d = (await _deliveries(db_session, n.id))[0]
+    assert d.status == "done" and d.delivered_at is not None
 
 
-async def test_deliver_failure_backoff_then_failed(
-    db_session, seed, monkeypatch
-):
-    monkeypatch.setattr(settings, "notify_max_attempts", 2)
-    seed.agent.notify_webhook_url = "http://organizer:8910/webhook"
-    n, created = await create_notification_for_task(db_session, seed.task)
+async def test_deliver_concurrent_isolation(db_session, seed, monkeypatch):
+    """One webhook succeeds, another fails → per-delivery statuses, no
+    cross-contamination from the shared session."""
+    ok_url = "http://ok/hook"
+    bad_url = "http://bad/hook"
+    db_session.add_all([
+        _webhook(seed.agent.id, url=ok_url),
+        _webhook(seed.agent.id, url=bad_url),
+    ])
+    n, _ = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
+    await ensure_deliveries(db_session)
 
     calls: list = []
-    _stub_httpx(monkeypatch, calls, fail=True)
+    _stub_httpx(monkeypatch, calls, fail_urls={bad_url})
+    stats = await deliver_due_deliveries(db_session)
 
-    stats = await deliver_due_notifications(db_session)
+    assert stats["delivered"] == 1
+    assert stats["skipped"] == 1  # failed attempt, backoff scheduled
     assert stats["failed"] == 0
-    assert n.attempt_count == 1
-    assert n.status == "pending"
-    assert n.next_attempt_at is not None
+    rows = {d.webhook_id: d for d in await _deliveries(db_session, n.id)}
+    webhooks = (await db_session.execute(select(AgentWebhook))).scalars().all()
+    by_url = {w.url: w.id for w in webhooks}
+    ok_d = rows[by_url[ok_url]]
+    bad_d = rows[by_url[bad_url]]
+    assert ok_d.status == "done" and ok_d.delivered_at is not None
+    assert bad_d.status == "pending"
+    assert bad_d.attempt_count == 1
+    assert bad_d.next_attempt_at is not None
+    assert "退避重试" in (bad_d.error_message or "")
+
+
+async def test_deliver_failure_backoff_then_failed(db_session, seed, monkeypatch):
+    monkeypatch.setattr(settings, "notify_max_attempts", 2)
+    db_session.add(_webhook(seed.agent.id))
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+    await ensure_deliveries(db_session)
+    d = (await _deliveries(db_session, n.id))[0]
+
+    calls: list = []
+    _stub_httpx(monkeypatch, calls, fail_urls={"http://organizer:8910/webhook"})
+
+    stats = await deliver_due_deliveries(db_session)
+    assert stats["failed"] == 0
+    assert d.attempt_count == 1
+    assert d.status == "pending"
+    assert d.next_attempt_at is not None
 
     # Force the row due again and let the second failure exhaust attempts.
-    n.next_attempt_at = utcnow()
+    d.next_attempt_at = utcnow()
     await db_session.commit()
-    stats = await deliver_due_notifications(db_session)
+    stats = await deliver_due_deliveries(db_session)
     assert stats["failed"] == 1
-    assert n.status == "failed"
-    assert "最大重试次数" in (n.error_message or "")
+    assert d.status == "failed"
+    assert "最大重试次数" in (d.error_message or "")
+
+
+# ---------------------------------------------------------------------------
+# Retry resets
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def retry_seed(db_session, seed):
+    """Two notifications with deliveries in mixed states."""
+    n1, _ = await create_notification_for_task(db_session, seed.task)
+
+    task2 = DownloadTask(
+        id=_uuid(), agent_id=seed.agent.id,
+        file_resource_id=seed.resource.id, downloader_id=seed.downloader.id,
+        download_dir="/downloads/rssripple",
+        transmission_torrent_id=None, status="completed",
+        completed_at=utcnow(),
+    )
+    db_session.add(task2)
+    await db_session.flush()
+    n2 = DownloadNotification(
+        id=_uuid(), agent_id=seed.agent.id, download_task_id=task2.id,
+        payload={"notification_id": "n2"},
+        created_at=utcnow() - timedelta(days=10),
+    )
+    db_session.add(n2)
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    await db_session.flush()
+    d_failed = WebhookDelivery(
+        id=_uuid(), notification_id=n1.id, webhook_id=webhook.id,
+        status="failed", attempt_count=5, error_message="boom",
+    )
+    d_done = WebhookDelivery(
+        id=_uuid(), notification_id=n2.id, webhook_id=webhook.id,
+        status="done", delivered_at=utcnow() - timedelta(days=9),
+    )
+    db_session.add_all([d_failed, d_done])
+    await db_session.commit()
+    return SimpleNamespace(n1=n1, n2=n2, webhook=webhook,
+                           d_failed=d_failed, d_done=d_done)
+
+
+async def test_reset_failed_mode_only_resets_failed(db_session, retry_seed):
+    reset = await reset_deliveries_for_retry(db_session, "failed")
+    assert reset == 1
+    assert retry_seed.d_failed.status == "pending"
+    assert retry_seed.d_failed.attempt_count == 0
+    assert retry_seed.d_failed.error_message is None
+    assert retry_seed.d_failed.next_attempt_at is not None
+    assert retry_seed.d_done.status == "done"
+
+
+async def test_reset_all_mode_resets_done_and_failed(db_session, retry_seed):
+    reset = await reset_deliveries_for_retry(db_session, "all")
+    assert reset == 2
+    assert retry_seed.d_failed.status == "pending"
+    assert retry_seed.d_done.status == "pending"
+    assert retry_seed.d_done.attempt_count == 0
+
+
+async def test_reset_since_filter(db_session, retry_seed):
+    # n2 was created 10 days ago; n1 just now. since=yesterday → only n1.
+    reset = await reset_deliveries_for_retry(
+        db_session, "all", since=utcnow() - timedelta(days=1)
+    )
+    assert reset == 1
+    assert retry_seed.d_failed.status == "pending"
+    assert retry_seed.d_done.status == "done"
+
+
+async def test_reset_agent_and_notification_filters(db_session, retry_seed):
+    # Unknown agent → nothing.
+    assert await reset_deliveries_for_retry(
+        db_session, "all", agent_id=_uuid()
+    ) == 0
+    # Scoped to n2 → only its delivery.
+    reset = await reset_deliveries_for_retry(
+        db_session, "all", notification_id=retry_seed.n2.id
+    )
+    assert reset == 1
+    assert retry_seed.d_done.status == "pending"
+    assert retry_seed.d_failed.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Backfill
+# ---------------------------------------------------------------------------
 
 
 async def test_backfill_only_missing_and_since_filter(db_session, seed):
-    from sqlalchemy import select
-
     # Task 1 already has a notification — must be skipped by backfill.
     await create_notification_for_task(db_session, seed.task)
 
@@ -369,14 +589,24 @@ async def test_backfill_only_missing_and_since_filter(db_session, seed):
     assert len(rows) == 2
 
 
-async def test_reset_for_retry():
-    n = SimpleNamespace(status="failed", attempt_count=5,
-                        next_attempt_at=None, error_message="x")
-    reset_for_retry(n)
-    assert n.status == "pending"
-    assert n.attempt_count == 0
-    assert n.next_attempt_at is not None
-    assert n.error_message is None
+async def test_backfill_batches_commits(db_session, seed):
+    """超过批次大小的 backfill 正常分批提交。"""
+    tasks = [
+        DownloadTask(
+            id=_uuid(), agent_id=seed.agent.id,
+            file_resource_id=seed.resource.id,
+            downloader_id=seed.downloader.id,
+            download_dir="/downloads/rssripple",
+            transmission_torrent_id=None, status="completed",
+            completed_at=utcnow(),
+        )
+        for _ in range(25)
+    ]
+    db_session.add_all(tasks)
+    await db_session.commit()
+    created = await backfill_notifications(db_session, seed.agent.id, None)
+    # 25 个新任务 + seed 自带的 1 个 completed 任务
+    assert created == 26
 
 
 # ---------------------------------------------------------------------------
@@ -399,50 +629,19 @@ async def test_create_notification_rpc_degraded(db_session, seed, monkeypatch):
     )
     n, created = await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
-    assert n.status == "pending"
+    assert created is True
     assert "files" not in n.payload
     assert n.payload["task"]["torrent_name"] is None
 
 
-async def test_deliver_skips_notification_without_agent(db_session, seed):
-    n, created = await create_notification_for_task(db_session, seed.task)
-    n.agent_id = None  # Agent 被删除（SET NULL）后的历史通知
-    await db_session.commit()
-    stats = await deliver_due_notifications(db_session)
-    assert stats["delivered"] == 0
-    assert stats["skipped"] == 1
-
-
-async def test_backfill_batches_commits(db_session, seed):
-    """超过批次大小的 backfill 正常分批提交。"""
-    tasks = [
-        DownloadTask(
-            id=_uuid(), agent_id=seed.agent.id,
-            file_resource_id=seed.resource.id,
-            downloader_id=seed.downloader.id,
-            download_dir="/downloads/rssripple",
-            transmission_torrent_id=None, status="completed",
-            completed_at=utcnow(),
-        )
-        for _ in range(25)
-    ]
-    db_session.add_all(tasks)
-    await db_session.commit()
-    created = await backfill_notifications(db_session, seed.agent.id, None)
-    # 25 个新任务 + seed 自带的 1 个 completed 任务
-    assert created == 26
-
-
-async def test_scheduler_tick_enqueues_and_delivers(db_session, seed):
-    """_process_download_notifications：为 completed 任务补建通知并投递
-    （mock webhook 直接成功）。"""
+async def test_scheduler_tick_enqueues_fans_out_and_delivers(db_session, seed):
+    """_process_download_notifications：为 completed 任务补建通知 → 扇出
+    delivery → 投递（mock webhook 直接 done）。"""
     from app.services.scheduler import _process_download_notifications
 
-    seed.agent.notify_webhook_mock = True
+    db_session.add(_webhook(seed.agent.id, mock=True, url="http://unused/x"))
     await db_session.commit()
     # seed 的任务尚无通知（该 fixture 不创建通知行）
-    from sqlalchemy import select
-
     assert (
         await db_session.execute(select(DownloadNotification))
     ).scalars().all() == []
@@ -453,9 +652,30 @@ async def test_scheduler_tick_enqueues_and_delivers(db_session, seed):
         await db_session.execute(select(DownloadNotification))
     ).scalars().all()
     assert len(rows) == 1
-    assert rows[0].status == "pending"
-    assert rows[0].notified_at is not None  # mock 投递成功
     assert rows[0].payload["work"]["title_en"] == "Test Series"
+    deliveries = await _deliveries(db_session, rows[0].id)
+    assert len(deliveries) == 1
+    assert deliveries[0].status == "done"  # mock 投递成功
+    assert deliveries[0].delivered_at is not None
+
+
+async def test_scheduler_tick_skips_agents_without_webhook(db_session, seed):
+    """agent 没有启用的 webhook 时，tick 不为其 completed 任务生成通知。"""
+    from app.services.scheduler import _process_download_notifications
+
+    # seed 不注册任何 webhook
+    await _process_download_notifications()
+    assert (
+        await db_session.execute(select(DownloadNotification))
+    ).scalars().all() == []
+
+    # 仅 disabled webhook 同样不生成
+    db_session.add(_webhook(seed.agent.id, mock=True, url="http://unused/x", enabled=False))
+    await db_session.commit()
+    await _process_download_notifications()
+    assert (
+        await db_session.execute(select(DownloadNotification))
+    ).scalars().all() == []
 
 
 async def test_scheduler_tick_disabled(db_session, seed, monkeypatch):
@@ -463,8 +683,6 @@ async def test_scheduler_tick_disabled(db_session, seed, monkeypatch):
 
     monkeypatch.setattr(settings, "notify_enabled", False)
     await _process_download_notifications()
-    from sqlalchemy import select
-
     assert (
         await db_session.execute(select(DownloadNotification))
     ).scalars().all() == []
@@ -474,8 +692,6 @@ async def test_create_notification_survives_concurrent_race(db_session, seed, mo
     """回归：backfill/调度 tick 竞态——预检通过（无行）后、插入前，并发写
     入者已提交同一 download_task_id 的通知。唯一约束冲突必须被 SAVEPOINT
     捕获并回读已存在行，而不是炸掉整个请求。"""
-    from sqlalchemy import select as sa_select
-
     # 预置“并发写入者”已提交的行。
     await create_notification_for_task(db_session, seed.task)
     await db_session.commit()
@@ -498,5 +714,78 @@ async def test_create_notification_survives_concurrent_race(db_session, seed, mo
     assert n.download_task_id == seed.task.id
     # 会话仍然可用，且库里只有一行。
     await db_session.commit()
-    rows = (await db_session.execute(sa_select(DownloadNotification))).scalars().all()
+    rows = (await db_session.execute(select(DownloadNotification))).scalars().all()
     assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# _cleanup_expired: notification retention & task protection
+# ---------------------------------------------------------------------------
+
+
+async def test_cleanup_expired_notification_retention(db_session, seed):
+    """Notifications older than notify_retention_days are deleted (deliveries
+    cascade); recent ones survive."""
+    from app.services.scheduler import _cleanup_expired
+
+    webhook = _webhook(seed.agent.id, mock=True, url="http://unused/x")
+    db_session.add(webhook)
+    old_n = DownloadNotification(
+        id=_uuid(), agent_id=seed.agent.id, download_task_id=seed.task.id,
+        payload={"notification_id": "old"},
+        created_at=utcnow() - timedelta(days=settings.notify_retention_days + 1),
+    )
+    db_session.add(old_n)
+    await db_session.flush()
+    old_d = WebhookDelivery(
+        id=_uuid(), notification_id=old_n.id, webhook_id=webhook.id,
+        status="done", delivered_at=utcnow() - timedelta(days=31),
+    )
+    db_session.add(old_d)
+    await db_session.commit()
+
+    await _cleanup_expired()
+
+    assert (
+        await db_session.execute(select(DownloadNotification))
+    ).scalars().all() == []
+    assert (await db_session.execute(select(WebhookDelivery))).scalars().all() == []
+
+
+async def test_cleanup_expired_protects_tasks_with_open_deliveries(
+    db_session, seed
+):
+    """Expired completed tasks are deleted only when their notification has
+    no non-done delivery."""
+    from app.services.scheduler import _cleanup_expired
+
+    # Make the task old enough to expire (agent default task_expire_days=30).
+    seed.task.completed_at = utcnow() - timedelta(days=60)
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    n.created_at = utcnow()  # recent: retention does not apply
+    await db_session.commit()
+    await ensure_deliveries(db_session)
+
+    # Pending delivery → task survives.
+    await _cleanup_expired()
+    remaining = (
+        await db_session.execute(
+            select(DownloadTask).where(DownloadTask.id == seed.task.id)
+        )
+    ).scalar_one_or_none()
+    assert remaining is not None
+
+    # All deliveries done → the task is cleaned up.
+    for d in await _deliveries(db_session, n.id):
+        d.status = "done"
+        d.delivered_at = utcnow()
+    await db_session.commit()
+    await _cleanup_expired()
+    remaining = (
+        await db_session.execute(
+            select(DownloadTask).where(DownloadTask.id == seed.task.id)
+        )
+    ).scalar_one_or_none()
+    assert remaining is None

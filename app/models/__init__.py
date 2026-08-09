@@ -3,7 +3,9 @@
 from app.models.agent import Agent
 from app.models.agent_run import AgentRun
 from app.models.agent_suggestion import AgentSuggestion
+from app.models.agent_webhook import AgentWebhook
 from app.models.agent_work import AgentWork
+from app.models.api_key import ApiKey
 from app.models.app_setting import AppSetting
 from app.models.audio_work import AudioWork
 from app.models.channel import Channel
@@ -19,6 +21,7 @@ from app.models.metadata_cache import MetadataCache
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
+from app.models.webhook_delivery import WebhookDelivery
 from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 
@@ -34,6 +37,7 @@ __all__ = [
     "AgentRun",
     "AgentWork",
     "AgentSuggestion",
+    "AgentWebhook",
     "ChannelRawTitleMapping",
     "DownloaderInstance",
     "DownloadTask",
@@ -43,5 +47,7 @@ __all__ = [
     "GroundTruthEntry",
     "EvalJob",
     "AppSetting",
+    "ApiKey",
     "WorkCollection",
+    "WebhookDelivery",
 ]

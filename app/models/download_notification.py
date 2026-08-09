@@ -4,14 +4,20 @@ Download-task-driven notification queue. Each notification belongs to an
 Agent (one FIFO queue per Agent, ordered by ``created_at``) and snapshots
 everything an external consumer (e.g. vault-organizer) needs to post-process
 a completed download: task, resource and work metadata, plus the torrent
-file listing. Delivery is webhook-based with exponential backoff; consumers
-report back via start/ack/fail callbacks. See docs/design/notifications.md.
+file listing. Delivery fans out to the Agent's registered webhooks as
+individual ``WebhookDelivery`` rows with per-webhook exponential backoff.
+See docs/design/notifications.md.
+
+Note: the physical table still carries the pre-fan-out delivery columns
+(``status``, ``error_message``, ``attempt_count``, ``next_attempt_at``,
+``notified_at``, ``processed_at``) as inert orphans — they were removed from
+the ORM without a DROP migration.
 """
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -38,19 +44,6 @@ class DownloadNotification(Base):
         unique=True,
     )
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
-    status: Mapped[str] = mapped_column(
-        Enum("pending", "processing", "done", "failed", name="notification_status"),
-        default="pending",
-        nullable=False,
-    )
-    error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    # Delivery bookkeeping: attempts so far and when the next one is due
-    # (exponential backoff). ``next_attempt_at`` NULL on a pending row means
-    # "due immediately".
-    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -61,3 +54,10 @@ class DownloadNotification(Base):
     # Relationships
     agent = relationship("Agent", back_populates="notifications")
     download_task = relationship("DownloadTask", back_populates="notification")
+    deliveries = relationship(
+        "WebhookDelivery",
+        back_populates="notification",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

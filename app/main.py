@@ -333,6 +333,24 @@ async def lifespan(app: FastAPI):  # pragma: no cover
         await load_runtime_config(sess)
     logger.info("Runtime settings loaded.")
 
+    # Auth bootstrap: ensure the TOTP + cookie secrets exist (generated on
+    # first run and persisted in app_settings), and surface the provisioning
+    # URI every startup so the operator can enroll an authenticator.
+    from app.services.auth_service import (
+        get_or_create_cookie_secret,
+        get_or_create_totp_secret,
+        totp_provisioning_uri,
+    )
+
+    async with async_session_factory() as sess:
+        totp_secret = await get_or_create_totp_secret(sess)
+        await get_or_create_cookie_secret(sess)
+        await sess.commit()
+    logger.warning(
+        "OTP provisioning URI (add to your authenticator): %s",
+        totp_provisioning_uri(totp_secret),
+    )
+
     # Init scheduler
     from app.services.scheduler import (
         init_scheduler,
@@ -463,13 +481,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Auth gate for /api/v1/* and /posters/* (no-op when AUTH_ENABLED=false).
+from app.middleware.auth import AuthMiddleware  # noqa: E402
+
+app.add_middleware(AuthMiddleware)
+
 # Install DB lock retry middleware (SQLite-only, no-op on PostgreSQL)
 install_db_retry_middleware(app)
 
 # API routers
 from app.api.v1 import (  # noqa: E402
     agents,
+    api_keys,
     audio_works,
+    auth,
     channels,
     collections,
     dashboard,
@@ -498,6 +523,8 @@ app.include_router(works.router, prefix="/api/v1", tags=["works"])
 app.include_router(collections.router, prefix="/api/v1", tags=["collections"])
 app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])
 app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
+app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
+app.include_router(api_keys.router, prefix="/api/v1", tags=["api-keys"])
 
 # Poster image cache - mount even if empty/default
 _poster_dir = Path(settings.poster_cache_dir)
