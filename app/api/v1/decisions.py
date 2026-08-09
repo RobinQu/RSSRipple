@@ -9,7 +9,9 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.file_resource import FileResource
+from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
+from app.models.series import TVSeries
 from app.schemas.common import paginated_response, success_response
 from app.schemas.pending_decision import (
     BatchDecisionRequest,
@@ -44,14 +46,20 @@ async def _ai_pick_and_dispatch(
             select(FileResource).where(
                 FileResource.id.in_(decision.candidates or [])
             ).options(
-                # The LLM pick summary reads title/year/rating via these.
-                selectinload(FileResource.series), selectinload(FileResource.movie),
+                # The LLM pick summary reads title/year/rating via these; the
+                # collection chain keeps series.collection / movie.collection
+                # DSL fields correct if a decision is re-filtered here.
+                selectinload(FileResource.series).selectinload(TVSeries.collection),
+                selectinload(FileResource.movie).selectinload(Movie.collection),
             )
         )).scalars().all()
         if not cands:
             return False, "No candidates to pick from"
         picked_id, _reason = await _generate_llm_pick(
-            agent, list(cands), ("series", decision.series_id, decision.episode)
+            agent, list(cands),
+            ("series", decision.series_id, decision.season, decision.episode)
+            if decision.series_id
+            else ("movie", decision.movie_id, None, None),
         )
         decision.llm_picked_resource_id = picked_id
         if not picked_id:

@@ -14,6 +14,7 @@ class PendingDecisionResponse(BaseModel):
     series_id: str | None = None
     movie_id: str | None = None
     episode: int | None = None
+    season: int | None = None
     candidates: list[str]
     reason: str
     llm_suggestion: str | None = None

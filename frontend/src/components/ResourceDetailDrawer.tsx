@@ -22,7 +22,7 @@ import { formatBytes, formatDate } from '../utils/format';
 import MetadataCorrectionModal from './MetadataCorrectionModal';
 import CreateTaskModal from './CreateTaskModal';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
-import type { FileResource } from '../types';
+import type { FileResource, TVSeries } from '../types';
 
 const { Text, Paragraph } = Typography;
 
@@ -31,6 +31,28 @@ interface LinkedMeta {
   title: string;
   poster_url?: string | null;
   description?: string | null;
+}
+
+type SeasonCount = { season_number: number; episode_count: number };
+
+/** Client-side mirror of the backend ``locate_absolute_episode``
+ * (app/services/metadata_episode_reconcile.py): walk seasons ascending,
+ * subtract each ``episode_count`` until the absolute number lands in a
+ * season. The last season gets a tolerance of 2 for still-airing shows
+ * whose metadata lags behind. Returns null when out of range — the
+ * server-side ambiguous marking handles that case. */
+function locateAbsoluteSeason(absolute: number, seasons: SeasonCount[] | null): number | null {
+  if (!seasons || absolute < 1) return null;
+  const ordered = seasons
+    .filter((s) => s.season_number >= 1 && s.episode_count >= 1)
+    .sort((a, b) => a.season_number - b.season_number);
+  let remaining = absolute;
+  for (const s of ordered) {
+    if (remaining <= s.episode_count) return s.season_number;
+    remaining -= s.episode_count;
+  }
+  if (ordered.length > 0 && remaining <= 2) return ordered[ordered.length - 1].season_number;
+  return null;
 }interface ResourceDetailDrawerProps {
   resource: FileResource | null;
   onClose: () => void;
@@ -74,6 +96,11 @@ export default function ResourceDetailDrawer({
   const [episodeDraft, setEpisodeDraft] = useState<number | null>(null);
   const [absoluteDraft, setAbsoluteDraft] = useState<number | null>(null);
   const [savingEpisode, setSavingEpisode] = useState(false);
+  // Per-season episode counts of the linked series (from the resource
+  // metadata endpoint), used to prefill season from an absolute episode.
+  const [seriesSeasons, setSeriesSeasons] = useState<SeasonCount[] | null>(null);
+  // Once the user types a season themselves we stop auto-prefilling it.
+  const [seasonTouched, setSeasonTouched] = useState(false);
 
   const loadMeta = async (rid: string) => {
     setMetaLoading(true);
@@ -86,13 +113,14 @@ export default function ResourceDetailDrawer({
       if (metaRes.success && metaRes.data) {
         const d = metaRes.data;
         if (d.linked?.type === 'series') {
-          const series = d.linked.entity;
+          const series = d.linked.entity as TVSeries;
           setMeta({
             type: 'series',
             title:
               series.title_cn || series.title_en || series.original_title || t('resource.unknownSeries'),
             poster_url: series.poster_url,
           });
+          setSeriesSeasons(series.seasons ?? null);
         } else if (d.linked?.type === 'movie') {
           const movie = d.linked.entity;
           setMeta({
@@ -101,6 +129,7 @@ export default function ResourceDetailDrawer({
               movie.title_cn || movie.title_en || movie.original_title || t('resource.unknownMovie'),
             poster_url: movie.poster_url,
           });
+          setSeriesSeasons(null);
         } else if (d.series_id && d.series) {
           setMeta({
             type: 'series',
@@ -108,6 +137,8 @@ export default function ResourceDetailDrawer({
               d.series.title_cn || d.series.title_en || t('resource.unknownSeries'),
             poster_url: d.series.poster_url,
           });
+          // The summary payload carries no per-season counts — no prefill.
+          setSeriesSeasons(null);
         } else if (d.movie_id && d.movie) {
           setMeta({
             type: 'movie',
@@ -115,8 +146,10 @@ export default function ResourceDetailDrawer({
               d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie'),
             poster_url: d.movie.poster_url,
           });
+          setSeriesSeasons(null);
         } else {
           setMeta(null);
+          setSeriesSeasons(null);
         }
       }
     } finally {
@@ -128,6 +161,7 @@ export default function ResourceDetailDrawer({
     if (!resource) {
       setMeta(null);
       setResourceData(null);
+      setSeriesSeasons(null);
       return;
     }
     setResourceData(resource);
@@ -147,6 +181,7 @@ export default function ResourceDetailDrawer({
     setSeasonDraft(src?.season ?? null);
     setEpisodeDraft(src?.episode ?? null);
     setAbsoluteDraft(src?.absolute_episode ?? null);
+    setSeasonTouched(false);
     setEpisodeEditOpen(true);
   };
 
@@ -216,7 +251,10 @@ export default function ResourceDetailDrawer({
                         </Text>
                         <InputNumber
                           value={seasonDraft}
-                          onChange={(v) => setSeasonDraft(typeof v === 'number' ? v : null)}
+                          onChange={(v) => {
+                            setSeasonTouched(true);
+                            setSeasonDraft(typeof v === 'number' ? v : null);
+                          }}
                           size="small"
                           min={0}
                           style={{ width: '100%' }}
@@ -240,7 +278,19 @@ export default function ResourceDetailDrawer({
                         </Text>
                         <InputNumber
                           value={absoluteDraft}
-                          onChange={(v) => setAbsoluteDraft(typeof v === 'number' ? v : null)}
+                          onChange={(v) => {
+                            const abs = typeof v === 'number' ? v : null;
+                            setAbsoluteDraft(abs);
+                            // Prefill the season from the linked series'
+                            // per-season counts (same arithmetic as the
+                            // backend locate_absolute_episode) while the
+                            // user hasn't typed a season themselves. Out of
+                            // range → leave it empty; the server marks it.
+                            if (abs != null && !seasonTouched) {
+                              const derived = locateAbsoluteSeason(abs, seriesSeasons);
+                              if (derived != null) setSeasonDraft(derived);
+                            }
+                          }}
                           size="small"
                           min={0}
                           style={{ width: '100%' }}

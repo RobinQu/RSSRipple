@@ -26,10 +26,12 @@
 - 所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键为 UUID v4 字符串，时间字段均为 UTC。
 - `FileResource` 的 FK 互斥：剧集资源 `series_id` 非空且 `movie_id` 为空；电影资源反之；未识别两者皆空。TV 集数统一用 `episode` 字段。
 - 合集资源（`is_batch=true`）：`episode` 固定为空，`episode_start/end` 尽力而为；不参与 `(series_id, episode)` 聚合和 PendingDecision。
-- `episode_confidence`：`raw | reconciled | ambiguous | manual | None`；`ambiguous` 资源不参与派发，创建"集号不确定"PendingDecision（跳过 LLM），用户修正为 `manual` 后自动回流。
+- `episode_confidence`：`raw | reconciled | ambiguous | manual | None`；`ambiguous` 资源不参与派发，按资源状态创建 PendingDecision（跳过 LLM）：`season` 非空为"集号不确定"，`season=None` 为"季号不确定"；用户修正为 `manual` 后自动回流。季号绝不猜测：无季标记时仅当作品可验证为单季（`number_of_seasons`/`seasons` 证据）才落 `season=1`，多季或未知一律 `season=None` + `ambiguous`。
 - `Agent.last_consumed_at` 是消费水位线：增量运行只处理 `created_at > last_consumed_at` 的资源；null 表示从未运行（推进到 now、不处理任何资源，回填必须走 rules-preview 流程）。
-- `PendingDecision` 幂等：同一 `(agent_id, series_id|movie_id, episode, status='pending')` 全局唯一，重复运行 upsert 合并 candidates。
+- `PendingDecision` 幂等：同一 `(agent_id, series_id|movie_id, season, episode, status='pending')` 全局唯一，重复运行 upsert 合并 candidates。
 - `AgentWork` 最多 10 个（`scope_channel_wide=false` 时生效）；CheckConstraint 保证 series/movie 二选一。
+- `WorkCollection` 大 IP 合集分组（组织层而非消歧核心）：作品经可空 `collection_id` 至多属一个合集；TMDB 链接走确定性 `link_movie_collection`（`tmdb_collection` 源 + 原始数字 id，禁止 `canonicalize_external_id`）；DSL 新增 `series.collection`/`movie.collection`（显示名），所有过滤求值点须链式 selectinload 作品的 `collection` 关系。
+- `WorkExternalId` 身份袋（P3）：一个作品可携带多个 `source:id`（wikipedia pageid、langlinks 各语言页 pageid、Exa 回退 id 等），袋反查是 upsert 第一查找步；主 id 规则 creator-wins——`external_id/external_source` 列保持创建时值，后来的 id 只入袋绝不抢占；`UniqueConstraint(source, external_id)` 一 id 至多一作品，冲突不抢（记 warning，成去重候选）；去重合并对袋取并集。
 
 ### Filter DSL（详见 filter-dsl.md）
 
@@ -40,20 +42,21 @@
 
 - 前缀 `/api/v1`，统一响应结构 `{ success, data, error, meta }`；分页参数 `page`/`page_size`（最大 100）。
 - `POST /agents` 的 `dispatch_resource_ids`：`null`=普通保存不动水位线；数组（含空 `[]`）= 经过 rules-preview，派发选中资源并推进水位线到频道 max `created_at`。
-- `PATCH /resources/{id}/episode` 修正集号：**先 commit 再入队**定向运行（绕过且不推进水位线）。
+- `PATCH /resources/{id}/episode` 修正集号：未显式发送 `season` 且有 absolute 集号 + 剧集逐季数据时服务端推导 season（显式值优先）；**先 commit 再入队**定向运行（绕过且不推进水位线）。
 - 任务重试必须使用 `DownloadTask.download_dir` 持久化值，不重读当前配置。
 
 ### 核心业务逻辑（详见 business-logic.md）
 
 - Agent 四种运行模式：增量（水位线之后）、定向（`resource_ids`，绕过水位线）、回填提交（rules-preview 后保存，推进水位线到频道 max）、指定起始时间（手动 run 带 `scan_since`，按入库时间过滤，null=全量；只影响本次扫描范围，水位线照常推进）。旧的 `limit(200)` 已废弃。
 - Metadata 匹配四层：已链接 → ChannelRawTitleMapping（`search_title_key` 优先，`raw_title` fallback）→ 本地 DB 精确/模糊（fuzzy ≥ 85 自动链接）→ 统一 MetadataAgent。
-- MetadataAgent 单次搜索**只用一个数据源**（`exa` 默认 / `jina` / `tmdb` / `wikipedia` / `local`），禁止跨源 fallback；`combined` 仅为旧评测遗留，运行时归一化为 `exa`。
+- MetadataAgent 单次搜索**只用一个数据源**；频道源为两数据源架构 `wikipedia | tmdb`（默认 `wikipedia`；exa/jina/local/combined 已废弃为频道源，频道解析归一为 `wikipedia`，存量由轻迁移改写；其 ReAct 路径仅手动搜索/评测保留）。两主源未命中（judge/ReAct found=False；transient 不触发）统一走**有序 Exa 回退**：频道 `metadata_fallback_sources`（JSON 白名单，NULL=默认顺序 bangumi→mal→anilist→tmdb→wikipedia→imdb→douban，`[]`=禁用）硬过滤候选、靠前站点优先，**仅补身份/链接**（剥离 seasons/集数，内容以主源为准）。身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike/eiga 已移除）。
 - LLM 候选选择器 `_generate_llm_pick` 共用逻辑：`auto` 自动选择、`ask` 建议、`ai-pick` 三处复用；失败时 `auto` 回退启发式评分。
+- Wikipedia 季/集内容提取（P2）：页面选中后（auto-link 与 judge 两路径）取 wikitext 走**确定性解析**（`wikipedia_episode_parser`，无 LLM；zh `{{劇集列表/base}}` + ja `{{エピソードリスト/base}}`，infobox **仅取 `{{Infobox animanga/TVAnime}}` 块**的 話數/集數，Novel/Manga 块诱饵一律拒绝、无 TV 块返回 None + `各話列表` 章节），合并 `seasons`/`number_of_seasons`/`number_of_episodes`/`episode_list` 进 matched_entity（随 MetadataCache 往返）；wikipedia 来源 `seasons` **覆盖** series 字段但带**防退化 guard**（`seasons_overwrite_allowed`：现有为空或解析季数 ≥ 现有才覆盖，更少则拒绝，service 与 `--apply` 回填共用），`upsert_episodes` 按 `(series_id, season, episode)` 幂等落 Episode 行（只增不删）。LLM judge schema 不变、不猜季数；Exa 回退仍仅补身份。TMDB 对称填充（P4）：tmdb ReAct finalize 后 `_attach_tmdb_episode_list` 用 `fetch_tmdb_episode_list`（逐季 `GET /tv/{id}/season/{n}`，并发 4、跳 season 0、单季失败容忍、>30 季跳过）填 `episode_list` 复用同一落库路径，仅对 tmdb 身份实体触发；存量回填走 `scripts/wikipedia_seasons_eval.py --apply`（wikipedia，覆盖 seasons）与 `scripts/tmdb_episodes_backfill.py --apply`（tmdb），均 dry-run 默认 + 批量提交。
 - 调度：APScheduler 按频道 `fetch_interval` 定时抓取；全局每分钟同步下载进度、每小时检查下载器连通、每日清理过期任务/决策 + 04:00 metadata 去重。
 
 ### 前端（详见 frontend.md）
 
-- 路由：`/` Dashboard、`/works`、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`。
+- 路由：`/` Dashboard、`/works`（合集列表作为浏览模式整合进作品仓库：`?view=collections`）、`/collections/:id`（合集详情页，无独立列表路由）、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`。
 - Agent 保存前必须走 `/agents/rules-preview` + BackfillPreviewModal 回填流程。
 
 ### 错误处理（详见 error-handling.md）

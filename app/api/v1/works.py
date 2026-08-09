@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.audio_work import AudioWork
@@ -187,6 +188,15 @@ def _year_from_date(val: object) -> int | None:
     return None
 
 
+def _collection_fields(w: TVSeries | Movie) -> dict:
+    """Collection display fields: name is title_cn or title_en, None when ungrouped."""
+    c = w.collection
+    return {
+        "collection_id": w.collection_id,
+        "collection_name": (c.title_cn or c.title_en) if c else None,
+    }
+
+
 def _normalize_series(s: TVSeries) -> dict:
     return {
         "id": s.id,
@@ -207,6 +217,7 @@ def _normalize_series(s: TVSeries) -> dict:
         "runtime": None,
         "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
         "updated_at": s.updated_at.isoformat() + "Z" if s.updated_at else None,
+        **_collection_fields(s),
     }
 
 
@@ -230,6 +241,7 @@ def _normalize_movie(m: Movie) -> dict:
         "runtime": m.runtime,
         "created_at": m.created_at.isoformat() + "Z" if m.created_at else None,
         "updated_at": m.updated_at.isoformat() + "Z" if m.updated_at else None,
+        **_collection_fields(m),
     }
 
 
@@ -241,20 +253,32 @@ async def list_works(
     content_type: str = Query(
         "all", description="Filter: all, tv, movie, audio, asmr, music, drama_cd, radio, other"
     ),
+    collection_id: str | None = Query(
+        None, description="Collection UUID, or 'none' for works without a collection"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Unified poster wall combining TVSeries, Movie, and AudioWork in one list.
 
     Returns items sorted by ``created_at`` descending, with a ``content_type``
-    discriminator field ("tv", "movie", or an audio sub-kind).
+    discriminator field ("tv", "movie", or an audio sub-kind). When
+    ``collection_id`` is present only series/movies match (audio excluded);
+    the literal "none" selects works without a collection.
     """
     works: list[dict] = []
     audio_types = {"asmr", "music", "drama_cd", "radio", "other"}
-    include_audio = content_type in ("all", "audio") or content_type in audio_types
+    include_audio = (
+        (content_type in ("all", "audio") or content_type in audio_types)
+        and collection_id is None
+    )
 
     # Fetch from both tables
     if content_type in ("all", "tv"):
-        series_q = select(TVSeries)
+        series_q = select(TVSeries).options(selectinload(TVSeries.collection))
+        if collection_id == "none":
+            series_q = series_q.where(TVSeries.collection_id.is_(None))
+        elif collection_id is not None:
+            series_q = series_q.where(TVSeries.collection_id == collection_id)
         if search:
             pattern = f"%{search}%"
             series_q = series_q.where(
@@ -269,7 +293,11 @@ async def list_works(
             works.append(_normalize_series(s))
 
     if content_type in ("all", "movie"):
-        movie_q = select(Movie)
+        movie_q = select(Movie).options(selectinload(Movie.collection))
+        if collection_id == "none":
+            movie_q = movie_q.where(Movie.collection_id.is_(None))
+        elif collection_id is not None:
+            movie_q = movie_q.where(Movie.collection_id == collection_id)
         if search:
             pattern = f"%{search}%"
             movie_q = movie_q.where(

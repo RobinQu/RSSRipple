@@ -29,6 +29,9 @@ class FileResource(Base):
     subtitle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
     episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Release year parsed from the raw title ("[2026]" / standalone token).
+    # Used by the Layer-3 local-match year guard (same-title remakes).
+    title_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # ── Multi-episode batch (合集) support ──
     # ``is_batch`` marks a torrent that contains multiple episodes (S01E01~13,
     # [01-12 合集], "Season Pack", 全集 …). Batch resources bypass Agent-level

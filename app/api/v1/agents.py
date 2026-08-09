@@ -12,6 +12,8 @@ from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_work import AgentWork
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
+from app.models.movie import Movie
+from app.models.series import TVSeries
 from app.schemas.agent import (
     AgentCreate,
     AgentResponse,
@@ -109,9 +111,10 @@ async def _apply_backfill(
                 FileResource.id.in_(resource_ids),
             ).options(
                 # Filter DSL / LLM pick summary read series/movie — eager-load
-                # to avoid async lazy loads during evaluation.
-                selectinload(FileResource.series),
-                selectinload(FileResource.movie),
+                # to avoid async lazy loads during evaluation. The work's
+                # collection feeds series.collection / movie.collection.
+                selectinload(FileResource.series).selectinload(TVSeries.collection),
+                selectinload(FileResource.movie).selectinload(Movie.collection),
             )
         )).scalars().all()
         if rows:
@@ -546,9 +549,11 @@ async def test_filters(
         base_q = base_q.where(FileResource.id.in_(resource_ids))
     else:
         base_q = base_q.order_by(FileResource.published_at.desc()).limit(50)
-    # Work-namespaced DSL fields (movie.rating …) resolve via these relations.
+    # Work-namespaced DSL fields (movie.rating, series.collection …) resolve
+    # via these relations.
     base_q = base_q.options(
-        selectinload(FileResource.series), selectinload(FileResource.movie)
+        selectinload(FileResource.series).selectinload(TVSeries.collection),
+        selectinload(FileResource.movie).selectinload(Movie.collection),
     )
     result = await db.execute(base_q)
     resources = result.scalars().all()
@@ -614,8 +619,10 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
     new = _rule_set_from_request(body)
     resources = (await db.execute(
         select(FileResource).where(FileResource.channel_id == channel_id).options(
-            # Work-namespaced DSL fields (movie.rating …) resolve via these.
-            selectinload(FileResource.series), selectinload(FileResource.movie),
+            # Work-namespaced DSL fields (movie.rating, series.collection …)
+            # resolve via these.
+            selectinload(FileResource.series).selectinload(TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(Movie.collection),
         )
     )).scalars().all()
     diff = await compute_rule_diff(old, new, list(resources), db)

@@ -97,6 +97,23 @@ async def get_series(series_id: str, db: AsyncSession = Depends(get_db)):
         )
     data = TVSeriesResponse.model_validate(series).model_dump()
 
+    # External-identity display links (registry-driven; replaces the old
+    # client-side sourceLinks.ts computation). P3: the identity bag's
+    # secondary ids (langlink pageids, Exa-fallback ids, ...) are included,
+    # deduped against the primary external_id.
+    from app.services.external_ids import list_external_ids
+    from app.services.metadata_source_registry import build_source_links
+    bag_ids = [
+        r.external_id
+        for r in await list_external_ids(db, "series", series.id)
+        if r.external_id != series.external_id
+    ]
+    data["source_links"] = build_source_links(
+        series.external_id, series.external_source, "tv",
+        wikipedia_url=series.wikipedia_url,
+        extra_ids=bag_ids,
+    )
+
     # Episodes
     data["episodes"] = [
         EpisodeResponse.model_validate(e).model_dump() for e in (series.episodes or [])
@@ -126,6 +143,22 @@ async def get_series(series_id: str, db: AsyncSession = Depends(get_db)):
         select(AgentWork).where(AgentWork.series_id == series_id)
     )
     data["agent_work_count"] = len(aw_q.scalars().all())
+
+    # Collection summary + siblings (franchise grouping)
+    data["collection"] = None
+    data["collection_siblings"] = []
+    if series.collection_id:
+        from app.models.work_collection import WorkCollection
+        from app.services.collection_service import collection_work_summaries
+        collection = await db.get(WorkCollection, series.collection_id)
+        if collection:
+            data["collection"] = {
+                "id": collection.id,
+                "name": collection.title_cn or collection.title_en,
+            }
+            data["collection_siblings"] = await collection_work_summaries(
+                db, collection.id, exclude=("series", series_id)
+            )
 
     return success_response(data)
 

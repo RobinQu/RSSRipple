@@ -41,6 +41,7 @@ import app.models  # noqa: E402, F401
 from app.api.v1 import (  # noqa: E402
     agents,
     channels,
+    collections,
     dashboard,
     decisions,
     downloaders,
@@ -99,6 +100,7 @@ def _build_test_app(session_factory: async_sessionmaker) -> FastAPI:
         series.router,
         movies.router,
         works.router,
+        collections.router,
         system_settings.router,
     ):
         test_app.include_router(router, prefix="/api/v1")

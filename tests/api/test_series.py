@@ -177,3 +177,56 @@ class TestSeriesCRUD:
         # Verify agent_work_count
         assert "agent_work_count" in data
         assert data["agent_work_count"] == 1
+
+    async def test_get_series_source_link_fields(self, client, db_session, sample_series):
+        """GET /api/v1/series/{id} exposes canonical_name/wikipedia_url at top level."""
+        sample_series.canonical_name = "Test Series"
+        sample_series.wikipedia_url = "https://en.wikipedia.org/wiki/Test_Series"
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/series/{sample_series.id}")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["canonical_name"] == "Test Series"
+        assert data["wikipedia_url"] == "https://en.wikipedia.org/wiki/Test_Series"
+
+    async def test_get_series_source_links(self, client, db_session, sample_series):
+        """GET /api/v1/series/{id} computes source_links via the site registry."""
+        sample_series.external_id = "TMDB:82684; IMDb:tt0944947"
+        sample_series.external_source = "llm_search"
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/series/{sample_series.id}")
+        assert res.status_code == 200
+        links = res.json()["data"]["source_links"]
+        assert [(link["source"], link["url"]) for link in links] == [
+            ("tmdb", "https://www.themoviedb.org/tv/82684"),
+            ("imdb", "https://www.imdb.com/title/tt0944947/"),
+        ]
+
+    async def test_get_series_source_links_include_identity_bag(
+        self, client, db_session, sample_series
+    ):
+        """P3: source_links aggregates every id in the work's identity bag,
+        deduped against the primary external_id."""
+        from app.services.external_ids import add_external_id
+
+        sample_series.external_id = "wikipedia:7727654"
+        sample_series.external_source = "wikipedia"
+        await db_session.commit()
+        await add_external_id(db_session, "series", sample_series.id,
+                              "wikipedia", "wikipedia:7727654")  # primary, deduped
+        await add_external_id(db_session, "series", sample_series.id,
+                              "wikipedia", "wikipedia:70545449")  # langlink page
+        await add_external_id(db_session, "series", sample_series.id,
+                              "tmdb", "tmdb:82684")
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/series/{sample_series.id}")
+        assert res.status_code == 200
+        links = res.json()["data"]["source_links"]
+        assert {(link["source"], link["url"]) for link in links} == {
+            ("wikipedia", "https://en.wikipedia.org/?curid=7727654"),
+            ("wikipedia", "https://en.wikipedia.org/?curid=70545449"),
+            ("tmdb", "https://www.themoviedb.org/tv/82684"),
+        }

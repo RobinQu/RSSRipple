@@ -89,6 +89,17 @@ From raw RSS titles, extract:
 - Episode: from "- 05", "EP05", "#05", "第05话", "S04E05" → the second number
 - Season: from "第二季", "Season 2", "S2", "S02", "II", "Ⅲ", "Final Season",
   "S04" (when SXXEXX format), parenthetical like "（第四季）"
+- SEASON VERIFICATION: when the title carries NO season marker, never guess
+  the season. Verify against the tool results' ``number_of_seasons`` /
+  ``seasons`` for the chosen work: a work with exactly ONE season →
+  ``inferred_season: 1``; a multi-season work (or missing seasons data) →
+  leave ``inferred_season`` null and return ``ambiguous: true`` with the
+  plausible seasons in ``ambiguous_candidates`` (e.g. ``[{"season": 2}]``) —
+  a human will confirm the season.
+- YEAR CHECK: when the input includes a "Release year parsed from the title"
+  hint, prefer candidates whose year matches; a conflicting year (beyond ±1)
+  is strong evidence AGAINST a candidate (likely a same-title remake or a
+  different franchise entry).
 - Season arcs: "游郭篇", "无限列车篇", "领主的养女" often indicate specific seasons
 - Batch detection: set ``is_batch: true`` (and leave ``inferred_episode`` null)
   when the title covers multiple episodes:
@@ -198,6 +209,7 @@ matching this schema:
     "description": "...", "wikipedia_url": "...", "canonical_name": "..."
   } | null,
   "ambiguous": true|false,
+  "ambiguous_candidates": [],
   "confidence": 0.0-1.0,
   "reason": "explanation"
 }
@@ -231,6 +243,9 @@ Rules:
 - external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
   page_id; external_source "wikipedia"; include wikipedia_url.
 - Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
+  When the title has NO season marker, never guess: if the chosen work clearly
+  has only one season, inferred_season=1; otherwise leave it null and set
+  ambiguous=true with the plausible seasons in ambiguous_candidates.
 - If no candidate clearly matches, found=false with a reason. Set
   ambiguous=true if two candidates are equally plausible.
 - Output ONLY the JSON object, no prose.
@@ -265,6 +280,7 @@ movie), or confirm no match, and return ONLY a JSON object matching this schema:
     "description": "...", "wikipedia_url": "...", "url": "..."
   } | null,
   "ambiguous": true|false,
+  "ambiguous_candidates": [],
   "confidence": 0.0-1.0,
   "reason": "explanation"
 }
@@ -289,6 +305,9 @@ Rules:
   "wikipedia_url". If the candidate is a Wikipedia page, include page_id in
   external_id as "wikipedia:<page_id>" if known.
 - Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
+  When the title has NO season marker, never guess: if the chosen work clearly
+  has only one season, inferred_season=1; otherwise leave it null and set
+  ambiguous=true with the plausible seasons in ambiguous_candidates.
 - If no candidate clearly matches, found=false with a reason.
 - Output ONLY the JSON object, no prose.
 """

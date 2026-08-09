@@ -16,12 +16,29 @@ def _tool_names(agent: UnifiedMetadataAgent, source: str) -> set[str]:
     return {tool.name for tool in agent._tools_for_source(source)}
 
 
-def test_metadata_source_normalization_maps_legacy_combined_to_exa():
-    assert normalize_metadata_source_type(None) == "exa"
-    assert normalize_metadata_source_type("combined") == "exa"
+def test_metadata_source_normalization_defaults_to_wikipedia():
+    # Legacy values (combined/unknown/None) map to the two-source default.
+    assert normalize_metadata_source_type(None) == "wikipedia"
+    assert normalize_metadata_source_type("combined") == "wikipedia"
     assert normalize_metadata_source_type("TMDB") == "tmdb"
     assert normalize_metadata_source_type("wikipedia") == "wikipedia"
-    assert normalize_metadata_source_type("unknown") == "exa"
+    assert normalize_metadata_source_type("unknown") == "wikipedia"
+    # Legacy ReAct sources still normalize through for manual search / eval.
+    assert normalize_metadata_source_type("exa") == "exa"
+    assert normalize_metadata_source_type("local") == "local"
+
+
+def test_channel_metadata_source_resolution_is_two_source():
+    from app.services.metadata_sources import (
+        normalize_channel_metadata_source,
+        resolve_metadata_source,
+    )
+    assert resolve_metadata_source(None) == "wikipedia"
+    assert resolve_metadata_source("tmdb") == "tmdb"
+    assert resolve_metadata_source("Wikipedia") == "wikipedia"
+    # Deprecated channel sources converge on wikipedia.
+    for legacy in ("exa", "jina", "local", "combined", "unknown"):
+        assert normalize_channel_metadata_source(legacy) == "wikipedia"
 
 
 def test_tools_are_restricted_to_selected_source():
@@ -783,8 +800,8 @@ def test_cache_source_key_namespaces_by_source():
     assert _cache_source_key("jina") == "metadata_agent:jina"
     assert _cache_source_key("exa") == "metadata_agent:exa"
     assert _cache_source_key("local") == "metadata_agent:local"
-    # Unset source resolves to the default (exa), still its own namespace.
-    assert _cache_source_key(None) == "metadata_agent:exa"
+    # Unset source resolves to the default (wikipedia), still its own namespace.
+    assert _cache_source_key(None) == "metadata_agent:wikipedia"
 
 
 async def test_get_cache_is_source_scoped(db_session):
@@ -1588,8 +1605,84 @@ async def test_search_then_judge_autolink_fills_cross_language_titles(monkeypatc
 
 from app.services.metadata_episode_reconcile import (  # noqa: E402
     apply_episode_reconcile,
+    locate_absolute_episode,
     seasons_map_from_list,
 )
+
+
+class TestLocateAbsoluteEpisode:
+    def test_locates_within_seasons(self):
+        m = {1: 24, 2: 24, 3: 24, 4: 24}
+        assert locate_absolute_episode(88, m) == (4, 16)
+        assert locate_absolute_episode(1, m) == (1, 1)
+        assert locate_absolute_episode(24, m) == (1, 24)
+        assert locate_absolute_episode(25, m) == (2, 1)
+        assert locate_absolute_episode(96, m) == (4, 24)
+
+    def test_final_season_tolerance(self):
+        # TMDB episode_count lags a still-airing show: 97/98 clamp to S4E24.
+        m = {1: 24, 2: 24, 3: 24, 4: 24}
+        assert locate_absolute_episode(97, m) == (4, 24)
+        assert locate_absolute_episode(98, m) == (4, 24)
+        assert locate_absolute_episode(99, m) is None
+
+    def test_beyond_total_returns_none(self):
+        assert locate_absolute_episode(200, {1: 24, 2: 24, 3: 24, 4: 24}) is None
+        assert locate_absolute_episode(10, {}) is None
+        assert locate_absolute_episode(0, {1: 24}) is None
+
+    def test_sparse_season_map(self):
+        assert locate_absolute_episode(30, {2: 12, 4: 24}) == (4, 18)
+
+
+class TestApplyEpisodeReconcileSeasonDerivation:
+    """Season-None + absolute_episode path (NN(MM) double-labelled releases
+    whose season was never parsed — the 史莱姆 S4E16(88) case)."""
+
+    MAP = {1: 24, 2: 24, 3: 24, 4: 24}
+
+    def test_derives_season_from_absolute(self):
+        r = SimpleNamespace(episode=16, season=None, is_batch=False,
+                            episode_confidence="reconciled", absolute_episode=88)
+        ok = apply_episode_reconcile(r, self.MAP)
+        assert ok is True
+        assert r.season == 4
+        assert r.episode == 16
+        assert r.episode_confidence == "reconciled"
+
+    def test_beyond_total_marks_ambiguous(self):
+        r = SimpleNamespace(episode=None, season=None, is_batch=False,
+                            episode_confidence=None, absolute_episode=200)
+        ok = apply_episode_reconcile(r, self.MAP)
+        assert ok is True
+        assert r.episode_confidence == "ambiguous"
+        assert r.season is None
+
+    def test_manual_untouched(self):
+        r = SimpleNamespace(episode=16, season=None, is_batch=False,
+                            episode_confidence="manual", absolute_episode=88)
+        assert apply_episode_reconcile(r, self.MAP) is False
+        assert r.season is None
+        assert r.episode_confidence == "manual"
+
+    def test_batch_untouched(self):
+        r = SimpleNamespace(episode=None, season=None, is_batch=True,
+                            episode_confidence=None, absolute_episode=88)
+        assert apply_episode_reconcile(r, self.MAP) is False
+        assert r.episode_confidence is None
+
+    def test_no_absolute_no_season_marks_raw(self):
+        r = SimpleNamespace(episode=5, season=None, is_batch=False,
+                            episode_confidence=None, absolute_episode=None)
+        assert apply_episode_reconcile(r, self.MAP) is False
+        assert r.episode_confidence == "raw"
+        assert r.episode == 5  # kept
+
+    def test_no_episode_no_absolute_skips(self):
+        r = SimpleNamespace(episode=None, season=None, is_batch=False,
+                            episode_confidence=None, absolute_episode=None)
+        assert apply_episode_reconcile(r, self.MAP) is False
+        assert r.episode_confidence is None
 
 
 def test_seasons_map_from_list():
@@ -1760,3 +1853,376 @@ async def test_series_history_context_none_without_match(monkeypatch, db_session
     agent = UnifiedMetadataAgent()
     resource = SimpleNamespace(search_title="unknown work", title_raw="[X] unknown - 01")
     assert await agent._build_series_history_context(resource, db_session) is None
+
+
+# ---------------------------------------------------------------------------
+# Batch 2: season verification (never guess the season)
+# ---------------------------------------------------------------------------
+
+from app.services.metadata_agent import _apply_verified_season_default  # noqa: E402
+from app.services.metadata_episode_reconcile import verified_season_count  # noqa: E402
+
+
+class TestApplyEpisodeReconcileCrossCheck:
+    """Title season marker vs absolute arithmetic: a conflict must flag the
+    resource ambiguous — never silently trust one side."""
+
+    MAP = {1: 24, 2: 24, 3: 24, 4: 24}
+
+    def test_conflict_marks_ambiguous(self):
+        # absolute 30 locates to S2E6, but the resource holds S1E5.
+        r = SimpleNamespace(episode=5, season=1, is_batch=False,
+                            episode_confidence=None, absolute_episode=30)
+        ok = apply_episode_reconcile(r, self.MAP)
+        assert ok is True
+        assert r.episode_confidence == "ambiguous"
+        assert r.season == 1 and r.episode == 5  # values untouched
+
+    def test_consistent_pair_passes_through(self):
+        # absolute 30 == S2E6 — consistent; falls through to reconcile_episode
+        # which keeps the in-range per-season number as "raw".
+        r = SimpleNamespace(episode=6, season=2, is_batch=False,
+                            episode_confidence=None, absolute_episode=30)
+        ok = apply_episode_reconcile(r, self.MAP)
+        assert ok is True
+        assert r.episode == 6
+        assert r.episode_confidence == "raw"
+
+    def test_locate_none_is_no_evidence(self):
+        # absolute overshoots the total + tolerance → locate returns None →
+        # the cross-check stays silent and normal reconcile runs.
+        r = SimpleNamespace(episode=5, season=1, is_batch=False,
+                            episode_confidence=None, absolute_episode=999)
+        apply_episode_reconcile(r, self.MAP)
+        assert r.episode_confidence == "raw"
+
+    def test_manual_never_cross_checked(self):
+        r = SimpleNamespace(episode=5, season=1, is_batch=False,
+                            episode_confidence="manual", absolute_episode=30)
+        assert apply_episode_reconcile(r, self.MAP) is False
+        assert r.episode_confidence == "manual"
+
+    def test_reconciled_nn_mm_beyond_total_not_reflagged(self):
+        # Pre-parser NN(MM) double-label: absolute beyond the map's total +
+        # tolerance → locate None → the "reconciled" tag is left alone.
+        r = SimpleNamespace(episode=16, season=4, is_batch=False,
+                            episode_confidence="reconciled", absolute_episode=200)
+        assert apply_episode_reconcile(r, self.MAP) is False
+        assert r.episode_confidence == "reconciled"
+
+
+class TestVerifiedSeasonCount:
+    def test_number_of_seasons_preferred(self):
+        assert verified_season_count({"number_of_seasons": 3}) == 3
+        assert verified_season_count(
+            {"number_of_seasons": 2, "seasons": [{"season_number": 1}]}
+        ) == 2
+
+    def test_seasons_list_excludes_specials(self):
+        assert verified_season_count({"seasons": [
+            {"season_number": 0, "episode_count": 3},
+            {"season_number": 1, "episode_count": 12},
+        ]}) == 1
+
+    def test_no_usable_data_returns_none(self):
+        assert verified_season_count(None) is None
+        assert verified_season_count({}) is None
+        assert verified_season_count({"number_of_seasons": 0, "seasons": []}) is None
+        assert verified_season_count({"seasons": [{"season_number": 0}]}) is None
+
+
+class TestVerifiedSeasonDefault:
+    """_apply_verified_season_default: season=1 only when the matched entity
+    proves a single season; otherwise season stays None + season_ambiguous."""
+
+    def test_single_season_entity_defaults_to_1(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True,
+            matched_entity={"number_of_seasons": 1},
+        )
+        _apply_verified_season_default(meta)
+        assert meta.season == 1
+        assert meta.season_ambiguous is False
+
+    def test_single_entry_seasons_list_defaults_to_1(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True,
+            matched_entity={"seasons": [
+                {"season_number": 0, "episode_count": 2},
+                {"season_number": 1, "episode_count": 12},
+            ]},
+        )
+        _apply_verified_season_default(meta)
+        assert meta.season == 1
+        assert meta.season_ambiguous is False
+
+    def test_multi_season_entity_marks_ambiguous(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True,
+            matched_entity={"number_of_seasons": 4},
+        )
+        _apply_verified_season_default(meta)
+        assert meta.season is None
+        assert meta.season_ambiguous is True
+
+    def test_no_seasons_data_marks_ambiguous(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True,
+            matched_entity={"title_cn": "X"},
+        )
+        _apply_verified_season_default(meta)
+        assert meta.season is None
+        assert meta.season_ambiguous is True
+
+    def test_explicit_season_untouched(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=3,
+            matched_entity={"number_of_seasons": 4},
+        )
+        _apply_verified_season_default(meta)
+        assert meta.season == 3
+        assert meta.season_ambiguous is False
+
+    def test_movie_and_not_found_untouched(self):
+        movie = ResourceMetadata(clean_title="X", content_type="movie", found=True)
+        _apply_verified_season_default(movie)
+        assert movie.season is None and movie.season_ambiguous is False
+        nf = ResourceMetadata(clean_title="X", content_type="tv", found=False)
+        _apply_verified_season_default(nf)
+        assert nf.season is None and nf.season_ambiguous is False
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: same-title works injection into the production message
+# ---------------------------------------------------------------------------
+
+
+def test_build_production_message_includes_same_title_context():
+    agent = UnifiedMetadataAgent()
+    resource = SimpleNamespace(
+        title_raw="[G] 攻壳机动队 - 01 [1080p]", title_cn="攻壳机动队",
+        title_en=None, subtitle_group=None, episode=1, season=None,
+        resolution=None, source=None, video_codec=None, audio_codec=None,
+        subtitle_type=None, container=None, title_year=None,
+    )
+    msg = agent._build_production_message(
+        resource, SimpleNamespace(name="ch"),
+        same_title_context="本地库存在同名作品: [攻壳机动队 (1995, movie)]; 结合标题年份选择正确作品",
+    )
+    assert "本地库存在同名作品" in msg
+    assert "结合标题年份选择正确作品" in msg
+
+
+def test_build_production_message_omits_same_title_context_when_none():
+    agent = UnifiedMetadataAgent()
+    resource = SimpleNamespace(
+        title_raw="[G] Show - 01 [1080p]", title_cn=None,
+        title_en=None, subtitle_group=None, episode=None, season=None,
+        resolution=None, source=None, video_codec=None, audio_codec=None,
+        subtitle_type=None, container=None, title_year=None,
+    )
+    msg = agent._build_production_message(resource, SimpleNamespace(name="ch"))
+    assert "同名作品" not in msg
+
+
+async def test_build_same_title_context_queries_local_db(db_session):
+    """≥2 colliding local works → injection text; fewer → None."""
+    import uuid
+    from datetime import date
+
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
+    s = TVSeries(
+        id=str(uuid.uuid4()), title_cn="攻壳机动队", content_type="tv",
+        start_date=date(2002, 10, 1), number_of_seasons=2,
+    )
+    m = Movie(
+        id=str(uuid.uuid4()), title_cn="攻壳机动队", content_type="movie",
+        release_date=date(1995, 11, 18),
+    )
+    db_session.add_all([s, m])
+    await db_session.flush()
+
+    agent = UnifiedMetadataAgent()
+    resource = SimpleNamespace(
+        title_raw="[G] 攻壳机动队 2026 - 01", search_title="攻壳机动队",
+    )
+    ctx = await agent._build_same_title_context(resource, db_session)
+    assert ctx is not None
+    assert "本地库存在同名作品" in ctx
+    assert "1995, movie" in ctx
+    assert "2002, tv, 2 seasons" in ctx
+
+    # Only one matching work → no injection.
+    lone = SimpleNamespace(title_raw="[G] 狮子王 - 01", search_title="狮子王")
+    assert await agent._build_same_title_context(lone, db_session) is None
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: known-work short-circuit season rule (resolve_missing_season)
+# ---------------------------------------------------------------------------
+
+from app.services.metadata_episode_reconcile import resolve_missing_season  # noqa: E402
+
+
+class TestResolveMissingSeason:
+    """Shared verified-season helper for link paths that bypass
+    ``_apply_to_resource`` (short-circuit / agent-free / manual link)."""
+
+    @staticmethod
+    def _r(**kw):
+        base = dict(season=None, is_batch=False, episode_confidence=None, episode=5)
+        base.update(kw)
+        return SimpleNamespace(**base)
+
+    def test_single_season_via_number_of_seasons_defaults_1(self):
+        r = self._r()
+        out = resolve_missing_season(r, {"number_of_seasons": 1, "seasons": None})
+        assert out == "season-defaulted"
+        assert r.season == 1
+        assert r.episode_confidence is None
+
+    def test_single_season_via_seasons_list_defaults_1(self):
+        r = self._r()
+        entity = {"seasons": [
+            {"season_number": 0, "episode_count": 2},  # specials ignored
+            {"season_number": 1, "episode_count": 12},
+        ]}
+        assert resolve_missing_season(r, entity) == "season-defaulted"
+        assert r.season == 1
+
+    def test_multi_season_marks_ambiguous(self):
+        r = self._r()
+        out = resolve_missing_season(r, {"number_of_seasons": 3})
+        assert out == "marked-ambiguous"
+        assert r.season is None
+        assert r.episode_confidence == "ambiguous"
+
+    def test_unknown_season_count_marks_ambiguous(self):
+        r = self._r()
+        assert resolve_missing_season(r, {}) == "marked-ambiguous"
+        assert r.season is None
+        assert r.episode_confidence == "ambiguous"
+        r2 = self._r()
+        assert resolve_missing_season(r2, None) == "marked-ambiguous"
+
+    def test_noop_when_season_known(self):
+        r = self._r(season=2)
+        assert resolve_missing_season(r, {"number_of_seasons": 3}) is None
+        assert r.season == 2
+        assert r.episode_confidence is None
+
+    def test_noop_for_batch(self):
+        r = self._r(is_batch=True, episode=None)
+        assert resolve_missing_season(r, {"number_of_seasons": 1}) is None
+        assert r.season is None
+        assert r.episode_confidence is None
+
+    def test_noop_for_manual(self):
+        r = self._r(episode_confidence="manual")
+        assert resolve_missing_season(r, {"number_of_seasons": 1}) is None
+        assert r.season is None
+        assert r.episode_confidence == "manual"
+
+
+async def test_process_short_circuit_applies_verified_season_default(db_session, sample_channel):
+    """Short-circuit to a provably single-season series defaults a season-less
+    resource to season=1 (verified, not guessed)."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=str(uuid.uuid4()), title_cn="单身季节剧", content_type="tv",
+        number_of_seasons=1,
+        seasons=[{"season_number": 1, "episode_count": 12}],
+    )
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_single",
+        title_raw="[X] 单身季节剧 - 05 [1080p]",
+        title_cn="单身季节剧", episode=5, season=None,
+        torrent_url="magnet:?xt=urn:btih:single05",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()  # must NOT be called - short-circuit wins
+    res = await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert res.found is True
+    assert resource.series_id == series.id
+    assert resource.season == 1
+    assert resource.episode_confidence == "raw"  # in-range per-season number
+
+
+async def test_process_short_circuit_marks_season_uncertain(db_session, sample_channel):
+    """Short-circuit to a multi-season series: a season-less resource is
+    marked 季号不确定 (ambiguous), never defaulted."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=str(uuid.uuid4()), title_cn="多季剧短", content_type="tv",
+        number_of_seasons=3,
+        seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3)],
+    )
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_multi",
+        title_raw="[X] 多季剧短 - 05 [1080p]",
+        title_cn="多季剧短", episode=5, season=None,
+        torrent_url="magnet:?xt=urn:btih:multi05",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()
+    await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert resource.series_id == series.id
+    assert resource.season is None
+    assert resource.episode_confidence == "ambiguous"
+
+
+async def test_process_short_circuit_derives_season_from_absolute(db_session, sample_channel):
+    """Short-circuit with only an absolute-across-seasons number: reconcile
+    derives the season BEFORE the season-uncertain rule runs, so no false
+    季号不确定 marking."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=str(uuid.uuid4()), title_cn="绝对集号剧", content_type="tv",
+        number_of_seasons=4,
+        seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3, 4)],
+    )
+    db_session.add(series)
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="g_abs",
+        title_raw="[X] 绝对集号剧 - 89 [1080p]",
+        title_cn="绝对集号剧", episode=89, season=None, absolute_episode=89,
+        episode_confidence="reconciled",
+        torrent_url="magnet:?xt=urn:btih:abs89",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    agent._run_react = AsyncMock()
+    await agent.process(resource, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert resource.series_id == series.id
+    assert (resource.season, resource.episode) == (4, 17)
+    assert resource.episode_confidence == "reconciled"

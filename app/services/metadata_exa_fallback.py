@@ -4,8 +4,15 @@ Pure leaf module - no DB, no LangGraph. When the Wikipedia S3 path returns
 found=False (coverage gap, misclassified novel page, or bad translated title),
 this module runs one Exa web search and a single LLM judge call. The resulting
 ``matched_entity`` reuses the existing TVSeries/Movie upsert path with stable
-IDs parsed from authoritative URLs (bangumi, tmdb, mal, anilist, wikipedia,
-baike, eiga, ...).
+IDs parsed from authoritative URLs (see ``metadata_source_registry`` for the
+7-site identity scheme).
+
+Candidate URLs are filtered to the channel's *ordered* fallback whitelist
+(``Channel.metadata_fallback_sources``; empty list disables the fallback
+entirely), and earlier-listed sources are preferred in evidence presentation.
+The fallback supplies identity/links only: content (seasons / episode counts)
+always follows the primary source, so any such fields the LLM emits are
+stripped from the matched entity.
 """
 
 from __future__ import annotations
@@ -16,6 +23,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.services.metadata_prompts import _EXA_JUDGE_SYSTEM_PROMPT
+from app.services.metadata_source_registry import (
+    DEFAULT_EXA_FALLBACK_SOURCES,
+)
+from app.services.metadata_source_registry import (
+    source_and_id_from_url as _registry_source_and_id_from_url,
+)
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
@@ -25,48 +38,16 @@ logger = logging.getLogger(__name__)
 # URL -> external_id/source mapping
 # ---------------------------------------------------------------------------
 
-# (source_domain_or_host_suffix, regex_with_named_group, external_source)
-_URL_EXTRACTORS: list[tuple[str, re.Pattern, str]] = [
-    (r"bangumi\.tv|bgm\.tv", re.compile(r"/subject/(?P<id>\d+)"), "bangumi"),
-    (r"themoviedb\.org", re.compile(r"/tv/(?P<id>\d+)"), "tmdb"),
-    (r"myanimelist\.net", re.compile(r"/anime/(?P<id>\d+)"), "mal"),
-    (r"anilist\.co", re.compile(r"/anime/(?P<id>\d+)"), "anilist"),
-    (r"imdb\.com", re.compile(r"/(?:title/)?(?P<id>tt\d+)"), "imdb"),
-    (r"baike\.baidu\.com", re.compile(r"/item/(?P<id>[^/?#]+)"), "baidu_baike"),
-    (r"movie\.douban\.com", re.compile(r"/subject/(?P<id>\d+)"), "douban"),
-    (r"eiga\.com", re.compile(r"/(?:news|movie|cinema)/(\d+)?"), "eiga"),
-]
-
-
 def _source_and_id_from_url(url: str) -> tuple[str, str | None]:
     """Map an authoritative media-DB URL to (external_source, external_id).
 
     Returns ("exa_web", None) for unrecognised pages. This keeps the matched
     entity linkable by title even without a stable DB id.
     """
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower()
-    path = parsed.path or ""
-    for host_pat, id_re, source in _URL_EXTRACTORS:
-        if not re.search(host_pat, host):
-            continue
-        m = id_re.search(path)
-        if not m:
-            continue
-        raw_id = m.group("id") if "id" in m.groupdict() else m.group(1)
-        # URL-decode Baidu Baike slugs so the same work converges across encodings.
-        if source == "baidu_baike":
-            from urllib.parse import unquote
-            raw_id = unquote(raw_id).split("/")[0].strip()
-            if not raw_id:
-                continue
-        if source == "eiga":
-            # eiga news URLs don't embed a stable numeric id; fall back to the
-            # domain as a source with no canonical id.
-            if not raw_id:
-                return source, None
-        return source, f"{source}:{raw_id}"
-    return "exa_web", None
+    found = _registry_source_and_id_from_url(url)
+    if found is None:
+        return "exa_web", None
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +172,7 @@ async def exa_fallback_judge(
     resource: Any | None = None,
     *,
     exa_searcher=None,
+    fallback_sources: list[str] | None = None,
 ) -> tuple[dict, dict] | None:
     """Exa web-search fallback for a wikipedia-not-found title.
 
@@ -200,9 +182,21 @@ async def exa_fallback_judge(
       - search_info.error set -> Exa itself failed (network/rate/API key);
         the caller should treat this as transient and not cache.
 
-    Returns None when Exa is disabled/unconfigured, letting the caller fall
-    back to existing ReAct / not_found logic unchanged.
+    Returns None when Exa is disabled/unconfigured OR the channel's fallback
+    whitelist is empty (fallback disabled), letting the caller fall back to
+    existing ReAct / not_found logic unchanged.
+
+    ``fallback_sources`` is the channel's ordered whitelist of registry site
+    names; None means the default order. Candidate URLs outside the whitelist
+    are dropped (a hard filter), and earlier-listed sources appear first in
+    the judge's evidence (a preference signal). The matched entity carries
+    identity only: content fields (seasons / episode counts) are stripped so
+    content always follows the primary source.
     """
+    whitelist = DEFAULT_EXA_FALLBACK_SOURCES if fallback_sources is None else list(fallback_sources)
+    if not whitelist:
+        return None
+
     searcher = exa_searcher or _exa_web_search
     if exa_searcher is None and (
         not runtime_config.exa_api_key or not runtime_config.exa_enabled
@@ -234,6 +228,14 @@ async def exa_fallback_judge(
              "source_errors": {"exa": err},
              "error": err},
         )
+
+    # Hard whitelist filter + ordered preference: keep only whitelisted
+    # identity sites, earlier-listed sources first (stable sort).
+    rank = {name: i for i, name in enumerate(whitelist)}
+    hits = sorted(
+        (h for h in hits if h.get("external_source") in rank),
+        key=lambda h: rank[h["external_source"]],
+    )
 
     if not hits:
         return (
@@ -283,6 +285,10 @@ async def exa_fallback_judge(
         # title-based upsert handle convergence.
         if not me.get("external_source"):
             me["external_source"] = "exa_web"
+        # Identity-only fallback: content (seasons / episode counts) follows
+        # the primary source, so strip any such fields the LLM emitted.
+        for key in ("seasons", "number_of_seasons", "number_of_episodes"):
+            me.pop(key, None)
         finalize_dict["matched_entity"] = me
 
     return finalize_dict, {

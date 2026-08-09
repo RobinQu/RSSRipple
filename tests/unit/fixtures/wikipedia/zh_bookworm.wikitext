@@ -1,0 +1,668 @@
+{{Infobox animanga/Headerofja
+{{Infobox animanga/name
+{{Infobox animanga/Novel
+| 話數 = 全677話（web）
+{{Infobox animanga/Novel
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/Manga
+| 話數 = 
+{{Infobox animanga/TVAnime
+| 集數 = 第一季：全14話 <br />第二季：全12話 <br />第三季：全10話
+{{Infobox animanga/TVAnime
+| 集數 = 全24話預定
+{{Infobox animanga/Footerofja}}
+
+=== 各話列表 ===
+{{劇集列表/base/header
+| LineColor = #1E90FF
+| Number = 話數
+| Title = 標題<ref>{{cite web|url=http://booklove-anime.jp/story/|script-title=ja:ストーリー|accessdate=2020-04-12|language=ja|archive-date=2020-11-11|archive-url=https://web.archive.org/web/20201111215034/http://booklove-anime.jp/story/|dead-url=no}}</ref>
+| Aux0 = 劇本
+| Aux1 = 分鏡
+| Aux2 = 演出
+| Aux3 = 作畫監督
+| Aux4 = 總作畫監督
+| Aux5 = 首播日期
+| TableStyle = font-size:small;white-space:nowrap
+}}
+{{劇集列表/base
+| Chapter = 第一季
+}}
+{{劇集列表/base
+| Number = 第一章
+| Title = -{zh-cn:没有书籍的世界;zh-tw:沒有書本的世界}-
+| Subtitle = {{lang|ja|本のない世界}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 4
+| Aux1 = [[本鄉滿]] | Aux1ColSpan = 2 
+| Aux3 = {{spml|芳川彌生|近藤優次|松本朋之}}
+| Aux4 = 柳田義明
+| Aux5 = '''2019年'''<br />10月3日
+}}
+{{劇集列表/base
+| Number = 第二章
+| Title = 生活改善與石板
+| Subtitle = {{lang|ja|生活改善と石板}}
+| Aux1 = 川崎芳樹 | Aux1ColSpan = 2
+| Aux3 = {{spml|辻加奈子|芳川彌生}}
+| Aux4 = 海谷敏久
+| Aux5 = 10月10日
+}}
+{{劇集列表/base
+| Number = 第三章
+| Title = -{zh-cn:冬天发生的事;zh-tw:冬天裡發生的事}-
+| Subtitle = {{lang|ja|冬のできごと}}
+| Aux1 = 緒方隆秀 | Aux1ColSpan = 2
+| Aux3 = {{spml|加藤茂|加藤愛|岸智惠美}}
+| Aux4 = 遠藤江美子
+| Aux5 = 10月17日
+}}
+{{劇集列表/base
+| Number = 第四章
+| Title = -{zh-cn:第一次进森林和黏土板;zh-tw:首次造訪的森林與黏土板}-
+| Subtitle = {{lang|ja|初めての森と粘土板}}
+| Aux1 = 川崎芳樹
+| Aux2 = [[上田茂]]
+| Aux3 = {{spml|近藤優次|松本朋之}}
+| Aux4 = 柳田義明
+| Aux5 = 10月24日
+}}
+{{劇集列表/base
+| Number = 第五章
+| Title = -{zh-cn:受洗仪式与不可思议的热度;zh-tw:洗禮儀式與不可思議的發燒}-
+| Subtitle = {{lang|ja|洗礼式と不思議な熱}}
+| Aux0 = 石山優子
+| Aux1 = {{lang|ja|羽永花ゆい}}  | Aux1ColSpan = 2
+| Aux3 = 芳川彌生
+| Aux4 = 海谷敏久
+| Aux5 = 10月31日
+}}
+{{劇集列表/base
+| Number = 第六章
+| Title = -{zh-cn:见面;zh-tw:會面}-
+| Subtitle = {{lang|ja|会合}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 2 
+| Aux1 = 緒方隆秀 | Aux1ColSpan = 2 
+| Aux3 = {{spml|加藤茂|岸智惠美}}
+| Aux4 = 柳田義明
+| Aux5 = 11月7日
+}}
+{{劇集列表/base
+| Number = 第七章
+| Title = -{zh-cn:不信任感的萌芽;zh-tw:萌生的不信任感}-
+| Subtitle = {{lang|ja|不信感の芽生え}}
+| Aux1 = [[森健]]
+| Aux2 = 中村近世
+| Aux3 = {{spml|{{lang|ja|マスケット}}|齋藤雅和|門智昭|熊谷香代子|遠藤江美子}}
+| Aux4 = 遠藤江美子
+| Aux5 = 11月14日
+}}
+{{劇集列表/base
+| Number = 第八章
+| Title = -{zh-cn:路兹的梅茵;zh-tw:路茲的梅茵}-
+| Subtitle = {{lang|ja|ルッツのマイン}}
+| Aux0 = 石山優子
+| Aux1 = 川崎芳樹 | Aux1ColSpan = 2
+| Aux3 = 辻加奈子
+| Aux4 = 海谷敏久
+| Aux5 = 11月21日
+}}
+{{劇集列表/base
+| Number = 第九章
+| Title = 公會長的孫女
+| Subtitle = {{lang|ja|ギルド長の孫娘}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 4
+| Aux1 = 森健
+| Aux2 = 緒方隆秀
+| Aux3 = {{spml|加藤茂|加藤愛}}
+| Aux4 = 柳田義明
+| Aux5 = 11月28日
+}}
+{{劇集列表/base
+| Number = 第十章
+| Title = -{zh-cn:来到第二个冬天;zh-tw:迎向第二次的冬天}-
+| Subtitle = {{lang|ja|二度目の冬に向けて}}
+| Aux1 = 本郷滿
+| Aux2 = 上田茂 | Aux2RowSpan = 2
+| Aux3 = {{spml|近藤優次|松本朋之}}
+| Aux4 = 遠藤江美子
+| Aux5 = 12月5日
+}}
+{{劇集列表/base
+| Number = 第十一章
+| Title = -{zh-cn:究极选择与家庭会议;zh-tw:終極的選擇與家庭會議}-
+| Subtitle = {{lang|ja|究極の選択と家族会議}}
+| Aux1 = 羽永花結衣
+| Aux3 = 芳川彌生
+| Aux4 = 海谷敏久
+| Aux5 = 12月12日
+}}
+{{劇集列表/base
+| Number = 第十二章
+| Title = -{zh-cn:受洗仪式与神的乐园;zh-tw:洗禮儀式與神的樂園}-
+| Subtitle = {{lang|ja|洗礼式と神の楽園}}
+| Aux1 =  緒方隆秀 | Aux1ColSpan = 2
+| Aux3 = {{spml|有働彌生|岸智惠美|加藤茂}}
+| Aux4 = 柳田義明
+| Aux5 = 12月19日
+}}
+{{劇集列表/base
+| Number = 第十三章
+| Title = -{zh-cn:成为见习巫女的选项;zh-tw:名為見習巫女的選項}-
+| Subtitle = {{lang|ja|巫女見習いという選択肢}}
+| Aux0 = 石山優子 | Aux0RowSpan = 2
+| Aux1 = 森健
+| Aux2 = 中村近世
+| Aux3 = {{spml|熊谷香代子|齋藤雅和|門智昭|{{lang|ja|マスケット}}}}
+| Aux4 = 遠藤江美子
+| Aux5 = 12月26日 | Aux5RowSpan = 2
+}}
+{{劇集列表/base
+| Number = 第十四章
+| Title = -{zh-cn:结果;zh-tw:了斷}-
+| Subtitle = {{lang|ja|決着}}
+| Aux1 = 川崎芳樹 | Aux1ColSpan = 2
+| Aux3 = 辻加奈子
+| Aux4 = 海谷敏久
+}}
+{{劇集列表/base
+| Number = 第14.5章 | NumberRowSpan = 2
+| Title = -{zh-cn:尤修塔斯下城区潜入大作战;zh-tw:外傳一章<br />尤修塔斯的潛入平民區大作戰}-
+| Subtitle = {{lang|ja|外伝第一章・<br />ユストクスの下町潜入大作戦}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 2
+| Aux1 = {{spml|川崎芳樹|本鄉滿}} | Aux1RowSpan = 2
+| Aux2 = 本鄉滿 | Aux2RowSpan = 2
+| Aux3 = {{spml|近藤優次|松本朋之}} | Aux3RowSpan = 2
+| Aux4 = 柳田義明 | Aux4RowSpan = 2
+| Aux5 = '''2020年'''<br />3月10日 | Aux5RowSpan = 2
+}}
+{{劇集列表/base
+| Number = 
+| Title = -{zh-cn:拜访珂琳娜小姐家;zh-tw:外傳二章<br />拜訪珂琳娜小姐的家}-
+| Subtitle = {{lang|ja|外伝第二章・<br />コリンナ様のお宅訪問}}
+}}
+{{劇集列表/base
+| Chapter = 第二季
+}}
+{{劇集列表/base
+| Number = 第十五章
+| Title = 神殿的見習巫女
+| Subtitle = {{lang|ja|神殿の巫女見習い}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 5
+| Aux1 = 緒方隆秀 | Aux1ColSpan = 2
+| Aux3 = {{spml|加藤茂|岸智惠美}}
+| Aux4 = 柳田義明
+| Aux5 = 4月5日
+}}
+{{劇集列表/base
+| Number = 第十六章
+| Title = -{zh-cn:蓝衣与不同的常识;zh-tw:青衣與迥異的常識}-
+| Subtitle = {{lang|ja|青い衣と異なる常識}}
+| Aux1 = 上田茂 | Aux1ColSpan = 2
+| Aux3 = {{spml|近藤優次|松本朋之}}
+| Aux4 = 遠藤江美子
+| Aux5 = 4月12日
+}}
+{{劇集列表/base
+| Number = 第十七章
+| Title = -{zh-cn:应当给予之物;zh-tw:該給予的事物}-
+| Subtitle = {{lang|ja|与えるべきもの}}
+| Aux1 = 森健
+| Aux2 = 上田茂
+| Aux3 = 芳川彌生
+| Aux4 = 海谷敏久
+| Aux5 = 4月19日
+}}
+{{劇集列表/base
+| Number = 第十八章
+| Title = -{zh-cn:孤儿院大改革;zh-tw:孤兒院的大改革}-
+| Subtitle = {{lang|ja|孤児院の大改革}} 
+| Aux1 = 緒方隆秀 | Aux1ColSpan = 2
+| Aux3 = {{spml|加藤愛|岸智恵美|加藤茂}}
+| Aux4 = 柳田義明
+| Aux5 = 4月26日
+}}
+{{劇集列表/base
+| Number = 第十九章
+| Title = -{zh-cn:大扫除与星之祭;zh-tw:大掃除與星祭}-
+| Subtitle = {{lang|ja|大掃除と星祭り}}
+| Aux1 = 森健
+| Aux2 = 中村近世
+| Aux3 = {{spml|熊谷香代子|齋藤雅和|門智昭|遠藤江美子 }}
+| Aux4 = 遠藤江美子
+| Aux5 = 5月3日
+}}
+{{劇集列表/base
+| Number = 第二十章
+| Title = -{zh-cn:路兹的选择;zh-tw:路茲前進的道路}-
+| Subtitle = {{lang|ja|ルッツの行く道}}
+| Aux0 = 石山優子
+| Aux1 = 川崎芳樹 | Aux1ColSpan = 2
+| Aux3 = {{spml|辻加奈子|海谷敏久}}
+| Aux4 = 海谷敏久
+| Aux5 = 5月10日
+}}
+{{劇集列表/base
+| Number = 第二十一章
+| Title = -{zh-cn:新的近侍;zh-tw:新的侍從}-
+| Subtitle = {{lang|ja|新しい側仕え}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 2
+| Aux1 = 緒方隆秀 | Aux1ColSpan = 2
+| Aux3 = {{spml|加藤茂|岸智惠美|有働彌生}}
+| Aux4 = 柳田義明
+| Aux5 = 5月17日
+}}
+{{劇集列表/base
+| Number = 第二十二章
+| Title = -{zh-cn:葳玛和儿童用圣典;zh-tw:葳瑪和兒童用聖典}-
+| Subtitle = {{lang|ja|ヴィルマと子供用聖典}}
+| Aux1 = 上田茂 | Aux1ColSpan = 2
+| Aux3 = {{spml|近藤優次|松本朋之}}
+| Aux4 = 遠藤江美子
+| Aux5 = 5月24日
+}}
+{{劇集列表/base
+| Number = 第二十三章
+| Title = -{zh-cn:收获祭看家;zh-tw:收獲祭的留守}-
+| Subtitle = {{lang|ja|収穫祭のお留守番}}
+| Aux0 = 石山優子
+| Aux1 = 川崎芳樹
+| Aux2 = 加瀨充子
+| Aux3 = {{spml|{{lang|ja|スタジオ ダブ}}|中澤{{lang|ja|あこ}}}}
+| Aux4 = 海谷敏久
+| Aux5 = 5月31日
+}}
+{{劇集列表/base
+| Number = 第二十四章
+| Title = -{zh-cn:骑士团的委托;zh-tw:來自騎士團的請求}-
+| Subtitle = {{lang|ja|騎士団からの要請}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 3
+| Aux1 = 緒方隆秀 | Aux1ColSpan = 2
+| Aux3 = {{spml|加藤愛|有働彌生|岸智恵美|加藤茂}}
+| Aux4 = 柳田義明
+| Aux5 = 6月7日
+}}
+{{劇集列表/base
+| Number = 第二十五章
+| Title = -{zh-cn:砍伐龙卷木;zh-tw:討伐陀龍布}-
+| Subtitle = {{lang|ja|トロンベ討伐}}
+| Aux1 = 本鄉滿
+| Aux2 = 上田茂
+| Aux3 = 芳川彌生
+| Aux4 = {{spml|遠藤江美子|柳田義明}}
+| Aux5 = 6月14日
+}}
+{{劇集列表/base
+| Number = 第二十六章
+| Title = 夢的世界
+| Subtitle = {{lang|ja|夢の世界}}
+| Aux1 = 川崎芳樹 | Aux1ColSpan = 2
+| Aux3 = {{spml|辻加奈子|海谷敏久}}
+| Aux4 = 海谷敏久
+| Aux5 = 6月21日
+}}
+{{劇集列表/base
+| Chapter = 第三季
+}}
+{{劇集列表/base
+| Number = 第二十七章
+| Title = 冬天的來臨
+| Subtitle = {{lang|ja|冬の始まり}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 3
+| Aux1 = 川崎芳樹
+| Aux2 = 上田茂
+| Aux3 = {{spml|近藤優次|松本朋之}}
+| Aux4 = 遠藤江美子
+| Aux5 = '''2022年'''<br />4月12日
+}}
+{{劇集列表/base
+| Number = 第二十八章
+| Title = 過冬與今後的對策
+| Subtitle = {{lang|ja|冬籠もりと今後の話}}
+| Aux1 = 本鄉滿
+| Aux2 = 能田健太
+| Aux3 = {{spml|加野晃|敷島博英}}
+| Aux4 = 大竹紀子
+| Aux5 = 4月19日
+}}
+{{劇集列表/base
+| Number = 第二十九章
+| Title = 奉獻儀式和春天的造訪
+| Subtitle = {{lang|ja|奉納式と春の訪れ}}
+| Aux1 = 松尾晉平 | Aux1ColSpan = 2
+| Aux3 = 西岡夕樹
+| Aux4 = 遠藤江美子
+| Aux5 = 4月26日
+}}
+{{劇集列表/base
+| Number = 第三十章
+| Title = 祈福儀式
+| Subtitle = {{lang|ja|祈念式}}
+| Aux0 = 本鄉滿
+| Aux1 = 村野佑太 | Aux1ColSpan = 2
+| Aux3 = {{spml|玉利和枝|{{lang|ja|sataりすく}}|近藤優次|松本朋之}}
+| Aux4 = {{spml|大竹紀子|遠藤江美子}}
+| Aux5 = 5月3日
+}}
+{{劇集列表/base
+| Number = 第三十一章
+| Title = 青衣神官的禮物與返家
+| Subtitle = {{lang|ja|青色神官の贈り物と帰宅}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 6
+| Aux1 = 上田茂 | Aux1ColSpan = 2
+| Aux3 = {{spml|近藤優次|松本朋之}}
+| Aux4 = 遠藤江美子
+| Aux5 = 5月10日
+}}
+{{劇集列表/base
+| Number = 第三十二章
+| Title = 神殿的棄嬰與色彩調配
+| Subtitle = {{lang|ja|神殿の捨て子と色作り}}
+| Aux1 = 本鄉滿
+| Aux2 = 能田健太
+| Aux3 = 藤原彰人
+| Aux4 = {{spml|大竹紀子|遠藤江美子|松苗{{lang|ja|はる}}香}}
+| Aux5 = 5月17日
+}}
+{{劇集列表/base
+| Number = 第三十三章
+| Title = 戴莉雅與戴爾克
+| Subtitle = {{lang|ja|デリアとディルク}}
+| Aux1 = 松尾晉平 | Aux1ColSpan = 2
+| Aux3 = 西岡夕樹 
+| Aux4 = 遠藤江美子
+| Aux5 = 5月24日
+}}
+{{劇集列表/base
+| Number = 第三十四章
+| Title = 險惡的動向
+| Subtitle = {{lang|ja|不穏な動き}}
+| Aux1 = 村野佑太 | Aux1ColSpan = 2
+| Aux3 = {{spml|玉利和枝|{{lang|ja|sataりすく}}}}
+| Aux4 = {{spml|大竹紀子|遠藤江美子}}
+| Aux5 = 5月31日
+}}
+{{劇集列表/base
+| Number = 第三十五章
+| Title = 黑色護身符
+| Subtitle = {{lang|ja|黒いお守り}}
+| Aux1 = 上田茂 | Aux1ColSpan = 2
+| Aux3 = {{spml|近藤優次|松本朋之|玉利和枝|{{lang|ja|sataりすく}}|西岡夕樹|角田有希}}
+| Aux4 = {{spml|遠藤江美子|大竹紀子}}
+| Aux5 = 6月7日
+}}
+{{劇集列表/base
+| Number = 第三十六章
+| Title = 祝福
+| Subtitle = {{lang|ja|祝福}}
+| Aux1 = 本鄉滿 | Aux1ColSpan = 2
+| Aux3 = {{spml|西岡夕樹|近藤優次|松本朋之}}
+| Aux4 = 遠藤江美子
+| Aux5 = 6月14日
+}}
+{{劇集列表/base
+| Chapter = 第四季 領主的養女
+}}
+{{劇集列表/base
+| Number = 第一章
+| Title = 成為貴族的我
+| Subtitle = {{lang|ja|貴族になったわたし}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 3
+| Aux1 = 岩崎良明 | Aux1ColSpan = 2
+| Aux3 = {{spml|黑田亚里沙|王佳轩|大村佳鈴|馬場一樹|大原大}}
+| Aux4 = 張紹偉
+| Aux5 = '''2026年'''<br />4月4日
+}}
+{{劇集列表/base
+| Number = 第二章
+| Title = 與平民區的家人重逢
+| Subtitle = {{lang|ja|下町家族との再会}}
+| Aux1 = 高田恭輔 | Aux1ColSpan = 2
+| Aux3 = {{spml|小川麻衣|王佳轩|大村佳鈴|馬場一樹|大原大|林央剛}}
+| Aux4 = 野田康行
+| Aux5 = 4月11日
+}}
+{{劇集列表/base
+| Number = 第三章
+| Title = 领主的城堡与意大利餐厅
+| Subtitle = {{lang|ja|領主の城とイタリアンレストラン}}
+| Aux1 = 菅原尚 | Aux1ColSpan = 2
+| Aux3 = {{spml|張紹偉|高橋友季}}
+| Aux4 = 張紹偉
+| Aux5 = 4月18日
+}}
+{{劇集列表/base
+| Number = 第四章
+| Title = 募捐的方式
+| Subtitle = {{lang|ja|寄付金の集め方}}
+| Aux0 = 山崎亮
+| Aux1 = 野崎麗子
+| Aux2 = 河合昂平
+| Aux3 = {{spml|趙小川|李偉峰|陳玲玲}}
+| Aux4 = 野田康行
+| Aux5 = 4月25日
+}}
+{{劇集列表/base
+| Number = 第五章
+| Title = 演奏会的準備
+| Subtitle = {{lang|ja|演奏会の準備}}
+| Aux0 = {{spml|{{lang|ja|うえだちさと}}|國澤真理子}}
+| Aux1 = 高田恭輔
+| Aux2 = 渡邊有紀
+| Aux3 = {{spml|蟹谷憲正|針場裕子|山崎浩平|吉田和香子|齊藤準一|安岡幸惠|梅木八木|種子嵐}}
+| Aux4 = 張紹偉
+| Aux5 = 5月9日
+}}
+{{劇集列表/base
+| Number = 第六章
+| Title = 飞苏平琴演奏会
+| Subtitle = {{lang|ja|フェシュピールコンサート}}
+| Aux0 = 山崎亮
+| Aux1 = 山崎香子
+| Aux2 = {{spml|山崎香子|千葉茂}}
+| Aux3 = {{spml|王佳軒|張丹妮|小川麻衣|黑田亞里沙|大村佳鈴|松下郁子|山田真也}}
+| Aux4 = [[中嶋敦子]]
+| Aux5 = 5月16日
+}}
+{{劇集列表/base
+| Number = 第七章
+| Title = 哈塞的小神殿
+| Subtitle = {{lang|ja|ハッセの小神殿}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 2
+| Aux1 = 有本二朗 | Aux1ColSpan = 2
+| Aux3 = {{spml|岡郁美|澤井真紀|宇佐美皓一|李飛}}
+| Aux4 = 野田康行
+| Aux5 = 5月23日
+}}
+{{劇集列表/base
+| Number = 第八章
+| Title = 斐迪南的課題
+| Subtitle = {{lang|ja|フェルディナンドの課題}}
+| Aux1 = 野崎麗子
+| Aux2 = 播田翔一
+| Aux3 = {{spml|張紹偉|王益|高橋友季}}
+| Aux4 = 張紹偉
+| Aux5 = 5月30日
+}}
+{{劇集列表/base
+| Number = 第九章
+| Title = 韦菲利特的一日神殿长
+| Subtitle = {{lang|ja|ヴィルフリートの一日神殿長}}
+| Aux0 = {{spml|{{lang|ja|うえだちさと}}|國澤真理子}}
+| Aux1 = 稻森雅 | Aux1ColSpan = 2
+| Aux3 = {{spml|馬場一樹|大原大|張丹妮|林央剛|黑田亞里沙|{{lang|ja|ビート}}}}
+| Aux4 = 野田康行
+| Aux5 = 6月6日
+}}
+{{劇集列表/base
+| Number = 第十章
+| Title = 第一次的材料採集
+| Subtitle = {{lang|ja|はじめての素材採集}}
+| Aux0 = 山崎亮
+| Aux1 = 名村英敏
+| Aux2 = 菅原尚
+| Aux3 = {{spml|澤井真紀|小川麻衣|〆斬守乱|李飛|森田映一|岩崎隼平|{{lang|ja|シモイロブ・パベロ}}}}
+| Aux4 = {{spml|中嶋敦子|野田康行}}
+| Aux5 = 6月13日
+}}
+{{劇集列表/base
+| Number = 第十一章
+| Title = 谷騰堡的集會
+| Subtitle = {{lang|ja|グーテンベルクの集い}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 2
+| Aux1 = 川部真也 | Aux1ColSpan = 2
+| Aux3 = {{spml|柏崎惟乃里|大原大|張丹妮|馬場一樹|黑田亞里沙|{{lang|ja|ビート}}}}
+| Aux4 = 簑輪愛子
+| Aux5 = 6月20日
+}}
+{{劇集列表/base
+| Number = 第十二章
+| Title = 冬季社交界與首次亮相
+| Subtitle = {{lang|ja|冬の社交界とお披露目}}
+| Aux1 = 大槻敦史
+| Aux2 = 橋本有加
+| Aux3 = {{spml|張紹偉|王益|髙橋友季|沈陶裔|張丹妮}}
+| Aux4 = 張紹偉
+| Aux5 = 6月27日
+}}
+{{劇集列表/base
+| Number = 第十三章
+| Title = 冬季的材料採集
+| Subtitle = {{lang|ja|冬の素材採集}}
+| Aux0 = 山崎亮
+| Aux1 = [[笹木信作]]
+| Aux2 = 日野貴文
+| Aux3 = {{spml|朝日菜穂子|森田映一|小川麻衣|岩崎隼平|{{lang|ja|シモイロブ・パベロ}}|王佳軒|〆斬守乱|澤井真紀|日野貴文}}
+| Aux4 = 野田康行
+| Aux5 = 7月11日
+}}
+{{劇集列表/base
+| Number = 第十四章
+| Title = 对哈塞的惩罚
+| Subtitle = {{lang|ja|ハッセへの罰}}
+| Aux0 = 國澤真理子
+| Aux1 = [[鈴木洋平]]
+| Aux2 = 伊藤然一郎
+| Aux3 = {{spml|澤井真紀|張丹妮|馬場一樹|黑田亚里沙|林央剛|李飛|{{lang|ja|ビート}}}}
+| Aux4 = 松下郁子
+| Aux5 = 7月18日
+}}
+{{劇集列表/base
+| Number = 第十五章
+| Title = 芙琉朵蕾妮之夜
+| Subtitle = {{lang|ja|フリュートレーネの夜}}
+| Aux0 = 山崎亮
+| Aux1 = 加藤萌
+| Aux2 = 内沼菜摘
+| Aux3 = {{spml|西口智也|石塚空良|松下純子|小澤円|堀光明|黄鶴亭|河村涼子|北川知子|五十嵐友美|米澤篤|蟹谷憲正}}
+| Aux4 = 簑輪愛子
+| Aux5 = 7月25日
+}}
+{{劇集列表/base
+| Number = 第十六章
+| Title = 新服裝与印刷机
+| Subtitle = {{lang|ja|新しい衣装と印刷機}}
+| Aux0 = 國澤真理子 | Aux0RowSpan = 2
+| Aux1 = {{spml|阿波部龍太朗|藤澤海}}
+| Aux2 = 阿波部龍太朗
+| Aux3 = {{spml|吉冈安杰洛|下園寬|杉本梨渚}}
+| Aux4 = 中嶋敦子
+| Aux5 = 8月1日
+}}
+{{劇集列表/base
+| Number = 第十七章
+| Title = 领主会议期间的城堡留守
+| Subtitle = {{lang|ja|領主会議のお留守番}}
+| Aux1 = [[平池芳正]]
+| Aux2 = [[橋本光夫]]
+| Aux3 = {{spml|吴曉伟|谢柏充|钟畴永|周佩明|吳俊|劉冬冬}}
+| Aux4 = {{spml|野田康行|中嶋敦子}}
+| Aux5 = 8月8日
+}}<!--
+{{劇集列表/base
+| Number = 第十八章
+| Title = 达穆尔的请求
+| Subtitle = {{lang|ja|ダームエルの申し出}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 8月15日
+}}
+{{劇集列表/base
+| Number = 第十九章
+| Title = 视察伊库那与夏季采集
+| Subtitle = {{lang|ja|イルクナー視察と夏の採集}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 8月22日
+}}
+{{劇集列表/base
+| Number = 第二十章
+| Title = 乔琪娜来访
+| Subtitle = {{lang|ja|ゲオルギーネの来訪}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 9月5日
+}}
+{{劇集列表/base
+| Number = 第二十一章
+| Title = 
+| Subtitle = {{lang|ja|}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 9月12日
+}}
+{{劇集列表/base
+| Number = 第二十二章
+| Title = 
+| Subtitle = {{lang|ja|}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 9月19日
+}}
+{{劇集列表/base
+| Number = 第二十三章
+| Title = 
+| Subtitle = {{lang|ja|}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 9月26日
+}}
+{{劇集列表/base
+| Number = 第二十四章
+| Title = 
+| Subtitle = {{lang|ja|}}
+| Aux0 = 
+| Aux1 = 
+| Aux2 =
+| Aux3 = 
+| Aux4 = 
+| Aux5 = 10月3日
+}}-->
+{{劇集列表/base/footer}}
+

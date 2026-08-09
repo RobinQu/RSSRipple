@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, ClassVar
 
 from langchain_core.messages import HumanMessage
@@ -29,7 +30,12 @@ from app.services import metadata_audio_resolver as _resolver
 from app.services import metadata_repository as _repo
 from app.services import metadata_wiki_judge as _wiki_judge
 from app.services.metadata_audio import _detect_audio_work_type, _is_non_media
-from app.services.metadata_episode_reconcile import _seasons_map_from, reconcile_episode
+from app.services.metadata_episode_reconcile import (
+    _seasons_map_from,
+    reconcile_episode,
+    verified_season_count,
+)
+from app.services.metadata_exa_fallback import exa_fallback_judge
 from app.services.metadata_failure import _classify_failure, _record_metadata_attempt
 from app.services.metadata_prompts import _SYSTEM_PROMPT
 from app.services.metadata_repository import _cache_source_key
@@ -40,6 +46,7 @@ from app.services.metadata_source_io import (
     _execute_search_exa_agent,
     _execute_search_jina,
     _execute_search_tmdb,
+    fetch_tmdb_episode_list,
 )
 from app.services.metadata_sources import (
     DEFAULT_METADATA_SOURCE,
@@ -63,6 +70,7 @@ from app.services.metadata_wikipedia_client import (
     _is_disambiguation_category,
     _wikipedia_client,
 )
+from app.services.resource_parser import extract_title_year
 from app.services.runtime_config import runtime_config
 from app.utils.time import utcnow
 
@@ -247,11 +255,82 @@ def finalize(result_json: str) -> str:
           When found=false: reason(str)
           Optional: inferred_episode(int), inferred_season(int), inferred_fields,
             ambiguous(bool), ambiguous_candidates(list), confidence(float)
+          Season rule: when the title carries NO season marker, never guess —
+            verify against the tool results' number_of_seasons/seasons: a
+            single-season work → inferred_season=1; a multi-season work (or
+            missing seasons data) → leave inferred_season null and return
+            ambiguous=true with the plausible seasons in ambiguous_candidates.
+          Year rule: when the input includes a title_year hint, prefer
+            candidates whose year matches; a conflicting year (beyond ±1) is
+            strong evidence AGAINST a candidate.
 
     Returns:
         "FINALIZED"
     """
     return "FINALIZED"
+
+
+def _title_year_hint(year: int) -> str:
+    """Explicit title-year hint line for the agent's user message."""
+    return (
+        f"\nRelease year parsed from the title: {year}. Prefer candidates "
+        "whose year matches; a conflicting year (beyond ±1) is strong evidence "
+        "AGAINST a candidate (likely a same-title remake or a different "
+        "franchise entry)."
+    )
+
+
+def _apply_verified_season_default(meta: ResourceMetadata) -> None:
+    """Verified season default: the season number is never guessed.
+
+    A TV result whose title carries no season marker (``meta.season is None``)
+    is defaulted to season 1 ONLY when the matched entity's seasons evidence
+    (``number_of_seasons`` / ``seasons``) proves the work has exactly one
+    season. Multi-season works — or works with no usable seasons data — stay
+    season-less and are marked ``season_ambiguous`` so the apply layer routes
+    the resource to a "季号不确定" human decision instead.
+    """
+    if meta.content_type != "tv" or meta.season is not None or not meta.found:
+        return
+    if verified_season_count(meta.matched_entity) == 1:
+        meta.season = 1
+    else:
+        meta.season_ambiguous = True
+
+
+async def _attach_tmdb_episode_list(finalize_dict: dict) -> None:
+    """P4: fill ``episode_list`` for a tmdb-primary TV match (wikipedia symmetry).
+
+    TMDB series details carry ``seasons[]`` but no per-episode data, so Episode
+    rows need one ``GET /tv/{id}/season/{n}`` per season
+    (``fetch_tmdb_episode_list``). The merged ``episode_list`` flows through
+    the existing P2 consumption path (``create_or_update_series_from_external``
+    → ``upsert_episodes``) exactly like the wikipedia attach. Single-source
+    rule: only fires for a found TV result whose matched entity carries a tmdb
+    id plus a seasons list (Exa-fallback entities are identity-only and have
+    their seasons stripped, so they never reach the fetch). Best-effort: any
+    failure leaves the entity untouched.
+    """
+    if not finalize_dict.get("found") or finalize_dict.get("content_type") != "tv":
+        return
+    me = finalize_dict.get("matched_entity") or {}
+    if not me or me.get("episode_list"):
+        return
+    ext = str(me.get("external_id") or "")
+    source = str(me.get("external_source") or "").lower()
+    m = re.search(r"tmdb[^0-9]*(\d+)", ext, flags=re.IGNORECASE)
+    tmdb_id = m.group(1) if m else (ext if source == "tmdb" and ext.isdigit() else None)
+    seasons = me.get("seasons") or []
+    if not tmdb_id or not seasons:
+        return
+    episodes = await fetch_tmdb_episode_list(tmdb_id, seasons)
+    if episodes:
+        me["episode_list"] = episodes
+        finalize_dict["matched_entity"] = me
+        logger.info(
+            "[metadata_agent] tmdb episode fill for %s: %d episodes across %d seasons",
+            ext, len(episodes), len(seasons),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +496,33 @@ class UnifiedMetadataAgent:
         )
         return "\n".join(parts)
 
+    async def _build_same_title_context(
+        self, resource: Any, db: AsyncSession
+    ) -> str | None:
+        """Local same-title works list for the production prompt.
+
+        Only local-DB info exists when the message is built (before the ReAct
+        loop), so instead of collection-based injection we list the local
+        works that collide on the search title — the actual error mode is
+        linking to the wrong EXISTING local work (攻壳机动队 1995 movie vs
+        攻壳机动队 2026 series). Injected only when ≥2 works collide.
+        """
+        from app.services.metadata_service import (  # lazy: import cycle
+            _find_same_title_works,
+            extract_search_title,
+            format_same_title_works_context,
+        )
+
+        search_title = getattr(resource, "search_title", None)
+        if not search_title and hasattr(resource, "title_cn"):
+            search_title = extract_search_title(resource)
+        if not search_title:
+            return None
+        works = await _find_same_title_works(db, search_title)
+        if len(works) < 2:
+            return None
+        return format_same_title_works_context(works)
+
     # ── Production entry ──
 
     async def process(
@@ -489,11 +595,12 @@ class UnifiedMetadataAgent:
                 from app.models.series import TVSeries
                 from app.services.metadata_episode_reconcile import (
                     apply_episode_reconcile,
+                    resolve_missing_season,
                     seasons_map_from_list,
                 )
                 series_row = await db.get(TVSeries, work_id)
-                if series_row is not None and series_row.seasons:
-                    if apply_episode_reconcile(
+                if series_row is not None:
+                    if series_row.seasons and apply_episode_reconcile(
                         resource, seasons_map_from_list(series_row.seasons)
                     ):
                         logger.info(
@@ -501,6 +608,13 @@ class UnifiedMetadataAgent:
                             raw_title[:60], resource.season, resource.episode,
                             resource.absolute_episode,
                         )
+                    # Same verified season rule as _apply_to_resource: after
+                    # reconciliation, a season-less resource gets season=1 only
+                    # for a provably single-season work, else 季号不确定.
+                    resolve_missing_season(resource, {
+                        "number_of_seasons": series_row.number_of_seasons,
+                        "seasons": series_row.seasons,
+                    })
             resource.metadata_matched_at = utcnow()
             resource.metadata_attempts = int(
                 getattr(resource, "metadata_attempts", 0) or 0
@@ -565,16 +679,26 @@ class UnifiedMetadataAgent:
         message = self._build_production_message(
             resource, channel, data_source_type,
             series_context=await self._build_series_history_context(resource, db),
+            same_title_context=await self._build_same_title_context(resource, db),
         )
 
         # 2. Run metadata: search-first + single-LLM-judge for wikipedia (S3,
         # 1 LLM call + parallel searches); ReAct for other sources.
         if normalize_metadata_source_type(data_source_type) == "wikipedia":
             finalize_dict, search_info = await self._run_search_then_judge(
-                raw_title, data_source_type, resource=resource
+                raw_title, data_source_type, resource=resource,
+                fallback_sources=getattr(channel, "metadata_fallback_sources", None),
             )
         else:
             finalize_dict, search_info = await self._run_react(message, data_source_type)
+            if normalize_metadata_source_type(data_source_type) == "tmdb":
+                # P4: same ordered Exa fallback as the wikipedia path, then the
+                # symmetric per-episode fill for tmdb-primary TV works.
+                finalize_dict, search_info = await self._maybe_exa_fallback(
+                    finalize_dict, search_info, raw_title, resource=resource,
+                    fallback_sources=getattr(channel, "metadata_fallback_sources", None),
+                )
+                await _attach_tmdb_episode_list(finalize_dict)
         finalize_dict["search_method"] = search_info.get("method")
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
@@ -594,9 +718,8 @@ class UnifiedMetadataAgent:
         if meta.matched_entity:
             meta.matched_entity.pop("categories", None)
 
-        # Default season to 1 for TV when not inferable
-        if meta.content_type == "tv" and meta.season is None and meta.found:
-            meta.season = 1
+        # Verified season default (never guess; see helper docstring).
+        _apply_verified_season_default(meta)
 
         # 4. Persist — record the attempt (success or failure) and cache only
         # definitive outcomes. Transient failures are intentionally NOT cached
@@ -637,15 +760,21 @@ class UnifiedMetadataAgent:
             finalize_dict, search_info = await self._run_search_then_judge(raw_title, source)
         else:
             finalize_dict, search_info = await self._run_react(message, source)
+            if source == "tmdb":
+                # P4: same fallback as the wikipedia path (default order here,
+                # parity with _run_search_then_judge's title-only call).
+                finalize_dict, search_info = await self._maybe_exa_fallback(
+                    finalize_dict, search_info, raw_title,
+                )
+                await _attach_tmdb_episode_list(finalize_dict)
         finalize_dict["search_method"] = search_info.get("method")
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
         finalize_dict["search_error"] = search_info.get("error")
         meta = ResourceMetadata.from_dict(finalize_dict)
 
-        # Default season to 1 for TV when not inferable
-        if meta.content_type == "tv" and meta.season is None and meta.found:
-            meta.season = 1
+        # Verified season default (never guess; see helper docstring).
+        _apply_verified_season_default(meta)
 
         return meta
 
@@ -676,7 +805,11 @@ class UnifiedMetadataAgent:
                 "the identifier source)."
             ),
         }[source]
-        return f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
+        message = f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
+        year = extract_title_year(raw_title)
+        if year is not None:
+            message += _title_year_hint(year)
+        return message
 
     def _build_production_message(
         self,
@@ -684,6 +817,7 @@ class UnifiedMetadataAgent:
         channel: Any,
         data_source_type: str = DEFAULT_METADATA_SOURCE,
         series_context: str | None = None,
+        same_title_context: str | None = None,
     ) -> str:
         raw = getattr(resource, "title_raw", "")
         source = normalize_metadata_source_type(data_source_type)
@@ -706,8 +840,15 @@ class UnifiedMetadataAgent:
             parts.append("\nPre-parsed fields (from field_mapping, may be unreliable):")
             parts.extend(hints)
 
+        title_year = getattr(resource, "title_year", None)
+        if title_year is not None:
+            parts.append(_title_year_hint(title_year))
+
         if series_context:
             parts.append(series_context)
+
+        if same_title_context:
+            parts.append(same_title_context)
 
         parts.append(
             f"\nChannel: {getattr(channel, 'name', 'unknown')}"
@@ -757,6 +898,7 @@ class UnifiedMetadataAgent:
         resource: Any | None = None,
         *,
         exa_searcher=None,
+        fallback_sources: list[str] | None = None,
     ) -> tuple[dict, dict]:
         """Search-first + single-LLM-judge path (S3) for the wikipedia source.
 
@@ -771,7 +913,80 @@ class UnifiedMetadataAgent:
             react_runner=self._run_react,
             msg_builder=self._build_title_only_message,
             exa_searcher=exa_searcher,
+            fallback_sources=fallback_sources,
         )
+
+    async def _maybe_exa_fallback(
+        self,
+        finalize_dict: dict,
+        search_info: dict,
+        raw_title: str,
+        resource: Any | None = None,
+        *,
+        fallback_sources: list[str] | None = None,
+    ) -> tuple[dict, dict]:
+        """P4: shared Exa web-search fallback after a TMDB ReAct miss.
+
+        Mirrors the wikipedia path's trigger (``run_search_then_judge`` fires
+        the same fallback on found=False): a TMDB coverage gap (work not on
+        TMDB, or a mis-titled entry) is closed by an Exa search over the
+        channel's ordered identity-site whitelist (None = default order, [] =
+        disabled). The fallback supplies identity/links only - content fields
+        are stripped inside ``exa_fallback_judge`` so seasons/episodes always
+        follow the primary source. A transient ReAct outcome (agent error,
+        timeout) is NOT rerouted: masking an infra failure with a definitive
+        Exa verdict would cache a wrong not_found.
+        """
+        if finalize_dict.get("found"):
+            return finalize_dict, search_info
+        probe = ResourceMetadata.from_dict({
+            **finalize_dict, "search_error": search_info.get("error"),
+        })
+        if _classify_failure(probe) == "transient":
+            return finalize_dict, search_info
+        fb = await exa_fallback_judge(
+            self._model, raw_title, resource=resource,
+            fallback_sources=fallback_sources,
+        )
+        if fb is None:  # Exa disabled/unconfigured or empty whitelist
+            return finalize_dict, search_info
+        fb_finalize, fb_info = fb
+        search_info["source_errors"] = {
+            **(search_info.get("source_errors") or {}),
+            **(fb_info.get("source_errors") or {}),
+        }
+        search_info["data_sources_used"] = sorted(
+            set(search_info.get("data_sources_used") or [])
+            | set(fb_info.get("data_sources_used") or [])
+        )
+        search_info["method"] = "react_then_exa_fallback"
+        if fb_info.get("error"):
+            # Exa itself failed (network/rate/API) - transient. Keep the
+            # transient marker on search_info so _classify_failure does not
+            # cache this as a definitive not_found.
+            search_info["error"] = fb_info["error"]
+            logger.warning(
+                "[metadata_agent] tmdb found=False and Exa failed for %r (%s); "
+                "treating as transient",
+                raw_title[:80], fb_info["error"],
+            )
+            return (
+                {
+                    "found": False,
+                    "clean_title": raw_title,
+                    "content_type": finalize_dict.get("content_type", "tv"),
+                    "reason": fb_info["error"],
+                },
+                search_info,
+            )
+        logger.info(
+            "[metadata_agent] tmdb found=False, Exa fallback %s for %r",
+            "found" if fb_finalize.get("found") else "not_found",
+            raw_title[:80],
+        )
+        fb_finalize.setdefault("clean_title", raw_title)
+        fb_finalize.setdefault("content_type", "tv")
+        return fb_finalize, search_info
 
     def _extract_finalize_result(self, messages: list) -> dict:
         """Extract the JSON payload from the finalize tool call."""

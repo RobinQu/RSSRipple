@@ -168,17 +168,18 @@ async def get_form_token():
 
 @router.get("/channels/metadata-sources")
 async def list_metadata_sources():
-    """Return the external metadata source catalog for the channel form.
+    """Return the metadata source catalog for the channel form.
 
-    Each source carries ``enabled``/``configured``/``available`` flags. The
-    form should offer only ``available`` sources as selectable candidates.
+    Channel config is restricted to the two-source architecture
+    (wikipedia/tmdb). Each source carries ``enabled``/``configured``/
+    ``available`` flags; the form should offer only ``available`` sources.
     """
     from app.services.metadata_agent import (
         DEFAULT_METADATA_SOURCE,
         get_metadata_source_catalog,
     )
     return success_response({
-        "sources": get_metadata_source_catalog(),
+        "sources": get_metadata_source_catalog(channel_only=True),
         "default": DEFAULT_METADATA_SOURCE,
     })
 

@@ -446,14 +446,41 @@ _CONTAINER_RE = re.compile(r"\b(MP4|MKV|AVI)\b", re.IGNORECASE)
 
 # Episode/season fallbacks for formats the LLM-generated per-channel regexes
 # commonly miss: bracketed episode numbers (``[03]``) and SxxExx / "Season 3"
-# / 第N季 season markers. Applied only when the field_mapping left the field
-# empty - a correctly parsed value is never overwritten.
+# / "3rd Season" / 第N季 season markers. Applied only when the field_mapping
+# left the field empty - a correctly parsed value is never overwritten.
 _SXXEXX_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})\b", re.IGNORECASE)
 _BRACKET_EPISODE_RE = re.compile(r"\[(\d{1,3})\]")
 _FB_SEASON_SUFFIX_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.IGNORECASE)
+_FB_SEASON_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+Season\b", re.IGNORECASE)
 _FB_SEASON_S_RE = re.compile(r"\bS(\d{1,2})\b(?!E)", re.IGNORECASE)
 _FB_SEASON_KANJI_RE = re.compile(r"第([一二三四五六七八九十\d]{1,3})季")
 _KANJI_DIGITS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+# Release-year detection. Bracketed ``[2026]`` is preferred; otherwise a
+# standalone 4-digit token. The lookarounds reject resolution (``1920x1080``)
+# and codec-adjacent (``x264``… ok, but ``2026x`` / ``x2026``) contexts.
+_YEAR_BRACKET_RE = re.compile(r"\[(19\d{2}|20\d{2})\]")
+_YEAR_TOKEN_RE = re.compile(r"(?<![\dxX])(19\d{2}|20\d{2})(?![\dxX\d])")
+_YEAR_MIN, _YEAR_MAX = 1950, 2100
+
+
+def extract_title_year(title_raw: str) -> int | None:
+    """Best-effort release year parsed from a raw title.
+
+    Prefers a bracketed year (``[2026]``), else a standalone token
+    (``Koukaku Kidoutai 2026``). ``[1080p]`` (only 1-3 digit episode brackets
+    aside, ``1080`` fails the ``19xx|20xx`` prefix) and ``1920x1080`` never
+    match. Values outside the 1950..2100 sanity range return ``None``.
+    """
+    if not title_raw:
+        return None
+    m = _YEAR_BRACKET_RE.search(title_raw)
+    if m is None:
+        m = _YEAR_TOKEN_RE.search(title_raw)
+    if m is None:
+        return None
+    year = int(m.group(1))
+    return year if _YEAR_MIN <= year <= _YEAR_MAX else None
 
 
 def _kanji_to_int(text: str) -> int | None:
@@ -482,6 +509,8 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
     season = None
     m = _FB_SEASON_SUFFIX_RE.search(title_raw)
     if m:
+        season = int(m.group(1))
+    elif (m := _FB_SEASON_ORDINAL_RE.search(title_raw)):
         season = int(m.group(1))
     elif (m := _FB_SEASON_S_RE.search(title_raw)):
         season = int(m.group(1))
@@ -577,5 +606,12 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
             out["episode"] = fb_episode
         if out.get("season") is None and fb_season is not None:
             out["season"] = fb_season
+
+    # Release year ("[2026]" / standalone token) — guards local auto-link
+    # against same-title remakes from a different year.
+    if out.get("title_year") is None:
+        year = extract_title_year(title_raw)
+        if year is not None:
+            out["title_year"] = year
 
     return out

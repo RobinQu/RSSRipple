@@ -566,6 +566,21 @@ class TestExtractEpisodeFallback:
             "[ANi]  关于我转生变成史莱姆这档事 第四季 - 89 [1080P][Baha]"
         ) == (None, 4)
 
+    def test_ordinal_season(self):
+        assert extract_episode_fallback(
+            "[Group] Some Show 2nd Season [05][WebRip 1080p]"
+        ) == (5, 2)
+
+    def test_ordinal_season_without_episode(self):
+        assert extract_episode_fallback("[Group] Some Show 4th Season") == (None, 4)
+
+    def test_season_suffix_wins_over_ordinal(self):
+        # "Season 3" is the canonical suffix form; the ordinal regex must not
+        # mis-fire on titles that carry both shapes.
+        assert extract_episode_fallback(
+            "[Group] Some Show Season 3 [02]"
+        ) == (2, 3)
+
     def test_tech_brackets_never_match(self):
         # [1080p] is 4 digits; [2026] is a year — neither is an episode.
         assert extract_episode_fallback(
@@ -598,3 +613,66 @@ def test_normalize_does_not_override_parsed_episode():
     )
     assert out["episode"] == 3
     assert out["season"] == 1  # untouched even though the title says S3
+
+
+# =============================================================================
+# extract_title_year
+# =============================================================================
+
+
+class TestExtractTitleYear:
+    def test_standalone_year_token(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year(
+            "[绿茶字幕组] 攻壳机动队 The Ghost in the Shell / Koukaku Kidoutai 2026 "
+            "[03][WebRip][1080p][简繁日内封]"
+        ) == 2026
+
+    def test_no_year_returns_none(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year(
+            "【豌豆字幕组】[关于我转生变成史莱姆这档事 第四季 / Tensei Shitara Slime "
+            "Datta Ken S4][16(88)][繁体][1080P][MP4]"
+        ) is None
+
+    def test_bracketed_year(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year("[Group] Some Work [2026] [01]") == 2026
+
+    def test_resolution_never_matches(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year("[Group] Some Work - 01 1920x1080") is None
+        assert extract_title_year("[Group] Some Work - 01 [1080p]") is None
+
+    def test_codec_adjacent_rejected(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year("[Group] Work x264 [01]") is None
+        assert extract_title_year("[Group] Work 2026x264 [01]") is None
+
+    def test_sanity_range(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year("[Group] Work [1910]") is None
+        assert extract_title_year("[Group] Work [2101]") is None
+        assert extract_title_year("[Group] Work [1995]") == 1995
+
+    def test_empty_title(self):
+        from app.services.resource_parser import extract_title_year
+        assert extract_title_year("") is None
+
+
+def test_normalize_fills_title_year():
+    from app.services.resource_parser import normalize_parsed_fields
+    out = normalize_parsed_fields(
+        "[绿茶字幕组] 攻壳机动队 / Koukaku Kidoutai 2026 [03][WebRip][1080p]",
+        {},
+    )
+    assert out["title_year"] == 2026
+
+
+def test_normalize_does_not_override_title_year():
+    from app.services.resource_parser import normalize_parsed_fields
+    out = normalize_parsed_fields(
+        "[Group] Work 2026 [01]",
+        {"title_year": 1995},
+    )
+    assert out["title_year"] == 1995

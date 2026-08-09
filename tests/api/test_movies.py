@@ -156,3 +156,28 @@ class TestMoviesCRUD:
         # Verify task_count
         assert "task_count" in data
         assert data["task_count"] == 1
+
+    async def test_get_movie_source_link_fields(self, client, db_session, sample_movie):
+        """GET /api/v1/movies/{id} exposes canonical_name/wikipedia_url at top level."""
+        sample_movie.canonical_name = "Test Movie"
+        sample_movie.wikipedia_url = "https://en.wikipedia.org/wiki/Test_Movie"
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/movies/{sample_movie.id}")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["canonical_name"] == "Test Movie"
+        assert data["wikipedia_url"] == "https://en.wikipedia.org/wiki/Test_Movie"
+
+    async def test_get_movie_source_links(self, client, db_session, sample_movie):
+        """GET /api/v1/movies/{id} computes source_links via the site registry."""
+        sample_movie.external_id = "tmdb:550"
+        sample_movie.external_source = "tmdb"
+        await db_session.commit()
+
+        res = await client.get(f"/api/v1/movies/{sample_movie.id}")
+        assert res.status_code == 200
+        links = res.json()["data"]["source_links"]
+        assert [(link["source"], link["url"]) for link in links] == [
+            ("tmdb", "https://www.themoviedb.org/movie/550"),
+        ]

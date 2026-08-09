@@ -19,6 +19,11 @@ STRING_FIELDS = {
     # value set. Reusing the string-field machinery keeps the filter engine
     # small; the UI restricts the input to the enum's valid values.
     "episode_confidence",
+    # Work-collection display name (WorkCollection.title_cn or title_en),
+    # resolved through the resource's linked work AND that work's loaded
+    # ``collection`` relation — both must be eager-loaded (selectinload) at
+    # the query site or the value is None and null semantics apply.
+    "series.collection", "movie.collection",
 }
 NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end", "absolute_episode"}
 # Namespaced fields resolved through the resource's linked work (Movie /
@@ -365,6 +370,14 @@ def get_field_value(resource: Any, field: str) -> Any:
             date_attr = "release_date" if rel_name == "movie" else "start_date"
             d = getattr(related, date_attr, None)
             return d.year if d else None
+        if attr == "collection":
+            # The collection is itself a relationship on the work — defensive
+            # access again (unloaded → None → standard null semantics), then
+            # resolve to the display name.
+            collection = loaded_relation(related, "collection")
+            if collection is None:
+                return None
+            return collection.title_cn or collection.title_en
         return getattr(related, attr, None)
     return getattr(resource, field, None)
 

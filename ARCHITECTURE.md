@@ -192,7 +192,7 @@ MetadataAgent 数据源约束：
 
 ## 8. 关键设计决策
 
-1. **单数据源 metadata 搜索**：MetadataAgent 不再执行 TMDB→Exa→Wikipedia 多级调用或 fallback。每次搜索必须选择唯一数据源：`exa`（默认 Exa Agent Search）、`tmdb`（TMDB API）、`wikipedia`（Wikipedia Python 库）。LLM 只基于所选数据源返回的证据做标题理解和结构化输出。`combined` 仅作为旧评测数据兼容值，运行时映射到默认 `exa`。
+1. **单数据源 metadata 搜索**：MetadataAgent 不执行 TMDB→Exa→Wikipedia 多级调用或跨源 fallback。频道源为两数据源架构：`wikipedia`（默认）| `tmdb`；`exa`/`jina`/`local` 已废弃为频道源（仅手动搜索/评测保留其 ReAct 路径）。wikipedia 未命中时可走频道配置的有序 Exa 回退（`metadata_fallback_sources` 站点白名单，仅补身份/链接，内容以主源为准）。`combined` 仅作为旧评测数据兼容值，运行时映射到默认 `wikipedia`。详见 `docs/design/business-logic.md`。
 2. **Agent 直接订阅作品**：废弃 WatchEntry 模糊匹配，直接从 metadata 库选取作品订阅（最多 10 个），匹配更准确。未匹配的资源进入 suggestions，一键添加。
 3. **树形 DSL 过滤器**：废弃扁平 ResourceFilter，用 bool/combinator 树支持 AND/OR/嵌套，参考 ES Query DSL 设计。
 4. **职责分离**：Channel 负责"解析 + metadata 识别"；Agent 负责"订阅 + 过滤 + 推送"。metadata_agent_enabled 配在 Channel 上。

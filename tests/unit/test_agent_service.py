@@ -535,6 +535,65 @@ class TestProcessResources:
         assert result.duplicates_skipped == 1
         assert result.dispatched == 0
 
+    async def test_episode_dedup_is_season_aware(
+        self, db_session, channel, downloader, series
+    ):
+        """S1E3 and S4E3 of the same series must NOT dedup against each
+        other; same (series, season, episode) must still dedup."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True
+        )
+        r_s1 = _make_resource(channel.id, series_id=series.id,
+                              season=1, episode=3, guid=_uuid())
+        db_session.add(r_s1)
+        await db_session.flush()
+        task = DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=r_s1.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        )
+        db_session.add(task)
+        await db_session.flush()
+
+        # Different season, same episode → not a duplicate.
+        r_s4 = _make_resource(channel.id, series_id=series.id,
+                              season=4, episode=3, guid=_uuid())
+        # Same season + episode → duplicate.
+        r_s1_dup = _make_resource(channel.id, series_id=series.id,
+                                  season=1, episode=3, guid=_uuid())
+        db_session.add_all([r_s4, r_s1_dup])
+        await db_session.flush()
+        result = await process_resources(agent, [r_s4, r_s1_dup], db_session)
+        assert result.duplicates_skipped == 1
+        assert result.dispatched == 1
+
+    async def test_episode_dedup_season_none_matches_null(
+        self, db_session, channel, downloader, series
+    ):
+        """Season-less resources only dedup against season-less tasks
+        (``season == None`` must compile to IS NULL, not = NULL)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True
+        )
+        r1 = _make_resource(channel.id, series_id=series.id,
+                            season=None, episode=3, guid=_uuid())
+        db_session.add(r1)
+        await db_session.flush()
+        task = DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=r1.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        )
+        db_session.add(task)
+        await db_session.flush()
+        r2 = _make_resource(channel.id, series_id=series.id,
+                            season=None, episode=3, guid=_uuid())
+        db_session.add(r2)
+        await db_session.flush()
+        result = await process_resources(agent, [r2], db_session)
+        assert result.duplicates_skipped == 1
+        assert result.dispatched == 0
+
     async def test_movie_dedup(
         self, db_session, channel, downloader, movie
     ):
@@ -868,6 +927,58 @@ class TestProcessResources:
         # so the LLM suggestion must be skipped.
         assert pds[0].llm_suggestion is None
 
+    async def test_ambiguous_season_routes_to_season_reason_decision(
+        self, db_session, channel, downloader, series
+    ):
+        """Season-uncertain resources (season is None, confidence ambiguous)
+        get the 季号不确定 reason; episode-uncertain ones keep 集号不确定."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, season=None, episode=14,
+            episode_confidence="ambiguous",
+        )
+        db_session.add(r)
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.dispatched == 0
+        assert result.pending_decisions == 1
+        pds = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalars().all()
+        assert len(pds) == 1
+        assert "季号不确定" in pds[0].reason
+        assert pds[0].llm_suggestion is None
+
+    async def test_ambiguous_season_decision_resolved_after_correction(
+        self, db_session, channel, downloader, series
+    ):
+        """The cleanup pass matches BOTH reason prefixes: correcting a
+        season-uncertain resource to manual resolves its 季号不确定 PD."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, season=None, episode=14,
+            episode_confidence="ambiguous",
+        )
+        db_session.add(r)
+        await db_session.flush()
+        first = await process_resources(agent, [r], db_session)
+        assert first.pending_decisions == 1
+        # User confirms season + episode via PATCH /resources/{id}/episode.
+        r.season = 2
+        r.episode_confidence = "manual"
+        await db_session.flush()
+        second = await process_resources(agent, [r], db_session)
+        assert second.dispatched == 1
+        pds = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalars().all()
+        assert len(pds) == 1
+        assert pds[0].status == "decided"
+
     async def test_ambiguous_decision_resolved_after_correction(
         self, db_session, channel, downloader, series
     ):
@@ -997,6 +1108,58 @@ async def test_create_pending_decision_is_idempotent(db_session, channel, downlo
         sql_select(func.count()).select_from(PendingDecision)
     )).scalar_one()
     assert total == 1
+
+
+async def test_create_pending_decision_season_aware_key(db_session, channel, downloader, series):
+    """The 4-tuple key (type, id, season, episode) makes S1E3 and S4E3
+    distinct decisions; the same full key still upserts into one row."""
+    from sqlalchemy import func
+    from sqlalchemy import select as sql_select
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    r1 = _make_resource(channel.id, series_id=series.id, season=1, episode=3, guid=_uuid())
+    r4 = _make_resource(channel.id, series_id=series.id, season=4, episode=3, guid=_uuid())
+    r1b = _make_resource(channel.id, series_id=series.id, season=1, episode=3, guid=_uuid())
+    db_session.add_all([r1, r4, r1b])
+    await db_session.flush()
+
+    pd_s1 = await create_pending_decision(agent, ("series", series.id, 1, 3), [r1], db_session)
+    pd_s4 = await create_pending_decision(agent, ("series", series.id, 4, 3), [r4], db_session)
+    assert pd_s1.id != pd_s4.id
+    assert pd_s1.season == 1
+    assert pd_s4.season == 4
+    assert "第4季" in pd_s4.reason
+
+    pd_s1_again = await create_pending_decision(
+        agent, ("series", series.id, 1, 3), [r1, r1b], db_session
+    )
+    assert pd_s1_again.id == pd_s1.id
+    assert pd_s1_again.candidates == [r1.id, r1b.id]
+    total = (await db_session.execute(
+        sql_select(func.count()).select_from(PendingDecision)
+    )).scalar_one()
+    assert total == 2
+
+
+async def test_create_pending_decision_legacy_3tuple_key(db_session, channel, downloader, series):
+    """The legacy (type, id, episode) key shape is still accepted → season=None."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    r = _make_resource(channel.id, series_id=series.id, season=None, episode=7)
+    db_session.add(r)
+    await db_session.flush()
+    pd1 = await create_pending_decision(agent, ("series", series.id, 7), [r], db_session)
+    pd2 = await create_pending_decision(agent, ("series", series.id, None, 7), [r], db_session)
+    assert pd1.season is None
+    assert pd1.id == pd2.id
 
 
 async def test_create_pending_decision_idempotent_movie(db_session, channel, downloader, movie):

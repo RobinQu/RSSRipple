@@ -54,6 +54,15 @@ _RESOLUTION_SCORE = {"2160p": 3, "4k": 3, "1080p": 2, "720p": 1}
 # (episode_confidence becomes "manual"). Keep the prefix stable.
 _AMBIGUOUS_EPISODE_REASON = "集号不确定，需要人工确认集号: {title}"
 
+# Season-uncertain counterpart: the work was matched but the season number
+# could not be verified (multi-season work, no season marker in the title).
+# Same human-correction backflow as the ambiguous-episode reason — a PATCH
+# correction sets episode_confidence="manual" and the decision auto-resolves.
+_AMBIGUOUS_SEASON_REASON = "季号不确定，需要人工确认季号: {title}"
+
+# Prefixes identifying human-correction PendingDecisions in the cleanup pass.
+_AMBIGUOUS_REASON_PREFIXES = ("集号不确定", "季号不确定")
+
 
 @dataclass
 class RuleSet:
@@ -375,17 +384,24 @@ async def create_pending_decision(
 ) -> PendingDecision:
     """Upsert a PendingDecision for multiple conflicting candidates.
 
-    Same ``(agent, series_id | movie_id, episode)`` triple must always map to
-    a single row in ``status='pending'``. Repeated agent runs re-merge new
-    candidate ids into the existing row instead of piling up duplicates
+    Same ``(agent, series_id | movie_id, season, episode)`` tuple must always
+    map to a single row in ``status='pending'``. Repeated agent runs re-merge
+    new candidate ids into the existing row instead of piling up duplicates
     (which used to cause the 76-rows-for-4-episodes explosion).
+
+    ``key`` is ``(type, target_id, season, episode)``; the legacy 3-element
+    ``(type, target_id, episode)`` shape is still accepted (season=None).
 
     ``reason_override`` lets callers reuse this upsert for non-conflict
     decisions — notably ambiguous-episode resources that need manual episode
     confirmation rather than candidate picking. When set, the LLM suggestion
     (which is about choosing among candidates) is skipped via ``skip_llm``.
     """
-    type_, target_id, episode = key
+    if len(key) == 4:
+        type_, target_id, season, episode = key
+    else:
+        type_, target_id, episode = key
+        season = None
     series_id = target_id if type_ == "series" else None
     movie_id = target_id if type_ == "movie" else None
 
@@ -399,6 +415,8 @@ async def create_pending_decision(
 
     if reason_override is not None:
         reason = reason_override.format(title=title) if "{" in reason_override else reason_override
+    elif type_ == "series" and episode is not None and season is not None:
+        reason = f"多个资源匹配 {title} 第{season}季第{episode:02d}集"
     elif type_ == "series" and episode is not None:
         reason = f"多个资源匹配 {title} 第{episode:02d}集"
     elif type_ == "series":
@@ -406,8 +424,9 @@ async def create_pending_decision(
     else:
         reason = f"多个资源匹配电影 {title}"
 
-    # Look for an existing pending row for the same key. ``episode`` may be
-    # None (movies) — treat that as a proper NULL match.
+    # Look for an existing pending row for the same key. ``episode``/``season``
+    # may be None (movies, season-less series) — treat that as a proper NULL
+    # match.
     stmt = select(PendingDecision).where(
         PendingDecision.agent_id == agent.id,
         PendingDecision.status == "pending",
@@ -424,6 +443,10 @@ async def create_pending_decision(
         stmt = stmt.where(PendingDecision.episode == episode)
     else:
         stmt = stmt.where(PendingDecision.episode.is_(None))
+    if season is not None:
+        stmt = stmt.where(PendingDecision.season == season)
+    else:
+        stmt = stmt.where(PendingDecision.season.is_(None))
     existing = (await db.execute(stmt)).scalars().first()
 
     new_candidate_ids = [c.id for c in candidates]
@@ -459,6 +482,7 @@ async def create_pending_decision(
         agent_id=agent.id,
         series_id=series_id,
         movie_id=movie_id,
+        season=season,
         episode=episode,
         candidates=new_candidate_ids,
         reason=reason,
@@ -567,21 +591,27 @@ async def process_resources(
                 result.filter_failed += 1
             continue
 
-        # Ambiguous episode number — MetadataAgent had seasons evidence but
-        # couldn't decide whether the raw number is per-season or absolute.
-        # Route to a PendingDecision (not a dispatch, not a suggestion) so the
-        # user can manually confirm the per-season episode number before we
-        # download — never auto-download something we're unsure about. This
-        # runs AFTER work-scope + filter so we only ask about resources the
-        # agent would actually download.
+        # Ambiguous episode/season number — the metadata pipeline had seasons
+        # evidence but couldn't decide whether the raw number is per-season or
+        # absolute (episode-uncertain), or couldn't verify the season at all
+        # (season-uncertain: season is None). Route to a PendingDecision (not
+        # a dispatch, not a suggestion) so the user can manually confirm
+        # before we download — never auto-download something we're unsure
+        # about. This runs AFTER work-scope + filter so we only ask about
+        # resources the agent would actually download.
         if getattr(resource, "episode_confidence", None) == "ambiguous":
+            reason = (
+                _AMBIGUOUS_SEASON_REASON
+                if resource.season is None
+                else _AMBIGUOUS_EPISODE_REASON
+            )
             try:
                 await create_pending_decision(
                     agent,
-                    ("series", resource.series_id, resource.episode),
+                    ("series", resource.series_id, resource.season, resource.episode),
                     [resource],
                     db,
-                    reason_override=_AMBIGUOUS_EPISODE_REASON,
+                    reason_override=reason,
                     skip_llm=True,
                 )
                 if autocommit:
@@ -636,7 +666,7 @@ async def process_resources(
             if existing:
                 result.duplicates_skipped += 1
                 continue
-            key = ("movie", resource.movie_id, None)
+            key = ("movie", resource.movie_id, None, None)
         else:
             dedup_enabled = work.enable_episode_dedup if work else True
             if dedup_enabled and resource.episode is not None:
@@ -646,6 +676,10 @@ async def process_resources(
                         DownloadTask.status.in_(["pending", "queued", "downloading", "paused", "completed"]),
                         DownloadTask.file_resource.has(
                             series_id=resource.series_id,
+                            # ``season == None`` compiles to IS NULL, so
+                            # season-less resources only dedup against
+                            # season-less tasks (never against S1/S4).
+                            season=resource.season,
                             episode=resource.episode,
                         ),
                     )
@@ -654,7 +688,7 @@ async def process_resources(
                 if existing:
                     result.duplicates_skipped += 1
                     continue
-            key = ("series", resource.series_id, resource.episode)
+            key = ("series", resource.series_id, resource.season, resource.episode)
 
         candidates_by_key.setdefault(key, []).append(resource)
         result.matched += 1
@@ -700,7 +734,7 @@ async def process_resources(
 
 
 async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession) -> None:
-    """Mark pending ambiguous-episode decisions as decided once their
+    """Mark pending ambiguous-episode/season decisions as decided once their
     candidate resource is no longer ambiguous (user ran correct_episode)."""
     pd_rows = (await db.execute(
         select(PendingDecision).where(
@@ -709,7 +743,7 @@ async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession)
         )
     )).scalars().all()
     for pd in pd_rows:
-        if not (pd.reason or "").startswith("集号不确定"):
+        if not (pd.reason or "").startswith(_AMBIGUOUS_REASON_PREFIXES):
             continue
         cand_ids = list(pd.candidates or [])
         if not cand_ids:

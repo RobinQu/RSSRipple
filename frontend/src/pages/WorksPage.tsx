@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Library, Search, Settings2, RefreshCw, CheckCircle } from 'lucide-react';
@@ -19,11 +19,12 @@ import { worksApi } from '../api/works';
 import type { RefreshItem } from '../api/works';
 import type { Work } from '../types';
 import MetadataConfigModal from '../components/MetadataConfigModal';
+import CollectionsPanel from '../components/CollectionsPanel';
 import Pagination from '../components/Pagination';
 
 const { Title, Text } = Typography;
 
-type ContentType = 'all' | 'tv' | 'movie' | 'audio';
+type View = 'all' | 'tv' | 'movie' | 'audio' | 'collections';
 const PAGE_SIZE = 20;
 
 function getDisplayTitle(w: Work): string {
@@ -38,6 +39,7 @@ export default function WorksPage() {
   const { t } = useTranslation();
   useDocumentTitle(t('works.title'));
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { message } = App.useApp();
 
   const [works, setWorks] = useState<Work[]>([]);
@@ -45,7 +47,10 @@ export default function WorksPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
-  const [contentType, setContentType] = useState<ContentType>('all');
+  // 'collections' switches the page into the collections browse/manage view.
+  const [view, setView] = useState<View>(() =>
+    searchParams.get('view') === 'collections' ? 'collections' : 'all',
+  );
 
   // Selection + batch refresh
   const [selectMode, setSelectMode] = useState(false);
@@ -58,10 +63,10 @@ export default function WorksPage() {
   const topRef = useRef<HTMLDivElement | null>(null);
 
   const fetchPage = useCallback(
-    async (p: number, ct: ContentType, q: string) => {
+    async (p: number, ct: View, q: string) => {
       setLoading(true);
       try {
-        const ctParam = ct === 'all' ? undefined : ct;
+        const ctParam = ct === 'all' || ct === 'collections' ? undefined : ct;
         const r = await worksApi.list(p, PAGE_SIZE, q.trim() || undefined, ctParam);
         if (r.success) {
           setWorks(r.data);
@@ -77,11 +82,19 @@ export default function WorksPage() {
   // Load the current page whenever page / filter / search changes.
   // The short debounce keeps search typing from firing a request per keystroke.
   useEffect(() => {
+    if (view === 'collections') return;
     const timeout = setTimeout(() => {
-      fetchPage(page, contentType, search);
+      fetchPage(page, view, search);
     }, 300);
     return () => clearTimeout(timeout);
-  }, [page, contentType, search, fetchPage]);
+  }, [page, view, search, fetchPage]);
+
+  const handleViewChange = (v: View) => {
+    setView(v);
+    setPage(1);
+    setSelected(new Set());
+    setSearchParams(v === 'collections' ? { view: 'collections' } : {}, { replace: true });
+  };
 
   const handlePageChange = (p: number) => {
     setSelected(new Set());
@@ -137,7 +150,7 @@ export default function WorksPage() {
         setSelectMode(false);
         setSelected(new Set());
         // Reload the current page so refreshed titles appear.
-        fetchPage(page, contentType, search);
+        fetchPage(page, view, search);
       } else {
         message.error(r.error?.message || t('works.batchRefreshFailed'));
       }
@@ -152,6 +165,7 @@ export default function WorksPage() {
       { label: t('works.tvSeries'), value: 'tv' },
       { label: t('works.movies'), value: 'movie' },
       { label: t('works.audio'), value: 'audio' },
+      { label: t('works.collections'), value: 'collections' },
     ],
     [t],
   );
@@ -178,38 +192,38 @@ export default function WorksPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Segmented
             options={segmentedOptions}
-            value={contentType}
-            onChange={(v) => {
-              setContentType(v as ContentType);
-              setPage(1);
-              setSelected(new Set());
-            }}
+            value={view}
+            onChange={(v) => handleViewChange(v as View)}
           />
-          <Input
-            prefix={<Search size={14} style={{ color: 'var(--rr-text-muted)' }} />}
-            placeholder={t('works.searchPlaceholder')}
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-              setSelected(new Set());
-            }}
-            style={{ width: 220 }}
-            allowClear
-          />
-          <Button icon={<Settings2 size={14} />} onClick={() => setConfigOpen(true)}>
-            {t('works.configButton')}
-          </Button>
-          <Button
-            type={selectMode ? 'primary' : 'default'}
-            icon={<CheckCircle size={14} />}
-            onClick={() => {
-              setSelectMode((v) => !v);
-              setSelected(new Set());
-            }}
-          >
-            {t('works.select')}
-          </Button>
+          {view !== 'collections' && (
+            <>
+              <Input
+                prefix={<Search size={14} style={{ color: 'var(--rr-text-muted)' }} />}
+                placeholder={t('works.searchPlaceholder')}
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                  setSelected(new Set());
+                }}
+                style={{ width: 220 }}
+                allowClear
+              />
+              <Button icon={<Settings2 size={14} />} onClick={() => setConfigOpen(true)}>
+                {t('works.configButton')}
+              </Button>
+              <Button
+                type={selectMode ? 'primary' : 'default'}
+                icon={<CheckCircle size={14} />}
+                onClick={() => {
+                  setSelectMode((v) => !v);
+                  setSelected(new Set());
+                }}
+              >
+                {t('works.select')}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -238,7 +252,9 @@ export default function WorksPage() {
       )}
 
       {/* Content */}
-      {loading && works.length === 0 ? (
+      {view === 'collections' ? (
+        <CollectionsPanel />
+      ) : loading && works.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
           <Spin size="large" />
         </div>
@@ -257,6 +273,7 @@ export default function WorksPage() {
                   {selectMode && <col style={{ width: 40 }} />}
                   <col style={{ width: 60 }} />
                   <col />
+                  <col style={{ width: 140 }} />
                   <col style={{ width: 84 }} />
                   <col style={{ width: 96 }} />
                   <col style={{ width: 116 }} />
@@ -267,6 +284,7 @@ export default function WorksPage() {
                     {selectMode && <th style={{ textAlign: 'left', padding: '8px' }} />}
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colType')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colCollection')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colStatus')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colInfo')}</th>
@@ -324,6 +342,22 @@ export default function WorksPage() {
                           <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>
                             {displayTitle}
                           </Text>
+                        </td>
+                        <td style={{ padding: '8px' }} data-label={t('works.colCollection')}>
+                          {w.collection_name ? (
+                            <Tag
+                              color="blue"
+                              style={{ margin: 0, cursor: 'pointer' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (w.collection_id) navigate(`/collections/${w.collection_id}`);
+                              }}
+                            >
+                              {w.collection_name}
+                            </Tag>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td style={{ padding: '8px' }} data-label={t('works.colRating')}>
                           {w.rating != null ? `★ ${w.rating.toFixed(1)}` : '—'}

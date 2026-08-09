@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, Integer, String, func
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -39,6 +39,10 @@ class TVSeries(Base):
     canonical_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wikipedia_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     wikipedia_page_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Franchise grouping (WorkCollection). At most one collection per work.
+    collection_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("work_collections.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )
@@ -61,3 +65,4 @@ class TVSeries(Base):
     pending_decisions = relationship(
         "PendingDecision", back_populates="series"
     )
+    collection = relationship("WorkCollection", back_populates="series")

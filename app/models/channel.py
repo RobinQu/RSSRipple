@@ -31,9 +31,13 @@ class Channel(Base):
         Boolean, default=True, nullable=False
     )
     # External metadata source used when metadata_agent_enabled is true.
-    # One of SUPPORTED_METADATA_SOURCES (tmdb/exa/wikipedia/jina/local), or
-    # None to fall back to the default source at runtime.
+    # Two-source architecture (Phase P1): "wikipedia" or "tmdb"; None falls
+    # back to the default source (wikipedia) at runtime.
     metadata_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Ordered Exa-fallback site whitelist (JSON list of registry source
+    # names). None = default order; [] = fallback disabled. The fallback
+    # supplies identity/links only - content follows the primary source.
+    metadata_fallback_sources: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     # ── Auto-cleanup of stale unresolved resources ──
     # When enabled, the daily cleanup job deletes this channel's FileResources
     # that have sat *unresolved* (no linked work, never matched) for longer

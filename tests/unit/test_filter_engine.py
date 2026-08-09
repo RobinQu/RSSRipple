@@ -836,3 +836,75 @@ class TestWorkFieldEvaluation:
         assert get_field_value(res, "movie.rating") == 6.5
         assert get_field_value(res, "movie.year") == 2018
         assert get_field_value(res, "series.rating") is None
+
+
+# ---------------------------------------------------------------------------
+# Batch 3: series.collection / movie.collection DSL fields
+# ---------------------------------------------------------------------------
+
+
+def _collection(title_cn=None, title_en=None):
+    return SimpleNamespace(title_cn=title_cn, title_en=title_en)
+
+
+class TestCollectionFields:
+    def test_get_field_value_resolves_display_name(self):
+        series = SimpleNamespace(collection=_collection(title_cn="狮子王（系列）", title_en="The Lion King"))
+        res = _res(series=series)
+        assert get_field_value(res, "series.collection") == "狮子王（系列）"
+
+    def test_falls_back_to_title_en(self):
+        movie = SimpleNamespace(collection=_collection(title_cn=None, title_en="Spider-Man"))
+        res = _res(movie=movie)
+        assert get_field_value(res, "movie.collection") == "Spider-Man"
+
+    def test_unloaded_collection_relation_is_none(self):
+        # Work loaded but its collection relation not eager-loaded → None,
+        # and standard DSL null semantics apply (positive ops fail, ne passes).
+        res = _res(series=SimpleNamespace(title_cn="剧"))
+        assert get_field_value(res, "series.collection") is None
+        assert evaluate_field_condition(
+            {"field": "series.collection", "operator": "is_empty"}, res
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "series.collection", "operator": "eq", "value": "x"}, res
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "series.collection", "operator": "ne", "value": "x"}, res
+        ) is True
+
+    def test_no_linked_work_is_none(self):
+        res = _res()
+        assert get_field_value(res, "movie.collection") is None
+        assert evaluate_field_condition(
+            {"field": "movie.collection", "operator": "is_not_empty"}, res
+        ) is False
+
+    def test_eq_ne_semantics(self):
+        series = SimpleNamespace(collection=_collection(title_cn="攻壳机动队（系列）"))
+        res = _res(series=series)
+        assert evaluate_field_condition(
+            {"field": "series.collection", "operator": "eq", "value": "攻壳机动队（系列）"}, res
+        ) is True
+        # Case-insensitive like other string fields
+        movie = SimpleNamespace(collection=_collection(title_cn=None, title_en="Spider-Man"))
+        res2 = _res(movie=movie)
+        assert evaluate_field_condition(
+            {"field": "movie.collection", "operator": "eq", "value": "spider-man"}, res2
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "movie.collection", "operator": "ne", "value": "spider-man"}, res2
+        ) is False
+
+    def test_validate_accepts_collection_fields(self):
+        assert validate_filter_config({
+            "field": "series.collection", "operator": "eq", "value": "x",
+        }) == []
+        assert validate_filter_config({
+            "field": "movie.collection", "operator": "is_empty",
+        }) == []
+        # String-field operators only — numeric ops rejected.
+        errs = validate_filter_config({
+            "field": "movie.collection", "operator": "gt", "value": 3,
+        })
+        assert errs

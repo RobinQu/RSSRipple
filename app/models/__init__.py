@@ -18,8 +18,11 @@ from app.models.metadata_cache import MetadataCache
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
+from app.models.work_external_id import WorkExternalId
 
 __all__ = [
+    "WorkExternalId",
     "Channel",
     "FileResource",
     "Episode",
@@ -38,4 +41,5 @@ __all__ = [
     "GroundTruthEntry",
     "EvalJob",
     "AppSetting",
+    "WorkCollection",
 ]

@@ -121,6 +121,10 @@ async def _apply_to_resource(
                 resource.movie_id = movie.id
                 resource.series_id = None
                 resource.audio_work_id = None
+                # Deterministic TMDB collection link (no-op unless canonical
+                # tmdb: id and the movie belongs to a collection).
+                from app.services.collection_service import link_movie_collection
+                await link_movie_collection(db, movie)
         else:
             # Symmetric guard: a tv verdict for an entity that already owns
             # a Movie row links the movie instead of duplicating.
@@ -135,6 +139,8 @@ async def _apply_to_resource(
                 resource.movie_id = movie.id
                 resource.series_id = None
                 resource.audio_work_id = None
+                from app.services.collection_service import link_movie_collection
+                await link_movie_collection(db, movie)
             else:
                 series = await create_or_update_series_from_external(db, meta.matched_entity)
                 resource.series_id = series.id
@@ -152,6 +158,21 @@ async def _apply_to_resource(
             series_row = await db.get(TVSeries, resource.series_id)
             if series_row is not None and series_row.seasons:
                 apply_episode_reconcile(resource, seasons_map_from_list(series_row.seasons))
+
+        # Season-uncertain marking. Runs AFTER both reconciliations above:
+        # reconcile may legitimately derive a season from absolute_episode,
+        # and only a resource whose season is STILL None afterwards is routed
+        # to a human ("季号不确定" PendingDecision downstream). Batch
+        # resources are excluded — a 合集 intentionally bypasses per-episode
+        # flow and doesn't need a verified single season number to dispatch.
+        if (
+            meta.season_ambiguous
+            and resource.series_id
+            and resource.season is None
+            and not getattr(resource, "is_batch", False)
+            and getattr(resource, "episode_confidence", None) != "manual"
+        ):
+            resource.episode_confidence = "ambiguous"
 
         resource.metadata_matched_at = utcnow()
 
@@ -234,6 +255,9 @@ async def _set_cache(
             "matched_entity": meta.matched_entity,
             "confidence": meta.confidence,
             "reason": meta.reason,
+            "ambiguous": meta.ambiguous,
+            "ambiguous_candidates": meta.ambiguous_candidates,
+            "season_ambiguous": meta.season_ambiguous,
             "search_method": meta.search_method,
             "data_sources_used": meta.data_sources_used,
             "source_errors": meta.source_errors,

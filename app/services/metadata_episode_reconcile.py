@@ -98,6 +98,58 @@ def reconcile_episode(
     return raw_episode, None, "ambiguous"
 
 
+def locate_absolute_episode(
+    absolute: int, seasons_map: dict[int, int]
+) -> tuple[int, int] | None:
+    """Locate an absolute-across-seasons episode number as ``(season, episode)``.
+
+    Walks seasons in ascending order subtracting each season's
+    ``episode_count``; the season the remainder lands in is the answer. The
+    final season gets ``_RECONCILE_TOLERANCE`` headroom (clamped to its
+    ``episode_count``) for still-airing shows where the metadata source lags
+    a few episodes behind. Returns ``None`` when the number overshoots the
+    total (+ tolerance) or the map is empty.
+    """
+    if absolute < 1 or not seasons_map:
+        return None
+    remaining = absolute
+    ordered = sorted((s, c) for s, c in seasons_map.items() if c > 0)
+    for season, count in ordered:
+        if remaining <= count:
+            return season, remaining
+        remaining -= count
+    if ordered and remaining <= _RECONCILE_TOLERANCE:
+        season, count = ordered[-1]
+        return season, count
+    return None
+
+
+def verified_season_count(entity: dict | None) -> int | None:
+    """Season-count evidence from a matched_entity-style dict.
+
+    Prefers an explicit ``number_of_seasons`` int; falls back to counting the
+    ``seasons`` list excluding season 0 (specials). Returns ``None`` when
+    neither source has usable data — callers must NOT guess a season then.
+    """
+    if not isinstance(entity, dict):
+        return None
+    n = entity.get("number_of_seasons")
+    if isinstance(n, int) and not isinstance(n, bool) and n >= 1:
+        return n
+    seasons = entity.get("seasons")
+    if isinstance(seasons, list):
+        count = sum(
+            1
+            for s in seasons
+            if isinstance(s, dict)
+            and isinstance(s.get("season_number"), int)
+            and s["season_number"] >= 1
+        )
+        if count >= 1:
+            return count
+    return None
+
+
 def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
     """Apply :func:`reconcile_episode` to a resource in place.
 
@@ -107,17 +159,61 @@ def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
     once the linked series' per-season counts are known.
 
     Skips (returns False) when there is nothing to do: batch resources,
-    missing episode/season, or an already vetted value
-    (``manual``/``reconciled`` confidence). When there is no basis to make
-    a call (empty map / unknown season) the resource is marked ``"raw"``
-    only if it carries no confidence tag yet.
+    resources with neither ``episode`` nor ``absolute_episode``, manually
+    vetted values (``manual`` confidence), or an already-``reconciled``
+    resource whose season is known.
+
+    When ``season`` is missing but ``absolute_episode`` is known (e.g. a
+    ``NN(MM)`` double-labelled release), the season+episode are derived from
+    the absolute number via :func:`locate_absolute_episode`; numbers beyond
+    the total (+ tolerance) are flagged ``ambiguous``. When there is no basis
+    to make a call (empty map / unknown season) the resource is marked
+    ``"raw"`` only if it carries no confidence tag yet.
     """
+    confidence = getattr(resource, "episode_confidence", None)
     if (
         getattr(resource, "is_batch", False)
-        or resource.episode is None
-        or resource.season is None
-        or getattr(resource, "episode_confidence", None) in ("manual", "reconciled")
+        or confidence == "manual"
+        or (resource.episode is None and getattr(resource, "absolute_episode", None) is None)
     ):
+        return False
+
+    if resource.season is None:
+        # Season-less path: only an absolute number can locate the season.
+        # An already-"reconciled" value (NN(MM) double-label) is exactly the
+        # case that needs its season derived — nothing else wrote it.
+        absolute = getattr(resource, "absolute_episode", None)
+        if absolute is None or not seasons_map:
+            if confidence is None:
+                resource.episode_confidence = "raw"
+            return False
+        located = locate_absolute_episode(absolute, seasons_map)
+        if located is None:
+            resource.episode_confidence = "ambiguous"
+            return True
+        resource.season, resource.episode = located
+        resource.episode_confidence = "reconciled"
+        return True
+
+    # Consistency cross-check: when the title gave BOTH a season marker and
+    # an absolute-across-seasons number, the two must agree. If the absolute
+    # arithmetic locates a DIFFERENT (season, episode) than the resource
+    # currently holds, never silently trust one side — flag the resource
+    # ambiguous for manual review. ``None`` from locate (no usable map, or
+    # the number overshoots the total) is no evidence either way.
+    absolute = getattr(resource, "absolute_episode", None)
+    if absolute is not None:
+        located = locate_absolute_episode(absolute, seasons_map)
+        if located is not None and located != (resource.season, resource.episode):
+            resource.episode_confidence = "ambiguous"
+            return True
+
+    if confidence == "reconciled":
+        return False
+    if resource.episode is None:
+        # Season known but no episode number — nothing to reconcile.
+        if confidence is None:
+            resource.episode_confidence = "raw"
         return False
     result = reconcile_episode(
         raw_episode=resource.episode,
@@ -139,3 +235,36 @@ def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
 def seasons_map_from_list(seasons: list | None) -> dict[int, int]:
     """Build the reconcile map from the stored ``TVSeries.seasons`` column."""
     return _seasons_map_from({"seasons": seasons})
+
+
+def resolve_missing_season(resource, entity: dict | None) -> str | None:
+    """Verified season default / season-uncertain marking (season never guessed).
+
+    Shared by every link path that bypasses ``_apply_to_resource`` — the
+    metadata-agent known-work short-circuit, ``fetch_and_link_metadata``'s
+    agent-free ``_reconcile_with_series``, ``manual_link_metadata`` — and by
+    the season backfill script. Runs AFTER :func:`apply_episode_reconcile`:
+    reconcile may legitimately derive a season from ``absolute_episode``, so
+    only a resource whose ``season`` is STILL None is handled here. Exactly
+    one verified season (:func:`verified_season_count` on ``entity`` — a
+    matched_entity-style dict with ``number_of_seasons``/``seasons``) →
+    ``season = 1``; multi-season or unknown evidence →
+    ``episode_confidence = "ambiguous"`` (季号不确定, routed to a human
+    PendingDecision downstream).
+
+    No-op for resources whose season is already known, batch resources (a 合集
+    bypasses per-episode flow), and ``manual`` rows (user-vetted). Returns
+    ``"season-defaulted"`` / ``"marked-ambiguous"`` when it changed the
+    resource, else ``None``.
+    """
+    if (
+        getattr(resource, "season", None) is not None
+        or getattr(resource, "is_batch", False)
+        or getattr(resource, "episode_confidence", None) == "manual"
+    ):
+        return None
+    if verified_season_count(entity) == 1:
+        resource.season = 1
+        return "season-defaulted"
+    resource.episode_confidence = "ambiguous"
+    return "marked-ambiguous"

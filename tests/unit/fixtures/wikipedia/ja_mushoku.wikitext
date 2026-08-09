@@ -1,0 +1,548 @@
+{{Infobox animanga/Header
+{{Infobox animanga/TVAnime
+| 話数 = 第1期：全23話+番外編1話<br />第2期：全25話
+{{Infobox animanga/Cast
+{{Infobox animanga/Radio
+{{Infobox animanga/Footer
+
+== 各話リスト ==
+{{For2|各話ごとのエピソード|無職転生 〜異世界行ったら本気だす〜のアニメエピソード一覧}}
+{{エピソードリスト/base/header
+| LineColor = #F8CB33
+| Number= 話数
+| Title = サブタイトル
+| Aux0 = 脚本
+| Aux1 = {{nobr|絵コンテ}}
+| Aux2 = 演出
+| Aux3 = {{nobr|作画監督}}
+| Aux4 = {{nobr|総作画監督}}
+| Aux5 = {{nobr|初放送日}}
+| TableStyle = font-size:small
+}}
+{{エピソードリスト/base
+| Chapter = 第1期
+}}
+{{エピソードリスト/base
+| Number = 第一話
+| Title = 無職転生{{Sfnp|MFブックス編集部|2022|p=6}}
+| Aux0 = 岡本学{{Sfnp|MFブックス編集部|2022|pp=6-8}} | Aux0RowSpan = 2
+| Aux1 = 岡本学{{Sfnp|MFブックス編集部|2022|p=6}}
+| Aux2 = {{nobr|平野宏樹}}{{Sfnp|MFブックス編集部|2022|pp=6-8}} | Aux2RowSpan = 2
+| Aux3 = {{hlist-comma|杉山和隆|齊藤佳子|世良コータ|みやち|山崎絵美}}{{Sfnp|MFブックス編集部|2022|p=6}}
+| Aux4 = 杉山和隆{{Sfnp|MFブックス編集部|2022|p=6}}
+| Aux5 = '''2021年'''<br />1月11日
+}}
+{{エピソードリスト/base
+| Number = 第二話
+| Title = 師匠{{Sfnp|MFブックス編集部|2022|p=8}}
+| Aux1 = {{hlist-comma|岡本学|平野宏樹}}{{Sfnp|MFブックス編集部|2022|p=8}}
+| Aux3 = 中小路佳毅{{Sfnp|MFブックス編集部|2022|p=8}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|pp=8-10}} | Aux4RowSpan = 2
+| Aux5 = 1月18日
+}}
+{{エピソードリスト/base
+| Number = 第三話
+| Title = 友達{{Sfnp|MFブックス編集部|2022|p=10}}
+| Aux0 = {{nobr|平野宏樹}}{{Sfnp|MFブックス編集部|2022|p=10}}
+| Aux1 = {{hlist-comma|岡本学|應地千晶}}{{Sfnp|MFブックス編集部|2022|p=10}}
+| Aux2 = 應地千晶{{Sfnp|MFブックス編集部|2022|p=10}}
+| Aux3 = {{hlist-comma|大髙雄大|勝谷遥|川本由記子|萩尾圭太|長谷川圭|みやち|重原克也}}{{Sfnp|MFブックス編集部|2022|p=10}}
+| Aux5 = 1月25日
+}}
+{{エピソードリスト/base
+| Number = 第四話
+| Title = 緊急家族会議{{Sfnp|MFブックス編集部|2022|p=12}}
+| Aux0 = 岡本学{{Sfnp|MFブックス編集部|2022|pp=12-14}} | Aux0RowSpan = 2
+| Aux1 = {{nobr|平野宏樹}}{{Sfnp|MFブックス編集部|2022|p=12}}
+| Aux2 = {{hlist-comma|三好なお|岡旭}}{{Sfnp|MFブックス編集部|2022|p=12}}
+| Aux3 = {{hlist-comma|[[小林利充]]|吉岡勝|[[青野厚司]]|扇多恵子|小美戸幸代}}{{Sfnp|MFブックス編集部|2022|p=12}}
+| Aux4 = -
+| Aux5 = 2月1日
+}}
+{{エピソードリスト/base
+| Number = 第五話
+| Title = お嬢様と暴力{{Sfnp|MFブックス編集部|2022|p=14}}
+| Aux1 = 髙嶋宏之{{Sfnp|MFブックス編集部|2022|p=14}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|勝谷遥|野田猛|萩尾圭太|長谷川圭|髙橋瑞紀|髙嶋宏之}}{{Sfnp|MFブックス編集部|2022|p=14}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|p=14}}
+| Aux5 = 2月8日
+}}
+{{エピソードリスト/base
+| Number = 第六話
+| Title = ロアの休日{{Sfnp|MFブックス編集部|2022|p=16}}
+| Aux0 = 平野宏樹{{Sfnp|MFブックス編集部|2022|p=16}}
+| Aux1 = 相浦和也{{Sfnp|MFブックス編集部|2022|p=16}}
+| Aux2 = {{hlist-comma|山口美浩|球野たかひろ|安川央里|平野宏樹}}{{Sfnp|MFブックス編集部|2022|p=16}}
+| Aux3 = {{hlist-comma|門智昭|小林ゆかり|斎藤雅和|酒井KEI|島崎望|相音光|寺本将梧|冨樫幸二|吉野彰敏}}{{Sfnp|MFブックス編集部|2022|p=16}}
+| Aux4 = みやち{{Sfnp|MFブックス編集部|2022|p=16}}
+| Aux5 = 2月15日
+}}
+{{エピソードリスト/base
+| Number = 第七話
+| Title = 努力の先にあるもの{{Sfnp|MFブックス編集部|2022|p=18}}
+| Aux0 = {{hlist-comma|岡本学|齊藤浩央}}{{Sfnp|MFブックス編集部|2022|pp=18-20}} | Aux0RowSpan = 2
+| Aux1 = 重原克也{{Sfnp|MFブックス編集部|2022|p=18}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|相音光|大髙雄大|川本由記子|齊藤佳子|鈴木春香|世良コータ|寺尾憲治|西田美弥子|吉野彰敏|スタジオマスケット}}{{Sfnp|MFブックス編集部|2022|p=18}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|p=18}}
+| Aux5 = 2月22日
+}}
+{{エピソードリスト/base
+| Number = 第八話
+| Title = ターニングポイント1{{Sfnp|MFブックス編集部|2022|p=20}}
+| Aux1 = 三塩天平{{Sfnp|MFブックス編集部|2022|p=20}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|阿部安佳里|佐藤愛架|長谷川圭|萩尾圭太|髙橋瑞紀|今岡大|今村亮|中村颯}}{{Sfnp|MFブックス編集部|2022|p=20}}
+| Aux4 = 髙橋瑞紀{{Sfnp|MFブックス編集部|2022|p=20}}
+| Aux5 = 3月1日
+}}
+{{エピソードリスト/base
+| Number = 第九話
+| Title = 邂逅{{Sfnp|MFブックス編集部|2022|p=22}}
+| Aux0 = 平野宏樹{{Sfnp|MFブックス編集部|2022|p=22}}
+| Aux1 = 小林敦{{Sfnp|MFブックス編集部|2022|p=22}}
+| Aux2 = {{hlist-comma|球野たかひろ|平野宏樹}}{{Sfnp|MFブックス編集部|2022|p=22}}
+| Aux3 = {{hlist-comma|今岡大|勝谷遥|滝吾郎|田津奈々子|舘崎大|寺本将悟|中島大智|西田美弥子|萩尾圭太|吉野彰敏}}{{Sfnp|MFブックス編集部|2022|p=22}}
+| Aux4 = {{nobr|西田美弥子}}{{Sfnp|MFブックス編集部|2022|p=22}}
+| Aux5 = 3月8日
+}}
+{{エピソードリスト/base
+| Number = 第十話
+| Title = 人の命と初仕事{{Sfnp|MFブックス編集部|2022|p=24}}
+| Aux0 = {{hlist-comma|岡本学|齊藤浩央}}{{Sfnp|MFブックス編集部|2022|p=24}}
+| Aux1 = {{hlist-comma|菅原静貴|平野宏樹}}{{Sfnp|MFブックス編集部|2022|p=24}}
+| Aux2 = {{hlist-comma|平野宏樹|安川央里}}{{Sfnp|MFブックス編集部|2022|p=24}}
+| Aux3 = {{hlist-comma|相澤秀亮|島崎望|鈴木彩史|津熊健徳|福井麻紀|相音光||川本由記子}}{{Sfnp|MFブックス編集部|2022|p=24}}
+| Aux4 = {{hlist-comma|みやち|齊藤佳子}}{{Sfnp|MFブックス編集部|2022|p=24}}
+| Aux5 = 3月15日
+}}
+{{エピソードリスト/base
+| Number = 第十一話
+| Title = 子供と戦士{{Sfnp|MFブックス編集部|2022|p=26}}
+| Aux0 = 中本宗応{{Sfnp|MFブックス編集部|2022|p=26}}
+| Aux1 = 藤井慎吾{{Sfnp|MFブックス編集部|2022|p=26}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|今村亮|髙橋瑞紀|中小路佳毅|長谷川圭|濱口明}}{{Sfnp|MFブックス編集部|2022|p=26}}
+| Aux4 = 髙橋瑞紀{{Sfnp|MFブックス編集部|2022|p=26}}
+| Aux5 = 3月22日
+}}
+{{エピソードリスト/base
+| Number = 第十二話
+| Title = 魔眼を持つ女{{Sfnp|MFブックス編集部|2022|p=28}}
+| Aux0 = 漆原虹平{{Sfnp|MFブックス編集部|2022|p=28}}
+| Aux1 = 小林敦{{Sfnp|MFブックス編集部|2022|p=28}}
+| Aux2 = 片岡史旭{{Sfnp|MFブックス編集部|2022|p=28}}
+| Aux3 = {{hlist-comma|相音光|今岡大|勝谷遥|齊藤佳子|滝吾郎|萩尾圭太|濱口明|吉野彰敏}}{{Sfnp|MFブックス編集部|2022|p=28}}
+| Aux4 = {{hlist-comma|髙橋瑞紀|みやち}}{{Sfnp|MFブックス編集部|2022|p=28}}
+| Aux5 = 10月4日
+}}
+{{エピソードリスト/base
+| Number = 第十三話
+| Title = すれ違い{{Sfnp|MFブックス編集部|2022|p=30}}
+| Aux0 = 高山淳史{{Sfnp|MFブックス編集部|2022|p=30}}
+| Aux1 = 平野宏樹{{Sfnp|MFブックス編集部|2022|p=30}}
+| Aux2 = 木村佳嗣{{Sfnp|MFブックス編集部|2022|p=30}}
+| Aux3 = {{hlist-comma|大髙雄太|兵頭勝|前田義宏}}{{Sfnp|MFブックス編集部|2022|p=30}}
+| Aux4 = {{hlist-comma|齊藤佳子|髙橋瑞紀}}{{Sfnp|MFブックス編集部|2022|p=30}}
+| Aux5 = 10月11日
+}}
+{{エピソードリスト/base
+| Number = 第十四話
+| Title = 只より高いものはない{{Sfnp|MFブックス編集部|2022|p=32}}
+| Aux0 = {{hlist-comma|齊藤浩央|漆原虹平|岡本学}}{{Sfnp|MFブックス編集部|2022|pp=32-34}} | Aux0RowSpan = 2
+| Aux1 = 徳本善信{{Sfnp|MFブックス編集部|2022|p=32}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|相音光|扇多恵子|滝吾郎|津熊健徳|吉野彰敏|降籏秀吉|山村俊了}}{{Sfnp|MFブックス編集部|2022|p=32}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|p=32}}
+| Aux5 = 10月18日
+}}
+{{エピソードリスト/base
+| Number = 第十五話
+| Title = {{nobr|ドルディア村のスローライフ}}{{Sfnp|MFブックス編集部|2022|p=34}}
+| Aux1 = 重原克也{{Sfnp|MFブックス編集部|2022|p=34}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|勝谷遥|川本由記子|西原大樹|萩尾圭太|長谷川圭|降籏秀吉|杜もり}}{{Sfnp|MFブックス編集部|2022|p=34}}
+| Aux4 = 髙橋瑞紀{{Sfnp|MFブックス編集部|2022|p=34}}
+| Aux5 = {{nobr|10月25日}}
+}}
+{{エピソードリスト/base
+| Number = 第十六話
+| Title = 親子げんか{{Sfnp|MFブックス編集部|2022|p=36}}
+| Aux0 = 漆原虹平{{Sfnp|MFブックス編集部|2022|p=36}}
+| Aux1 = {{hlist-comma|徳本善信|[[長井龍雪]]}}{{Sfnp|MFブックス編集部|2022|p=36}}
+| Aux2 = 板庇迪{{Sfnp|MFブックス編集部|2022|p=36}}
+| Aux3 = 大東百合恵{{Sfnp|MFブックス編集部|2022|p=36}}
+| Aux4 = みやち{{Sfnp|MFブックス編集部|2022|p=36}}
+| Aux5 = 11月1日
+}}
+{{エピソードリスト/base
+| Number = 第十七話
+| Title = 再会{{Sfnp|MFブックス編集部|2022|p=38}}
+| Aux0 = 中本宗応{{Sfnp|MFブックス編集部|2022|p=38}}
+| Aux1 = 長井龍雪{{Sfnp|MFブックス編集部|2022|p=38}}
+| Aux2 = 髙嶋宏之{{Sfnp|MFブックス編集部|2022|p=38}}
+| Aux3 = {{hlist-comma|尾西真成人|髙嶋宏之|塚本歩|野田猛|萩尾圭太|吉野彰敏}}{{Sfnp|MFブックス編集部|2022|p=38}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|p=38}}
+| Aux5 = 11月8日
+}}
+{{エピソードリスト/base
+| Number = 第十八話
+| Title = それぞれの旅{{Sfnp|MFブックス編集部|2022|p=40}}
+| Aux0 = 高山淳史{{Sfnp|MFブックス編集部|2022|p=40}}
+| Aux1 = 夢見太一{{Sfnp|MFブックス編集部|2022|p=40}}
+| Aux2 = 熊野千尋{{Sfnp|MFブックス編集部|2022|p=40}}
+| Aux3 = {{hlist-comma|山村俊了|塚本歩|降籏秀吉}}{{Sfnp|MFブックス編集部|2022|p=40}}
+| Aux4 = 髙橋瑞紀{{Sfnp|MFブックス編集部|2022|p=40}}
+| Aux5 = 11月15日
+}}
+{{エピソードリスト/base
+| Number = 第十九話
+| Title = ルート選択{{Sfnp|MFブックス編集部|2022|p=42}}
+| Aux0 = {{hlist-comma|近藤成一|岡本学}}{{Sfnp|MFブックス編集部|2022|pp=42-46}} | Aux0RowSpan = 3
+| Aux1 = 徳本善信{{Sfnp|MFブックス編集部|2022|p=42}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|今岡大|勝谷遥|重藤聡太|滝吾郎|長谷川圭|山村俊了}}{{Sfnp|MFブックス編集部|2022|p=42}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|p=42}}
+| Aux5 = 11月22日
+}}
+{{エピソードリスト/base
+| Number = 第二十話
+| Title = 妹侍女の生まれた日{{Sfnp|MFブックス編集部|2022|p=44}}
+| Aux1 = 重原克也{{Sfnp|MFブックス編集部|2022|p=44}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|今岡大|菊池有騎|塚本歩|二宮奈那子|萩尾圭太|長谷川圭|山村俊了|李嘉}}{{Sfnp|MFブックス編集部|2022|p=44}}
+| Aux4 = {{hlist-comma|相音光|髙橋瑞紀}}{{Sfnp|MFブックス編集部|2022|p=44}}
+| Aux5 = 11月29日
+}}
+{{エピソードリスト/base
+| Number = {{nobr|第二十一話}}
+| Title = ターニングポイント2{{Sfnp|MFブックス編集部|2022|p=46}}
+| Aux1 = 髙嶋宏之{{Sfnp|MFブックス編集部|2022|p=46}} | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|今村亮|勝谷遥|喜友名陽|齊田博之|榊原大河|須川康太|髙嶋宏之|滝吾郎|寺本将梧|長谷川圭|降籏秀吉|長沼智也|野田猛|山内玲奈|吉野彰敏}}{{Sfnp|MFブックス編集部|2022|p=46}}
+| Aux4 = 齊藤佳子{{Sfnp|MFブックス編集部|2022|p=46}}
+| Aux5 = 12月6日
+}}
+{{エピソードリスト/base
+| Number= 第二十二話
+| Title = {{ruby|現実|ユメ}}{{Sfnp|MFブックス編集部|2022|p=48}}
+| Aux0 = 高山淳史{{Sfnp|MFブックス編集部|2022|p=48}}
+| Aux1 = 平野宏樹{{Sfnp|MFブックス編集部|2022|p=48}}
+| Aux2 = 羽迫凱{{Sfnp|MFブックス編集部|2022|p=48}}
+| Aux3 = {{hlist-comma|五十子忍|今岡大|菊池有騎|寺本将梧|山村俊了|吉野彰敏|李嘉}}{{Sfnp|MFブックス編集部|2022|p=48}}
+| Aux4 = 二宮奈那子{{Sfnp|MFブックス編集部|2022|p=48}}
+| Aux5 = 12月13日
+}}
+{{エピソードリスト/base
+| Number= 第二十三話
+| Title = 目覚め、一歩、{{Sfnp|MFブックス編集部|2022|p=50}}
+| Aux0 = {{hlist-comma|中本宗応|理不尽な孫の手}}{{Sfnp|MFブックス編集部|2022|p=50}}
+| Aux1 = 岡本学{{Sfnp|MFブックス編集部|2022|p=50}}
+| Aux2 = 熊野千尋{{Sfnp|MFブックス編集部|2022|p=50}}
+| Aux3 = {{hlist-comma|今岡大|勝谷遥|川本由記子|滝吾郎|長沼智也|二宮奈那子|萩尾圭太|長谷川圭|降籏秀吉|山村俊了|吉野彰敏|李嘉}}{{Sfnp|MFブックス編集部|2022|p=50}}
+| Aux4 = {{hlist-comma|齊藤佳子|齊田博之|髙橋瑞紀}}{{Sfnp|MFブックス編集部|2022|p=50}}
+| Aux5 = 12月20日
+}}
+{{エピソードリスト/base
+| Number= 番外編
+| Title = エリスのゴブリン討伐{{Sfnp|宮昌太朗|2022b|p=28}}
+| Aux0 = {{hlist-comma|近藤成一|岡本学}}{{Sfnp|宮昌太朗|2022b|p=28}}
+| Aux1 = {{hlist-comma|片岡史旭|重原克也}}{{Sfnp|宮昌太朗|2022b|p=28}}
+| Aux2 = {{hlist-comma|片岡史旭|徳本善信|羽迫凱}}{{Sfnp|宮昌太朗|2022b|p=28}}
+| Aux3 = {{hlist-comma|五十子忍|大東百合恵|勝谷遥|川本由記子|菊池有騎|佐藤好|滝吾郎|二宮奈那子|萩尾圭太|山村俊了|吉野彰敏|李嘉}}{{Sfnp|宮昌太朗|2022b|p=28}}
+| Aux4 = {{hlist-comma|相音光|齊藤佳子}}{{Sfnp|宮昌太朗|2022b|p=28}}
+| Aux5 = {{Efn2|2022年3月16日に発売された第1期のBlu-ray第4巻に収録された{{R|news220302_1}}。}}
+}}
+{{エピソードリスト/base
+| Chapter = 第2期
+}}
+{{エピソードリスト/base
+| Number = 第零話
+| Title = 守護術師フィッツ
+| Aux0 = 大野敏哉 | Aux0RowSpan = 2
+| Aux1 = {{hlist-comma|平野宏樹|幸博コマヲ|平澤真}}
+| Aux2 = 結付秤人
+| Aux3 = {{hlist-comma|田中彩|勝谷遥|二宮奈那子|滝本賢児|彭佩琦|萩尾圭太|哈魯|林夢赟|蓋}}
+| Aux4 = 田中彩 | Aux4RowSpan = 2
+| Aux5 = '''2023年'''<br />7月3日
+}}
+{{エピソードリスト/base
+| Number = 第一話
+| Title = 失意の魔術師
+| Aux1 = 平野宏樹
+| Aux2 = 宇和野歩
+| Aux3 = {{hlist-comma|滝本賢児|彭佩琦|二宮奈那子|谷口繁則|齊藤佳子|FEI HUNG|哈魯}}
+| Aux5 = 7月10日
+}}
+{{エピソードリスト/base
+| Number = 第二話
+| Title = 真夜中の森
+| Aux0 = 漆原虹平
+| Aux1 = 新井宣圭 | Aux1ColSpan = 2
+| Aux3 = {{hlist-comma|吉野彰敏|菊池有騎|佐藤好|降籏秀吉|林夢赟|哈魯|蓋}}
+| Aux4 = 孫弘志
+| Aux5 = 7月17日
+}}
+{{エピソードリスト/base
+| Number = 第三話
+| Title = 急接近
+| Aux0 = 高山淳史
+| Aux1 = 大石美絵
+| Aux2 = 辻紗耶佳
+| Aux3 = {{hlist-comma|彭佩琦|吉野彰敏|李嘉|谷口繁則|滝本賢児|萩尾圭太}}
+| Aux4 = 田中彩
+| Aux5 = 7月24日
+}}
+{{エピソードリスト/base
+| Number = 第四話
+| Title = 推薦状
+| Aux0 = 大野敏哉
+| Aux1 = 河野亜矢子
+| Aux2 = 木村佳嗣
+| Aux3 = [[大田和寛]]
+| Aux4 = -
+| Aux5 = 7月31日
+}}
+{{エピソードリスト/base
+| Number = 第五話
+| Title = ラノア魔法大学
+| Aux0 = 漆原虹平
+| Aux1 = 神北小毬 | Aux1ColSpan =2
+| Aux3 = {{hlist-comma|勝谷遥|萩尾圭太|古川博之|吉野彰敏|佐藤好|哈魯|林夢赟|蓋}}
+| Aux4 = 孫弘志
+| Aux5 = 8月7日
+}}
+{{エピソードリスト/base
+| Number = 第六話
+| Title = 死にたくない
+| Aux0 = 高山淳史
+| Aux1 = 宇和野歩 | Aux1ColSpan =2
+| Aux3 = {{hlist-comma|滝本賢児|西田美弥子|山村俊了|Choi So-jeong|水原らくら|林夢赟|徐九|のんの}}
+| Aux4 = 田中彩
+| Aux5 = 8月14日
+}}
+{{エピソードリスト/base
+| Number = 第七話
+| Title = 獣族令嬢拉致監禁事件
+| Aux0 = 大野敏哉
+| Aux1 = 渋谷亮介 | Aux1ColSpan =2
+| Aux3 = {{hlist-comma|山﨑匠馬|世良コータ|二宮奈那子|五十子忍|山村俊了}}
+| Aux4 = - | Aux4RowSpan = 2
+| Aux5 = 8月21日
+}}
+{{エピソードリスト/base
+| Number = 第八話
+| Title = 絶望の婚約者
+| Aux0 = 漆原虹平
+| Aux1 = [[伊藤智彦]]
+| Aux2 = 秋山泰彦
+| Aux3 = {{hlist-comma|宮城有輝|李嘉}}
+| Aux5 = 8月28日
+}}
+{{エピソードリスト/base
+| Number = 第九話
+| Title = 白い仮面
+| Aux0 = 高山淳史
+| Aux1 = 平野宏樹
+| Aux2 = 新谷研人
+| Aux3 = {{hlist-comma|彭佩琦|勝谷遥|滝本賢児|藤井茉由|哈魯|林夢赟|蓋|N<sup>iii</sup>}}
+| Aux4 = 田中彩
+| Aux5 = 9月4日
+}}
+{{エピソードリスト/base
+| Number = 第十話
+| Title = この気持ち
+| Aux0 = 大野敏哉
+| Aux1 = 平田貴大 | Aux1ColSpan =2
+| Aux3 = {{hlist-comma|山村俊了|大田和寛|萩尾圭太|彭佩琦|滝本賢児|川本由記子|哈魯|林夢赟|蓋|唐军跃|魏丽娟|李鑫源}}
+| Aux4 = 孫弘志
+| Aux5 = 9月11日
+}}
+{{エピソードリスト/base
+| Number = 第十一話
+| Title = あなたへ
+| Aux0 = 高山淳史
+| Aux1 = 神北小毬
+| Aux2 = 辻紗耶佳
+| Aux3 = {{hlist-comma|彭佩琦|五十子忍|吉野彰敏|滝本賢児|山村俊了|哈魯|葉瀚文|林夢赟}}
+| Aux4 = 田中彩
+| Aux5 = 9月18日
+}}
+{{エピソードリスト/base
+| Number = 第十二話
+| Title = 伝えたい
+| Aux0 = 大野敏哉
+| Aux1 = 渋谷亮介
+| Aux2 = {{hlist-comma|木村佳嗣|高津戸友明}}
+| Aux3 = {{hlist-comma|世良コータ|李嘉|山﨑匠馬|山村俊了|宮城有輝|藤井茉由|勝谷遥|萩尾圭太|らいす|哈魯|葉瀚文|林夢赟|N<sup>iii</sup>|TangJunYue|WeiLiJuan}}
+| Aux4 = 孫弘志
+| Aux5 = 9月25日
+}}
+{{エピソードリスト/base
+| Number = 第十三話
+| Title = 夢のマイホーム
+| Aux0 = 漆原虹平
+| Aux1 = 宇和野歩
+| Aux2 = 水園敬史
+| Aux3 = {{hlist-comma|山村俊了|滝本賢児|勝谷遥|泉坂つかさ|Choi So-jeong|RocciaNobili|楊鋭|陳婷婷|林夢赟|蓋}}
+| Aux4 = 五十子忍
+| Aux5 = '''2024年'''<br />4月8日
+}}
+{{エピソードリスト/base
+| Number = 第十四話
+| Title = 披露宴
+| Aux0 = 高山淳史
+| Aux1 = 伊藤智彦
+| Aux2 = 神戸唯
+| Aux3 = {{hlist-comma|大田和寛|嶋田聡史|滝本賢児|富坂真帆|らいす|萩尾圭太|彭佩琦}}
+| Aux4 = 孫弘志 | Aux4RowSpan = 2
+| Aux5 = 4月15日
+}}
+{{エピソードリスト/base
+| Number = 第十五話
+| Title = 遥か
+| Aux0 = 大野敏哉
+| Aux1 = [[笹木信作]]
+| Aux2 = 高津戸友明
+| Aux3 = {{hlist-comma|滝本賢児|勝谷遥|らいす|金到暎|林夢赟|蓋|楊鋭|王世林|陳婷婷|何振偉|何映潭}}
+| Aux5 = 4月22日
+}}
+{{エピソードリスト/base
+| Number = 第十六話
+| Title = ノルンとアイシャ
+| Aux0 = 漆原虹平
+| Aux1 = 伊藤智彦 | Aux1RowSpan = 3
+| Aux2 = 辻紗耶佳
+| Aux3 = {{hlist-comma|勝谷遥|金到暎|佐藤悠己|杉薗真希|世良コータ|萩尾圭太|宮城有輝|RocciaNobili|林夢赟|蓋}}
+| Aux4 = 世良コータ | Aux4RowSpan = 2
+| Aux5 = 4月29日
+}}
+{{エピソードリスト/base
+| Number = 第十七話
+| Title = 兄貴の気持ち
+| Aux0 = 谷内直人
+| Aux2 = 神戸唯
+| Aux3 = {{hlist-comma|山村俊了|らいす|勝谷遥|川本由記子|降籏秀吉|林夢赟|蓋}}
+| Aux5 = 5月6日
+}}
+{{エピソードリスト/base
+| Number = 第十八話
+| Title = ターニングポイント3
+| Aux0 = 大野敏哉
+| Aux2 = 辻紗耶佳
+| Aux3 = {{hlist-comma|嶋田聡史|菊池一真|萩尾圭太|杉薗真希|林夢赟|蓋|陳婷婷|王世林|謝佳佳}}
+| Aux4 = 五十子忍
+| Aux5 = 5月13日
+}}
+{{エピソードリスト/base
+| Number = 第十九話
+| Title = 砂漠の旅
+| Aux0 = 漆原虹平
+| Aux1 = 高津戸友明 | Aux1ColSpan =2
+| Aux3 = {{hlist-comma|らいす|滝本賢児|宮城有輝|北島勇樹|清水博幸|佐藤悠己|降籏秀吉|奥野倫史|本谷愛|世良コータ|反田誠二|嶋田聡史|何振偉|李玲|蓋|杭州神在動画}}
+| Aux4 = 孫弘志
+| Aux5 = 5月27日
+}}
+{{エピソードリスト/base
+| Number = 第二十話
+| Title = 迷宮入り
+| Aux0 = 高山淳史 | Aux0RowSpan = 2
+| Aux1 = 宇和野歩
+| Aux2 = {{hlist-comma|長島広季|欠真間雅美}}
+| Aux3 = {{hlist-comma|山村俊了|勝谷遥|滝本賢児|清水博幸|萩尾圭太|扇妙子|川本由記子|降籏秀吉|杉薗真希|世良コータ|蓋}}
+| Aux4 = 世良コータ
+| Aux5 = 6月3日
+}}
+{{エピソードリスト/base
+| Number = 第二十一話
+| Title = 第六階層の魔法陣
+| Aux1 = {{hlist-comma|[[西森章]]|藤井康晶}}
+| Aux2 = {{hlist-comma|辻紗耶佳|渋谷亮介}}
+| Aux3 = {{hlist-comma|勝谷遥|降籏秀吉|山村俊了|滝本賢児|らいす|萩尾圭太|泉坂つかさ|宮城有輝|佐藤悠己|杉薗真希|川本由記子|蓋|杭州神在動画}}
+| Aux4 ={{hlist-comma|世良コータ|孫弘志}}
+| Aux5 = 6月10日
+}}
+{{エピソードリスト/base
+| Number = 第二十二話
+| Title = 親
+| Aux0 = 漆原虹平 | Aux0RowSpan = 2
+| Aux1 = 白井宏旨
+| Aux2 = {{hlist-comma|邱家和|秋山泰彦}}
+| Aux3 = {{hlist-comma|大田和寛|泉坂つかさ|世良コータ|嶋田聡史}}
+| Aux4 = 五十子忍
+| Aux5 = 6月17日
+}}
+{{エピソードリスト/base
+| Number = 第二十三話
+| Title = 帰ろう
+| Aux1 = 春水融
+| Aux2 = 折木常悟朗
+| Aux3 = {{hlist-comma|泉坂つかさ|嶋田聡史|楊鋭|鄭敏熙|陳婷婷|蔡孟書|日堯|豪D|劉玟萱|李育蓁|吳亭頣|曽品喬}}
+| Aux4 = 孫弘志
+| Aux5 = 6月24日
+}}
+{{エピソードリスト/base
+| Number = 第二十四話
+| Title = 嗣ぐ
+| Aux0 = 谷内直人
+| Aux1 = 大石美絵
+| Aux2 = {{hlist-comma|高津戸友明|長島広季|渋谷亮介}}
+| Aux3 = {{hlist-comma|山村俊了|勝谷遥|滝本賢児|らいす|扇妙子|降籏秀吉|古川良太|泉坂つかさ|孫弘志|杉薗真希|萩尾圭太|世良コータ|鄭敏熙|陳婷婷|章笔人|蓋|周俊杰|王瑞浩|叶昌}}
+| Aux4 = {{hlist-comma|世良コータ|孫弘志}}
+| Aux5 = 7月1日
+}}
+{{エピソードリスト/base
+| Chapter = 第3期
+}}
+{{エピソードリスト/base
+| Number = 第一話
+| Title = 燃えよ狂犬
+| Aux0 = 高山淳史
+| Aux1 = 渋谷亮介
+| Aux2 = 加藤匠悟
+| Aux3 = {{hlist-comma|中野圭哉|勝谷遥|李嘉|嶋田聡史|藤部生馬|杉薗真希|大原大|山村俊了}}
+| Aux4 = {{hlist-comma|中野圭哉|嶋田聡史}}
+| Aux5 = '''2026年'''<br />7月4日 | Aux5RowSpan = 2
+}}
+{{エピソードリスト/base
+| Number = 第二話
+| Title = 吠えよ狂犬
+| Aux0 = {{hlist-comma|高山淳史|理不尽な孫の手}}
+| Aux1 = {{hlist-comma|藍崎灯|渋谷亮介}}
+| Aux2 = 藍崎灯
+| Aux3 = 大田和寛
+| Aux4 = - 
+}}
+{{エピソードリスト/base
+| Number = 第三話
+| Title = 帰ってきた日常
+| Aux0 = 漆原虹平
+| Aux1 = 秋山泰彦
+| Aux2 = 石丸諒
+| Aux3 = {{hlist-comma|李嘉|扇多恵子|藤部生馬|AUT}}
+| Aux4 = 嶋田聡史
+| Aux5 = 7月13日
+}}
+{{エピソードリスト/base
+| Number = 第四話
+| Title = 水王級魔術師
+| Aux0 = 谷内直人
+| Aux1 = 長島広季 | Aux1ColSpan =2
+| Aux3 = {{hlist-comma|大原大|杉薗真希|萩尾圭太|山村俊了|楊鋭|狄艮|渠逸辰|陳婷婷}}
+| Aux4 = 藤部生馬
+| Aux5 = 7月20日
+}}
+{{エピソードリスト/base
+| Number = 第五話
+| Title = お祝い
+| Aux0 = 漆原虹平
+| Aux1 = 伊藤智彦
+| Aux2 = 立野友貴
+| Aux3 = {{hlist-comma|陳凱馳|王力|徐光咏|阿肆|禾采|PH-722|胡新月|罗仪|丘|文静|孙佳琦|Leisurely|史莱姆II型|星界行者}}
+| Aux4 = {{hlist-comma|勝谷遥|山村俊了}}
+| Aux5 = 7月27日
+}}
+{{エピソードリスト/base
+| Number = 第六話
+| Title = 修羅場再び？
+| Aux0 = 谷内直人
+| Aux1 = 大石美絵
+| Aux2 = 星慧斗
+| Aux3 = {{hlist-comma|壽恵理子|AUT|杉薗真希|狄艮|渠逸辰|何振偉|何映潭|蓋|Hunter|猫野|yaya|陈海官|刘婷}}
+| Aux4 = 中野圭哉
+| Aux5 = 8月3日
+}}
+{{エピソードリスト/base/footer}}
+

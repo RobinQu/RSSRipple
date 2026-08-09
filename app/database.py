@@ -331,9 +331,13 @@ async def _apply_light_migrations(conn) -> None:
         ("agents", "llm_prompt", "TEXT"),
         # The candidate the LLM picked for a PendingDecision (resource id).
         ("pending_decisions", "llm_picked_resource_id", "VARCHAR(36)"),
-        # Per-channel external metadata source (tmdb/exa/wikipedia/jina/local).
+        # Per-channel external metadata source (wikipedia/tmdb since P1;
+        # legacy exa/jina/local values are converged by the UPDATE below).
         # NULL → fall back to the default source at runtime.
         ("channels", "metadata_source", "VARCHAR(32)"),
+        # Ordered Exa-fallback site whitelist for the channel (JSON list of
+        # registry source names). NULL → default order; [] → fallback disabled.
+        ("channels", "metadata_fallback_sources", "TEXT" if is_turso else "JSONB"),
         # Metadata retry state on FileResource: ``metadata_matched_at`` only
         # records successes, so failed attempts looked like "never tried".
         # These let the fetch-time backfill re-run transient failures (with
@@ -357,6 +361,16 @@ async def _apply_light_migrations(conn) -> None:
         # episode_count}, ...]) so episode reconciliation works on the
         # agent-free link paths (known-work short-circuit, fuzzy auto-link).
         ("tv_series", "seasons", "TEXT" if is_turso else "JSONB"),
+        # Release year parsed from the raw title — drives the Layer-3
+        # local-match year guard (same-title remakes like 攻壳机动队 2026).
+        ("file_resources", "title_year", "INTEGER"),
+        # Season on PendingDecision — part of the idempotency key so S1E3
+        # and S4E3 of the same series no longer collide.
+        ("pending_decisions", "season", "INTEGER"),
+        # Franchise grouping (WorkCollection) — the work_collections table
+        # itself is created by create_all.
+        ("tv_series", "collection_id", "VARCHAR(36)"),
+        ("movies", "collection_id", "VARCHAR(36)"),
     ]
 
     for table, column, ddl in additions:
@@ -377,6 +391,19 @@ async def _apply_light_migrations(conn) -> None:
         async with _best_effort(conn, f"add column {table}.{column}"):
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
+
+    # ── channels.metadata_source two-source convergence ──────────────────
+    # Channel metadata sources are now restricted to wikipedia/tmdb (Phase
+    # P1). Values set before the convergence (exa/jina/local/combined) would
+    # no longer pass API validation; rewrite them to the new default once.
+    # Idempotent: only touches non-conforming values. NULL stays NULL (it
+    # resolves to the default at runtime).
+    async with _best_effort(conn, "channels.metadata_source convergence"):
+        await conn.execute(text(
+            "UPDATE channels SET metadata_source = 'wikipedia' "
+            "WHERE metadata_source IS NOT NULL "
+            "AND metadata_source NOT IN ('wikipedia', 'tmdb')"
+        ))
 
     # ── downloader_type enum widening ────────────────────────────────────
     # Older PostgreSQL DBs may have a native enum restricting
@@ -535,3 +562,46 @@ async def _apply_light_migrations(conn) -> None:
                 "[migrate] reset %s not_found rows for auto-link reprocessing",
                 getattr(res, "rowcount", "?"),
             )
+
+    # ── work_external_ids identity-bag seed (Phase P3) ───────────────────
+    # The identity bag reverse-maps any known (source, external_id) to a work
+    # (see app/models/work_external_id.py). Seed it from existing rows: every
+    # TVSeries/Movie whose primary external_id/external_source references a
+    # registry source gets a bag row (raw, as stored on the column). Idempotent
+    # via a Python-side set difference (dialect-agnostic); the table itself is
+    # created by create_all.
+    async with _best_effort(conn, "work_external_ids seed"):
+        import uuid as _uuid
+
+        from app.services.metadata_source_registry import REGISTRY_SOURCES
+
+        existing = {
+            (row[0], row[1])
+            for row in (await conn.execute(
+                text("SELECT source, external_id FROM work_external_ids")
+            )).fetchall()
+        }
+        claimed: set[tuple[str, str]] = set()
+        seeds: list[tuple[str, str, str, str]] = []
+        for work_type, table in (("series", "tv_series"), ("movie", "movies")):
+            for row in (await conn.execute(text(
+                f"SELECT id, external_source, external_id FROM {table} "
+                "WHERE external_id IS NOT NULL AND external_source IS NOT NULL"
+            ))).fetchall():
+                work_id, source, ext = row[0], (row[1] or "").strip().lower(), row[2]
+                if not ext or source not in REGISTRY_SOURCES:
+                    continue
+                if (source, ext) in existing or (source, ext) in claimed:
+                    # Same id claimed by two existing rows (pre-bag duplicate):
+                    # first row wins; the pair stays a dedup candidate.
+                    continue
+                claimed.add((source, ext))
+                seeds.append((work_type, work_id, source, ext))
+        for work_type, work_id, source, ext in seeds:
+            await conn.execute(text(
+                "INSERT INTO work_external_ids(id, work_type, work_id, source, external_id) "
+                "VALUES (:id, :wt, :wid, :src, :ext)"
+            ), {"id": str(_uuid.uuid4()), "wt": work_type, "wid": work_id,
+                "src": source, "ext": ext})
+        if seeds:
+            logger.info("[migrate] seeded %d work_external_ids rows", len(seeds))

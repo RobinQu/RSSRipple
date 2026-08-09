@@ -20,7 +20,8 @@ FieldCondition = {
            "absolute_episode" | "is_batch" | "subtitle_langs" |
            "episode_confidence" |
            "title_cn" | "title_en" | "search_title" |
-           "movie.rating" | "movie.year" | "series.rating" | "series.year",
+           "movie.rating" | "movie.year" | "series.rating" | "series.year" |
+           "movie.collection" | "series.collection",
   "operator": "eq" | "ne" | "contains" | "fuzzy" | "in" | "regex" |
               "gt" | "gte" | "lt" | "lte" |
               "is_empty" | "is_not_empty",
@@ -42,6 +43,9 @@ FieldCondition = {
     - `year`：作品年份，由 `Movie.release_date` / `TVSeries.start_date` 取年份派生。
     - 资源未关联作品（或关联关系未加载）时字段值为空，适用空值语义：`gte 7` 不通过、`ne 7` 通过、可用 `is_empty`/`is_not_empty` 显式匹配。
     - 求值路径（rules-preview、test-filter、Agent 运行、回填提交）查询 FileResource 时必须 `selectinload` `series`/`movie` 关系，异步会话禁止触发 lazy load；未加载的关系按"无关联作品"处理。
+  - 合集字段（`movie.collection`, `series.collection`）是带命名空间的字符串字段，取值为作品所属 WorkCollection 的显示名（`title_cn or title_en`），支持字符串字段操作符：
+    - 解析链有两层：资源的 `series`/`movie` 关系 + 作品的 `collection` 关系，任一未 eager-load（或未关联）时值为空，适用标准空值语义（`eq` 不通过、`ne` 通过、空值匹配用 `is_empty`/`is_not_empty`）。
+    - 所有求值过滤的查询点必须链式加载 `.selectinload(FileResource.series).selectinload(TVSeries.collection)`（movie 同理），否则过滤静默误评。已知求值点：Agent 派发（main.py 后台任务）、回填提交、rules-preview、test-filter、PendingDecision LLM 重选。
   - 布尔字段（`is_batch`）支持：`eq`, `ne`。value 接受原生 bool、数字 `1/0`、字符串 `"true"/"false"/"yes"/"no"/"1"/"0"`。
   - 列表字段（`subtitle_langs`）支持：`eq`, `ne`, `contains`, `in`。
     - `contains`：value 是单个 tag，若列表元素包含该 tag（大小写不敏感）则通过。

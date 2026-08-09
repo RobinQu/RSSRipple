@@ -33,20 +33,16 @@ from app.services.metadata_exa_fallback import (
         ("https://anilist.co/anime/21", ("anilist", "anilist:21")),
         ("https://www.imdb.com/title/tt0944947/", ("imdb", "imdb:tt0944947")),
         ("https://movie.douban.com/subject/1292052", ("douban", "douban:1292052")),
-        ("https://eiga.com/movie/12345", ("eiga", "eiga:12345")),
     ],
 )
 def test_source_and_id_from_authoritative_urls(url, expected):
     assert _source_and_id_from_url(url) == expected
 
 
-def test_baidu_baike_slug_is_url_decoded():
-    url = "https://baike.baidu.com/item/%E6%B5%8B%E8%AF%95%E5%89%A7%E9%9B%86/12345"
-    assert _source_and_id_from_url(url) == ("baidu_baike", "baidu_baike:测试剧集")
-
-
-def test_eiga_news_url_without_id_returns_source_only():
-    assert _source_and_id_from_url("https://eiga.com/news/") == ("eiga", None)
+def test_dropped_sites_fall_back_to_exa_web():
+    # baidu_baike / eiga are dropped from the identity scheme (Phase P1).
+    assert _source_and_id_from_url("https://baike.baidu.com/item/测试剧集/12345") == ("exa_web", None)
+    assert _source_and_id_from_url("https://eiga.com/movie/12345") == ("exa_web", None)
 
 
 def test_unrecognized_or_idless_urls_fall_back_to_exa_web():
@@ -146,7 +142,13 @@ async def test_exa_web_search_reraises_search_errors():
 # ---------------------------------------------------------------------------
 
 
-_HITS = [{"title": "T", "url": "https://bangumi.tv/subject/1", "text": "x"}]
+_HITS = [{
+    "title": "T",
+    "url": "https://bangumi.tv/subject/1",
+    "text": "x",
+    "external_source": "bangumi",
+    "external_id": "bangumi:1",
+}]
 
 
 async def test_exa_judge_returns_none_without_hits():
@@ -283,3 +285,69 @@ async def test_fallback_query_carries_language_context():
     searcher.reset_mock()
     await exa_fallback_judge(AsyncMock(), "Plain Title", exa_searcher=searcher)
     assert searcher.await_args[0][0] == "Plain Title"
+
+
+# ---------------------------------------------------------------------------
+# Ordered fallback whitelist + identity-only matched entity (Phase P1)
+# ---------------------------------------------------------------------------
+
+_ORDERED_HITS = [
+    {"title": "D", "url": "https://movie.douban.com/subject/1", "text": "d",
+     "external_source": "douban", "external_id": "douban:1"},
+    {"title": "B", "url": "https://bangumi.tv/subject/2", "text": "b",
+     "external_source": "bangumi", "external_id": "bangumi:2"},
+    {"title": "W", "url": "https://example.com/blog", "text": "w",
+     "external_source": "exa_web", "external_id": None},
+]
+
+
+async def test_fallback_empty_whitelist_disables_fallback():
+    searcher = AsyncMock(return_value=_ORDERED_HITS)
+    assert await exa_fallback_judge(
+        AsyncMock(), "title", exa_searcher=searcher, fallback_sources=[]
+    ) is None
+    searcher.assert_not_awaited()
+
+
+async def test_fallback_whitelist_filters_and_orders_hits():
+    searcher = AsyncMock(return_value=list(_ORDERED_HITS))
+    model = AsyncMock()
+    model.ainvoke.return_value = SimpleNamespace(content='{"found": false}')
+    await exa_fallback_judge(
+        model, "title", exa_searcher=searcher, fallback_sources=["bangumi", "douban"]
+    )
+    user_msg = model.ainvoke.call_args[0][0][1].content
+    # exa_web hit dropped (not a whitelist member); bangumi presented first
+    # because it is earlier in the ordered whitelist.
+    assert "example.com" not in user_msg
+    assert user_msg.index("bangumi.tv") < user_msg.index("douban.com")
+
+
+async def test_fallback_whitelist_without_match_is_definitive_not_found():
+    hits = [h for h in _ORDERED_HITS if h["external_source"] == "douban"]
+    searcher = AsyncMock(return_value=hits)
+    finalize, info = await exa_fallback_judge(
+        AsyncMock(), "title", exa_searcher=searcher, fallback_sources=["bangumi"]
+    )
+    assert finalize["found"] is False
+    assert info["error"] is None
+
+
+async def test_fallback_matched_entity_is_identity_only():
+    searcher = AsyncMock(return_value=_HITS)
+    model = AsyncMock()
+    model.ainvoke.return_value = SimpleNamespace(content=(
+        '{"found": true, "matched_entity": {"title_cn": "作品", '
+        '"wikipedia_url": "https://bangumi.tv/subject/9", '
+        '"number_of_seasons": 2, "number_of_episodes": 24, '
+        '"seasons": [{"season_number": 1, "episode_count": 12}]}}'
+    ))
+    finalize, _ = await exa_fallback_judge(model, "作品", exa_searcher=searcher)
+    me = finalize["matched_entity"]
+    # Content follows the primary source: fallback-supplied entity must not
+    # carry season/episode counts even when the LLM emits them.
+    assert "number_of_seasons" not in me
+    assert "number_of_episodes" not in me
+    assert "seasons" not in me
+    assert me["external_source"] == "bangumi"
+    assert me["external_id"] == "bangumi:9"
