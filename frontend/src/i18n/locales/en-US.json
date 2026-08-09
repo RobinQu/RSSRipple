@@ -366,7 +366,36 @@
     "llmLabel": "LLM: ",
     "lastRunLabel": "Last run: ",
     "selectedWorks": "Selected Works",
-    "candidateCount": "{n} candidate(s)"
+    "candidateCount": "{n} candidate(s)",
+    "notifications": "Notifications",
+    "webhookTitle": "Webhook Notifications",
+    "webhookNotRegistered": "Not registered",
+    "webhookMockTag": "Mock webhook",
+    "webhookRegister": "Register webhook",
+    "webhookModalTitle": "Register webhook",
+    "webhookEditTitle": "Edit webhook",
+    "webhookUrlLabel": "Webhook URL",
+    "webhookUrlRequired": "Please enter the webhook URL",
+    "webhookUrlInvalid": "Please enter a valid http/https URL",
+    "webhookMockLabel": "mock webhook",
+    "webhookUnregister": "Unregister",
+    "webhookUnregisterConfirm": "Unregister this webhook? Download notifications will no longer be sent.",
+    "webhookSaved": "Webhook saved",
+    "webhookUnregistered": "Webhook unregistered",
+    "notifRegenerate": "Regenerate",
+    "notifRegenerateTitle": "Regenerate notifications",
+    "notifRegeneratePlaceholder": "Leave empty to check from the earliest completed task",
+    "notifBackfilled": "Created {n} notification(s)",
+    "notifColCreatedAt": "Created",
+    "notifColNotifiedAt": "Last triggered",
+    "notifColError": "Error",
+    "notifDetail": "Details",
+    "notifDetailTitle": "Notification details",
+    "notifAttempts": "{n} attempt(s)",
+    "notifEmpty": "No notifications yet",
+    "notifRetried": "Reset to pending for redelivery",
+    "notifRetryFailed": "Retry failed",
+    "webhookTokenLabel": "Callback token (configure into the consumer):"
   },
   "downloaders": {
     "title": "Downloaders",
@@ -554,8 +583,14 @@
     "listField": "List Field",
     "enumField": "Enum Field",
     "workField": "Linked Work Field",
-    "movie": { "rating": "Movie Rating (0-10)", "year": "Movie Year" },
-    "series": { "rating": "Series Rating (0-10)", "year": "Series Year" },
+    "movie": {
+      "rating": "Movie Rating (0-10)",
+      "year": "Movie Year"
+    },
+    "series": {
+      "rating": "Series Rating (0-10)",
+      "year": "Series Year"
+    },
     "enumValue_raw": "Raw",
     "enumValue_reconciled": "Reconciled",
     "enumValue_ambiguous": "Ambiguous",
@@ -793,7 +828,9 @@
     "success": "Success",
     "failed": "Failed",
     "running": "Running",
-    "pending_decisions": "Pending decisions"
+    "pending_decisions": "Pending decisions",
+    "processing": "Processing",
+    "done": "Done"
   },
   "settings": {
     "title": "System Settings",

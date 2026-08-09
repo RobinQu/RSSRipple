@@ -61,3 +61,9 @@ class DownloadTask(Base):
     agent = relationship("Agent", back_populates="download_tasks")
     file_resource = relationship("FileResource", back_populates="download_tasks")
     downloader = relationship("DownloaderInstance", back_populates="download_tasks")
+    notification = relationship(
+        "DownloadNotification",
+        back_populates="download_task",
+        uselist=False,
+        passive_deletes=True,
+    )

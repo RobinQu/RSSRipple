@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -14,6 +15,7 @@
     "@ant-design/icons": "^6.2.5",
     "antd": "^6.4.4",
     "date-fns": "^4.4.0",
+    "dayjs": "^1.11.21",
     "i18next": "^26.3.3",
     "lucide-react": "^1.21.0",
     "react": "^19.2.6",

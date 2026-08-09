@@ -1,7 +1,7 @@
 # 集成测试清单（重组后）
 
 > 重组完成于 2026-07-24 ｜ 分支 `refactor/integration-tests`
-> 范围：`tests/integration/` ｜ **14 个测试文件 / 149 个测试用例**（重组前 16 文件 / 166 用例，去重 17 个）
+> 范围：`tests/integration/` ｜ **15 个测试文件 / 150 个测试用例**（重组前 16 文件 / 166 用例，去重 17 个；后增通知链路 1 文件 / 1 用例）
 
 ## 1. 目录结构
 
@@ -38,6 +38,8 @@ tests/integration/
     test_llm_mock.py               # 打 app-llm（mock LLM）：analyze(-stream) + LLM 候选选择 + metadata ReAct + 解析变体
     test_metadata_sources_mock.py  # 打 app-llm：tmdb/jina/exa 单源 ReAct（假 key 快速失败）
     test_transmission_actions.py   # 真实 Transmission RPC：磁力派发 + pause/resume/retry/delete
+    test_notifications.py          # 下载通知全链路（打 app-llm，scheduler 开）：mock webhook 注册
+                                   # （per-Agent token）→ completed 自动建通知 → 投递 → start/ack/fail/retry
   external/                        # 直连 Python + 真实外部 API（无需 docker 栈，只需 API key）
     __init__.py
     test_metadata_agent_accuracy.py     # MetadataAgent.process_title_only 对 ground_truth_v1 准确率（LLM）

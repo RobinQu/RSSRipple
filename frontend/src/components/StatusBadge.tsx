@@ -37,12 +37,14 @@ const statusStyleMap: Record<string, Pair> = {
   success: SUCCESS,
   running: INFO,
   pending_decisions: WARN,
+  processing: INFO,
+  done: SUCCESS,
 };
 
 const statusKeySet = new Set([
   'active', 'inactive', 'error', 'pending', 'queued', 'downloading',
   'paused', 'completed', 'cancelled', 'connected', 'disconnected',
-  'success', 'failed', 'running', 'pending_decisions',
+  'success', 'failed', 'running', 'pending_decisions', 'processing', 'done',
 ]);
 
 interface StatusBadgeProps {

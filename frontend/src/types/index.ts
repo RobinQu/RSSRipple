@@ -563,6 +563,37 @@ export interface PendingDecision {
   movie?: Movie;
 }
 
+// DownloadNotification
+export type NotificationStatus = 'pending' | 'processing' | 'done' | 'failed';
+
+export interface DownloadNotification {
+  id: string;
+  agent_id: string;
+  download_task_id: string;
+  status: NotificationStatus;
+  error_message: string | null;
+  attempt_count: number;
+  next_attempt_at: string | null;
+  notified_at: string | null;
+  processed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Detail view adds the full payload snapshot (absent from list items).
+export interface DownloadNotificationDetail extends DownloadNotification {
+  payload: Record<string, unknown> | null;
+}
+
+export interface AgentWebhook {
+  registered: boolean;
+  url: string | null;
+  mock: boolean;
+  /** Per-agent callback token issued at registration; consumer sends it as
+   * Bearer on start/ack/fail callbacks. */
+  token: string | null;
+}
+
 // Downloader
 export type DownloaderStatus = 'connected' | 'disconnected' | 'error';
 

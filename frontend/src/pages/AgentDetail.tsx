@@ -61,6 +61,7 @@ import FilterBuilder, {
 } from '../components/FilterBuilder';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
+import NotificationsPanel from '../components/NotificationsPanel';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
 import type {
@@ -1176,6 +1177,13 @@ export default function AgentDetail() {
                 )}
               </div>
             ),
+          },
+          {
+            key: 'notifications',
+            label: t('agents.notifications'),
+            // Mounted lazily by Tabs on first activation; the panel fetches
+            // webhook status and the notification list on mount.
+            children: id ? <NotificationsPanel agentId={id} /> : null,
           },
           {
             key: 'run',

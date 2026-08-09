@@ -2,9 +2,9 @@
 
 Picks the right async wrapper for a :class:`DownloaderInstance` based on
 ``type``. All wrappers expose the same async surface (``test_connection``,
-``add_torrent``, ``list_torrents``, ``get_torrent``, ``pause_torrent``,
-``resume_torrent``, ``remove_torrent``, ``free_space``) so callers can be
-downloader-agnostic.
+``add_torrent``, ``list_torrents``, ``get_torrent``, ``get_torrent_files``,
+``pause_torrent``, ``resume_torrent``, ``remove_torrent``, ``free_space``) so
+callers can be downloader-agnostic.
 """
 
 from __future__ import annotations

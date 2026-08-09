@@ -476,6 +476,7 @@ from app.api.v1 import (  # noqa: E402
     decisions,
     downloaders,
     movies,
+    notifications,
     resources,
     series,
     system_settings,
@@ -496,6 +497,7 @@ app.include_router(audio_works.router, prefix="/api/v1", tags=["audio-works"])
 app.include_router(works.router, prefix="/api/v1", tags=["works"])
 app.include_router(collections.router, prefix="/api/v1", tags=["collections"])
 app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])
+app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
 
 # Poster image cache - mount even if empty/default
 _poster_dir = Path(settings.poster_cache_dir)

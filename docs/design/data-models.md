@@ -301,6 +301,11 @@ class Agent(Base):
                                          # 的新资源。Null=从未运行（按"推进到 now、不处理
                                          # 任何资源"处理，避免静默自动派发历史回填——回填
                                          # 必须经 rules-preview 选择流程）
+    notify_webhook_url: str | None       # 下载通知 webhook（按 Agent 注册）；null=未注册
+                                         # （不投递，队列继续积累，注册后自动恢复）
+    notify_webhook_mock: bool            # mock webhook：投递直接记成功不发 HTTP，仅查看内容
+    notify_webhook_token: str | None     # 回调 token：注册 webhook 时动态生成（重新注册换发、
+                                         # 注销清空）；消费者 start/ack/fail 回调按 Agent 比对
     created_at: datetime
     updated_at: datetime
 
@@ -373,6 +378,33 @@ class DownloadTask(Base):
     agent: Agent
     file_resource: FileResource
     downloader: DownloaderInstance
+    notification: DownloadNotification | None   # 一对一（download_task_id 唯一）
+```
+
+### DownloadNotification（下载完成通知）
+
+下载任务驱动的通知队列，从属于下载 Agent（每 Agent 单例 FIFO，按 `created_at` 升序）。payload 为创建时冻结的完整快照（任务 + 资源 + 作品 + torrent 文件清单）。投递、退避、回调状态机的完整语义见 [notifications.md](notifications.md)。
+
+```python
+class DownloadNotification(Base):
+    __tablename__ = "download_notifications"
+
+    id: str                              # UUID
+    agent_id: str | None → Agent         # 队列归属（ON DELETE SET NULL 保留历史）
+    download_task_id: str → DownloadTask # Unique：一个任务至多一条通知
+    payload: dict                        # 完整快照 JSON
+    status: str                          # "pending" | "processing" | "done" | "failed"
+    error_message: str | None
+    attempt_count: int                   # 已投递次数（含失败）
+    next_attempt_at: datetime | None     # 下次投递时间（指数退避）
+    notified_at: datetime | None         # 最近一次投递成功时间
+    processed_at: datetime | None        # ack/fail 时间
+    created_at: datetime
+    updated_at: datetime
+
+    # Relationships
+    agent: Agent
+    download_task: DownloadTask
 ```
 
 ### AgentSuggestion（Agent 未识别资源建议）
