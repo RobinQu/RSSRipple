@@ -1,5 +1,5 @@
 """API tests for download notifications: queue listing (aggregated delivery
-status), webhook collection CRUD, backfill, and the retry endpoints.
+status), webhook collection CRUD, regenerate, and the retry endpoints.
 
 Delivery state lives on per-webhook WebhookDelivery rows; a notification's
 displayed status is aggregated: no deliveries or any pending → "pending";
@@ -278,18 +278,20 @@ async def test_webhook_create_fans_out_backlog(client, seed, db_session):
 
 
 # ---------------------------------------------------------------------------
-# Backfill
+# Regenerate
 # ---------------------------------------------------------------------------
 
 
-async def test_backfill_creates_only_missing(client, seed, db_session):
-    # seed's task already has a notification → nothing to backfill.
+async def test_regenerate_endpoint(client, seed, db_session):
+    # seed's task already has a notification. Its payload lacks "files" and
+    # its downloader is unreachable (no daemon in tests) → the generation
+    # chain gets no torrent snapshot, so the old payload is kept as-is.
     resp = await client.post(
-        f"/api/v1/agents/{seed['agent'].id}/notifications/backfill",
+        f"/api/v1/agents/{seed['agent'].id}/notifications/regenerate",
         json={"since": None},
     )
     assert resp.status_code == 200
-    assert resp.json()["data"]["created"] == 0
+    assert resp.json()["data"] == {"created": 0, "regenerated": 0}
 
     # A second completed task without a notification gets one.
     task2 = DownloadTask(
@@ -303,7 +305,7 @@ async def test_backfill_creates_only_missing(client, seed, db_session):
     await db_session.commit()
 
     resp = await client.post(
-        f"/api/v1/agents/{seed['agent'].id}/notifications/backfill",
+        f"/api/v1/agents/{seed['agent'].id}/notifications/regenerate",
         json={"since": None},
     )
     assert resp.json()["data"]["created"] == 1

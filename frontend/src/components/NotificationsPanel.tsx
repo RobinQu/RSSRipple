@@ -47,7 +47,7 @@ interface WebhookFormValues {
 }
 
 /** Notifications tab of the agent detail page: webhook registrations
- * (multi-webhook), backfill ("regenerate"), retries and the paginated
+ * (multi-webhook), regenerate, retries and the paginated
  * notification log. Mounted lazily by AgentDetail's Tabs, so all fetching
  * happens on mount. */
 export default function NotificationsPanel({ agentId }: { agentId: string }) {
@@ -63,10 +63,10 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
   const [savingWebhook, setSavingWebhook] = useState(false);
   const [webhookForm] = Form.useForm<WebhookFormValues>();
 
-  // Backfill ("regenerate")
-  const [backfillModalOpen, setBackfillModalOpen] = useState(false);
-  const [backfillSince, setBackfillSince] = useState<Dayjs | null>(null);
-  const [backfilling, setBackfilling] = useState(false);
+  // Regenerate
+  const [regenerateModalOpen, setRegenerateModalOpen] = useState(false);
+  const [regenerateSince, setRegenerateSince] = useState<Dayjs | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   // Bulk retry
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -198,17 +198,22 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
     }
   };
 
-  const handleBackfill = async () => {
-    setBackfilling(true);
-    const r = await notificationsApi.backfill(
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    const r = await notificationsApi.regenerate(
       agentId,
-      backfillSince ? backfillSince.toISOString() : null,
+      regenerateSince ? regenerateSince.toISOString() : null,
     );
-    setBackfilling(false);
+    setRegenerating(false);
     if (r.success) {
-      message.success(t('agents.notifBackfilled', { n: r.data.created }));
-      setBackfillModalOpen(false);
-      setBackfillSince(null);
+      message.success(
+        t('agents.notifRegenerated', {
+          created: r.data.created,
+          regenerated: r.data.regenerated,
+        }),
+      );
+      setRegenerateModalOpen(false);
+      setRegenerateSince(null);
       setPage(1);
       reloadNotifications();
     } else {
@@ -484,7 +489,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
           <Button
             size="small"
             icon={<History size={14} />}
-            onClick={() => setBackfillModalOpen(true)}
+            onClick={() => setRegenerateModalOpen(true)}
           >
             {t('agents.notifRegenerate')}
           </Button>
@@ -601,19 +606,19 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
 
       <Modal
         title={t('agents.notifRegenerateTitle')}
-        open={backfillModalOpen}
-        onOk={handleBackfill}
-        onCancel={() => setBackfillModalOpen(false)}
+        open={regenerateModalOpen}
+        onOk={handleRegenerate}
+        onCancel={() => setRegenerateModalOpen(false)}
         okText={t('common.confirm')}
         cancelText={t('common.cancel')}
-        confirmLoading={backfilling}
+        confirmLoading={regenerating}
         destroyOnHidden
       >
         <DatePicker
           showTime
           allowClear
-          value={backfillSince}
-          onChange={(v) => setBackfillSince(v)}
+          value={regenerateSince}
+          onChange={(v) => setRegenerateSince(v)}
           placeholder={t('agents.notifRegeneratePlaceholder')}
           style={{ width: '100%', marginTop: 12 }}
         />

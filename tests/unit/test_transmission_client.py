@@ -283,6 +283,37 @@ class TestListTorrents:
                 await _make_wrapper().list_torrents()
 
 
+class TestGetTorrentFiles:
+    @pytest.mark.asyncio
+    async def test_returns_name_and_files(self):
+        # Use a real Torrent instance (not a MagicMock) so the test fails if
+        # the wrapper calls a method that doesn't exist on transmission-rpc
+        # v7's Torrent (e.g. the old t.files() instead of t.get_files()).
+        from transmission_rpc import Torrent
+
+        torrent = Torrent(fields={
+            "id": 1,
+            "name": "Show.S01",
+            "files": [
+                {"name": "Show.S01/01.mkv", "length": 1000, "bytesCompleted": 1000},
+                {"name": "Show.S01/02.mkv", "length": 2000, "bytesCompleted": 2000},
+            ],
+            "priorities": [0, 0],
+            "wanted": [1, 1],
+        })
+        mock_client = MagicMock()
+        mock_client.get_torrent.return_value = torrent
+
+        with patch(MOCK_CLIENT, return_value=mock_client):
+            result = await _make_wrapper().get_torrent_files(1)
+
+        assert result["name"] == "Show.S01"
+        assert result["files"] == [
+            {"name": "Show.S01/01.mkv", "size": 1000},
+            {"name": "Show.S01/02.mkv", "size": 2000},
+        ]
+
+
 class TestRemoveTorrent:
     @pytest.mark.asyncio
     async def test_remove_no_data(self):

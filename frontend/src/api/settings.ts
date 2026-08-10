@@ -17,7 +17,6 @@ export interface SettingGroup {
 export interface SystemSettings {
   settings: Record<string, SettingField>;
   groups: SettingGroup[];
-  exa_effort_levels: string[];
 }
 
 /** Keys that may be sent on update. Omit a key to leave it unchanged. */
@@ -27,11 +26,6 @@ export interface SystemSettingsUpdate {
   llm_base_url?: string | null;
   llm_enable_thinking?: boolean | null;
   tmdb_api_key?: string | null;
-  jina_api_key?: string | null;
-  exa_api_key?: string | null;
-  exa_effort_level?: string | null;
-  exa_enabled?: boolean | null;
-  jina_enabled?: boolean | null;
   tmdb_enabled?: boolean | null;
   wikipedia_enabled?: boolean | null;
 }

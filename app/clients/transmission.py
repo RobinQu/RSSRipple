@@ -202,7 +202,7 @@ class TransmissionWrapper:
             c = self._client()
             t = c.get_torrent(torrent_id)
             files = [
-                {"name": f.name, "size": int(f.size)} for f in t.files()
+                {"name": f.name, "size": int(f.size)} for f in t.get_files()
             ]
             return {"name": t.name, "files": files}
         return await asyncio.to_thread(_run)

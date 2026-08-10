@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Typography, Card, Spin, Input, Switch, Button, Select, Tag, Space, App, Alert } from 'antd';
+import { Typography, Card, Spin, Input, Switch, Button, Tag, Space, App, Alert } from 'antd';
 import { Sparkles, Database, Save, RotateCcw } from 'lucide-react';
 import { settingsApi, type SystemSettings, type SystemSettingsUpdate } from '../api/settings';
 import ApiKeysCard from '../components/ApiKeysCard';
@@ -10,7 +10,7 @@ const { Title, Text } = Typography;
 
 // Secret keys never come back from the server as plaintext; we track them
 // locally and only submit when the user edits (or clears) them.
-const SECRET_KEYS = ['llm_api_key', 'tmdb_api_key', 'jina_api_key', 'exa_api_key'] as const;
+const SECRET_KEYS = ['llm_api_key', 'tmdb_api_key'] as const;
 type SecretKey = (typeof SECRET_KEYS)[number];
 
 function isSecretKey(key: string): key is SecretKey {
@@ -254,42 +254,9 @@ export default function SettingsPage() {
             t={t}
           />
 
-          {/* Jina */}
-          <SourceRow
-            name={t('settings.sources.jina')}
-            enabled={Boolean(values.jina_enabled)}
-            onEnabled={(v) => setNonSecret('jina_enabled', v)}
-            configuredTag={configuredTag('jina_api_key')}
-            secretValue={secrets.jina_api_key ?? ''}
-            onSecret={(v) => setSecret('jina_api_key', v)}
-            onClear={() => clearSecret('jina_api_key')}
-            placeholder={t('settings.secretPlaceholder')}
-            t={t}
-          />
-
-          {/* Exa */}
-          <div>
-            <SourceRow
-              name={t('settings.sources.exa')}
-              enabled={Boolean(values.exa_enabled)}
-              onEnabled={(v) => setNonSecret('exa_enabled', v)}
-              configuredTag={configuredTag('exa_api_key')}
-              secretValue={secrets.exa_api_key ?? ''}
-              onSecret={(v) => setSecret('exa_api_key', v)}
-              onClear={() => clearSecret('exa_api_key')}
-              placeholder={t('settings.secretPlaceholder')}
-              t={t}
-            />
-            <div style={{ marginTop: 10, marginLeft: 4 }}>
-              <div style={labelStyle}><Text strong>{t('settings.sources.effortLevel')}</Text></div>
-              <Select
-                value={String(values.exa_effort_level ?? 'low')}
-                onChange={(v) => setNonSecret('exa_effort_level', v)}
-                options={(data?.exa_effort_levels ?? []).map((lvl) => ({ value: lvl, label: lvl }))}
-                style={{ width: 180 }}
-              />
-            </div>
-          </div>
+          {/* Jina / Exa groups removed: neither source takes part in the
+              channel metadata search anymore (two-source wikipedia/tmdb
+              architecture); their keys remain env-only. */}
 
           {/* Wikipedia */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>

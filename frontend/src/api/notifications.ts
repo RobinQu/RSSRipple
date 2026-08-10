@@ -24,9 +24,11 @@ export const notificationsApi = {
   // Bulk retry across notifications; `since`/`agent_id` narrow the scope.
   retryBulk: (body: { mode: RetryMode; since?: string; agent_id?: string }) =>
     api.post<{ reset: number }>('/notifications/retry', body),
-  // since=null means "start from the earliest completed task".
-  backfill: (agentId: string, since: string | null) =>
-    api.post<{ created: number }>(`/agents/${agentId}/notifications/backfill`, { since }),
+  // Regenerate: re-run the full generation chain for the agent's completed
+  // tasks — creates missing notifications and rebuilds existing payloads.
+  // since=null means "from the earliest completed task".
+  regenerate: (agentId: string, since: string | null) =>
+    api.post<{ created: number; regenerated: number }>(`/agents/${agentId}/notifications/regenerate`, { since }),
 
   listWebhooks: (agentId: string) => api.get<AgentWebhook[]>(`/agents/${agentId}/webhooks`),
   createWebhook: (agentId: string, body: { url: string; mock?: boolean; enabled?: boolean }) =>
