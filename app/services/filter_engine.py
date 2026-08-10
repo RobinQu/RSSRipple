@@ -35,8 +35,10 @@ WORK_NUMBER_FIELDS = {"movie.rating", "movie.year", "series.rating", "series.yea
 NUMBER_FIELDS |= WORK_NUMBER_FIELDS
 BOOL_FIELDS = {"is_batch"}
 # List-of-string fields — value semantics differ from scalar strings; the
-# operators below act element-wise.
-LIST_STRING_FIELDS = {"subtitle_langs"}
+# operators below act element-wise. ``series.genre`` / ``movie.genre`` resolve
+# through the resource's linked work (values are the closed TMDB genre set,
+# compared case-insensitively element-wise).
+LIST_STRING_FIELDS = {"subtitle_langs", "series.genre", "movie.genre"}
 ALL_FIELDS = STRING_FIELDS | NUMBER_FIELDS | BOOL_FIELDS | LIST_STRING_FIELDS
 
 STRING_OPS = {"eq", "ne", "contains", "fuzzy", "in", "regex"}

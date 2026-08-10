@@ -35,6 +35,7 @@ from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.services import fts as fts_service
 from app.services.external_ids import add_external_id, find_work_by_external_id
+from app.services.genre_registry import normalize_genres
 from app.services.metadata_source_registry import canonicalize_external_id  # noqa: F401
 from app.services.resource_parser import strip_season_from_title
 from app.services.text_normalizer import normalize_title, similarity_score
@@ -674,8 +675,9 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         ed = _parse_date(data.get("end_date"))
         if ed:
             series.end_date = ed
-        if data.get("genre"):
-            series.genre = data.get("genre")
+        genres = normalize_genres(data.get("genre"))
+        if genres:
+            series.genre = genres
         if data.get("title_cn"):
             series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
         if data.get("title_en"):
@@ -739,7 +741,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         description=data.get("description"),
         poster_url=local_url or remote_poster,
         rating=data.get("rating"),
-        genre=data.get("genre") or [],
+        genre=normalize_genres(data.get("genre")),
         status=data.get("status"),
         number_of_episodes=data.get("number_of_episodes"),
         number_of_seasons=data.get("number_of_seasons"),
@@ -821,8 +823,9 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             movie.release_date = rd
         if data.get("runtime") is not None:
             movie.runtime = data.get("runtime")
-        if data.get("genre"):
-            movie.genre = data.get("genre")
+        genres = normalize_genres(data.get("genre"))
+        if genres:
+            movie.genre = genres
         if data.get("title_cn"):
             movie.title_cn = movie.title_cn or data.get("title_cn")
         if data.get("title_en"):
@@ -869,7 +872,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
         description=data.get("description"),
         poster_url=local_url or remote_poster,
         rating=data.get("rating"),
-        genre=data.get("genre") or [],
+        genre=normalize_genres(data.get("genre")),
         status=data.get("status"),
         release_date=_parse_date(data.get("release_date")),
         runtime=data.get("runtime"),
@@ -941,8 +944,9 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
             audio.release_date = rd
         if data.get("runtime") is not None:
             audio.runtime = data.get("runtime")
-        if data.get("genre"):
-            audio.genre = data.get("genre")
+        genres = normalize_genres(data.get("genre"))
+        if genres:
+            audio.genre = genres
         if data.get("title_cn"):
             audio.title_cn = audio.title_cn or data.get("title_cn")
         if data.get("title_en"):
@@ -983,7 +987,7 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
         description=data.get("description"),
         poster_url=local_url or remote_poster,
         rating=data.get("rating"),
-        genre=data.get("genre") or [],
+        genre=normalize_genres(data.get("genre")),
         status=data.get("status"),
         release_date=_parse_date(data.get("release_date")),
         runtime=data.get("runtime"),
@@ -1060,6 +1064,21 @@ async def refresh_work_metadata(
             "message": "no candidates returned by source",
         }
 
+    # LLM variance: the candidates list may carry season-ambiguity entries
+    # ({"season": n}) or stray non-dict items — neither is a work candidate.
+    candidates = [
+        c for c in candidates
+        if isinstance(c, dict)
+        and any(c.get(k) for k in ("title_cn", "title_en", "original_title", "canonical_name"))
+    ]
+    if not candidates:
+        return {
+            "found": True,
+            "filled": [],
+            "source": source,
+            "message": "no usable work candidates returned by source",
+        }
+
     # Prefer a candidate whose content_type matches the work.
     best = next((c for c in candidates if c.get("content_type") == content_type), None)
     if best is None:
@@ -1083,9 +1102,9 @@ async def refresh_work_metadata(
     fill("title_en", "title_en")
 
     if not work.genre:
-        g = best.get("genre")
+        g = normalize_genres(best.get("genre"))
         if g:
-            work.genre = g if isinstance(g, list) else [g]
+            work.genre = g
             filled.append("genre")
 
     if is_movie:

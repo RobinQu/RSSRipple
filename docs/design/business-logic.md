@@ -188,6 +188,18 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 2. **接线**：`_attach_tmdb_episode_list` 在 tmdb ReAct finalize 后（`process` 与 `process_title_only` 两处）触发——仅当 found=True、content_type=tv、matched_entity 携带 tmdb id 且有 `seasons` 且无 `episode_list` 时填充；Exa 回退实体 seasons 已剥离，天然不触发（单源规则）。`episode_list` 复用 P2 消费路径（`create_or_update_series_from_external` → `upsert_episodes`），随 MetadataCache 往返。
 3. **回填**：`scripts/tmdb_episodes_backfill.py`（dry-run 默认，`--apply` 执行，批量提交）对 canonical `tmdb:` 身份的 TVSeries 跑同一抓取 + `upsert_episodes`；`series.seasons` 缺失时用 TMDB details 补齐输入（不改写 series 字段）。
 
+### genre 归一化（统一分类标签）
+
+作品 genre 统一为 **TMDB 封闭分类集（27 类）英文 canonical 名**，权威清单一处定义在 `app/services/genre_registry.py`（取值约定见 data-models.md「genre 取值约定」）。多数据源归一靠"prompt 注入 + 出口钳制"而非逐源映射表：
+
+- **prompt 注入**：ReAct `_SYSTEM_PROMPT`、wikipedia judge `_JUDGE_SYSTEM_PROMPT`、Exa judge `_EXA_JUDGE_SYSTEM_PROMPT` 三处 matched_entity schema 注入 `genre_prompt_block()` 生成的完整枚举清单，LLM 根据外部作品详情（摘要/categories/snippet）一并输出 genre；指令为**尽力推测**——源未显式列标签时须依据简介推断，有简介至少给一个，杜绝"不确定就留空"。`_EXA_CANDIDATE_SCHEMA` 的 genre description 同步列枚举。wiki auto-link 路径不经 LLM，genre 留空由兜底/回填补齐。
+- **兜底推断**：`_ensure_genre`（`metadata_agent.py`）在钳制后仍无 genre 且 matched_entity 有 description 时，用 `genre_inference_system_prompt()` 发一次低成本 LLM 调用按简介分类，结果再过 `normalize_genres`；失败静默不阻塞匹配。由此 judge 留空、auto-link 无 LLM、Exa 仅身份三条路径产出的作品都能拿到标签。
+- **出口钳制**：统一 finalize 消费点 `_clamp_finalize_genre`（`metadata_agent.py`，`process` 与 `process_title_only` 各一处）对 `matched_entity["genre"]` 调 `normalize_genres`——id 直译、大小写不敏感、少量别名，表外值丢弃（debug 日志），空结果置 None 视为"未提供"，genre 绝不阻塞匹配。TMDB 直连的 `_tmdb_genre_map` 动态拉取与注册表取交集、失败回退注册表静态表。
+- **写回**：`metadata_service` 全部 genre 写入点（series/movie/audio 的新建/更新、`refresh_work_metadata` 填空）先过 `normalize_genres`；非空才覆盖，归一化为空不清空旧值。
+- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 4（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底），旧缓存惰性失效重跑。
+- **存量**：`scripts/genre_backfill.py`——模式 A（默认）就地规范化既有 genre 数组；模式 B（`--refresh-empty`）对仍为空的 series/movie 调 `refresh_work_metadata` 重跑补齐（身份源为 wikipedia/tmdb 时用原源，否则回退 wikipedia 标题判定；有网络/LLM 成本，`--limit/--delay` 限速）。
+- **消费面**：通知 payload `work.genre` 快照同样归一化；Filter DSL 新增 `series.genre`/`movie.genre`（list-of-string 逐元素语义，见 filter-dsl.md）。
+
 ### Metadata 一致性防护（缓存版本化 / 跨表守卫 / 修正联动 / 跨表去重）
 
 针对"错误 verdict 被缓存复用 + Movie/Series 分表产生跨表重复"这一类问题（案例：franchise 页被旧分类器误判 movie 后，新频道的同标题资源命中陈旧缓存，在已有 Series 的情况下又建了 Movie）：

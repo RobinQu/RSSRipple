@@ -18,6 +18,7 @@ from typing import Any, TypedDict
 import httpx
 from httpx import HTTPStatusError, TimeoutException
 
+from app.services.genre_registry import GENRE_NAMES, TMDB_ID_TO_NAME
 from app.services.runtime_config import runtime_config
 from app.services.url_tools import keep_k_per_hostname
 
@@ -137,8 +138,9 @@ def _tmdb_image_base(api_key: str) -> str:
         return "https://image.tmdb.org/t/p/"
 
 
-# Static genre ID → name mapping (most common TMDB genre IDs)
-# Falls back to a dynamic fetch for uncommon IDs.
+# Static genre ID → name mapping now lives in the authoritative registry
+# (``app.services.genre_registry.TMDB_ID_TO_NAME``); dynamic fetches are
+# intersected with it so every emitted genre lands on the closed TMDB set.
 _TMDB_GENRE_MAP: dict[int, str] | None = None
 
 
@@ -157,19 +159,18 @@ def _tmdb_genre_map(api_key: str) -> dict[int, str]:
                 )
                 resp.raise_for_status()
                 for g in resp.json().get("genres", []):
-                    result[g["id"]] = g["name"]
+                    gid = g["id"]
+                    if gid in TMDB_ID_TO_NAME:
+                        result[gid] = TMDB_ID_TO_NAME[gid]
+                    else:
+                        logger.debug(
+                            "_tmdb_genre_map: dropping TMDB genre id outside registry: %r", g
+                        )
+        if not result:
+            result = dict(TMDB_ID_TO_NAME)
     except Exception:
-        # Static fallback for most common genres
-        result = {
-            28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy",
-            80: "Crime", 99: "Documentary", 18: "Drama", 10751: "Family",
-            14: "Fantasy", 36: "History", 27: "Horror", 10402: "Music",
-            9648: "Mystery", 10749: "Romance", 878: "Science Fiction",
-            10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
-            10759: "Action & Adventure", 10762: "Kids", 10763: "News",
-            10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
-            10767: "Talk", 10768: "War & Politics",
-        }
+        # Static fallback: the authoritative registry's closed set.
+        result = dict(TMDB_ID_TO_NAME)
     _TMDB_GENRE_MAP = result
     return result
 
@@ -393,7 +394,10 @@ _EXA_CANDIDATE_SCHEMA: dict[str, Any] = {
         "genre": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Genre tags",
+            "description": (
+                "Genre tags. Pick ONLY from the closed TMDB genre set: "
+                + ", ".join(GENRE_NAMES)
+            ),
         },
         "status": {
             "type": ["string", "null"],

@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.genre import GenreName
+
 
 class TVSeriesCreate(BaseModel):
     title_cn: str | None = None
@@ -15,7 +17,7 @@ class TVSeriesCreate(BaseModel):
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
-    genre: list[str] | None = None
+    genre: list[GenreName] | None = None
     status: str | None = None
     number_of_episodes: int | None = None
     number_of_seasons: int | None = None
@@ -32,7 +34,7 @@ class TVSeriesUpdate(BaseModel):
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
-    genre: list[str] | None = None
+    genre: list[GenreName] | None = None
     status: str | None = None
     number_of_episodes: int | None = None
     number_of_seasons: int | None = None
@@ -55,7 +57,7 @@ class TVSeriesResponse(BaseModel):
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
-    genre: list[str] | None = None
+    genre: list[GenreName] | None = None
     status: str | None = None
     number_of_episodes: int | None = None
     number_of_seasons: int | None = None

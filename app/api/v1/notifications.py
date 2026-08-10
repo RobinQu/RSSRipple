@@ -20,16 +20,17 @@ from app.models.download_notification import DownloadNotification
 from app.models.webhook_delivery import WebhookDelivery
 from app.schemas.common import paginated_response, success_response
 from app.schemas.notification import (
-    BackfillRequest,
+    NotificationPayload,
     NotificationRetryRequest,
+    RegenerateRequest,
     RetryRequest,
     WebhookCreateRequest,
     WebhookOut,
     WebhookUpdateRequest,
 )
 from app.services.notify_service import (
-    backfill_notifications,
     ensure_deliveries,
+    regenerate_notifications,
     reset_deliveries_for_retry,
 )
 
@@ -142,7 +143,7 @@ def _deliveries_exist(*statuses: str):
 
 
 # ---------------------------------------------------------------------------
-# Agent-scoped: queue listing, webhook collection, backfill
+# Agent-scoped: queue listing, webhook collection, regenerate
 # ---------------------------------------------------------------------------
 
 
@@ -275,23 +276,24 @@ async def delete_webhook(
     return success_response({"deleted": True})
 
 
-@router.post("/agents/{agent_id}/notifications/backfill")
-async def backfill_agent_notifications(
+@router.post("/agents/{agent_id}/notifications/regenerate")
+async def regenerate_agent_notifications(
     agent_id: str,
-    body: BackfillRequest,
+    body: RegenerateRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create notifications for completed tasks that never had one.
-
-    ``since=null`` checks from the earliest completed task. Fan-out and
-    delivery are handled by the per-minute delivery loop (natural rate
-    limiting).
+    """Regenerate notifications: re-run the full generation chain for every
+    completed task of the agent (optionally ``completed_at >= since``;
+    ``since=null`` from the earliest). Missing notifications are created,
+    existing ones have their payload rebuilt and their deliveries reset for
+    re-delivery. Delivery itself is handled by the per-minute loop (natural
+    rate limiting).
     """
     agent = await _get_agent_or_404(db, agent_id)
     if isinstance(agent, JSONResponse):
         return agent
-    created = await backfill_notifications(db, agent_id, body.since)
-    return success_response({"created": created})
+    stats = await regenerate_notifications(db, agent_id, body.since)
+    return success_response(stats)
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +305,17 @@ async def backfill_agent_notifications(
 async def get_notification(
     notification_id: str, db: AsyncSession = Depends(get_db)
 ):
+    """Notification detail, including the frozen snapshot ``payload``.
+
+    Payload contract (see docs/design/notifications.md):
+    ``{notification_id, agent, task, resource, work, files}``. ``work.genre``
+    carries the work's genre tags from the closed TMDB genre set (canonical
+    English names): "Action", "Adventure", "Animation", "Comedy", "Crime",
+    "Documentary", "Drama", "Family", "Fantasy", "History", "Horror",
+    "Music", "Mystery", "Romance", "Science Fiction", "TV Movie", "Thriller",
+    "War", "Western", "Action & Adventure", "Kids", "News", "Reality",
+    "Sci-Fi & Fantasy", "Soap", "Talk", "War & Politics".
+    """
     n = (
         await db.execute(
             select(DownloadNotification)
@@ -316,9 +329,17 @@ async def get_notification(
     ).scalar_one_or_none()
     if n is None:
         return _error(404, "NOT_FOUND", "Notification not found")
+    # Validate the stored snapshot against the payload contract; tolerate
+    # legacy snapshots that predate schema keys (fall back to raw).
+    try:
+        payload = NotificationPayload.model_validate(n.payload).model_dump(
+            exclude_unset=True
+        )
+    except Exception:
+        payload = n.payload
     return success_response({
         **_list_item(n),
-        "payload": n.payload,
+        "payload": payload,
         "deliveries": [_delivery_out(d) for d in n.deliveries],
     })
 

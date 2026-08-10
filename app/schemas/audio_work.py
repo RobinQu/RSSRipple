@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.genre import GenreName
+
 
 class AudioWorkCreate(BaseModel):
     title_cn: str | None = None
@@ -15,7 +17,7 @@ class AudioWorkCreate(BaseModel):
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
-    genre: list[str] | None = None
+    genre: list[GenreName] | None = None
     status: str | None = None
     release_date: date | None = None
     runtime: int | None = None
@@ -30,7 +32,7 @@ class AudioWorkUpdate(BaseModel):
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
-    genre: list[str] | None = None
+    genre: list[GenreName] | None = None
     status: str | None = None
     release_date: date | None = None
     runtime: int | None = None
@@ -50,7 +52,7 @@ class AudioWorkResponse(BaseModel):
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
-    genre: list[str] | None = None
+    genre: list[GenreName] | None = None
     status: str | None = None
     release_date: date | None = None
     runtime: int | None = None

@@ -37,6 +37,7 @@ from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.models.webhook_delivery import WebhookDelivery
+from app.services.genre_registry import normalize_genres
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ MAX_BACKOFF_SECONDS = 1800  # 30 min cap on the exponential backoff
 WEBHOOK_TIMEOUT_SECONDS = 180.0
 _DELIVERY_BATCH = 50  # max deliveries attempted per scheduler tick
 _DELIVERY_CONCURRENCY = 10  # max simultaneous webhook HTTP calls
-_BACKFILL_COMMIT_EVERY = 20
+_REGENERATE_COMMIT_EVERY = 20
 
 
 def backoff_delay(attempt_count: int) -> timedelta:
@@ -77,6 +78,9 @@ def build_payload(
             "collection": (
                 series.collection.display_name if series.collection else None
             ),
+            # Normalized at snapshot time so the payload always carries the
+            # closed TMDB set even for pre-unification rows.
+            "genre": normalize_genres(series.genre),
             "seasons": series.seasons,
             "episodes": [
                 {"season": ep.season, "episode": ep.episode, "title": ep.title}
@@ -96,6 +100,7 @@ def build_payload(
             "collection": (
                 movie.collection.display_name if movie.collection else None
             ),
+            "genre": normalize_genres(movie.genre),
             "seasons": None,
             "episodes": None,
         }
@@ -152,26 +157,18 @@ async def _find_by_task(
     ).scalar_one_or_none()
 
 
-async def create_notification_for_task(
-    db, task: DownloadTask
-) -> tuple[DownloadNotification, bool]:
-    """Create the notification for a completed task (idempotent).
+async def _build_snapshot(
+    db, task: DownloadTask, notification_id: str
+) -> tuple[dict, bool]:
+    """Run the full notification generation chain for a task: stop seeding
+    (best-effort), snapshot the torrent's file listing via the downloader RPC
+    (best-effort) and build the frozen payload.
 
-    Returns ``(notification, created)``. Concurrency-safe: the pre-check +
-    insert is not atomic against the per-minute scheduler tick (or a
-    concurrent backfill), so the insert runs in a SAVEPOINT and a lost race
-    against the ``download_task_id`` UNIQUE constraint falls back to reading
-    the row the concurrent writer committed.
-
-    Stops the torrent (best-effort) and snapshots the torrent's file listing
-    via the downloader RPC (best-effort — on failure the row is enqueued
-    without ``files`` and the consumer falls back to scanning the download
-    directory itself). Does not commit; the caller owns the transaction.
+    Returns ``(payload, torrent_snapshot)``. ``torrent_snapshot`` is False
+    when no file listing could be obtained (no torrent attached, or RPC
+    failure) — the payload then carries no ``files`` and the consumer falls
+    back to scanning the download directory itself.
     """
-    existing = await _find_by_task(db, task.id)
-    if existing is not None:
-        return existing, False
-
     agent = await db.get(Agent, task.agent_id) if task.agent_id else None
     resource = await _load_resource(db, task.file_resource_id)
 
@@ -199,6 +196,30 @@ async def create_notification_for_task(
                     "[notify] file listing for torrent %s unavailable: %s",
                     task.transmission_torrent_id, e,
                 )
+    return (
+        build_payload(notification_id, agent, task, resource, torrent_info),
+        torrent_info is not None,
+    )
+
+
+async def create_notification_for_task(
+    db, task: DownloadTask
+) -> tuple[DownloadNotification, bool]:
+    """Create the notification for a completed task (idempotent).
+
+    Returns ``(notification, created)``. Concurrency-safe: the pre-check +
+    insert is not atomic against the per-minute scheduler tick (or a
+    concurrent regenerate), so the insert runs in a SAVEPOINT and a lost race
+    against the ``download_task_id`` UNIQUE constraint falls back to reading
+    the row the concurrent writer committed.
+
+    The payload comes from the full generation chain (see
+    :func:`_build_snapshot`). Does not commit; the caller owns the
+    transaction.
+    """
+    existing = await _find_by_task(db, task.id)
+    if existing is not None:
+        return existing, False
 
     notification = DownloadNotification(
         # Python-side column defaults only apply at flush time; the payload
@@ -208,16 +229,14 @@ async def create_notification_for_task(
         download_task_id=task.id,
         payload={},  # placeholder, filled below once the id exists
     )
-    notification.payload = build_payload(
-        notification.id, agent, task, resource, torrent_info
-    )
+    notification.payload, _ = await _build_snapshot(db, task, notification.id)
     try:
         async with db.begin_nested():  # SAVEPOINT: keep the caller's batch
             db.add(notification)
             await db.flush()
     except IntegrityError:
         # Lost a race against a concurrent creator (scheduler tick / parallel
-        # backfill): the row exists now — adopt it.
+        # regenerate): the row exists now — adopt it.
         return await _find_by_task(db, task.id), False
     return notification, True
 
@@ -393,25 +412,33 @@ async def deliver_due_deliveries(db) -> dict:
     return stats
 
 
-async def backfill_notifications(
+async def regenerate_notifications(
     db, agent_id: str, since: datetime | None
-) -> int:
-    """Create notifications for completed tasks that never had one.
+) -> dict:
+    """Regenerate notifications by re-running the full generation chain
+    (:func:`_build_snapshot`) for every completed task of the agent
+    (optionally ``completed_at >= since``; ``None`` = from the earliest).
 
-    ``since=None`` checks from the earliest completed task. Commits in
-    batches; fan-out and delivery are left to the per-minute loop, which
-    naturally rate-limits the webhook calls.
+    For each task in scope:
+
+    - no notification yet → create one (same path as the scheduler tick);
+    - notification exists → rebuild its payload from scratch and replace it
+      (the row — and thus ``payload["notification_id"]`` — is kept), then
+      reset its non-``pending`` deliveries to due-immediately ``pending`` so
+      consumers receive the regenerated snapshot. If the chain cannot obtain
+      a torrent snapshot this time (RPC down / torrent removed / no torrent
+      attached), the existing payload is kept as-is: re-running must never
+      degrade a previously good snapshot.
+
+    Manual-only (never called by the scheduler tick). Commits in batches;
+    fan-out and delivery are left to the per-minute loop, which naturally
+    rate-limits the webhook calls. Returns ``{"created", "regenerated"}``.
     """
-    # The uniqueness invariant is global on download_task_id — exclude tasks
-    # with ANY notification, not just this agent's (a concurrent scheduler
-    # tick creates rows under the same agent, but belt and braces).
-    notified_task_ids = select(DownloadNotification.download_task_id).scalar_subquery()
     stmt = (
         select(DownloadTask)
         .where(
             DownloadTask.agent_id == agent_id,
             DownloadTask.status == "completed",
-            DownloadTask.id.notin_(notified_task_ids),
         )
         .order_by(DownloadTask.completed_at.asc().nulls_first())
     )
@@ -419,15 +446,39 @@ async def backfill_notifications(
         stmt = stmt.where(DownloadTask.completed_at >= since)
     tasks = (await db.execute(stmt)).scalars().all()
 
-    created = 0
+    stats = {"created": 0, "regenerated": 0}
     for task in tasks:
-        _, was_created = await create_notification_for_task(db, task)
-        if was_created:
-            created += 1
-        if created and created % _BACKFILL_COMMIT_EVERY == 0:
+        existing = (
+            await db.execute(
+                select(DownloadNotification)
+                .where(DownloadNotification.download_task_id == task.id)
+                .options(selectinload(DownloadNotification.deliveries))
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            _, was_created = await create_notification_for_task(db, task)
+            if was_created:
+                stats["created"] += 1
+        else:
+            payload, has_torrent_snapshot = await _build_snapshot(
+                db, task, existing.id
+            )
+            if not has_torrent_snapshot:
+                continue  # keep the old snapshot rather than degrade it
+            existing.payload = payload
+            now = utcnow()
+            for d in existing.deliveries:
+                if d.status != "pending":
+                    d.status = "pending"
+                    d.attempt_count = 0
+                    d.next_attempt_at = now
+                    d.error_message = None
+            stats["regenerated"] += 1
+        done = stats["created"] + stats["regenerated"]
+        if done and done % _REGENERATE_COMMIT_EVERY == 0:
             await db.commit()
     await db.commit()
-    return created
+    return stats
 
 
 async def reset_deliveries_for_retry(

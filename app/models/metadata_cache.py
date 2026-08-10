@@ -34,7 +34,13 @@ from app.database import Base
 #   2 — P1 (Exa-fallback identity semantics) + P2 (wikipedia seasons/episodes
 #       attach) + P3 (identity bag: alt_external_ids / langlink pageids)
 #       changed verdict logic; stale cached verdicts must refetch.
-METADATA_CACHE_GENERATION = 2
+#   3 — genre unification: the closed TMDB genre set is injected into the
+#       judge/ReAct prompts and clamped via genre_registry.normalize_genres;
+#       cached verdicts from older generations carry un-normalized genre.
+#   4 — genre prompt becomes best-effort: the judge/ReAct instruction now
+#       requires inferring at least one genre from the synopsis when the
+#       source lists none, so genre-less verdicts should not reappear.
+METADATA_CACHE_GENERATION = 4
 
 
 class MetadataCache(Base):

@@ -28,6 +28,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY README.md ./
 COPY app/ ./app/
 COPY tests/ ./tests/
+# Ops/backfill scripts (genre_backfill, season/tmdb backfills, migrations);
+# run via `docker compose run --rm app uv run python scripts/<name>.py`.
+COPY scripts/ ./scripts/
 COPY --from=frontend-builder /app/static ./app/static/
 
 RUN mkdir -p /app/data

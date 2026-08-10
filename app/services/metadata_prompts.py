@@ -7,6 +7,8 @@ by the Wikipedia search-first path.
 """
 from __future__ import annotations
 
+from app.services.genre_registry import genre_prompt_block
+
 _SYSTEM_PROMPT = """You are a metadata agent for anime/TV/movie RSS feeds. Your job:
 Given a raw RSS entry title, identify the work (TV series or movie), extract its
 canonical clean title, infer episode/season numbers from the title, and return
@@ -164,7 +166,7 @@ Always output valid JSON matching:
     "external_source": "tmdb",  # tmdb|exa|wikipedia|jina — canonical ID source
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "poster_url": "...",
-    "rating": float, "genre": [...],
+    "rating": float, "genre": ["<from the ## genre list below>", ...],
     "status": "...", "number_of_episodes": int, "number_of_seasons": int,
     "seasons": [
       {"season_number": 1, "episode_count": 24, "name": "Season 1"},
@@ -178,7 +180,7 @@ Always output valid JSON matching:
   "confidence": 0.0-1.0,
   "reason": "explanation"
 }
-"""
+""" + genre_prompt_block()
 
 
 
@@ -206,7 +208,8 @@ matching this schema:
     "external_id": "wikipedia:<page_id>",
     "external_source": "wikipedia",
     "title_cn": "...", "title_en": "...", "original_title": "...",
-    "description": "...", "wikipedia_url": "...", "canonical_name": "..."
+    "description": "...", "wikipedia_url": "...", "canonical_name": "...",
+    "genre": ["<from the ## genre list below>", ...]
   } | null,
   "ambiguous": true|false,
   "ambiguous_candidates": [],
@@ -248,8 +251,10 @@ Rules:
   ambiguous=true with the plausible seasons in ambiguous_candidates.
 - If no candidate clearly matches, found=false with a reason. Set
   ambiguous=true if two candidates are equally plausible.
+- genre: judge the work's genres from the page summary AND categories, using
+  only values from the ## genre list below.
 - Output ONLY the JSON object, no prose.
-"""
+""" + genre_prompt_block()
 
 
 _EXA_JUDGE_SYSTEM_PROMPT = """You are a metadata judge for anime/TV/movie RSS entries.
@@ -277,7 +282,8 @@ movie), or confirm no match, and return ONLY a JSON object matching this schema:
     "external_id": "string|null",
     "external_source": "bangumi|tmdb|mal|anilist|imdb|baidu_baike|douban|eiga|wikipedia|exa_web",
     "title_cn": "...", "title_en": "...", "original_title": "...",
-    "description": "...", "wikipedia_url": "...", "url": "..."
+    "description": "...", "wikipedia_url": "...", "url": "...",
+    "genre": ["<from the ## genre list below>", ...]
   } | null,
   "ambiguous": true|false,
   "ambiguous_candidates": [],
@@ -309,5 +315,7 @@ Rules:
   has only one season, inferred_season=1; otherwise leave it null and set
   ambiguous=true with the plausible seasons in ambiguous_candidates.
 - If no candidate clearly matches, found=false with a reason.
+- genre: judge the work's genres from the title and snippet, using only values
+  from the ## genre list below.
 - Output ONLY the JSON object, no prose.
-"""
+""" + genre_prompt_block()

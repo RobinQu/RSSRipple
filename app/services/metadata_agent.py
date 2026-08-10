@@ -20,7 +20,7 @@ import logging
 import re
 from typing import Any, ClassVar
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent  # noqa: F401 — kept for compat; deprecation warning is harmless
@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import metadata_audio_resolver as _resolver
 from app.services import metadata_repository as _repo
 from app.services import metadata_wiki_judge as _wiki_judge
+from app.services.genre_registry import genre_inference_system_prompt, normalize_genres
 from app.services.metadata_audio import _detect_audio_work_type, _is_non_media
 from app.services.metadata_episode_reconcile import (
     _seasons_map_from,
@@ -298,6 +299,33 @@ def _apply_verified_season_default(meta: ResourceMetadata) -> None:
         meta.season_ambiguous = True
 
 
+def _clamp_finalize_genre(finalize_dict: dict) -> None:
+    """Clamp any producer-emitted genres to the closed TMDB set.
+
+    LLM paths (ReAct finalize, wiki/exa judge) are steered toward the
+    canonical set by the injected genre prompt block; this is the
+    deterministic exit gate applied at the unified finalize-consumption
+    point — unknown values are dropped and an empty result becomes None
+    ("not provided"), so genre never blocks or pollutes a match.
+    """
+    me = finalize_dict.get("matched_entity") or {}
+    if not me:
+        return
+    me["genre"] = normalize_genres(me.get("genre")) or None
+    finalize_dict["matched_entity"] = me
+
+
+def _parse_genre_array(text: str) -> list[str]:
+    """Extract the first JSON array from an LLM reply and clamp it."""
+    m = re.search(r"\[.*\]", text or "", flags=re.DOTALL)
+    if not m:
+        return []
+    try:
+        return normalize_genres(json.loads(m.group(0)))
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
 async def _attach_tmdb_episode_list(finalize_dict: dict) -> None:
     """P4: fill ``episode_list`` for a tmdb-primary TV match (wikipedia symmetry).
 
@@ -408,6 +436,45 @@ class UnifiedMetadataAgent:
                 prompt=_SYSTEM_PROMPT,
             )
         return self._agents[source]
+
+    async def _ensure_genre(self, finalize_dict: dict) -> None:
+        """Genre fallback: infer from the synopsis when nothing else yielded one.
+
+        Runs after ``_clamp_finalize_genre`` at the unified finalize-consumption
+        point. Fires only when the matched entity has no genre but carries a
+        description — one cheap LLM call classifies the synopsis into the
+        closed TMDB set (result clamped again). Any failure leaves genre
+        unset; it never blocks or invalidates the match.
+        """
+        me = finalize_dict.get("matched_entity") or {}
+        if not me or me.get("genre"):
+            return
+        desc = (me.get("description") or "").strip()
+        if not desc:
+            return
+        title = (
+            me.get("title_cn") or me.get("title_en")
+            or me.get("original_title") or me.get("canonical_name") or ""
+        )
+        try:
+            resp = await self._model.ainvoke([
+                SystemMessage(content=genre_inference_system_prompt()),
+                HumanMessage(content=f"{title}\n\n{desc[:1000]}"),
+            ])
+            content = resp.content
+            if not isinstance(content, str):
+                content = json.dumps(content, ensure_ascii=False)
+            genres = _parse_genre_array(content)
+        except Exception as e:  # noqa: BLE001 — best-effort fallback
+            logger.debug("[metadata_agent] genre inference failed: %s", e)
+            return
+        if genres:
+            me["genre"] = genres
+            finalize_dict["matched_entity"] = me
+            logger.info(
+                "[metadata_agent] genre inferred from synopsis for %r: %s",
+                title[:60], genres,
+            )
 
     # ── Work-level short-circuit (S1) ──
 
@@ -703,6 +770,8 @@ class UnifiedMetadataAgent:
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
         finalize_dict["search_error"] = search_info.get("error")
+        _clamp_finalize_genre(finalize_dict)
+        await self._ensure_genre(finalize_dict)
 
         # 3. Parse
         meta = ResourceMetadata.from_dict(finalize_dict)
@@ -771,6 +840,8 @@ class UnifiedMetadataAgent:
         finalize_dict["data_sources_used"] = search_info.get("data_sources_used") or []
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
         finalize_dict["search_error"] = search_info.get("error")
+        _clamp_finalize_genre(finalize_dict)
+        await self._ensure_genre(finalize_dict)
         meta = ResourceMetadata.from_dict(finalize_dict)
 
         # Verified season default (never guess; see helper docstring).

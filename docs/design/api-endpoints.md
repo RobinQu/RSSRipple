@@ -271,12 +271,12 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/agents/{agent_id}/notifications` | 该 Agent 的通知队列（分页；`status` 按**聚合状态**过滤 pending/done/failed，其他值 422；列表项不含 payload，带聚合 `status` 与 `delivery_summary {total,done,failed,pending}`） |
-| GET | `/notifications/{id}` | 通知详情：完整 payload 快照 + `deliveries` 数组（每条含 webhook_url/status/attempt_count/error_message/delivered_at/next_attempt_at） |
+| GET | `/notifications/{id}` | 通知详情：完整 payload 快照 + `deliveries` 数组（每条含 webhook_url/status/attempt_count/error_message/delivered_at/next_attempt_at）；`payload.work.genre` 为封闭 TMDB 27 类枚举（完整取值见端点 /docs 描述与 data-models.md「genre 取值约定」） |
 | GET | `/agents/{agent_id}/webhooks` | webhook 列表（`[{id, url, mock, enabled, created_at}]`） |
 | POST | `/agents/{agent_id}/webhooks` | 注册 webhook：`{ "url": "...", "mock": false, "enabled": true }` → **201**；非 mock 必须 http(s) url（422）；注册后立即对积压通知 fan-out |
 | PUT | `/agents/{agent_id}/webhooks/{webhook_id}` | 更新 webhook（部分更新 `{url?, mock?, enabled?}`；重新启用后同样立即 fan-out 恢复投递） |
 | DELETE | `/agents/{agent_id}/webhooks/{webhook_id}` | 删除 webhook（delivery 历史随 CASCADE 删除；通知行保留） |
-| POST | `/agents/{agent_id}/notifications/backfill` | 补生成：`{ "since": datetime \| null }`（null=从最早 completed 任务检查），为从未生成过通知的 completed 任务补建；返回 `{ "created": n }` |
+| POST | `/agents/{agent_id}/notifications/regenerate` | 重新生成：`{ "since": datetime \| null }`（null=从最早 completed 任务开始），对该 Agent 的 completed 任务重跑完整生成链路——无通知的补建、已有的重建 payload 并复位投递重投；当次拿不到 torrent 文件清单时保留旧快照；返回 `{ "created": n, "regenerated": m }` |
 | POST | `/notifications/{id}/retry` | 单条手动重试：body `{ "mode": "failed" \| "all" }` → `{ "reset": n }`；`failed` 仅重置 failed delivery，`all` 重置全部非 pending（done + failed）delivery，重置后立即到期 |
 | POST | `/notifications/retry` | 批量重试：body `{ "mode": "failed" \| "all", "since"?: datetime, "agent_id"?: uuid }` → `{ "reset": n }`；`since` 按通知 `created_at` 过滤，缺省为全库范围 |
 
@@ -323,6 +323,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null），音频条目无合集恒为 null） |
 
 ### TVSeries
+
+`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。
 
 | Method | Path | 说明 |
 |--------|------|------|

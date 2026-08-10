@@ -1,11 +1,12 @@
 """Pydantic schemas for download notifications, per-Agent webhooks and deliveries."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.common import ORMModel
+from app.schemas.genre import GenreName
 
 # Placeholder stored for mock webhooks (url column is NOT NULL; mock
 # deliveries never perform HTTP so the value is display-only).
@@ -85,8 +86,68 @@ class DeliveryOut(BaseModel):
     created_at: datetime
 
 
+class NotificationWorkPayload(BaseModel):
+    """Work snapshot inside a notification payload (see build_payload)."""
+
+    type: str | None = None  # "series" | "movie"
+    series_id: str | None = None
+    movie_id: str | None = None
+    title_en: str | None = None
+    title_cn: str | None = None
+    original_title: str | None = None
+    year: int | None = None
+    content_type: str | None = None
+    collection: str | None = None
+    # Closed TMDB genre set (canonical English names) — see GenreName.
+    genre: list[GenreName] | None = None
+    seasons: list[dict[str, Any]] | None = None
+    episodes: list[dict[str, Any]] | None = None
+
+
+class NotificationAgentPayload(BaseModel):
+    id: str
+    name: str
+
+
+class NotificationTaskPayload(BaseModel):
+    download_task_id: str
+    download_dir: str | None = None
+    torrent_name: str | None = None
+
+
+class NotificationResourcePayload(BaseModel):
+    title_raw: str | None = None
+    season: int | None = None
+    episode: int | None = None
+    is_batch: bool = False
+    episode_start: int | None = None
+    episode_end: int | None = None
+    subtitle_langs: list[str] | None = None
+    resolution: str | None = None
+    container: str | None = None
+    title_year: int | None = None
+
+
+class NotificationPayload(BaseModel):
+    """Frozen download.completed snapshot (docs/design/notifications.md).
+
+    All fields optional so snapshots persisted by older versions (which may
+    lack newer keys like ``work.genre``) still validate. Unknown keys are
+    tolerated for forward compatibility.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    notification_id: str | None = None
+    agent: NotificationAgentPayload | None = None
+    task: NotificationTaskPayload | None = None
+    resource: NotificationResourcePayload | None = None
+    work: NotificationWorkPayload | None = None
+    files: list[dict[str, Any]] | None = None
+
+
 class NotificationDetail(NotificationListItem):
-    payload: dict
+    payload: NotificationPayload
     deliveries: list[DeliveryOut]
 
 
@@ -104,9 +165,10 @@ class RetryResponse(BaseModel):
     reset: int
 
 
-class BackfillRequest(BaseModel):
+class RegenerateRequest(BaseModel):
     since: datetime | None = None
 
 
-class BackfillResponse(BaseModel):
+class RegenerateResponse(BaseModel):
     created: int
+    regenerated: int

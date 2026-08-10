@@ -128,7 +128,7 @@ class TVSeries(Base):
     description: str | None              # 简介
     poster_url: str | None               # 海报本地缓存路径，格式 /posters/{hash}.jpg
     rating: float | None                 # 评分（0-10）
-    genre: list[str] | None              # 类型标签
+    genre: list[str] | None              # 类型标签（封闭 TMDB 27 类英文 canonical 名，取值约定见下文「genre 取值约定」）
     status: str | None                   # 剧集状态: "Ended" | "Returning Series" | "Canceled" 等
     number_of_episodes: int | None       # 总集数
     number_of_seasons: int | None        # 总季数
@@ -168,7 +168,7 @@ class Movie(Base):
     description: str | None
     poster_url: str | None
     rating: float | None
-    genre: list[str] | None
+    genre: list[str] | None              # 同 TVSeries.genre 取值约定
     status: str | None                   # "Released" | "Upcoming" 等
     release_date: date | None            # 上映日期（区别于 TVSeries 的 start_date）
     runtime: int | None                  # 片长（分钟）
@@ -186,6 +186,16 @@ class Movie(Base):
     agent_works: list[AgentWork]
     collection: WorkCollection | None
 ```
+
+### genre 取值约定（统一分类标签）
+
+`TVSeries.genre` / `Movie.genre` / `AudioWork.genre` 取值被约束为 **TMDB 封闭分类集（movie 19 + TV 16，并集 27 类）的英文 canonical 名**，权威清单一处定义：`app/services/genre_registry.py`（含 tmdb_id、中文显示名、movie/tv 适用范围），`app/schemas/genre.py` 的 `GenreName` Literal 与前端 `constants/genres.ts` 与之手同步。
+
+- **存储**：英文 canonical 名（如 `"Animation"`、`"Sci-Fi & Fantasy"`），按注册表顺序去重；中文显示归前端 i18n。
+- **来源**：TMDB 直连 id 直译；wikipedia/Exa 路径由 LLM（judge/ReAct prompt 注入完整枚举）根据外部作品详情输出，prompt 要求**尽力推测**——源未显式列出标签时必须依据简介/categories 推断，有简介就至少给一个；judge/ReAct 仍为空时由 `_ensure_genre` 兜底（一次低成本 LLM 调用按简介分类，结果再次钳制）；所有产出统一经 `normalize_genres` 钳制——表外值一律丢弃（记录 debug 日志），空结果视为"未提供"。
+- **写回规则**：新值非空才覆盖既有值；归一化后为空不清空旧值。手动 PATCH 的 genre 可能被下一次 metadata 更新覆盖（本期不做 manual 保护标记）。
+- **API 校验**：作品 Create/Update 的 genre 为 `GenreName` 枚举，表外值 422；通知 payload 的 `work.genre` 快照同样落封闭集。
+- **存量**：`scripts/genre_backfill.py` 模式 A 就地规范化既有值，模式 B `--refresh-empty` 对空值作品重跑 metadata 补齐；缓存代际 `METADATA_CACHE_GENERATION=3` 使旧缓存惰性失效。
 
 ### WorkExternalId（作品外部身份袋 - Phase P3）
 

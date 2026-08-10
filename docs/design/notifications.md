@@ -124,11 +124,13 @@ pending --(2xx / mock)--> done
   "work": {"type": "series | movie",
            "title_en": "...", "title_cn": "...", "original_title": "...",
            "year": 2023, "content_type": "anime | tv | movie | ...",
-           "collection": "...", "seasons": [...], "episodes": [{"season","episode","title"}]},
+           "collection": "...", "genre": ["Animation", "Fantasy"],
+           "seasons": [...], "episodes": [{"season","episode","title"}]},
   "files": [{"name": "相对 torrent 根的路径", "size": 734003200}]
 }
 ```
 
+- `work.genre`：作品分类标签快照，取值为**封闭 TMDB 27 类英文 canonical 名**（快照时经 `normalize_genres` 归一化；完整枚举见 data-models.md「genre 取值约定」，API 侧 /docs 中 `NotificationWorkPayload.genre` 渲染同一枚举）。旧通知无此键，走"重新生成"后补齐。
 - `torrent_name` + `files` 来自下载器 RPC（`get_torrent_files`，统一客户端接口的一部分）；RPC 失败降级为不带 `files` 入队，消费者退回扫描 `download_dir`。
 - 电影无 `seasons`/`episodes`（null）；`collection` 为 WorkCollection 显示名或 null。
 - `task.download_task_id` 是消费者后续操作任务的句柄（见"下游清理"）。
@@ -137,7 +139,7 @@ pending --(2xx / mock)--> done
 
 单一投递路径：scheduler 每分钟 `_process_download_notifications` tick ——
 
-1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook 时才补建**——未注册 webhook 的 Agent 不生成通知，避免堆积无用记录（手动 backfill 不受此限）。
+1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook 时才补建**——未注册 webhook 的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。
 2. **fan-out（`ensure_deliveries`）**：为"通知 × 其 Agent 每个启用 webhook"补建缺失的 `pending` delivery（`next_attempt_at=now`）。幂等（`(notification_id, webhook_id)` 唯一约束 + SAVEPOINT 吸收竞争）；新注册/重新启用的 webhook 在下一次运行（或注册时立即，见下）收到全部积压。
 3. **投递（`deliver_due_deliveries`）**：捞取全部到期 `pending` delivery（每 tick 上限 50 条，`created_at` 升序），并发投递（`Semaphore(10)` 上限）。
 
@@ -159,7 +161,7 @@ pending --(2xx / mock)--> done
 | `POST /agents/{id}/webhooks` | 前端 | 注册 webhook `{url, mock?, enabled?}` → **201**；非 mock 必须 http(s) url（422）；注册后立即 fan-out 积压（`ensure_deliveries`） |
 | `PUT /agents/{id}/webhooks/{wid}` | 前端 | 更新 `{url?, mock?, enabled?}`（部分更新）；更新后同样立即 fan-out（重新启用即恢复投递积压） |
 | `DELETE /agents/{id}/webhooks/{wid}` | 前端 | 删除 webhook（其 delivery 历史随 FK CASCADE 删除；通知行保留） |
-| `POST /agents/{id}/notifications/backfill` | 前端 | `{since: datetime \| null}`；为该 Agent 从未生成过通知的 completed 任务补建（`since=null` 从最早开始）；返回 `{created}`；fan-out 与投递走正常循环天然限速 |
+| `POST /agents/{id}/notifications/regenerate` | 前端 | `{since: datetime \| null}`；对该 Agent 全部 completed 任务（`since` 按 `completed_at` 过滤，null=从最早开始）**重跑完整生成链路**（停种 + 拉取文件清单 + 构建快照）：无通知的补建，已有的原地重建 payload（保留行与 `notification_id`）并将其非 pending delivery 复位为立即到期 pending 随新快照重投；当次链路拿不到 torrent 文件清单（RPC 失败/种子已删/无种子）时保留旧快照不降级；返回 `{created, regenerated}`；fan-out 与投递走正常循环天然限速 |
 | `POST /notifications/{id}/retry` | 前端 | 单条重试：body `{mode: "failed" \| "all"}` → `{reset: n}`。`failed` = 仅重置 failed delivery；`all` = 重置全部非 pending delivery（done + failed）。重置为 pending 且立即到期 |
 | `POST /notifications/retry` | 前端 | 批量重试：body `{mode, since?, agent_id?}` → `{reset: n}`。`since` 按 `notification.created_at >= since` 过滤；`agent_id` 限定 Agent；缺省 = 全库范围 |
 
@@ -181,7 +183,7 @@ pending --(2xx / mock)--> done
 
 ## 前端
 
-Agent 详情页"通知记录" Tab：webhook 多注册列表（添加/编辑/删除/启用开关/mock 标记；"重新生成"补建按钮（可选起始时间，默认从最早 completed 任务检查）；通知表格（创建时间、聚合状态、投递摘要 `{done}/{total}`、操作列——详情 Drawer 展示 payload JSON + 逐条 delivery 表格，行级重试下拉选 failed-only / all）；批量重试弹窗（mode 单选 + 可选 since）；手动"刷新"按钮 + 存在 pending 时每 10s 静默轮询列表。
+Agent 详情页"通知记录" Tab：webhook 多注册列表（添加/编辑/删除/启用开关/mock 标记；"重新生成"按钮（弹窗可选起始时间，留空=从最早 completed 任务开始）对该 Agent 的 completed 任务重跑完整生成链路——补建缺失通知、重建已有通知的 payload 并复位其投递重投，提示补建/重新生成数量；通知表格（创建时间、聚合状态、投递摘要 `{done}/{total}`、操作列——详情 Drawer 展示 payload JSON + 逐条 delivery 表格，行级重试下拉选 failed-only / all）；批量重试弹窗（mode 单选 + 可选 since）；手动"刷新"按钮 + 存在 pending 时每 10s 静默轮询列表。
 
 ## 环境变量
 
