@@ -261,6 +261,7 @@ async def create_tables() -> None:
             try:
                 await conn.run_sync(Base.metadata.create_all)
                 await _apply_light_migrations(conn)
+                await _ensure_pg_trgm_indexes(conn)
             finally:
                 await conn.execute(text("SELECT pg_advisory_unlock(72057594037927937)"))
             return
@@ -276,6 +277,32 @@ async def create_tables() -> None:
         async with async_session_factory() as session:
             await backfill_fts_if_empty(session)
             await session.commit()
+
+    # Backfill search_text for rows created before the column/event hook
+    # existed (both backends; PostgreSQL needs it for the pg_trgm indexes).
+    from app.services.fts import backfill_search_text
+
+    async with async_session_factory() as session:
+        await backfill_search_text(session)
+        await session.commit()
+
+
+async def _ensure_pg_trgm_indexes(conn) -> None:
+    """pg_trgm GIN indexes over the normalized ``search_text`` columns.
+
+    ``CREATE EXTENSION``/``CREATE INDEX`` are both ``IF NOT EXISTS``-guarded
+    and each step is wrapped in ``_best_effort``: a role without the
+    ``pg_trgm`` extension privilege must not kill startup — search then falls
+    back to the plain ``LIKE``/Python scan.
+    """
+    async with _best_effort(conn, "pg_trgm extension"):
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+    for table in ("tv_series", "movies", "audio_works"):
+        async with _best_effort(conn, f"pg_trgm index {table}"):
+            await conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS ix_{table}_search_text_trgm "
+                f"ON {table} USING gin (search_text gin_trgm_ops)"
+            ))
 
 
 @contextlib.asynccontextmanager
@@ -371,6 +398,13 @@ async def _apply_light_migrations(conn) -> None:
         # itself is created by create_all.
         ("tv_series", "collection_id", "VARCHAR(36)"),
         ("movies", "collection_id", "VARCHAR(36)"),
+        # Normalized search haystack (title_cn + title_en + original_title +
+        # aliases through normalize_title), maintained by the ORM before_flush
+        # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into
+        # the FTS sidecar via the fts_outbox drain.
+        ("tv_series", "search_text", "TEXT"),
+        ("movies", "search_text", "TEXT"),
+        ("audio_works", "search_text", "TEXT"),
     ]
 
     for table, column, ddl in additions:

@@ -69,12 +69,23 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(seconds=30),
     )
-    # FTS shadow-table reconciliation: heal any base/shadow divergence the
-    # upsert/delete call sites miss (scripts, dedup merges, swallowed write
-    # failures). Cheap full diff at current table sizes.
+    # FTS sidecar synchronization: replay fts_outbox change rows onto the
+    # sidecar shadow tables every 30s (outbox rows are enqueued atomically
+    # with the base-row transaction by the ORM before_flush hook). The hourly
+    # reconcile below heals whatever this misses (raw SQL, scripts, swallowed
+    # write failures).
+    _scheduler.add_job(
+        _drain_fts_outbox,
+        trigger=IntervalTrigger(seconds=30),
+        id="fts_drain",
+        replace_existing=True,
+        next_run_time=utcnow() + timedelta(seconds=5),
+    )
+    # FTS shadow-table reconcile: full diff base vs shadow as a backstop for
+    # paths that bypass the outbox (scripts, dedup merges, direct SQL).
     _scheduler.add_job(
         _reconcile_fts,
-        trigger=IntervalTrigger(minutes=5),
+        trigger=IntervalTrigger(hours=1),
         id="fts_reconcile",
         replace_existing=True,
         next_run_time=utcnow() + timedelta(minutes=1),
@@ -558,8 +569,22 @@ async def _process_download_notifications() -> None:
             logger.warning("[notify] processing tick failed: %s", e)
 
 
+async def _drain_fts_outbox() -> None:
+    """Every 30s: replay fts_outbox change rows onto the FTS sidecar."""
+    from app.database import committed_session
+    from app.services.fts import drain_fts_outbox
+
+    try:
+        async with committed_session() as db:
+            n = await drain_fts_outbox(db)
+        if n:
+            logger.info("[fts] drained %d outbox rows", n)
+    except Exception as e:
+        logger.warning("[fts] drain job failed: %s", e)
+
+
 async def _reconcile_fts() -> None:
-    """Every 5 minutes: reconcile FTS shadow tables with the base tables."""
+    """Hourly: reconcile FTS shadow tables with the base tables."""
     from app.database import committed_session
     from app.services.fts import reconcile_fts
 

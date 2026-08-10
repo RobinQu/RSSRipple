@@ -13,7 +13,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 | External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), Exa Agent API, TMDB API, Wikipedia Python library, feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |
 
-数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。全文检索使用 Turso 原生 FTS（ngram），因与 MVCC 互斥而放在独立的边车数据库。
+数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
 
 ## 3. 模块划分
 

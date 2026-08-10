@@ -438,10 +438,17 @@ startup:
   ├─ 4. 全局每小时任务:
   │     check_downloader_connections()  # 调用 POST /downloaders/{id}/test
   │
-  ├─ 5. 每 5 分钟任务:
-  │     metadata_backfill              # 重试可重试的未匹配资源
-  │     fts_reconcile                  # FTS 影子表对账：全量 diff 基表 vs 影子表，
-  │                                    # 修补调用点遗漏（脚本、去重合并、写入失败吞没）
+  ├─ 5. 每 30 秒任务:
+  │     fts_drain                    # FTS 边车同步：把 fts_outbox 变更行定向投递到
+  │                                  # 边车影子表（ORM 钩子与作品行同事务入队，
+  │                                  # 幂等全量写；写入失败留给对账兜底）
+  │
+  ├─ 5b. 每 5 分钟任务:
+  │     metadata_backfill            # 重试可重试的未匹配资源
+  │
+  ├─ 5c. 每小时任务:
+  │     fts_reconcile                # FTS 影子表对账：全量 diff 基表 vs 影子表，
+  │                                  # 修补绕过 outbox 的路径（脚本、直连 SQL）
   │
   ├─ 6. 每分钟任务（NOTIFY_ENABLED 开启时）:
   │     _process_download_notifications  # 三段式 tick：

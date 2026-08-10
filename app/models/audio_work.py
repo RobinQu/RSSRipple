@@ -26,6 +26,11 @@ class AudioWork(Base):
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
     original_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     aliases: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Normalized search haystack (title_cn + title_en + original_title +
+    # aliases through ``normalize_title``), maintained by the ORM before_flush
+    # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into the
+    # FTS sidecar via the fts_outbox drain.
+    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     description: Mapped[str | None] = mapped_column(String(2048), nullable=True)

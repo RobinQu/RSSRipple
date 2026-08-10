@@ -72,7 +72,7 @@
 ### 其他约定（详见 conventions.md）
 
 - API 时间一律 ISO 8601 UTC 字符串。
-- 数据库后端二选一：`sqlite+aioturso:///`（默认，嵌入式 Turso，MVCC 并发写；**单进程独占文件锁**，多容器/多实例不得共享同一文件，需共享用 PostgreSQL；旧库迁移走 `scripts/migrate_to_turso.py`）、`postgresql+asyncpg://`。锁/冲突重试设施对两者语义一致。全文检索为 Turso 原生 FTS（ngram），因与 MVCC 互斥而放在边车库 `<主库名>_fts.db`（WAL），可随时重建、启动自动回填；同步 = 写入路径调用点 + 每 5 分钟对账任务兜底。
+- 数据库后端二选一：`sqlite+aioturso:///`（默认，嵌入式 Turso，MVCC 并发写；**单进程独占文件锁**，多容器/多实例不得共享同一文件，需共享用 PostgreSQL；旧库迁移走 `scripts/migrate_to_turso.py`）、`postgresql+asyncpg://`。锁/冲突重试设施对两者语义一致。全文检索双后端统一基于 `search_text`（作品表上 `normalize_title` 归一化标题拼接列，由 ORM `before_flush` 钩子同事务维护，启动空值回填）：**Turso** 走原生 FTS（ngram）边车库 `<主库名>_fts.db`（WAL，可随时重建、启动自动回填），同步 = `fts_outbox` 表（ORM 钩子同事务入队 upsert/delete）+ 每 30 秒 drain 任务定向投递 + 每小时全量对账兜底（脚本/直连 SQL）；**PostgreSQL** 无 sidecar，直接 `search_text` + `pg_trgm` GIN 索引做子串匹配（需 `CREATE EXTENSION pg_trgm` 权限，无权限回退 Python 扫描）。ngram 单字查询不命中，`search_*_fts` 对归一化后 <2 字符的查询回退 Python 扫描。
 - `DownloaderInstance.download_dir` 以 Transmission daemon 视角为准（POSIX/Windows/UNC）；`Agent.download_subdir` 必须是相对路径，禁止 `..`/绝对路径/控制字符；不调用 `session_set` 改全局目录。
 - 关键环境变量：`DATABASE_URL`、`QUEUE_BACKEND`、`LLM_API_KEY/BASE_URL/MODEL`、`EXA_API_KEY`、`JINA_API_KEY`、`TMDB_API_KEY`、`*_ENABLED` 数据源开关、`POSTER_CACHE_DIR`、`AUTH_ENABLED`（认证总开关，默认开）、`API_KEY`（可选静态引导 key）等（完整列表见子文档）。
 

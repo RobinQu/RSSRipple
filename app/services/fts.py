@@ -18,14 +18,19 @@ Design:
   Traditional/Simplified, half/full-width, and case variants all match. The
   ngram tokenizer is case-sensitive, so normalization is what makes search
   case-insensitive.
-- **FTS indexes auto-track DML** on the shadow tables (insert/update/delete),
-  so maintenance is a plain table write on the sidecar.
+- **Change-driven sync** — the ORM before_flush/after_flush hooks
+  (``app/services/work_search_events.py``) write ``fts_outbox`` rows in the
+  same transaction as the base-row change; the per-minute-ish drain
+  (``drain_fts_outbox``) replays them onto the sidecar (idempotent full-state
+  DELETE+INSERT). The hourly ``reconcile_fts`` diff is a backstop for paths
+  that bypass the outbox (scripts, direct SQL).
 - **Candidate retrieval** — ``fts_match`` retrieves candidates; callers
-  compute ``similarity_score`` for precise ranking.
+  compute ``similarity_score`` for precise ranking. Single-character queries
+  (ngram produces no tokens below ``min_token_size``=2) fall back to a Python
+  scan of the base tables.
 
-Queries are normalized the same way before matching. On PostgreSQL there is
-no sidecar; searches fall back to substring matching over the base tables in
-Python (the work tables are small).
+On PostgreSQL there is no sidecar: searches match the in-table ``search_text``
+column via ``pg_trgm`` GIN (see ``_search_pg_like``).
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
@@ -176,11 +181,14 @@ async def _search_fts(table: str, norm: str, limit: int) -> list[str]:
 
 
 async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
-    """FTS-less substring search over a work table (PostgreSQL).
+    """FTS-less substring search over a work table (single-char Turso queries).
 
-    Scans the (small) work table and matches the normalized query against the
-    normalized titles/aliases in Python — same normalization as the FTS
-    indexed content, so matching semantics stay consistent across backends.
+    The ngram tokenizer cannot produce tokens for queries shorter than its
+    ``min_token_size`` (2), so ``fts_match`` returns nothing for a single CJK
+    character. Fall back to scanning the (small) work table and matching the
+    normalized query against the normalized titles/aliases in Python — same
+    normalization as the FTS indexed content, so matching semantics stay
+    consistent across backends.
     """
     ids: list[str] = []
     try:
@@ -201,6 +209,27 @@ async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: 
             if len(ids) >= limit:
                 break
     return ids
+
+
+async def _search_pg_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
+    """Indexed trigram substring search over ``search_text`` (PostgreSQL).
+
+    ``search_text`` holds the normalized title concatenation maintained by the
+    ORM before_flush hook; the ``pg_trgm`` GIN index accelerates the
+    ``LIKE '%q%'`` pattern. Same normalization as the Turso FTS indexed
+    content, so matching semantics stay consistent across backends.
+    """
+    try:
+        stmt = (
+            select(model.id)
+            .where(model.search_text.like(f"%{norm}%"))
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return [row[0] for row in result.all()]
+    except Exception as e:
+        logger.warning("[fts] search_text LIKE search failed: %s", e)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +265,11 @@ async def search_series_fts(
     if not norm:
         return []
     if not _fts_available(db):
+        from app.models.series import TVSeries
+
+        return await _search_pg_like(db, TVSeries, norm, limit)
+    if len(norm) < 2:
+        # ngram tokenizer emits no tokens for single-character queries.
         from app.models.series import TVSeries
 
         return await _search_entities_like(db, TVSeries, norm, limit)
@@ -305,6 +339,11 @@ async def search_movie_fts(
     if not _fts_available(db):
         from app.models.movie import Movie
 
+        return await _search_pg_like(db, Movie, norm, limit)
+    if len(norm) < 2:
+        # ngram tokenizer emits no tokens for single-character queries.
+        from app.models.movie import Movie
+
         return await _search_entities_like(db, Movie, norm, limit)
     try:
         return await _search_fts("movie_fts", norm, limit)
@@ -372,6 +411,11 @@ async def search_audio_work_fts(
     if not _fts_available(db):
         from app.models.audio_work import AudioWork
 
+        return await _search_pg_like(db, AudioWork, norm, limit)
+    if len(norm) < 2:
+        # ngram tokenizer emits no tokens for single-character queries.
+        from app.models.audio_work import AudioWork
+
         return await _search_entities_like(db, AudioWork, norm, limit)
     try:
         return await _search_fts("audio_work_fts", norm, limit)
@@ -427,6 +471,99 @@ async def backfill_fts_if_empty(db: AsyncSession) -> None:
             n = await rebuild(db)
             if n:
                 logger.info("[fts] backfilled %s with %d rows", table, n)
+
+
+async def drain_fts_outbox(db: AsyncSession, limit: int = 500) -> int:
+    """Replay ``fts_outbox`` change rows onto the sidecar shadow tables.
+
+    Claims a batch (reads + removes from the main DB in the caller's
+    transaction), then writes the resulting DELETE/INSERT statements to the
+    sidecar best-effort. Shadow writes are full-state replaces, so replaying
+    the same entity twice — or the same batch out of order — always converges
+    to the latest op. A failed sidecar write is logged and left for the
+    reconcile job; outbox rows are consumed regardless (they would replay the
+    same state anyway).
+
+    ``limit`` is the per-tick batch size; repeated rows for one entity within
+    a batch collapse naturally since every op is a full-state write.
+    """
+    if "turso" not in settings.database_url:
+        return 0
+    from app.models.audio_work import AudioWork
+    from app.models.fts_outbox import FtsOutbox
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
+    rows = (await db.execute(
+        select(FtsOutbox).order_by(FtsOutbox.created_at).limit(limit)
+    )).scalars().all()
+    if not rows:
+        return 0
+
+    models = {"series": TVSeries, "movie": Movie, "audio": AudioWork}
+    tables = {"series": "tv_series_fts", "movie": "movie_fts", "audio": "audio_work_fts"}
+    upsert_sql = {
+        t: (
+            f"INSERT INTO {t} (entity_id, title_cn, title_en, original_title, aliases) "
+            "VALUES (:id, :title_cn, :title_en, :original_title, :aliases)"
+        )
+        for t in ("tv_series_fts", "movie_fts", "audio_work_fts")
+    }
+
+    statements: list[tuple[str, dict]] = []
+    for r in rows:
+        table = tables[r.entity_type]
+        delete_stmt = (f"DELETE FROM {table} WHERE entity_id = :id", {"id": r.entity_id})
+        if r.op != "upsert":
+            statements.append(delete_stmt)
+            continue
+        entity = await db.get(
+            models[r.entity_type], r.entity_id, populate_existing=True
+        )
+        if entity is None:
+            # Deleted before the drain got to it — mirror the deletion.
+            statements.append(delete_stmt)
+            continue
+        vals = _fts_values(entity)
+        vals["id"] = r.entity_id
+        statements.append(delete_stmt)
+        statements.append((upsert_sql[table], vals))
+
+    await db.execute(delete(FtsOutbox).where(FtsOutbox.id.in_([r.id for r in rows])))
+    try:
+        await _shadow_write(statements)
+    except Exception as e:
+        logger.warning(
+            "[fts] drain write failed for %d rows (reconcile will heal): %s", len(rows), e
+        )
+    return len(rows)
+
+
+async def backfill_search_text(db: AsyncSession) -> int:
+    """Compute ``search_text`` for work rows where it is NULL.
+
+    One-time recovery for databases created before the ``search_text`` column
+    (and the ORM before_flush hook that maintains it) existed. Runs on both
+    backends: PostgreSQL needs it for the ``pg_trgm`` GIN indexes; on Turso it
+    keeps the column meaningful (matching itself uses the sidecar or the
+    single-char Python scan). Idempotent.
+    """
+    from app.models.audio_work import AudioWork
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+    from app.services.work_search_events import build_search_text
+
+    updated = 0
+    for model in (TVSeries, Movie, AudioWork):
+        rows = (await db.execute(
+            select(model).where(model.search_text.is_(None))
+        )).scalars().all()
+        for entity in rows:
+            entity.search_text = build_search_text(entity)
+            updated += 1
+    if updated:
+        logger.info("[fts] backfilled search_text on %d rows", updated)
+    return updated
 
 
 # ---------------------------------------------------------------------------

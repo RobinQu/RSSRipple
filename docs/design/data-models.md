@@ -123,6 +123,10 @@ class TVSeries(Base):
     title_en: str | None                 # 英文标题
     original_title: str | None           # 原始标题（原名）
     aliases: list[str] | None            # 别名列表，自动积累合并（去重）
+    search_text: str | None              # 归一化搜索 haystack：title_cn+title_en+original_title+aliases
+                                         # 过 normalize_title（NFKC+OpenCC t2s+小写）的拼接；由 ORM
+                                         # before_flush 钩子同事务维护，启动时空值回填。Turso 镜像进 FTS
+                                         # 边车（fts_outbox drain），PostgreSQL 上被 pg_trgm GIN 索引
     external_id: str | None              # 外部 ID（MetadataAgent 返回的参考 ID，如 TMDB/MAL/IMDb/Wikipedia ID）
     external_source: str | None          # 枚举字符串: "exa" | "tmdb" | "wikipedia" | "manual" | "local_match" | "llm_search"（旧版遗留）
     description: str | None              # 简介
@@ -163,6 +167,7 @@ class Movie(Base):
     title_en: str | None
     original_title: str | None
     aliases: list[str] | None
+    search_text: str | None              # 归一化搜索 haystack（同 TVSeries.search_text，见其注释）
     external_id: str | None
     external_source: str | None          # 枚举: "exa" | "tmdb" | "wikipedia" | "manual" | "local_match" | "llm_search"（旧版遗留）
     description: str | None
@@ -633,6 +638,27 @@ class MetadataCache(Base):
 ```
 
 **逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 2；gen 2 = P1 回退身份语义 + P2 wikipedia seasons 附着 + P3 身份袋/`alt_external_ids`）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。
+
+### FtsOutbox（全文检索变更日志 - 仅 Turso 使用）
+
+驱动 FTS 边车同步的**持久变更记录**（`app/models/fts_outbox.py`）。边车影子表（`<主库名>_fts.db`）与 MVCC 主库互斥，因此由独立任务投递；本表是该投递的 durable record：ORM `before_flush`/`after_flush` 钩子（`app/services/work_search_events.py`）在**作品行同一事务**内入队，commit 成功必留痕、rollback 随事务消失。PostgreSQL 后端不写本表（走 `search_text` + pg_trgm），表结构仍统一建出、恒为空。
+
+```python
+class FtsOutbox(Base):
+    __tablename__ = "fts_outbox"
+
+    id: str                              # UUID
+    entity_type: str                     # "series" | "movie" | "audio" —— 指向的作品表
+    entity_id: str                       # 作品主键（FK-less 跨表引用）
+    op: str                              # "upsert" | "delete"
+    created_at: datetime
+```
+
+无 `(entity_type, entity_id)` 唯一约束：同实体多次变更产生多行无妨——drain 每批清空、边车写入是幂等 DELETE+INSERT 全量替换，最终态 = 最后一个 op。
+
+### FTS 边车影子表（`<主库名>_fts.db`，Turso 专属）
+
+三张普通表 `tv_series_fts` / `movie_fts` / `audio_work_fts`（`entity_id` PK + 规范化标题列），其上建 `CREATE INDEX ... USING fts (…) WITH (tokenizer='ngram')` 由引擎自动跟踪 DML。仅缓存 `search_text` 同源的规范化内容，可随时从基表重建（`rebuild_*_fts` / `backfill_fts_if_empty`）；同步 = `_drain_fts_outbox`（每 30 秒定向投递）+ `_reconcile_fts`（每小时全量对账兜底，修补脚本/直连 SQL 等绕过 outbox 的路径）。PostgreSQL 无此表。
 
 ---
 
