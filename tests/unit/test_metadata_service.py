@@ -1121,3 +1121,45 @@ async def test_manual_link_reconciles_absolute_episode(db_session, channel):
     # absolute 30 across two 24-episode seasons -> S2E6, no season-uncertain.
     assert (res.season, res.episode) == (2, 6)
     assert res.episode_confidence == "reconciled"
+
+
+async def test_refresh_work_metadata_tolerates_llm_candidate_variance(db_session):
+    """LLM candidates may include season-ambiguity dicts or stray strings —
+    refresh must skip them instead of 500ing (integration flake turned bug).
+    """
+    work = TVSeries(
+        id=_uuid(), title_en="Refresh Show", content_type="tv",
+        external_id="tmdb:refresh-1", external_source="tmdb",
+    )
+    db_session.add(work)
+    await db_session.flush()
+    candidates = [
+        "a stray string",
+        {"season": 2},
+        {"title_en": "Refresh Show", "content_type": "tv", "genre": ["Anime"]},
+    ]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=candidates,
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result = await ms.refresh_work_metadata(db_session, work.id, "tv", "tmdb")
+    assert result["found"] is True
+    assert work.genre == ["Animation"]
+
+    # No usable work candidates at all → clean "found, nothing filled".
+    work2 = TVSeries(
+        id=_uuid(), title_en="Refresh Show 2", content_type="tv",
+        external_id="tmdb:refresh-2", external_source="tmdb",
+    )
+    db_session.add(work2)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[{"season": 3}, "junk"],
+    ):
+        result2 = await ms.refresh_work_metadata(db_session, work2.id, "tv", "tmdb")
+    assert result2["found"] is True
+    assert result2["filled"] == []

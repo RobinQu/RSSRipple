@@ -17,25 +17,11 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    ensure_series,
 )
 
 BATCH_FEED_URL = f"{TEST_SERVER}/rss/mikanani-batch"
 FRIEREN_TITLE_CN = "葬送的芙莉莲"
-
-
-def _ensure_series(title_cn: str, title_en: str) -> str:
-    r = _api("/api/v1/series", params={"page_size": 100, "title": title_cn})
-    if r.status_code == 200:
-        for s in r.json().get("data", []):
-            if s.get("title_cn") == title_cn:
-                return s["id"]
-    r = _api(
-        "/api/v1/series",
-        method="post",
-        json={"title_cn": title_cn, "title_en": title_en},
-    )
-    assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
-    return r.json()["data"]["id"]
 
 
 def _ensure_mock_downloader() -> str:
@@ -54,7 +40,11 @@ def _ensure_mock_downloader() -> str:
 
 class TestBatchDispatch:
     def test_batch_resource_dispatched_once(self):
-        series_id = _ensure_series(FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End")
+        # Single-season evidence keeps the single-episode resource dispatchable
+        # (season-less resources would otherwise go ambiguous → PendingDecision).
+        series_id = ensure_series(
+            FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
+        )
 
         r = _api(
             "/api/v1/channels",

@@ -51,9 +51,14 @@ def _fake_source_keys():
 
 
 class TestMetadataSourceMatrix:
-    """One metadata-agent channel per external source (unknown titles)."""
+    """One metadata-agent channel per supported channel source (unknown titles).
 
-    @pytest.mark.parametrize("source", ["tmdb", "jina", "exa"])
+    Channel sources are restricted to the two-source architecture
+    (wikipedia/tmdb); deprecated sources (jina/exa/local/combined) are
+    rejected at channel creation — covered by test_deprecated_source_422.
+    """
+
+    @pytest.mark.parametrize("source", ["tmdb"])
     def test_source_channel_not_found(self, _fake_source_keys, source: str):
         r = _api(
             "/api/v1/channels",
@@ -94,3 +99,22 @@ class TestMetadataSourceMatrix:
             assert len(unlinked) == len(resources)
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
+
+    @pytest.mark.parametrize("source", ["jina", "exa", "local", "combined"])
+    def test_deprecated_source_422(self, source: str):
+        """Deprecated channel sources are rejected at creation (422)."""
+        r = _api(
+            "/api/v1/channels",
+            method="post",
+            json={
+                "name": f"LLM Deprecated Source Channel ({source})",
+                "url": MIKANANI_S2_URL,
+                "field_mapping": RICH_FIELD_MAPPING,
+                "fetch_interval": 3600,
+                "metadata_agent_enabled": True,
+                "metadata_source": source,
+            },
+        )
+        assert r.status_code == 422, (
+            f"deprecated source {source!r} should be rejected: {r.status_code}"
+        )

@@ -17,10 +17,13 @@ Requirements: Docker test environment with app + test-server services.
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from tests.integration.http._http import (
+    API_HEADERS,
     RICH_FIELD_MAPPING,
+    RSSRIPPLE,
     TEST_SERVER,
     _api,
     _poll_fetch,
@@ -30,6 +33,14 @@ KUSURIYA_TITLE_CN = "药屋少女的呢喃"
 HONZUKI_TITLE_CN = "小书痴的下克上"
 MIKANANI_S2_URL = f"{TEST_SERVER}/rss/mikanani?series=2"  # 药屋少女的呢喃
 MIKANANI_S4_URL = f"{TEST_SERVER}/rss/mikanani?series=4"  # 小书痴的下克上
+
+
+def _api_refresh(path: str, **kw) -> httpx.Response:
+    """Refresh-metadata calls route through the real (env-configured) LLM,
+    which can take minutes under load — use a 240s budget instead of the
+    shared 60s client (which flaky-times-out on this endpoint)."""
+    c = httpx.Client(timeout=240.0, headers=API_HEADERS)
+    return c.post(f"{RSSRIPPLE}{path}", **kw)
 
 
 def _ensure_series(title_cn: str, title_en: str) -> str:
@@ -227,7 +238,8 @@ class TestLocalAutoLink:
         data = r.json()["data"]
         sources = data if isinstance(data, list) else data.get("sources", [])
         values = {s["value"] for s in sources}
-        assert {"exa", "jina", "tmdb", "wikipedia"} <= values
+        # Two-source architecture: only wikipedia/tmdb are channel sources.
+        assert {"tmdb", "wikipedia"} <= values
         # Wikipedia needs no credentials → available; key-based availability
         # depends on the .env keys present, so don't assert on those.
         by_value = {s["value"]: s for s in sources}
@@ -699,18 +711,16 @@ class TestWorksSettings:
     def test_refresh_metadata_local_source(self):
         """refresh-metadata with source=local exercises the local agent path."""
         series_id = _ensure_series(KUSURIYA_TITLE_CN, "The Apothecary Diaries")
-        r = _api(
+        r = _api_refresh(
             "/api/v1/works/refresh-metadata",
-            method="post",
             json={"id": series_id, "content_type": "tv", "source": "local"},
         )
         assert r.status_code == 200, f"refresh failed: {r.text}"
         assert "found" in r.json()["data"]
 
         # Work not found → found=False
-        r = _api(
+        r = _api_refresh(
             "/api/v1/works/refresh-metadata",
-            method="post",
             json={"id": "nonexistent", "content_type": "movie", "source": "local"},
         )
         assert r.status_code == 200
@@ -718,9 +728,8 @@ class TestWorksSettings:
 
     def test_batch_refresh_metadata(self):
         series_id = _ensure_series(KUSURIYA_TITLE_CN, "The Apothecary Diaries")
-        r = _api(
+        r = _api_refresh(
             "/api/v1/works/batch-refresh-metadata",
-            method="post",
             json={
                 "items": [{"id": series_id, "content_type": "tv"}],
                 "source": "local",

@@ -30,12 +30,12 @@ from app.models.series import TVSeries
 from app.models.webhook_delivery import WebhookDelivery
 from app.services import notify_service
 from app.services.notify_service import (
-    backfill_notifications,
     backoff_delay,
     build_payload,
     create_notification_for_task,
     deliver_due_deliveries,
     ensure_deliveries,
+    regenerate_notifications,
     reset_deliveries_for_retry,
 )
 from app.utils.time import utcnow
@@ -65,6 +65,7 @@ def _series_ns(**overrides):
         start_date=date(2023, 9, 29),
         content_type="anime",
         collection=SimpleNamespace(display_name="Frieren"),
+        genre=["Anime", "Fantasy"],  # "Anime" alias normalizes to "Animation"
         seasons=[{"season_number": 1, "episode_count": 28}],
         episodes=[
             SimpleNamespace(season=1, episode=1, title="冒险的结束"),
@@ -114,6 +115,7 @@ def test_build_payload_series():
     assert work["year"] == 2023
     assert work["content_type"] == "anime"
     assert work["collection"] == "Frieren"
+    assert work["genre"] == ["Animation", "Fantasy"]
     assert work["seasons"] == [{"season_number": 1, "episode_count": 28}]
     assert work["episodes"][0] == {"season": 1, "episode": 1, "title": "冒险的结束"}
     assert payload["files"] == [{"name": "ep05.mkv", "size": 100}]
@@ -128,6 +130,7 @@ def test_build_payload_movie():
         release_date=date(2016, 8, 26),
         content_type="movie",
         collection=None,
+        genre=["Romance", "Animation"],
     )
     payload = build_payload(
         "notif-2", None, SimpleNamespace(id="t", download_dir="/downloads"),
@@ -139,6 +142,7 @@ def test_build_payload_movie():
     assert work["type"] == "movie"
     assert work["year"] == 2016
     assert work["collection"] is None
+    assert work["genre"] == ["Romance", "Animation"]
     assert work["episodes"] is None
 
 
@@ -559,15 +563,17 @@ async def test_reset_agent_and_notification_filters(db_session, retry_seed):
 
 
 # ---------------------------------------------------------------------------
-# Backfill
+# Regenerate（"重新生成"：对范围内任务重跑完整生成链路）
 # ---------------------------------------------------------------------------
 
 
-async def test_backfill_only_missing_and_since_filter(db_session, seed):
-    # Task 1 already has a notification — must be skipped by backfill.
-    await create_notification_for_task(db_session, seed.task)
+async def test_regenerate_creates_missing_and_rebuilds_existing(
+    db_session, seed,
+):
+    # Task 1 already has a notification → payload is rebuilt, not skipped.
+    n, _ = await create_notification_for_task(db_session, seed.task)
 
-    # Task 2: older completed task without a notification.
+    # Task 2: older completed task without a notification → created.
     older = DownloadTask(
         id=_uuid(), agent_id=seed.agent.id,
         file_resource_id=seed.resource.id, downloader_id=seed.downloader.id,
@@ -578,19 +584,22 @@ async def test_backfill_only_missing_and_since_filter(db_session, seed):
     db_session.add(older)
     await db_session.commit()
 
-    created = await backfill_notifications(db_session, seed.agent.id, None)
-    assert created == 1  # only the older task
-
-    # since after the older task → nothing left to backfill.
-    created = await backfill_notifications(db_session, seed.agent.id, utcnow())
-    assert created == 0
+    stats = await regenerate_notifications(db_session, seed.agent.id, None)
+    assert stats == {"created": 1, "regenerated": 1}
 
     rows = (await db_session.execute(select(DownloadNotification))).scalars().all()
     assert len(rows) == 2
+    # The existing notification keeps its id (payload["notification_id"] stable).
+    await db_session.refresh(n)
+    assert n.payload["notification_id"] == n.id
+
+    # since after both tasks → nothing in scope.
+    stats = await regenerate_notifications(db_session, seed.agent.id, utcnow())
+    assert stats == {"created": 0, "regenerated": 0}
 
 
-async def test_backfill_batches_commits(db_session, seed):
-    """超过批次大小的 backfill 正常分批提交。"""
+async def test_regenerate_batches_commits(db_session, seed):
+    """超过批次大小的 regenerate 正常分批提交。"""
     tasks = [
         DownloadTask(
             id=_uuid(), agent_id=seed.agent.id,
@@ -604,9 +613,94 @@ async def test_backfill_batches_commits(db_session, seed):
     ]
     db_session.add_all(tasks)
     await db_session.commit()
-    created = await backfill_notifications(db_session, seed.agent.id, None)
+    stats = await regenerate_notifications(db_session, seed.agent.id, None)
     # 25 个新任务 + seed 自带的 1 个 completed 任务
-    assert created == 26
+    assert stats == {"created": 26, "regenerated": 0}
+
+
+def _strip_files(n: DownloadNotification) -> None:
+    """模拟缺陷期创建的快照：整段缺失 downloader-RPC 派生字段。"""
+    payload = dict(n.payload)
+    payload.pop("files", None)
+    payload["task"] = {**payload["task"], "torrent_name": None}
+    n.payload = payload
+
+
+async def test_regenerate_restores_files_and_resets_deliveries(
+    db_session, seed,
+):
+    """回归：payload 缺 files 的存量通知经重新生成恢复 files，且其非
+    pending delivery 被复位为立即到期的 pending（新快照会重新投递）。"""
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    _strip_files(n)
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    await db_session.flush()
+    done = WebhookDelivery(
+        id=_uuid(), notification_id=n.id, webhook_id=webhook.id,
+        status="done", attempt_count=3, delivered_at=utcnow(),
+    )
+    db_session.add(done)
+    await db_session.commit()
+
+    stats = await regenerate_notifications(db_session, seed.agent.id, None)
+
+    assert stats == {"created": 0, "regenerated": 1}
+    await db_session.refresh(n)
+    assert n.payload["files"] == [
+        {"name": "Test.Series.S01", "size": 1_000_000_000}
+    ]
+    assert n.payload["task"]["torrent_name"] == "Test.Series.S01"
+    assert n.payload["notification_id"] == n.id
+    await db_session.refresh(done)
+    assert done.status == "pending"
+    assert done.attempt_count == 0
+
+
+async def test_regenerate_reruns_intact_snapshots(db_session, seed):
+    """重新生成无条件重跑生成链路：完好快照同样被重建并重投。"""
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    await db_session.flush()
+    done = WebhookDelivery(
+        id=_uuid(), notification_id=n.id, webhook_id=webhook.id,
+        status="done", attempt_count=1, delivered_at=utcnow(),
+    )
+    db_session.add(done)
+    await db_session.commit()
+
+    stats = await regenerate_notifications(db_session, seed.agent.id, None)
+
+    assert stats == {"created": 0, "regenerated": 1}
+    await db_session.refresh(done)
+    assert done.status == "pending"
+
+
+async def test_regenerate_torrent_unavailable_keeps_payload(db_session, seed):
+    """种子已从下载器删除：生成链路拿不到文件清单，保留旧快照不降级。"""
+    from app.clients.mock_downloader import _store
+
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    original_files = n.payload["files"]
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    await db_session.flush()
+    done = WebhookDelivery(
+        id=_uuid(), notification_id=n.id, webhook_id=webhook.id,
+        status="done", delivered_at=utcnow(),
+    )
+    db_session.add(done)
+    await db_session.commit()
+    _store(seed.downloader.id).torrents.pop(seed.task.transmission_torrent_id)
+
+    stats = await regenerate_notifications(db_session, seed.agent.id, None)
+
+    assert stats == {"created": 0, "regenerated": 0}
+    await db_session.refresh(n)
+    assert n.payload["files"] == original_files
+    await db_session.refresh(done)
+    assert done.status == "done"  # 未重建，投递不被打扰
 
 
 # ---------------------------------------------------------------------------
@@ -689,7 +783,7 @@ async def test_scheduler_tick_disabled(db_session, seed, monkeypatch):
 
 
 async def test_create_notification_survives_concurrent_race(db_session, seed, monkeypatch):
-    """回归：backfill/调度 tick 竞态——预检通过（无行）后、插入前，并发写
+    """回归：regenerate/调度 tick 竞态——预检通过（无行）后、插入前，并发写
     入者已提交同一 download_task_id 的通知。唯一约束冲突必须被 SAVEPOINT
     捕获并回读已存在行，而不是炸掉整个请求。"""
     # 预置“并发写入者”已提交的行。

@@ -108,6 +108,51 @@ def _ensure_downloader() -> str:
     return r.json()["data"]["id"]
 
 
+# ── Series seeding ─────────────────────────────────────────────────────────
+
+
+def ensure_series(
+    title_cn: str,
+    title_en: str,
+    number_of_seasons: int | None = None,
+    api=_api,
+) -> str:
+    """Get-or-create a series by exact title_cn; returns the series id.
+
+    Since 81a9d06, Layer-3 auto-link abandons top-1 linking when >1 local
+    works share a normalized title — so tests must never blindly POST a
+    duplicate. When ``number_of_seasons`` is given, the row is also brought
+    to that value (create or update): it supplies the single-season evidence
+    ``resolve_missing_season`` needs to land ``season=1`` instead of marking
+    season-less resources ``episode_confidence=ambiguous`` (which routes them
+    to a PendingDecision instead of dispatch).
+    ``api`` allows reusing the helper against the app-llm instance.
+    """
+    r = api("/api/v1/series", params={"page_size": 100, "title": title_cn})
+    if r.status_code == 200:
+        for s in r.json().get("data", []):
+            if s.get("title_cn") == title_cn:
+                sid = s["id"]
+                break
+        else:
+            sid = None
+        if sid is not None:
+            if number_of_seasons is not None and s.get("number_of_seasons") != number_of_seasons:
+                r = api(
+                    f"/api/v1/series/{sid}",
+                    method="put",
+                    json={"number_of_seasons": number_of_seasons},
+                )
+                assert r.status_code == 200, f"series update failed: {r.text}"
+            return sid
+    payload: dict = {"title_cn": title_cn, "title_en": title_en}
+    if number_of_seasons is not None:
+        payload["number_of_seasons"] = number_of_seasons
+    r = api("/api/v1/series", method="post", json=payload)
+    assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
+    return r.json()["data"]["id"]
+
+
 # ── Default field mapping ────────────────────────────────────────────────
 
 DEFAULT_FIELD_MAPPING = {

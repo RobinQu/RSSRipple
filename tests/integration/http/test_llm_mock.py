@@ -20,7 +20,12 @@ import os
 import httpx
 import pytest
 
-from tests.integration.http._http import API_HEADERS, RICH_FIELD_MAPPING, TEST_SERVER
+from tests.integration.http._http import (
+    API_HEADERS,
+    RICH_FIELD_MAPPING,
+    TEST_SERVER,
+    ensure_series,
+)
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
 MIKANANI_S1_URL = f"{TEST_SERVER}/rss/mikanani?series=1"  # 葬送的芙莉莲
@@ -150,14 +155,13 @@ class TestFeedAnalysis:
 @pytest.fixture(scope="class")
 def _llm_env():
     """Series + fetched channel (auto-linked) + mock downloader on app-llm."""
-    r = _api(
-        "/api/v1/series",
-        method="post",
-        json={"title_cn": FRIEREN_TITLE_CN, "title_en": "Frieren: Beyond Journey's End"},
+    # Get-or-create (duplicate rows trip the same-title collision guard) and
+    # single-season evidence so season-less resources dispatch instead of
+    # going ambiguous → PendingDecision.
+    series_id = ensure_series(
+        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End",
+        number_of_seasons=1, api=_api,
     )
-    if r.status_code != 201:
-        pytest.skip(f"Series creation failed: {r.status_code} {r.text}")
-    series_id = r.json()["data"]["id"]
 
     r = _api(
         "/api/v1/channels",
@@ -291,10 +295,24 @@ MIKANANI_S0_URL = f"{TEST_SERVER}/rss/mikanani?series=0"  # 黄泉使者
 MIKANANI_S2_URL = f"{TEST_SERVER}/rss/mikanani?series=2"  # 药屋少女的呢喃
 
 
+@pytest.fixture(scope="class")
+def _fake_tmdb_key():
+    """Fake TMDB key on app-llm: the channel source must be one of the
+    two supported sources (wikipedia/tmdb); a fake key keeps the search tool
+    failing fast and deterministic while the mock LLM's canned finalize
+    drives the verdict. Restored (cleared) afterwards."""
+    r = _api(
+        "/api/v1/system-settings", method="put", json={"tmdb_api_key": "mock-tmdb"}
+    )
+    assert r.status_code == 200, f"set fake key failed: {r.text}"
+    yield
+    _api("/api/v1/system-settings", method="put", json={"tmdb_api_key": ""})
+
+
 class TestMetadataAgentMock:
     """metadata_agent_enabled channel driven by the mock LLM tool calls."""
 
-    def test_agent_links_canned_work(self):
+    def test_agent_links_canned_work(self, _fake_tmdb_key):
         """Fetch with metadata agent on: mock finalize found → series + link."""
         r = _api(
             "/api/v1/channels",
@@ -305,7 +323,7 @@ class TestMetadataAgentMock:
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
-                "metadata_source": "exa",
+                "metadata_source": "tmdb",
             },
         )
         assert r.status_code == 201, f"create channel failed: {r.text}"
@@ -332,7 +350,7 @@ class TestMetadataAgentMock:
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 
-    def test_agent_not_found_path(self):
+    def test_agent_not_found_path(self, _fake_tmdb_key):
         """Unknown titles finalize found=false → resources stay unlinked."""
         r = _api(
             "/api/v1/channels",
@@ -343,7 +361,7 @@ class TestMetadataAgentMock:
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
-                "metadata_source": "exa",
+                "metadata_source": "tmdb",
             },
         )
         assert r.status_code == 201, f"create channel failed: {r.text}"
@@ -421,7 +439,7 @@ class TestMetadataAgentMock:
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 
-    def test_agent_links_canned_movie(self):
+    def test_agent_links_canned_movie(self, _fake_tmdb_key):
         """Movie verdict from the mock agent → Movie row + movie_id links.
 
         The channel name carries the ``mockmovie`` routing keyword (the agent
@@ -440,7 +458,7 @@ class TestMetadataAgentMock:
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
-                "metadata_source": "exa",
+                "metadata_source": "tmdb",
             },
         )
         assert r.status_code == 201, f"create channel failed: {r.text}"
@@ -467,7 +485,7 @@ class TestMetadataAgentMock:
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 
-    def test_agent_links_canned_audio_work(self):
+    def test_agent_links_canned_audio_work(self, _fake_tmdb_key):
         """Audio verdict (drama_cd) → AudioWork row + audio_work_id links.
 
         Same routing trick as the movie test, via the ``mockaudio`` keyword,
@@ -483,7 +501,7 @@ class TestMetadataAgentMock:
                 "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": True,
-                "metadata_source": "exa",
+                "metadata_source": "tmdb",
             },
         )
         assert r.status_code == 201, f"create channel failed: {r.text}"

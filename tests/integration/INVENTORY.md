@@ -36,10 +36,16 @@ tests/integration/
     test_misc_api.py               # validate-url / preview-feed / fetch 失败 / downloader 409 / works PUT
     test_dedup_seed.py             # 为 coverage-report 的去重脚本播种重复 series/movie 行
     test_llm_mock.py               # 打 app-llm（mock LLM）：analyze(-stream) + LLM 候选选择 + metadata ReAct + 解析变体
-    test_metadata_sources_mock.py  # 打 app-llm：tmdb/jina/exa 单源 ReAct（假 key 快速失败）
+    test_metadata_sources_mock.py  # 打 app-llm：tmdb 单源 ReAct（假 key 快速失败）+ 废弃源 422（jina/exa/local/combined）
     test_transmission_actions.py   # 真实 Transmission RPC：磁力派发 + pause/resume/retry/delete
     test_notifications.py          # 下载通知全链路（打 app-llm，scheduler 开）：mock webhook 注册
-                                   # （per-Agent token）→ completed 自动建通知 → 投递 → start/ack/fail/retry
+                                   # → completed 自动建通知 → fan-out 投递 → 重试 → regenerate；
+                                   # 派发资源先 link 带 genre 作品，断言 payload.work.genre 快照归一化
+    test_genre_unification.py      # genre 统一：works CRUD 枚举 422 + OpenAPI 枚举渲染、手动 link
+                                   # 写回归一化、DSL series/movie.genre 语义与 422、mock-LLM 钳制（app-llm）
+    test_coverage_supplement.py    # 覆盖率补充：API Keys 全生命周期 + AuthMiddleware 401、合集 CRUD/
+                                   # attach/detach/siblings、tmdb_collection 链接失败分支、
+                                   # refresh-metadata 各源错误分支与 canned 填充（app-llm）
   external/                        # 直连 Python + 真实外部 API（无需 docker 栈，只需 API key）
     __init__.py
     test_metadata_agent_accuracy.py     # MetadataAgent.process_title_only 对 ground_truth_v1 准确率（LLM）
@@ -84,12 +90,15 @@ tests/integration/
 | http/test_misc_api.py | 13 |
 | http/test_dedup_seed.py | 1 |
 | http/test_llm_mock.py | 11 |
-| http/test_metadata_sources_mock.py | 3 |
+| http/test_metadata_sources_mock.py | 5 |
 | http/test_transmission_actions.py | 3 |
+| http/test_notifications.py | 1 |
+| http/test_genre_unification.py | 10 |
+| http/test_coverage_supplement.py | 13 |
 | external/test_metadata_agent_accuracy.py | 5 |
 | external/test_metadata_search_agent.py | 6 |
 | eval/test_api.py | 31 |
-| **合计** | **149** |
+| **合计** | **175** |
 
 ## 3. 重组做了什么
 

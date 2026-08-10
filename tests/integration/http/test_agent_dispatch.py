@@ -24,6 +24,7 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    ensure_series,
 )
 
 MIKANANI_S1_URL = f"{TEST_SERVER}/rss/mikanani?series=1"  # 葬送的芙莉莲, 6 eps × 3 groups
@@ -102,14 +103,13 @@ def _dispatch_env():
     Yields dict with channel_id, series_id, downloader_id, resources.
     """
     # Pre-create the series so Layer-3 local matching auto-links resources.
-    r = _api(
-        "/api/v1/series",
-        method="post",
-        json={"title_cn": FRIEREN_TITLE_CN, "title_en": "Frieren: Beyond Journey's End"},
+    # Get-or-create (a duplicate row would trip the same-title collision
+    # guard and block linking); number_of_seasons=1 supplies the
+    # single-season evidence so season-less resources land season=1 and
+    # dispatch instead of going ambiguous → PendingDecision.
+    series_id = ensure_series(
+        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
     )
-    if r.status_code != 201:
-        pytest.skip(f"Series creation failed: {r.status_code} {r.text}")
-    series_id = r.json()["data"]["id"]
 
     r = _api(
         "/api/v1/channels",
