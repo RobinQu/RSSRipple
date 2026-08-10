@@ -19,17 +19,28 @@ from __future__ import annotations
 
 import os
 
+import httpx
 import pytest
 
 from tests.integration.http._http import (
+    API_HEADERS,
     DEFAULT_FIELD_MAPPING,
     MIKANANI_EXT_URL,
+    RSSRIPPLE,
     _api,
     _poll_fetch,
 )
 
 _HAS_LLM = bool(os.environ.get("LLM_API_KEY"))
 _HAS_TMDB = bool(os.environ.get("TMDB_API_KEY"))
+
+
+def _api_llm_search(path: str, **kw) -> httpx.Response:
+    """Manual-search calls route through the real (env-configured) LLM, which
+    can take minutes under load — use a 240s budget instead of the shared 60s
+    client (which flaky-times-out on this endpoint), mirroring _api_refresh."""
+    c = httpx.Client(timeout=240.0, headers=API_HEADERS)
+    return c.post(f"{RSSRIPPLE}{path}", **kw)
 
 
 
@@ -115,9 +126,8 @@ class TestMetadataMatching:
         if not TestMetadataMatching.first_resource_id:
             pytest.skip("No resources available — prerequisite test failed")
 
-        r = _api(
+        r = _api_llm_search(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
-            method="post",
             json={
                 "search_title": "Breaking Bad",
                 "content_type": "tv",

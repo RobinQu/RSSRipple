@@ -257,6 +257,22 @@ async def delete_series_fts(db: AsyncSession, series_id: str) -> None:
         logger.warning("[fts] delete_series_fts failed for %s: %s", series_id, e)
 
 
+async def _drain_pending_changes(db: AsyncSession) -> None:
+    """Best-effort replay of pending ``fts_outbox`` rows before an FTS read.
+
+    Search must reflect work rows committed moments ago even when the
+    periodic 30s drain job has not fired yet — e.g. a manual link followed
+    immediately by a manual search, or deployments with the scheduler
+    disabled. ``drain_fts_outbox`` is idempotent (full-state shadow writes)
+    and no-ops on an empty outbox / non-Turso backends, so this is one cheap
+    SELECT on the common read path.
+    """
+    try:
+        await drain_fts_outbox(db)
+    except Exception as e:
+        logger.warning("[fts] pre-search drain failed: %s", e)
+
+
 async def search_series_fts(
     db: AsyncSession, query: str, limit: int = 30
 ) -> list[str]:
@@ -264,6 +280,7 @@ async def search_series_fts(
     norm = normalize_title(query)
     if not norm:
         return []
+    await _drain_pending_changes(db)
     if not _fts_available(db):
         from app.models.series import TVSeries
 
@@ -336,6 +353,7 @@ async def search_movie_fts(
     norm = normalize_title(query)
     if not norm:
         return []
+    await _drain_pending_changes(db)
     if not _fts_available(db):
         from app.models.movie import Movie
 
@@ -408,6 +426,7 @@ async def search_audio_work_fts(
     norm = normalize_title(query)
     if not norm:
         return []
+    await _drain_pending_changes(db)
     if not _fts_available(db):
         from app.models.audio_work import AudioWork
 

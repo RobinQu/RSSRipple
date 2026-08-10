@@ -658,7 +658,7 @@ class FtsOutbox(Base):
 
 ### FTS 边车影子表（`<主库名>_fts.db`，Turso 专属）
 
-三张普通表 `tv_series_fts` / `movie_fts` / `audio_work_fts`（`entity_id` PK + 规范化标题列），其上建 `CREATE INDEX ... USING fts (…) WITH (tokenizer='ngram')` 由引擎自动跟踪 DML。仅缓存 `search_text` 同源的规范化内容，可随时从基表重建（`rebuild_*_fts` / `backfill_fts_if_empty`）；同步 = `_drain_fts_outbox`（每 30 秒定向投递）+ `_reconcile_fts`（每小时全量对账兜底，修补脚本/直连 SQL 等绕过 outbox 的路径）。PostgreSQL 无此表。
+三张普通表 `tv_series_fts` / `movie_fts` / `audio_work_fts`（`entity_id` PK + 规范化标题列），其上建 `CREATE INDEX ... USING fts (…) WITH (tokenizer='ngram')` 由引擎自动跟踪 DML。仅缓存 `search_text` 同源的规范化内容，可随时从基表重建（`rebuild_*_fts` / `backfill_fts_if_empty`）；同步 = `search_*_fts` **读前先 drain outbox**（read-your-writes：刚提交的作品立即可搜）+ `_drain_fts_outbox`（每 30 秒批量化兜底，覆盖脚本/非 API 写入）+ `_reconcile_fts`（每小时全量对账兜底，修补绕过 outbox 的路径）。PostgreSQL 无此表。
 
 ---
 
