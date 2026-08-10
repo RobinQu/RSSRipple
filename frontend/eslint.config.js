@@ -18,5 +18,14 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // react-hooks v6 (compiler-powered) flags the codebase's standard
+      // data-loading idiom — `useEffect(() => { load(); }, [deps])` where the
+      // async loader calls setLoading(true) synchronously before awaiting —
+      // as set-state-in-effect. These are ~20 idiomatic async loaders across
+      // pages/modals; restructuring them would not change runtime behavior,
+      // so this single rule is disabled instead of rewriting the pattern.
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

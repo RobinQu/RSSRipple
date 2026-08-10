@@ -18,7 +18,8 @@ import {
 import { Wand2, PlusCircle, ListFilter, Tv, Film } from 'lucide-react';
 import { channelsApi } from '../api/channels';
 import { agentsApi } from '../api/agents';
-import FilterBuilder, { findInvalidConditions, nullIfEmptyFilter } from './FilterBuilder';
+import FilterBuilder from './FilterBuilder';
+import { findInvalidConditions, nullIfEmptyFilter } from './filterUtils';
 import type {
   Agent,
   AgentWork,
@@ -128,7 +129,6 @@ export default function FilterSummaryModal({
   channelName,
   selectedIds,
   onClose,
-  onAgentCreated: _onAgentCreated,
 }: Props) {
   const { t } = useTranslation();
   const { message } = App.useApp();

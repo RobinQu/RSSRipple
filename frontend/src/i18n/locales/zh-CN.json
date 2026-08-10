@@ -385,7 +385,7 @@
     "notifRegenerate": "重新生成",
     "notifRegenerateTitle": "重新生成通知",
     "notifRegeneratePlaceholder": "留空则从最早一条已完成任务开始检查",
-    "notifBackfilled": "已补建 {n} 条通知",
+    "notifRegenerated": "已补建 {created} 条，重新生成 {regenerated} 条通知",
     "notifBulkRetry": "批量重试",
     "notifBulkRetryTitle": "批量重试投递",
     "notifBulkRetrySince": "仅处理该时间之后更新的通知（可选）",
@@ -594,11 +594,13 @@
     "workField": "关联作品字段",
     "movie": {
       "rating": "电影评分 (0-10)",
-      "year": "电影年份"
+      "year": "电影年份",
+      "genre": "电影分类/题材"
     },
     "series": {
       "rating": "剧集评分 (0-10)",
-      "year": "剧集年份"
+      "year": "剧集年份",
+      "genre": "剧集分类/题材"
     },
     "enumValue_raw": "原始",
     "enumValue_reconciled": "已调整",
@@ -676,6 +678,35 @@
     "selectAgentPlaceholder": "选择 Agent...",
     "mergeHint": "选中资源生成的规则已全部写入各作品的订阅条件（与已有条件按 AND 合并），不会修改该 Agent 的全局过滤规则；仅当上方全局规则为你人工添加时，才会按 AND 合并到全局。新作品将追加为订阅。",
     "applyRules": "应用规则"
+  },
+  "genre": {
+    "action": "动作",
+    "adventure": "冒险",
+    "animation": "动画",
+    "comedy": "喜剧",
+    "crime": "犯罪",
+    "documentary": "纪录",
+    "drama": "剧情",
+    "family": "家庭",
+    "fantasy": "奇幻",
+    "history": "历史",
+    "horror": "恐怖",
+    "music": "音乐",
+    "mystery": "悬疑",
+    "romance": "爱情",
+    "science-fiction": "科幻",
+    "tv-movie": "电视电影",
+    "thriller": "惊悚",
+    "war": "战争",
+    "western": "西部",
+    "action-adventure": "动作冒险",
+    "kids": "儿童",
+    "news": "新闻",
+    "reality": "真人秀",
+    "sci-fi-fantasy": "科幻奇幻",
+    "soap": "肥皂剧",
+    "talk": "脱口秀",
+    "war-politics": "战争政治"
   },
   "work": {
     "selectorTitle": "订阅作品",
@@ -858,12 +889,9 @@
       "title": "外部搜索数据源",
       "desc": "元数据搜索源的 API Key 与启用开关。仅当源已启用且已配置 Key 时才可被选择。",
       "tmdb": "TMDB",
-      "jina": "Jina Search + Reader",
-      "exa": "Exa Agent",
       "wikipedia": "Wikipedia",
       "enable": "启用",
       "apiKey": "API Key",
-      "effortLevel": "投入等级",
       "wikipediaHint": "无需 API Key。"
     },
     "configured": "已配置",

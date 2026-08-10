@@ -52,13 +52,14 @@ import StatusBadge from '../components/StatusBadge';
 import ProgressBar from '../components/ProgressBar';
 import EllipsisText from '../components/EllipsisText';
 import TaskStatusIcon from '../components/TaskStatusIcon';
-import FilterBuilder, {
+import FilterBuilder from '../components/FilterBuilder';
+import {
   collectFieldConditions,
   describeCondition,
   findInvalidConditions,
   isFilterEmpty,
   nullIfEmptyFilter,
-} from '../components/FilterBuilder';
+} from '../components/filterUtils';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import NotificationsPanel from '../components/NotificationsPanel';

@@ -23,11 +23,12 @@ import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
 import { audioWorksApi } from '../api/audioWorks';
 import Pagination from './Pagination';
-import FilterBuilder, {
+import FilterBuilder from './FilterBuilder';
+import {
   collectFieldConditions,
   describeCondition,
   isFilterEmpty,
-} from './FilterBuilder';
+} from './filterUtils';
 import type { AgentWork, AudioWork, BoolCondition, Movie, TVSeries } from '../types';
 import type { TFunction } from 'i18next';
 

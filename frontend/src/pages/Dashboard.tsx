@@ -27,7 +27,7 @@ import {
   collectFieldConditions,
   describeCondition,
   isFilterEmpty,
-} from '../components/FilterBuilder';
+} from '../components/filterUtils';
 import { timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { Agent, DashboardData, DashboardPendingItem, FileResource } from '../types';

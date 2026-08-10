@@ -91,7 +91,7 @@ export default function DownloaderDetail() {
       setTorrentError(res.error?.message ?? t('downloaders.transmissionUnreachable'));
     }
     setLoadingTorrents(false);
-  }, [id]);
+  }, [id, t]);
 
   const fetchTasks = useCallback(async () => {
     if (!id) return;

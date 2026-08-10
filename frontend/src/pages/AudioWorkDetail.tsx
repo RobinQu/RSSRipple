@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
@@ -21,16 +21,16 @@ export default function AudioWorkDetail() {
   useDocumentTitle(work ? work.title_cn || work.title_en || work.original_title : t('works.title'));
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadWork = useCallback(async () => {
     if (!id) return;
-    loadWork();
-  }, [id]);
-
-  async function loadWork() {
-    const r = await audioWorksApi.get(id!);
+    const r = await audioWorksApi.get(id);
     if (r.success) setWork(r.data as AudioWork);
     setLoading(false);
-  }
+  }, [id]);
+
+  useEffect(() => {
+    loadWork();
+  }, [loadWork]);
 
   async function handleDelete() {
     if (!id) return;

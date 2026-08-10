@@ -65,11 +65,11 @@ export default function Channels() {
           return n;
         });
         loadChannels();
-        done.forEach((_id) => message.success(t('channels.updated')));
+        done.forEach(() => message.success(t('channels.updated')));
       }
     }, 2000);
     return () => clearInterval(timer);
-  }, [fetchingIds, loadChannels, message]);
+  }, [fetchingIds, loadChannels, message, t]);
 
   const handleDelete = (id: string) => {
     modal.confirm({

@@ -385,7 +385,7 @@
     "notifRegenerate": "Regenerate",
     "notifRegenerateTitle": "Regenerate notifications",
     "notifRegeneratePlaceholder": "Leave empty to check from the earliest completed task",
-    "notifBackfilled": "Created {n} notification(s)",
+    "notifRegenerated": "Created {created}, regenerated {regenerated} notification(s)",
     "notifBulkRetry": "Bulk retry",
     "notifBulkRetryTitle": "Bulk retry deliveries",
     "notifBulkRetrySince": "Only notifications updated after this time (optional)",
@@ -594,11 +594,13 @@
     "workField": "Linked Work Field",
     "movie": {
       "rating": "Movie Rating (0-10)",
-      "year": "Movie Year"
+      "year": "Movie Year",
+      "genre": "Movie Genre"
     },
     "series": {
       "rating": "Series Rating (0-10)",
-      "year": "Series Year"
+      "year": "Series Year",
+      "genre": "Series Genre"
     },
     "enumValue_raw": "Raw",
     "enumValue_reconciled": "Reconciled",
@@ -677,6 +679,35 @@
     "selectAgentPlaceholder": "Select agent...",
     "mergeHint": "Rules generated from the selected resources have all been written into each work's own conditions (AND-merged with existing ones) and never modify the agent's global filter; only global rules you add by hand above are AND-merged into the global filter. New works are appended as subscriptions.",
     "applyRules": "Apply Rules"
+  },
+  "genre": {
+    "action": "Action",
+    "adventure": "Adventure",
+    "animation": "Animation",
+    "comedy": "Comedy",
+    "crime": "Crime",
+    "documentary": "Documentary",
+    "drama": "Drama",
+    "family": "Family",
+    "fantasy": "Fantasy",
+    "history": "History",
+    "horror": "Horror",
+    "music": "Music",
+    "mystery": "Mystery",
+    "romance": "Romance",
+    "science-fiction": "Science Fiction",
+    "tv-movie": "TV Movie",
+    "thriller": "Thriller",
+    "war": "War",
+    "western": "Western",
+    "action-adventure": "Action & Adventure",
+    "kids": "Kids",
+    "news": "News",
+    "reality": "Reality",
+    "sci-fi-fantasy": "Sci-Fi & Fantasy",
+    "soap": "Soap",
+    "talk": "Talk",
+    "war-politics": "War & Politics"
   },
   "work": {
     "selectorTitle": "Subscribed Works",
@@ -859,12 +890,9 @@
       "title": "External Search Data Sources",
       "desc": "API keys and enable switches for the metadata search sources. A source is selectable when enabled and configured.",
       "tmdb": "TMDB",
-      "jina": "Jina Search + Reader",
-      "exa": "Exa Agent",
       "wikipedia": "Wikipedia",
       "enable": "Enabled",
       "apiKey": "API Key",
-      "effortLevel": "Effort Level",
       "wikipediaHint": "No API key required."
     },
     "configured": "Configured",

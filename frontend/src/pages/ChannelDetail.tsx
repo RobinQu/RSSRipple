@@ -408,7 +408,11 @@ export default function ChannelDetail() {
   const toggleResource = (rid: string, checked: boolean) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      checked ? next.add(rid) : next.delete(rid);
+      if (checked) {
+        next.add(rid);
+      } else {
+        next.delete(rid);
+      }
       return next;
     });
   };

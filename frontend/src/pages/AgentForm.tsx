@@ -22,7 +22,8 @@ import {
 import { agentsApi } from '../api/agents';
 import { channelsApi } from '../api/channels';
 import { downloadersApi } from '../api/downloaders';
-import FilterBuilder, { findInvalidConditions, nullIfEmptyFilter } from '../components/FilterBuilder';
+import FilterBuilder from '../components/FilterBuilder';
+import { findInvalidConditions, nullIfEmptyFilter } from '../components/filterUtils';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import type {

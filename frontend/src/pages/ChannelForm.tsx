@@ -194,94 +194,55 @@ export default function ChannelForm() {
         setLoading(false);
       });
     }
-  }, [mode, id, form, fetchPreview, message, navigate]);
-
-  // Auto-trigger field mapping analysis after URL validation succeeds (create mode only)
-  const autoAnalyzeTriggered = useRef(false);
-  useEffect(() => {
-    if (
-      mode === 'create' &&
-      urlStatus === 'valid' &&
-      !fieldMappingText.trim() &&
-      !autoAnalyzeTriggered.current &&
-      !analyzing
-    ) {
-      autoAnalyzeTriggered.current = true;
-      handleAnalyze();
-    }
-  }, [mode, urlStatus, analyzing, fieldMappingText]);
-  useEffect(() => {
-    if (urlStatus === 'idle' || urlStatus === 'checking') {
-      autoAnalyzeTriggered.current = false;
-    }
-  }, [urlStatus]);
-
-  const validateUrl = async () => {
-    const url = form.getFieldValue('url');
-    if (!url) return;
-    setUrlStatus('checking');
-    const res = await channelsApi.validateUrl(url);
-    if (res.success && res.data.valid) {
-      setUrlStatus('valid');
-      setDownloadableCount(res.data.downloadable_count);
-      setUrlMessage(
-        t('channels.validFeed', { count: res.data.item_count, torrent: res.data.downloadable_count }),
-      );
-      fetchPreview(url, null);
-    } else {
-      setUrlStatus('invalid');
-      setUrlMessage(res.data?.message || res.error?.message || t('channels.invalidUrl'));
-    }
-  };
-
-  const closeSidebar = useCallback(() => {
-    setSidebarOpen(false);
-  }, []);
+  }, [mode, id, form, fetchPreview, message, navigate, t]);
 
   /** Parse SSE stream */
-  const consumeStream = async (response: Response, onDone: (fm: FieldMapping) => void) => {
-    if (!response.body) throw new Error('No response body');
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+  const consumeStream = useCallback(
+    async (response: Response, onDone: (fm: FieldMapping) => void) => {
+      if (!response.body) throw new Error('No response body');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.type === 'delta') {
-              setStreamText((p) => p + (data.content || ''));
-            } else if (data.type === 'done') {
-              const mapping = data.field_mapping as FieldMapping | undefined;
-              if (mapping) {
-                setFieldMapping(mapping);
-                setFieldMappingText(JSON.stringify(mapping, null, 2));
-                setSidebarStatus('done');
-                onDone(mapping);
-              } else {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.type === 'delta') {
+                setStreamText((p) => p + (data.content || ''));
+              } else if (data.type === 'done') {
+                const mapping = data.field_mapping as FieldMapping | undefined;
+                if (mapping) {
+                  setFieldMapping(mapping);
+                  setFieldMappingText(JSON.stringify(mapping, null, 2));
+                  setSidebarStatus('done');
+                  onDone(mapping);
+                } else {
+                  setSidebarStatus('error');
+                  setSidebarError(t('channels.noMapping'));
+                }
+              } else if (data.type === 'error') {
                 setSidebarStatus('error');
-                setSidebarError(t('channels.noMapping'));
+                setSidebarError(data.message || t('channels.analysisFailed'));
               }
-            } else if (data.type === 'error') {
-              setSidebarStatus('error');
-              setSidebarError(data.message || t('channels.analysisFailed'));
+            } catch {
+              /* ignore */
             }
-          } catch {
-            /* ignore */
           }
         }
       }
-    }
-  };
+    },
+    [t],
+  );
 
-  const handleAnalyze = async () => {
-    const url = mode === 'edit' ? form.getFieldValue('url') : form.getFieldValue('url');
+  const handleAnalyze = useCallback(async () => {
+    const url = form.getFieldValue('url');
     if (!url) {
       message.warning(t('channels.enterUrlFirst'));
       return;
@@ -319,7 +280,49 @@ export default function ChannelForm() {
       setSidebarError(t('channels.analysisFailed'));
     }
     setAnalyzing(false);
+  }, [mode, id, form, message, t, consumeStream, fetchPreview]);
+
+  // Auto-trigger field mapping analysis after URL validation succeeds (create mode only)
+  const autoAnalyzeTriggered = useRef(false);
+  useEffect(() => {
+    if (
+      mode === 'create' &&
+      urlStatus === 'valid' &&
+      !fieldMappingText.trim() &&
+      !autoAnalyzeTriggered.current &&
+      !analyzing
+    ) {
+      autoAnalyzeTriggered.current = true;
+      handleAnalyze();
+    }
+  }, [mode, urlStatus, analyzing, fieldMappingText, handleAnalyze]);
+  useEffect(() => {
+    if (urlStatus === 'idle' || urlStatus === 'checking') {
+      autoAnalyzeTriggered.current = false;
+    }
+  }, [urlStatus]);
+
+  const validateUrl = async () => {
+    const url = form.getFieldValue('url');
+    if (!url) return;
+    setUrlStatus('checking');
+    const res = await channelsApi.validateUrl(url);
+    if (res.success && res.data.valid) {
+      setUrlStatus('valid');
+      setDownloadableCount(res.data.downloadable_count);
+      setUrlMessage(
+        t('channels.validFeed', { count: res.data.item_count, torrent: res.data.downloadable_count }),
+      );
+      fetchPreview(url, null);
+    } else {
+      setUrlStatus('invalid');
+      setUrlMessage(res.data?.message || res.error?.message || t('channels.invalidUrl'));
+    }
   };
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+  }, []);
 
   const handleSubmit = async (values: {
     name: string;

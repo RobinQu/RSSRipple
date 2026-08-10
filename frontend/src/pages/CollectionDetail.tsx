@@ -5,6 +5,7 @@ import useDocumentTitle from '../hooks/useDocumentTitle';
 import { ArrowLeft, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { App, Button, Empty, Spin, Tag, Typography } from 'antd';
 import { collectionsApi } from '../api/collections';
+import { genreSlug } from '../constants/genres';
 import CollectionFormModal from '../components/CollectionFormModal';
 import AttachWorkModal from '../components/AttachWorkModal';
 import Pagination from '../components/Pagination';
@@ -266,7 +267,9 @@ export default function CollectionDetail() {
                           data-label={t('works.colGenre')}
                         >
                           <Text ellipsis style={{ display: 'block' }}>
-                            {w.genre && w.genre.length ? w.genre.join(', ') : '—'}
+                            {w.genre && w.genre.length
+                              ? w.genre.map((g) => t(`genre.${genreSlug(g)}`, { defaultValue: g })).join(', ')
+                              : '—'}
                           </Text>
                         </td>
                         <td

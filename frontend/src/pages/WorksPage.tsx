@@ -17,6 +17,7 @@ import {
 } from 'antd';
 import { worksApi } from '../api/works';
 import type { RefreshItem } from '../api/works';
+import { genreSlug } from '../constants/genres';
 import type { Work } from '../types';
 import MetadataConfigModal from '../components/MetadataConfigModal';
 import CollectionsPanel from '../components/CollectionsPanel';
@@ -370,7 +371,9 @@ export default function WorksPage() {
                         </td>
                         <td className="resource-text-cell" style={{ padding: '8px' }} data-label={t('works.colGenre')}>
                           <Text ellipsis style={{ display: 'block' }}>
-                            {w.genre && w.genre.length ? w.genre.join(', ') : '—'}
+                            {w.genre && w.genre.length
+                              ? w.genre.map((g) => t(`genre.${genreSlug(g)}`, { defaultValue: g })).join(', ')
+                              : '—'}
                           </Text>
                         </td>
                       </tr>

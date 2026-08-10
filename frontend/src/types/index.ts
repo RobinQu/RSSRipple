@@ -319,18 +319,20 @@ export type FilterField =
   | 'search_title'
   | 'movie.rating'
   | 'movie.year'
+  | 'movie.genre'
   | 'series.rating'
-  | 'series.year';
+  | 'series.year'
+  | 'series.genre';
 
 export type StringFilterField = Exclude<
   FilterField,
   | 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
-  | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year'
+  | 'movie.rating' | 'movie.year' | 'movie.genre' | 'series.rating' | 'series.year' | 'series.genre'
 >;
 export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode'
   | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year';
 export type BoolFilterField = 'is_batch';
-export type ListFilterField = 'subtitle_langs';
+export type ListFilterField = 'subtitle_langs' | 'movie.genre' | 'series.genre';
 
 export type FilterOperator =
   | 'eq'
@@ -429,7 +431,7 @@ export interface AgentCreate {
   dispatch_resource_ids?: string[] | null;
 }
 
-export interface AgentUpdate extends AgentCreate {}
+export type AgentUpdate = AgentCreate;
 
 export interface RulesPreviewRequest {
   agent_id?: string;

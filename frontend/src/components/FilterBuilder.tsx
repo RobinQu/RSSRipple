@@ -18,13 +18,20 @@ import {
   GroupOutlined,
 } from '@ant-design/icons';
 import { channelsApi } from '../api/channels';
+import { GENRE_NAMES, genreSlug } from '../constants/genres';
 import type {
   BoolCondition,
   FieldCondition,
-  FilterConfig,
   FilterField,
   FilterOperator,
 } from '../types';
+import {
+  emptyBool,
+  isBoolCondition,
+  isEmptyValue,
+  isFieldCondition,
+  isNoValueOperator,
+} from './filterUtils';
 import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +69,10 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   'movie.year': 'number',
   'series.rating': 'number',
   'series.year': 'number',
+  // genre is a closed canonical set on the work (see constants/genres.ts);
+  // element-wise list semantics, same as subtitle_langs.
+  'movie.genre': 'list',
+  'series.genre': 'list',
 };
 
 // Fields with a bounded, meaningful autocomplete set. Autocomplete is only
@@ -84,6 +95,23 @@ const AUTOCOMPLETE_OPERATORS = new Set<FilterOperator>([
 // pre-parser + MetadataAgent. Users can still type a custom tag.
 const SUBTITLE_LANG_OPTIONS = ['zh-CN', 'zh-TW', 'ja', 'en', 'multi'];
 
+// Closed-set list fields: values must be picked from a fixed dropdown, no
+// free text. Genre values are the canonical English names (stored as-is);
+// labels are localized via the ``genre`` i18n namespace.
+const CLOSED_LIST_FIELDS: Set<FilterField> = new Set(['movie.genre', 'series.genre']);
+
+// Value options for a list field. subtitle_langs keeps open tag input;
+// closed-set fields (genre) only offer the canonical set.
+const listFieldOptions = (field: FilterField, t: TFunction): { value: string; label: string }[] => {
+  if (CLOSED_LIST_FIELDS.has(field)) {
+    return GENRE_NAMES.map((v) => ({
+      value: v,
+      label: t(`genre.${genreSlug(v)}` as never, { defaultValue: v }),
+    }));
+  }
+  return SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }));
+};
+
 // Enum-string fields have a fixed value set and skip the free-text
 // autocomplete path so users can't accidentally type an unknown value.
 const ENUM_FIELDS: Record<string, string[]> = {
@@ -92,9 +120,8 @@ const ENUM_FIELDS: Record<string, string[]> = {
 
 // Operators that take no value (is_empty / is_not_empty). Valid for every
 // field type; the backend ignores ``value`` when one of these is selected.
+// ``isNoValueOperator`` lives in ./filterUtils.
 const NO_VALUE_OPERATORS: FilterOperator[] = ['is_empty', 'is_not_empty'];
-export const isNoValueOperator = (op: FilterOperator): boolean =>
-  NO_VALUE_OPERATORS.includes(op);
 
 const STRING_OPERATORS: FilterOperator[] = ['eq', 'ne', 'contains', 'fuzzy', 'in', 'regex', ...NO_VALUE_OPERATORS];
 const NUMBER_OPERATORS: FilterOperator[] = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', ...NO_VALUE_OPERATORS];
@@ -124,7 +151,7 @@ function useFieldOptions(t: TFunction) {
   const list_fields: FilterField[] = ['subtitle_langs'];
   const enum_fields: FilterField[] = ['episode_confidence'];
   const work_fields: FilterField[] = [
-    'series.rating', 'series.year', 'movie.rating', 'movie.year',
+    'series.rating', 'series.year', 'series.genre', 'movie.rating', 'movie.year', 'movie.genre',
   ];
 
   const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });
@@ -144,38 +171,8 @@ function useFieldOptions(t: TFunction) {
 }
 
 // ---------------------------------------------------------------------------
-// Type guards & defaults
+// Defaults (type guards live in ./filterUtils)
 // ---------------------------------------------------------------------------
-
-const isBoolCondition = (node: unknown): node is BoolCondition => {
-  return (
-    typeof node === 'object' &&
-    node !== null &&
-    'combinator' in node &&
-    'conditions' in node
-  );
-};
-
-const isFieldCondition = (node: unknown): node is FieldCondition => {
-  return (
-    typeof node === 'object' &&
-    node !== null &&
-    'field' in node &&
-    'operator' in node
-  );
-};
-
-// A value-taking operator with an empty value is rejected by the backend at
-// save time; blank strings count as empty too.
-const isEmptyValue = (v: FieldCondition['value'] | null | undefined): boolean =>
-  v === undefined ||
-  v === null ||
-  (typeof v === 'string' && v.trim() === '') ||
-  (Array.isArray(v) && v.length === 0);
-
-function emptyBool(): BoolCondition {
-  return { combinator: 'and', conditions: [] };
-}
 
 function emptyField(): FieldCondition {
   return { field: 'subtitle_group', operator: 'eq', value: '' };
@@ -319,7 +316,7 @@ function FieldConditionNode({
     }
     // Value type may change when switching to/from 'in' or between
     // number/string; normalize.
-    let v: string | number | boolean | string[] = value.value as never;
+    let v: string | number | boolean | string[];
     const type = FIELD_TYPES[value.field];
     if (op === 'in') {
       v = Array.isArray(value.value) ? (value.value as string[]) : [];
@@ -409,15 +406,15 @@ function FieldConditionNode({
         />
       ) : value.operator === 'in' && fieldType === 'list' ? (
         <Select
-          mode="tags"
+          mode={CLOSED_LIST_FIELDS.has(value.field) ? 'multiple' : 'tags'}
           style={{ minWidth: 200, flex: 1 }}
           value={Array.isArray(value.value) ? (value.value as string[]) : []}
           onChange={(tags) => onChange({ ...value, value: tags })}
           placeholder={t('filter.enterValue')}
-          options={SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }))}
+          options={listFieldOptions(value.field, t)}
           size="small"
           status={errorStatus}
-          tokenSeparators={[',']}
+          tokenSeparators={CLOSED_LIST_FIELDS.has(value.field) ? undefined : [',']}
         />
       ) : value.operator === 'in' ? (
         <Select
@@ -442,6 +439,20 @@ function FieldConditionNode({
             { value: 'false', label: t('filter.false') },
           ]}
         />
+      ) : fieldType === 'list' && CLOSED_LIST_FIELDS.has(value.field) ? (
+        // Single-value operators on a closed-set list field: plain dropdown —
+        // the canonical set is exhaustive, so no free text.
+        <Select
+          showSearch
+          allowClear
+          style={{ minWidth: 200, flex: 1 }}
+          value={typeof value.value === 'string' && value.value ? value.value : undefined}
+          onChange={(v) => onChange({ ...value, value: v ?? '' })}
+          size="small"
+          options={listFieldOptions(value.field, t)}
+          placeholder={t('filter.value')}
+          status={errorStatus}
+        />
       ) : fieldType === 'list' ? (
         // Single-value operators on list field: use the same tags dropdown but
         // pinned to one selection so we still get autocomplete on the fixed
@@ -455,7 +466,7 @@ function FieldConditionNode({
           value={typeof value.value === 'string' && value.value ? [value.value] : []}
           onChange={(tags) => onChange({ ...value, value: Array.isArray(tags) ? (tags[tags.length - 1] ?? '') : (tags as string) })}
           size="small"
-          options={SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }))}
+          options={listFieldOptions(value.field, t)}
           placeholder={t('filter.value')}
           status={errorStatus}
         />
@@ -704,71 +715,4 @@ export default function FilterBuilder({
       <BoolConditionNode value={root} onChange={handleChange} isRoot channelId={channelId} />
     </Card>
   );
-}
-
-export function normalizeFilter(v: FilterConfig | null | undefined): BoolCondition {
-  if (isBoolCondition(v)) return v as BoolCondition;
-  return emptyBool();
-}
-
-export function isFilterEmpty(v: FilterConfig | null | undefined): boolean {
-  if (!v) return true;
-  if (!isBoolCondition(v)) return true;
-  if (!v.conditions || v.conditions.length === 0) return true;
-  return false;
-}
-
-/**
- * Collapse an emptied-out tree (`{combinator, conditions: []}` — e.g. the
- * user just deleted the last condition) to `null` ("no filter", pass-all).
- * The backend rejects empty condition lists, so every save/preview payload
- * must pass through this.
- */
-export function nullIfEmptyFilter(
-  v: FilterConfig | null | undefined,
-): BoolCondition | null {
-  return isFilterEmpty(v) ? null : (v as BoolCondition);
-}
-
-/** Walk the tree and return every leaf field condition (depth-first). */
-export function collectFieldConditions(
-  config: BoolCondition | null | undefined,
-): FieldCondition[] {
-  if (!config || !isBoolCondition(config)) return [];
-  const out: FieldCondition[] = [];
-  const walk = (node: BoolCondition) => {
-    for (const c of node.conditions || []) {
-      if (isBoolCondition(c)) walk(c);
-      else if (isFieldCondition(c)) out.push(c);
-    }
-  };
-  walk(config);
-  return out;
-}
-
-/**
- * Leaves whose operator takes a value but the value is empty — the backend
- * rejects these at save time (422), so callers check before submitting.
- * No-value operators (is_empty / is_not_empty) are never invalid.
- */
-export function findInvalidConditions(
-  config: BoolCondition | null | undefined,
-): FieldCondition[] {
-  return collectFieldConditions(config).filter(
-    (c) => !isNoValueOperator(c.operator) && isEmptyValue(c.value),
-  );
-}
-
-/** Human-readable one-liner for a leaf condition, e.g. "Resolution Equals 1080p". */
-export function describeCondition(cond: FieldCondition, t: TFunction): string {
-  const field = t(`filter.${cond.field}` as never, { defaultValue: cond.field });
-  const op = t(`filter.${cond.operator}` as never, { defaultValue: cond.operator });
-  if (isNoValueOperator(cond.operator)) return `${field} ${op}`;
-  const v = cond.value;
-  const text = Array.isArray(v)
-    ? v.join(', ')
-    : typeof v === 'boolean'
-      ? t(v ? 'filter.true' : 'filter.false')
-      : String(v ?? '');
-  return `${field} ${op} ${text}`.trim();
 }

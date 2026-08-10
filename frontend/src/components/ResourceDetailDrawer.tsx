@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Drawer,
   Spin,
@@ -102,7 +102,7 @@ export default function ResourceDetailDrawer({
   // Once the user types a season themselves we stop auto-prefilling it.
   const [seasonTouched, setSeasonTouched] = useState(false);
 
-  const loadMeta = async (rid: string) => {
+  const loadMeta = useCallback(async (rid: string) => {
     setMetaLoading(true);
     try {
       const [metaRes, resRes] = await Promise.all([
@@ -155,7 +155,7 @@ export default function ResourceDetailDrawer({
     } finally {
       setMetaLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     if (!resource) {
@@ -166,7 +166,7 @@ export default function ResourceDetailDrawer({
     }
     setResourceData(resource);
     loadMeta(resource.id);
-  }, [resource]);
+  }, [resource, loadMeta]);
 
   const copyTorrent = (url: string) => {
     navigator.clipboard.writeText(url).then(

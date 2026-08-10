@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
@@ -26,16 +26,16 @@ export default function MovieDetail() {
   const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadMovie = useCallback(async () => {
     if (!id) return;
-    loadMovie();
-  }, [id]);
-
-  async function loadMovie() {
-    const r = await moviesApi.get(id!);
+    const r = await moviesApi.get(id);
     if (r.success) setMovie(r.data as Movie);
     setLoading(false);
-  }
+  }, [id]);
+
+  useEffect(() => {
+    loadMovie();
+  }, [loadMovie]);
 
   async function handleRefreshMetadata() {
     if (!id) return;
@@ -58,11 +58,11 @@ export default function MovieDetail() {
 
   async function handleDelete() {
     if (!id) return;
-    const blocked = (movie as any)?.agent_work_count > 0;
+    const blocked = (movie?.agent_work_count ?? 0) > 0;
     modal.confirm({
       title: t('common.delete'),
       content: blocked
-        ? t('movies.deleteBlocked', { count: (movie as any)?.agent_work_count ?? 0 })
+        ? t('movies.deleteBlocked', { count: movie?.agent_work_count ?? 0 })
         : t('movies.deleteConfirm'),
       okText: t('common.confirm'),
       cancelText: t('common.cancel'),
@@ -73,9 +73,9 @@ export default function MovieDetail() {
           message.success(t('movies.deleted'));
           window.location.href = '/works';
         } else {
-          const code = (r as any).error?.code;
+          const code = r.error?.code;
           if (code === 'DELETE_BLOCKED') {
-            message.error((r as any).error?.message || t('movies.deleteBlockedGeneric'));
+            message.error(r.error?.message || t('movies.deleteBlockedGeneric'));
           } else {
             message.error(t('common.error'));
           }

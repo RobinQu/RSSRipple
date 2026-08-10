@@ -58,7 +58,7 @@ export default function DownloaderForm() {
       }
       setLoading(false);
     })();
-  }, [id, mode, form, message, navigate]);
+  }, [id, mode, form, message, navigate, t]);
 
   const handleTest = async () => {
     if (mode !== 'edit' || !id) return;
