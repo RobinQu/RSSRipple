@@ -194,7 +194,7 @@ async def list_resources(
                 out.append({
                     "type": "series",
                     "id": tid,
-                    "title": (s.title_cn or s.title_en or s.original_title or tid) if s else tid,
+                    "title": (s.original_title or s.title_cn or s.title_en or tid) if s else tid,
                     "poster_url": s.poster_url if s else None,
                     "last_update": _iso(last_ts),
                     "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
@@ -207,7 +207,7 @@ async def list_resources(
                 out.append({
                     "type": "movie",
                     "id": tid,
-                    "title": (m.title_cn or m.title_en or m.original_title or tid) if m else tid,
+                    "title": (m.original_title or m.title_cn or m.title_en or tid) if m else tid,
                     "poster_url": m.poster_url if m else None,
                     "last_update": _iso(last_ts),
                     "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
@@ -220,7 +220,7 @@ async def list_resources(
                 out.append({
                     "type": "audio",
                     "id": tid,
-                    "title": (a.title_cn or a.title_en or a.original_title or tid) if a else tid,
+                    "title": (a.original_title or a.title_cn or a.title_en or tid) if a else tid,
                     "poster_url": a.poster_url if a else None,
                     "last_update": _iso(last_ts),
                     "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],

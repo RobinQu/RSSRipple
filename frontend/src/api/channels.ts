@@ -155,8 +155,8 @@ export const resourcesApi = {
       status?: string;
       series_id?: string | null;
       movie_id?: string | null;
-      series?: { id: string; title_cn?: string | null; title_en?: string | null; poster_url?: string | null };
-      movie?: { id: string; title_cn?: string | null; title_en?: string | null; poster_url?: string | null };
+      series?: { id: string; title_cn?: string | null; title_en?: string | null; original_title?: string | null; poster_url?: string | null };
+      movie?: { id: string; title_cn?: string | null; title_en?: string | null; original_title?: string | null; poster_url?: string | null };
       linked?: {
         type: 'series' | 'movie';
         entity: TVSeries | Movie;

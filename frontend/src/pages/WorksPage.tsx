@@ -29,7 +29,7 @@ type View = 'all' | 'tv' | 'movie' | 'audio' | 'collections';
 const PAGE_SIZE = 20;
 
 function getDisplayTitle(w: Work): string {
-  return w.title_cn || w.title_en || w.original_title || '—';
+  return w.original_title || w.title_cn || w.title_en || '—';
 }
 
 function workKey(w: Work): string {

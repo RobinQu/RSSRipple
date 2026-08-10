@@ -117,7 +117,7 @@ export default function ResourceDetailDrawer({
           setMeta({
             type: 'series',
             title:
-              series.title_cn || series.title_en || series.original_title || t('resource.unknownSeries'),
+              series.original_title || series.title_cn || series.title_en || t('resource.unknownSeries'),
             poster_url: series.poster_url,
           });
           setSeriesSeasons(series.seasons ?? null);
@@ -126,7 +126,7 @@ export default function ResourceDetailDrawer({
           setMeta({
             type: 'movie',
             title:
-              movie.title_cn || movie.title_en || movie.original_title || t('resource.unknownMovie'),
+              movie.original_title || movie.title_cn || movie.title_en || t('resource.unknownMovie'),
             poster_url: movie.poster_url,
           });
           setSeriesSeasons(null);
@@ -134,7 +134,7 @@ export default function ResourceDetailDrawer({
           setMeta({
             type: 'series',
             title:
-              d.series.title_cn || d.series.title_en || t('resource.unknownSeries'),
+              d.series.original_title || d.series.title_cn || d.series.title_en || t('resource.unknownSeries'),
             poster_url: d.series.poster_url,
           });
           // The summary payload carries no per-season counts — no prefill.
@@ -143,7 +143,7 @@ export default function ResourceDetailDrawer({
           setMeta({
             type: 'movie',
             title:
-              d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie'),
+              d.movie.original_title || d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie'),
             poster_url: d.movie.poster_url,
           });
           setSeriesSeasons(null);

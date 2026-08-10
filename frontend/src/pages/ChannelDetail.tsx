@@ -649,7 +649,7 @@ export default function ChannelDetail() {
                               ? `/movies/${r.movie_id}`
                               : null;
                           const workTitle =
-                            (work && (work.title_cn || work.title_en || work.original_title)) ||
+                            (work && (work.original_title || work.title_cn || work.title_en)) ||
                             r.title_cn ||
                             r.search_title ||
                             r.title_raw;
