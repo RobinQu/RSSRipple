@@ -594,6 +594,29 @@ class TestExtractEpisodeFallback:
             "[LoliHouse] 黄泉使者 / Yomi no Tsugai - 14 [1080p]"
         ) == (None, None)
 
+    def test_bracket_episode_with_version_tag(self):
+        # "[02v2]" = episode 2, second revised release. The version tag is
+        # dropped; it is not part of the episode number.
+        assert extract_episode_fallback(
+            "[绿茶字幕组] 无职转生 第三季 ～到了异世界就拿出真本事～ / Mushoku Tensei S3 "
+            "[02v2][WebRip][1080p][简日内嵌]"
+        ) == (2, 3)
+
+    def test_sxxexx_with_version_tag(self):
+        assert extract_episode_fallback(
+            "[Nix-Raws] Mushoku Tensei S03E06v2 [CR WEB-DL 1080p]"
+        ) == (6, 3)
+
+    def test_version_tag_uppercase_and_multi_digit(self):
+        assert extract_episode_fallback("[Group] Some Work [01V2]") == (1, None)
+        assert extract_episode_fallback("[Group] Some Work [12v10]") == (12, None)
+
+    def test_version_tag_does_not_unlock_tech_brackets(self):
+        # [1080p] / [2026] still never match; a bare [v2] has no episode number.
+        assert extract_episode_fallback(
+            "[Group] Some Work [1080p][2026][v2]"
+        ) == (None, None)
+
 
 def test_normalize_fills_episode_and_season_from_brackets():
     from app.services.resource_parser import normalize_parsed_fields

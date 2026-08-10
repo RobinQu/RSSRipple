@@ -88,7 +88,10 @@ Example 7 — Batch without explicit boundaries:
 
 From raw RSS titles, extract:
 - Clean title: remove [subtitle groups], - episode numbers, [quality/codec tags]
-- Episode: from "- 05", "EP05", "#05", "第05话", "S04E05" → the second number
+- Episode: from "- 05", "EP05", "#05", "第05话", "S04E05" → the second number.
+  A re-release version tag glued to the number ("[02v2]", "S04E05v3") is NOT
+  part of it — "02v2" is episode 2, second revised release; extract 2 and
+  ignore the version.
 - Season: from "第二季", "Season 2", "S2", "S02", "II", "Ⅲ", "Final Season",
   "S04" (when SXXEXX format), parenthetical like "（第四季）"
 - SEASON VERIFICATION: when the title carries NO season marker, never guess

@@ -448,8 +448,13 @@ _CONTAINER_RE = re.compile(r"\b(MP4|MKV|AVI)\b", re.IGNORECASE)
 # commonly miss: bracketed episode numbers (``[03]``) and SxxExx / "Season 3"
 # / "3rd Season" / 第N季 season markers. Applied only when the field_mapping
 # left the field empty - a correctly parsed value is never overwritten.
-_SXXEXX_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})\b", re.IGNORECASE)
-_BRACKET_EPISODE_RE = re.compile(r"\[(\d{1,3})\]")
+#
+# Fansub re-releases carry a version tag right after the episode number —
+# ``[02v2]`` / ``S03E06v2`` mean episode 2 / 6, second revised release. The
+# ``vN`` suffix is tolerated and dropped: the version is not part of the
+# episode number and (for now) does not participate in dedup either.
+_SXXEXX_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})(?:v\d+)?\b", re.IGNORECASE)
+_BRACKET_EPISODE_RE = re.compile(r"\[(\d{1,3})(?:v\d+)?\]", re.IGNORECASE)
 _FB_SEASON_SUFFIX_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.IGNORECASE)
 _FB_SEASON_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+Season\b", re.IGNORECASE)
 _FB_SEASON_S_RE = re.compile(r"\bS(\d{1,2})\b(?!E)", re.IGNORECASE)
@@ -500,6 +505,8 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
 
     Returns ``(None, None)`` when nothing matches. ``[NN]`` is capped at
     three digits so tech brackets like ``[1080p]``/``[2026]`` never match.
+    A re-release version tag glued to the number (``[02v2]``, ``S03E06v2``)
+    is dropped — the episode number alone is returned.
     """
     m = _SXXEXX_RE.search(title_raw)
     if m:
