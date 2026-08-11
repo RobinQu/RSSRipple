@@ -184,10 +184,9 @@ class TestMetadataLink:
         if not _HAS_LLM and not _HAS_TMDB:
             pytest.skip("No metadata API keys configured — cannot perform search+link")
 
-        # First, search for a known TV show
-        r_search = _api(
+        # First, search for a known TV show (long-timeout client: real LLM)
+        r_search = _api_llm_search(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
-            method="post",
             json={
                 "search_title": "Breaking Bad",
                 "content_type": "tv",

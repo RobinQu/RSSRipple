@@ -19,8 +19,14 @@ import pytest
 # assert "no secret configured by default" (CI uses an empty .env). Env vars
 # take precedence over .env in pydantic-settings, so forcing them empty here
 # neutralizes the leak.
-for _key in ("LLM_API_KEY", "TMDB_API_KEY", "JINA_API_KEY", "EXA_API_KEY"):
-    os.environ[_key] = ""
+#
+# The docker integration test-runner is the exception: it deliberately mounts
+# the real `.env` and sets TEST_SERVER_URL so the integration suite can
+# exercise the actual LLM / TMDB / Exa providers. Skip the blanking there —
+# those tests assert against real provider responses, not the no-key default.
+if not os.environ.get("TEST_SERVER_URL"):
+    for _key in ("LLM_API_KEY", "TMDB_API_KEY", "JINA_API_KEY", "EXA_API_KEY"):
+        os.environ[_key] = ""
 
 # The repo-root data/ dir may be owned by root after docker runs; point the
 # poster cache at a writable location so importing app.main never fails.

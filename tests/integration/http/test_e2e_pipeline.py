@@ -19,17 +19,20 @@ from __future__ import annotations
 import pytest
 
 from tests.integration.http._http import (
-    DEFAULT_FIELD_MAPPING,
     MIKANANI_EXT_URL,
+    RICH_FIELD_MAPPING,
     _api,
     _ensure_downloader,
     _poll_fetch,
     _poll_run,
+    ensure_series,
 )
 
 # =========================================================================
 # TestE2EPipeline — full channel → agent → tasks pipeline
 # =========================================================================
+
+SERIES_TITLE_CN = "黄泉使者"
 
 
 class TestE2EPipeline:
@@ -43,6 +46,12 @@ class TestE2EPipeline:
 
     def test_create_channel_and_fetch(self):
         """POST /channels → POST /fetch → poll → verify resources created."""
+        # Pre-seed the single-season series so Layer-3 local matching links the
+        # fetched resources during fetch (season-less → season=1, dispatchable
+        # instead of ambiguous), mirroring test_transmission_actions.py.
+        ensure_series(
+            SERIES_TITLE_CN, "Daemons of the Shadow Realm", number_of_seasons=1
+        )
         # Create channel with mikanani-ext feed
         r = _api(
             "/api/v1/channels",
@@ -50,7 +59,7 @@ class TestE2EPipeline:
             json={
                 "name": "E2E Pipeline Channel",
                 "url": MIKANANI_EXT_URL,
-                "field_mapping": DEFAULT_FIELD_MAPPING,
+                "field_mapping": RICH_FIELD_MAPPING,
                 "fetch_interval": 3600,
                 "metadata_agent_enabled": False,
             },
@@ -142,10 +151,13 @@ class TestE2EPipeline:
         if not TestE2EPipeline.agent_id:
             pytest.skip("No agent created — prerequisite test failed")
 
-        # Trigger agent run
+        # Trigger agent run — explicit scan_since:null = "no limit" scan so a
+        # fresh agent (last_consumed_at=None) actually processes the already
+        # fetched channel resources instead of just advancing its watermark.
         r = _api(
             f"/api/v1/agents/{TestE2EPipeline.agent_id}/run",
             method="post",
+            json={"scan_since": None},
         )
         assert r.status_code == 200, (
             f"trigger agent run failed: {r.status_code} {r.text}"

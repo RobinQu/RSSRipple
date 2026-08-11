@@ -617,51 +617,89 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
     Compatible with both thinking and non-thinking models. ``content`` and
     ``reasoning`` deltas are accumulated separately; the final JSON is parsed
     from ``content`` when available, falling back to ``reasoning`` otherwise.
+
+    Retries up to 3 times on transient failures (network errors, empty
+    responses, JSON parse errors) — mirroring ``_stream_openrouter`` so a
+    flaky gateway doesn't surface a hard error to the caller. Deltas are
+    buffered until a successful parse so the client only sees a clean stream.
     """
-    client = AsyncOpenAI(
-        api_key=runtime_config.llm_api_key,
-        base_url=runtime_config.llm_base_url,
-        timeout=httpx.Timeout(120.0, connect=10.0),
-    )
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        content_buf = ""
+        reasoning_buf = ""
+        pending_deltas: list[dict] = []
 
-    stream = await client.chat.completions.create(
-        model=runtime_config.llm_model,
-        messages=messages,
-        temperature=0.1,
-        stream=True,
-        timeout=120,
-        extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
-    )
+        try:
+            client = AsyncOpenAI(
+                api_key=runtime_config.llm_api_key,
+                base_url=runtime_config.llm_base_url,
+                timeout=httpx.Timeout(120.0, connect=10.0),
+            )
 
-    content_buf = ""
-    reasoning_buf = ""
-    async for chunk in stream:
-        if not chunk.choices:
-            continue
-        delta = chunk.choices[0].delta
-        c = getattr(delta, "content", None) or ""
-        r = (
-            getattr(delta, "reasoning", None)
-            or getattr(delta, "reasoning_content", None)
-            or ""
-        )
-        if c:
-            content_buf += c
-            yield {"type": "delta", "content": c}
-        elif r:
-            reasoning_buf += r
-            yield {"type": "delta", "content": r}
+            stream = await client.chat.completions.create(
+                model=runtime_config.llm_model,
+                messages=messages,
+                temperature=0.1,
+                stream=True,
+                timeout=120,
+                extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
+            )
 
-    final = content_buf if content_buf.strip() else reasoning_buf
-    if not final.strip():
-        yield {"type": "error", "message": "LLM returned empty response"}
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                c = getattr(delta, "content", None) or ""
+                r = (
+                    getattr(delta, "reasoning", None)
+                    or getattr(delta, "reasoning_content", None)
+                    or ""
+                )
+                if c:
+                    content_buf += c
+                    pending_deltas.append({"type": "delta", "content": c})
+                elif r:
+                    reasoning_buf += r
+                    pending_deltas.append({"type": "delta", "content": r})
+        except Exception as e:
+            if attempt < max_attempts:
+                logger.warning(
+                    "OpenAI-compatible stream attempt %d/%d failed: %s",
+                    attempt, max_attempts, e,
+                )
+                # Short backoff so retries don't hammer a transiently
+                # rate-limiting / recovering gateway.
+                await asyncio.sleep(min(2**attempt, 30))
+                continue
+            yield {"type": "error", "message": str(e)}
+            return
+
+        final = content_buf if content_buf.strip() else reasoning_buf
+        if not final.strip():
+            if attempt < max_attempts:
+                logger.warning(
+                    "OpenAI-compatible returned empty response (attempt %d/%d)",
+                    attempt, max_attempts,
+                )
+                continue
+            yield {"type": "error", "message": "LLM returned empty response"}
+            return
+
+        try:
+            raw_mapping = _parse_llm_json(final)
+        except json.JSONDecodeError:
+            if attempt < max_attempts:
+                logger.warning(
+                    "JSON parse failed (attempt %d/%d)", attempt, max_attempts
+                )
+                continue
+            yield {"type": "error", "message": "LLM returned invalid JSON"}
+            return
+
+        # Success — emit buffered deltas, then done
+        for delta_event in pending_deltas:
+            yield delta_event
+        validated_mapping = _validate_mapping(raw_mapping)
+        confidence = _calc_confidence(validated_mapping)
+        yield {"type": "done", "field_mapping": validated_mapping, "confidence": confidence}
         return
-
-    try:
-        raw_mapping = _parse_llm_json(final)
-    except json.JSONDecodeError as e:
-        yield {"type": "error", "message": f"Could not parse JSON from LLM response: {e}"}
-        return
-    validated_mapping = _validate_mapping(raw_mapping)
-    confidence = _calc_confidence(validated_mapping)
-    yield {"type": "done", "field_mapping": validated_mapping, "confidence": confidence}

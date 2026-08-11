@@ -20,6 +20,7 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    ensure_series,
 )
 
 # dmhy-style feed: magnet links (transmission can add magnets without
@@ -29,25 +30,12 @@ FEED_URL = f"{TEST_SERVER}/rss/dmhy?series=0"
 SERIES_TITLE_CN = "黄泉使者"
 
 
-def _ensure_series(title_cn: str, title_en: str) -> str:
-    r = _api("/api/v1/series", params={"page_size": 100, "title": title_cn})
-    if r.status_code == 200:
-        for s in r.json().get("data", []):
-            if s.get("title_cn") == title_cn:
-                return s["id"]
-    r = _api(
-        "/api/v1/series",
-        method="post",
-        json={"title_cn": title_cn, "title_en": title_en},
-    )
-    assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
-    return r.json()["data"]["id"]
-
-
 @pytest.fixture(scope="class")
 def _tx_env():
     """Agent that dispatched real torrents to the transmission service."""
-    series_id = _ensure_series(SERIES_TITLE_CN, "Daemons of the Shadow Realm")
+    series_id = ensure_series(
+        SERIES_TITLE_CN, "Daemons of the Shadow Realm", number_of_seasons=1
+    )
     # Dedicated downloader at the compose transmission port — do NOT reuse
     # _ensure_downloader (other suites register unreachable downloaders and
     # the helper just returns the first row).

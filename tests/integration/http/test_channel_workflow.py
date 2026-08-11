@@ -71,7 +71,9 @@ def _list_resources(channel_id: str) -> tuple[list[dict], int]:
 def _stream_analyze(url: str) -> tuple[dict | None, str | None]:
     """Call analyze-url-stream and return (field_mapping, confidence).
 
-    Returns (None, None) if LLM returns an error or no mapping.
+    Returns (None, None) if LLM returns an error or no mapping. The LLM
+    stream can take minutes on a slow gateway (each SDK attempt has a 120s
+    budget and _stream_openai retries up to 3x), so use a generous budget.
     """
     field_mapping = None
     confidence = None
@@ -79,7 +81,7 @@ def _stream_analyze(url: str) -> tuple[dict | None, str | None]:
         "POST",
         f"{RSSRIPPLE}/api/v1/channels/analyze-url-stream",
         json={"url": url},
-        timeout=180,
+        timeout=480,
     ) as stream:
         for line in stream.iter_lines():
             if not line.startswith("data: "):
@@ -102,7 +104,7 @@ def _stream_analyze_channel(channel_id: str) -> dict | None:
     with httpx.stream(
         "POST",
         f"{RSSRIPPLE}/api/v1/channels/{channel_id}/analyze-stream",
-        timeout=180,
+        timeout=480,
     ) as stream:
         for line in stream.iter_lines():
             if not line.startswith("data: "):
