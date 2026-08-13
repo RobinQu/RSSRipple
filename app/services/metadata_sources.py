@@ -13,11 +13,10 @@ from app.services.runtime_config import runtime_config
 DEFAULT_METADATA_SOURCE = "wikipedia"
 # All runtime-supported sources. exa/jina/local are DEPRECATED as *channel*
 # sources but their ReAct code paths stay (manual search + eval may still use
-# them); only wikipedia/tmdb are selectable on a channel.
-SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}
-# Sources selectable as a channel's primary metadata source (two-source
-# architecture, Phase P1).
-SUPPORTED_CHANNEL_METADATA_SOURCES = {"wikipedia", "tmdb"}
+# them); only wikipedia/tmdb/bangumi are selectable on a channel.
+SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local", "bangumi"}
+# Sources selectable as a channel's primary metadata source.
+SUPPORTED_CHANNEL_METADATA_SOURCES = {"wikipedia", "tmdb", "bangumi"}
 
 # User-selectable external metadata sources (ordered as presented in the UI).
 # ``key`` is the credential attr on Settings; sources without a key
@@ -31,6 +30,9 @@ _EXTERNAL_SOURCE_DEFS: tuple[dict[str, str], ...] = (
      "description": "Wikipedia REST search; no API key required."},
     {"value": "tmdb", "label": "TMDB", "key": "tmdb_api_key",
      "description": "The Movie Database; best for TV/movie ID matching."},
+    {"value": "bangumi", "label": "Bangumi", "key": "bangumi_api_key",
+     "description": "Bangumi subject search; anime-only category, "
+                    "matched works are marked is_anime."},
 )
 
 
@@ -49,6 +51,8 @@ def is_metadata_source_enabled(source: str) -> bool:
         "jina": runtime_config.jina_enabled,
         "tmdb": runtime_config.tmdb_enabled,
         "wikipedia": runtime_config.wikipedia_enabled,
+        # No separate switch by design: a configured token IS the enablement.
+        "bangumi": True,
     }.get(source)
     return bool(flag)
 
@@ -62,8 +66,8 @@ def get_metadata_source_catalog(channel_only: bool = False) -> list[dict[str, An
     """Return external metadata sources with their availability flags.
 
     Each entry: ``{value, label, description, enabled, configured, available}``.
-    With ``channel_only=True`` the result is restricted to the two-source
-    channel architecture (wikipedia/tmdb); the full catalog is still used by
+    With ``channel_only=True`` the result is restricted to the channel
+    architecture (wikipedia/tmdb/bangumi); the full catalog is still used by
     the works-page refresh config, where the legacy manual sources remain
     selectable.
     """
@@ -91,17 +95,17 @@ def get_available_metadata_sources() -> list[dict[str, Any]]:
 def resolve_metadata_source(value: str | None) -> str:
     """Resolve a channel's stored source to a runnable source.
 
-    Channel resolution is restricted to the two-source architecture
-    (wikipedia/tmdb): deprecated channel sources (exa/jina/local/combined),
-    None, and unknown values all resolve to the default. Callers that need an
-    *available* source should additionally check
+    Channel resolution is restricted to the channel architecture
+    (wikipedia/tmdb/bangumi): deprecated channel sources
+    (exa/jina/local/combined), None, and unknown values all resolve to the
+    default. Callers that need an *available* source should additionally check
     :func:`is_metadata_source_available` and fall back.
     """
     return normalize_channel_metadata_source(value)
 
 
 def normalize_channel_metadata_source(value: str | None) -> str:
-    """Normalize a *channel* metadata source to wikipedia or tmdb.
+    """Normalize a *channel* metadata source to wikipedia/tmdb/bangumi.
 
     Deprecated channel sources (exa/jina/local/combined), None, and unknown
     values map to the default (wikipedia). Used only for channel resolution;

@@ -183,6 +183,9 @@
     "metadataSourceNoneDesc": "No external data source is enabled and configured. Set the relevant API key in .env and keep its switch on, or turn off metadata search to use local matching only.",
     "autoCleanupUnresolved": "Auto-cleanup unresolved resources",
     "autoCleanupUnresolvedDesc": "When enabled, FileResources that remain unresolved past the threshold and have had no manual handling (direct download or metadata edit) are deleted automatically; if the feed re-publishes the same item it is re-created and re-matched.",
+    "defaultIsAnime": "Default: mark as Anime",
+    "defaultIsAnimeDesc": "When enabled, works matched/created from this channel default to is_anime = true",
+    "defaultIsAnimeLocked": "Cannot be changed after channel creation",
     "cleanupThresholdDays": "Cleanup threshold (days)",
     "cleanupThresholdDaysDesc": "Unresolved resources older than this (by creation time) are cleaned up. Range 1-365, default 21 (3 weeks).",
     "sourceUnavailable": "unavailable",
@@ -595,12 +598,14 @@
     "movie": {
       "rating": "Movie Rating (0-10)",
       "year": "Movie Year",
-      "genre": "Movie Genre"
+      "genre": "Movie Genre",
+      "is_anime": "Movie Anime"
     },
     "series": {
       "rating": "Series Rating (0-10)",
       "year": "Series Year",
-      "genre": "Series Genre"
+      "genre": "Series Genre",
+      "is_anime": "Series Anime"
     },
     "enumValue_raw": "Raw",
     "enumValue_reconciled": "Reconciled",
@@ -766,6 +771,11 @@
     "tv": "TV Series",
     "movie": "Movie",
     "audio": "Audio",
+    "anime": "Anime",
+    "liveAction": "Live-action",
+    "animeStatus": "Anime Detection",
+    "animeUpdated": "Anime flag updated",
+    "animeUpdateFailed": "Update failed",
     "audioType": {
       "asmr": "ASMR",
       "music": "Music",
@@ -890,6 +900,8 @@
       "title": "External Search Data Sources",
       "desc": "API keys and enable switches for the metadata search sources. A source is selectable when enabled and configured.",
       "tmdb": "TMDB",
+      "bangumi": "Bangumi API Token",
+      "bangumiHint": "Used by the Bangumi metadata source and anime detection.",
       "wikipedia": "Wikipedia",
       "enable": "Enabled",
       "apiKey": "API Key",

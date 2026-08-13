@@ -64,6 +64,7 @@ def _series_ns(**overrides):
         original_title="葬送のフリーレン",
         start_date=date(2023, 9, 29),
         content_type="anime",
+        is_anime=True,
         collection=SimpleNamespace(display_name="Frieren"),
         genre=["Anime", "Fantasy"],  # "Anime" alias normalizes to "Animation"
         seasons=[{"season_number": 1, "episode_count": 28}],
@@ -114,6 +115,7 @@ def test_build_payload_series():
     assert work["title_en"] == "Frieren"
     assert work["year"] == 2023
     assert work["content_type"] == "anime"
+    assert work["is_anime"] is True
     assert work["collection"] == "Frieren"
     assert work["genre"] == ["Animation", "Fantasy"]
     assert work["seasons"] == [{"season_number": 1, "episode_count": 28}]
@@ -129,6 +131,7 @@ def test_build_payload_movie():
         original_title="君の名は。",
         release_date=date(2016, 8, 26),
         content_type="movie",
+        is_anime=False,
         collection=None,
         genre=["Romance", "Animation"],
     )
@@ -141,6 +144,7 @@ def test_build_payload_movie():
     work = payload["work"]
     assert work["type"] == "movie"
     assert work["year"] == 2016
+    assert work["is_anime"] is False
     assert work["collection"] is None
     assert work["genre"] == ["Romance", "Animation"]
     assert work["episodes"] is None

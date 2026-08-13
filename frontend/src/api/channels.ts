@@ -45,6 +45,8 @@ export interface ChannelCreate {
   metadata_fallback_sources?: string[] | null;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
+  // Immutable after channel creation (server returns 422 on change attempts).
+  default_is_anime?: boolean;
 }
 
 export interface ChannelUpdate {

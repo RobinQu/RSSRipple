@@ -120,7 +120,7 @@ fetch_and_link_metadata(resource, channel, db)
   │
   ├─ Layer 4: 统一 MetadataAgent（仅当 channel.metadata_agent_enabled == True 时执行）
   │     调用 UnifiedMetadataAgent.process() — ReAct 循环
-  │     数据源：频道主数据源（wikipedia/tmdb，默认 wikipedia；两主源未命中均可走有序 Exa 回退，仅补身份）；评测/手动搜索可显式选择 exa/tmdb/wikipedia/jina
+  │     数据源：频道主数据源（wikipedia/tmdb/bangumi，默认 wikipedia；三主源未命中均可走有序 Exa 回退，仅补身份）；评测/手动搜索可显式选择 exa/tmdb/wikipedia/jina/bangumi
   │     单次执行只允许调用所选数据源的工具，不做 TMDB→Exa→Wikipedia 级联或 fallback
   │     结果直接写入 resource.series_id/movie_id 并写 MetadataCache；
   │     若首选结果被 agent 标记为 work 级 ambiguous（`ambiguous: true`）→ 不链接，
@@ -128,6 +128,8 @@ fetch_and_link_metadata(resource, channel, db)
   │
   └─ 全部失败 → resource 保持未链接（series_id/movie_id 均为 null）
 ```
+
+**Bangumi 频道源匹配流程（`metadata_bangumi`，镜像 wikipedia 的 search-then-judge 形态）**：复用 wikipedia 的 query 清洗（`_candidate_queries`）→ `POST /v0/search/subjects` 限 `type=[2]`（动画分类，命中即动漫）→ 确定性 auto-link（归一化标题相等 + 标题年份守卫 ±1，**唯一命中**才免 LLM）→ 否则单次 LLM judge（专用 prompt `_BANGUMI_JUDGE_SYSTEM_PROMPT`）→ 命中条目经详情（`GET /v0/subjects/{id}`）+ 剧集（`GET /v0/episodes` 分页）端点展开为 matched_entity：`external_id=bangumi:{id}`（身份证据自动落 `is_anime=True`）、title_cn=name_cn、original_title=name、description=summary、rating=rating.score、start_date=date、number_of_episodes=eps、genre=tags（出口钳制）、`is_anime=True`；**刻意不设置 `seasons`/`number_of_seasons`**——一个 bangumi 条目只是一季，不能冒称作品级季数（季号绝不猜测不变量）；episode_list 取本篇（type=0）的整数 sort，season 标签用资源解析出的季号（无则 1）；platform=剧场版 → content_type=movie。found=False 走统一有序 Exa 回退（仅补身份）；缓存命名空间 `metadata_agent:bangumi`；手动搜索/评测（`process_title_only`）同样支持。客户端 `bangumi_client`：UA 固定 `robinqu/RSSRipple`，token 走 `runtime_config.bangumi_api_key`（env `BANGUMI_API_KEY` 或设置页覆盖），无独立启用开关——token 即启用。
 
 **季号验证规则（season never guessed）**：季号只能来自标题季标记或经元数据证据验证，绝不猜测。
 
@@ -200,6 +202,15 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 - **存量**：`scripts/genre_backfill.py`——模式 A（默认）就地规范化既有 genre 数组；模式 B（`--refresh-empty`）对仍为空的 series/movie 调 `refresh_work_metadata` 重跑补齐（身份源为 wikipedia/tmdb 时用原源，否则回退 wikipedia 标题判定；有网络/LLM 成本，`--limit/--delay` 限速）。
 - **消费面**：通知 payload `work.genre` 快照同样归一化；Filter DSL 新增 `series.genre`/`movie.genre`（list-of-string 逐元素语义，见 filter-dsl.md）。
 
+### is_anime 分层判定（三态动漫标记）
+
+作品 `is_anime` 的取值约定与确定性信号（身份源 / Wikipedia infobox / TMDB / LLM）见 data-models.md「is_anime 判定约定」；本节描述运行时的分层判定。统一入口 `classify_is_anime_post_link`（metadata_service）挂在资源成功链接作品的**全部 5 处落点**（`metadata_repository._apply_to_resource` + metadata_service 匹配流程 4 处：Layer 2 mapping 链接、Layer 3 精确/模糊自动链接两处、Layer 4 LLM 链接）：
+
+1. **频道默认标记**（`apply_channel_default_is_anime`）：`channels.default_is_anime`（创建后不可改）开启的频道，其资源链接到的作品 `is_anime` 先置 True（已有 True 不动）。
+2. **第一层 Bangumi 验证**（`maybe_verify_is_anime_via_bangumi`）：未开默认标记的频道，作品 `is_anime` 仍为 NULL 且有 Bangumi token 时，按作品标题（title_cn/original_title/title_en）搜 Bangumi（**不带 type 过滤**，让三次元条目可作实拍证据），`anime_signals.bangumi_verdict` 在归一化标题相等 + 年份守卫（±1，作品年份未知则放行）后按条目类型判定：type 2（动画）→ True、type 6（三次元）→ False、其他类型忽略；已判定（非 NULL）作品跳过；验证异常静默记 warning，不阻塞匹配。
+3. **第二层上下文推断**：既有信号经 `apply_is_anime` 在 upsert 时赋值（True sticky / False 只填 NULL）——Wikipedia infobox（TVAnime + 新增 Movie|Film|OVA 检测 `has_animanga_film_infobox`，剧场版/OVA 的确定性信号）、TMDB Animation+ja/JP、judge/ReAct 的 `is_anime` 输出（prompt 已强化制作公司指引）。
+4. **最终 NULL = 无法判断**：留待用户在作品详情页手动修正（可编辑三态 Select：动漫/实拍/清除即未知，走 PUT series/movies 直接覆盖）。
+
 ### Metadata 一致性防护（缓存版本化 / 跨表守卫 / 修正联动 / 跨表去重）
 
 针对"错误 verdict 被缓存复用 + Movie/Series 分表产生跨表重复"这一类问题（案例：franchise 页被旧分类器误判 movie 后，新频道的同标题资源命中陈旧缓存，在已有 Series 的情况下又建了 Movie）：
@@ -223,24 +234,25 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 
 MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必须选择且只选择一个数据源，由 LLM 基于该数据源返回的证据做标题理解、集数/季数推断和最终结构化输出。
 
-**频道两数据源架构（Phase P1）**：频道的 `metadata_source` 只允许 `wikipedia | tmdb`（`SUPPORTED_CHANNEL_METADATA_SOURCES`，默认 `wikipedia`）；`exa`/`jina`/`local`/`combined` 作为频道源已废弃——频道解析（`resolve_metadata_source`/`normalize_channel_metadata_source`）把它们连同 None/未知值统一归一为 `wikipedia`，存量值由 `_apply_light_migrations` 的幂等 UPDATE 改写。exa/jina/local 的 ReAct 代码路径保留，仅手动搜索与评测可使用（走 `normalize_metadata_source_type`，不经频道解析）。
+**频道三数据源架构**：频道的 `metadata_source` 只允许 `wikipedia | tmdb | bangumi`（`SUPPORTED_CHANNEL_METADATA_SOURCES`，默认 `wikipedia`）；`exa`/`jina`/`local`/`combined` 作为频道源已废弃——频道解析（`resolve_metadata_source`/`normalize_channel_metadata_source`）把它们连同 None/未知值统一归一为 `wikipedia`，存量值由 `_apply_light_migrations` 的幂等 UPDATE 改写。exa/jina/local 的 ReAct 代码路径保留，仅手动搜索与评测可使用（走 `normalize_metadata_source_type`，不经频道解析）。
 
-运行时支持的数据源（`SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local"}`）：
+运行时支持的数据源（`SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local", "bangumi"}`）：
 - `wikipedia`：Wikipedia Search，代码默认数据源（`DEFAULT_METADATA_SOURCE = "wikipedia"`）。仅使用 Wikipedia 搜索与页面工具；未命中时可触发下方 Exa 回退。
 - `tmdb`：TMDB Search。仅使用 TMDB API 的搜索/详情工具，适合结构化影视库匹配；未命中时同样可触发下方 Exa 回退（P4 起与 wikipedia 路径统一）。
+- `bangumi`：Bangumi Subject Search（限动画分类 type 2），search-then-judge 形态同 wikipedia（确定性 auto-link 优先，否则单次 judge，流程详见「Metadata 匹配流程」）；命中作品自动落 `is_anime=True`；未命中时同样走下方 Exa 回退。无独立启用开关——配置了 token（`BANGUMI_API_KEY` 或设置页）即启用。
 - `exa`：Exa Agent Search（旧默认，已废弃为频道源；手动搜索/评测保留）。通过 Exa Agent API 创建 run，传入结构化 `output_schema`，轮询完成后读取 `output.structured.candidates`。
 - `jina`：Jina Search + Reader（同上，废弃为频道源）。通过 `s.jina.ai` 搜索 + `r.jina.ai` Reader 抓取页面 markdown 作为证据。
 - `local`：仅本地 DB 匹配，不调用任何外部源（关闭 MetadataAgent 外部搜索时使用）。
 
-**有序 Exa 回退（两频道主源未命中时统一触发）**：主源判定返回 found=False 后（wikipedia 路径在 judge found=False 时、tmdb 路径（P4 起）在 ReAct finalize found=False 时；transient 失败如 agent error/超时**不**触发，避免用确定性回退 verdict 掩盖基础设施故障），`exa_fallback_judge` 用一次 Exa web 搜索 + 单次 LLM judge 在频道 `metadata_fallback_sources`（JSON 有序站点白名单；NULL=默认顺序 `bangumi → mal → anilist → tmdb → wikipedia → imdb → douban`，`[]`=禁用回退；`process_title_only` 无频道上下文，用默认顺序）限定的站点内补身份：候选 URL 按白名单硬过滤，靠前站点在证据呈现中优先（tiebreak）。回退只提供身份/链接——matched_entity 不得携带 `seasons`/`number_of_seasons`/`number_of_episodes`（LLM 输出也会被剥离），内容一律以主数据源为准。站点身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike、eiga 已移除），`EXA_API_KEY` 未配置时跳过回退。Exa 自身失败（网络/限流/凭证）记为 transient 不缓存；回退命中时 `search_method` 分别为 `search_then_exa_fallback`（wikipedia）/ `react_then_exa_fallback`（tmdb）。
+**有序 Exa 回退（三频道主源未命中时统一触发）**：主源判定返回 found=False 后（wikipedia 路径在 judge found=False 时、tmdb 路径（P4 起）在 ReAct finalize found=False 时、bangumi 路径在 auto-link 未中且 judge found=False 时；transient 失败如 agent error/超时**不**触发，避免用确定性回退 verdict 掩盖基础设施故障），`exa_fallback_judge` 用一次 Exa web 搜索 + 单次 LLM judge 在频道 `metadata_fallback_sources`（JSON 有序站点白名单；NULL=默认顺序 `bangumi → mal → anilist → tmdb → wikipedia → imdb → douban`，`[]`=禁用回退；`process_title_only` 无频道上下文，用默认顺序）限定的站点内补身份：候选 URL 按白名单硬过滤，靠前站点在证据呈现中优先（tiebreak）。回退只提供身份/链接——matched_entity 不得携带 `seasons`/`number_of_seasons`/`number_of_episodes`（LLM 输出也会被剥离），内容一律以主数据源为准。站点身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike、eiga 已移除），`EXA_API_KEY` 未配置时跳过回退。Exa 自身失败（网络/限流/凭证）记为 transient 不缓存；回退命中时 `search_method` 分别为 `search_then_exa_fallback`（wikipedia）/ `react_then_exa_fallback`（tmdb、bangumi 共用共享回退函数 `_maybe_exa_fallback`）。
 
 数据源选择规则：
-- 一个数据源当且仅当"启用开关开启 **且** 凭证已配置"时才在 UI 中可选；`wikipedia` 无需凭证，仅看启用开关。启用开关环境变量：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（默认 `true`）。频道表单只列出两数据源架构的 wikipedia/tmdb；作品库元数据刷新仍可看到全部可用源。
+- 一个数据源当且仅当"启用开关开启 **且** 凭证已配置"时才在 UI 中可选；`wikipedia` 无需凭证，仅看启用开关；`bangumi` 无独立启用开关，配置了 token 即视为启用。启用开关环境变量：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（默认 `true`）。频道表单只列出三数据源架构的 wikipedia/tmdb/bangumi；作品库元数据刷新仍可看到全部可用源。
 - 作品库"刷新元数据"动作使用的默认数据源由运行时设置 `default_metadata_source`（`app_settings` 表）决定，需用户在 UI 主动选择一个可用数据源；未配置时刷新请求返回 400。频道级的 `metadata_source` 在频道表单中单独选择。
 
 兼容规则：
 - `combined` 仅作为旧评测数据集值保留；运行时归一化为默认 `wikipedia`，不得作为新数据集或新搜索任务的数据源类型。
-- 单次搜索必须保持"只使用一个数据源"的约束，不得跨数据源 fallback（两频道主源的有序 Exa 回退是唯一的、仅补身份的例外）。
+- 单次搜索必须保持"只使用一个数据源"的约束，不得跨数据源 fallback（三频道主源的有序 Exa 回退是唯一的、仅补身份的例外）。
 - eval 标注平台的新建 Dataset 必须人工选择 `exa` / `jina` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `exa-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
 
 ### Wikipedia 匹配的 content_type 判定

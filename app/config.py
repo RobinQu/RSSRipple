@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     # Multi-source metadata search agent
     tmdb_api_key: str = ""
+    # Bangumi API token (https://bangumi.github.io/api/). Used by the
+    # "bangumi" metadata source and the post-link is_anime verification —
+    # both are enabled simply by the token being configured. Env var:
+    # BANGUMI_API_KEY.
+    bangumi_api_key: str = ""
     # Jina Search + Reader API: https://jina.ai/api-dashboard/
     # Used by the "jina" metadata source — cheap web-native search with strong
     # CJK/JA/EN coverage. Empty string disables the jina source at runtime.

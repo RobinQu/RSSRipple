@@ -48,6 +48,7 @@ _SETTING_DEFS: dict[str, tuple[str, str, bool]] = {
     "llm_enable_thinking": ("llm_enable_thinking", _KIND_BOOL, False),
     # External search data sources
     "tmdb_api_key": ("tmdb_api_key", _KIND_STR, True),
+    "bangumi_api_key": ("bangumi_api_key", _KIND_STR, True),
     "jina_api_key": ("jina_api_key", _KIND_STR, True),
     "exa_api_key": ("exa_api_key", _KIND_STR, True),
     "exa_effort_level": ("exa_effort_level", _KIND_STR, False),
@@ -125,6 +126,10 @@ class _RuntimeConfig:
     @property
     def tmdb_api_key(self) -> str:
         return self._str("tmdb_api_key")
+
+    @property
+    def bangumi_api_key(self) -> str:
+        return self._str("bangumi_api_key")
 
     @property
     def jina_api_key(self) -> str:

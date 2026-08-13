@@ -511,11 +511,17 @@ class TestBatchFields:
             _res(is_batch=False),
         ) is True
 
-    def test_is_batch_missing_field_is_false(self):
+    def test_is_batch_missing_field_null_semantics(self):
+        """Bool fields follow the documented null semantics: positive ops
+        fail on NULL, ``ne`` passes (tri-state fields like series.is_anime
+        rely on this; is_batch itself is NOT NULL in the DB)."""
         r = _res()
         del r.is_batch  # simulate an older row without the column value
         assert evaluate_field_condition(
             {"field": "is_batch", "operator": "eq", "value": False}, r
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "is_batch", "operator": "ne", "value": True}, r
         ) is True
 
     def test_episode_start_gte(self):

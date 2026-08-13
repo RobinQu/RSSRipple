@@ -323,6 +323,42 @@ def _parse_air_date(date_raw: str | None, current_year: int | None) -> tuple[str
 # ---------------------------------------------------------------------------
 
 
+def has_tvanime_infobox(wikitext: str | None) -> bool:
+    """True when the page carries a ``{{Infobox animanga/TVAnime}}`` block.
+
+    This is a deterministic anime signal for ``is_anime`` (see
+    ``anime_signals``): only anime TV works use the animanga TVAnime infobox
+    on zh/ja Wikipedia. Unlike :func:`parse_seasons_from_infobox` (which
+    collapses "no TV block" and "unparseable counts" into the same None),
+    this answers the plain presence question.
+    """
+    if not wikitext:
+        return False
+    return any(
+        re.match(
+            r"\{\{\s*Infobox\s+animanga/TVAnime",
+            wikitext[m.start():],
+            flags=re.IGNORECASE,
+        )
+        for m in _ANIMANGA_BLOCK_RE.finditer(wikitext)
+    )
+
+
+_ANIMANGA_FILM_RE = re.compile(
+    r"\{\{\s*Infobox\s+animanga/(?:Movie|Film|OVA)", re.IGNORECASE
+)
+
+
+def has_animanga_film_infobox(wikitext: str | None) -> bool:
+    """True when the page carries an animanga film block
+    (``{{Infobox animanga/Movie|Film|OVA}}``) — the deterministic anime
+    signal for theatrical/OVA works, complementing
+    :func:`has_tvanime_infobox` (TV only)."""
+    if not wikitext:
+        return False
+    return bool(_ANIMANGA_FILM_RE.search(wikitext))
+
+
 def parse_seasons_from_infobox(wikitext: str | None) -> list[dict] | None:
     """Extract ``[{season_number, episode_count}]`` from the TV-anime infobox
     block ONLY.

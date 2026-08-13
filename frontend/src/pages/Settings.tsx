@@ -10,7 +10,7 @@ const { Title, Text } = Typography;
 
 // Secret keys never come back from the server as plaintext; we track them
 // locally and only submit when the user edits (or clears) them.
-const SECRET_KEYS = ['llm_api_key', 'tmdb_api_key'] as const;
+const SECRET_KEYS = ['llm_api_key', 'tmdb_api_key', 'bangumi_api_key'] as const;
 type SecretKey = (typeof SECRET_KEYS)[number];
 
 function isSecretKey(key: string): key is SecretKey {
@@ -257,6 +257,29 @@ export default function SettingsPage() {
           {/* Jina / Exa groups removed: neither source takes part in the
               channel metadata search anymore (two-source wikipedia/tmdb
               architecture); their keys remain env-only. */}
+
+          {/* Bangumi (secret-only; no enable switch — the source is used by
+              the metadata fallback chain and anime detection) */}
+          <div style={{ padding: '12px 0', borderTop: '1px solid var(--rr-border-soft)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+              <Space>
+                <Text strong>{t('settings.sources.bangumi')}</Text>
+                {configuredTag('bangumi_api_key')}
+              </Space>
+            </div>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+              {t('settings.sources.bangumiHint')}
+            </Text>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input.Password
+                value={secrets.bangumi_api_key ?? ''}
+                onChange={(e) => setSecret('bangumi_api_key', e.target.value)}
+                placeholder={t('settings.secretPlaceholder')}
+                style={{ flex: 1 }}
+              />
+              <Button onClick={() => clearSecret('bangumi_api_key')}>{t('settings.clear')}</Button>
+            </div>
+          </div>
 
           {/* Wikipedia */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>

@@ -179,6 +179,7 @@ export default function ChannelForm() {
             metadata_fallback_sources: ch.metadata_fallback_sources ?? DEFAULT_FALLBACK_SOURCES,
             auto_cleanup_unresolved_enabled: ch.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: ch.auto_cleanup_unresolved_days ?? 21,
+            default_is_anime: ch.default_is_anime ?? false,
           });
           if (ch.field_mapping) {
             setFieldMapping(ch.field_mapping as FieldMapping);
@@ -333,6 +334,7 @@ export default function ChannelForm() {
     metadata_fallback_sources?: string[];
     auto_cleanup_unresolved_enabled?: boolean;
     auto_cleanup_unresolved_days?: number;
+    default_is_anime?: boolean;
   }) => {
     // Parse field mapping text if edit mode
     let fm: FieldMapping | null = fieldMapping;
@@ -377,6 +379,7 @@ export default function ChannelForm() {
             metadata_fallback_sources: values.metadata_fallback_sources ?? [],
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
+            default_is_anime: values.default_is_anime ?? false,
           },
           token ?? undefined,
         );
@@ -485,6 +488,7 @@ export default function ChannelForm() {
                     metadata_fallback_sources: DEFAULT_FALLBACK_SOURCES,
                     auto_cleanup_unresolved_enabled: false,
                     auto_cleanup_unresolved_days: 21,
+                    default_is_anime: false,
                   }
                 : undefined
             }
@@ -616,6 +620,23 @@ export default function ChannelForm() {
                 <InputNumber min={1} max={365} style={{ width: 180 }} />
               </Form.Item>
             )}
+
+            <Form.Item
+              name="default_is_anime"
+              label={t('channels.defaultIsAnime')}
+              valuePropName="checked"
+              tooltip={
+                mode === 'create'
+                  ? t('channels.defaultIsAnimeDesc')
+                  : t('channels.defaultIsAnimeLocked')
+              }
+            >
+              <Switch
+                checkedChildren={t('common.on')}
+                unCheckedChildren={t('common.off')}
+                disabled={mode !== 'create'}
+              />
+            </Form.Item>
 
             {/* Field mapping */}
             <div style={{ marginBottom: 8 }}>

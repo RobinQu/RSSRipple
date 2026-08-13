@@ -111,6 +111,36 @@ class TestChannelsCRUD:
         res2 = await client.get(f"/api/v1/channels/{sample_channel.id}")
         assert res2.status_code == 404
 
+    async def test_create_channel_with_default_is_anime(self, client):
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post(
+                "/api/v1/channels", json=_channel_payload(default_is_anime=True)
+            )
+        assert res.status_code == 201
+        assert res.json()["data"]["default_is_anime"] is True
+
+    async def test_update_channel_default_is_anime_immutable(
+        self, client, sample_channel
+    ):
+        # sample_channel has the default (False); flipping it must 422.
+        assert sample_channel.default_is_anime is False
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"default_is_anime": True},
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        # Re-submitting the SAME value is a no-op, not an error (the edit
+        # form always carries the field).
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"default_is_anime": False},
+        )
+        assert res.status_code == 200
+
 
 class TestChannelActions:
     async def test_fetch_enqueues_job(self, client, sample_channel):
@@ -310,8 +340,8 @@ class TestMetadataSources:
         assert res.status_code == 200
         data = res.json()["data"]
         values = [s["value"] for s in data["sources"]]
-        # Channel config is restricted to the two-source architecture.
-        assert set(values) == {"wikipedia", "tmdb"}
+        # Channel config is restricted to the channel-source architecture.
+        assert set(values) == {"wikipedia", "tmdb", "bangumi"}
         assert data["default"] == "wikipedia"
         # Each entry carries the availability flags.
         for s in data["sources"]:

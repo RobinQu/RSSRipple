@@ -26,6 +26,8 @@ export interface Channel {
   metadata_fallback_sources: string[] | null;
   auto_cleanup_unresolved_enabled: boolean;
   auto_cleanup_unresolved_days: number;
+  // Default is_anime flag for works matched from this channel; immutable after creation.
+  default_is_anime: boolean;
   last_fetched_at: string | null;
   last_fetch_status: string | null;
   last_fetch_error: string | null;
@@ -185,6 +187,8 @@ export interface TVSeries {
   start_date: string | null;
   end_date: string | null;
   content_type: string | null;
+  // Tri-state: true = Japanese animation, false = confirmed live-action, null = undetermined
+  is_anime?: boolean | null;
   collection_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -218,6 +222,8 @@ export interface Movie {
   release_date: string | null;
   runtime: number | null;
   content_type: string | null;
+  // Tri-state: true = Japanese animation, false = confirmed live-action, null = undetermined
+  is_anime?: boolean | null;
   collection_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -250,6 +256,8 @@ export interface Work {
   runtime: number | null;
   year: number | null;
   genre: string[] | null;
+  // Tri-state: true = Japanese animation, false = confirmed live-action, null = undetermined
+  is_anime?: boolean | null;
   // Franchise grouping — present on tv/movie items, null for audio/ungrouped
   collection_id?: string | null;
   collection_name?: string | null;
@@ -322,16 +330,19 @@ export type FilterField =
   | 'movie.genre'
   | 'series.rating'
   | 'series.year'
-  | 'series.genre';
+  | 'series.genre'
+  | 'series.is_anime'
+  | 'movie.is_anime';
 
 export type StringFilterField = Exclude<
   FilterField,
   | 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode' | 'is_batch' | 'subtitle_langs'
   | 'movie.rating' | 'movie.year' | 'movie.genre' | 'series.rating' | 'series.year' | 'series.genre'
+  | 'series.is_anime' | 'movie.is_anime'
 >;
 export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode'
   | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year';
-export type BoolFilterField = 'is_batch';
+export type BoolFilterField = 'is_batch' | 'series.is_anime' | 'movie.is_anime';
 export type ListFilterField = 'subtitle_langs' | 'movie.genre' | 'series.genre';
 
 export type FilterOperator =

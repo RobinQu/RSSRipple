@@ -38,6 +38,12 @@ class Channel(Base):
     # names). None = default order; [] = fallback disabled. The fallback
     # supplies identity/links only - content follows the primary source.
     metadata_fallback_sources: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # "默认标记为 Anime": works linked from this channel's successfully parsed
+    # resources get is_anime=True. Immutable after creation (update API 422s
+    # on change attempts).
+    default_is_anime: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
     # ── Auto-cleanup of stale unresolved resources ──
     # When enabled, the daily cleanup job deletes this channel's FileResources
     # that have sat *unresolved* (no linked work, never matched) for longer

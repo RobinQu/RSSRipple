@@ -75,6 +75,7 @@ def build_payload(
             "original_title": series.original_title,
             "year": series.start_date.year if series.start_date else None,
             "content_type": series.content_type,
+            "is_anime": series.is_anime,
             "collection": (
                 series.collection.display_name if series.collection else None
             ),
@@ -97,6 +98,7 @@ def build_payload(
             "original_title": movie.original_title,
             "year": movie.release_date.year if movie.release_date else None,
             "content_type": movie.content_type,
+            "is_anime": movie.is_anime,
             "collection": (
                 movie.collection.display_name if movie.collection else None
             ),

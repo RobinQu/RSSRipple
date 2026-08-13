@@ -18,6 +18,7 @@ from typing import Any, TypedDict
 import httpx
 from httpx import HTTPStatusError, TimeoutException
 
+from app.services.anime_signals import is_anime_from_tmdb
 from app.services.genre_registry import GENRE_NAMES, TMDB_ID_TO_NAME
 from app.services.runtime_config import runtime_config
 from app.services.url_tools import keep_k_per_hostname
@@ -48,6 +49,7 @@ class MetadataCandidate(TypedDict, total=False):
     end_date: str | None
     release_date: str | None
     runtime: int | None
+    is_anime: bool | None  # deterministic TMDB verdict (see anime_signals)
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +269,8 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
                     "poster_path": item.get("poster_path"),
                     "vote_average": item.get("vote_average"),
                     "genre_ids": item.get("genre_ids", []),
+                    "original_language": item.get("original_language"),
+                    "origin_country": item.get("origin_country"),
                 }
             entry = merged[tmdb_id]
             entry["media_type"] = entry["media_type"] or media_type
@@ -275,6 +279,10 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
             entry["vote_average"] = entry["vote_average"] or item.get("vote_average")
             if not entry.get("genre_ids"):
                 entry["genre_ids"] = item.get("genre_ids", [])
+            if not entry.get("original_language"):
+                entry["original_language"] = item.get("original_language")
+            if not entry.get("origin_country"):
+                entry["origin_country"] = item.get("origin_country")
 
             # Language-specific titles
             if lang == "zh-CN":
@@ -342,6 +350,12 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
             "end_date": None,  # omitted
             "release_date": m.get("release_date"),
             "runtime": None,
+            # Deterministic anime verdict from TMDB genre+language/country.
+            "is_anime": is_anime_from_tmdb(
+                m.get("genre_ids", []),
+                m.get("original_language"),
+                m.get("origin_country"),
+            ),
         }
         if _validate_candidate(candidate):
             candidates.append(candidate)

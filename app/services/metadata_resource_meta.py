@@ -55,7 +55,7 @@ class ResourceMetadata:
     #       original_title, description, poster_url, rating, genre,
     #       status, number_of_episodes, number_of_seasons,
     #       start_date, end_date, release_date, runtime,
-    #       canonical_name, wikipedia_url
+    #       canonical_name, wikipedia_url, is_anime
 
     # ── Quality ──
     confidence: float = 0.0

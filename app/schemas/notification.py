@@ -97,6 +97,8 @@ class NotificationWorkPayload(BaseModel):
     original_title: str | None = None
     year: int | None = None
     content_type: str | None = None
+    # Tri-state anime flag (True/False/None=unknown) — see anime_signals.
+    is_anime: bool | None = None
     collection: str | None = None
     # Closed TMDB genre set (canonical English names) — see GenreName.
     genre: list[GenreName] | None = None

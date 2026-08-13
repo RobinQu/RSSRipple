@@ -66,7 +66,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/channels` | 频道列表（分页） |
 | POST | `/channels` | 创建频道（服务端校验 RSS URL 可达与格式合法性） |
 | GET | `/channels/form-token` | 获取表单防重复提交 Token（一次有效，存服务端 Cache） |
-| GET | `/channels/metadata-sources` | 频道表单数据源目录（两数据源架构：仅 wikipedia/tmdb + 可用性标志 + 默认值） |
+| GET | `/channels/metadata-sources` | 频道表单数据源目录（三数据源架构：仅 wikipedia/tmdb/bangumi + 可用性标志 + 默认值） |
 | GET | `/channels/{id}` | 频道详情（含最近 20 条 FileResource 预览） |
 | PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存） |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
@@ -79,7 +79,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
 
-频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb`（其他值 422）；`metadata_fallback_sources` 为 Exa 回退的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。
+频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为 Exa 回退的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
 
 `POST /channels/{id}/summarize-filters` 请求体：`{ "resource_ids": ["...", "..."] }`；响应 `data`：
 
@@ -288,7 +288,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/channels/{channel_id}/field-values` | Filter DSL 编辑器的自动补全数据源。Query 参数 `field`（必填，仅支持字符串字段与 `subtitle_langs`）、`q`（可选，忽略大小写的前缀匹配）、`limit`（默认 10，最大 50）。返回该频道下 top-N 出现频率最高的候选值数组。数值型字段被拒绝（422）。|
 | GET | `/resources/{id}` | 资源详情 |
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询）；链接为剧集时 `linked.entity` 额外携带 `seasons`（每季 `season_number`/`episode_count`），供集号修正 UI 从绝对集号前端预填季号 |
-| POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"? }` → 返回候选列表 |
+| POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"|"bangumi"? }` → 返回候选列表 |
 | PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤 |
 | PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "season": int?, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。未显式发送 `season` 且已知 absolute 集号、资源已链接剧集且该剧集有逐季集数数据时，服务端用 `locate_absolute_episode` 推导 season（episode 也未显式发送时一并推导）——显式值永远优先。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
 
@@ -320,11 +320,11 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null），音频条目无合集恒为 null） |
+| GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null）与 `is_anime`（可空布尔三态，见下），音频条目无合集恒为 null） |
 
 ### TVSeries
 
-`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。
+`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。`is_anime` 字段（Create/Update/Response）为可空布尔三态（True=日本动画 / False=确认实拍 / null=未判定，判定与赋值规则见 data-models.md「is_anime 判定约定」）；Create/Update 接受手动指定，手动 PATCH 直接覆盖。
 
 | Method | Path | 说明 |
 |--------|------|------|
@@ -335,6 +335,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
 
 ### Movies
+
+`is_anime` 字段（Create/Update/Response）同 TVSeries：可空布尔三态，Create/Update 接受手动指定，手动 PATCH 直接覆盖。
 
 | Method | Path | 说明 |
 |--------|------|------|

@@ -176,6 +176,11 @@ async def _apply_to_resource(
 
         resource.metadata_matched_at = utcnow()
 
+        # Post-link is_anime classification: the channel's "默认标记为 Anime"
+        # flag first, then the Bangumi layer-1 verification.
+        from app.services.metadata_service import classify_is_anime_post_link
+        await classify_is_anime_post_link(db, channel, resource)
+
 
 async def _get_cache(
     raw_title: str, data_source_type: str | None, db: AsyncSession

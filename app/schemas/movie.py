@@ -22,6 +22,7 @@ class MovieCreate(BaseModel):
     release_date: date | None = None
     runtime: int | None = None
     content_type: str | None = "movie"
+    is_anime: bool | None = None
 
 
 class MovieUpdate(BaseModel):
@@ -36,6 +37,7 @@ class MovieUpdate(BaseModel):
     status: str | None = None
     release_date: date | None = None
     runtime: int | None = None
+    is_anime: bool | None = None
 
 
 class MovieResponse(BaseModel):
@@ -58,6 +60,7 @@ class MovieResponse(BaseModel):
     release_date: date | None = None
     runtime: int | None = None
     content_type: str | None = None
+    is_anime: bool | None = None
     collection_id: str | None = None
     created_at: datetime
     updated_at: datetime

@@ -21,6 +21,8 @@ class ChannelCreate(BaseModel):
     metadata_fallback_sources: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
+    # "默认标记为 Anime" — immutable after creation (see channels API).
+    default_is_anime: bool = False
 
     @field_validator("metadata_source")
     @classmethod
@@ -48,6 +50,9 @@ class ChannelUpdate(BaseModel):
     metadata_fallback_sources: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool | None = None
     auto_cleanup_unresolved_days: int | None = None
+    # Immutable after creation — the update endpoint 422s when the submitted
+    # value differs from the stored one.
+    default_is_anime: bool | None = None
 
     @field_validator("metadata_source")
     @classmethod
@@ -78,6 +83,7 @@ class ChannelResponse(ORMModel):
     metadata_fallback_sources: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
+    default_is_anime: bool = False
     last_fetched_at: datetime | None = None
     last_fetch_status: str | None = None
     last_fetch_error: str | None = None

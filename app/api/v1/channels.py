@@ -236,6 +236,18 @@ async def update_channel(
             "error": {"code": "VALIDATION_ERROR", "message": "field_mapping is required"},
             "meta": {},
         })
+    # default_is_anime is immutable after channel creation.
+    if (
+        "default_is_anime" in update_data
+        and update_data["default_is_anime"] != channel.default_is_anime
+    ):
+        return JSONResponse(status_code=422, content={
+            "success": False,
+            "data": None,
+            "error": {"code": "VALIDATION_ERROR",
+                      "message": "default_is_anime cannot be changed after channel creation"},
+            "meta": {},
+        })
     for key, value in update_data.items():
         setattr(channel, key, value)
     await db.flush()

@@ -750,10 +750,22 @@ class UnifiedMetadataAgent:
         )
 
         # 2. Run metadata: search-first + single-LLM-judge for wikipedia (S3,
-        # 1 LLM call + parallel searches); ReAct for other sources.
+        # 1 LLM call + parallel searches); bangumi runs the same shape against
+        # the Bangumi subject API; ReAct for other sources.
         if normalize_metadata_source_type(data_source_type) == "wikipedia":
             finalize_dict, search_info = await self._run_search_then_judge(
                 raw_title, data_source_type, resource=resource,
+                fallback_sources=getattr(channel, "metadata_fallback_sources", None),
+            )
+        elif normalize_metadata_source_type(data_source_type) == "bangumi":
+            from app.services.metadata_bangumi import run_bangumi_search_then_judge
+
+            finalize_dict, search_info = await run_bangumi_search_then_judge(
+                self._model, raw_title, resource=resource,
+            )
+            # Same ordered Exa fallback as the other sources (identity only).
+            finalize_dict, search_info = await self._maybe_exa_fallback(
+                finalize_dict, search_info, raw_title, resource=resource,
                 fallback_sources=getattr(channel, "metadata_fallback_sources", None),
             )
         else:
@@ -824,9 +836,19 @@ class UnifiedMetadataAgent:
         source = normalize_metadata_source_type(data_source_type)
         logger.info("[metadata_agent] process_title_only source=%s title=%r", source, raw_title[:200])
         message = self._build_title_only_message(raw_title, source)
-        # S3: search-first + single-LLM-judge for wikipedia; ReAct otherwise.
+        # S3: search-first + single-LLM-judge for wikipedia; bangumi runs the
+        # same shape against the Bangumi subject API; ReAct otherwise.
         if source == "wikipedia":
             finalize_dict, search_info = await self._run_search_then_judge(raw_title, source)
+        elif source == "bangumi":
+            from app.services.metadata_bangumi import run_bangumi_search_then_judge
+
+            finalize_dict, search_info = await run_bangumi_search_then_judge(
+                self._model, raw_title,
+            )
+            finalize_dict, search_info = await self._maybe_exa_fallback(
+                finalize_dict, search_info, raw_title,
+            )
         else:
             finalize_dict, search_info = await self._run_react(message, source)
             if source == "tmdb":

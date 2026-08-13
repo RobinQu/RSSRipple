@@ -73,6 +73,10 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   // element-wise list semantics, same as subtitle_langs.
   'movie.genre': 'list',
   'series.genre': 'list',
+  // Tri-state booleans on the work: true = anime, false = live-action,
+  // null (empty) = undetermined — use is_empty/is_not_empty to match null.
+  'series.is_anime': 'bool',
+  'movie.is_anime': 'bool',
 };
 
 // Fields with a bounded, meaningful autocomplete set. Autocomplete is only
@@ -151,7 +155,8 @@ function useFieldOptions(t: TFunction) {
   const list_fields: FilterField[] = ['subtitle_langs'];
   const enum_fields: FilterField[] = ['episode_confidence'];
   const work_fields: FilterField[] = [
-    'series.rating', 'series.year', 'series.genre', 'movie.rating', 'movie.year', 'movie.genre',
+    'series.rating', 'series.year', 'series.genre', 'series.is_anime',
+    'movie.rating', 'movie.year', 'movie.genre', 'movie.is_anime',
   ];
 
   const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });

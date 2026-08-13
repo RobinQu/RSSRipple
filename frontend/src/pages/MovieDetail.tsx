@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
-import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App } from 'antd';
+import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
 import { worksApi } from '../api/works';
@@ -36,6 +36,17 @@ export default function MovieDetail() {
   useEffect(() => {
     loadMovie();
   }, [loadMovie]);
+
+  async function handleIsAnimeChange(value: boolean | null) {
+    if (!id || !movie || value === (movie.is_anime ?? null)) return;
+    const r = await moviesApi.update(id, { is_anime: value });
+    if (r.success) {
+      setMovie(r.data as Movie);
+      message.success(t('works.animeUpdated'));
+    } else {
+      message.error(r.error?.message || t('works.animeUpdateFailed'));
+    }
+  }
 
   async function handleRefreshMetadata() {
     if (!id) return;
@@ -179,6 +190,20 @@ export default function MovieDetail() {
               <Descriptions.Item label={t('movies.originalTitle')}>{movie.original_title || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('movies.rating')}>{movie.rating ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('common.status')}>{movie.status || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('works.animeStatus')}>
+                <Select
+                  size="small"
+                  style={{ width: 140 }}
+                  allowClear
+                  placeholder={t('common.unknown')}
+                  value={movie.is_anime ?? null}
+                  options={[
+                    { value: true, label: t('works.anime') },
+                    { value: false, label: t('works.liveAction') },
+                  ]}
+                  onChange={(v) => handleIsAnimeChange(v ?? null)}
+                />
+              </Descriptions.Item>
               {movie.collection && (
                 <Descriptions.Item label={t('works.colCollection')}>
                   <Link to={`/collections/${movie.collection.id}`}>{movie.collection.name}</Link>

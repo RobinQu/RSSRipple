@@ -24,6 +24,7 @@ class TVSeriesCreate(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     content_type: str | None = "tv"
+    is_anime: bool | None = None
 
 
 class TVSeriesUpdate(BaseModel):
@@ -40,6 +41,7 @@ class TVSeriesUpdate(BaseModel):
     number_of_seasons: int | None = None
     start_date: date | None = None
     end_date: date | None = None
+    is_anime: bool | None = None
 
 
 class TVSeriesResponse(BaseModel):
@@ -64,6 +66,7 @@ class TVSeriesResponse(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     content_type: str | None = None
+    is_anime: bool | None = None
     collection_id: str | None = None
     created_at: datetime
     updated_at: datetime

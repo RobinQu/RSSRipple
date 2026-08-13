@@ -32,6 +32,8 @@ from app.services.metadata_wikipedia_client import (
     fetch_wikipedia_wikitext,
 )
 from app.services.wikipedia_episode_parser import (
+    has_animanga_film_infobox,
+    has_tvanime_infobox,
     parse_episode_list,
     parse_seasons_from_infobox,
 )
@@ -47,7 +49,10 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
     runs the deterministic parser; on total parse failure, retries ONCE via
     the zh<->ja langlink (episode sections often live on only one side).
     Merges ``seasons`` / ``number_of_seasons`` / ``number_of_episodes`` and
-    the new ``episode_list`` key. Best-effort: any failure leaves ``me``
+    the new ``episode_list`` key. Also marks ``is_anime`` when the page
+    carries an animanga infobox block (``TVAnime`` for TV works,
+    ``Movie|Film|OVA`` for theatrical works — deterministic anime signals,
+    see ``anime_signals``). Best-effort: any failure leaves ``me``
     untouched.
     """
     title = page.get("title")
@@ -55,6 +60,8 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
     if not title:
         return
     wikitext = await fetch_wikipedia_wikitext(title, lang)
+    if has_tvanime_infobox(wikitext) or has_animanga_film_infobox(wikitext):
+        me["is_anime"] = True
     infobox = parse_seasons_from_infobox(wikitext) if wikitext else None
     list_data = parse_episode_list(wikitext) if wikitext else None
     if infobox is None and list_data is None:
@@ -62,6 +69,8 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
         alt_title = (page.get("langlinks") or {}).get(alt_lang) if alt_lang else None
         if alt_title:
             wikitext = await fetch_wikipedia_wikitext(alt_title, alt_lang)
+            if has_tvanime_infobox(wikitext) or has_animanga_film_infobox(wikitext):
+                me["is_anime"] = True
             infobox = parse_seasons_from_infobox(wikitext) if wikitext else None
             list_data = parse_episode_list(wikitext) if wikitext else None
     if infobox is None and list_data is None:

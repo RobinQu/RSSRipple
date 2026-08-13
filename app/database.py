@@ -381,6 +381,9 @@ async def _apply_light_migrations(conn) -> None:
         ("channels", "auto_cleanup_unresolved_enabled",
          "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("channels", "auto_cleanup_unresolved_days", "INTEGER NOT NULL DEFAULT 21"),
+        # Per-channel "default mark as anime" flag — immutable after creation.
+        ("channels", "default_is_anime",
+         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
         # Logic-generation tag on cached metadata verdicts. Legacy rows get 0
         # (< METADATA_CACHE_GENERATION) and are treated as misses on read.
         ("metadata_cache", "generation", "INTEGER NOT NULL DEFAULT 0"),
@@ -405,6 +408,10 @@ async def _apply_light_migrations(conn) -> None:
         ("tv_series", "search_text", "TEXT"),
         ("movies", "search_text", "TEXT"),
         ("audio_works", "search_text", "TEXT"),
+        # Tri-state anime flag on works (see anime_signals.py). Nullable on
+        # purpose: NULL = not yet determined, distinct from False.
+        ("tv_series", "is_anime", "BOOLEAN"),
+        ("movies", "is_anime", "BOOLEAN"),
     ]
 
     for table, column, ddl in additions:

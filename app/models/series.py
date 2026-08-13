@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -41,6 +41,12 @@ class TVSeries(Base):
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Tri-state anime flag (orthogonal to content_type's medium): True =
+    # Japanese-style animation, False = confirmed live-action, None = not yet
+    # determined. Assigned from deterministic evidence (bangumi/mal/anilist
+    # identity, Wikipedia TVAnime infobox, TMDB Animation+ja) with an LLM
+    # fallback — see app/services/anime_signals.py.
+    is_anime: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     canonical_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wikipedia_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     wikipedia_page_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

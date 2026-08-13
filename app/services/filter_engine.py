@@ -33,7 +33,7 @@ NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end
 # the value is None and the usual empty-value semantics apply.
 WORK_NUMBER_FIELDS = {"movie.rating", "movie.year", "series.rating", "series.year"}
 NUMBER_FIELDS |= WORK_NUMBER_FIELDS
-BOOL_FIELDS = {"is_batch"}
+BOOL_FIELDS = {"is_batch", "series.is_anime", "movie.is_anime"}
 # List-of-string fields — value semantics differ from scalar strings; the
 # operators below act element-wise. ``series.genre`` / ``movie.genre`` resolve
 # through the resource's linked work (values are the closed TMDB genre set,
@@ -245,10 +245,14 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
             return any(v in item_set for v in values)
         return False
 
-    # Bool field short-circuit — None → False, then eq/ne against coerced value.
+    # Bool field short-circuit — null semantics match the documented scalar
+    # rule (None fails positive ops, passes ne). ``is_batch`` is NOT NULL so
+    # this only affects tri-state fields like ``series.is_anime``.
     if field in BOOL_FIELDS:
         expected_bool = _coerce_bool(expected)
-        actual_bool = bool(raw) if raw is not None else False
+        if raw is None:
+            return op == "ne"
+        actual_bool = bool(raw)
         if op == "eq":
             return actual_bool == expected_bool
         if op == "ne":

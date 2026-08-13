@@ -27,6 +27,7 @@ export interface SystemSettingsUpdate {
   llm_enable_thinking?: boolean | null;
   tmdb_api_key?: string | null;
   tmdb_enabled?: boolean | null;
+  bangumi_api_key?: string | null;
   wikipedia_enabled?: boolean | null;
 }
 

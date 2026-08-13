@@ -5,7 +5,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
 import {
   Typography, Spin, Card, Button, Tag, Descriptions,
-  Row, Col, Statistic, Table, Modal, App,
+  Row, Col, Statistic, Table, Modal, App, Select,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { seriesApi } from '../api/series';
@@ -51,6 +51,17 @@ export default function SeriesDetail() {
       active = false;
     };
   }, [id]);
+
+  const handleIsAnimeChange = async (value: boolean | null) => {
+    if (!id || !series || value === (series.is_anime ?? null)) return;
+    const r = await seriesApi.update(id, { is_anime: value });
+    if (r.success) {
+      setSeries(r.data);
+      message.success(t('works.animeUpdated'));
+    } else {
+      message.error(r.error?.message || t('works.animeUpdateFailed'));
+    }
+  };
 
   const handleRefreshMetadata = async () => {
     if (!id) return;
@@ -193,6 +204,20 @@ export default function SeriesDetail() {
               <Descriptions.Item label={t('series.originalTitle')}>{series.original_title || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('series.rating')}>{series.rating ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('common.status')}>{series.status || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('works.animeStatus')}>
+                <Select
+                  size="small"
+                  style={{ width: 140 }}
+                  allowClear
+                  placeholder={t('common.unknown')}
+                  value={series.is_anime ?? null}
+                  options={[
+                    { value: true, label: t('works.anime') },
+                    { value: false, label: t('works.liveAction') },
+                  ]}
+                  onChange={(v) => handleIsAnimeChange(v ?? null)}
+                />
+              </Descriptions.Item>
               {series.collection && (
                 <Descriptions.Item label={t('works.colCollection')}>
                   <Link to={`/collections/${series.collection.id}`}>{series.collection.name}</Link>

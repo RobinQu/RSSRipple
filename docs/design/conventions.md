@@ -19,6 +19,7 @@
   - `EXA_API_KEY` / `EXA_EFFORT_LEVEL`（默认 `low`，可选 `minimal`/`low`/`medium`/`high`/`xhigh`）：Exa Agent Search 数据源（频道源已废弃；仍用于手动搜索/评测与 wikipedia 未命中时的有序 Exa 回退）。
   - `JINA_API_KEY`：Jina Search + Reader 数据源。
   - `TMDB_API_KEY`：TMDB 数据源（可选）。
+  - `BANGUMI_API_KEY`：Bangumi 数据源与 is_anime 第一层验证（可选；token 即启用，无独立开关，亦可在设置页覆盖配置）。
   - `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下从 UI 隐藏该源。
   - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
   - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
@@ -34,7 +35,7 @@
 - **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。
   - Wikipedia Search 通过免费 `wikipedia` Python 库实现，无需额外 API key。
-- **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。
+- **海报服务**：FastAPI 挂载 StaticFiles 到 `/posters`，物理目录为 `POSTER_CACHE_DIR`。缓存文件名 `{sha256(url)[:16]}.{ext}`，扩展名由下载内容的魔数嗅探决定（jpg/png/webp/gif/svg，`download_and_cache_poster` 内 `_sniff_image_ext`），**不取 URL 后缀**——URL 后缀不可靠（如 Wikimedia 在无扩展路径下返回 SVG），内容与扩展名不符会被浏览器按静态 MIME 拒绝渲染；无法识别的内容不缓存、返回 None。
 - **日志**：结构化 JSON 日志，含 `request_id`、`channel_id`、`agent_id`、`task_id` 等上下文字段。
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。
 

@@ -18,10 +18,13 @@ class Channel(Base):
                                          # 格式: {list_locator: {source: "entries"},
                                          #        field_mappings: {field: {source, regex?, group?, transform?}}}
     metadata_agent_enabled: bool         # 是否启用统一 metadata agent（默认 true）
-    metadata_source: str | None          # 频道主元数据源："wikipedia" | "tmdb"（两数据源架构，
+    metadata_source: str | None          # 频道主元数据源："wikipedia" | "tmdb" | "bangumi"（三数据源架构，
                                          # 其他值被轻迁移归一为 "wikipedia"）；None = 运行时用默认值
     metadata_fallback_sources: list[str] | None  # Exa 回退有序站点白名单（注册表站点名）；
                                          # None = 默认顺序，[] = 禁用回退；仅补身份/链接
+    default_is_anime: bool               # 「默认标记为 Anime」：NOT NULL DEFAULT FALSE（轻迁移加列）；
+                                         # 创建后不可改（PUT 提交不同值 422）；开启后该频道资源链接到的
+                                         # 作品 is_anime 先置 True（详见 business-logic.md「is_anime 分层判定」）
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
     last_fetch_error: str | None         # 上次抓取错误信息
@@ -140,6 +143,9 @@ class TVSeries(Base):
     start_date: date | None              # 首播日期
     end_date: date | None                # 完结日期
     content_type: str | None             # "tv" | "anime" | "mixed"
+    is_anime: bool | None                # 三态动漫标记：True=日本动画 / False=确认实拍 / None=未判定；
+                                         # 与 content_type（媒介）正交（剧场版动画两者独立），
+                                         # 判定与赋值规则见下文「is_anime 判定约定」
     canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
     wikipedia_url: str | None            # 维基百科条目 URL
     wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
@@ -178,6 +184,7 @@ class Movie(Base):
     release_date: date | None            # 上映日期（区别于 TVSeries 的 start_date）
     runtime: int | None                  # 片长（分钟）
     content_type: str | None             # "movie"
+    is_anime: bool | None                # 三态动漫标记（同 TVSeries.is_anime，见下文「is_anime 判定约定」）
     canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
     wikipedia_url: str | None            # 维基百科条目 URL
     wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
@@ -201,6 +208,19 @@ class Movie(Base):
 - **写回规则**：新值非空才覆盖既有值；归一化后为空不清空旧值。手动 PATCH 的 genre 可能被下一次 metadata 更新覆盖（本期不做 manual 保护标记）。
 - **API 校验**：作品 Create/Update 的 genre 为 `GenreName` 枚举，表外值 422；通知 payload 的 `work.genre` 快照同样落封闭集。
 - **存量**：`scripts/genre_backfill.py` 模式 A 就地规范化既有值，模式 B `--refresh-empty` 对空值作品重跑 metadata 补齐；缓存代际 `METADATA_CACHE_GENERATION=3` 使旧缓存惰性失效。
+
+### is_anime 判定约定（三态动漫标记）
+
+`TVSeries.is_anime` / `Movie.is_anime` 是三态标记：**True=日本动画 / False=确认实拍 / NULL=未判定**。与 `content_type` 正交——`content_type` 是媒介（tv/movie），`is_anime` 是风格属性，剧场版动画两者独立。权威判定模块一处定义：`app/services/anime_signals.py`（`ANIME_IDENTITY_SOURCES` / `is_anime_from_tmdb` / `is_anime_identity` / `apply_is_anime`）。
+
+- **证据优先级（确定性证据优先）**：
+  1. **身份源/身份袋**（`is_anime_identity`）：主 `external_source` 或身份袋任一 `source:id` 命中 `bangumi | mal | anilist`（`ANIME_IDENTITY_SOURCES`，均为纯动漫站点）必为 anime。bangumi 频道源的搜索限动画分类 `type=[2]`，命中条目即以 `bangumi:{id}` 身份落库，天然走本条。
+  2. **Wikipedia**：页面含 `{{Infobox animanga/TVAnime}}` 块（`wikipedia_episode_parser.has_tvanime_infobox`）或 `{{Infobox animanga/Movie|Film|OVA}}` 块（`has_animanga_film_infobox`，剧场版/OVA 信号），在 `_attach_wikipedia_content` 处向 matched_entity 标记 `is_anime=True`。
+  3. **TMDB**（`is_anime_from_tmdb`）：genre 含 Animation(16) 且 `original_language == "ja"` 或 `origin_country` 含 JP → True；genre 存在但无 Animation → False（确认实拍）；非日语 Animation（西方动画）或无 genre 数据 → None。
+  4. **LLM judge/ReAct finalize**：schema 新增可选 `is_anime` 输出，仅作无确定性证据时的兜底。
+- **赋值规则**（`apply_is_anime`，在 series/movie upsert 的四处分支调用）：身份证据直接覆盖为 True；其余 **True sticky**——一旦 True 永不被后续弱证据降级；False 只填 NULL（既有 True 不降级，既有 False 不被 LLM 翻转）。
+- **运行时分层判定**：频道默认标记（`default_is_anime`，链接作品先置 True）→ 第一层 Bangumi 验证（`maybe_verify_is_anime_via_bangumi` + `bangumi_verdict`：仅 NULL 作品、不带 type 过滤搜索，type 2 → True、type 6 三次元 → False）→ 第二层上下文推断（上述信号）→ 最终 NULL 待手动修正；统一入口 `classify_is_anime_post_link` 挂在资源链接作品的全部 5 处落点（详见 business-logic.md「is_anime 分层判定」）。
+- **存量**：轻迁移在 `app/database.py` `_apply_light_migrations` additions 里（tv_series/movies 各一行可空 BOOLEAN）；回填走 `scripts/anime_backfill.py`（dry-run 默认 + `--apply`，离线身份阶段 + 可选 `--tmdb`/`--wikipedia` 联网阶段）。
 
 ### WorkExternalId（作品外部身份袋 - Phase P3）
 

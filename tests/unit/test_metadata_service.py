@@ -251,7 +251,8 @@ async def test_create_or_update_movie_from_external(db_session):
     assert "电影别名" in (m2.aliases or [])
 
 
-async def test_download_poster_bad_ext_defaults_jpg(tmp_path, monkeypatch):
+async def test_download_poster_unrecognized_content_not_cached(tmp_path, monkeypatch):
+    """Non-image bytes (e.g. an HTML error page) must not be cached as .jpg."""
     ms.settings.poster_cache_dir = str(tmp_path)
     async def _fake_to_thread(fn, *a, **kw):
         return fn()
@@ -268,7 +269,47 @@ async def test_download_poster_bad_ext_defaults_jpg(tmp_path, monkeypatch):
     import httpx
     monkeypatch.setattr(httpx, "Client", _Client)
     url = await ms.download_and_cache_poster("https://x/poster.xyz")
-    assert url.endswith(".jpg")
+    assert url is None
+    assert list(tmp_path.iterdir()) == []
+
+
+def _patch_poster_download(monkeypatch, tmp_path, content: bytes):
+    ms.settings.poster_cache_dir = str(tmp_path)
+    async def _fake_to_thread(fn, *a, **kw):
+        return fn()
+    import asyncio
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    class _Resp:
+        def raise_for_status(self): pass
+    _Resp.content = content
+    class _Client:
+        def __init__(self, *a, **kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **kw): return _Resp()
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _Client)
+
+
+async def test_download_poster_sniffs_svg_at_jpg_url(tmp_path, monkeypatch):
+    """SVG bytes served at a .jpg URL are cached as .svg — a .jpg file with
+    SVG content renders as a broken image (the 黑貓與魔女的教室 bug)."""
+    _patch_poster_download(monkeypatch, tmp_path, b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"/>')
+    url = await ms.download_and_cache_poster("https://upload.wikimedia.org/x/poster.jpg")
+    assert url is not None and url.endswith(".svg")
+
+
+async def test_download_poster_sniffs_png_at_extensionless_url(tmp_path, monkeypatch):
+    _patch_poster_download(monkeypatch, tmp_path, b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+    url = await ms.download_and_cache_poster("https://image.tmdb.org/t/p/w500/abc")
+    assert url is not None and url.endswith(".png")
+
+
+async def test_download_poster_sniffs_jpeg(tmp_path, monkeypatch):
+    _patch_poster_download(monkeypatch, tmp_path, b"\xff\xd8\xff\xe0" + b"\x00" * 32)
+    url = await ms.download_and_cache_poster("https://x/poster")
+    assert url is not None and url.endswith(".jpg")
+
 
 
 async def test_download_poster_download_failure_returns_none(tmp_path, monkeypatch):
@@ -488,7 +529,7 @@ async def test_download_and_cache_poster_writes_file(tmp_path, monkeypatch):
     ms.settings.poster_cache_dir = str(tmp_path)
 
     def _fake_download():
-        return b"fakedata"
+        return b"\xff\xd8\xff\xe0fakedata"
 
     async def _fake_to_thread(fn, *a, **kw):
         return fn()
@@ -498,7 +539,7 @@ async def test_download_and_cache_poster_writes_file(tmp_path, monkeypatch):
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
 
     class _FakeResp:
-        content = b"fakedata"
+        content = b"\xff\xd8\xff\xe0fakedata"
         def raise_for_status(self):
             return None
     class _FakeClient:

@@ -12,6 +12,7 @@ import logging
 import re
 from typing import Any
 
+from app.services.anime_signals import is_anime_from_tmdb
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
@@ -63,11 +64,13 @@ async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
         # Resolve genres — TMDB detail endpoint returns genres as list of dicts
         # e.g. [{"id": 28, "name": "Action"}, ...]
         genres_raw = data.get("genres", [])
+        genre_ids: list[int] = []
         genre_names: list[str] = []
         if genres_raw and isinstance(genres_raw, list) and isinstance(genres_raw[0], dict):
             genre_ids = [g["id"] for g in genres_raw if isinstance(g, dict) and "id" in g]
             genre_names = _resolve_genre_ids(genre_ids, api_key)
 
+        origin_country = data.get("origin_country")
         result: dict[str, Any] = {
             "tmdb_id": data.get("id"),
             "media_type": media_type,
@@ -78,6 +81,13 @@ async def _execute_get_tmdb_details(tmdb_id: str, media_type: str) -> dict:
             "vote_average": data.get("vote_average"),
             "genre": genre_names,
             "status": data.get("status"),
+            "original_language": data.get("original_language"),
+            "origin_country": origin_country,
+            # Deterministic anime verdict from genre+language/country; the
+            # finalize prompt tells the LLM to copy this into matched_entity.
+            "is_anime": is_anime_from_tmdb(
+                genre_ids, data.get("original_language"), origin_country
+            ),
         }
 
         if media_type == "tv":

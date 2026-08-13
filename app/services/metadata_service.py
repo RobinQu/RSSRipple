@@ -21,7 +21,6 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import or_, select
@@ -34,6 +33,7 @@ from app.models.episode import Episode
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.services import fts as fts_service
+from app.services.anime_signals import apply_is_anime
 from app.services.external_ids import add_external_id, find_work_by_external_id
 from app.services.genre_registry import normalize_genres
 from app.services.metadata_source_registry import canonicalize_external_id  # noqa: F401
@@ -59,6 +59,87 @@ def _record_unmatched_attempt(resource: Any, failure_type: str) -> None:
     resource.metadata_attempts = int(getattr(resource, "metadata_attempts", 0) or 0) + 1
     resource.last_metadata_attempt_at = utcnow()
     resource.metadata_failure_type = failure_type
+
+
+async def apply_channel_default_is_anime(
+    db: AsyncSession, channel: Any, resource: Any
+) -> None:
+    """Channel-level "默认标记为 Anime": when the channel has
+    ``default_is_anime`` enabled, any work linked from one of its resources
+    is marked ``is_anime=True`` (sticky — an existing True is untouched, and
+    a confirmed False is upgraded, matching ``apply_is_anime`` semantics).
+    Call after every successful resource→work link."""
+    if not getattr(channel, "default_is_anime", False):
+        return
+    work = None
+    if getattr(resource, "series_id", None):
+        work = await db.get(TVSeries, resource.series_id)
+    elif getattr(resource, "movie_id", None):
+        work = await db.get(Movie, resource.movie_id)
+    if work is not None and work.is_anime is not True:
+        work.is_anime = True
+
+
+async def maybe_verify_is_anime_via_bangumi(
+    db: AsyncSession, channel: Any, resource: Any
+) -> None:
+    """Layer-1 is_anime detection for channels WITHOUT the default flag.
+
+    When the linked work's ``is_anime`` is still undetermined (None) and a
+    Bangumi token is configured, search Bangumi by the work's titles and
+    apply :func:`anime_signals.bangumi_verdict` — a type-2 (anime) hit sets
+    True, a type-6 (三次元) hit sets False. Runs after every successful
+    resource→work link; already-determined works are skipped.
+    """
+    from app.services.anime_signals import bangumi_verdict
+    from app.services.bangumi_client import bangumi_configured, search_subjects
+
+    if getattr(channel, "default_is_anime", False):
+        return  # the default flag already handles this channel's works
+    if not bangumi_configured():
+        return
+    work = None
+    year = None
+    if getattr(resource, "series_id", None):
+        work = await db.get(TVSeries, resource.series_id)
+        year = work.start_date.year if work and work.start_date else None
+    elif getattr(resource, "movie_id", None):
+        work = await db.get(Movie, resource.movie_id)
+        year = work.release_date.year if work and work.release_date else None
+    if work is None or work.is_anime is not None:
+        return
+
+    titles = [work.title_cn, work.original_title, work.title_en, *(work.aliases or [])]
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            for query in (work.title_cn, work.original_title, work.title_en):
+                if not query:
+                    continue
+                subjects = await search_subjects(client, query)
+                verdict, subj = bangumi_verdict(titles, year, subjects)
+                if verdict is not None:
+                    work.is_anime = verdict
+                    logger.info(
+                        "[metadata] is_anime=%s via bangumi#%s for %r",
+                        verdict, subj.get("id"),
+                        (work.title_cn or work.title_en or "")[:60],
+                    )
+                    return
+                await asyncio.sleep(0.3)  # be polite between candidate queries
+    except Exception as e:
+        logger.warning(
+            "[metadata] bangumi is_anime verification failed for %r: %s",
+            (work.title_cn or work.title_en or "")[:60], e,
+        )
+
+
+async def classify_is_anime_post_link(
+    db: AsyncSession, channel: Any, resource: Any
+) -> None:
+    """Post-link is_anime classification: the channel default flag first,
+    then the Bangumi layer-1 verification for still-undetermined works."""
+    await apply_channel_default_is_anime(db, channel, resource)
+    await maybe_verify_is_anime_via_bangumi(db, channel, resource)
 
 
 # ---------------------------------------------------------------------------
@@ -145,11 +226,36 @@ def extract_search_title(resource: Any) -> str:
 # Poster caching
 # ---------------------------------------------------------------------------
 
+def _sniff_image_ext(content: bytes) -> str | None:
+    """Actual image format from magic bytes (``svg`` for XML/SVG markup).
+
+    The cached file's extension must come from the content, not the URL —
+    image hosts (Wikimedia among them) serve SVG logos at extension-less or
+    misleading paths, and SVG bytes stored as ``.jpg`` render as a broken
+    image in browsers (StaticFiles sends ``image/jpeg`` by suffix).
+    Returns ``None`` for unrecognized content.
+    """
+    if content[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    if content[:4] == b"GIF8":
+        return "gif"
+    head = content[:512].lstrip()
+    if head[:5].lower() == b"<?xml" or head[:4].lower() == b"<svg":
+        return "svg"
+    return None
+
+
 async def download_and_cache_poster(remote_url: str | None) -> str | None:
     """Download a poster image to the local cache directory.
 
-    Filename is ``{sha256(url)[:16]}.{ext}``. Returns the local URL path
-    ``/posters/<filename>`` on success, or None on failure.
+    Filename is ``{sha256(url)[:16]}.{ext}`` where ``ext`` is sniffed from the
+    downloaded bytes (:func:`_sniff_image_ext`), never from the URL. Returns
+    the local URL path ``/posters/<filename>`` on success, or None on failure
+    (including unrecognized/non-image content, which is not cached).
     Skips URLs that are already local (``/posters/...``).
     """
     if not remote_url:
@@ -164,18 +270,11 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
     cache_dir = Path(settings.poster_cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    parsed = urlparse(remote_url)
-    ext = (Path(parsed.path).suffix or ".jpg").lower()
-    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
-        ext = ".jpg"
-    ext = ext.lstrip(".")
-
     digest = hashlib.sha256(remote_url.encode("utf-8")).hexdigest()[:16]
-    filename = f"{digest}.{ext}"
-    local_path = cache_dir / filename
-
-    if local_path.exists():
-        return f"/posters/{filename}"
+    # Already cached under any known extension.
+    for ext in ("jpg", "jpeg", "png", "webp", "gif", "svg"):
+        if (cache_dir / f"{digest}.{ext}").exists():
+            return f"/posters/{digest}.{ext}"
 
     def _download() -> bytes | None:
         try:
@@ -198,6 +297,12 @@ async def download_and_cache_poster(remote_url: str | None) -> str | None:
     content = await asyncio.to_thread(_download)
     if not content:
         return None
+    ext = _sniff_image_ext(content)
+    if ext is None:
+        logger.warning("[poster] unrecognized image content %s", remote_url[:80])
+        return None
+    filename = f"{digest}.{ext}"
+    local_path = cache_dir / filename
     try:
         local_path.write_bytes(content)
         return f"/posters/{filename}"
@@ -701,6 +806,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             local_url = await download_and_cache_poster(remote_poster)
             series.poster_url = local_url or remote_poster
         series.content_type = "tv"
+        apply_is_anime(series, data)
         # P2: wikipedia-sourced episode_list populates Episode rows (additive
         # upsert; seasons/number_of_seasons were already overwritten above).
         if data.get("episode_list"):
@@ -749,6 +855,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         end_date=_parse_date(data.get("end_date")),
         content_type="tv",
     )
+    apply_is_anime(series, data)
     db.add(series)
     await db.flush()
     if data.get("episode_list"):
@@ -847,6 +954,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             local_url = await download_and_cache_poster(remote_poster)
             movie.poster_url = local_url or remote_poster
         movie.content_type = "movie"
+        apply_is_anime(movie, data)
         # P3: bag every id this entity carries (primary + alt_external_ids).
         await _bag_matched_entity_ids(db, "movie", movie.id, data)
         return movie
@@ -875,6 +983,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
         runtime=data.get("runtime"),
         content_type="movie",
     )
+    apply_is_anime(movie, data)
     db.add(movie)
     await db.flush()
     # P3: bag every id this entity carries (primary + alt_external_ids).
@@ -1311,6 +1420,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             resource.search_title = mapping.search_title_override
         resource.metadata_matched_at = utcnow()
         await _reconcile_with_series()
+        await classify_is_anime_post_link(db, channel, resource)
         return
 
     # Layer 3: local match
@@ -1347,11 +1457,13 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
                 pass  # poster already handled if set
             await _reconcile_with_series()
+            await classify_is_anime_post_link(db, channel, resource)
             return
     if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
         if not await _auto_link_blocked(getattr(movie, "release_date", None)):
             resource.movie_id = movie.id
             resource.metadata_matched_at = utcnow()
+            await classify_is_anime_post_link(db, channel, resource)
             return
 
     # NOTE: 70-84 matches (and ≥85 matches blocked by the guards above) are
@@ -1398,6 +1510,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             resource.movie_id = None
         resource.metadata_matched_at = utcnow()
         await _reconcile_with_series()
+        await classify_is_anime_post_link(db, channel, resource)
     except Exception as e:
         logger.warning("[metadata] Failed to link via LLM for %r: %s", search_title[:60], e)
         _record_unmatched_attempt(resource, "transient")

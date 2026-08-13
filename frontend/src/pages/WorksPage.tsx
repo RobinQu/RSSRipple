@@ -338,6 +338,11 @@ export default function WorksPage() {
                                 ? t('works.movie')
                                 : t('works.tv')}
                           </Tag>
+                          {w.is_anime === true && (
+                            <Tag color="magenta" style={{ margin: 0, marginLeft: 4 }}>
+                              {t('works.anime')}
+                            </Tag>
+                          )}
                         </td>
                         <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
                           <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>

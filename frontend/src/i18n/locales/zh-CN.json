@@ -182,6 +182,9 @@
     "metadataSourceNoneDesc": "未启用或未配置任何外部数据源。请在 .env 中配置对应 API Key 并保持开关开启，或关闭元数据搜索仅使用本地匹配。",
     "autoCleanupUnresolved": "自动清理未解析资源",
     "autoCleanupUnresolvedDesc": "开启后，超过设定天数仍未解析成功且未被人工处理（直接下载或编辑元数据）的 FileResource 将被自动删除；RSS 重新发布相同条目时会再次创建并匹配",
+    "defaultIsAnime": "默认标记为 Anime",
+    "defaultIsAnimeDesc": "开启后，该频道匹配/新建的作品 is_anime 默认为 true（动漫）",
+    "defaultIsAnimeLocked": "创建后不可修改",
     "cleanupThresholdDays": "清理阈值（天）",
     "cleanupThresholdDaysDesc": "未解析资源创建超过该天数后将被清理，范围 1-365，默认 21（3 周）",
     "sourceUnavailable": "不可用",
@@ -595,12 +598,14 @@
     "movie": {
       "rating": "电影评分 (0-10)",
       "year": "电影年份",
-      "genre": "电影分类/题材"
+      "genre": "电影分类/题材",
+      "is_anime": "电影是否动漫"
     },
     "series": {
       "rating": "剧集评分 (0-10)",
       "year": "剧集年份",
-      "genre": "剧集分类/题材"
+      "genre": "剧集分类/题材",
+      "is_anime": "剧集是否动漫"
     },
     "enumValue_raw": "原始",
     "enumValue_reconciled": "已调整",
@@ -765,6 +770,11 @@
     "tv": "剧集",
     "movie": "电影",
     "audio": "音频",
+    "anime": "动漫",
+    "liveAction": "实拍",
+    "animeStatus": "动漫判定",
+    "animeUpdated": "动漫判定已更新",
+    "animeUpdateFailed": "更新失败",
     "audioType": {
       "asmr": "ASMR",
       "music": "音乐",
@@ -889,6 +899,8 @@
       "title": "外部搜索数据源",
       "desc": "元数据搜索源的 API Key 与启用开关。仅当源已启用且已配置 Key 时才可被选择。",
       "tmdb": "TMDB",
+      "bangumi": "Bangumi API Token",
+      "bangumiHint": "用于 Bangumi 数据源与动漫判定。",
       "wikipedia": "Wikipedia",
       "enable": "启用",
       "apiKey": "API Key",

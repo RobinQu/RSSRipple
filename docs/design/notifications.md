@@ -124,13 +124,14 @@ pending --(2xx / mock)--> done
   "work": {"type": "series | movie",
            "title_en": "...", "title_cn": "...", "original_title": "...",
            "year": 2023, "content_type": "anime | tv | movie | ...",
-           "collection": "...", "genre": ["Animation", "Fantasy"],
+           "is_anime": true, "collection": "...", "genre": ["Animation", "Fantasy"],
            "seasons": [...], "episodes": [{"season","episode","title"}]},
   "files": [{"name": "相对 torrent 根的路径", "size": 734003200}]
 }
 ```
 
 - `work.genre`：作品分类标签快照，取值为**封闭 TMDB 27 类英文 canonical 名**（快照时经 `normalize_genres` 归一化；完整枚举见 data-models.md「genre 取值约定」，API 侧 /docs 中 `NotificationWorkPayload.genre` 渲染同一枚举）。旧通知无此键，走"重新生成"后补齐。
+- `work.is_anime`：三态动漫标记快照（`true`/`false`/`null`，与 `content_type` 并列，创建时冻结；判定规则见 data-models.md「is_anime 判定约定」，schema 见 `app/schemas/notification.py` 的 `NotificationWorkPayload`）。旧通知无此键，走"重新生成"后补齐。
 - `torrent_name` + `files` 来自下载器 RPC（`get_torrent_files`，统一客户端接口的一部分）；RPC 失败降级为不带 `files` 入队，消费者退回扫描 `download_dir`。
 - 电影无 `seasons`/`episodes`（null）；`collection` 为 WorkCollection 显示名或 null。
 - `task.download_task_id` 是消费者后续操作任务的句柄（见"下游清理"）。

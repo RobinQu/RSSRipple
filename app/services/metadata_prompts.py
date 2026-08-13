@@ -175,7 +175,10 @@ Always output valid JSON matching:
       {"season_number": 1, "episode_count": 24, "name": "Season 1"},
       {"season_number": 2, "episode_count": 24}
     ],
-    "start_date": "YYYY-MM-DD", "canonical_name": "...", "wikipedia_url": "..."
+    "start_date": "YYYY-MM-DD", "canonical_name": "...", "wikipedia_url": "...",
+    "is_anime": true|false  # Japanese-style animation? Copy the tool result's
+                            # is_anime verdict when given; otherwise judge from
+                            # evidence. Omit when unsure.
   } | null,
   "ambiguous": true/false,
   "ambiguous_candidates": [],
@@ -212,7 +215,8 @@ matching this schema:
     "external_source": "wikipedia",
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "wikipedia_url": "...", "canonical_name": "...",
-    "genre": ["<from the ## genre list below>", ...]
+    "genre": ["<from the ## genre list below>", ...],
+    "is_anime": true|false|null
   } | null,
   "ambiguous": true|false,
   "ambiguous_candidates": [],
@@ -256,6 +260,10 @@ Rules:
   ambiguous=true if two candidates are equally plausible.
 - genre: judge the work's genres from the page summary AND categories, using
   only values from the ## genre list below.
+- is_anime: true for Japanese-style animation works, false for live-action;
+  judge from the page's categories/summary and the production companies
+  (animation studios like MAPPA / Kyoto Animation / Toei ⇒ true; film
+  studios / TV stations ⇒ false). Use null when unsure.
 - Output ONLY the JSON object, no prose.
 """ + genre_prompt_block()
 
@@ -286,7 +294,8 @@ movie), or confirm no match, and return ONLY a JSON object matching this schema:
     "external_source": "bangumi|tmdb|mal|anilist|imdb|baidu_baike|douban|eiga|wikipedia|exa_web",
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "wikipedia_url": "...", "url": "...",
-    "genre": ["<from the ## genre list below>", ...]
+    "genre": ["<from the ## genre list below>", ...],
+    "is_anime": true|false|null
   } | null,
   "ambiguous": true|false,
   "ambiguous_candidates": [],
@@ -320,5 +329,61 @@ Rules:
 - If no candidate clearly matches, found=false with a reason.
 - genre: judge the work's genres from the title and snippet, using only values
   from the ## genre list below.
+- is_anime: true for Japanese-style animation, false for live-action; judge
+  from the title, snippet and production studio (animation studios ⇒ true).
+  A bangumi/mal/anilist candidate implies true. Use null when unsure.
 - Output ONLY the JSON object, no prose.
 """ + genre_prompt_block()
+
+
+_BANGUMI_JUDGE_SYSTEM_PROMPT = """You are a metadata judge for anime RSS entries.
+
+You are given an RSS entry title (plus optional pre-parsed hints) and a set of
+Bangumi subjects already gathered for you (all from the anime category; each
+has name, name_cn, date, platform, tags, and a summary). Pick the SINGLE
+best-matching work, or confirm no match, and return ONLY a JSON object
+matching this schema:
+
+{
+  "found": true|false,
+  "clean_title": "string",
+  "content_type": "tv"|"movie",
+  "inferred_episode": int|null,
+  "inferred_season": int|null,
+  "is_batch": true|false,
+  "inferred_episode_start": int|null,
+  "inferred_episode_end": int|null,
+  "title_cn": "string|null",
+  "title_en": "string|null",
+  "subtitle_group": "string|null",
+  "resolution": "string|null",
+  "matched_entity": {
+    "external_id": "bangumi:<subject_id>",
+    "external_source": "bangumi"
+  } | null,
+  "ambiguous": true|false,
+  "ambiguous_candidates": [],
+  "confidence": 0.0-1.0,
+  "reason": "explanation"
+}
+
+Rules:
+- Pick the subject that IS the work named in the title (not a related entry).
+  The subject's own name/name_cn must name the SAME work as the RSS title
+  (ignoring traditional/simplified Chinese, romaji/kana differences, and
+  season/episode markers); a franchise sibling (a different season or a
+  spin-off with its own subject) is NOT a match. When the RSS title carries a
+  season marker (S02, 第二季, 2期, ...), prefer the subject whose date/name
+  fits THAT season.
+- content_type: "movie" when the subject's platform is 剧场版 (theatrical
+  film); "tv" for TV / OVA / WEB series.
+- external_id MUST be "bangumi:<subject_id>" of the chosen subject;
+  external_source "bangumi". The caller fills every other matched_entity
+  field from the Bangumi API — do NOT invent titles/dates/genres yourself.
+- Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
+  When the title has NO season marker, never guess: if the chosen work clearly
+  has only one season, inferred_season=1; otherwise leave it null and set
+  ambiguous=true with the plausible seasons in ambiguous_candidates.
+- If no candidate clearly matches, found=false with a reason.
+- Output ONLY the JSON object, no prose.
+"""

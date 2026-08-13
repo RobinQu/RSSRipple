@@ -17,7 +17,8 @@ class TestSystemSettings:
         # All recognized keys are present.
         for key in (
             "llm_api_key", "llm_model", "llm_base_url", "llm_enable_thinking",
-            "tmdb_api_key", "jina_api_key", "exa_api_key", "exa_effort_level",
+            "tmdb_api_key", "bangumi_api_key", "jina_api_key", "exa_api_key",
+            "exa_effort_level",
             "exa_enabled", "jina_enabled", "tmdb_enabled", "wikipedia_enabled",
         ):
             assert key in data["settings"], key
