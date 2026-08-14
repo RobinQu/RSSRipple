@@ -3,8 +3,8 @@
 
 全链路：本地构造一个真实 torrent（内容预置进共享卷）并添加进 Transmission
 容器 → app 启动前一次性 ORM seed「completed DownloadTask」（含
-StorageVolume + DownloaderInstance 卷绑定）→ 启动 app（SCHEDULER_ENABLED +
-ORGANIZE_ENABLED）→ API 创建 Library 与 auto_execute 整理规则 → 每分钟
+StorageVolume + DownloaderInstance 卷绑定）→ 启动 app（SCHEDULER_ENABLED）
+→ API 创建 Library 与 auto_execute 整理规则 → 每分钟
 notify tick 自动完成「停种 → 建通知 → organize 规划落库 → 后台执行 →
 文件落 Library → 源目录清理 → 任务清理（真实 RPC remove_torrent）」→
 断言终态。

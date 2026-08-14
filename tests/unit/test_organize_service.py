@@ -2,7 +2,7 @@
 
 覆盖：notification→计划落库与幂等、regenerate 后 pending 计划重建（保留
 人工 category）、done 短路、auto_execute 触发、待分类→classify→重渲染、
-ORGANIZE_ENABLED=false 熔断、规划失败不落计划下 tick 重试、执行全链路
+规划失败不落计划下 tick 重试、执行全链路
 （移动/清理/审计）、冲突失败、待绑定计划（无 ops + 执行拒绝）、媒体服务器
 刷新/任务清理失败不影响 done 状态、file_op=hardlink/copy 保种链路（源文件
 保留、任务不删、恢复做种）。
@@ -20,7 +20,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from sqlalchemy import select
 
-from app.config import settings
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
@@ -43,11 +42,6 @@ from app.services.organize_service import (
 
 def _uuid() -> str:
     return str(uuid.uuid4())
-
-
-@pytest.fixture(autouse=True)
-def _enable_organize(monkeypatch):
-    monkeypatch.setattr(settings, "organize_enabled", True)
 
 
 # ---------------------------------------------------------------- 造数据
@@ -305,20 +299,6 @@ async def test_plan_failure_leaves_no_plan_and_retries(db_session, tmp_path):
     stats = await plan_for_notifications(db_session, [notification])
     assert stats["planned"] == 1
     assert len(await _plans(db_session)) == 1
-
-
-async def test_organize_disabled_skips(db_session, tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "organize_enabled", False)
-    dl_dir = tmp_path / "downloads"
-    _mkfile(dl_dir / "ep04.mkv", 300)
-    lib = await _make_library(db_session, tmp_path / "lib")
-    await _make_rule(db_session, lib.id, TV_TEMPLATE)
-    notification = await _seed(
-        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
-    )
-    stats = await plan_for_notifications(db_session, [notification])
-    assert not any(stats.values())
-    assert await _plans(db_session) == []
 
 
 async def test_no_matching_rule_creates_uncategorized_plan(db_session, tmp_path):

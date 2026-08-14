@@ -561,7 +561,7 @@ async def _process_download_notifications() -> None:
                         created_notifications.append(notification)
                 await db.commit()
             # organize 规划步：补建通知之后、fan-out 之前；失败不中断 tick 其余阶段
-            if settings.organize_enabled and created_notifications:
+            if created_notifications:
                 try:
                     from app.services.organize_service import plan_for_notifications
 

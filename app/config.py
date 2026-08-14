@@ -89,9 +89,9 @@ class Settings(BaseSettings):
     notify_retention_days: int = 30
 
     # Built-in file organization subsystem (organize): turns download
-    # completion notifications into file-move plans targeting configured
-    # Libraries. Disabled by default; ORGANIZE_ENABLED is the master switch.
-    organize_enabled: bool = False
+    # completion notifications into file-operation plans targeting scanned
+    # Libraries. Always on; the planning step activates as soon as any
+    # enabled organize rule exists.
     # Media server refresh addressing lives entirely in the database
     # (media_server_instances, R2); there is no global PLEX_* config anymore.
 

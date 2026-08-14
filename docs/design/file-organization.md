@@ -244,7 +244,7 @@ class OrganizeAuditEntry(Base):
 
 规划挂在 scheduler 每分钟 notify tick 内，**补建通知之后、fan-out 之前**插入 organize 规划步：
 
-1. 仅当 `ORGANIZE_ENABLED=true` 且存在 enabled 规则时启用；否则整步跳过（对通知流水线零影响）。
+1. 整理**常开、无环境变量开关**：只要存在 enabled 规则即对本 tick 的通知做规划；无 enabled 规则时整步跳过（对通知流水线零影响）。
 2. consume 本 tick 新建/重建的通知：以 `notification_id` 唯一约束为幂等键，对尚无 OrganizePlan 的通知做规划（落库走 SAVEPOINT 吸收并发竞争）。
 3. **规划失败不落计划**（如文件定位不到、模板缺数据、冲突预检不过）：记 error 日志（含原因与 notification_id），因无计划行，下一 tick 自然重试——这是 vault-organizer「webhook 500 → 退避重投」语义在内置语境的等价物。
 4. 无规则匹配 → 落「待分类」pending 计划（`library_id=null`）；命中规则的 Library 待绑定 → 落「待绑定」pending 计划。
@@ -336,9 +336,7 @@ class OrganizeAuditEntry(Base):
 
 ## 配置
 
-环境变量（补充进 conventions.md 配置清单）：
-
-- `ORGANIZE_ENABLED`：内置整理总开关/熔断，默认 `false`（默认关闭，对现有部署零影响）。
+整理子系统**无环境变量开关**：常开，规划步在存在 enabled 规则时自动激活。
 
 媒体服务器**无全局配置**：`PLEX_URL`/`PLEX_TOKEN` 已移除，服务器地址/凭证全部入库（`media_server_instances`，token 明文对齐 DownloaderInstance.password 惯例）；存量全局 Plex 配置由轻迁移转为一条 MediaServerInstance。逻辑卷、绑定、规则、模板、字幕映射同样全部入库（StorageVolume / MediaServerBinding / OrganizeRule / Library）。
 

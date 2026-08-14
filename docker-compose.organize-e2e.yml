@@ -55,7 +55,6 @@ services:
       - POSTER_CACHE_DIR=/app/data/posters
       # 每分钟 notify tick（停种 + 补建通知 + organize 规划 + fan-out）
       - SCHEDULER_ENABLED=true
-      - ORGANIZE_ENABLED=true
       - API_KEY=organize-e2e-key
     command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001"]
     depends_on:

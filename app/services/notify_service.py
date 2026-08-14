@@ -436,8 +436,7 @@ async def regenerate_notifications(
     fan-out and delivery are left to the per-minute loop, which naturally
     rate-limits the webhook calls. Afterwards, notifications touched here are
     handed to the built-in organize planner (pending/failed plans get rebuilt
-    from the new snapshot; no-op when ORGANIZE_ENABLED=false). Returns
-    ``{"created", "regenerated"}``.
+    from the new snapshot). Returns ``{"created", "regenerated"}``.
     """
     stmt = (
         select(DownloadTask)
@@ -487,8 +486,8 @@ async def regenerate_notifications(
         if done and done % _REGENERATE_COMMIT_EVERY == 0:
             await db.commit()
     await db.commit()
-    # organize：对本次新建/重建的通知触发计划重建（ORGANIZE_ENABLED=false
-    # 时内部直接跳过；失败只记日志，不影响 regenerate 结果）。
+    # organize：对本次新建/重建的通知触发计划重建（失败只记日志，不影响
+    # regenerate 结果）。
     if touched:
         try:
             from app.services.organize_service import plan_for_notifications

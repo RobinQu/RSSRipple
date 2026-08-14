@@ -20,8 +20,6 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
-from app.config import settings
-
 # 复用 tests/unit/conftest.py 的 DB fixtures：pytest 按 conftest 命名空间里的
 # 属性名注册 fixture，因此保持原名赋值（导入模块同时完成其环境准备：
 # DATABASE_URL 兜底、app.models 注册、fast asyncio.sleep）。
@@ -29,11 +27,6 @@ from tests.unit import conftest as _unit_conftest
 
 db_engine = _unit_conftest.db_engine
 db_session = _unit_conftest.db_session
-
-
-@pytest.fixture(autouse=True)
-def _enable_organize(monkeypatch):
-    monkeypatch.setattr(settings, "organize_enabled", True)
 
 
 @pytest_asyncio.fixture

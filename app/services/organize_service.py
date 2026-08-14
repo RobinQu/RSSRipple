@@ -7,7 +7,7 @@
   （文件定位不到 / PlanError）不落计划、记 error 日志，下一 tick 自然重试。
   无规则匹配落 ``library_id=null`` 的「待分类」pending 计划。规则
   ``auto_execute=true`` 时落库后调度后台执行（两阶段持久化边界不变）。
-  ``ORGANIZE_ENABLED=false`` 时整步跳过（熔断语义对齐 NOTIFY_ENABLED）。
+  整理常开，无开关；不存在 enabled 规则时整步跳过。
 - 重建：通知 regenerate 后，pending/failed 计划随新快照重建（沿用已人工
   指定的 library/category，op 目标重渲染）；done/running 短路不重建。
 - 执行（:func:`execute_plan` / :func:`execute_plans`）：状态门禁 +
@@ -36,7 +36,6 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.config import settings
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
@@ -274,12 +273,12 @@ async def plan_for_notifications(
 ) -> dict:
     """对一批通知做整理规划（幂等）。返回统计 dict。
 
-    熔断：``ORGANIZE_ENABLED=false`` 或不存在 enabled 规则时整步跳过。
+    常开：不存在 enabled 规则时整步跳过（对通知流水线零影响）。
     已有计划：done/running 短路；pending/failed 且 payload 已 regenerate
     （与计划冻结快照不一致）→ 重建（沿用人工指定的 library/category）。
     """
     stats = {"planned": 0, "rebuilt": 0, "uncategorized": 0, "skipped": 0, "failed": 0}
-    if not settings.organize_enabled or not notifications:
+    if not notifications:
         return stats
     rules = (
         await db.execute(

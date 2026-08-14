@@ -40,7 +40,7 @@ uv run pytest tests/integration/organize -q
   校验即做种，不需要外部 peer），文件预置进共享卷；app 启动前用一次性
   `docker compose run` 容器 ORM seed「completed DownloadTask」（Turso 单进程
   文件锁，不能与运行中的 app 并行写库；API 也不暴露任务创建端点）。
-- app 启动后（`SCHEDULER_ENABLED=true` + `ORGANIZE_ENABLED=true`）一切走真实
+- app 启动后（`SCHEDULER_ENABLED=true`）一切走真实
   代码路径：每分钟 tick 停种（真实 RPC）→ 建通知 → organize 规划（卷绑定
   解析）→ auto_execute 执行 → 任务清理（真实 RPC remove_torrent）。
 
