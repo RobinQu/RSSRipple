@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # both are enabled simply by the token being configured. Env var:
     # BANGUMI_API_KEY.
     bangumi_api_key: str = ""
+    # Bangumi API base URL. Overridable so self-hosted mirrors and integration
+    # tests (mock server) can point the client elsewhere. Env var:
+    # BANGUMI_API_BASE.
+    bangumi_api_base: str = "https://api.bgm.tv/v0"
     # Jina Search + Reader API: https://jina.ai/api-dashboard/
     # Used by the "jina" metadata source — cheap web-native search with strong
     # CJK/JA/EN coverage. Empty string disables the jina source at runtime.

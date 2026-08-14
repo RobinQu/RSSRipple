@@ -21,6 +21,7 @@
   - `JINA_API_KEY`：Jina Search + Reader 数据源。
   - `TMDB_API_KEY`：TMDB 数据源（可选）。
   - `BANGUMI_API_KEY`：Bangumi 数据源与 is_anime 第一层验证（可选；token 即启用，无独立开关，亦可在设置页覆盖配置）。
+  - `BANGUMI_API_BASE`：Bangumi API 基础地址（默认 `https://api.bgm.tv/v0`）；可指向自建镜像或集成测试的 mock 服务。
   - `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下从 UI 隐藏该源。
   - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
   - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
@@ -31,7 +32,7 @@
   - `NOTIFY_ENABLED`：下载完成通知总开关/熔断（默认 `true`）。webhook 按 Agent 在 UI 多注册（Agent 详情 → 通知记录 Tab）；投递为纯出站（无回调 token，无消费者回调端点），单次 POST 超时 180s（代码常量）。
   - `NOTIFY_MAX_ATTEMPTS`（默认 `5`）/ `NOTIFY_RETRY_BASE_SECONDS`（默认 `30`）：webhook delivery 退避策略，`base * 2^attempt` 封顶 30 分钟，超限该 delivery 转 `failed`（界面可重试）。
   - `NOTIFY_RETENTION_DAYS`：通知（及其 delivery，级联删除）的保留天数（默认 `30`）。
-  - `ORGANIZE_ENABLED`：内置文件整理子系统（organize）总开关/熔断（默认 `false`，对现有部署零影响）。语义见 file-organization.md；逻辑卷/媒体服务器/库根/规则/模板全部入库（StorageVolume/MediaServerInstance/Library/OrganizeRule），不走环境变量。媒体服务器**无全局配置**：旧版 `PLEX_URL`/`PLEX_TOKEN` 已移除，存量环境变量由启动轻迁移转为一条 `MediaServerInstance`（type=plex）。
+  - 内置文件整理子系统（organize）**无环境变量开关**：常开，存在 enabled 规则即激活。语义见 file-organization.md；逻辑卷/媒体服务器/库根/规则/模板全部入库（StorageVolume/MediaServerInstance/Library/OrganizeRule），不走环境变量。媒体服务器**无全局配置**：旧版 `PLEX_URL`/`PLEX_TOKEN` 已移除，存量环境变量由启动轻迁移转为一条 `MediaServerInstance`（type=plex）。
   - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*` 与 SPA/静态资源开放。
   - `API_KEY`：可选静态引导 API key（运维恢复与集成测试用；与 `api_keys` 表中的 key 同等效力）。
 - **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。

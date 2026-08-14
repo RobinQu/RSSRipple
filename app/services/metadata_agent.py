@@ -889,6 +889,9 @@ class UnifiedMetadataAgent:
             "wikipedia": (
                 "Source mode: Wikipedia Search. Use Wikipedia metadata only."
             ),
+            "bangumi": (
+                "Source mode: Bangumi Search. Use Bangumi subject metadata only."
+            ),
             "jina": (
                 "Source mode: Jina Search + Reader. Use search_jina to find pages, "
                 "read_jina_url to fetch a specific page in full. Prefer TMDB / IMDb / "

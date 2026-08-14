@@ -22,6 +22,7 @@ from typing import Any
 
 import httpx
 
+from app.config import settings
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ SUBJECT_TYPE_REAL = 6  # 三次元 (live-action)
 
 _EPISODES_PAGE_SIZE = 100
 _EPISODES_MAX_PAGES = 20  # 2000 main-story episodes cap — far beyond any TV work
+
+
+def _base_url() -> str:
+    """Effective API base URL (configurable for mirrors/integration tests)."""
+    return (settings.bangumi_api_base or BANGUMI_API_BASE).rstrip("/")
 
 
 def bangumi_configured() -> bool:
@@ -62,7 +68,7 @@ async def search_subjects(
     if anime_only:
         body["filter"] = {"type": [SUBJECT_TYPE_ANIME]}
     resp = await client.post(
-        f"{BANGUMI_API_BASE}/search/subjects", json=body, headers=_headers()
+        f"{_base_url()}/search/subjects", json=body, headers=_headers()
     )
     resp.raise_for_status()
     return (resp.json() or {}).get("data") or []
@@ -74,7 +80,7 @@ async def get_subject(
     """Full subject details (name, name_cn, summary, date, images, rating,
     tags, eps count, platform, infobox)."""
     resp = await client.get(
-        f"{BANGUMI_API_BASE}/subjects/{subject_id}", headers=_headers()
+        f"{_base_url()}/subjects/{subject_id}", headers=_headers()
     )
     resp.raise_for_status()
     return resp.json() or {}
@@ -92,7 +98,7 @@ async def get_subject_episodes(
     offset = 0
     for _ in range(_EPISODES_MAX_PAGES):
         resp = await client.get(
-            f"{BANGUMI_API_BASE}/episodes",
+            f"{_base_url()}/episodes",
             params={
                 "subject_id": subject_id,
                 "type": 0,
