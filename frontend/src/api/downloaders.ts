@@ -8,6 +8,8 @@ export interface DownloaderCreate {
   username?: string;
   password?: string;
   download_dir: string;
+  volume_id?: string | null;
+  volume_subpath?: string | null;
 }
 
 export interface DownloaderUpdate {
@@ -17,6 +19,8 @@ export interface DownloaderUpdate {
   username?: string;
   password?: string;
   download_dir?: string;
+  volume_id?: string | null;
+  volume_subpath?: string | null;
 }
 
 export const downloadersApi = {

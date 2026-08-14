@@ -46,7 +46,10 @@
 | `INVALID_FEED` | 422 | RSS URL 无效、不可达或解析失败 |
 | `DUPLICATE_SUBMISSION` | 409 | 表单 Token 已被使用或重复提交 |
 | `ALREADY_RUNNING` | 409 | 该 Channel/Agent 的后台任务已在执行中 |
+| `DELETE_BLOCKED` | 409 | 资源仍被引用，禁止删除（如作品被 AgentWork 订阅、Library 被整理计划/规则引用） |
+| `INVALID_STATE` | 409 | 当前状态不允许该操作（如整理计划仅 pending/failed 可执行/分类/取消） |
 | `TRANSMISSION_ERROR` | 502 | Transmission RPC 连接失败或操作失败（含认证失败、磁盘不足等） |
+| `MEDIA_SERVER_ERROR` | 502 | 媒体服务器（Plex/Emby/Jellyfin）连接或接口失败（如 `/media-servers/{id}/scan` 扫描时） |
 | `LLM_ERROR` | 502 | LLM 调用失败（未配置 Key、超时、响应解析失败） |
 | `INTERNAL_SERVER_ERROR` | 500 | 未预期错误；dev_mode 下附 stack trace，生产环境隐藏 |
 

@@ -12,6 +12,7 @@ from app.clients.downloader import get_downloader_client
 from app.database import get_db
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
+from app.models.storage_volume import StorageVolume
 from app.schemas.common import paginated_response, success_response
 from app.schemas.download_task import DownloadTaskResponse
 from app.schemas.downloader import (
@@ -24,6 +25,34 @@ from app.utils.download_paths import DownloadPathError
 from app.utils.time import utcnow
 
 router = APIRouter()
+
+
+def _error(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "success": False,
+            "data": None,
+            "error": {"code": code, "message": message},
+            "meta": {},
+        },
+    )
+
+
+async def _validate_volume_binding(
+    db: AsyncSession, volume_id: str | None, volume_subpath: str | None
+) -> JSONResponse | None:
+    """卷绑定校验：volume_subpath 必须依附 volume_id（422）；volume_id 必须
+    指向存在的 StorageVolume（404）。"""
+    if volume_subpath and not volume_id:
+        return _error(
+            422, "VALIDATION_ERROR",
+            "volume_subpath 必须依附 volume_id（绑定不完整）",
+        )
+    if volume_id is not None:
+        if await db.get(StorageVolume, volume_id) is None:
+            return _error(404, "NOT_FOUND", "Storage volume not found")
+    return None
 
 
 @router.get("/downloaders")
@@ -62,6 +91,10 @@ async def create_downloader(
                 "meta": {},
             },
         )
+    if err := await _validate_volume_binding(
+        db, payload.get("volume_id"), payload.get("volume_subpath")
+    ):
+        return err
     dl = DownloaderInstance(**payload)
     if body.password:
         dl.password = body.password
@@ -114,6 +147,11 @@ async def update_downloader(
                 "meta": {},
             },
         )
+    # 卷绑定校验按合并后的目标状态进行（允许只更新子路径或只换卷）。
+    merged_volume_id = update_data.get("volume_id", dl.volume_id)
+    merged_subpath = update_data.get("volume_subpath", dl.volume_subpath)
+    if err := await _validate_volume_binding(db, merged_volume_id, merged_subpath):
+        return err
     for key, value in update_data.items():
         setattr(dl, key, value)
     await db.flush()

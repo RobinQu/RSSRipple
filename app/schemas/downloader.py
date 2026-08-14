@@ -5,9 +5,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from app.utils.download_paths import validate_download_root
+from app.utils.download_paths import validate_download_root, validate_download_subdir
 
 DownloaderType = Literal["transmission", "mock"]
+
+
+def _validate_volume_subpath(value: str | None) -> str | None:
+    """卷内子路径：相对路径校验（空串归 null），规则同 Agent.download_subdir。"""
+    return validate_download_subdir(value)
 
 
 class DownloaderCreate(BaseModel):
@@ -17,6 +22,10 @@ class DownloaderCreate(BaseModel):
     username: str | None = None
     password: str | None = None
     download_dir: str | None = None
+    # 卷绑定（R1）：daemon 视角 download_dir 根 == volume.mount_path +
+    # volume_subpath；两者皆 null = 两视角一致（恒等）。
+    volume_id: str | None = None
+    volume_subpath: str | None = None
 
     def model_post_init(self, __context: Any) -> None:
         # Mock downloaders don't talk to any real service; provide sane
@@ -34,6 +43,7 @@ class DownloaderCreate(BaseModel):
         # download_dir validation only applies to real (server-writable) paths.
         if self.type != "mock":
             self.download_dir = validate_download_root(self.download_dir)
+        self.volume_subpath = _validate_volume_subpath(self.volume_subpath)
 
 
 class DownloaderUpdate(BaseModel):
@@ -43,12 +53,15 @@ class DownloaderUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     download_dir: str | None = None
+    volume_id: str | None = None
+    volume_subpath: str | None = None
 
     def model_post_init(self, __context: Any) -> None:
         # Only validate the root when the *incoming* payload declares a real
         # (non-mock) downloader. For mock updates we accept anything.
         if self.download_dir is not None and self.type != "mock":
             self.download_dir = validate_download_root(self.download_dir)
+        self.volume_subpath = _validate_volume_subpath(self.volume_subpath)
 
 
 class DownloaderResponse(BaseModel):
@@ -60,6 +73,8 @@ class DownloaderResponse(BaseModel):
     url: str
     username: str | None = None
     download_dir: str
+    volume_id: str | None = None
+    volume_subpath: str | None = None
     status: str
     last_checked_at: datetime | None = None
     created_at: datetime

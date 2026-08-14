@@ -47,12 +47,15 @@ from app.api.v1 import (  # noqa: E402
     dashboard,
     decisions,
     downloaders,
+    media_servers,
     movies,
     notifications,
+    organize,
     resources,
     series,
     system_settings,
     tasks,
+    volumes,
     works,
 )
 from app.database import Base, apply_db_pragmas, get_db, install_db_retry_middleware  # noqa: E402
@@ -107,6 +110,8 @@ def _build_test_app(session_factory: async_sessionmaker, with_auth: bool = False
         channels.router,
         agents.router,
         downloaders.router,
+        volumes.router,
+        media_servers.router,
         tasks.router,
         decisions.router,
         resources.router,
@@ -116,6 +121,7 @@ def _build_test_app(session_factory: async_sessionmaker, with_auth: bool = False
         collections.router,
         system_settings.router,
         notifications.router,
+        organize.router,
         auth.router,
         api_keys.router,
     ):

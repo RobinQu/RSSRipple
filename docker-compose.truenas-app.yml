@@ -1,0 +1,24 @@
+# TrueNAS Custom App 生产部署版：始终使用 latest 镜像。
+# 密钥与非敏感配置走同目录 .env（参照 .env.example；LLM_API_KEY 等都在那里）。
+services:
+  app:
+    image: ghcr.io/robinqu/rssripple:latest
+    pull_policy: always
+    container_name: rssripple
+    restart: unless-stopped
+    ports:
+      - "9001:9001"
+    volumes:
+      # NAS 全局存储目录 → 容器 /storage/vault（逻辑卷挂载点：媒体库与下载
+      # 目录都在其下；运行时在「存储卷」页面建逻辑卷指向 /storage/vault，
+      # 下载器/媒体服务器再按（逻辑卷 + 子路径）绑定）。
+      - /mnt/storage/vault/Storage/Archive:/storage/vault
+      # 应用数据（Turso DB + 海报缓存）：NAS 本地盘的应用专用目录（不放在
+      # 上面的存储池网络共享路径上——SQLite/Turso 文件锁在网络文件系统不
+      # 可靠 → "database is locked"）。
+      - /mnt/storage/vault/apps/rssripple/data:/app/data
+    env_file: .env
+    environment:
+      - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_turso.db
+      - POSTER_CACHE_DIR=/app/data/posters
+    command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001"]

@@ -552,11 +552,30 @@ async def _process_download_notifications() -> None:
             )
             tasks = (await db.execute(stmt)).scalars().all()
             enqueued = 0
+            created_notifications = []
             for task in tasks:
-                _, was_created = await create_notification_for_task(db, task)
+                notification, was_created = await create_notification_for_task(db, task)
                 if was_created:
                     enqueued += 1
+                    if notification is not None:
+                        created_notifications.append(notification)
                 await db.commit()
+            # organize 规划步：补建通知之后、fan-out 之前；失败不中断 tick 其余阶段
+            if settings.organize_enabled and created_notifications:
+                try:
+                    from app.services.organize_service import plan_for_notifications
+
+                    ostats = await plan_for_notifications(db, created_notifications)
+                    if any(ostats.values()):
+                        logger.info(
+                            "[organize] planned=%d rebuilt=%d uncategorized=%d "
+                            "skipped=%d failed=%d",
+                            ostats["planned"], ostats["rebuilt"],
+                            ostats["uncategorized"], ostats["skipped"],
+                            ostats["failed"],
+                        )
+                except Exception as e:
+                    logger.warning("[organize] planning step failed: %s", e)
             fanned = await ensure_deliveries(db)
             stats = await deliver_due_deliveries(db)
             if enqueued or fanned or stats["delivered"] or stats["failed"]:

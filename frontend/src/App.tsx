@@ -7,6 +7,7 @@ import ChannelDetail from './pages/ChannelDetail';
 import Downloaders from './pages/Downloaders';
 import DownloaderForm from './pages/DownloaderForm';
 import DownloaderDetail from './pages/DownloaderDetail';
+import Volumes from './pages/Volumes';
 import Agents from './pages/Agents';
 import AgentForm from './pages/AgentForm';
 import AgentDetail from './pages/AgentDetail';
@@ -15,6 +16,8 @@ import MovieDetail from './pages/MovieDetail';
 import AudioWorkDetail from './pages/AudioWorkDetail';
 import WorksPage from './pages/WorksPage';
 import CollectionDetail from './pages/CollectionDetail';
+import MediaServers from './pages/MediaServers';
+import Organize from './pages/Organize';
 import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
 import PageErrorBoundary from './components/PageErrorBoundary';
@@ -36,6 +39,7 @@ function App() {
           <Route path="downloaders/new" element={<DownloaderForm />} />
           <Route path="downloaders/:id/edit" element={<DownloaderForm />} />
           <Route path="downloaders/:id" element={<DownloaderDetail />} />
+          <Route path="volumes" element={<Volumes />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/new" element={<AgentForm />} />
           <Route path="agents/:id/edit" element={<AgentForm />} />
@@ -51,6 +55,8 @@ function App() {
           {/* Collection detail is a full page; the list stays inside the
               /works 合集 browse mode (CollectionsPanel). */}
           <Route path="collections/:id" element={<CollectionDetail />} />
+          <Route path="media-servers" element={<MediaServers />} />
+          <Route path="organize" element={<Organize />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

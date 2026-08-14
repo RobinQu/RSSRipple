@@ -16,6 +16,9 @@ import {
 } from 'antd';
 import { Folder, Zap } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
+import { volumesApi } from '../api/volumes';
+import { isValidRelativeSubpath } from '../utils/paths';
+import type { StorageVolume } from '../types';
 
 const { Title } = Typography;
 
@@ -36,6 +39,15 @@ export default function DownloaderForm() {
   const [loading, setLoading] = useState(mode === 'edit');
   const [testing, setTesting] = useState(false);
   const [type, setType] = useState<DownloaderType>('transmission');
+  const [volumes, setVolumes] = useState<StorageVolume[]>([]);
+  const volumeId = Form.useWatch('volume_id', form);
+
+  useEffect(() => {
+    (async () => {
+      const res = await volumesApi.list();
+      if (res.success) setVolumes(res.data);
+    })();
+  }, []);
 
   useEffect(() => {
     if (mode !== 'edit' || !id) return;
@@ -51,6 +63,8 @@ export default function DownloaderForm() {
           download_dir: res.data.download_dir || DEFAULT_DOWNLOAD_DIR,
           username: res.data.username ?? '',
           password: '',
+          volume_id: res.data.volume_id ?? undefined,
+          volume_subpath: res.data.volume_subpath ?? '',
         });
       } else {
         message.error(t('downloaders.loadFailed'));
@@ -94,6 +108,8 @@ export default function DownloaderForm() {
     username?: string;
     password?: string;
     download_dir?: string;
+    volume_id?: string;
+    volume_subpath?: string;
   }) => {
     setSaving(true);
     const activeType = (values.type || type) as DownloaderType;
@@ -104,6 +120,9 @@ export default function DownloaderForm() {
       download_dir: values.download_dir || (activeType === 'mock' ? '/tmp/mock-downloads' : ''),
       username: values.username || undefined,
       password: values.password || undefined,
+      // Volume binding: both null = daemon and process see identical paths.
+      volume_id: values.volume_id || null,
+      volume_subpath: values.volume_id ? values.volume_subpath?.trim() || null : null,
     };
     try {
       let res;
@@ -185,6 +204,46 @@ export default function DownloaderForm() {
             <Input
               prefix={<Folder size={14} />}
               placeholder={isMock ? '/tmp/mock-downloads' : DEFAULT_DOWNLOAD_DIR}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="volume_id"
+            label={t('downloaders.volume')}
+            extra={t('downloaders.volumeExtra')}
+          >
+            <Select
+              allowClear
+              placeholder={t('downloaders.volumePlaceholder')}
+              options={volumes.map((v) => ({
+                value: v.id,
+                label: `${v.name} (${v.mount_path})`,
+              }))}
+              onChange={(v?: string) => {
+                // Subpath only makes sense attached to a volume.
+                if (!v) form.setFieldValue('volume_subpath', '');
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="volume_subpath"
+            label={t('downloaders.volumeSubpath')}
+            extra={t('downloaders.volumeSubpathExtra')}
+            rules={[
+              {
+                validator: (_, value: string) =>
+                  isValidRelativeSubpath(value ?? '')
+                    ? Promise.resolve()
+                    : Promise.reject(new Error(t('downloaders.volumeSubpathInvalid'))),
+              },
+            ]}
+          >
+            <Input
+              disabled={!volumeId}
+              maxLength={1024}
+              placeholder="downloads/complete"
+              style={{ fontFamily: 'monospace' }}
             />
           </Form.Item>
 

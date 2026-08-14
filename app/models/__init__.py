@@ -18,10 +18,17 @@ from app.models.eval_job import EvalJob
 from app.models.file_resource import FileResource
 from app.models.fts_outbox import FtsOutbox
 from app.models.ground_truth import GroundTruthEntry
+from app.models.library import Library
+from app.models.media_server import MediaServerBinding, MediaServerInstance
 from app.models.metadata_cache import MetadataCache
 from app.models.movie import Movie
+from app.models.organize_audit import OrganizeAuditEntry
+from app.models.organize_plan import OrganizePlan
+from app.models.organize_plan_op import OrganizePlanOp
+from app.models.organize_rule import OrganizeRule
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
+from app.models.storage_volume import StorageVolume
 from app.models.webhook_delivery import WebhookDelivery
 from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
@@ -52,6 +59,14 @@ __all__ = [
     "ApiKey",
     "WorkCollection",
     "WebhookDelivery",
+    "Library",
+    "StorageVolume",
+    "MediaServerInstance",
+    "MediaServerBinding",
+    "OrganizeRule",
+    "OrganizePlan",
+    "OrganizePlanOp",
+    "OrganizeAuditEntry",
 ]
 
 # Register ORM event hooks that keep search indexes in sync (Turso fts_outbox

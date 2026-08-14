@@ -58,6 +58,117 @@ class TestDownloadersCRUD:
         assert res.status_code == 404
 
 
+class TestDownloaderVolumeBinding:
+    """R1 卷绑定：volume_id + volume_subpath 取代 P1 的 path_map。"""
+
+    async def _create_volume(self, client, mount_path: str, name: str = "vol"):
+        res = await client.post(
+            "/api/v1/volumes", json={"name": name, "mount_path": mount_path}
+        )
+        assert res.status_code == 201
+        return res.json()["data"]["id"]
+
+    async def test_create_with_volume_binding(self, client, tmp_path):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "DL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+            "volume_id": volume_id, "volume_subpath": "rss/complete",
+        })
+        assert res.status_code == 201
+        data = res.json()["data"]
+        assert data["volume_id"] == volume_id
+        assert data["volume_subpath"] == "rss/complete"
+
+    async def test_create_without_binding_is_identity(self, client):
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "DL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+        })
+        assert res.status_code == 201
+        data = res.json()["data"]
+        assert data["volume_id"] is None
+        assert data["volume_subpath"] is None
+
+    async def test_create_volume_not_found(self, client):
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "DL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+            "volume_id": "no-such-volume",
+        })
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
+
+    async def test_create_rejects_absolute_volume_subpath(self, client, tmp_path):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "DL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+            "volume_id": volume_id, "volume_subpath": "/abs/path",
+        })
+        assert res.status_code == 422
+
+    async def test_create_rejects_subpath_without_volume(self, client):
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "DL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+            "volume_subpath": "rss",
+        })
+        assert res.status_code == 422
+
+    async def test_create_volume_subpath_empty_string_normalizes_to_null(
+        self, client, tmp_path
+    ):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "DL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+            "volume_id": volume_id, "volume_subpath": "",
+        })
+        assert res.status_code == 201
+        assert res.json()["data"]["volume_subpath"] is None
+
+    async def test_update_bind_and_unbind(self, client, sample_downloader, tmp_path):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        res = await client.put(
+            f"/api/v1/downloaders/{sample_downloader.id}",
+            json={"volume_id": volume_id, "volume_subpath": "complete"},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["volume_id"] == volume_id
+        assert data["volume_subpath"] == "complete"
+        # 只更新子路径（沿用已存卷）
+        res = await client.put(
+            f"/api/v1/downloaders/{sample_downloader.id}",
+            json={"volume_subpath": "other"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["volume_subpath"] == "other"
+        # 解绑 → 恒等
+        res = await client.put(
+            f"/api/v1/downloaders/{sample_downloader.id}",
+            json={"volume_id": None, "volume_subpath": None},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["volume_id"] is None
+        assert data["volume_subpath"] is None
+
+    async def test_update_volume_not_found(self, client, sample_downloader):
+        res = await client.put(
+            f"/api/v1/downloaders/{sample_downloader.id}",
+            json={"volume_id": "no-such-volume"},
+        )
+        assert res.status_code == 404
+
+
 class TestDownloaderActions:
     async def test_test_endpoint(self, client, sample_downloader, mock_transmission):
         res = await client.post(f"/api/v1/downloaders/{sample_downloader.id}/test")

@@ -206,16 +206,46 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
   "url": "http://127.0.0.1:9091/transmission/rpc",
   "username": "user",
   "password": "pass",
-  "download_dir": "/volume1/downloads/rssripple"
+  "download_dir": "/volume1/downloads/rssripple",
+  "volume_id": "b7f1…",
+  "volume_subpath": "downloads/rssripple"
 }
 ```
 
 下载目录规则：
 - `download_dir` 必填，必须是 Transmission 下载服务器视角的绝对路径；支持 POSIX（`/volume1/downloads`）、Windows drive path（`D:\Downloads`）和 daemon 支持的 UNC path。
 - RSSRipple 后端可能无法访问该目录，因此路径语义以 Transmission daemon 为准。
+- `volume_id` / `volume_subpath`（R1 卷绑定，均可空）：daemon 视角的 `download_dir` 根 == `volume.mount_path + volume_subpath`，用于把通知快照里的 daemon 路径解析为本进程视角（见 file-organization.md「统一路径解析：逻辑存储卷」）；两者皆 null = 两视角一致（恒等，默认）。`volume_id` 必须指向存在的 StorageVolume（404），`volume_subpath` 校验规则同 `Agent.download_subdir`（相对路径、禁 `..`/绝对路径/控制字符，空串归 null）且必须依附 `volume_id`（422）。P1 的 `path_map` 字段已移除。
 - 创建/编辑时做路径格式校验；`POST /downloaders/{id}/test` 必须调用 Transmission `free_space(download_dir)`，返回目录可识别性与剩余空间。
 - 真实写入能力、子目录存在性、磁盘不足等仍以 `torrent_add(download_dir=...)` 的结果为最终准据。
 - 若多个 Agent 共用一个 Downloader，建议通过 Agent 的 `download_subdir` 分流目录。
+
+### Storage Volumes
+
+逻辑存储卷（file-organization.md「统一路径解析：逻辑存储卷」）：指向 RSSRipple 容器内一个挂载点；一切配置面路径引用存 `(volume_id, subpath)`，使用处动态解析 `volume.mount_path + subpath`。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/volumes` | 逻辑卷列表（分页） |
+| POST | `/volumes` | 创建 `{name, mount_path, remark?}` → 201；`mount_path` 必须绝对路径且**存在**（422）；`name` 全局唯一（重复 409 `DUPLICATE_SUBMISSION`） |
+| GET | `/volumes/{id}` | 详情 |
+| PUT | `/volumes/{id}` | 更新 `{name?, mount_path?, remark?}`（改 mount_path 全局生效——所有卷引用动态解析；同样过存在性校验 422 与名称唯一 409） |
+| DELETE | `/volumes/{id}` | 删除；被下载器卷绑定 / 媒体服务器绑定 / Library 库根引用时 409 `DELETE_BLOCKED`（`error.details` 带出对应 `downloaders` / `media_server_bindings` / `libraries` 数组） |
+| POST | `/volumes/{id}/check` | 探测挂载点存在性与写权限 → `{exists, writable}`（writable 仅展示提示，不拦截保存） |
+
+### Media Servers
+
+媒体服务器实例（file-organization.md「MediaServerInstance / MediaServerBinding」，R2）：多服务器、多类型（plex/emby/jellyfin）；Library 由扫描派生。token 不回显（对齐 Downloader password 惯例）。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/media-servers` | 服务器列表（不分页；每项含 bindings 数组、派生 `library_count` 与 `unbound_library_count`） |
+| POST | `/media-servers` | 创建 `{name, type, url, token?, enabled?, bindings?}` → **201**；`type` 限 `plex/emby/jellyfin`（422）；bindings 条目 `{server_path_prefix, volume_id, subpath?}`——prefix 非空（422）、volume 不存在（404）、subpath 校验同 `Agent.download_subdir` |
+| GET | `/media-servers/{id}` | 详情（含 bindings 数组） |
+| PUT | `/media-servers/{id}` | 部分更新；`bindings` 内嵌**整体替换**（缺省不动，数组含 `[]` 全量替换；同创建校验）；`token` 传 null/缺省 = 保持存储值 |
+| DELETE | `/media-servers/{id}` | 删除（bindings 随 FK CASCADE；派生 Library `media_server_id` SET NULL 保留行） |
+| POST | `/media-servers/{id}/test` | 连通性 + 凭证校验 → `{ok, server_version?, message?}` |
+| POST | `/media-servers/{id}/scan` | 扫描 sections/虚拟目录，幂等 upsert Library（经 bindings 最长前缀匹配解析卷；未命中落 `volume_id=NULL` 待绑定）→ `{created, updated, unbound}`；服务器停用 → 409 `INVALID_STATE`；连接/接口失败 → 502 `MEDIA_SERVER_ERROR` |
 
 ### Download Tasks
 
@@ -279,6 +309,44 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/agents/{agent_id}/notifications/regenerate` | 重新生成：`{ "since": datetime \| null }`（null=从最早 completed 任务开始），对该 Agent 的 completed 任务重跑完整生成链路——无通知的补建、已有的重建 payload 并复位投递重投；当次拿不到 torrent 文件清单时保留旧快照；返回 `{ "created": n, "regenerated": m }` |
 | POST | `/notifications/{id}/retry` | 单条手动重试：body `{ "mode": "failed" \| "all" }` → `{ "reset": n }`；`failed` 仅重置 failed delivery，`all` 重置全部非 pending（done + failed）delivery，重置后立即到期 |
 | POST | `/notifications/retry` | 批量重试：body `{ "mode": "failed" \| "all", "since"?: datetime, "agent_id"?: uuid }` → `{ "reset": n }`；`since` 按通知 `created_at` 过滤，缺省为全库范围 |
+
+### 内置文件整理（Organize）
+
+完整语义（模型、规则与命名模板、两阶段规划/执行、触发链路）见 [file-organization.md](file-organization.md)。
+
+##### Libraries
+
+Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更新：无 POST（手工注册移除）；响应中 `root_path` 为派生展示字段（`volume.mount_path + root_subpath` 解析结果，未绑定为 null），`bound` 为绑定状态。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/libraries` | 库列表（不分页，量小；每项含 `pending_plan_count`、`bound`、派生 `root_path`；`unbound=true` 过滤待绑定） |
+| GET | `/libraries/{id}` | 详情（含来源服务器 `media_server_id`/`media_server_name`、`server_path`、解析后的 `root_path` 展示） |
+| PUT | `/libraries/{id}` | 仅可更新 `subtitle_lang_map` 与 `volume_id`/`root_subpath`（待绑定就地修复；volume 不存在 404，root_subpath 非法 422）；其余字段由扫描派生，提交即 422 |
+| DELETE | `/libraries/{id}` | 删除；存在关联计划或指向该库的规则时 **409 `DELETE_BLOCKED`** |
+
+##### Organize Rules
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/organize-rules` | 规则列表（priority 升序、created_at 稳定排序；first-match-wins 的求值顺序） |
+| POST | `/organize-rules` | 创建 → **201**；`filter` 经 `validate_filter_config`（非法结构/取值操作符空 value → 422）；`path_template` 经 `validate_template`（非法占位符/绝对路径/`..` 段 → 422）；`file_op` 限 `move`/`hardlink`/`copy`（其他 → 422；hardlink/copy 为保种模式，见 file-organization.md 清理策略分流）；`library_id` 不存在 → 404 |
+| GET | `/organize-rules/{id}` | 详情 |
+| PUT | `/organize-rules/{id}` | 部分更新（含 priority 调整；filter/模板/library 同上校验） |
+| DELETE | `/organize-rules/{id}` | 删除；已有计划的 `rule_id` SET NULL 保留历史 |
+| POST | `/organize-rules/preview` | dry-run 预览：body `{notification_id 或 resource_id（二选一，422/404）, rule?: <规则草稿>, category?}`；按草稿（缺省=当前规则列表 first-match）渲染，返回 `{matched_rule, library, category, needs_category, uncategorized, ops:[{op_type, src, dst, size, reason}]}`；resource_id 形态 best-effort 经下载器 RPC 取文件清单（只读不停种）；规划失败（PlanError）→ 422 带原因；**不落库不动磁盘** |
+
+##### Plans / Audit
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/organize/plans` | 计划列表（分页；`status`（非法值 422）/`library_id` 过滤；created_at 倒序；列表项不含 payload，带 `rule_name`/`library_name`、`ops_summary {total,move,keep,movedir}` 与派生 `pending_reason: "unclassified" \| "unbound" \| null`——library 未定/缺 category → unclassified，目标库未绑定卷 → unbound，仅 pending 计划派生） |
+| GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + audit_entries 时间线（同带 `pending_reason`） |
+| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；仅 pending/failed 可执行，其余状态 / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
+| POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
+| POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：重渲染全部 op 的 dst 并复位 pending；非 pending/failed → 409；library 不存在 → 404；重渲染失败（如模板含 `{category}` 但未指定）→ 422 |
+| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 计划 → cancelled（记 audit）；done/running/cancelled → **409 `INVALID_STATE`** |
+| GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 
 ### File Resources
 

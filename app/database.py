@@ -54,10 +54,14 @@ _register_turso_dialect()
 # the same rows (and "database is locked" in single-writer paths). Both are
 # transient and safe to retry.
 #
-# We mitigate this with **retry-with-backoff at request/transaction
-# boundary** — a FastAPI middleware and a context manager that automatically
-# retry on lock/conflict errors, so API handlers and background jobs don't
-# need to know about the embedded engine.
+# We mitigate this with **retry-with-backoff at an operation boundary that
+# can replay the whole operation** — a FastAPI middleware (re-invokes the
+# request), ``retry_on_lock`` (re-invokes a coroutine factory), or callers
+# that retry an idempotent block (e.g. organize's auto-execute). A context
+# manager *cannot* retry its caller's ``async with`` body (a generator-based
+# CM may not yield again after the body throws), so ``committed_session``
+# deliberately does not pretend to: it rolls back and re-raises the original
+# error.
 # ---------------------------------------------------------------------------
 
 _MAX_DB_RETRIES = 5
@@ -93,8 +97,9 @@ async def retry_on_lock(coro_factory) -> object:
     / connection is used.  (A stale session that already holds a lock
     conflict would fail forever on retry.)
 
-    Prefer using ``committed_session()`` or the auto-retry middleware
-    instead of this function directly — it's kept for backward compatibility.
+    This is the retry primitive for non-HTTP boundaries (background jobs
+    replaying an idempotent operation); HTTP requests are covered by the
+    auto-retry middleware installed by ``install_db_retry_middleware``.
     """
     for attempt in range(_MAX_DB_RETRIES):
         try:
@@ -113,11 +118,17 @@ async def retry_on_lock(coro_factory) -> object:
 
 @contextlib.asynccontextmanager
 async def committed_session() -> AsyncIterator[AsyncSession]:
-    """Async context manager for a transactional session with automatic retry.
+    """Async context manager for a transactional session.
 
-    Yields an async session, commits on normal exit, rolls back on exception.
-    On Turso, retries the entire block on lock / write-conflict errors.
-    On PostgreSQL, behaves like a plain session (no retry).
+    Yields an async session, commits on normal exit, rolls back on exception
+    and re-raises the ORIGINAL error. There is intentionally no lock/conflict
+    retry loop here: a generator-based context manager cannot re-run the
+    caller's ``async with`` body after it threw (a second ``yield`` after
+    ``athrow()`` raises ``RuntimeError: generator didn't stop after
+    athrow()``), so the previous retry loop only ever masked the real
+    ``DatabaseError`` behind that RuntimeError. Retry instead at a boundary
+    that can replay the whole operation: the HTTP middleware,
+    ``retry_on_lock``, or an idempotent caller-level retry.
 
     Usage::
 
@@ -127,40 +138,13 @@ async def committed_session() -> AsyncIterator[AsyncSession]:
             await session.flush()
             # commit automatically happens on exit; rollback on exception
     """
-    if not is_turso_url(settings.database_url):
-        # Fast path: no retry needed for PostgreSQL/etc.
-        async with async_session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-        return
-
-    # Turso: retry on lock/conflict errors
-    last_exc: Exception | None = None
-    for attempt in range(_MAX_DB_RETRIES):
-        async with async_session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-                return
-            except DatabaseError as e:
-                await session.rollback()
-                last_exc = e
-                if not _is_retryable_lock_error(e):
-                    raise
-                if attempt == _MAX_DB_RETRIES - 1:
-                    raise
-                delay = _backoff_delay(attempt)
-                logger.debug("database is locked in committed_session — retrying in %.0f ms (attempt %d/%d)",
-                             delay * 1000, attempt + 1, _MAX_DB_RETRIES)
-                await asyncio.sleep(delay)
-            except Exception:
-                await session.rollback()
-                raise
-    raise last_exc or AssertionError("unreachable")
+    async with async_session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 
 def install_db_retry_middleware(app):
@@ -412,6 +396,26 @@ async def _apply_light_migrations(conn) -> None:
         # purpose: NULL = not yet determined, distinct from False.
         ("tv_series", "is_anime", "BOOLEAN"),
         ("movies", "is_anime", "BOOLEAN"),
+        # Daemon-view → process-view path prefix mapping used by the built-in
+        # organize subsystem. DEPRECATED orphan column (R1): superseded by the
+        # volume binding below; kept in place, no longer read by code.
+        ("downloader_instances", "path_map", "TEXT" if is_turso else "JSONB"),
+        # Downloader volume binding (R1): daemon-view download_dir root ==
+        # volume.mount_path + volume_subpath. Both NULL = identical views
+        # (identity). The storage_volumes table itself is created by
+        # create_all.
+        ("downloader_instances", "volume_id", "VARCHAR(36)"),
+        ("downloader_instances", "volume_subpath", "VARCHAR(1024)"),
+        # Media-server-derived Library (R2): the library root is now a
+        # structured volume reference (volume_id + root_subpath) resolved at
+        # use time; root_path/plex_section stay as inert orphan columns. The
+        # media_server_instances / media_server_bindings tables themselves
+        # are created by create_all.
+        ("libraries", "media_server_id", "VARCHAR(36)"),
+        ("libraries", "section_key", "VARCHAR(64)"),
+        ("libraries", "server_path", "VARCHAR(1024)"),
+        ("libraries", "volume_id", "VARCHAR(36)"),
+        ("libraries", "root_subpath", "VARCHAR(1024)"),
     ]
 
     for table, column, ddl in additions:
@@ -762,3 +766,99 @@ async def _apply_light_migrations(conn) -> None:
                     logger.info(
                         "[migrate] download_notifications.%s NOT NULL dropped", legacy_col
                     )
+
+    # ── libraries.root_path NOT NULL 放宽（R2）───────────────────────────
+    # Library 库根改为卷引用（volume_id + root_subpath）动态解析，静态
+    # ``root_path`` 列废弃为惰性孤儿。存量库该列是 NOT NULL 且无默认值，
+    # 新代码插入扫描派生行不再写它会违例：Turso/SQLite 走表重建（对齐上方
+    # download_notifications 先例），PostgreSQL 仅 DROP NOT NULL。
+    async with _best_effort(conn, "libraries.root_path nullable"):
+        if is_turso:
+            info = (await conn.execute(
+                text("PRAGMA table_info(libraries)")
+            )).fetchall()
+            notnull = {row[1]: row[3] for row in info}
+            if notnull.get("root_path"):
+                await conn.execute(text(
+                    "CREATE TABLE libraries_new ("
+                    "id VARCHAR(36) NOT NULL, "
+                    "name VARCHAR(255) NOT NULL, "
+                    "root_path VARCHAR(1024), "
+                    "kind VARCHAR(16) NOT NULL, "
+                    "plex_section VARCHAR(64), "
+                    "subtitle_lang_map JSON, "
+                    "media_server_id VARCHAR(36), "
+                    "section_key VARCHAR(64), "
+                    "server_path VARCHAR(1024), "
+                    "volume_id VARCHAR(36), "
+                    "root_subpath VARCHAR(1024), "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL, "
+                    "PRIMARY KEY (id), "
+                    "UNIQUE (media_server_id, section_key, server_path), "
+                    "FOREIGN KEY(media_server_id) REFERENCES "
+                    "media_server_instances (id) ON DELETE SET NULL, "
+                    "FOREIGN KEY(volume_id) REFERENCES "
+                    "storage_volumes (id) ON DELETE SET NULL"
+                    ")"
+                ))
+                await conn.execute(text(
+                    "INSERT INTO libraries_new "
+                    "(id, name, root_path, kind, plex_section, subtitle_lang_map, "
+                    " media_server_id, section_key, server_path, volume_id, "
+                    " root_subpath, created_at, updated_at) "
+                    "SELECT id, name, root_path, kind, plex_section, "
+                    "subtitle_lang_map, media_server_id, section_key, server_path, "
+                    "volume_id, root_subpath, created_at, updated_at "
+                    "FROM libraries"
+                ))
+                # organize_plans / organize_rules reference this table; both
+                # use ON DELETE SET NULL and survive the rebuild untouched.
+                await conn.execute(text("DROP TABLE libraries"))
+                await conn.execute(text(
+                    "ALTER TABLE libraries_new RENAME TO libraries"
+                ))
+                logger.info(
+                    "[migrate] rebuilt libraries with nullable root_path "
+                    "and media-server columns"
+                )
+        elif is_postgres:
+            await conn.execute(text(
+                "ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL"
+            ))
+
+    # ── libraries.plex_section → section_key ────────────────────────────
+    # 刷新寻址列更名（支持多服务器/多类型）；旧列保留为惰性孤儿。幂等：
+    # 只拷 section_key 仍为 NULL 的行。
+    async with _best_effort(conn, "libraries.plex_section → section_key"):
+        await conn.execute(text(
+            "UPDATE libraries SET section_key = plex_section "
+            "WHERE section_key IS NULL AND plex_section IS NOT NULL"
+        ))
+
+    # ── 全局 PLEX_URL/PLEX_TOKEN → MediaServerInstance（R2）──────────────
+    # 媒体服务器配置全部入库，全局环境变量移除（对齐 agents.notify_webhook_*
+    # → agent_webhooks 的迁移先例）。settings 已删 plex_* 字段，这里直读
+    # 环境变量；仅当环境变量存在且实例表为空时插一条 Plex 实例，幂等。
+    async with _best_effort(conn, "PLEX_URL/PLEX_TOKEN → media_server_instances"):
+        import os as _os
+        import uuid as _uuid
+
+        plex_url = _os.environ.get("PLEX_URL")
+        plex_token = _os.environ.get("PLEX_TOKEN")
+        if plex_url and plex_token:
+            count = (await conn.execute(
+                text("SELECT COUNT(*) FROM media_server_instances")
+            )).scalar_one()
+            if count == 0:
+                await conn.execute(text(
+                    "INSERT INTO media_server_instances"
+                    "(id, name, type, url, token, enabled, created_at, updated_at) "
+                    "VALUES (:id, :name, 'plex', :url, :token, :enabled, "
+                    "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                ), {"id": str(_uuid.uuid4()), "name": "Plex", "url": plex_url,
+                    "token": plex_token, "enabled": True})
+                logger.info(
+                    "[migrate] converted global PLEX_URL/PLEX_TOKEN into a "
+                    "media_server_instances row"
+                )

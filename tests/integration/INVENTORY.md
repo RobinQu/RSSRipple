@@ -50,6 +50,11 @@ tests/integration/
     __init__.py
     test_metadata_agent_accuracy.py     # MetadataAgent.process_title_only 对 ground_truth_v1 准确率（LLM）
     test_metadata_search_agent.py       # search_metadata 多源（22 标题）+ _search_tmdb TMDB-only（17 CBC 标题）合并
+  organize/                        # organize 子系统进程内集成测试（无需 docker 栈；CI 的 test-runner 一并收集）
+    __init__.py
+    conftest.py                    # 复用 tests/unit/conftest.py 的 DB fixtures + 共享卷/RPC/Plex mock fixtures
+    test_organize_pipeline.py      # 通知→规划→执行→落位→清理全链路（卷绑定解析、单集/合集/电影/待分类/恒等）
+    README.md                      # 本目录说明 + 容器级半 E2E（docker-compose.organize-e2e.yml + scripts/organize_e2e.py）用法
   eval/                            # 独立 Metadata Eval 应用（应用代码 + test_api.py，不变）
   server/                          # 假 test-server 应用代码（RSS / tracker / torrent / mock LLM）
     mock_llm.py                    # OpenAI 兼容 /v1/chat/completions：canned 字段映射、LLM pick、ReAct tool_calls 状态机
@@ -97,8 +102,9 @@ tests/integration/
 | http/test_coverage_supplement.py | 13 |
 | external/test_metadata_agent_accuracy.py | 5 |
 | external/test_metadata_search_agent.py | 6 |
+| organize/test_organize_pipeline.py | 6 |
 | eval/test_api.py | 31 |
-| **合计** | **175** |
+| **合计** | **181** |
 
 ## 3. 重组做了什么
 

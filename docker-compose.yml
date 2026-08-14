@@ -13,6 +13,13 @@ services:
       # Docker Desktop/macOS (virtiofs EIO); a named volume is backed by the
       # Linux VM's filesystem and avoids that.
       - app-data:/app/data
+      # 远程存储（逻辑卷挂载点，可选；不需要内置文件整理时可移除）。
+      # SMB/CIFS 共享挂到容器 /storage/vault，运行时在「存储卷」页面建逻辑卷
+      # 记录指向该路径，下载器/媒体服务器再按（逻辑卷 + 子路径）绑定。
+      # 凭据走 .env 的 SMB_USER/SMB_PASSWORD/SMB_UID/SMB_GID。
+      # 注意：应用数据（上面的 app-data）必须留在本地卷，**不要**放到这个
+      # 网络共享上——SQLite/Turso 文件锁在网络文件系统不可靠。
+      - vault-storage:/storage/vault
     env_file: .env
     environment:
       - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_turso.db
@@ -42,3 +49,9 @@ services:
 
 volumes:
   app-data:
+  vault-storage:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//192.168.0.132/vault"
+      o: "username=${SMB_USER},password=${SMB_PASSWORD},vers=3.0,iocharset=utf8,uid=${SMB_UID},gid=${SMB_GID},file_mode=0664,dir_mode=0775"

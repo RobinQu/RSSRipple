@@ -116,3 +116,13 @@ export function describeCondition(cond: FieldCondition, t: TFunction): string {
       : String(v ?? '');
   return `${field} ${op} ${text}`.trim();
 }
+
+/** Whole tree as a `; `-joined one-liner (empty string when no conditions). */
+export function describeFilter(
+  config: BoolCondition | null | undefined,
+  t: TFunction,
+): string {
+  return collectFieldConditions(config)
+    .map((c) => describeCondition(c, t))
+    .join('; ');
+}

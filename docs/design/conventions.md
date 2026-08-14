@@ -7,6 +7,7 @@
   - `Agent.download_subdir` 可空；非空时必须是相对路径，禁止以 `/`、`\`、`~`、Windows drive prefix（如 `C:\`）、UNC prefix（如 `\\server\share`）开头，禁止 `..` 段和控制字符。
   - 子目录 API 表达推荐使用 `/` 分隔；后端根据 Downloader 根目录风格拼接，标准化后必须保证最终路径仍在 `DownloaderInstance.download_dir` 下。
   - `DownloadTask.download_dir` 保存创建任务时解析出的最终绝对路径；任务重试沿用该字段。
+  - **卷绑定（R1）**：daemon 视角与本进程视角的路径差异由 `DownloaderInstance.volume_id` + `volume_subpath`（→ `StorageVolume.mount_path`，见 file-organization.md「统一路径解析：逻辑存储卷」）结构化消解，使用处经 `app/services/volume_service.resolve_downloader_path` 动态解析；两者皆 null = 两视角一致（恒等）。P1 的 `DownloaderInstance.path_map` 自由文本前缀字典已废弃（列保留为惰性孤儿，代码不再读取）。
   - 前端下载器表单的默认下载目录预填值为 `/downloads/complete`（新建表单初始值；编辑表单在已存值为空时回填；mock 类型除外，用 `/tmp/mock-downloads`）。
 - **Transmission 目录 RPC 使用**：RSSRipple 不调用 `session_set(download_dir=...)` 修改 Transmission 全局默认目录；所有自动下载都通过 `torrent_add(..., download_dir=DownloadTask.download_dir)` 设置单个任务目录。
 - **配置项**（环境变量，完整列表）：
@@ -30,6 +31,7 @@
   - `NOTIFY_ENABLED`：下载完成通知总开关/熔断（默认 `true`）。webhook 按 Agent 在 UI 多注册（Agent 详情 → 通知记录 Tab）；投递为纯出站（无回调 token，无消费者回调端点），单次 POST 超时 180s（代码常量）。
   - `NOTIFY_MAX_ATTEMPTS`（默认 `5`）/ `NOTIFY_RETRY_BASE_SECONDS`（默认 `30`）：webhook delivery 退避策略，`base * 2^attempt` 封顶 30 分钟，超限该 delivery 转 `failed`（界面可重试）。
   - `NOTIFY_RETENTION_DAYS`：通知（及其 delivery，级联删除）的保留天数（默认 `30`）。
+  - `ORGANIZE_ENABLED`：内置文件整理子系统（organize）总开关/熔断（默认 `false`，对现有部署零影响）。语义见 file-organization.md；逻辑卷/媒体服务器/库根/规则/模板全部入库（StorageVolume/MediaServerInstance/Library/OrganizeRule），不走环境变量。媒体服务器**无全局配置**：旧版 `PLEX_URL`/`PLEX_TOKEN` 已移除，存量环境变量由启动轻迁移转为一条 `MediaServerInstance`（type=plex）。
   - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*` 与 SPA/静态资源开放。
   - `API_KEY`：可选静态引导 API key（运维恢复与集成测试用；与 `api_keys` 表中的 key 同等效力）。
 - **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。

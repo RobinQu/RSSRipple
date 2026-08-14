@@ -69,3 +69,39 @@ async def test_migrations_are_idempotent(db_engine, db_session):
         select(Channel.metadata_source).where(Channel.name == "exa")
     )).scalar_one()
     assert row == "wikipedia"
+
+
+async def test_plex_env_migration_creates_media_server(db_engine, db_session, monkeypatch):
+    """存量全局 PLEX_URL/PLEX_TOKEN 环境变量 → 一条 Plex MediaServerInstance；
+    libraries.plex_section 值拷到 section_key。幂等：实例表非空不再插。"""
+    from app.models.library import Library
+    from app.models.media_server import MediaServerInstance
+
+    monkeypatch.setenv("PLEX_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "tok")
+    lib = Library(name="Movies", kind="movie", plex_section="3")
+    db_session.add(lib)
+    await db_session.commit()
+
+    async with db_engine.begin() as conn:
+        await _apply_light_migrations(conn)
+        await _apply_light_migrations(conn)  # 幂等：第二次不再插
+
+    servers = (await db_session.execute(select(MediaServerInstance))).scalars().all()
+    assert len(servers) == 1
+    assert servers[0].type == "plex" and servers[0].url == "http://plex:32400"
+    assert servers[0].token == "tok" and servers[0].enabled is True
+    await db_session.refresh(lib)
+    assert lib.section_key == "3"  # plex_section → section_key
+
+
+async def test_plex_env_migration_skipped_without_env(db_engine, db_session, monkeypatch):
+    """无 PLEX_* 环境变量 → 不插实例。"""
+    from app.models.media_server import MediaServerInstance
+
+    monkeypatch.delenv("PLEX_URL", raising=False)
+    monkeypatch.delenv("PLEX_TOKEN", raising=False)
+    async with db_engine.begin() as conn:
+        await _apply_light_migrations(conn)
+    servers = (await db_session.execute(select(MediaServerInstance))).scalars().all()
+    assert servers == []

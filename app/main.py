@@ -500,12 +500,15 @@ from app.api.v1 import (  # noqa: E402
     dashboard,
     decisions,
     downloaders,
+    media_servers,
     movies,
     notifications,
+    organize,
     resources,
     series,
     system_settings,
     tasks,
+    volumes,
     works,
 )
 
@@ -513,6 +516,8 @@ app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(channels.router, prefix="/api/v1", tags=["channels"])
 app.include_router(agents.router, prefix="/api/v1", tags=["agents"])
 app.include_router(downloaders.router, prefix="/api/v1", tags=["downloaders"])
+app.include_router(volumes.router, prefix="/api/v1", tags=["volumes"])
+app.include_router(media_servers.router, prefix="/api/v1", tags=["media-servers"])
 app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(decisions.router, prefix="/api/v1", tags=["decisions"])
 app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
@@ -523,6 +528,7 @@ app.include_router(works.router, prefix="/api/v1", tags=["works"])
 app.include_router(collections.router, prefix="/api/v1", tags=["collections"])
 app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])
 app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
+app.include_router(organize.router, prefix="/api/v1", tags=["organize"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["api-keys"])
 

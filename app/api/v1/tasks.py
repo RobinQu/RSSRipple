@@ -309,9 +309,17 @@ async def delete_task(
                 "meta": {},
             },
         )
-    if task.transmission_torrent_id:
-        await _apply_torrent_action(db, task, "remove", delete_data=delete_data)
-    task.status = "cancelled"
+    if delete_data:
+        # 删除数据的清理不走共用逻辑（整理语义固定保留数据）。
+        if task.transmission_torrent_id:
+            await _apply_torrent_action(db, task, "remove", delete_data=True)
+        task.status = "cancelled"
+    else:
+        # 与内置整理子系统（organize）执行后清理同一实现：
+        # app/services/task_cleanup.py::delete_task_after_organize。
+        from app.services.task_cleanup import delete_task_after_organize
+
+        await delete_task_after_organize(db, task_id)
     await db.flush()
     await db.commit()
     return success_response({"deleted": True})

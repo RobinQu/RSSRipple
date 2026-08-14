@@ -1,0 +1,77 @@
+# ==============================================================================
+# Organize 子系统容器级半 E2E 环境
+#
+# 验证 docs/design/file-organization.md「部署（共享卷）」的推荐形态：
+# 同一个 named volume（organize-e2e-shared）挂到
+#   • Transmission 容器：/downloads          （daemon 视角）
+#   • RSSRipple 容器：  /mnt/shared/downloads（进程视角，刻意不同挂载点）
+# 两侧路径差异由 DownloaderInstance 卷绑定消解（StorageVolume
+# mount_path=/mnt/shared/downloads + volume_subpath=complete ==
+# daemon 视角 /downloads/complete）；Library root 用另一个卷
+# （organize-e2e-media，挂到 app 的 /media）。
+#
+# 驱动脚本（预置文件到共享卷 + 造 completed 任务 + 轮询断言全链路）：
+#   uv run python scripts/organize_e2e.py            # 跑完整半 E2E
+#   uv run python scripts/organize_e2e.py --down     # 结束后拆除环境
+# 详见 tests/integration/organize/README.md。
+# ==============================================================================
+name: rssripple-organize-e2e
+
+services:
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    volumes:
+      - organize-e2e-transmission-config:/config
+      - ./docker/transmission/custom-cont-init.d:/custom-cont-init.d:ro
+      - organize-e2e-shared:/downloads
+      - organize-e2e-watch:/watch
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PEERPORT=51413
+    # 401 也算 up（RPC 正常响应）；linuxserver 镜像自带 curl。
+    healthcheck:
+      test: ["CMD", "curl", "-o", "/dev/null", "http://localhost:9091/transmission/rpc"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "9011:9001"
+    volumes:
+      - organize-e2e-data:/app/data
+      # 与 transmission 同一共享卷、不同挂载点（卷绑定解析验证点）
+      - organize-e2e-shared:/mnt/shared/downloads
+      # Library root_path（RSSRipple 进程视角）
+      - organize-e2e-media:/media
+    environment:
+      - DATABASE_URL=sqlite+aioturso:///data/organize_e2e_turso.db
+      - QUEUE_BACKEND=memory
+      - LOG_LEVEL=INFO
+      - POSTER_CACHE_DIR=/app/data/posters
+      # 每分钟 notify tick（停种 + 补建通知 + organize 规划 + fan-out）
+      - SCHEDULER_ENABLED=true
+      - ORGANIZE_ENABLED=true
+      - API_KEY=organize-e2e-key
+    command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001"]
+    depends_on:
+      transmission:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:9001/api/v1/channels', headers={'X-API-Key': 'organize-e2e-key'}), timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  organize-e2e-transmission-config:
+  organize-e2e-shared:
+  organize-e2e-watch:
+  organize-e2e-media:
+  organize-e2e-data:

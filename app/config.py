@@ -75,9 +75,10 @@ class Settings(BaseSettings):
     # ALREADY_RUNNING races.
     scheduler_enabled: bool = True
 
-    # Download notifications (webhook delivery to external consumers such as
-    # vault-organizer). Enabled by default; webhooks are registered per Agent
-    # in the UI, and each registration issues its own callback token.
+    # Download notifications (webhook fan-out to external consumers; the
+    # built-in organize subsystem below consumes the same notifications
+    # in-process). Enabled by default; webhooks are registered per Agent in
+    # the UI. Delivery is pure outbound POST, no token, no consumer callback.
     notify_enabled: bool = True
     # Delivery retry policy: exponential backoff base * 2^attempt (capped at
     # 30 min); after this many failed attempts the notification is "failed"
@@ -86,6 +87,13 @@ class Settings(BaseSettings):
     notify_retry_base_seconds: int = 30
     # Retention for consumed ("done") notifications.
     notify_retention_days: int = 30
+
+    # Built-in file organization subsystem (organize): turns download
+    # completion notifications into file-move plans targeting configured
+    # Libraries. Disabled by default; ORGANIZE_ENABLED is the master switch.
+    organize_enabled: bool = False
+    # Media server refresh addressing lives entirely in the database
+    # (media_server_instances, R2); there is no global PLEX_* config anymore.
 
     # Application authentication. When enabled, /api/v1/* and /posters/*
     # require a TOTP-issued session cookie or an API key (env bootstrap key

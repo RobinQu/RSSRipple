@@ -68,6 +68,28 @@
 3. Assert the 外部搜索数据源 card lists TMDB / Jina Search + Reader / Exa Agent rows (启用 switch + API Key field each) and a Wikipedia switch without API key.
 4. Assert 保存更改 is disabled while nothing has been modified.
 
+## Libraries And Organize Rules
+
+1. Open `/libraries`.
+2. Assert the Library cards/table (name, root path, kind, Plex section, pending-plan count) and the add button are visible.
+3. Add a Library with an absolute root path; assert it appears in the list. Try a relative root path; assert the form shows a validation error and nothing is created.
+4. Edit the Library (name/kind/plex_section/subtitle_lang_map); assert changes persist after refresh.
+5. Assert the organize rules table below lists rules ordered by priority with enabled switches and priority move up/down controls.
+6. Create a rule: pick a target Library, edit the filter with the FilterBuilder, fill a path template via a built-in preset button (TV / movie), and open the preview; assert the preview shows per-file src→dst rendering without creating any plan.
+7. Assert invalid templates (unknown placeholder / absolute path) and value-less filter operators are rejected with validation errors.
+8. Toggle a rule's enabled switch and reorder priorities; assert order and state persist after refresh.
+9. Delete a Library that has no rules/plans; assert it disappears. Delete one referenced by a rule or plan; assert a blocked (409) error is shown.
+
+## Organize Plans
+
+1. Open `/organize`.
+2. Assert the 计划/审计 Tabs, the status filter Tabs, the library filter, and the paginated plans table (status, library, category, ops summary, created_at) are visible.
+3. With an auto_execute rule active and a completed download, assert a plan appears and transitions to done without manual action; open its detail Drawer and assert the per-file src→dst list (move/keep/movedir color-coded), the payload snapshot JSON, and the audit timeline are shown.
+4. With no matching rule, assert a 待分类 plan (no library) appears; open it, assign a Library (and category for category templates), and assert the op destinations are re-rendered; then execute it and assert it turns done and files land under the Library root.
+5. Select multiple pending plans and run batch execute; assert each row reports its own result and one failure does not block the others.
+6. Cancel a pending plan; assert it becomes cancelled and its execute action disappears. For a failed plan, retry and assert it converges once the disk conflict is fixed.
+7. Switch to the 审计 Tab; assert paginated audit entries newest-first, and filtering by plan id shows only that plan's entries.
+
 ## Metadata Eval Labeling Tool
 
 Base URL: `http://localhost:9002`.

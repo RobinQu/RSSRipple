@@ -1,6 +1,6 @@
 # 下载完成通知（Download Notifications）
 
-RSSRipple 的语义到"订阅 + 下载 + 通知"为止。**文件整理规划（重命名/移动/Plex 刷新）不属于 RSSRipple**，由外部消费者（如 vault-organizer，独立部署在存储所在主机）完成。本文档是通知机制的权威设计：模型、快照契约、多 webhook 注册、fan-out 投递与退避、聚合状态机、重试与保留策略、下游清理 API。
+RSSRipple 的语义到"订阅 + 下载 + 通知"为止。文件整理（重命名/移动/Plex 刷新）由通知快照的消费方完成，两形态并存：**内置 organize 子系统**（P1 起内置于 RSSRipple，见 [file-organization.md](file-organization.md)）与**外部 webhook 消费者**（如 vault-organizer，独立部署在存储所在主机）——两者消费同一份快照，互不感知。本文档是通知机制的权威设计：模型、快照契约、多 webhook 注册、fan-out 投递与退避、聚合状态机、重试与保留策略、下游清理 API。
 
 ## 分工边界
 

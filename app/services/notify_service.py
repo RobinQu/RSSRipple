@@ -434,7 +434,10 @@ async def regenerate_notifications(
 
     Manual-only (never called by the scheduler tick). Commits in batches;
     fan-out and delivery are left to the per-minute loop, which naturally
-    rate-limits the webhook calls. Returns ``{"created", "regenerated"}``.
+    rate-limits the webhook calls. Afterwards, notifications touched here are
+    handed to the built-in organize planner (pending/failed plans get rebuilt
+    from the new snapshot; no-op when ORGANIZE_ENABLED=false). Returns
+    ``{"created", "regenerated"}``.
     """
     stmt = (
         select(DownloadTask)
@@ -449,6 +452,7 @@ async def regenerate_notifications(
     tasks = (await db.execute(stmt)).scalars().all()
 
     stats = {"created": 0, "regenerated": 0}
+    touched: list[DownloadNotification] = []
     for task in tasks:
         existing = (
             await db.execute(
@@ -458,9 +462,11 @@ async def regenerate_notifications(
             )
         ).scalar_one_or_none()
         if existing is None:
-            _, was_created = await create_notification_for_task(db, task)
+            notification, was_created = await create_notification_for_task(db, task)
             if was_created:
                 stats["created"] += 1
+                if notification is not None:
+                    touched.append(notification)
         else:
             payload, has_torrent_snapshot = await _build_snapshot(
                 db, task, existing.id
@@ -476,10 +482,20 @@ async def regenerate_notifications(
                     d.next_attempt_at = now
                     d.error_message = None
             stats["regenerated"] += 1
+            touched.append(existing)
         done = stats["created"] + stats["regenerated"]
         if done and done % _REGENERATE_COMMIT_EVERY == 0:
             await db.commit()
     await db.commit()
+    # organize：对本次新建/重建的通知触发计划重建（ORGANIZE_ENABLED=false
+    # 时内部直接跳过；失败只记日志，不影响 regenerate 结果）。
+    if touched:
+        try:
+            from app.services.organize_service import plan_for_notifications
+
+            await plan_for_notifications(db, touched)
+        except Exception as e:
+            logger.warning("[notify] organize replan after regenerate failed: %s", e)
     return stats
 
 

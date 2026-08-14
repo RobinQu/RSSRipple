@@ -654,6 +654,10 @@ export interface DownloaderInstance {
   username: string | null;
   password: string | null;
   download_dir: string;
+  /** Volume binding (R1): daemon-view download_dir root ==
+      volume.mount_path + volume_subpath; both null = identical views. */
+  volume_id: string | null;
+  volume_subpath: string | null;
   status: DownloaderStatus;
   last_checked_at: string | null;
   created_at: string;
@@ -818,4 +822,246 @@ export interface FilterSuggestionResponse {
   /** Selected resources not linked to any work. */
   unlinked_count: number;
   explanation: string;
+}
+
+// ---------------------------------------------------------------------------
+// Built-in file organization (organize) — mirrors app/schemas/organize.py.
+
+// Logical storage volumes — mirrors app/schemas/storage_volume.py.
+export interface StorageVolume {
+  id: string;
+  name: string;
+  /** Absolute path inside the RSSRipple container (mounted at compose time). */
+  mount_path: string;
+  remark: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorageVolumeCreate {
+  name: string;
+  mount_path: string;
+  remark?: string | null;
+}
+
+export type StorageVolumeUpdate = Partial<StorageVolumeCreate>;
+
+export interface StorageVolumeCheckResult {
+  exists: boolean;
+  writable: boolean;
+}
+
+export type LibraryKind = 'tv' | 'movie' | 'mixed';
+
+// Libraries are scan-derived from media servers (R2) — mirrors
+// app/schemas/organize.py LibraryOut. `root_path` is a derived display field
+// (volume mount_path + root_subpath resolution), null while unbound.
+export interface Library {
+  id: string;
+  name: string;
+  kind: LibraryKind;
+  media_server_id: string | null;
+  media_server_name: string | null;
+  section_key: string | null;
+  /** Library root as seen by the media server (raw). */
+  server_path: string | null;
+  volume_id: string | null;
+  volume_name: string | null;
+  root_subpath: string | null;
+  root_path: string | null;
+  /** volume_id !== null; unbound libraries need an in-place binding fix. */
+  bound: boolean;
+  subtitle_lang_map: Record<string, string> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LibraryListItem extends Library {
+  pending_plan_count: number;
+}
+
+/** No create endpoint — libraries come from media-server scans. */
+export interface LibraryUpdate {
+  subtitle_lang_map?: Record<string, string> | null;
+  volume_id?: string | null;
+  root_subpath?: string | null;
+}
+
+// Media servers — mirrors app/schemas/media_server.py.
+export type MediaServerType = 'plex' | 'emby' | 'jellyfin';
+
+export interface MediaServerBinding {
+  id: string;
+  server_path_prefix: string;
+  volume_id: string;
+  subpath: string;
+}
+
+export type MediaServerBindingInput = Omit<MediaServerBinding, 'id'>;
+
+export interface MediaServer {
+  id: string;
+  name: string;
+  type: MediaServerType;
+  url: string;
+  enabled: boolean;
+  bindings: MediaServerBinding[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MediaServerListItem extends MediaServer {
+  library_count: number;
+  unbound_library_count: number;
+}
+
+export interface MediaServerCreate {
+  name: string;
+  type: MediaServerType;
+  url: string;
+  /** Secret; never echoed back. */
+  token?: string | null;
+  enabled?: boolean;
+  /** Whole-array replacement semantics. */
+  bindings?: MediaServerBindingInput[];
+}
+
+export interface MediaServerUpdate {
+  name?: string;
+  type?: MediaServerType;
+  url?: string;
+  /** null/omitted = keep the stored token. */
+  token?: string | null;
+  enabled?: boolean;
+  /** omitted = untouched; array (incl. empty) = replace all. */
+  bindings?: MediaServerBindingInput[];
+}
+
+export interface MediaServerTestResult {
+  ok: boolean;
+  server_version: string | null;
+  message: string | null;
+}
+
+export interface MediaServerScanResult {
+  created: number;
+  updated: number;
+  unbound: number;
+}
+
+export interface OrganizeRule {
+  id: string;
+  name: string;
+  priority: number;
+  enabled: boolean;
+  /** BoolCondition DSL root; null = match all. */
+  filter: BoolCondition | null;
+  library_id: string;
+  path_template: string;
+  file_op: 'move' | 'hardlink' | 'copy';
+  auto_execute: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizeRuleCreate {
+  name: string;
+  priority?: number;
+  enabled?: boolean;
+  filter?: BoolCondition | null;
+  library_id: string;
+  path_template: string;
+  file_op?: 'move' | 'hardlink' | 'copy';
+  auto_execute?: boolean;
+}
+
+export type OrganizeRuleUpdate = Partial<OrganizeRuleCreate>;
+
+/** Non-persisted rule draft accepted by the preview endpoint. */
+export interface OrganizeRuleDraft {
+  name?: string;
+  priority?: number;
+  enabled?: boolean;
+  filter?: BoolCondition | null;
+  library_id: string;
+  path_template: string;
+  file_op?: 'move' | 'hardlink' | 'copy';
+}
+
+export interface OrganizePreviewRequest {
+  notification_id?: string;
+  resource_id?: string;
+  rule?: OrganizeRuleDraft | null;
+  category?: string | null;
+}
+
+export interface OrganizePreviewOp {
+  op_type: string; // move | keep
+  src: string;
+  dst: string | null;
+  size: number;
+  reason: string;
+}
+
+export interface OrganizePreviewResponse {
+  matched_rule: { id?: string | null; name: string } | null;
+  library: { id: string; name: string } | null;
+  category: string | null;
+  needs_category: boolean;
+  uncategorized: boolean;
+  ops: OrganizePreviewOp[];
+}
+
+export type OrganizePlanStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
+
+export interface OrganizeOpsSummary {
+  total: number;
+  move: number;
+  keep: number;
+  movedir: number;
+}
+
+export interface OrganizePlanListItem {
+  id: string;
+  notification_id: string;
+  rule_id: string | null;
+  rule_name: string | null;
+  library_id: string | null;
+  library_name: string | null;
+  category: string | null;
+  status: OrganizePlanStatus;
+  error_message: string | null;
+  executed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  ops_summary: OrganizeOpsSummary;
+  /** Derived reason a plan stays pending: library/category unset →
+      'unclassified'; target library has no volume binding → 'unbound'. */
+  pending_reason: 'unclassified' | 'unbound' | null;
+}
+
+export interface OrganizePlanOp {
+  id: string;
+  seq: number;
+  op_type: string; // move | keep | movedir
+  src: string;
+  dst: string | null;
+  size: number;
+  status: string; // pending | done | kept | failed
+  error_message: string | null;
+}
+
+export interface OrganizeAuditEntry {
+  id: string;
+  plan_id: string;
+  action: string;
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface OrganizePlanDetail extends OrganizePlanListItem {
+  /** Frozen notification snapshot (shape: app/schemas/notification.py). */
+  payload: Record<string, unknown>;
+  ops: OrganizePlanOp[];
+  audit_entries: OrganizeAuditEntry[];
 }
