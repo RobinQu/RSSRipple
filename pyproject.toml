@@ -42,6 +42,7 @@ dev = [
     "bencodepy>=0.9.5",
     "fakeredis>=2.0",
     "pytest-cov>=7.1.0",
+    "mutmut>=3.7.0",
 ]
 
 [tool.pytest.ini_options]
@@ -51,6 +52,38 @@ markers = [
     "timeout: mark a test with a timeout (seconds)",
     "integration: mark a test as an integration test",
     "asyncio: mark a test as an asyncio test",
+]
+
+# Mutation testing (mutmut) — Phase 1 scope: the deterministic leaf modules
+# that have fast, dedicated unit tests. Expand ``only_mutate`` incrementally
+# toward the service layer as the mutation suite stabilizes.
+[tool.mutmut]
+source_paths = ["app"]
+pytest_add_cli_args_test_selection = ["tests/unit"]
+# Some unit tests import backfill scripts (scripts/*) — copy them alongside
+# the tests, plus the coverage config used by ``mutate_only_covered_lines``.
+also_copy = ["scripts", ".coveragerc"]
+only_mutate = [
+    "app/services/text_normalizer.py",
+    "app/services/url_tools.py",
+    "app/services/anime_signals.py",
+    "app/services/wikipedia_episode_parser.py",
+    "app/services/metadata_wiki_classify.py",
+    "app/services/resource_parser.py",
+    "app/services/filter_engine.py",
+    "app/services/genre_registry.py",
+    "app/utils/download_paths.py",
+]
+# ``mutate_only_covered_lines`` is intentionally left OFF: it relies on
+# coverage.py resolving ``source = app`` against mutmut's ``mutants/app``
+# copy, which does not match this repo's .coveragerc layout (resulting in an
+# empty covered-line set). The scoped ``only_mutate`` leaf modules are small
+# and well-tested, so full-line mutation stays fast and low-noise.
+# Never mutate log statements / raise statements — message wording and
+# exception types are not meaningful mutation targets.
+do_not_mutate_patterns = [
+    "logger\\.\\w+",
+    "raise \\w+",
 ]
 
 [tool.ruff]

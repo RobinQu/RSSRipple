@@ -137,6 +137,18 @@ docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 
 需要持久网络客户端的测试（E2E、种子生命周期）在两个 profile 中都被排除；Redis 专用的队列测试在单节点模式下自动跳过。浏览器端 E2E（Midscene.js）的运行方式见 [tests/midscene/README.md](tests/midscene/README.md)。
 
+**变异测试**（mutmut，Phase 1 试点）— 只变异确定性叶子模块（`pyproject.toml` 的 `[tool.mutmut] only_mutate`），用它们的快速单测建立基线：
+
+```bash
+uv run mutmut run       # 运行变异测试（可中断续跑，缓存于 mutants/）
+uv run mutmut results   # 列出幸存/超时变异体
+uv run mutmut show <mutant>   # 查看某个变异体的具体改动
+uv run mutmut html      # 生成 HTML 报告（html/ 目录）
+uv run mutmut browse    # 交互式 TUI
+```
+
+基线（9 个叶子模块）：~2300 变异体，变异分数约 77%。幸存变异体集中在 `genre_registry`（LLM prompt 模板）与 `metadata_wiki_classify`（分类正则）——多为「语义等价或非关键字符串」，对真盲区补测试、对等价变异体加 `# pragma: no mutate` 即可，不必强杀全部。
+
 ## 面向 Coding Agents 的 Spec 说明
 
 如果你是在本仓库工作的 coding agent（Claude Code、Cursor、Copilot、Codex 等），按以下顺序阅读：

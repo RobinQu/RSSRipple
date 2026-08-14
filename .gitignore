@@ -44,6 +44,10 @@ Thumbs.db
 htmlcov/
 .pytest_cache/
 
+# Mutation testing (mutmut)
+mutants/
+.mutmut-cache
+
 # Local agent / assistant scratch
 .claude/
 .workbuddy/
