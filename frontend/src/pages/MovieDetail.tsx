@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
-import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Select } from 'antd';
+import { ArrowLeft, Trash2, RefreshCw, Download, Pencil } from 'lucide-react';
+import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Modal, Checkbox } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
 import { worksApi } from '../api/works';
@@ -13,6 +13,7 @@ import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
+import WorkEditModal from '../components/WorkEditModal';
 
 const { Title, Text, Link: AntdLink } = Typography;
 
@@ -25,6 +26,9 @@ export default function MovieDetail() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [refreshOpen, setRefreshOpen] = useState(false);
+  const [overrideManualEdits, setOverrideManualEdits] = useState(false);
 
   const loadMovie = useCallback(async () => {
     if (!id) return;
@@ -37,22 +41,17 @@ export default function MovieDetail() {
     loadMovie();
   }, [loadMovie]);
 
-  async function handleIsAnimeChange(value: boolean | null) {
-    if (!id || !movie || value === (movie.is_anime ?? null)) return;
-    const r = await moviesApi.update(id, { is_anime: value });
-    if (r.success) {
-      setMovie(r.data as Movie);
-      message.success(t('works.animeUpdated'));
-    } else {
-      message.error(r.error?.message || t('works.animeUpdateFailed'));
-    }
-  }
+  const openRefreshDialog = () => {
+    setOverrideManualEdits(false);
+    setRefreshOpen(true);
+  };
 
   async function handleRefreshMetadata() {
     if (!id) return;
+    setRefreshOpen(false);
     setRefreshing(true);
     try {
-      const r = await worksApi.refreshMetadata(id, 'movie');
+      const r = await worksApi.refreshMetadata(id, 'movie', null, overrideManualEdits);
       if (r.success) {
         const filled = r.data.filled?.length ?? 0;
         message.success(
@@ -164,9 +163,15 @@ export default function MovieDetail() {
         </Title>
         <Tag color="green">{t('movies.title')}</Tag>
         <Button
+          icon={<Pencil size={14} />}
+          onClick={() => setEditOpen(true)}
+        >
+          {t('common.edit')}
+        </Button>
+        <Button
           icon={<RefreshCw size={16} />}
           loading={refreshing}
-          onClick={handleRefreshMetadata}
+          onClick={openRefreshDialog}
         >
           {t('works.refreshMetadata')}
         </Button>
@@ -191,18 +196,13 @@ export default function MovieDetail() {
               <Descriptions.Item label={t('movies.rating')}>{movie.rating ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('common.status')}>{movie.status || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('works.animeStatus')}>
-                <Select
-                  size="small"
-                  style={{ width: 140 }}
-                  allowClear
-                  placeholder={t('common.unknown')}
-                  value={movie.is_anime ?? null}
-                  options={[
-                    { value: true, label: t('works.anime') },
-                    { value: false, label: t('works.liveAction') },
-                  ]}
-                  onChange={(v) => handleIsAnimeChange(v ?? null)}
-                />
+                {movie.is_anime === true ? (
+                  <Tag color="magenta">{t('works.anime')}</Tag>
+                ) : movie.is_anime === false ? (
+                  <Tag>{t('works.liveAction')}</Tag>
+                ) : (
+                  t('common.unknown')
+                )}
               </Descriptions.Item>
               {movie.collection && (
                 <Descriptions.Item label={t('works.colCollection')}>
@@ -280,6 +280,34 @@ export default function MovieDetail() {
         open={!!createTaskResourceId}
         onClose={() => setCreateTaskResourceId(null)}
       />
+
+      <WorkEditModal
+        open={editOpen}
+        work={movie}
+        contentType="movie"
+        onClose={() => setEditOpen(false)}
+        onSaved={(updated) => setMovie(updated as Movie)}
+      />
+
+      <Modal
+        open={refreshOpen}
+        title={t('works.refreshMetadata')}
+        okText={t('common.confirm')}
+        cancelText={t('common.cancel')}
+        onOk={handleRefreshMetadata}
+        onCancel={() => setRefreshOpen(false)}
+      >
+        <p>{t('works.refreshDesc')}</p>
+        <Checkbox
+          checked={overrideManualEdits}
+          onChange={(e) => setOverrideManualEdits(e.target.checked)}
+        >
+          {t('works.overrideManualEdits')}
+        </Checkbox>
+        <p style={{ marginTop: 8, color: '#93939f', fontSize: 12 }}>
+          {t('works.overrideManualEditsDesc')}
+        </p>
+      </Modal>
     </div>
   );
 }

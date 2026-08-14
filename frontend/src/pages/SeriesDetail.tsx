@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Trash2, RefreshCw, Download } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Download, Pencil } from 'lucide-react';
 import {
   Typography, Spin, Card, Button, Tag, Descriptions,
-  Row, Col, Statistic, Table, Modal, App, Select,
+  Row, Col, Statistic, Table, Modal, App, Checkbox,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { seriesApi } from '../api/series';
@@ -16,6 +16,7 @@ import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
+import WorkEditModal from '../components/WorkEditModal';
 
 const { Title, Text, Link: AntdLink } = Typography;
 
@@ -29,6 +30,9 @@ export default function SeriesDetail() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [refreshOpen, setRefreshOpen] = useState(false);
+  const [overrideManualEdits, setOverrideManualEdits] = useState(false);
 
   const loadSeries = useCallback(async () => {
     if (!id) return;
@@ -52,22 +56,17 @@ export default function SeriesDetail() {
     };
   }, [id]);
 
-  const handleIsAnimeChange = async (value: boolean | null) => {
-    if (!id || !series || value === (series.is_anime ?? null)) return;
-    const r = await seriesApi.update(id, { is_anime: value });
-    if (r.success) {
-      setSeries(r.data);
-      message.success(t('works.animeUpdated'));
-    } else {
-      message.error(r.error?.message || t('works.animeUpdateFailed'));
-    }
+  const openRefreshDialog = () => {
+    setOverrideManualEdits(false);
+    setRefreshOpen(true);
   };
 
   const handleRefreshMetadata = async () => {
     if (!id) return;
+    setRefreshOpen(false);
     setRefreshing(true);
     try {
-      const r = await worksApi.refreshMetadata(id, 'tv');
+      const r = await worksApi.refreshMetadata(id, 'tv', null, overrideManualEdits);
       if (r.success) {
         const filled = r.data.filled?.length ?? 0;
         message.success(
@@ -172,9 +171,15 @@ export default function SeriesDetail() {
         </Title>
         <Tag color="blue">{t('series.title')}</Tag>
         <Button
+          icon={<Pencil size={14} />}
+          onClick={() => setEditOpen(true)}
+        >
+          {t('common.edit')}
+        </Button>
+        <Button
           icon={<RefreshCw size={14} />}
           loading={refreshing}
-          onClick={handleRefreshMetadata}
+          onClick={openRefreshDialog}
         >
           {t('works.refreshMetadata')}
         </Button>
@@ -205,18 +210,13 @@ export default function SeriesDetail() {
               <Descriptions.Item label={t('series.rating')}>{series.rating ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('common.status')}>{series.status || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('works.animeStatus')}>
-                <Select
-                  size="small"
-                  style={{ width: 140 }}
-                  allowClear
-                  placeholder={t('common.unknown')}
-                  value={series.is_anime ?? null}
-                  options={[
-                    { value: true, label: t('works.anime') },
-                    { value: false, label: t('works.liveAction') },
-                  ]}
-                  onChange={(v) => handleIsAnimeChange(v ?? null)}
-                />
+                {series.is_anime === true ? (
+                  <Tag color="magenta">{t('works.anime')}</Tag>
+                ) : series.is_anime === false ? (
+                  <Tag>{t('works.liveAction')}</Tag>
+                ) : (
+                  t('common.unknown')
+                )}
               </Descriptions.Item>
               {series.collection && (
                 <Descriptions.Item label={t('works.colCollection')}>
@@ -309,6 +309,34 @@ export default function SeriesDetail() {
         open={!!createTaskResourceId}
         onClose={() => setCreateTaskResourceId(null)}
       />
+
+      <WorkEditModal
+        open={editOpen}
+        work={series}
+        contentType="tv"
+        onClose={() => setEditOpen(false)}
+        onSaved={(updated) => setSeries(updated as TVSeries)}
+      />
+
+      <Modal
+        open={refreshOpen}
+        title={t('works.refreshMetadata')}
+        okText={t('common.confirm')}
+        cancelText={t('common.cancel')}
+        onOk={handleRefreshMetadata}
+        onCancel={() => setRefreshOpen(false)}
+      >
+        <p>{t('works.refreshDesc')}</p>
+        <Checkbox
+          checked={overrideManualEdits}
+          onChange={(e) => setOverrideManualEdits(e.target.checked)}
+        >
+          {t('works.overrideManualEdits')}
+        </Checkbox>
+        <p style={{ marginTop: 8, color: '#93939f', fontSize: 12 }}>
+          {t('works.overrideManualEditsDesc')}
+        </p>
+      </Modal>
     </div>
   );
 }

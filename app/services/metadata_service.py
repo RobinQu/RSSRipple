@@ -46,6 +46,42 @@ logger = logging.getLogger(__name__)
 FUZZY_THRESHOLD = 70
 AUTO_LINK_THRESHOLD = 85
 
+# Fields a human may edit through the work detail edit form. Everything else
+# (external_id / external_source / canonical_name / wikipedia_* / seasons /
+# collection_id / content_type / search_text / timestamps) is system-managed.
+# A work's ``manually_edited_fields`` list holds the subset of these the user
+# touched; automatic scans (upsert + refresh) must not overwrite them.
+MANUAL_EDITABLE_FIELDS: frozenset[str] = frozenset({
+    "title_cn", "title_en", "original_title", "aliases", "description",
+    "poster_url", "rating", "genre", "status", "is_anime",
+    "number_of_episodes", "number_of_seasons", "start_date", "end_date",
+    "release_date", "runtime",
+})
+
+
+def manually_edited_fields(work: Any) -> set[str]:
+    """The set of fields a user has manually edited on ``work``."""
+    return set(getattr(work, "manually_edited_fields", None) or [])
+
+
+def field_manually_edited(work: Any, field: str) -> bool:
+    """True when ``field`` was manually edited and must not be auto-written."""
+    return field in manually_edited_fields(work)
+
+
+def mark_manually_edited(work: Any, fields: dict) -> None:
+    """Record which of ``fields`` the user edited manually on ``work``.
+
+    Called by the series/movie PUT handlers: every manually-editable field
+    present in the update payload (explicitly sent) is added to the work's
+    ``manually_edited_fields`` list so automatic scans stop overwriting it.
+    """
+    edited = [k for k in fields if k in MANUAL_EDITABLE_FIELDS]
+    if not edited:
+        return
+    merged = sorted(manually_edited_fields(work) | set(edited))
+    work.manually_edited_fields = merged
+
 
 def _record_unmatched_attempt(resource: Any, failure_type: str) -> None:
     """Stamp retry-state columns when a resource ends a pass still unmatched.
@@ -76,7 +112,7 @@ async def apply_channel_default_is_anime(
         work = await db.get(TVSeries, resource.series_id)
     elif getattr(resource, "movie_id", None):
         work = await db.get(Movie, resource.movie_id)
-    if work is not None and work.is_anime is not True:
+    if work is not None and work.is_anime is not True and not field_manually_edited(work, "is_anime"):
         work.is_anime = True
 
 
@@ -107,6 +143,8 @@ async def maybe_verify_is_anime_via_bangumi(
         work = await db.get(Movie, resource.movie_id)
         year = work.release_date.year if work and work.release_date else None
     if work is None or work.is_anime is not None:
+        return
+    if field_manually_edited(work, "is_anime"):
         return
 
     titles = [work.title_cn, work.original_title, work.title_en, *(work.aliases or [])]
@@ -744,11 +782,14 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             series.external_id = canonical_id
         if raw_source and raw_source != "llm_search":
             series.external_source = raw_source
-        series.description = data.get("description") or series.description
-        if data.get("rating") is not None:
+        if not field_manually_edited(series, "description"):
+            series.description = data.get("description") or series.description
+        if not field_manually_edited(series, "rating") and data.get("rating") is not None:
             series.rating = data.get("rating")
-        series.original_title = data.get("original_title") or series.original_title
-        series.status = data.get("status") or series.status
+        if not field_manually_edited(series, "original_title"):
+            series.original_title = data.get("original_title") or series.original_title
+        if not field_manually_edited(series, "status"):
+            series.status = data.get("status") or series.status
         # P2 anti-regression guard (wikipedia source only): never overwrite a
         # richer existing season structure with a poorer one (e.g. a merged/
         # manga-modeled zh infobox yielding {1: 51} over a verified 4-season
@@ -768,43 +809,60 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
                     len(series.seasons or []) or (series.number_of_seasons or 0),
                     data["seasons"],
                 )
-        if data.get("number_of_episodes") is not None and seasons_override:
+        if (
+            data.get("number_of_episodes") is not None
+            and seasons_override
+            and not field_manually_edited(series, "number_of_episodes")
+        ):
             series.number_of_episodes = data.get("number_of_episodes")
-        if data.get("number_of_seasons") is not None and seasons_override:
+        if (
+            data.get("number_of_seasons") is not None
+            and seasons_override
+            and not field_manually_edited(series, "number_of_seasons")
+        ):
             series.number_of_seasons = data.get("number_of_seasons")
+        # ``seasons`` (per-season episode counts) is system-managed — always
+        # writable, it is not part of MANUAL_EDITABLE_FIELDS.
         if data.get("seasons") and seasons_override:
             series.seasons = data["seasons"]
-        sd = _parse_date(data.get("start_date"))
-        if sd:
-            series.start_date = sd
-        ed = _parse_date(data.get("end_date"))
-        if ed:
-            series.end_date = ed
-        genres = normalize_genres(data.get("genre"))
-        if genres:
-            series.genre = genres
-        if data.get("title_cn"):
-            series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
-        if data.get("title_en"):
-            series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
+        if not field_manually_edited(series, "start_date"):
+            sd = _parse_date(data.get("start_date"))
+            if sd:
+                series.start_date = sd
+        if not field_manually_edited(series, "end_date"):
+            ed = _parse_date(data.get("end_date"))
+            if ed:
+                series.end_date = ed
+        if not field_manually_edited(series, "genre"):
+            genres = normalize_genres(data.get("genre"))
+            if genres:
+                series.genre = genres
+        if not field_manually_edited(series, "title_cn"):
+            if data.get("title_cn"):
+                series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
+        if not field_manually_edited(series, "title_en"):
+            if data.get("title_en"):
+                series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
 
-        existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
-        new_aliases = list(series.aliases or [])
-        for t in (
-            data.get("title_cn"),
-            data.get("title_en"),
-            data.get("original_title"),
-            *(data.get("alt_titles") or []),
-        ):
-            if t and t not in existing_titles and t not in new_aliases:
-                new_aliases.append(t)
-                existing_titles.add(t)
-        series.aliases = new_aliases or None
+        if not field_manually_edited(series, "aliases"):
+            existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
+            new_aliases = list(series.aliases or [])
+            for t in (
+                data.get("title_cn"),
+                data.get("title_en"),
+                data.get("original_title"),
+                *(data.get("alt_titles") or []),
+            ):
+                if t and t not in existing_titles and t not in new_aliases:
+                    new_aliases.append(t)
+                    existing_titles.add(t)
+            series.aliases = new_aliases or None
 
-        remote_poster = data.get("poster_url")
-        if remote_poster and not (series.poster_url or "").startswith("/posters/"):
-            local_url = await download_and_cache_poster(remote_poster)
-            series.poster_url = local_url or remote_poster
+        if not field_manually_edited(series, "poster_url"):
+            remote_poster = data.get("poster_url")
+            if remote_poster and not (series.poster_url or "").startswith("/posters/"):
+                local_url = await download_and_cache_poster(remote_poster)
+                series.poster_url = local_url or remote_poster
         series.content_type = "tv"
         apply_is_anime(series, data)
         # P2: wikipedia-sourced episode_list populates Episode rows (additive
@@ -918,41 +976,50 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             movie.external_id = canonical_id
         if raw_source and raw_source != "llm_search":
             movie.external_source = raw_source
-        movie.description = data.get("description") or movie.description
-        if data.get("rating") is not None:
+        if not field_manually_edited(movie, "description"):
+            movie.description = data.get("description") or movie.description
+        if not field_manually_edited(movie, "rating") and data.get("rating") is not None:
             movie.rating = data.get("rating")
-        movie.original_title = data.get("original_title") or movie.original_title
-        movie.status = data.get("status") or movie.status
-        rd = _parse_date(data.get("release_date"))
-        if rd:
-            movie.release_date = rd
-        if data.get("runtime") is not None:
+        if not field_manually_edited(movie, "original_title"):
+            movie.original_title = data.get("original_title") or movie.original_title
+        if not field_manually_edited(movie, "status"):
+            movie.status = data.get("status") or movie.status
+        if not field_manually_edited(movie, "release_date"):
+            rd = _parse_date(data.get("release_date"))
+            if rd:
+                movie.release_date = rd
+        if not field_manually_edited(movie, "runtime") and data.get("runtime") is not None:
             movie.runtime = data.get("runtime")
-        genres = normalize_genres(data.get("genre"))
-        if genres:
-            movie.genre = genres
-        if data.get("title_cn"):
-            movie.title_cn = movie.title_cn or data.get("title_cn")
-        if data.get("title_en"):
-            movie.title_en = movie.title_en or data.get("title_en")
+        if not field_manually_edited(movie, "genre"):
+            genres = normalize_genres(data.get("genre"))
+            if genres:
+                movie.genre = genres
+        if not field_manually_edited(movie, "title_cn"):
+            if data.get("title_cn"):
+                movie.title_cn = movie.title_cn or data.get("title_cn")
+        if not field_manually_edited(movie, "title_en"):
+            if data.get("title_en"):
+                movie.title_en = movie.title_en or data.get("title_en")
 
-        existing_titles = {t for t in [movie.title_cn, movie.title_en, *(movie.aliases or [])] if t}
-        new_aliases = list(movie.aliases or [])
-        for t in (
-            data.get("title_cn"),
-            data.get("title_en"),
-            data.get("original_title"),
-            *(data.get("alt_titles") or []),
-        ):
-            if t and t not in existing_titles and t not in new_aliases:
-                new_aliases.append(t)
-                existing_titles.add(t)
-        movie.aliases = new_aliases or None
+        if not field_manually_edited(movie, "aliases"):
+            existing_titles = {t for t in [movie.title_cn, movie.title_en, *(movie.aliases or [])] if t}
+            new_aliases = list(movie.aliases or [])
+            for t in (
+                data.get("title_cn"),
+                data.get("title_en"),
+                data.get("original_title"),
+                *(data.get("alt_titles") or []),
+            ):
+                if t and t not in existing_titles and t not in new_aliases:
+                    new_aliases.append(t)
+                    existing_titles.add(t)
+            movie.aliases = new_aliases or None
 
-        remote_poster = data.get("poster_url")
-        if remote_poster and not (movie.poster_url or "").startswith("/posters/"):
-            local_url = await download_and_cache_poster(remote_poster)
-            movie.poster_url = local_url or remote_poster
+        if not field_manually_edited(movie, "poster_url"):
+            remote_poster = data.get("poster_url")
+            if remote_poster and not (movie.poster_url or "").startswith("/posters/"):
+                local_url = await download_and_cache_poster(remote_poster)
+                movie.poster_url = local_url or remote_poster
         movie.content_type = "movie"
         apply_is_anime(movie, data)
         # P3: bag every id this entity carries (primary + alt_external_ids).
@@ -1134,6 +1201,7 @@ async def refresh_work_metadata(
     work_id: str,
     content_type: str,
     source: str | None,
+    override_manual_edits: bool = False,
 ) -> dict:
     """Re-search metadata for an existing TVSeries/Movie and fill missing fields.
 
@@ -1142,12 +1210,18 @@ async def refresh_work_metadata(
     the work are filled — existing user/agent values are preserved. Posters are
     downloaded and cached locally like the initial ingestion path.
 
+    Fields the user edited manually (``manually_edited_fields``) are skipped
+    unless ``override_manual_edits`` is True — that flag is the explicit
+    "覆盖所有人工编辑字段" opt-in offered by the work-detail refresh dialog.
+
     Returns a summary dict: ``{found, filled, source, message}``.
     """
     is_movie = (content_type or "").lower() == "movie"
     work = await db.get(Movie if is_movie else TVSeries, work_id)
     if not work:
         return {"found": False, "filled": [], "source": source, "message": "work not found"}
+
+    manual = manually_edited_fields(work)
 
     search_title = _first_present(work.title_en, work.title_cn, work.original_title)
     if not search_title:
@@ -1190,6 +1264,8 @@ async def refresh_work_metadata(
     filled: list[str] = []
 
     def fill(attr: str, key: str, cast: Any = lambda x: x) -> None:
+        if not override_manual_edits and attr in manual:
+            return
         cur = getattr(work, attr)
         if cur in (None, "", [], ()):
             val = best.get(key)
@@ -1204,7 +1280,7 @@ async def refresh_work_metadata(
     fill("title_cn", "title_cn")
     fill("title_en", "title_en")
 
-    if not work.genre:
+    if (override_manual_edits or "genre" not in manual) and not work.genre:
         g = normalize_genres(best.get("genre"))
         if g:
             work.genre = g
@@ -1220,11 +1296,12 @@ async def refresh_work_metadata(
         fill("end_date", "end_date", _parse_date)
 
     # Poster: download + cache, like the initial ingestion path.
-    remote_poster = best.get("poster_url")
-    if remote_poster and not (work.poster_url or "").startswith("/posters/"):
-        local_url = await download_and_cache_poster(remote_poster)
-        work.poster_url = local_url or remote_poster
-        filled.append("poster_url")
+    if override_manual_edits or "poster_url" not in manual:
+        remote_poster = best.get("poster_url")
+        if remote_poster and not (work.poster_url or "").startswith("/posters/"):
+            local_url = await download_and_cache_poster(remote_poster)
+            work.poster_url = local_url or remote_poster
+            filled.append("poster_url")
 
     if not work.external_id and best.get("external_id"):
         work.external_id = best["external_id"]

@@ -189,6 +189,8 @@ export interface TVSeries {
   content_type: string | null;
   // Tri-state: true = Japanese animation, false = confirmed live-action, null = undetermined
   is_anime?: boolean | null;
+  // Fields the user edited manually via the edit form; auto scans skip these.
+  manually_edited_fields?: string[] | null;
   collection_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -224,6 +226,8 @@ export interface Movie {
   content_type: string | null;
   // Tri-state: true = Japanese animation, false = confirmed live-action, null = undetermined
   is_anime?: boolean | null;
+  // Fields the user edited manually via the edit form; auto scans skip these.
+  manually_edited_fields?: string[] | null;
   collection_id?: string | null;
   created_at: string;
   updated_at: string;
@@ -561,6 +565,7 @@ export interface PendingDecision {
   series_id: string | null;
   movie_id: string | null;
   episode: number | null;
+  season: number | null;
   candidates: string[];
   reason: string;
   llm_suggestion: string | null;

@@ -84,7 +84,13 @@ def apply_is_anime(work: Any, data: dict) -> None:
     sticks (Wikipedia TVAnime block, TMDB Animation+ja, confirmed LLM
     verdicts); False only fills NULL — an existing True is never downgraded,
     and an existing False is never unset by the LLM.
+
+    A work whose ``is_anime`` was manually edited (listed in
+    ``manually_edited_fields``) is never touched by any automatic evidence —
+    the user's verdict wins until they opt into overriding it.
     """
+    if "is_anime" in (getattr(work, "manually_edited_fields", None) or []):
+        return
     if is_anime_identity(data.get("external_source"), data.get("alt_external_ids")):
         work.is_anime = True
         return

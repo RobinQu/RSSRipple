@@ -11,6 +11,7 @@ from app.models.series import TVSeries
 from app.schemas.common import paginated_response, success_response
 from app.schemas.series import TVSeriesCreate, TVSeriesResponse, TVSeriesUpdate
 from app.services import fts as fts_service
+from app.services.metadata_service import mark_manually_edited
 
 router = APIRouter()
 
@@ -186,6 +187,7 @@ async def update_series(
         update_data["aliases"] = (series.aliases or []) + new_ones
     for key, value in update_data.items():
         setattr(series, key, value)
+    mark_manually_edited(series, update_data)
     await db.flush()
     await db.refresh(series)
     return success_response(TVSeriesResponse.model_validate(series).model_dump())

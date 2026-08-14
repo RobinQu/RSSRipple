@@ -1204,3 +1204,80 @@ async def test_refresh_work_metadata_tolerates_llm_candidate_variance(db_session
         result2 = await ms.refresh_work_metadata(db_session, work2.id, "tv", "tmdb")
     assert result2["found"] is True
     assert result2["filled"] == []
+
+
+async def test_refresh_work_metadata_skips_manually_edited_fields(db_session):
+    """Refresh fills empty fields but never ones the user edited manually,
+    unless override_manual_edits is passed."""
+    work = TVSeries(
+        id=_uuid(), title_en="Manual Show", content_type="tv",
+        external_id="tmdb:manual-1", external_source="tmdb",
+        manually_edited_fields=["rating", "genre"],
+    )
+    db_session.add(work)
+    await db_session.flush()
+    candidate = {
+        "title_en": "Manual Show",
+        "content_type": "tv",
+        "rating": 9.0,
+        "genre": ["Animation"],
+        "description": "A synopsis.",
+    }
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[candidate],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result = await ms.refresh_work_metadata(db_session, work.id, "tv", "tmdb")
+
+    # description filled; rating/genre left untouched (manually edited).
+    assert "description" in result["filled"]
+    assert "rating" not in result["filled"]
+    assert "genre" not in result["filled"]
+    assert work.rating is None
+    assert work.genre is None
+
+    # With override, the manually-edited fields are filled too.
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[candidate],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result2 = await ms.refresh_work_metadata(
+            db_session, work.id, "tv", "tmdb", override_manual_edits=True,
+        )
+    assert "rating" in result2["filled"]
+    assert "genre" in result2["filled"]
+    assert work.rating == 9.0
+    assert work.genre == ["Animation"]
+
+
+async def test_upsert_skips_manually_edited_fields(db_session):
+    """Auto-scan upsert must not overwrite a manually-edited field."""
+    work = TVSeries(
+        id=_uuid(), title_en="Upsert Show", content_type="tv",
+        external_id="tmdb:upsert-1", external_source="tmdb",
+        rating=7.5, manually_edited_fields=["rating", "is_anime"],
+    )
+    db_session.add(work)
+    await db_session.flush()
+    data = {
+        "content_type": "tv",
+        "title_en": "Upsert Show",
+        "external_id": "tmdb:upsert-1",
+        "external_source": "tmdb",
+        "rating": 8.0,
+        "is_anime": True,
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        updated = await ms.create_or_update_series_from_external(db_session, data)
+    assert updated.id == work.id
+    assert updated.rating == 7.5  # manual edit preserved
+    assert updated.is_anime is None  # manual edit preserved (identity-ish is_anime True ignored)

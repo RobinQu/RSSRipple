@@ -76,6 +76,10 @@ class RefreshItem(BaseModel):
 
 class RefreshMetadataRequest(RefreshItem):
     source: str | None = None
+    # Explicit opt-in to overwrite fields the user edited manually through the
+    # work detail edit form. Defaults to False: automatic scans never clobber
+    # manual edits unless the user ticks "覆盖所有人工编辑字段" in the dialog.
+    override_manual_edits: bool = False
 
 
 class BatchRefreshMetadataRequest(BaseModel):
@@ -145,7 +149,9 @@ async def refresh_single_metadata(
         source = await resolve_default_metadata_source(db, body.source)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    result = await refresh_work_metadata(db, body.id, body.content_type, source)
+    result = await refresh_work_metadata(
+        db, body.id, body.content_type, source, override_manual_edits=body.override_manual_edits
+    )
     return success_response(result)
 
 

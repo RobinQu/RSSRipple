@@ -94,6 +94,62 @@ class TestWorksRefreshMetadata:
         assert res.status_code == 200
         assert res.json()["data"]["found"] is False
 
+    async def test_refresh_skips_manual_edits_unless_overridden(self, client, sample_series):
+        """Manual edits are kept by default; override_manual_edits fills them."""
+        candidate = {
+            "content_type": "tv",
+            "title_cn": "测试剧集",
+            "title_en": "Test Series",
+            "rating": 9.0,
+            "description": "A test series.",
+        }
+        # Explicitly clearing the fields marks them manually-edited and empties
+        # them, so a default refresh would otherwise re-fill them.
+        await client.put(
+            f"/api/v1/series/{sample_series.id}",
+            json={"rating": None, "description": None},
+        )
+        with patch(
+            "app.services.metadata_service.search_metadata_via_llm",
+            AsyncMock(return_value=[candidate]),
+        ), patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            AsyncMock(return_value=None),
+        ):
+            res = await client.post(
+                "/api/v1/works/refresh-metadata",
+                json={"id": sample_series.id, "content_type": "tv", "source": "wikipedia"},
+            )
+        assert res.status_code == 200
+        filled = res.json()["data"]["filled"]
+        assert "rating" not in filled and "description" not in filled
+        got = await client.get(f"/api/v1/series/{sample_series.id}")
+        assert got.json()["data"]["rating"] is None
+        assert got.json()["data"]["description"] is None
+
+        with patch(
+            "app.services.metadata_service.search_metadata_via_llm",
+            AsyncMock(return_value=[candidate]),
+        ), patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            AsyncMock(return_value=None),
+        ):
+            res2 = await client.post(
+                "/api/v1/works/refresh-metadata",
+                json={
+                    "id": sample_series.id,
+                    "content_type": "tv",
+                    "source": "wikipedia",
+                    "override_manual_edits": True,
+                },
+            )
+        assert res2.status_code == 200
+        filled2 = res2.json()["data"]["filled"]
+        assert "rating" in filled2 and "description" in filled2
+        got2 = await client.get(f"/api/v1/series/{sample_series.id}")
+        assert got2.json()["data"]["rating"] == 9.0
+        assert got2.json()["data"]["description"] == "A test series."
+
     async def test_refresh_uses_configured_default_source(self, client, sample_series):
         """When no source is passed, the configured default is used."""
         await client.put("/api/v1/works/metadata-config", json={"default_source": "wikipedia"})

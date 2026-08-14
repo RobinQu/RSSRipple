@@ -396,6 +396,11 @@ async def _apply_light_migrations(conn) -> None:
         # purpose: NULL = not yet determined, distinct from False.
         ("tv_series", "is_anime", "BOOLEAN"),
         ("movies", "is_anime", "BOOLEAN"),
+        # Fields the user edited manually through the work detail edit form.
+        # JSON list of field names — auto metadata scans (upsert / refresh)
+        # skip writing these unless the refresh action opts into overriding.
+        ("tv_series", "manually_edited_fields", "TEXT" if is_turso else "JSONB"),
+        ("movies", "manually_edited_fields", "TEXT" if is_turso else "JSONB"),
         # Daemon-view → process-view path prefix mapping used by the built-in
         # organize subsystem. DEPRECATED orphan column (R1): superseded by the
         # volume binding below; kept in place, no longer read by code.

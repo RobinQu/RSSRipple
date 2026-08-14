@@ -67,6 +67,7 @@ class TVSeriesResponse(BaseModel):
     end_date: date | None = None
     content_type: str | None = None
     is_anime: bool | None = None
+    manually_edited_fields: list[str] | None = None
     collection_id: str | None = None
     created_at: datetime
     updated_at: datetime

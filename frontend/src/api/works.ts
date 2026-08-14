@@ -54,8 +54,18 @@ export const worksApi = {
       auto_refresh_enabled,
       auto_refresh_interval_minutes,
     }),
-  refreshMetadata: (id: string, content_type: RefreshItem['content_type'], source?: string | null) =>
-    api.post<RefreshResult>('/works/refresh-metadata', { id, content_type, source: source ?? null }),
+  refreshMetadata: (
+    id: string,
+    content_type: RefreshItem['content_type'],
+    source?: string | null,
+    overrideManualEdits?: boolean,
+  ) =>
+    api.post<RefreshResult>('/works/refresh-metadata', {
+      id,
+      content_type,
+      source: source ?? null,
+      override_manual_edits: overrideManualEdits ?? false,
+    }),
   batchRefreshMetadata: (items: RefreshItem[], source?: string | null) =>
     api.post<BatchRefreshResponse>('/works/batch-refresh-metadata', {
       items,

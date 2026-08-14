@@ -79,6 +79,15 @@ import { resourcesApi } from '../api/channels';
 
 const { Title, Text } = Typography;
 
+// Per-candidate draft for the ambiguous-episode correction action (season +
+// episode + absolute_episode, all optional; the backend PATCH preserves any
+// field the user left out).
+interface EpisodeDraft {
+  season: number | null;
+  episode: number | null;
+  absolute_episode: number | null;
+}
+
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
@@ -104,9 +113,9 @@ export default function AgentDetail() {
   const [decTotal, setDecTotal] = useState(0);
   const [loadingDec, setLoadingDec] = useState(false);
   const [candidateCache, setCandidateCache] = useState<Record<string, FileResource>>({});
-  // Ambiguous-episode decisions: per-candidate episode draft + in-flight flag
-  // for the "correct episode" action.
-  const [episodeDrafts, setEpisodeDrafts] = useState<Record<string, number | null>>({});
+  // Ambiguous-episode decisions: per-candidate draft (season / episode /
+  // absolute_episode) + in-flight flag for the "correct episode" action.
+  const [episodeDrafts, setEpisodeDrafts] = useState<Record<string, EpisodeDraft>>({});
   const [savingEpisodeCid, setSavingEpisodeCid] = useState<string | null>(null);
   // Batch selection + AI auto-handle loading state for the decisions tab.
   const [selectedDecisionIds, setSelectedDecisionIds] = useState<string[]>([]);
@@ -157,6 +166,9 @@ export default function AgentDetail() {
   const [runsNonEmptyOnly, setRunsNonEmptyOnly] = useState(true);
   // Drawer showing a single run's matched file resources.
   const [runDrawerRun, setRunDrawerRun] = useState<AgentRun | null>(null);
+  // Per-resource toggle for revealing the raw release title inside the run
+  // drawer (hidden by default — the formatted title + tags are shown first).
+  const [runRawTitleOpen, setRunRawTitleOpen] = useState<Record<string, boolean>>({});
 
   const loadAgent = useCallback(async () => {
     if (!id) return;
@@ -422,9 +434,13 @@ export default function AgentDetail() {
 
   const handleCorrectEpisode = async (cid: string) => {
     const draft = episodeDrafts[cid];
-    if (draft == null) return;
+    if (!draft || draft.episode == null) return;
     setSavingEpisodeCid(cid);
-    const r = await resourcesApi.correctEpisode(cid, { episode: draft });
+    const r = await resourcesApi.correctEpisode(cid, {
+      episode: draft.episode,
+      ...(draft.season != null ? { season: draft.season } : {}),
+      ...(draft.absolute_episode != null ? { absolute_episode: draft.absolute_episode } : {}),
+    });
     setSavingEpisodeCid(null);
     if (r.success) {
       message.success(t('agents.episodeSaved'));
@@ -443,6 +459,44 @@ export default function AgentDetail() {
   const isAmbiguousDecision = (d: PendingDecision): boolean => {
     const cands = d.candidate_resources;
     return !!cands && cands.length > 0 && cands.every((r) => r.episode_confidence === 'ambiguous');
+  };
+
+  // Show the raw release title as a secondary line whenever it differs from
+  // the parsed/formatted title — the raw title carries the subtitle group,
+  // SxxExx markers and release tags a human needs to disambiguate candidates.
+  const renderRawTitle = (r: FileResource | undefined) => {
+    const raw = r?.title_raw;
+    if (!raw) return null;
+    const formatted = r?.title_cn || r?.title_en;
+    if (!formatted || raw === formatted) return null;
+    return (
+      <div
+        style={{
+          fontSize: 12,
+          color: '#8a8a94',
+          marginTop: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          minWidth: 0,
+        }}
+      >
+        <span style={{ flexShrink: 0 }}>{t('channels.rawTitle')}:</span>
+        <Tooltip title={raw}>
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {raw}
+          </span>
+        </Tooltip>
+      </div>
+    );
   };
 
   const handleSaveFilter = async () => {
@@ -976,7 +1030,17 @@ export default function AgentDetail() {
                               const r = candidateCache[cid] ?? d.candidate_resources?.find((x) => x.id === cid);
                               const isAiPick = !ambiguous && cid === d.llm_picked_resource_id;
                               if (ambiguous) {
-                                const draft = episodeDrafts[cid] ?? r?.episode ?? null;
+                                const base = {
+                                  season: r?.season ?? null,
+                                  episode: r?.episode ?? null,
+                                  absolute_episode: r?.absolute_episode ?? null,
+                                };
+                                const draft = { ...base, ...(episodeDrafts[cid] ?? {}) };
+                                const patchDraft = (patch: Partial<EpisodeDraft>) =>
+                                  setEpisodeDrafts((prev) => ({
+                                    ...prev,
+                                    [cid]: { ...base, ...(prev[cid] ?? {}), ...patch },
+                                  }));
                                 return (
                                   <div
                                     key={cid}
@@ -994,30 +1058,52 @@ export default function AgentDetail() {
                                       <Text ellipsis style={{ fontSize: 13 }}>
                                         {r?.title_cn || r?.title_raw || cid.slice(0, 8)}
                                       </Text>
+                                      {renderRawTitle(r)}
                                       <Space size={4} wrap style={{ fontSize: 11, color: '#93939f', marginTop: 2 }}>
                                         {r?.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                                         {r?.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
+                                        {r?.season != null && <span>S{r.season}</span>}
                                         {r?.episode != null && (
                                           <span>{t('agents.rawEpisode', { n: r.episode })}</span>
                                         )}
                                       </Space>
                                     </div>
-                                    <Space size={6}>
+                                    <Space size={6} align="center" wrap>
+                                      <InputNumber
+                                        size="small"
+                                        min={0}
+                                        value={draft.season}
+                                        placeholder={t('resource.seasonLabel')}
+                                        onChange={(v) =>
+                                          patchDraft({ season: typeof v === 'number' ? v : null })
+                                        }
+                                        style={{ width: 72 }}
+                                      />
                                       <InputNumber
                                         size="small"
                                         min={1}
-                                        value={draft}
+                                        value={draft.episode}
                                         placeholder={t('agents.correctEpisodePlaceholder')}
                                         onChange={(v) =>
-                                          setEpisodeDrafts((prev) => ({ ...prev, [cid]: v as number | null }))
+                                          patchDraft({ episode: typeof v === 'number' ? v : null })
                                         }
-                                        style={{ width: 90 }}
+                                        style={{ width: 72 }}
+                                      />
+                                      <InputNumber
+                                        size="small"
+                                        min={0}
+                                        value={draft.absolute_episode}
+                                        placeholder={t('resource.absoluteEpisodePlaceholder')}
+                                        onChange={(v) =>
+                                          patchDraft({ absolute_episode: typeof v === 'number' ? v : null })
+                                        }
+                                        style={{ width: 130 }}
                                       />
                                       <Button
                                         type="primary"
                                         size="small"
                                         loading={savingEpisodeCid === cid}
-                                        disabled={episodeDrafts[cid] == null}
+                                        disabled={draft.episode == null}
                                         onClick={() => handleCorrectEpisode(cid)}
                                       >
                                         {t('agents.correctEpisode')}
@@ -1050,6 +1136,7 @@ export default function AgentDetail() {
                                           <Tag color="blue" style={{ margin: 0 }}>{t('agents.aiPickTag')}</Tag>
                                         )}
                                       </Space>
+                                      {renderRawTitle(r)}
                                       <Space size={4} wrap style={{ fontSize: 11, color: '#93939f', marginTop: 2 }}>
                                         {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                                         {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
@@ -1343,6 +1430,29 @@ export default function AgentDetail() {
                     <Text strong style={{ fontSize: 13, color: '#17171c', wordBreak: 'break-word' }}>
                       {r.title_cn || r.title_raw}
                     </Text>
+                    {r.title_cn && r.title_raw && r.title_cn !== r.title_raw && (
+                      <div style={{ marginTop: 2 }}>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                          onClick={() =>
+                            setRunRawTitleOpen((prev) => ({ ...prev, [r.id]: !prev[r.id] }))
+                          }
+                        >
+                          {runRawTitleOpen[r.id]
+                            ? t('channels.hideRawTitle')
+                            : t('channels.showRawTitle')}
+                        </Button>
+                        {runRawTitleOpen[r.id] && (
+                          <div
+                            style={{ fontSize: 12, color: '#8a8a94', wordBreak: 'break-word' }}
+                          >
+                            {r.title_raw}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <Space size={4} wrap style={{ fontSize: 11, color: '#616161', marginTop: 4 }}>
                       {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                       {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}

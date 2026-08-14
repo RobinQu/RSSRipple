@@ -40,6 +40,11 @@ class Movie(Base):
     # identity, Wikipedia TVAnime infobox, TMDB Animation+ja) with an LLM
     # fallback — see app/services/anime_signals.py.
     is_anime: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Fields the user edited manually through the work detail edit form. Any
+    # field listed here is never overwritten by an automatic metadata scan
+    # (upsert / refresh) unless the refresh action is run with
+    # ``override_manual_edits``. See metadata_service.MANUAL_EDITABLE_FIELDS.
+    manually_edited_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
     canonical_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     wikipedia_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     wikipedia_page_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

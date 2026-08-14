@@ -109,6 +109,13 @@ def test_apply_is_anime_absent_keeps_null():
     assert w.is_anime is None
 
 
+def test_apply_is_anime_respects_manual_edit():
+    """A manually-edited is_anime is never touched by automatic evidence."""
+    w = SimpleNamespace(is_anime=False, manually_edited_fields=["is_anime"])
+    apply_is_anime(w, {"external_source": "bangumi"})  # identity would force True
+    assert w.is_anime is False
+
+
 # ---------------------------------------------------------------------------
 # has_tvanime_infobox — deterministic Wikipedia anime signal
 # ---------------------------------------------------------------------------

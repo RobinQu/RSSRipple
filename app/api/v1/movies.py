@@ -12,6 +12,7 @@ from app.models.movie import Movie
 from app.schemas.common import paginated_response, success_response
 from app.schemas.movie import MovieCreate, MovieResponse, MovieUpdate
 from app.services import fts as fts_service
+from app.services.metadata_service import mark_manually_edited
 
 router = APIRouter()
 
@@ -170,6 +171,7 @@ async def update_movie(
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(movie, key, value)
+    mark_manually_edited(movie, update_data)
     await db.flush()
     await db.refresh(movie)
     return success_response(MovieResponse.model_validate(movie).model_dump())

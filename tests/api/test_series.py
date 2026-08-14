@@ -35,6 +35,18 @@ class TestSeriesCRUD:
         assert res.status_code == 200
         assert res.json()["data"]["title_cn"] == "剧更新"
 
+    async def test_update_marks_manually_edited_fields(self, client):
+        """PUT records edited fields in manually_edited_fields for auto-scan protection."""
+        create = await client.post("/api/v1/series", json={"title_en": "S"})
+        sid = create.json()["data"]["id"]
+        res = await client.put(
+            f"/api/v1/series/{sid}",
+            json={"title_cn": "剧更新", "is_anime": True},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert set(data["manually_edited_fields"]) == {"title_cn", "is_anime"}
+
     async def test_get_404(self, client):
         res = await client.get("/api/v1/series/nope")
         assert res.status_code == 404
