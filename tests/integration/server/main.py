@@ -6,6 +6,9 @@ Endpoints:
 - Torrent files: GET /torrents/{hash}.torrent
 - Test files: GET /files/{path}
 - Torrent API: POST /api/torrents/create, /seed, /download, GET /status, POST /assert-complete
+- Mock Plex: GET /plex/identity, /plex/library/sections, /plex/library/sections/{key}/refresh
+- Mock Emby/Jellyfin: GET /emby/System/Info, /emby/Library/VirtualFolders, POST /emby/Library/Refresh
+- Mock Bangumi: POST /bangumi/v0/search/subjects, GET /bangumi/v0/subjects/{id}, GET /bangumi/v0/episodes
 - Health: GET /health
 """
 
@@ -20,7 +23,10 @@ from fastapi.responses import PlainTextResponse
 
 _SERVER_DIR = Path(__file__).parent
 
+from .mock_bangumi import router as mock_bangumi_router
+from .mock_emby import router as mock_emby_router
 from .mock_llm import router as mock_llm_router
+from .mock_plex import router as mock_plex_router
 from .rss_server import (
     generate_dmhy_feed,
     generate_eztv_feed,
@@ -44,6 +50,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RSSRipple Integration Test Server")
 app.include_router(mock_llm_router)
+app.include_router(mock_plex_router)
+app.include_router(mock_emby_router)
+app.include_router(mock_bangumi_router)
 
 # ─── Global State ────────────────────────────────────────────────────
 

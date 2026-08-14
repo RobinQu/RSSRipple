@@ -79,6 +79,9 @@ services:
       - LLM_API_KEY=mock-key
       - LLM_MODEL=mock-model
       - API_KEY=test-integration-key
+      # Bangumi source points at the test-server's mock (test_bangumi_source.py).
+      - BANGUMI_API_KEY=mock-bangumi-key
+      - BANGUMI_API_BASE=http://test-server:8080/bangumi/v0
     volumes:
       - ./data:/app/data
       - ./.coveragerc:/app/.coveragerc:ro
@@ -129,6 +132,7 @@ services:
       - ./data:/app/data
       - ./.env:/app/.env:ro
       - ./tests:/app/tests:ro
+      - ./.coveragerc:/app/.coveragerc:ro
     depends_on:
       app:
         condition: service_healthy
@@ -143,12 +147,15 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py -v --tb=short"
+      - "uv sync --frozen && uv run coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.test-runner -m pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py -v --tb=short"
 
   # ── Integration coverage report ──────────────────────────────────────────
-  # Combines up to three data files (identical /app/app source paths):
+  # Combines up to four data files (identical /app/app source paths):
   #   .coverage.integration      — primary app (uvicorn under coverage)
   #   .coverage.integration-llm  — mock-LLM app instance
+  #   .coverage.test-runner      — in-process integration tests (organize
+  #                                pipeline) run by the test-runner under
+  #                                coverage
   #   .coverage.scripts          — dedup script run against the test DB below
   # The daily metadata-dedup job has no HTTP trigger, so its coverage comes
   # from running app.scripts.dedup_metadata under coverage here, after the
@@ -165,7 +172,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "export DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=70"
+      - "export DATABASE_URL=sqlite+aioturso:///data/rss_ripple_test_turso.db POSTER_CACHE_DIR=/app/data/posters; uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts -m app.scripts.dedup_metadata || true; FILES=/app/data/.coverage.integration; [ -f /app/data/.coverage.integration-llm ] && FILES=\"$$FILES /app/data/.coverage.integration-llm\"; [ -f /app/data/.coverage.test-runner ] && FILES=\"$$FILES /app/data/.coverage.test-runner\"; [ -f /app/data/.coverage.scripts ] && FILES=\"$$FILES /app/data/.coverage.scripts\"; uv run --no-project --with coverage coverage combine --rcfile=/app/.coveragerc $$FILES && uv run --no-project --with coverage coverage report --rcfile=/app/.coveragerc --show-missing --fail-under=70"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:
