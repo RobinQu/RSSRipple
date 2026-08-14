@@ -10,7 +10,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 |---|---|
 | Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 (async), APScheduler, pyturso |
 | Frontend | React 18, TypeScript, Vite, Ant Design 5, react-router v6 |
-| External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), Exa Agent API, TMDB API, Wikipedia Python library, feedparser |
+| External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), TMDB API, Wikipedia REST, Bangumi API, Exa Search（有序回退补身份）、feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |
 
 数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
@@ -70,9 +70,15 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 | AgentRun | 每次 Agent 运行的持久化记录（计数、状态、匹配资源 ID 列表），用于运行历史展示 |
 | PendingDecision | 多候选待决策项；亦承载集号不确定（ambiguous）资源的人工确认 |
 | AgentSuggestion | 未识别资源建议分组，持久化供用户后续关联 metadata |
-| DownloaderInstance | Transmission 下载器实例配置，含默认下载目录 |
+| DownloaderInstance | Transmission 下载器实例配置，含默认下载目录与卷绑定 |
 | ChannelRawTitleMapping | Channel 手动修正的标题映射记忆 |
 | MetadataCache | LLM 标题清洗缓存 |
+| WorkCollection | 大 IP 合集分组（组织层） |
+| WorkExternalId | 作品外部身份袋（跨源/跨语言收敛） |
+| StorageVolume / MediaServerInstance / Library | 内置整理子系统的逻辑存储卷、媒体服务器实例与扫描派生媒体库 |
+| OrganizeRule / OrganizePlan | 文件整理规则与两阶段计划 |
+| DownloadNotification / WebhookDelivery | 下载完成通知快照与多 webhook fan-out 投递 |
+| ApiKey | 程序端全局 API key（仅存摘要） |
 
 完整字段定义与 API 详见 `docs/design/data-models.md` 与 `docs/design/api-endpoints.md`。
 
@@ -157,42 +163,51 @@ APScheduler 每分钟 → sync_download_progress()
 | 能力 | 说明 |
 |---|---|
 | RSS 字段映射分析 (feed_analyzer) | 给定 RSS 原始 entries，输出 field_mapping JSON，支持 SSE 流式输出 |
-| 统一 Metadata Agent (metadata_agent) | LangGraph ReAct 循环：标题清洗 + episode/season 推断 + 单数据源 metadata 搜索。每次只使用 `exa` / `tmdb` / `wikipedia` 之一，生产默认 `exa`，结果缓存到 MetadataCache。 |
+| 统一 Metadata Agent (metadata_agent) | LangGraph ReAct 循环：标题清洗 + episode/season 推断 + 单数据源 metadata 搜索。每次只使用 `wikipedia` / `tmdb` / `bangumi` 之一（频道三数据源架构，默认 `wikipedia`），结果缓存到 MetadataCache。 |
 | 标题清洗 (title_cleaner) | ~~已废弃~~ — 功能合并入 MetadataAgent |
 | Title regex 生成 | ~~已废弃~~ — 功能合并入 MetadataAgent |
-| Metadata 搜索 | ~~已废弃~~ — 功能合并入 MetadataAgent 的 Exa/TMDB/Wikipedia 单数据源工具 |
+| Metadata 搜索 | ~~已废弃~~ — 功能合并入 MetadataAgent 的 Wikipedia/TMDB/Bangumi 单数据源工具 |
+| 动漫判定 (anime_signals) | `is_anime` 三态标记的确定性判定（身份源 / Wikipedia infobox / TMDB Animation / LLM 兜底），详见 `docs/design/data-models.md` |
+| 下载通知 (notify) | 下载完成 → 建通知快照 → 多 webhook fan-out 投递（指数退避），纯出站无回调 |
+| 文件整理 (organize) | 内置文件整理子系统：Library/OrganizeRule 两阶段计划→执行，详见 `docs/design/file-organization.md` |
 | PendingDecision 候选选择（可选） | 多候选时 LLM 选出最优候选（`llm_picked_resource_id`）并给出理由，驱动 `conflict_resolution="auto"` 自动选择、`"ask"` 模式的建议高亮，以及 `POST /decisions/{id}/ai-pick` 一键 AI 自动处理。可用 `agent.llm_prompt` 自定义选择指令 |
 
 MetadataAgent 数据源约束：
 
-- `exa`：默认搜索方式，调用 Exa Agent API，使用结构化 `output_schema` 获取 candidates。
-- `tmdb`：仅调用 TMDB search/detail 工具。
-- `wikipedia`：仅调用 Wikipedia search/page 工具。
-- eval 标注平台的新 Dataset 必须显式选择上述三者之一，数据集名称以前缀标明数据源；`combined` 只用于兼容旧数据，不作为新评测目标。
+- `wikipedia`：默认频道源，仅调用 Wikipedia search/page 工具（含季/集内容确定性解析）。
+- `tmdb`：仅调用 TMDB search/detail 工具（含逐季剧集列表对称填充）。
+- `bangumi`：仅调用 Bangumi subject search（限动画分类，命中即 `is_anime=True`），token 即启用。
+- `exa` / `jina` / `local`：已废弃为频道源（频道解析统一归一为 `wikipedia`），其 ReAct 代码路径仅手动搜索 / 评测 / 作品库刷新保留；exa 仍用于主源未命中时的**有序 Exa 回退**（仅补身份/链接）。`combined` 只用于兼容旧评测数据，不作为新评测目标。
 
 ## 7. 前端路由
 
 | Route | 页面 |
-|---|---|
+|-------|------|
+| `/login` | 登录页（TOTP，独立于侧边栏布局） |
 | `/` | Dashboard（活跃下载按作品分组、待决策，统计卡可点击跳转） |
-| `/works` | WorksPage（作品仓库海报墙，All/TV/Movie 筛选） |
+| `/works` | WorksPage（作品仓库海报墙，All/TV/Movie/Audio/合集浏览模式） |
+| `/collections/:id` | 合集详情（大 IP 分组） |
 | `/channels` | 频道列表 |
 | `/channels/new`, `/channels/:id/edit` | 频道表单 |
 | `/channels/:id` | 频道详情（FileResource 按作品分组，多选创建 Agent） |
 | `/agents` | Agent 列表 |
 | `/agents/new`, `/agents/:id/edit` | Agent 表单 |
-| `/agents/:id` | Agent 详情（任务/待决策（含 AI 自动处理 + 批量）/过滤测试/订阅作品管理/运行历史） |
+| `/agents/:id` | Agent 详情（任务/待决策（含 AI 自动处理 + 批量）/过滤测试/订阅作品管理/运行历史/通知记录） |
 | `/downloaders` | 下载器列表 |
 | `/downloaders/new`, `/downloaders/:id/edit` | 下载器表单（含 Transmission RPC 配置与默认下载目录） |
 | `/downloaders/:id` | 下载器详情（Transmission 实时种子、速度） |
 | `/series` | 剧集列表 |
-| `/series/:id` | 剧集详情（含删除功能，Agent 引用检查） |
+| `/series/:id` | 剧集详情（含编辑表单、删除功能，Agent 引用检查） |
 | `/movies` | 电影列表 |
-| `/movies/:id` | 电影详情（含删除功能，Agent 引用检查） |
+| `/movies/:id` | 电影详情（含编辑表单、删除功能，Agent 引用检查） |
+| `/volumes` | 存储卷管理 |
+| `/media-servers` | 媒体服务器 + 扫描派生媒体库 + 整理规则 |
+| `/organize` | 文件整理计划 / 审计 |
+| `/settings` | 系统设置（含 API Keys、数据源） |
 
 ## 8. 关键设计决策
 
-1. **单数据源 metadata 搜索**：MetadataAgent 不执行 TMDB→Exa→Wikipedia 多级调用或跨源 fallback。频道源为两数据源架构：`wikipedia`（默认）| `tmdb`；`exa`/`jina`/`local` 已废弃为频道源（仅手动搜索/评测保留其 ReAct 路径）。wikipedia 未命中时可走频道配置的有序 Exa 回退（`metadata_fallback_sources` 站点白名单，仅补身份/链接，内容以主源为准）。`combined` 仅作为旧评测数据兼容值，运行时映射到默认 `wikipedia`。详见 `docs/design/business-logic.md`。
+1. **单数据源 metadata 搜索**：MetadataAgent 不执行 TMDB→Exa→Wikipedia 多级调用或跨源 fallback。频道源为三数据源架构：`wikipedia`（默认）| `tmdb` | `bangumi`；`exa`/`jina`/`local` 已废弃为频道源（仅手动搜索/评测保留其 ReAct 路径，设置页密钥已移除、仅环境变量）。主源未命中时可走频道配置的有序 Exa 回退（`metadata_fallback_sources` 站点白名单，仅补身份/链接，内容以主源为准）。`combined` 仅作为旧评测数据兼容值，运行时映射到默认 `wikipedia`。详见 `docs/design/business-logic.md`。
 2. **Agent 直接订阅作品**：废弃 WatchEntry 模糊匹配，直接从 metadata 库选取作品订阅（最多 10 个），匹配更准确。未匹配的资源进入 suggestions，一键添加。
 3. **树形 DSL 过滤器**：废弃扁平 ResourceFilter，用 bool/combinator 树支持 AND/OR/嵌套，参考 ES Query DSL 设计。
 4. **职责分离**：Channel 负责"解析 + metadata 识别"；Agent 负责"订阅 + 过滤 + 推送"。metadata_agent_enabled 配在 Channel 上。

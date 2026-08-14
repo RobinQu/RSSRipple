@@ -73,7 +73,7 @@ feature/issue-123-new-login
 ### CI/CD 与发布
 
 - **CI Fast Gate**（`.github/workflows/ci-fast.yml`）：开发分支（`feature/`、`fix/`、`ai/` 等）及其 PR 的快速门禁——lint + 单元/API 测试（pytest-cov 覆盖率门禁：`app/` ≥ 80%）。
-- **CI Strict Gate**（`.github/workflows/ci-strict.yml`）：`develop`、`release/**` 分支及其 PR 的严格门禁——lint + 单元/API（覆盖率 ≥ 80%）+ 集成测试（单节点 `docker-compose.test.yml` 的 app 服务在 coverage 下运行，测试后 `stop app` 落盘并由 `coverage-report` 服务校验 `app/` ≥ 70%；分布式 `docker-compose.test-distributed.yml` 以 `--scale test-runner=0` 启动，避免与显式 `run --rm test-runner` 双跑互相污染）。`main` 不在 push 触发范围内，但支持 `workflow_dispatch` 手动对任意分支运行。
+- **CI Strict Gate**（`.github/workflows/ci-strict.yml`）：`develop`、`release/**` 分支及其 PR 的严格门禁——lint + 单元/API（覆盖率 ≥ 80%）+ 集成测试（单节点 `docker-compose.test.yml` 的 app 服务在 coverage 下运行，测试后 `stop app` 落盘并由 `coverage-report` 服务校验 `app/` ≥ 75%；分布式 `docker-compose.test-distributed.yml` 以 `--scale test-runner=0` 启动，避免与显式 `run --rm test-runner` 双跑互相污染）。`main` 不在 push 触发范围内，但支持 `workflow_dispatch` 手动对任意分支运行。
 - **Docker Publish**（`.github/workflows/docker-publish.yml`）：推送到 `main` 或打 `v*` 标签时触发，构建 **linux/amd64 + linux/arm64** 双架构镜像并发布到 GHCR 项目命名空间 `ghcr.io/robinqu/rssripple`。构建前以 lint + 单元/API 测试作为门禁（`build-and-push` 依赖 `test`）。
   - 推送 `main` → 标签 `:latest`、`:main`、`:sha-<短哈希>`
   - 打标签 `v1.2.3` → 标签 `:1.2.3`、`:1.2`、`:1`（基于 `docker/metadata-action` 的 semver 模式）

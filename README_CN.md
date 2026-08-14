@@ -15,7 +15,7 @@ RSSRipple 是一个面向 TV / 番剧 / 电影资源的 RSS 订阅下载器。�
 
 - **端到端管线** — RSS 抓取 → 字段映射解析 → 元数据关联 → Agent 过滤 → Transmission 推送。Agent 运行为增量模式（`last_consumed_at` 水位线）；规则变更走 rules-preview / 回填流程，历史资源不会被静默自动派发。
 - **LLM 辅助 Feed 分析** — 把 RSS 源指给 RSSRipple，LLM 会自动生成 `field_mapping` 规则，可在 UI 中调整后再保存。
-- **统一元数据 Agent** — LangGraph ReAct agent 清洗标题、推断集数/季数，并只使用一个选定的数据源（`exa` / `jina` / `tmdb` / `wikipedia`）搜索。结果以 `TVSeries` / `Movie` 缓存到本地，避免重复查询。
+- **统一元数据 Agent** — LangGraph ReAct agent 清洗标题、推断集数/季数，并只使用一个选定的数据源（`wikipedia` / `tmdb` / `bangumi`，频道默认 `wikipedia`）搜索。结果以 `TVSeries` / `Movie` 缓存到本地，避免重复查询。
 - **Filter DSL** — 布尔查询，支持嵌套 `and` / `or`、字段操作符、按作品覆盖，以及对合集（`is_batch`）和多值字幕语言（`zh-CN`、`zh-TW`、`ja`、`en`、`multi`）的一等支持。
 - **Transmission 集成** — 多下载器实例、必填默认目录、可选的按 Agent 子目录、带持久化目标路径的重试、实时进度同步。内置 `mock` 下载器用于测试。
 - **React 仪表盘** — 核心指标、Top 活跃 Agent 及其进行中任务、活跃下载、待决策、频道、作品库、下载器，一个界面全搞定。
@@ -27,7 +27,8 @@ RSSRipple 是一个面向 TV / 番剧 / 电影资源的 RSS 订阅下载器。�
 ```bash
 cp .env.example .env
 # 至少设置：LLM_API_KEY、LLM_BASE_URL、LLM_MODEL
-# 可选元数据源：EXA_API_KEY / JINA_API_KEY / TMDB_API_KEY
+# 可选元数据源：TMDB_API_KEY / BANGUMI_API_KEY
+# 旧版/仅环境变量源（手动搜索/评测）：EXA_API_KEY / JINA_API_KEY
 ```
 
 ### 2. 用 Docker Compose 启动
@@ -62,12 +63,13 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | 服务 | 申请地址 | 环境变量 | 是否必需 |
 | --- | --- | --- | --- |
 | LLM（OpenAI 兼容） | [OpenRouter](https://openrouter.ai/keys) — 或任意 OpenAI 兼容服务商 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | 是 — feed 分析、元数据 agent、建议 |
-| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | 可选 — 默认元数据源 |
-| Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | 可选 — 中日韩覆盖较好 |
 | TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)（申请 v3 key） | `TMDB_API_KEY` | 可选 — 影视 ID 匹配最佳 |
-| Wikipedia | — | — | 无需 key（免费 `wikipedia` 库） |
+| Bangumi | [bgm.tv](https://bgm.tv/)（开发者 token） | `BANGUMI_API_KEY` | 可选 — 仅动画分类条目搜索；配置 token 即启用 |
+| Wikipedia | — | — | 无需 key（免费 `wikipedia` 库）— 默认频道源 |
+| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | 可选 — 仅环境变量；用于有序 Exa 回退与手动搜索/评测（已废弃为频道源） |
+| Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | 可选 — 仅环境变量；仅手动搜索/评测（已废弃为频道源） |
 
-一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`。`local` 源无需凭证 — 仅本地 DB 匹配。
+一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（exa/jina 仅环境变量，设置页密钥行已移除）。`local` 源无需凭证 — 仅本地 DB 匹配。
 
 ## 配置
 
@@ -77,7 +79,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy 数据库 URL |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI 兼容 LLM，用于 feed 分析、元数据 agent、建议 |
-| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` | 元数据源凭证 — 按需配置 |
+| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | 元数据源凭证 — 按需配置 |
 | `QUEUE_BACKEND` | `"memory"`（默认）或 `"redis"`（需 `REDIS_URL`） |
 | `POSTER_CACHE_DIR` | 海报缓存目录，挂载到 `/posters` |
 
@@ -112,7 +114,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | 数据库 | 默认 Turso（嵌入式，MVCC 并发写）；架构兼容 PostgreSQL |
 | 队列 / 调度 | MemoryQueue 或 RedisQueue、APScheduler |
 | RSS | feedparser |
-| 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Exa / Jina / TMDB / Wikipedia |
+| 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Wikipedia / TMDB / Bangumi（+ 有序 Exa 回退） |
 | 下载 | Transmission RPC |
 | 前端 | React、TypeScript、Vite、Ant Design |
 | 包管理 | uv、npm |

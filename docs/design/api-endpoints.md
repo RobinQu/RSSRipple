@@ -389,29 +389,30 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null）与 `is_anime`（可空布尔三态，见下），音频条目无合集恒为 null） |
+| POST | `/works/refresh-metadata` | 刷新单个作品元数据：body `{id, content_type: "tv"\|"movie", source?, override_manual_edits?}` → 用现有标题对所选源重新搜索并补全缺失字段；`override_manual_edits`（默认 false）勾选「覆盖所有人工编辑字段」时才覆盖 `manually_edited_fields` 中的字段（见 data-models.md「人工编辑保护」） |
 
 ### TVSeries
 
-`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。`is_anime` 字段（Create/Update/Response）为可空布尔三态（True=日本动画 / False=确认实拍 / null=未判定，判定与赋值规则见 data-models.md「is_anime 判定约定」）；Create/Update 接受手动指定，手动 PATCH 直接覆盖。
+`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。`is_anime` 字段（Create/Update/Response）为可空布尔三态（True=日本动画 / False=确认实拍 / null=未判定，判定与赋值规则见 data-models.md「is_anime 判定约定」）；Create/Update 接受手动指定。`manually_edited_fields`（Response 透出，不可直接提交）为人工编辑保护字段名列表：PUT 时按显式发送的 `MANUAL_EDITABLE_FIELDS` 字段（含显式 null）记录，自动扫描不再覆盖。
 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/series` | 列表（分页，支持 title 模糊搜索） |
 | POST | `/series` | 手动创建剧集元数据（极少使用） |
 | GET | `/series/{id}` | 剧集详情（含 episodes、资源数、任务数） |
-| PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重） |
+| PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields` |
 | DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
 
 ### Movies
 
-`is_anime` 字段（Create/Update/Response）同 TVSeries：可空布尔三态，Create/Update 接受手动指定，手动 PATCH 直接覆盖。
+`is_anime` 字段（Create/Update/Response）同 TVSeries：可空布尔三态，Create/Update 接受手动指定。`manually_edited_fields` 同 TVSeries：PUT 记录显式编辑字段，自动扫描跳过。
 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/movies` | 列表（分页，支持 title 模糊搜索） |
 | POST | `/movies` | 手动创建电影元数据 |
 | GET | `/movies/{id}` | 电影详情 |
-| PUT | `/movies/{id}` | 更新电影元数据 |
+| PUT | `/movies/{id}` | 更新电影元数据；显式发送的可编辑字段记入 `manually_edited_fields` |
 | DELETE | `/movies/{id}` | 删除电影 |
 
 系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，来自本地库共享 collection_id 查询）。响应顶层同时暴露 `external_id`/`external_source`、`canonical_name`/`wikipedia_url`（Wikipedia 实际 URL，优先于 curid 回退），以及服务端计算的 `source_links`（`[{source, label, url}]`，由站点注册表 `metadata_source_registry.build_source_links` 生成，支持旧复合形 `TMDB:NNN; IMDb:ttNNN` 拆分，TMDB 链接按 tv/movie 区分路径）——前端详情页直接渲染，不再自行解析。

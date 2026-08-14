@@ -209,7 +209,15 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 1. **频道默认标记**（`apply_channel_default_is_anime`）：`channels.default_is_anime`（创建后不可改）开启的频道，其资源链接到的作品 `is_anime` 先置 True（已有 True 不动）。
 2. **第一层 Bangumi 验证**（`maybe_verify_is_anime_via_bangumi`）：未开默认标记的频道，作品 `is_anime` 仍为 NULL 且有 Bangumi token 时，按作品标题（title_cn/original_title/title_en）搜 Bangumi（**不带 type 过滤**，让三次元条目可作实拍证据），`anime_signals.bangumi_verdict` 在归一化标题相等 + 年份守卫（±1，作品年份未知则放行）后按条目类型判定：type 2（动画）→ True、type 6（三次元）→ False、其他类型忽略；已判定（非 NULL）作品跳过；验证异常静默记 warning，不阻塞匹配。
 3. **第二层上下文推断**：既有信号经 `apply_is_anime` 在 upsert 时赋值（True sticky / False 只填 NULL）——Wikipedia infobox（TVAnime + 新增 Movie|Film|OVA 检测 `has_animanga_film_infobox`，剧场版/OVA 的确定性信号）、TMDB Animation+ja/JP、judge/ReAct 的 `is_anime` 输出（prompt 已强化制作公司指引）。
-4. **最终 NULL = 无法判断**：留待用户在作品详情页手动修正（可编辑三态 Select：动漫/实拍/清除即未知，走 PUT series/movies 直接覆盖）。
+4. **最终 NULL = 无法判断**：留待用户在作品详情页手动修正（详情页统一「编辑」表单中的动漫判定字段，走 PUT series/movies 保存）。
+
+### 人工编辑保护（自动扫描不覆盖人工编辑字段）
+
+作品详情页从「单字段编辑」（如动漫判定三态 Select）改为**统一「编辑」入口**：一个编辑表单可改 `MANUAL_EDITABLE_FIELDS`（标题三字段、动漫判定、简介、评分、分类、状态、季集、日期等），数据源等系统托管字段（external_id/external_source/wikipedia_*/seasons/collection_id/content_type 等）不可编辑。保存走 `PUT /series/{id}` / `PUT /movies/{id}`，后端按显式发送字段记入 `manually_edited_fields`。
+
+- **自动扫描一律跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写字段前检查 `field_manually_edited`（metadata_service），命中即不改写；新建作品无该列表不受影响。
+- **刷新元数据默认跳过**：`refresh_work_metadata` 的 `fill`/genre/poster 写入点同样检查 `manually_edited_fields`，默认不覆盖；仅当 `POST /works/refresh-metadata` 带 `override_manual_edits=true`（作品模块「刷新元数据」对话框勾选「覆盖所有人工编辑字段」）时才覆盖。批量/周期刷新不传该 flag，恒为默认（不覆盖）。
+- **语义**：人工编辑是"最后写赢"的显式声明——即便用户把某字段清空为 null，自动扫描也不会再回填（除非勾选覆盖）。
 
 ### Metadata 一致性防护（缓存版本化 / 跨表守卫 / 修正联动 / 跨表去重）
 

@@ -15,7 +15,7 @@ RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It 
 
 - **End-to-end pipeline** — RSS fetch → field-mapping parse → metadata link → Agent filter → Transmission dispatch. Agent runs are incremental (a `last_consumed_at` watermark); rule changes go through a rules-preview / backfill flow so historical resources are never silently auto-dispatched.
 - **LLM-assisted feed analysis** — point RSSRipple at a feed and the LLM proposes the `field_mapping` rules; refine them in the UI before saving.
-- **Unified metadata agent** — a LangGraph ReAct agent cleans titles, infers season/episode, and searches exactly one selected source (`exa`, `jina`, `tmdb`, or `wikipedia`). Results cache locally as `TVSeries` / `Movie` to avoid re-querying.
+- **Unified metadata agent** — a LangGraph ReAct agent cleans titles, infers season/episode, and searches exactly one selected source (`wikipedia`, `tmdb`, or `bangumi`; channel default `wikipedia`). Results cache locally as `TVSeries` / `Movie` to avoid re-querying.
 - **Filter DSL** — boolean queries with nested `and` / `or`, field operators, per-work overrides, and first-class support for batches (`is_batch`) and multi-value subtitle languages (`zh-CN`, `zh-TW`, `ja`, `en`, `multi`).
 - **Transmission integration** — multiple downloader instances, required default directory with optional per-Agent subdirectories, retry with persisted destination, and live progress sync. A `mock` downloader is included for testing.
 - **React dashboard** — key metrics, top active agents with their in-progress tasks, active downloads, pending decisions, channels, agents, the works library, and downloaders, all in one place.
@@ -27,7 +27,8 @@ RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It 
 ```bash
 cp .env.example .env
 # at minimum set: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
-# optional metadata sources: EXA_API_KEY / JINA_API_KEY / TMDB_API_KEY
+# optional metadata sources: TMDB_API_KEY / BANGUMI_API_KEY
+# legacy/env-only sources (manual search/eval): EXA_API_KEY / JINA_API_KEY
 ```
 
 ### 2. Run with Docker Compose
@@ -62,12 +63,13 @@ RSSRipple needs an LLM and at least one metadata source. Get the keys you want, 
 | Service | Where to get it | Env var | Required? |
 | --- | --- | --- | --- |
 | LLM (OpenAI-compatible) | [OpenRouter](https://openrouter.ai/keys) — or any OpenAI-compatible provider | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | Yes — feed analysis, metadata agent, suggestions |
-| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | Optional — default metadata source |
-| Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | Optional — strong CJK coverage |
 | TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (apply for a v3 key) | `TMDB_API_KEY` | Optional — best for TV/movie ID matching |
-| Wikipedia | — | — | No key (free `wikipedia` library) |
+| Bangumi | [bgm.tv](https://bgm.tv/) (developer token) | `BANGUMI_API_KEY` | Optional — anime-only subject search; a token enables the source |
+| Wikipedia | — | — | No key (free `wikipedia` library) — the default channel source |
+| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | Optional — env-only; used for the ordered Exa fallback and manual search/eval (deprecated as a channel source) |
+| Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | Optional — env-only; manual search/eval only (deprecated as a channel source) |
 
-A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`. The `local` source needs no credentials — it matches against the local DB only.
+A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED` (exa/jina are env-only — their settings-page rows were removed). The `local` source needs no credentials — it matches against the local DB only.
 
 ## Configuration
 
@@ -77,7 +79,7 @@ Common variables (full list in [docs/design/conventions.md](docs/design/conventi
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy database URL |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible LLM for feed analysis, metadata agent, suggestions |
-| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` | Metadata source credentials — configure the sources you want |
+| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | Metadata source credentials — configure the sources you want |
 | `QUEUE_BACKEND` | `"memory"` (default) or `"redis"` (requires `REDIS_URL`) |
 | `POSTER_CACHE_DIR` | Poster image cache, served at `/posters` |
 
@@ -112,7 +114,7 @@ Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTR
 | Database | Turso (embedded, MVCC concurrent writes) by default; PostgreSQL-compatible architecture |
 | Queue / Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
-| Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Exa / Jina / TMDB / Wikipedia |
+| Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Wikipedia / TMDB / Bangumi (+ ordered Exa fallback) |
 | Download | Transmission RPC |
 | Frontend | React, TypeScript, Vite, Ant Design |
 | Package manager | uv, npm |

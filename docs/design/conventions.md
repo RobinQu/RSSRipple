@@ -17,12 +17,12 @@
   - `QUEUE_BACKEND`：队列后端，`"memory"`（默认）或 `"redis"`。
   - `REDIS_URL`：可选 Redis 地址，`QUEUE_BACKEND=redis` 时必填。
   - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`：OpenAI 兼容 LLM，用于 feed 分析、统一 MetadataAgent、PendingDecision 建议。
-  - `EXA_API_KEY` / `EXA_EFFORT_LEVEL`（默认 `low`，可选 `minimal`/`low`/`medium`/`high`/`xhigh`）：Exa Agent Search 数据源（频道源已废弃；仍用于手动搜索/评测与 wikipedia 未命中时的有序 Exa 回退）。
-  - `JINA_API_KEY`：Jina Search + Reader 数据源。
+  - `EXA_API_KEY` / `EXA_EFFORT_LEVEL`（默认 `low`，可选 `minimal`/`low`/`medium`/`high`/`xhigh`）：Exa Agent Search 数据源（**仅环境变量**，设置页已移除；频道源已废弃，仍用于手动搜索/评测与主源未命中时的有序 Exa 回退）。
+  - `JINA_API_KEY`：Jina Search + Reader 数据源（**仅环境变量**，设置页已移除；频道源已废弃，仅手动搜索/评测保留）。
   - `TMDB_API_KEY`：TMDB 数据源（可选）。
   - `BANGUMI_API_KEY`：Bangumi 数据源与 is_anime 第一层验证（可选；token 即启用，无独立开关，亦可在设置页覆盖配置）。
   - `BANGUMI_API_BASE`：Bangumi API 基础地址（默认 `https://api.bgm.tv/v0`）；可指向自建镜像或集成测试的 mock 服务。
-  - `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下从 UI 隐藏该源。
+  - `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下禁用该源。注意 exa/jina 的设置页密钥行已移除（仅环境变量），其开关仅影响手动搜索/评测路径是否可用。
   - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
   - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
   - `TRANSMISSION_TIMEOUT`：Transmission RPC 超时。

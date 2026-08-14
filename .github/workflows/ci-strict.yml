@@ -60,7 +60,7 @@ jobs:
       - name: Run single-node integration tests
         run: docker compose -f docker-compose.test.yml run --rm test-runner
 
-      - name: Integration coverage (fail under 70%)
+      - name: Integration coverage (fail under 75%)
         run: |
           # coverage.py only flushes data on a clean interpreter exit; uvicorn
           # skips atexit on SIGTERM, so flush via SIGINT before stopping.

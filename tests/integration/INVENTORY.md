@@ -55,6 +55,13 @@ tests/integration/
     conftest.py                    # 复用 tests/unit/conftest.py 的 DB fixtures + 共享卷/RPC/Plex mock fixtures
     test_organize_pipeline.py      # 通知→规划→执行→落位→清理全链路（卷绑定解析、单集/合集/电影/待分类/恒等）
     README.md                      # 本目录说明 + 容器级半 E2E（docker-compose.organize-e2e.yml + scripts/organize_e2e.py）用法
+  metadata/                        # metadata 纯函数/DB 服务进程内集成测试（覆盖率批次，复用 tests/unit/conftest.py）
+    __init__.py
+    conftest.py                    # 复用 tests/unit/conftest.py 的 db_engine/db_session fixtures
+    test_metadata_db_integration.py  # metadata_dedup 合并系列/电影/跨类型 + collection_service 确定性 TMDB 链接
+  test_metadata_core_integration.py  # 顶层纯函数覆盖率批次：wikipedia 剧集解析、集号 reconciliation、
+                                     # anime 信号、wiki classify/query、url/parser/text 归一化、Filter DSL、
+                                     # metadata_dedup 纯 helper、genre 注册表、failure 分类、wikidata 纯 helper
   eval/                            # 独立 Metadata Eval 应用（应用代码 + test_api.py，不变）
   server/                          # 假 test-server 应用代码（RSS / tracker / torrent / mock LLM）
     mock_llm.py                    # OpenAI 兼容 /v1/chat/completions：canned 字段映射、LLM pick、ReAct tool_calls 状态机
@@ -103,6 +110,8 @@ tests/integration/
 | external/test_metadata_agent_accuracy.py | 5 |
 | external/test_metadata_search_agent.py | 6 |
 | organize/test_organize_pipeline.py | 6 |
+| metadata/test_metadata_db_integration.py | 6 |
+| test_metadata_core_integration.py | 85 |
 | eval/test_api.py | 31 |
 | **合计** | **181** |
 

@@ -146,6 +146,11 @@ class TVSeries(Base):
     is_anime: bool | None                # 三态动漫标记：True=日本动画 / False=确认实拍 / None=未判定；
                                          # 与 content_type（媒介）正交（剧场版动画两者独立），
                                          # 判定与赋值规则见下文「is_anime 判定约定」
+    manually_edited_fields: list[str] | None  # 人工编辑保护：用户经作品详情页「编辑」表单改过的字段名列表
+                                         # （JSON 数组，取值 ⊂ MANUAL_EDITABLE_FIELDS，见 metadata_service）；
+                                         # 自动扫描（upsert / apply_is_anime / 频道默认标记 / bangumi 验证）
+                                         # 跳过其中的字段；refresh_work_metadata 默认同样跳过，
+                                         # 仅当刷新对话框勾选「覆盖所有人工编辑字段」时才覆盖。
     canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
     wikipedia_url: str | None            # 维基百科条目 URL
     wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
@@ -185,6 +190,7 @@ class Movie(Base):
     runtime: int | None                  # 片长（分钟）
     content_type: str | None             # "movie"
     is_anime: bool | None                # 三态动漫标记（同 TVSeries.is_anime，见下文「is_anime 判定约定」）
+    manually_edited_fields: list[str] | None  # 人工编辑保护（同 TVSeries.manually_edited_fields，见其注释）
     canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
     wikipedia_url: str | None            # 维基百科条目 URL
     wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
@@ -221,6 +227,15 @@ class Movie(Base):
 - **赋值规则**（`apply_is_anime`，在 series/movie upsert 的四处分支调用）：身份证据直接覆盖为 True；其余 **True sticky**——一旦 True 永不被后续弱证据降级；False 只填 NULL（既有 True 不降级，既有 False 不被 LLM 翻转）。
 - **运行时分层判定**：频道默认标记（`default_is_anime`，链接作品先置 True）→ 第一层 Bangumi 验证（`maybe_verify_is_anime_via_bangumi` + `bangumi_verdict`：仅 NULL 作品、不带 type 过滤搜索，type 2 → True、type 6 三次元 → False）→ 第二层上下文推断（上述信号）→ 最终 NULL 待手动修正；统一入口 `classify_is_anime_post_link` 挂在资源链接作品的全部 5 处落点（详见 business-logic.md「is_anime 分层判定」）。
 - **存量**：轻迁移在 `app/database.py` `_apply_light_migrations` additions 里（tv_series/movies 各一行可空 BOOLEAN）；回填走 `scripts/anime_backfill.py`（dry-run 默认 + `--apply`，离线身份阶段 + 可选 `--tmdb`/`--wikipedia` 联网阶段）。
+
+### 人工编辑保护（manually_edited_fields）
+
+`TVSeries` / `Movie` 新增 JSON 列 `manually_edited_fields`（字段名列表），记录用户经作品详情页「编辑」表单显式改过的字段。权威取值集合一处定义：`app/services/metadata_service.py` 的 `MANUAL_EDITABLE_FIELDS`（标题三字段、aliases、description、poster_url、rating、genre、status、is_anime、series 的季集/日期、movie 的 release_date/runtime）。
+
+- **可编辑 vs 系统托管**：仅 `MANUAL_EDITABLE_FIELDS` 中的字段可在详情页编辑；`external_id`/`external_source`/`canonical_name`/`wikipedia_url`/`wikipedia_page_id`/`seasons`/`collection_id`/`content_type`/`search_text`/时间戳为系统托管，不可编辑。
+- **记录时机**：`PUT /series/{id}` / `PUT /movies/{id}` 按 `exclude_unset` 后的显式发送字段（含显式 null）与 `MANUAL_EDITABLE_FIELDS` 求交，并入 `manually_edited_fields`（`mark_manually_edited`，去重排序）。
+- **自动扫描跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写任一字段前检查 `field_manually_edited`，命中即不改写该字段（新建作品无该列表，不受影响）。
+- **刷新元数据**：`refresh_work_metadata` 默认跳过 `manually_edited_fields` 中的字段；仅当请求带 `override_manual_edits=true`（作品模块刷新对话框「覆盖所有人工编辑字段」）时才覆盖。批量/周期刷新不传该 flag，恒为默认（不覆盖）。
 
 ### WorkExternalId（作品外部身份袋 - Phase P3）
 
