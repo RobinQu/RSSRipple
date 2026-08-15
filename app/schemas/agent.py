@@ -63,6 +63,11 @@ class AgentCreate(BaseModel):
     # max so future delta runs only see truly new resources. None = plain save
     # with no backfill / watermark change (non-rule edits).
     dispatch_resource_ids: list[str] | None = None
+    # "立即运行"：save the agent and then enqueue a background full-history
+    # run (scenario ④ with scan_since=None), scanning every channel resource
+    # from channel creation. Mutually exclusive with the rules-preview
+    # backfill flow — the frontend skips the preview modal when this is set.
+    run_immediately: bool = False
 
     @model_validator(mode="after")
     def _validate_download_subdir(self):

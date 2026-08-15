@@ -200,7 +200,7 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
             "error": {"code": "VALIDATION_ERROR", "message": "Maximum 10 works"},
             "meta": {},
         })
-    payload = body.model_dump(exclude={"works", "dispatch_resource_ids"})
+    payload = body.model_dump(exclude={"works", "dispatch_resource_ids", "run_immediately"})
     agent = Agent(**payload)
     db.add(agent)
     await db.flush()
@@ -228,6 +228,19 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
         await _apply_backfill(agent, body.dispatch_resource_ids, db)
 
     await db.commit()
+    # "立即运行"：after the agent row is committed, enqueue a background
+    # full-history run (scenario ④, scan_since=None = no limit) so it fetches
+    # every channel resource matching the new rules, from channel creation on.
+    # The run advances the watermark as usual; a re-trigger is impossible here
+    # because the agent id key has never been enqueued before.
+    if body.run_immediately:
+        from app.services.task_queue import task_queue
+
+        await task_queue.enqueue(
+            "run_agent",
+            f"agent:{agent.id}",
+            {"agent_id": agent.id, "scan_since": None},
+        )
     # Refetch with relationships eager-loaded
     cur = await db.execute(
         select(Agent).where(Agent.id == agent.id).options(

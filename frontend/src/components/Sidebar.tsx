@@ -5,7 +5,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Bot,
-  Database,
   ExternalLink,
   FolderTree,
   HardDrive,
@@ -43,7 +42,6 @@ function buildMenuItems(t: (k: string) => string): MenuProps['items'] {
     { key: '/channels', icon: <Rss size={16} />, label: t('nav.channels') },
     { key: '/agents', icon: <Bot size={16} />, label: t('nav.agents') },
     { key: '/downloaders', icon: <HardDrive size={16} />, label: t('nav.downloaders') },
-    { key: '/volumes', icon: <Database size={16} />, label: t('nav.volumes') },
     { key: '/media-library', icon: <FolderTree size={16} />, label: t('nav.mediaLibrary') },
     { key: '/settings', icon: <Settings size={16} />, label: t('nav.settings') },
   ];

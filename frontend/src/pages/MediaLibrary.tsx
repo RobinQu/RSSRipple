@@ -867,6 +867,7 @@ export default function MediaLibrary() {
         library={settingsLibrary}
         libraries={libraries}
         rules={rules}
+        volumes={volumes}
         onClose={() => setSettingsLibrary(null)}
         onChanged={fetchConfig}
       />

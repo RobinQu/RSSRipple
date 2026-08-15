@@ -255,6 +255,8 @@
     "off": "Off",
     "lastRun": "Last Run",
     "runNow": "Run Now",
+    "runImmediately": "Run immediately after creation",
+    "runImmediatelyHint": "After saving, trigger one background Agent run that fetches every channel resource matching the subscription rules since the channel was created (already-downloaded episodes are skipped).",
     "pleaseEnterName": "Enter name",
     "nameExample": "e.g. New Anime Auto Download",
     "selectChannel": "Select Channel",
@@ -982,6 +984,10 @@
     "reset": "Reset",
     "noChanges": "No changes to save",
     "envNote": "Values set in the .env file act as defaults. Saving here overrides them; clearing a field reverts to the default.",
+    "volumes": {
+      "title": "Storage Volumes",
+      "desc": "Logical storage volumes used for downloader path bindings and media-library organize targets. The mount path is an absolute path inside the container."
+    },
     "apiKeys": {
       "title": "API Keys",
       "desc": "Personal API keys for calling the API programmatically. Use them as a Bearer token in the Authorization header.",

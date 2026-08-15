@@ -49,6 +49,7 @@ interface FormValues {
   llm_prompt?: string;
   scope_channel_wide: boolean;
   conflict_resolution: 'ask' | 'auto';
+  run_immediately: boolean;
 }
 
 export default function AgentForm() {
@@ -172,6 +173,7 @@ export default function AgentForm() {
           display_name_override: w.display_name_override,
         })),
     dispatch_resource_ids: dispatchResourceIds,
+    run_immediately: values.run_immediately,
   });
 
   const buildPreviewRequest = (values: FormValues): RulesPreviewRequest => ({
@@ -221,6 +223,13 @@ export default function AgentForm() {
     }
     setSaving(true);
     try {
+      // "立即运行" (create only): skip the rules-preview modal and save
+      // plainly — the backend enqueues a background full-history run that
+      // scans every channel resource from channel creation onward.
+      if (mode === 'create' && values.run_immediately) {
+        await doSave(buildPayload(values, null));
+        return;
+      }
       // Scenario ②: preview the rule diff before committing. Show the modal
       // whenever the change has any impact (newly-matching OR no-longer-
       // matching) so the user sees the明细 and can opt into backfill — no
@@ -277,6 +286,7 @@ export default function AgentForm() {
             llm_prompt: '',
             scope_channel_wide: false,
             conflict_resolution: 'auto' as const,
+            run_immediately: false,
           }}
           onValuesChange={(changed) => {
             if (changed.scope_channel_wide !== undefined) {
@@ -368,6 +378,17 @@ export default function AgentForm() {
               </Form.Item>
             </Col>
           </Row>
+
+          {mode === 'create' && (
+            <Form.Item
+              name="run_immediately"
+              label={t('agents.runImmediately')}
+              valuePropName="checked"
+              extra={t('agents.runImmediatelyHint')}
+            >
+              <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
+            </Form.Item>
+          )}
 
           {llmEnabled && (
             <Form.Item

@@ -66,6 +66,42 @@ class TestAgentsCRUD:
         assert res.status_code == 201
         assert res.json()["data"]["conflict_resolution"] == "auto"
 
+    async def test_create_agent_run_immediately_enqueues_full_run(self, client, channel_and_dl, monkeypatch):
+        """run_immediately enqueues a background full-history run (scan_since=None)."""
+        from app.services import task_queue as tq_mod
+
+        ch_id, dl_id = channel_and_dl
+        fake = MagicMock()
+        fake.enqueue = AsyncMock(return_value={"task_id": "j1"})
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+
+        res = await client.post("/api/v1/agents", json={
+            "name": "RunNow", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True, "run_immediately": True,
+        })
+        assert res.status_code == 201
+        aid = res.json()["data"]["id"]
+        fake.enqueue.assert_awaited_once()
+        assert fake.enqueue.call_args.args[0] == "run_agent"
+        assert fake.enqueue.call_args.args[1] == f"agent:{aid}"
+        assert fake.enqueue.call_args.args[2] == {"agent_id": aid, "scan_since": None}
+
+    async def test_create_agent_without_run_immediately_does_not_enqueue(self, client, channel_and_dl, monkeypatch):
+        """Default (run_immediately=False) is a plain save — no background run."""
+        from app.services import task_queue as tq_mod
+
+        ch_id, dl_id = channel_and_dl
+        fake = MagicMock()
+        fake.enqueue = AsyncMock()
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+
+        res = await client.post("/api/v1/agents", json={
+            "name": "Plain", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        assert res.status_code == 201
+        fake.enqueue.assert_not_awaited()
+
     async def test_create_agent_persists_llm_prompt(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl
         res = await client.post("/api/v1/agents", json={

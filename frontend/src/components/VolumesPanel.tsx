@@ -3,17 +3,16 @@ import { useTranslation } from 'react-i18next';
 import { Activity, Pencil, Plus, Trash2 } from 'lucide-react';
 import { App, Button, Empty, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
-import useDocumentTitle from '../hooks/useDocumentTitle';
 import { volumesApi } from '../api/volumes';
-import VolumeFormModal from '../components/VolumeFormModal';
+import VolumeFormModal from './VolumeFormModal';
 import { withMobileLabels } from '../utils/table';
 import type { StorageVolume, StorageVolumeCheckResult } from '../types';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
-export default function Volumes() {
+/** Storage-volume configuration panel (embedded in the System Settings page). */
+export default function VolumesPanel() {
   const { t } = useTranslation();
-  useDocumentTitle(t('volumes.title'));
   const { message, modal } = App.useApp();
 
   const [volumes, setVolumes] = useState<StorageVolume[]>([]);
@@ -149,10 +148,13 @@ export default function Volumes() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          {t('volumes.title')}
-        </Title>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          marginBottom: 12,
+        }}
+      >
         <Button
           type="primary"
           icon={<Plus size={14} />}

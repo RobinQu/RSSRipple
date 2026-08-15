@@ -1,35 +1,44 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowUp, Pencil, Plus, Trash2 } from 'lucide-react';
-import { App, Button, Drawer, Empty, Form, Input, Space, Switch, Table, Tabs, Tag, Typography } from 'antd';
+import { ArrowDown, ArrowUp, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
+import { App, Button, Divider, Drawer, Empty, Form, Input, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { organizeApi } from '../api/organize';
 import OrganizeRuleFormModal from './OrganizeRuleFormModal';
+import DirectoryBrowserModal from './DirectoryBrowserModal';
 import { describeFilter } from './filterUtils';
+import { isValidRelativeSubpath, subpathBrowseStart, toVolumeSubpath } from '../utils/paths';
 import { withMobileLabels } from '../utils/table';
-import type { Library, OrganizeRule } from '../types';
+import type { Library, OrganizeRule, StorageVolume } from '../types';
 
 const { Text } = Typography;
 
-/** Subtitle-language-map editor (the only manually-editable library field
-    besides the volume binding; rendered as the "other settings" tab). */
+/** "其他设置" tab: the library's path binding (storage volume + subpath) and
+    the subtitle-language map — the only manually-editable library fields. */
 function LibraryOtherSettingsForm({
   library,
+  volumes,
   onSaved,
 }: {
   library: Library;
+  volumes: StorageVolume[];
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const volumeId = Form.useWatch('volume_id', form);
+  const selectedVolume = volumes.find((v) => v.id === volumeId);
 
   useEffect(() => {
     form.setFieldsValue({
       subtitle_lang_map: library?.subtitle_lang_map
         ? JSON.stringify(library.subtitle_lang_map, null, 2)
         : '',
+      volume_id: library?.volume_id ?? undefined,
+      root_subpath: library?.root_subpath ?? '',
     });
   }, [library, form]);
 
@@ -56,9 +65,19 @@ function LibraryOtherSettingsForm({
         return;
       }
     }
+    const volumeId = values.volume_id ?? null;
+    const rootSubpath = values.root_subpath?.trim() || null;
+    // A subpath only makes sense with a bound volume — reject the combo early
+    // with a clear message instead of letting the backend silently unbind.
+    if (rootSubpath && !volumeId) {
+      message.error(t('mediaServers.volumeRequired'));
+      return;
+    }
     setSaving(true);
     const res = await organizeApi.updateLibrary(library.id, {
       subtitle_lang_map: langMap,
+      volume_id: volumeId,
+      root_subpath: rootSubpath,
     });
     setSaving(false);
     if (res.success) {
@@ -70,31 +89,92 @@ function LibraryOtherSettingsForm({
   };
 
   return (
-    <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
-      <Form.Item
-        name="subtitle_lang_map"
-        label={t('libraries.subtitleLangMap')}
-        extra={t('libraries.subtitleLangMapExtra')}
-      >
-        <Input.TextArea
-          rows={5}
-          placeholder='{"zh-CN": "chs", "zh-TW": "cht"}'
-          style={{ fontFamily: 'monospace' }}
-        />
-      </Form.Item>
-      <Button type="primary" loading={saving} onClick={submit}>
-        {t('common.save')}
-      </Button>
-    </Form>
+    <>
+      <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
+        <Form.Item
+          name="volume_id"
+          label={t('mediaServers.volume')}
+          extra={t('mediaServers.bindSubpathExtra')}
+        >
+          <Select
+            allowClear
+            placeholder={t('mediaServers.volumeRequired')}
+            options={volumes.map((v) => ({
+              value: v.id,
+              label: `${v.name} (${v.mount_path})`,
+            }))}
+          />
+        </Form.Item>
+        <Form.Item
+          name="root_subpath"
+          label={t('mediaServers.subpath')}
+          rules={[
+            {
+              validator: (_, v: string) =>
+                !v || isValidRelativeSubpath(v)
+                  ? Promise.resolve()
+                  : Promise.reject(new Error(t('mediaServers.subpathInvalid'))),
+            },
+          ]}
+        >
+          <Input
+            maxLength={512}
+            suffix={
+              <Button
+                type="text"
+                size="small"
+                icon={<FolderOpen size={14} />}
+                disabled={!volumeId}
+                onClick={() => setBrowserOpen(true)}
+              >
+                {t('volumes.browse')}
+              </Button>
+            }
+          />
+        </Form.Item>
+
+        <Divider style={{ margin: '16px 0' }} />
+
+        <Form.Item
+          name="subtitle_lang_map"
+          label={t('libraries.subtitleLangMap')}
+          extra={t('libraries.subtitleLangMapExtra')}
+        >
+          <Input.TextArea
+            rows={5}
+            placeholder='{"zh-CN": "chs", "zh-TW": "cht"}'
+            style={{ fontFamily: 'monospace' }}
+          />
+        </Form.Item>
+        <Button type="primary" loading={saving} onClick={submit}>
+          {t('common.save')}
+        </Button>
+      </Form>
+
+      <DirectoryBrowserModal
+        open={browserOpen}
+        title={t('mediaServers.subpath')}
+        initialPath={subpathBrowseStart(
+          selectedVolume?.mount_path ?? '',
+          form.getFieldValue('root_subpath') ?? '',
+        )}
+        onSelect={(absPath) => {
+          const rel = toVolumeSubpath(selectedVolume?.mount_path ?? '', absPath);
+          if (rel !== null) form.setFieldValue('root_subpath', rel);
+        }}
+        onCancel={() => setBrowserOpen(false)}
+      />
+    </>
   );
 }
 
-/** Per-library settings drawer: organize rules + other settings (subtitle map). */
+/** Per-library settings drawer: organize rules + other settings (binding + subtitle map). */
 export default function LibrarySettingsDrawer({
   open,
   library,
   libraries,
   rules,
+  volumes,
   onClose,
   onChanged,
 }: {
@@ -102,6 +182,7 @@ export default function LibrarySettingsDrawer({
   library: Library | null;
   libraries: Library[];
   rules: OrganizeRule[];
+  volumes: StorageVolume[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -193,7 +274,9 @@ export default function LibrarySettingsDrawer({
     {
       // Merged detail column: filter summary + naming template + file_op /
       // auto_execute tags stacked vertically — keeps the drawer table from
-      // overflowing into horizontal scroll.
+      // overflowing into horizontal scroll. The path template and filter
+      // summary wrap (rather than truncate) so a very long path never forces
+      // the table wider than the drawer.
       title: t('libraries.ruleConfig'),
       key: 'config',
       render: (_, record) => {
@@ -204,12 +287,14 @@ export default function LibrarySettingsDrawer({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
             <Text
               type={summary ? undefined : 'secondary'}
-              ellipsis={{ tooltip: summary || undefined }}
-              style={{ fontSize: 12 }}
+              style={{ fontSize: 12, whiteSpace: 'normal', wordBreak: 'break-word' }}
             >
               {summary || t('libraries.filterUnlimited')}
             </Text>
-            <Text code ellipsis={{ tooltip: record.path_template }} style={{ fontSize: 12 }}>
+            <Text
+              code
+              style={{ fontSize: 12, whiteSpace: 'normal', wordBreak: 'break-all', overflowWrap: 'anywhere' }}
+            >
               {record.path_template}
             </Text>
             <Space size={4} wrap>
@@ -305,7 +390,11 @@ export default function LibrarySettingsDrawer({
               key: 'settings',
               label: t('mediaLibrary.tabOtherSettings'),
               children: library ? (
-                <LibraryOtherSettingsForm library={library} onSaved={onChanged} />
+                <LibraryOtherSettingsForm
+                  library={library}
+                  volumes={volumes}
+                  onSaved={onChanged}
+                />
               ) : null,
             },
           ]}

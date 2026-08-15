@@ -7,7 +7,6 @@ import ChannelDetail from './pages/ChannelDetail';
 import Downloaders from './pages/Downloaders';
 import DownloaderForm from './pages/DownloaderForm';
 import DownloaderDetail from './pages/DownloaderDetail';
-import Volumes from './pages/Volumes';
 import Agents from './pages/Agents';
 import AgentForm from './pages/AgentForm';
 import AgentDetail from './pages/AgentDetail';
@@ -38,7 +37,8 @@ function App() {
           <Route path="downloaders/new" element={<DownloaderForm />} />
           <Route path="downloaders/:id/edit" element={<DownloaderForm />} />
           <Route path="downloaders/:id" element={<DownloaderDetail />} />
-          <Route path="volumes" element={<Volumes />} />
+          {/* Storage volumes now live in System Settings (/settings). */}
+          <Route path="volumes" element={<Navigate to="/settings" replace />} />
           <Route path="agents" element={<Agents />} />
           <Route path="agents/new" element={<AgentForm />} />
           <Route path="agents/:id/edit" element={<AgentForm />} />

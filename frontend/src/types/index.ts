@@ -447,6 +447,8 @@ export interface AgentCreate {
    *  (possibly empty) when the save went through the preview flow; null for
    *  plain non-rule edits. */
   dispatch_resource_ids?: string[] | null;
+  /** "立即运行": enqueue a background full-history run right after creation. */
+  run_immediately?: boolean;
 }
 
 export type AgentUpdate = AgentCreate;

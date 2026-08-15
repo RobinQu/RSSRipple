@@ -255,6 +255,8 @@
     "off": "关",
     "lastRun": "上次运行",
     "runNow": "立即运行",
+    "runImmediately": "创建后立即运行",
+    "runImmediatelyHint": "保存后在后台触发一次 Agent 运行，抓取该频道自创建以来所有符合订阅规则的资源（自动跳过已下载的集数）。",
     "pleaseEnterName": "请输入名称",
     "nameExample": "例如：新番自动下载",
     "selectChannel": "选择频道",
@@ -981,6 +983,10 @@
     "reset": "重置",
     "noChanges": "没有需要保存的更改",
     "envNote": ".env 中的值作为默认值。在此处保存将覆盖默认值；清除字段则恢复为默认值。",
+    "volumes": {
+      "title": "存储卷",
+      "desc": "逻辑存储卷，供下载器路径绑定与媒体库整理目标解析使用。挂载路径为容器内绝对路径。"
+    },
     "apiKeys": {
       "title": "API Keys",
       "desc": "用于程序化调用 API 的个人密钥。在 Authorization 头中以 Bearer token 方式使用。",

@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { Typography, Card, Spin, Input, Switch, Button, Tag, Space, App, Alert } from 'antd';
-import { Sparkles, Database, Save, RotateCcw } from 'lucide-react';
+import { Sparkles, Database, Save, RotateCcw, HardDrive } from 'lucide-react';
 import { settingsApi, type SystemSettings, type SystemSettingsUpdate } from '../api/settings';
 import ApiKeysCard from '../components/ApiKeysCard';
+import VolumesPanel from '../components/VolumesPanel';
 
 const { Title, Text } = Typography;
 
@@ -301,6 +302,23 @@ export default function SettingsPage() {
           style={{ marginTop: 16 }}
           message={t('settings.envNote')}
         />
+      </Card>
+
+      {/* Storage volumes */}
+      <Card
+        size="small"
+        style={{ marginBottom: 16 }}
+        title={
+          <Space>
+            <HardDrive size={16} style={{ color: '#1863dc' }} />
+            <span>{t('settings.volumes.title')}</span>
+          </Space>
+        }
+      >
+        <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+          {t('settings.volumes.desc')}
+        </Text>
+        <VolumesPanel />
       </Card>
 
       {/* Personal API keys */}
