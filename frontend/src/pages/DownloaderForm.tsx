@@ -13,11 +13,14 @@ import {
   Spin,
   Select,
   Alert,
+  Collapse,
+  Divider,
 } from 'antd';
-import { Folder, Zap } from 'lucide-react';
+import { Folder, FolderOpen, Zap, ChevronDown } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
 import { volumesApi } from '../api/volumes';
-import { isValidRelativeSubpath } from '../utils/paths';
+import { isValidRelativeSubpath, subpathBrowseStart, toVolumeSubpath } from '../utils/paths';
+import DirectoryBrowserModal from '../components/DirectoryBrowserModal';
 import type { StorageVolume } from '../types';
 
 const { Title } = Typography;
@@ -40,7 +43,9 @@ export default function DownloaderForm() {
   const [testing, setTesting] = useState(false);
   const [type, setType] = useState<DownloaderType>('transmission');
   const [volumes, setVolumes] = useState<StorageVolume[]>([]);
+  const [subpathBrowserOpen, setSubpathBrowserOpen] = useState(false);
   const volumeId = Form.useWatch('volume_id', form);
+  const selectedVolume = volumes.find((v) => v.id === volumeId);
 
   useEffect(() => {
     (async () => {
@@ -78,7 +83,14 @@ export default function DownloaderForm() {
     if (mode !== 'edit' || !id) return;
     // Probe the *unsaved* form values, not the stored config — the backend
     // falls back to stored values for anything left blank (e.g. password).
-    let values: { url?: string; username?: string; password?: string; download_dir?: string };
+    let values: {
+      url?: string;
+      username?: string;
+      password?: string;
+      download_dir?: string;
+      volume_id?: string;
+      volume_subpath?: string;
+    };
     try {
       values = await form.validateFields();
     } catch {
@@ -90,6 +102,10 @@ export default function DownloaderForm() {
       username: values.username || undefined,
       password: values.password || undefined,
       download_dir: values.download_dir || undefined,
+      // Explicit null = unbind (identity); omitted is not possible here since
+      // the form always reflects a concrete state.
+      volume_id: values.volume_id ?? null,
+      volume_subpath: values.volume_id ? values.volume_subpath ?? null : null,
     });
     setTesting(false);
     if (res.success && res.data?.success !== false) {
@@ -207,61 +223,100 @@ export default function DownloaderForm() {
             />
           </Form.Item>
 
-          <Form.Item
-            name="volume_id"
-            label={t('downloaders.volume')}
-            extra={t('downloaders.volumeExtra')}
-          >
-            <Select
-              allowClear
-              placeholder={t('downloaders.volumePlaceholder')}
-              options={volumes.map((v) => ({
-                value: v.id,
-                label: `${v.name} (${v.mount_path})`,
-              }))}
-              onChange={(v?: string) => {
-                // Subpath only makes sense attached to a volume.
-                if (!v) form.setFieldValue('volume_subpath', '');
-              }}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="volume_subpath"
-            label={t('downloaders.volumeSubpath')}
-            extra={t('downloaders.volumeSubpathExtra')}
-            rules={[
+          {/* Optional settings, folded away so the common path stays short. */}
+          <Collapse
+            ghost
+            expandIcon={({ isActive }) => (
+              <ChevronDown
+                size={14}
+                style={{ transition: 'transform 0.2s', transform: isActive ? 'rotate(180deg)' : 'none' }}
+              />
+            )}
+            items={[
               {
-                validator: (_, value: string) =>
-                  isValidRelativeSubpath(value ?? '')
-                    ? Promise.resolve()
-                    : Promise.reject(new Error(t('downloaders.volumeSubpathInvalid'))),
+                key: 'volume',
+                label: t('downloaders.volumeSection'),
+                children: (
+                  <>
+                    <Form.Item
+                      name="volume_id"
+                      label={t('downloaders.volume')}
+                      extra={t('downloaders.volumeExtra')}
+                    >
+                      <Select
+                        allowClear
+                        placeholder={t('downloaders.volumePlaceholder')}
+                        options={volumes.map((v) => ({
+                          value: v.id,
+                          label: `${v.name} (${v.mount_path})`,
+                        }))}
+                        onChange={(v?: string) => {
+                          // Subpath only makes sense attached to a volume.
+                          if (!v) form.setFieldValue('volume_subpath', '');
+                        }}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      name="volume_subpath"
+                      label={t('downloaders.volumeSubpath')}
+                      extra={t('downloaders.volumeSubpathExtra')}
+                      rules={[
+                        {
+                          validator: (_, value: string) =>
+                            isValidRelativeSubpath(value ?? '')
+                              ? Promise.resolve()
+                              : Promise.reject(new Error(t('downloaders.volumeSubpathInvalid'))),
+                        },
+                      ]}
+                    >
+                      <Input
+                        disabled={!volumeId}
+                        maxLength={1024}
+                        placeholder="downloads/complete"
+                        style={{ fontFamily: 'monospace' }}
+                        suffix={
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FolderOpen size={14} />}
+                            disabled={!volumeId}
+                            onClick={() => setSubpathBrowserOpen(true)}
+                          >
+                            {t('volumes.browse')}
+                          </Button>
+                        }
+                      />
+                    </Form.Item>
+                  </>
+                ),
               },
+              ...(!isMock
+                ? [
+                    {
+                      key: 'auth',
+                      label: t('downloaders.authSection'),
+                      children: (
+                        <Space style={{ width: '100%' }} size={16}>
+                          <Form.Item name="username" label={t('downloaders.username')} style={{ flex: 1 }}>
+                            <Input autoComplete="off" />
+                          </Form.Item>
+                          <Form.Item name="password" label={t('downloaders.password')} style={{ flex: 1 }}>
+                            <Input.Password
+                              placeholder={mode === 'edit' ? t('downloaders.passwordHint') : undefined}
+                              autoComplete="new-password"
+                            />
+                          </Form.Item>
+                        </Space>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
-          >
-            <Input
-              disabled={!volumeId}
-              maxLength={1024}
-              placeholder="downloads/complete"
-              style={{ fontFamily: 'monospace' }}
-            />
-          </Form.Item>
+          />
 
-          {!isMock && (
-            <Space style={{ width: '100%' }} size={16}>
-              <Form.Item name="username" label={t('downloaders.username')} style={{ flex: 1 }}>
-                <Input autoComplete="off" />
-              </Form.Item>
-              <Form.Item name="password" label={t('downloaders.password')} style={{ flex: 1 }}>
-                <Input.Password
-                  placeholder={mode === 'edit' ? t('downloaders.passwordHint') : undefined}
-                  autoComplete="new-password"
-                />
-              </Form.Item>
-            </Space>
-          )}
+          <Divider style={{ margin: '12px 0 16px' }} />
 
-          <Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
             <Space>
               <Button type="primary" htmlType="submit" loading={saving}>
                 {mode === 'edit' ? t('common.saveChanges') : t('downloaders.addDownloader')}
@@ -278,6 +333,20 @@ export default function DownloaderForm() {
           </Form.Item>
         </Form>
       </Card>
+
+      <DirectoryBrowserModal
+        open={subpathBrowserOpen}
+        title={t('downloaders.volumeSubpath')}
+        initialPath={subpathBrowseStart(
+          selectedVolume?.mount_path ?? '',
+          form.getFieldValue('volume_subpath') ?? '',
+        )}
+        onSelect={(absPath) => {
+          const rel = toVolumeSubpath(selectedVolume?.mount_path ?? '', absPath);
+          if (rel !== null) form.setFieldValue('volume_subpath', rel);
+        }}
+        onCancel={() => setSubpathBrowserOpen(false)}
+      />
     </div>
   );
 }

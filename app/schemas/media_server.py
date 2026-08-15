@@ -86,6 +86,25 @@ class MediaServerTestResult(BaseModel):
     message: str | None = None
 
 
+class MediaServerTestRequest(BaseModel):
+    """可选覆盖值，供编辑表单按未保存的表单值探测（缺省字段回退已存值）。
+
+    ``token`` 为 None 表示沿用已存凭证（表单不回显 token，留空 = 不修改）。
+    """
+
+    type: Literal["plex", "emby", "jellyfin"] | None = None
+    url: str | None = Field(default=None, min_length=1, max_length=2048)
+    token: str | None = None
+
+
+class MediaServerTestPayload(BaseModel):
+    """无 id 的连通性探测（创建表单用）：直接以给定值构造临时连接目标。"""
+
+    type: Literal["plex", "emby", "jellyfin"]
+    url: str = Field(min_length=1, max_length=2048)
+    token: str | None = None
+
+
 class MediaServerScanResult(BaseModel):
     created: int
     updated: int

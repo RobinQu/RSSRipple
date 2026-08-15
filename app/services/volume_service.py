@@ -58,10 +58,11 @@ def resolve_downloader_path(downloader: Any, daemon_path: str) -> str:
 
 
 def check_mount(mount_path: str) -> dict:
-    """探测挂载点的存在性与写权限（writable 仅作展示提示，不拦截保存）。"""
+    """探测挂载点的存在性、可读性与写权限（均仅作展示提示，不拦截保存）。"""
     exists = os.path.isdir(mount_path)
     return {
         "exists": exists,
+        "readable": os.access(mount_path, os.R_OK) if exists else False,
         "writable": os.access(mount_path, os.W_OK) if exists else False,
     }
 

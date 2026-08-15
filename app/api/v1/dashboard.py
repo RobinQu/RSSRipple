@@ -15,6 +15,7 @@ from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
+from app.models.organize_plan import OrganizePlan
 from app.models.pending_decision import PendingDecision
 from app.schemas.common import success_response
 
@@ -161,9 +162,13 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
             selectinload(PendingDecision.agent),
         )
     )
+    from app.schemas.file_resource import FileResourceResponse
+
     pending_decisions = []
     for pd in pd_q.scalars().all():
-        # Load candidate resources
+        # Load candidate resources (full rows — the frontend renders raw titles
+        # and, for ambiguous episode/season decisions, an inline correction
+        # form keyed off ``episode_confidence``).
         res_q = await db.execute(
             select(FileResource).where(FileResource.id.in_(pd.candidates or []))
         )
@@ -175,18 +180,12 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
             "series_id": pd.series_id,
             "movie_id": pd.movie_id,
             "episode": pd.episode,
+            "season": pd.season,
             "reason": pd.reason,
             "llm_suggestion": pd.llm_suggestion,
-            "candidates": [
-                {
-                    "id": c.id,
-                    "title_raw": c.title_raw,
-                    "subtitle_group": c.subtitle_group,
-                    "resolution": c.resolution,
-                    "source": c.source,
-                    "file_size": c.file_size,
-                    "published_at": c.published_at.isoformat() if c.published_at else None,
-                }
+            "candidates": [c.id for c in candidates],
+            "candidate_resources": [
+                FileResourceResponse.model_validate(c).model_dump()
                 for c in candidates
             ],
             "title": (
@@ -197,10 +196,28 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
             "created_at": pd.created_at.isoformat(),
         })
 
+    # Pending organize plans (top 10) — they are actionable todos too, surfaced
+    # on the dashboard with the same in-place execute/cancel/detail operations.
+    # Reuse the plan list-item builder from the organize routes (includes the
+    # ops preview so the frontend can render file paths inline).
+    from app.api.v1.organize import _PLAN_LOAD_OPTIONS, _plan_list_item
+
+    pending_plans = []
+    plan_q = await db.execute(
+        select(OrganizePlan)
+        .where(OrganizePlan.status == "pending")
+        .order_by(OrganizePlan.created_at.desc())
+        .limit(10)
+        .options(*_PLAN_LOAD_OPTIONS)
+    )
+    for p in plan_q.scalars().all():
+        pending_plans.append(_plan_list_item(p))
+
     return success_response({
         "active_agents": active_agents,
         "active_channels": active_channels,
         "active_download_count": len(tasks) + len(untracked_tasks),
         "active_download_groups": active_download_groups,
         "pending_decisions": pending_decisions,
+        "pending_plans": pending_plans,
     })

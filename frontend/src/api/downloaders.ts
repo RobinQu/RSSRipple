@@ -33,10 +33,13 @@ export const downloadersApi = {
     api.put<DownloaderInstance>(`/downloaders/${id}`, data),
   delete: (id: string) => api.delete<null>(`/downloaders/${id}`),
   test: (id: string, overrides?: DownloaderUpdate) =>
-    api.post<{ success: boolean; message: string; version?: string | null; free_space?: number | null }>(
-      `/downloaders/${id}/test`,
-      overrides,
-    ),
+    api.post<{
+      success: boolean;
+      message: string;
+      version?: string | null;
+      free_space?: number | null;
+      volume_check?: { exists: boolean; readable: boolean; writable: boolean } | null;
+    }>(`/downloaders/${id}/test`, overrides),
   listTorrents: (id: string) =>
     api.get<TorrentInfo[]>(`/downloaders/${id}/torrents`),
   listTasks: (id: string, page = 1, pageSize = 20) =>

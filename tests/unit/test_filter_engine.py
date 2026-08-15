@@ -914,3 +914,55 @@ class TestCollectionFields:
             "field": "movie.collection", "operator": "gt", "value": 3,
         })
         assert errs
+
+
+# ---------------------------------------------------------------------------
+# content_type (work type) — derived from the mutually-exclusive work FKs
+# ---------------------------------------------------------------------------
+
+
+class TestContentTypeField:
+    def test_derives_from_fks(self):
+        assert get_field_value(_res(series_id="s1"), "content_type") == "tv"
+        assert get_field_value(_res(movie_id="m1"), "content_type") == "movie"
+        assert get_field_value(_res(audio_work_id="a1"), "content_type") == "audio"
+        assert get_field_value(_res(), "content_type") is None
+
+    def test_eq_matches_work_type(self):
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "eq", "value": "tv"},
+            _res(series_id="s1"),
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "eq", "value": "tv"},
+            _res(movie_id="m1"),
+        ) is False
+
+    def test_unlinked_is_empty(self):
+        r = _res()
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "is_empty"}, r
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "is_not_empty"}, r
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "eq", "value": "tv"}, r
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "ne", "value": "tv"}, r
+        ) is True
+
+    def test_in_matches(self):
+        assert evaluate_field_condition(
+            {"field": "content_type", "operator": "in", "value": ["tv", "movie"]},
+            _res(movie_id="m1"),
+        ) is True
+
+    def test_validate_accepts(self):
+        assert validate_filter_config(
+            {"field": "content_type", "operator": "eq", "value": "tv"}
+        ) == []
+        assert validate_filter_config(
+            {"field": "content_type", "operator": "is_empty"}
+        ) == []

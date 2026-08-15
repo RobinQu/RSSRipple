@@ -8,6 +8,8 @@ Library 的 ``media_server_id`` SET NULL 保留行。
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, update
@@ -24,6 +26,8 @@ from app.schemas.media_server import (
     MediaServerListItem,
     MediaServerOut,
     MediaServerScanResult,
+    MediaServerTestPayload,
+    MediaServerTestRequest,
     MediaServerTestResult,
     MediaServerUpdate,
 )
@@ -230,14 +234,18 @@ async def delete_media_server(server_id: str, db: AsyncSession = Depends(get_db)
     return success_response({"deleted": True})
 
 
-@router.post("/media-servers/{server_id}/test")
-async def test_media_server(server_id: str, db: AsyncSession = Depends(get_db)):
-    """连通性 + 凭证校验 → {ok, server_version?}。"""
-    server = await _get_server_or_404(db, server_id)
-    if isinstance(server, JSONResponse):
-        return server
+@router.post("/media-servers/test")
+async def test_media_server_stateless(body: MediaServerTestPayload):
+    """无 id 的连通性探测（创建表单按未保存值测试）。"""
+    return await _probe(
+        SimpleNamespace(type=body.type, url=body.url, token=body.token)
+    )
+
+
+async def _probe(target) -> JSONResponse:
+    """统一连通性探测：返回 {ok, server_version?, message?}。"""
     try:
-        ok, detail = await media_server_service.test_server(server)
+        ok, detail = await media_server_service.test_server(target)
     except MediaServerError as e:
         ok, detail = False, str(e)
     return success_response(
@@ -247,6 +255,31 @@ async def test_media_server(server_id: str, db: AsyncSession = Depends(get_db)):
             message=None if ok else detail,
         ).model_dump()
     )
+
+
+@router.post("/media-servers/{server_id}/test")
+async def test_media_server(
+    server_id: str,
+    body: MediaServerTestRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """连通性 + 凭证校验 → {ok, server_version?}。
+
+    可选请求体携带 url/token/type 覆盖值（编辑表单按未保存值探测）；空
+    token = 沿用已存凭证（表单不回显 token）。
+    """
+    server = await _get_server_or_404(db, server_id)
+    if isinstance(server, JSONResponse):
+        return server
+    explicit = body.model_fields_set if body is not None else set()
+    if not explicit:
+        return await _probe(server)
+    target = SimpleNamespace(
+        type=body.type or server.type,
+        url=body.url or server.url,
+        token=body.token if body.token is not None else server.token,
+    )
+    return await _probe(target)
 
 
 @router.post("/media-servers/{server_id}/scan")

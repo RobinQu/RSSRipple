@@ -94,7 +94,7 @@ class MediaServerBinding(Base):
 
 - Plex：`GET /library/sections`（取 type=movie/show 的 section：key、title、Location 列表）。
 - Emby/Jellyfin：`GET /Library/VirtualFolders`（Name、Locations[]、CollectionType=movies/tvshows；需管理员 API key）。
-- 每 `(section, location)` 幂等 upsert 一个 Library；**多 Location 的 section 拆成每 location 一条 Library**。server 视角根路径经该服务器的 bindings 最长前缀匹配解析为 `(volume_id, root_subpath)`；未命中绑定 → Library 落 `volume_id=NULL` 的**待绑定**状态，UI 引导补绑定后重扫（或就地解析已有待绑定行）。
+- 每 `(section, location)` 幂等 upsert 一个 Library；**多 Location 的 section 拆成每 location 一条 Library**。server 视角根路径经该服务器的 bindings 最长前缀匹配解析为 `(volume_id, root_subpath)`；未命中绑定 → 新 Library 落 `volume_id=NULL` 的**待绑定**状态，UI 引导补绑定后重扫（或就地解析已有待绑定行）。幂等键中 `server_path` **规范化**（去首尾空白、去尾部斜杠），避免同一 Location 因尾部斜杠/空白差异被误判为新增而重复建库；重扫时**未命中绑定不覆盖既有 `volume_id`/`root_subpath`**（手工补绑定在重扫后保留，只有命中 binding 才更新解析结果）。
 
 ### Library（媒体库，扫描派生）
 
@@ -286,9 +286,10 @@ class OrganizeAuditEntry(Base):
 | GET | `/volumes` | 逻辑卷列表（含存在/可写最近探测结果） |
 | POST | `/volumes` | 创建 `{name, mount_path, remark?}` → 201；`mount_path` 必须绝对路径且**存在**（422） |
 | GET | `/volumes/{id}` | 详情 |
+| GET | `/volumes/dirs?path=` | 列出服务器本地目录子目录（`{path, parent, dirs, exists}`，隐藏/符号链接目录过滤，供挂载路径与卷内子路径的目录选择器使用） |
 | PUT | `/volumes/{id}` | 更新（改 mount_path 全局生效——所有卷引用动态解析） |
 | DELETE | `/volumes/{id}` | 删除；被下载器绑定 / 媒体服务器绑定 / Library 引用时 409 |
-| POST | `/volumes/{id}/check` | 探测存在性与写权限 → `{exists, writable}`（writable 仅展示提示） |
+| POST | `/volumes/{id}/check` | 探测存在性、可读性与写权限 → `{exists, readable, writable}`（均仅展示提示） |
 
 ### Media Servers
 
@@ -299,7 +300,8 @@ class OrganizeAuditEntry(Base):
 | GET | `/media-servers/{id}` | 详情（含 bindings 数组） |
 | PUT | `/media-servers/{id}` | 更新；bindings 内嵌整体替换（`[{server_path_prefix, volume_id, subpath}]`） |
 | DELETE | `/media-servers/{id}` | 删除（bindings 随 FK CASCADE；派生 Library `media_server_id` SET NULL 保留） |
-| POST | `/media-servers/{id}/test` | 连通性 + 凭证校验 → `{ok, server_version?}` |
+| POST | `/media-servers/{id}/test` | 连通性 + 凭证校验 → `{ok, server_version?, message?}`；可选请求体 `{type?, url?, token?}`（编辑表单按未保存值探测，空 token = 沿用已存凭证） |
+| POST | `/media-servers/test` | 无 id 的连通性探测（创建表单用）：请求体 `{type, url, token?}` → `{ok, server_version?, message?}` |
 | POST | `/media-servers/{id}/scan` | 扫描 sections/虚拟目录，幂等 upsert Library（经 bindings 最长前缀匹配解析卷；未命中落待绑定）→ `{created, updated, unbound}` |
 
 ### Libraries（收敛为只读 + 局部更新）

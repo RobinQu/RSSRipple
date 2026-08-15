@@ -18,7 +18,7 @@ FieldCondition = {
            "audio_codec" | "subtitle_type" | "container" | "file_size" |
            "episode" | "season" | "episode_start" | "episode_end" |
            "absolute_episode" | "is_batch" | "subtitle_langs" |
-           "episode_confidence" |
+           "episode_confidence" | "content_type" |
            "title_cn" | "title_en" | "search_title" |
            "movie.rating" | "movie.year" | "series.rating" | "series.year" |
            "movie.collection" | "series.collection" |
@@ -55,6 +55,7 @@ FieldCondition = {
     - `eq` / `ne`：视为**集合相等/不等**（忽略顺序）。
   - genre 字段（`series.genre`, `movie.genre`）是带命名空间的列表字段，取值为资源关联作品的 `genre`（封闭 TMDB 27 类英文 canonical 名，见 data-models.md「genre 取值约定」），支持操作符与逐元素语义同列表字段；资源未关联作品时值为空，适用标准空值语义。
   - 枚举字段（`episode_confidence`）在存储层是普通字符串，走字符串字段求值路径；UI 限制取值为 `"raw" | "reconciled" | "ambiguous" | "manual"`。
+  - 作品类型字段（`content_type`）是派生枚举字符串字段：值由资源互斥的作品 FK 派生——`series_id` 非空 → `"tv"`、`movie_id` 非空 → `"movie"`、`audio_work_id` 非空 → `"audio"`、三者皆空（未识别）→ 空值（适用标准空值语义，`is_empty` 可匹配「未识别」）。走字符串字段求值路径；UI 限制取值为 `"tv" | "movie" | "audio"`。该派生只读 FK id，无需 eager-load 作品关系，所有求值点均安全。
   - 字符串字段（其余全部）支持：`eq`, `ne`, `contains`, `fuzzy`, `in`, `regex`。
 - **operator 语义**（字符串比较均忽略大小写）：
   - `eq`：字段值等于 value（字符串去首尾空格后比较）。

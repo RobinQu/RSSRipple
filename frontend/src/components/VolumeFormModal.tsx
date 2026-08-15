@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App, Form, Input, Modal } from 'antd';
+import { App, Button, Form, Input, Modal } from 'antd';
+import { FolderOpen } from 'lucide-react';
 import { volumesApi } from '../api/volumes';
+import DirectoryBrowserModal from './DirectoryBrowserModal';
 import type { StorageVolume } from '../types';
 
 /** Create / edit modal for a StorageVolume (logical storage volume). */
@@ -20,6 +22,7 @@ export default function VolumeFormModal({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -30,6 +33,10 @@ export default function VolumeFormModal({
       });
     }
   }, [open, volume, form]);
+
+  const openBrowser = async () => {
+    setBrowserOpen(true);
+  };
 
   const submit = async () => {
     const values = await form.validateFields();
@@ -54,36 +61,60 @@ export default function VolumeFormModal({
   };
 
   return (
-    <Modal
-      open={open}
-      title={t(volume ? 'volumes.editVolume' : 'volumes.newVolume')}
-      okText={t('common.save')}
-      cancelText={t('common.cancel')}
-      confirmLoading={saving}
-      onOk={submit}
-      onCancel={onClose}
-      destroyOnHidden
-    >
-      <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
-        <Form.Item
-          name="name"
-          label={t('common.name')}
-          rules={[{ required: true, message: t('volumes.nameRequired') }]}
-        >
-          <Input maxLength={255} />
-        </Form.Item>
-        <Form.Item
-          name="mount_path"
-          label={t('volumes.mountPath')}
-          rules={[{ required: true, message: t('volumes.mountPathRequired') }]}
-          extra={t('volumes.mountPathExtra')}
-        >
-          <Input maxLength={1024} placeholder="/storage/main" style={{ fontFamily: 'monospace' }} />
-        </Form.Item>
-        <Form.Item name="remark" label={t('volumes.remark')}>
-          <Input.TextArea rows={2} maxLength={1024} placeholder={t('volumes.remarkPlaceholder')} />
-        </Form.Item>
-      </Form>
-    </Modal>
+    <>
+      <Modal
+        open={open}
+        title={t(volume ? 'volumes.editVolume' : 'volumes.newVolume')}
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
+        confirmLoading={saving}
+        onOk={submit}
+        onCancel={onClose}
+        destroyOnHidden
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
+          <Form.Item
+            name="name"
+            label={t('common.name')}
+            rules={[{ required: true, message: t('volumes.nameRequired') }]}
+          >
+            <Input maxLength={255} />
+          </Form.Item>
+          <Form.Item
+            name="mount_path"
+            label={t('volumes.mountPath')}
+            rules={[{ required: true, message: t('volumes.mountPathRequired') }]}
+            extra={t('volumes.mountPathExtra')}
+          >
+            <Input
+              maxLength={1024}
+              placeholder="/storage/main"
+              style={{ fontFamily: 'monospace' }}
+              suffix={
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<FolderOpen size={14} />}
+                  onClick={openBrowser}
+                >
+                  {t('volumes.browse')}
+                </Button>
+              }
+            />
+          </Form.Item>
+          <Form.Item name="remark" label={t('volumes.remark')}>
+            <Input.TextArea rows={2} maxLength={1024} placeholder={t('volumes.remarkPlaceholder')} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <DirectoryBrowserModal
+        open={browserOpen}
+        title={t('volumes.browseTitle')}
+        initialPath={(form.getFieldValue('mount_path') || '').trim() || '/'}
+        onSelect={(path) => form.setFieldValue('mount_path', path)}
+        onCancel={() => setBrowserOpen(false)}
+      />
+    </>
   );
 }

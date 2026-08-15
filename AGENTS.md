@@ -44,6 +44,7 @@
 - `filter_config` / `filter_overrides` 均为 BoolCondition 根节点的 JSON DSL 树；字符串比较忽略大小写；`filter_overrides` 与全局 `filter_config` 按 AND 合并。
 - 空值语义：`eq/contains/fuzzy/regex/gt/...` 不通过；`ne` 通过。空值匹配必须用 `is_empty`/`is_not_empty`（所有字段类型可用、不需要 value）；取值操作符的 `value` 禁止为空，保存时 422（`eq ""` 会静默过滤掉全部资源）。
 - bool 字段新增 `series.is_anime` / `movie.is_anime`（eq/ne + is_empty/is_not_empty，三态取值见数据模型）；bool 空值语义已修正为与上述规则一致：NULL 时 `eq` 不通过、`ne` 通过（此前 NULL 被当 False；`is_batch` 为 NOT NULL 不受影响），区分「确认非动漫」与「未判定」必须用 `is_empty`/`is_not_empty`。
+- 作品类型字段 `content_type`（枚举字符串，UI 限 `tv/movie/audio`）：值由资源互斥作品 FK 派生（series_id→tv、movie_id→movie、audio_work_id→audio，三者皆空→空值/未识别）；只读 FK id，无需 eager-load 作品关系。前端字段下拉按**语义分组**（发布信息/集数信息/标题信息/作品类型/剧集作品/电影作品），`series.collection`/`movie.collection` 亦纳入对应作品分组。
 
 ### API（详见 api-endpoints.md）
 
@@ -68,7 +69,7 @@
 
 ### 前端（详见 frontend.md）
 
-- 路由：`/login`（登录页，独立于侧边栏布局；API client 401 自动跳转）、`/` Dashboard、`/works`（合集列表作为浏览模式整合进作品仓库：`?view=collections`）、`/collections/:id`（合集详情页，无独立列表路由）、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`、`/volumes`（存储卷）、`/media-servers`（媒体服务器 + 扫描派生媒体库 + 整理规则；取代原手工 `/libraries` 页）、`/organize`（整理计划/审计）、`/settings`（含 API Keys 卡片）。
+- 路由：`/login`（登录页，独立于侧边栏布局；API client 401 自动跳转）、`/` Dashboard、`/works`（合集列表作为浏览模式整合进作品仓库：`?view=collections`）、`/collections/:id`（合集详情页，无独立列表路由）、`/channels*`、`/agents*`、`/downloaders*`、`/series*`、`/movies*`、`/volumes`（存储卷）、`/media-library`（「媒体库管理」统一模块，合并原 `/media-servers` 与 `/organize`，三 Tab：变更计划 / 操作审计 / 媒体服务器配置；变更计划状态用下拉筛选默认 pending；媒体服务器配置为服务器+派生媒体库分组表格，库行「设置」打开媒体库设置 Drawer（媒体库规则 + 其他设置两 Tab）；`/media-servers`、`/organize` 重定向至此）、`/settings`（含 API Keys 卡片）。
 - Agent 保存前必须走 `/agents/rules-preview` + BackfillPreviewModal 回填流程。
 
 ### 错误处理（详见 error-handling.md）

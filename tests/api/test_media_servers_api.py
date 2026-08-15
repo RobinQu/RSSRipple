@@ -187,6 +187,64 @@ async def test_server_test_endpoint(client, monkeypatch):
     assert data["ok"] is False and data["message"] == "unauthorized"
 
 
+async def test_server_test_stateless(client, monkeypatch):
+    """创建表单按未保存值探测：无 id 的 POST /media-servers/test。"""
+    _patch_client(monkeypatch, _fake_client(test_result=(True, "10.8.0")))
+    resp = await client.post("/api/v1/media-servers/test", json={
+        "type": "jellyfin", "url": "http://jelly:8096", "token": "k",
+    })
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["ok"] is True and data["server_version"] == "10.8.0"
+
+
+async def test_server_test_with_overrides(client, monkeypatch):
+    """编辑表单覆盖值：url/token 用表单值探测，token 显式覆盖。"""
+    created = (await _create_server(client)).json()["data"]  # token "tok"
+    seen = {}
+    fake = _fake_client(test_result=(True, "1.40.2"))
+
+    def _capture(server):
+        seen["url"] = server.url
+        seen["token"] = server.token
+        seen["type"] = server.type
+        return fake
+
+    monkeypatch.setattr(
+        "app.services.media_server_service.get_client", _capture
+    )
+    resp = await client.post(
+        f"/api/v1/media-servers/{created['id']}/test",
+        json={"url": "http://newhost:32400", "token": "newtok"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ok"] is True
+    assert seen["url"] == "http://newhost:32400"
+    assert seen["token"] == "newtok"
+
+
+async def test_server_test_override_blank_token_falls_back(client, monkeypatch):
+    """编辑表单不回显 token：空 token = 沿用已存凭证。"""
+    created = (await _create_server(client)).json()["data"]  # token "tok"
+    seen = {}
+    fake = _fake_client(test_result=(True, "1.40.2"))
+
+    def _capture(server):
+        seen["token"] = server.token
+        return fake
+
+    monkeypatch.setattr(
+        "app.services.media_server_service.get_client", _capture
+    )
+    resp = await client.post(
+        f"/api/v1/media-servers/{created['id']}/test",
+        json={"url": "http://newhost:32400"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["ok"] is True
+    assert seen["token"] == "tok"
+
+
 async def test_server_scan_endpoint(client, db_session, tmp_path, monkeypatch):
     volume_id = await _create_volume(client, tmp_path)
     resp = await _create_server(
@@ -215,6 +273,50 @@ async def test_server_scan_endpoint(client, db_session, tmp_path, monkeypatch):
     # 幂等重扫
     resp = await client.post(f"/api/v1/media-servers/{server['id']}/scan")
     assert resp.json()["data"] == {"created": 0, "updated": 2, "unbound": 1}
+
+
+async def test_server_scan_normalizes_paths(client, db_session_factory, monkeypatch):
+    """尾部斜杠差异不应产生重复 Library（幂等）。"""
+    created = (await _create_server(client)).json()["data"]
+    sections = [{"key": "1", "name": "Anime", "kind": "tv",
+                 "paths": ["/data/Anime/"]}]
+    _patch_client(monkeypatch, _fake_client(sections=sections))
+    resp = await client.post(f"/api/v1/media-servers/{created['id']}/scan")
+    assert resp.json()["data"] == {"created": 1, "updated": 0, "unbound": 1}
+    # 第二次扫描路径仍带尾斜杠 → 归一后同键，命中既有行而非新建。
+    resp = await client.post(f"/api/v1/media-servers/{created['id']}/scan")
+    assert resp.json()["data"] == {"created": 0, "updated": 1, "unbound": 1}
+    async with db_session_factory() as s:
+        libs = (await s.execute(select(Library))).scalars().all()
+        assert len(libs) == 1
+        assert libs[0].server_path == "/data/Anime"
+
+
+async def test_server_scan_preserves_manual_binding(
+    client, db_session_factory, tmp_path, monkeypatch
+):
+    """重扫未命中绑定时不应覆盖手工补绑定（volume_id/root_subpath）。"""
+    volume_id = await _create_volume(client, tmp_path)
+    created = (await _create_server(client)).json()["data"]
+    sections = [{"key": "1", "name": "Anime", "kind": "tv",
+                 "paths": ["/elsewhere/Anime"]}]
+    _patch_client(monkeypatch, _fake_client(sections=sections))
+    resp = await client.post(f"/api/v1/media-servers/{created['id']}/scan")
+    assert resp.json()["data"]["unbound"] == 1
+    async with db_session_factory() as s:
+        lib_id = (await s.execute(select(Library.id))).scalar_one()
+    # 手工补绑定（就地修复）
+    resp = await client.put(f"/api/v1/libraries/{lib_id}", json={
+        "volume_id": volume_id, "root_subpath": "anime",
+    })
+    assert resp.status_code == 200
+    # 重扫：未命中绑定，保留手工绑定且不重复计数待绑定。
+    resp = await client.post(f"/api/v1/media-servers/{created['id']}/scan")
+    assert resp.json()["data"] == {"created": 0, "updated": 1, "unbound": 0}
+    async with db_session_factory() as s:
+        lib = (await s.execute(select(Library))).scalar_one()
+        assert lib.volume_id == volume_id
+        assert lib.root_subpath == "anime"
 
 
 async def test_server_scan_disabled_409(client):

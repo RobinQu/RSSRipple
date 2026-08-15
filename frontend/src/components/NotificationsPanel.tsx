@@ -329,6 +329,14 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
 
   const columns: TableColumnsType<DownloadNotification> = [
     {
+      title: t('agents.notifColTitle'),
+      dataIndex: 'title_raw',
+      key: 'title_raw',
+      width: 240,
+      render: (v: string | null) =>
+        v ? <EllipsisText text={v} /> : <Text type="secondary">—</Text>,
+    },
+    {
       title: t('agents.notifColCreatedAt'),
       dataIndex: 'created_at',
       key: 'created_at',
@@ -508,7 +516,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
           rowKey="id"
           loading={loading}
           size="small"
-          scroll={{ x: 720 }}
+          scroll={{ x: 880 }}
           pagination={{
             current: page,
             pageSize: PAGE_SIZE,

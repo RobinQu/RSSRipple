@@ -712,6 +712,8 @@ async def test_plan_list_filters_and_pagination(
     assert rows[0]["library_name"] == "Movies"
     assert rows[0]["ops_summary"] == {"total": 2, "move": 1, "keep": 1,
                                       "movedir": 0}
+    assert [op["seq"] for op in rows[0]["ops_preview"]] == [0, 1]
+    assert rows[0]["ops_preview"][0]["src"] == "/downloads/x/a.mkv"
 
     # 分页
     resp = await client.get("/api/v1/organize/plans?page=2&page_size=1")
@@ -732,6 +734,25 @@ async def test_plan_pending_reason_unclassified(client, db_session, movie_seed):
     [item] = resp.json()["data"]
     assert item["status"] == "pending"
     assert item["pending_reason"] == "unclassified"
+
+
+async def test_plan_list_ops_preview_capped(client, db_session, library, movie_seed):
+    """列表项仅带前 3 条 op 预览（按 seq 排序），完整 op 走详情。"""
+    plan = await _make_plan(db_session, movie_seed["notification"], library=library)
+    for seq in range(5):
+        db_session.add(
+            OrganizePlanOp(
+                id=_uuid(), plan_id=plan.id, seq=seq, op_type="move",
+                src=f"/downloads/x/f{seq}.mkv", dst=f"/media/f{seq}.mkv", size=100,
+            )
+        )
+    await db_session.commit()
+    resp = await client.get("/api/v1/organize/plans")
+    [item] = resp.json()["data"]
+    assert item["ops_summary"]["total"] == 5
+    assert len(item["ops_preview"]) == 3
+    assert [op["seq"] for op in item["ops_preview"]] == [0, 1, 2]
+    assert item["ops_preview"][0]["src"] == "/downloads/x/f0.mkv"
 
 
 async def test_plan_pending_reason_unbound_and_execute_409(

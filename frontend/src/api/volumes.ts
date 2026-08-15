@@ -6,6 +6,13 @@ import type {
   StorageVolumeUpdate,
 } from '../types';
 
+export interface VolumeDirListing {
+  path: string;
+  parent: string;
+  dirs: string[];
+  exists: boolean;
+}
+
 export const volumesApi = {
   // Small set; single page is enough (mirrors libraries).
   list: () => api.get<StorageVolume[]>('/volumes?page=1&page_size=100'),
@@ -17,4 +24,7 @@ export const volumesApi = {
   // Probe mount_path existence + writability on the server side.
   check: (id: string) =>
     api.post<StorageVolumeCheckResult>(`/volumes/${id}/check`),
+  // List server-side subdirectories (mount-path directory picker).
+  listDirs: (path: string) =>
+    api.get<VolumeDirListing>(`/volumes/dirs?path=${encodeURIComponent(path)}`),
 };

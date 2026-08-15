@@ -49,9 +49,10 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   audio_codec: 'string',
   subtitle_type: 'string',
   container: 'string',
-  // episode_confidence is stored as a plain string on the backend but the UI
-  // treats it as an enum so users pick from a fixed value list.
+  // episode_confidence / content_type are stored as plain strings on the
+  // backend but the UI treats them as enums so users pick from a fixed list.
   episode_confidence: 'string',
+  content_type: 'string',
   title_cn: 'string',
   title_en: 'string',
   search_title: 'string',
@@ -73,6 +74,9 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   // element-wise list semantics, same as subtitle_langs.
   'movie.genre': 'list',
   'series.genre': 'list',
+  // Collection display name (WorkCollection.title_cn or title_en) on the work.
+  'movie.collection': 'string',
+  'series.collection': 'string',
   // Tri-state booleans on the work: true = anime, false = live-action,
   // null (empty) = undetermined — use is_empty/is_not_empty to match null.
   'series.is_anime': 'bool',
@@ -120,6 +124,7 @@ const listFieldOptions = (field: FilterField, t: TFunction): { value: string; la
 // autocomplete path so users can't accidentally type an unknown value.
 const ENUM_FIELDS: Record<string, string[]> = {
   episode_confidence: ['raw', 'reconciled', 'ambiguous', 'manual'],
+  content_type: ['tv', 'movie', 'audio'],
 };
 
 // Operators that take no value (is_empty / is_not_empty). Valid for every
@@ -144,30 +149,35 @@ function operatorsFor(field: FilterField): FilterOperator[] {
 }
 
 function useFieldOptions(t: TFunction) {
-  const string_fields: FilterField[] = [
+  // Semantic grouping (not type-based): the dropdown is organized by what the
+  // field *means*, so users can find "文件大小" next to "容器" and "集数"
+  // next to "是否合集" instead of hunting across String/Number/Bool buckets.
+  const release_fields: FilterField[] = [
     'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
-    'subtitle_type', 'container', 'title_cn', 'title_en', 'search_title',
+    'subtitle_type', 'subtitle_langs', 'container', 'file_size',
   ];
-  const number_fields: FilterField[] = [
-    'file_size', 'episode', 'season', 'episode_start', 'episode_end', 'absolute_episode',
+  const episode_fields: FilterField[] = [
+    'episode', 'season', 'episode_start', 'episode_end', 'absolute_episode',
+    'is_batch', 'episode_confidence',
   ];
-  const bool_fields: FilterField[] = ['is_batch'];
-  const list_fields: FilterField[] = ['subtitle_langs'];
-  const enum_fields: FilterField[] = ['episode_confidence'];
-  const work_fields: FilterField[] = [
-    'series.rating', 'series.year', 'series.genre', 'series.is_anime',
-    'movie.rating', 'movie.year', 'movie.genre', 'movie.is_anime',
+  const title_fields: FilterField[] = ['title_cn', 'title_en', 'search_title'];
+  const work_type_fields: FilterField[] = ['content_type'];
+  const series_fields: FilterField[] = [
+    'series.rating', 'series.year', 'series.genre', 'series.collection', 'series.is_anime',
+  ];
+  const movie_fields: FilterField[] = [
+    'movie.rating', 'movie.year', 'movie.genre', 'movie.collection', 'movie.is_anime',
   ];
 
   const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });
 
   const fieldOptions = [
-    { label: t('filter.stringField'), options: string_fields.map(toOption) },
-    { label: t('filter.numberField'), options: number_fields.map(toOption) },
-    { label: t('filter.boolField'), options: bool_fields.map(toOption) },
-    { label: t('filter.listField'), options: list_fields.map(toOption) },
-    { label: t('filter.enumField'), options: enum_fields.map(toOption) },
-    { label: t('filter.workField'), options: work_fields.map(toOption) },
+    { label: t('filter.groupRelease'), options: release_fields.map(toOption) },
+    { label: t('filter.groupEpisode'), options: episode_fields.map(toOption) },
+    { label: t('filter.groupTitle'), options: title_fields.map(toOption) },
+    { label: t('filter.groupWorkType'), options: work_type_fields.map(toOption) },
+    { label: t('filter.groupSeries'), options: series_fields.map(toOption) },
+    { label: t('filter.groupMovie'), options: movie_fields.map(toOption) },
   ];
 
   const operatorLabel = (op: FilterOperator) => t(`filter.${op}`);

@@ -685,7 +685,6 @@ export default function ChannelForm() {
                 style={{
                   fontFamily: 'monospace',
                   fontSize: 12,
-                  background: '#ffffff',
                 }}
                 placeholder={DEFAULT_FIELD_MAPPING_TEXT}
               />

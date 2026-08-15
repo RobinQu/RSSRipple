@@ -91,6 +91,44 @@ async def list_volumes(
     )
 
 
+@router.get("/volumes/dirs")
+async def list_directories(
+    path: str = Query("/", description="目录绝对路径"),
+):
+    """列出服务器本地文件系统某目录下的子目录（供挂载路径目录选择器使用）。
+
+    返回 ``{path, parent, dirs, exists}``；``dirs`` 为按名称排序的子目录名
+    （隐藏目录与符号链接目录被过滤）。``path`` 不存在时 422。
+    """
+    target = (path or "/").rstrip("/") or "/"
+    if not os.path.isdir(target):
+        return _error(
+            422, "VALIDATION_ERROR",
+            f"目录不存在或不可访问：{target}",
+        )
+    entries: list[str] = []
+    try:
+        for entry in os.scandir(target):
+            try:
+                if entry.is_dir(follow_symlinks=False) and not entry.name.startswith("."):
+                    entries.append(entry.name)
+            except OSError:
+                continue
+    except OSError as e:
+        return _error(
+            422, "VALIDATION_ERROR",
+            f"无法读取目录 {target}：{e}",
+        )
+    entries.sort(key=lambda n: n.lower())
+    parent = os.path.dirname(target.rstrip("/")) or "/"
+    return success_response({
+        "path": target,
+        "parent": parent,
+        "dirs": entries,
+        "exists": True,
+    })
+
+
 @router.post("/volumes", status_code=201)
 async def create_volume(
     body: StorageVolumeCreate, db: AsyncSession = Depends(get_db)

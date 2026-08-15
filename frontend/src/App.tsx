@@ -16,8 +16,7 @@ import MovieDetail from './pages/MovieDetail';
 import AudioWorkDetail from './pages/AudioWorkDetail';
 import WorksPage from './pages/WorksPage';
 import CollectionDetail from './pages/CollectionDetail';
-import MediaServers from './pages/MediaServers';
-import Organize from './pages/Organize';
+import MediaLibrary from './pages/MediaLibrary';
 import SettingsPage from './pages/Settings';
 import Login from './pages/Login';
 import PageErrorBoundary from './components/PageErrorBoundary';
@@ -55,8 +54,11 @@ function App() {
           {/* Collection detail is a full page; the list stays inside the
               /works 合集 browse mode (CollectionsPanel). */}
           <Route path="collections/:id" element={<CollectionDetail />} />
-          <Route path="media-servers" element={<MediaServers />} />
-          <Route path="organize" element={<Organize />} />
+          {/* Media library file organization consolidates the former
+              /media-servers and /organize pages into one tabbed module. */}
+          <Route path="media-library" element={<MediaLibrary />} />
+          <Route path="media-servers" element={<Navigate to="/media-library" replace />} />
+          <Route path="organize" element={<Navigate to="/media-library" replace />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

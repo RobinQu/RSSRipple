@@ -105,11 +105,26 @@ def _delivery_summary(deliveries: list[WebhookDelivery]) -> dict:
     }
 
 
+def _notification_title(payload) -> str | None:
+    """Raw file title from the frozen payload (resource.title_raw, fallback
+    task.torrent_name). Payloads from older versions may lack either key."""
+    if not isinstance(payload, dict):
+        return None
+    resource = payload.get("resource")
+    if isinstance(resource, dict) and resource.get("title_raw"):
+        return resource["title_raw"]
+    task = payload.get("task")
+    if isinstance(task, dict) and task.get("torrent_name"):
+        return task["torrent_name"]
+    return None
+
+
 def _list_item(n: DownloadNotification) -> dict:
     return {
         "id": n.id,
         "agent_id": n.agent_id,
         "download_task_id": n.download_task_id,
+        "title_raw": _notification_title(n.payload),
         "status": _aggregate_status(n.deliveries),
         "delivery_summary": _delivery_summary(n.deliveries),
         "created_at": n.created_at,

@@ -7,7 +7,6 @@ import {
   Bot,
   Database,
   ExternalLink,
-  FolderSync,
   FolderTree,
   HardDrive,
   Languages,
@@ -45,8 +44,7 @@ function buildMenuItems(t: (k: string) => string): MenuProps['items'] {
     { key: '/agents', icon: <Bot size={16} />, label: t('nav.agents') },
     { key: '/downloaders', icon: <HardDrive size={16} />, label: t('nav.downloaders') },
     { key: '/volumes', icon: <Database size={16} />, label: t('nav.volumes') },
-    { key: '/media-servers', icon: <FolderTree size={16} />, label: t('nav.mediaServers') },
-    { key: '/organize', icon: <FolderSync size={16} />, label: t('nav.organize') },
+    { key: '/media-library', icon: <FolderTree size={16} />, label: t('nav.mediaLibrary') },
     { key: '/settings', icon: <Settings size={16} />, label: t('nav.settings') },
   ];
 }

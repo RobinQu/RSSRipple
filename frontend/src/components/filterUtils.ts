@@ -103,6 +103,16 @@ export function findInvalidConditions(
   );
 }
 
+/** Fields whose value is a fixed enum — the one-liner localizes the raw value
+    (e.g. content_type "tv" → "剧集") instead of dumping the storage token. */
+const ENUM_FIELDS = new Set(['episode_confidence', 'content_type']);
+
+function enumValueLabel(field: string, value: string, t: TFunction): string {
+  return ENUM_FIELDS.has(field)
+    ? t(`filter.enumValue_${value}` as never, { defaultValue: value })
+    : value;
+}
+
 /** Human-readable one-liner for a leaf condition, e.g. "Resolution Equals 1080p". */
 export function describeCondition(cond: FieldCondition, t: TFunction): string {
   const field = t(`filter.${cond.field}` as never, { defaultValue: cond.field });
@@ -110,10 +120,10 @@ export function describeCondition(cond: FieldCondition, t: TFunction): string {
   if (isNoValueOperator(cond.operator)) return `${field} ${op}`;
   const v = cond.value;
   const text = Array.isArray(v)
-    ? v.join(', ')
+    ? v.map((x) => enumValueLabel(cond.field, String(x), t)).join(', ')
     : typeof v === 'boolean'
       ? t(v ? 'filter.true' : 'filter.false')
-      : String(v ?? '');
+      : enumValueLabel(cond.field, String(v ?? ''), t);
   return `${field} ${op} ${text}`.trim();
 }
 

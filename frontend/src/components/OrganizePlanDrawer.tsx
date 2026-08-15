@@ -8,17 +8,15 @@ import {
   Input,
   Select,
   Space,
-  Table,
   Tag,
   Timeline,
   Typography,
 } from 'antd';
-import type { TableColumnsType } from 'antd';
 import { organizeApi } from '../api/organize';
 import StatusBadge from './StatusBadge';
+import OrganizeOpPaths from './OrganizeOpPaths';
 import { formatBytes, formatDate, timeAgo } from '../utils/format';
-import { withMobileLabels } from '../utils/table';
-import type { Library, OrganizePlanDetail, OrganizePlanOp } from '../types';
+import type { Library, OrganizePlanDetail } from '../types';
 
 const { Text } = Typography;
 
@@ -157,57 +155,6 @@ export default function OrganizePlanDrawer({
     }
   };
 
-  const opColumns: TableColumnsType<OrganizePlanOp> = [
-    { title: '#', dataIndex: 'seq', key: 'seq', width: 48 },
-    {
-      title: t('organize.opType'),
-      dataIndex: 'op_type',
-      key: 'op_type',
-      width: 90,
-      render: (v: string) => opTypeTag(v, t),
-    },
-    {
-      title: t('organize.src'),
-      dataIndex: 'src',
-      key: 'src',
-      render: (v: string) => (
-        <Text ellipsis={{ tooltip: v }} style={{ maxWidth: 260 }}>{v}</Text>
-      ),
-    },
-    {
-      title: t('organize.dst'),
-      dataIndex: 'dst',
-      key: 'dst',
-      render: (v: string | null) =>
-        v ? <Text ellipsis={{ tooltip: v }} style={{ maxWidth: 260 }}>{v}</Text> : t('format.dash'),
-    },
-    {
-      title: t('organize.size'),
-      dataIndex: 'size',
-      key: 'size',
-      width: 90,
-      render: (v: number) => formatBytes(v),
-    },
-    {
-      title: t('common.status'),
-      dataIndex: 'status',
-      key: 'status',
-      width: 90,
-      render: (v: string) => opStatusBadge(v, t),
-    },
-    {
-      title: t('common.error'),
-      dataIndex: 'error_message',
-      key: 'error_message',
-      render: (v: string | null) =>
-        v ? (
-          <Text type="danger" ellipsis={{ tooltip: v }} style={{ maxWidth: 200 }}>{v}</Text>
-        ) : (
-          t('format.dash')
-        ),
-    },
-  ];
-
   const filesCount = detail ? payloadFilesCount(detail.payload) : null;
 
   return (
@@ -315,15 +262,29 @@ export default function OrganizePlanDrawer({
 
           <div>
             <Text strong>{t('organize.ops')}</Text>
-            <Table
-              className="stack-table"
-              style={{ marginTop: 8 }}
-              size="small"
-              columns={withMobileLabels(opColumns)}
-              dataSource={detail.ops}
-              rowKey="id"
-              pagination={false}
-            />
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {detail.ops.map((op) => (
+                <div
+                  key={op.id}
+                  style={{
+                    border: '1px solid var(--rr-border-soft)',
+                    borderRadius: 8,
+                    padding: '8px 12px',
+                  }}
+                >
+                  <Space size={8} wrap style={{ marginBottom: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>#{op.seq}</Text>
+                    {opTypeTag(op.op_type, t)}
+                    <Text type="secondary" style={{ fontSize: 12 }}>{formatBytes(op.size)}</Text>
+                    {opStatusBadge(op.status, t)}
+                  </Space>
+                  <OrganizeOpPaths src={op.src} dst={op.dst} />
+                  {op.error_message && (
+                    <Text type="danger" style={{ fontSize: 12 }}>{op.error_message}</Text>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div>

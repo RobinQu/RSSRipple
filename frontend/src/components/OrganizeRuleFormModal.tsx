@@ -41,12 +41,15 @@ export default function OrganizeRuleFormModal({
   open,
   rule,
   libraries,
+  fixedLibraryId,
   onClose,
   onSaved,
 }: {
   open: boolean;
   rule: OrganizeRule | null;
   libraries: Library[];
+  /** Lock the target library (per-library rules drill-down); hides the selector. */
+  fixedLibraryId?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -69,10 +72,10 @@ export default function OrganizeRuleFormModal({
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
-        name: rule?.name ?? '',
+        name: rule?.name ?? t('libraries.defaultRuleName'),
         priority: rule?.priority ?? 100,
         enabled: rule?.enabled ?? true,
-        library_id: rule?.library_id ?? undefined,
+        library_id: rule?.library_id ?? fixedLibraryId ?? undefined,
         path_template: rule?.path_template ?? '',
         file_op: rule?.file_op ?? 'move',
         auto_execute: rule?.auto_execute ?? false,
@@ -83,7 +86,7 @@ export default function OrganizeRuleFormModal({
       setPreviewCategory('');
       setPreviewResult(null);
     }
-  }, [open, rule, form]);
+  }, [open, rule, fixedLibraryId, form, t]);
 
   const currentFilter = (): BoolCondition | null =>
     filterEnabled ? nullIfEmptyFilter(filterValue) : null;
@@ -102,7 +105,7 @@ export default function OrganizeRuleFormModal({
       priority: values.priority ?? 100,
       enabled: values.enabled ?? true,
       filter: currentFilter(),
-      library_id: values.library_id,
+      library_id: fixedLibraryId ?? values.library_id,
       path_template: values.path_template.trim(),
       file_op: values.file_op ?? 'move',
       auto_execute: values.auto_execute ?? false,
@@ -255,6 +258,7 @@ export default function OrganizeRuleFormModal({
           rules={[{ required: true, message: t('libraries.libraryRequired') }]}
         >
           <Select
+            disabled={!!fixedLibraryId}
             options={libraries.map((lib) => ({ value: lib.id, label: lib.name }))}
             placeholder={t('organize.selectLibrary')}
           />

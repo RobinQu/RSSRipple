@@ -68,48 +68,74 @@ async def test_server(server: Any) -> tuple[bool, str | None]:
     return await client.test_connection()
 
 
+def _normalize_server_path(path: str | None) -> str | None:
+    """规范化服务器视角路径（去首尾空白、去尾部斜杠）供幂等匹配/落库。
+
+    媒体服务器对同一 Location 可能偶发带尾部斜杠/空白差异，若不归一，
+    每次扫描会误判为新 Location 而重复建 Library。
+    """
+    if path is None:
+        return None
+    normalized = path.strip().rstrip("/")
+    return normalized or path.strip()
+
+
 async def scan_server(db, server: Any) -> dict:
     """扫描服务器 sections/虚拟目录，幂等 upsert Library。
 
     返回 ``{created, updated, unbound}`` 计数。``server`` 须已加载
     ``bindings`` 关系。连接/接口失败抛 :exc:`MediaServerError`（路由层
     转 502）。
+
+    幂等键为 ``(media_server_id, section_key, 规范化后的 server_path)``；
+    未命中绑定时不覆盖既有 ``volume_id``/``root_subpath``——手工补绑定
+    的结果在重扫后保留（只有命中了 binding 才更新解析结果）。
     """
     client = get_client(server)
     sections = await client.list_libraries()
+    # 一次性载入该服务器既有 Library，按规范化幂等键建立索引（同时收敛
+    # 历史上因路径差异产生的重复行到同一 key，只更新其一）。
+    existing_rows = (
+        await db.execute(
+            select(Library).where(Library.media_server_id == server.id)
+        )
+    ).scalars().all()
+    index: dict[tuple[str | None, str | None], Library] = {}
+    for lib in existing_rows:
+        index[(lib.section_key, _normalize_server_path(lib.server_path))] = lib
+
     stats = {"created": 0, "updated": 0, "unbound": 0}
     for section in sections:
         for path in section["paths"]:
+            norm_path = _normalize_server_path(path)
             resolved = resolve_server_path(list(server.bindings), path)
             volume_id, root_subpath = resolved if resolved else (None, None)
-            existing = (
-                await db.execute(
-                    select(Library).where(
-                        Library.media_server_id == server.id,
-                        Library.section_key == section["key"],
-                        Library.server_path == path,
-                    )
-                )
-            ).scalar_one_or_none()
+            existing = index.get((section["key"], norm_path))
             if existing is None:
                 db.add(Library(
                     name=section["name"],
                     media_server_id=server.id,
                     section_key=section["key"],
-                    server_path=path,
+                    server_path=norm_path,
                     volume_id=volume_id,
                     root_subpath=root_subpath,
                     kind=section["kind"],
                 ))
                 stats["created"] += 1
+                final_volume_id = volume_id
             else:
-                # 重扫更新：显示名/类型/绑定解析结果以服务器现状为准。
+                # 重扫更新：显示名/类型以服务器现状为准；server_path 归一
+                # 收敛历史尾斜杠差异；绑定命中才更新解析结果，未命中保留
+                # 既有（可能是手工补绑定的）卷引用。
                 existing.name = section["name"]
                 existing.kind = section["kind"]
-                existing.volume_id = volume_id
-                existing.root_subpath = root_subpath
+                existing.server_path = norm_path
+                if volume_id is not None:
+                    existing.volume_id = volume_id
+                    existing.root_subpath = root_subpath
                 stats["updated"] += 1
-            if volume_id is None:
+                final_volume_id = existing.volume_id
+            if final_volume_id is None:
                 stats["unbound"] += 1
     await db.commit()
     logger.info(

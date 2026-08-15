@@ -21,10 +21,16 @@ from app.schemas.downloader import (
     DownloaderTestRequest,
     DownloaderUpdate,
 )
+from app.services.volume_service import check_mount
 from app.utils.download_paths import DownloadPathError
 from app.utils.time import utcnow
 
 router = APIRouter()
+
+
+def _join(base: str, extra: str) -> str:
+    """Join two probe detail fragments into a single message (skips empties)."""
+    return f"{base}; {extra}" if base else extra
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -292,9 +298,8 @@ async def test_downloader(
     # The edit form probes the *unsaved* form values: any field present in the
     # request body overrides the stored config for this probe only. A missing
     # field (e.g. blank password) falls back to the stored value.
-    has_overrides = body is not None and any(
-        v is not None for v in (body.url, body.username, body.password, body.download_dir)
-    )
+    explicit = body.model_fields_set if body is not None else set()
+    has_overrides = bool(explicit)
     if has_overrides:
         target = SimpleNamespace(
             id=dl.id,
@@ -304,6 +309,12 @@ async def test_downloader(
             username=body.username if body.username is not None else dl.username,
             password=body.password if body.password is not None else dl.password,
             download_dir=body.download_dir or dl.download_dir,
+            # volume_id / volume_subpath: null is a meaningful value (unbind),
+            # so distinguish "not sent" (keep stored) from an explicit null.
+            volume_id=body.volume_id if "volume_id" in explicit else dl.volume_id,
+            volume_subpath=(
+                body.volume_subpath if "volume_subpath" in explicit else dl.volume_subpath
+            ),
         )
     else:
         target = dl
@@ -312,15 +323,38 @@ async def test_downloader(
     success, detail = await wrapper.test_connection()
     version = detail if success else None
 
-    status = "connected" if success else "error"
     free_space = None
     if success:
         try:
             free_space = await wrapper.free_space(target.download_dir)
         except Exception as e:
             success = False
-            detail = f"{detail}; download_dir check failed: {e}" if detail else f"download_dir check failed: {e}"
-            status = "error"
+            detail = _join(detail, f"download_dir check failed: {e}")
+
+    # Volume binding validity (docs/design/file-organization.md「统一路径解析」):
+    # the process-side download root must exist and be readable + writable.
+    volume_check = None
+    if getattr(target, "volume_id", None):
+        volume = await db.get(StorageVolume, target.volume_id)
+        if volume is None:
+            volume_check = {"exists": False, "readable": False, "writable": False}
+            success = False
+            detail = _join(detail, "bound storage volume no longer exists")
+        else:
+            base = volume.mount_path.rstrip("/")
+            subpath = (getattr(target, "volume_subpath", None) or "").strip("/")
+            resolved = f"{base}/{subpath}" if subpath else base
+            volume_check = check_mount(resolved)
+            if not volume_check["exists"]:
+                success = False
+                detail = _join(detail, f"volume path does not exist: {resolved}")
+            elif not volume_check["readable"] or not volume_check["writable"]:
+                success = False
+                detail = _join(
+                    detail, f"volume path is not readable/writable: {resolved}"
+                )
+
+    status = "connected" if success else "error"
 
     # Persist the health status only when probing the *stored* config — a
     # form-values probe says nothing about the saved instance.
@@ -329,8 +363,10 @@ async def test_downloader(
         dl.last_checked_at = utcnow()
         await db.flush()
 
-    if success:
-        return success_response({"success": True, "message": detail, "version": version, "free_space": free_space})
-    return success_response(
-        {"success": False, "message": detail or "Connection failed", "version": version, "free_space": free_space}
-    )
+    return success_response({
+        "success": success,
+        "message": detail or ("Connection failed" if not success else ""),
+        "version": version,
+        "free_space": free_space,
+        "volume_check": volume_check,
+    })

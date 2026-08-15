@@ -326,17 +326,20 @@ export type FilterField =
   | 'is_batch'
   | 'subtitle_langs'
   | 'episode_confidence'
+  | 'content_type'
   | 'title_cn'
   | 'title_en'
   | 'search_title'
   | 'movie.rating'
   | 'movie.year'
   | 'movie.genre'
+  | 'movie.collection'
+  | 'movie.is_anime'
   | 'series.rating'
   | 'series.year'
   | 'series.genre'
-  | 'series.is_anime'
-  | 'movie.is_anime';
+  | 'series.collection'
+  | 'series.is_anime';
 
 export type StringFilterField = Exclude<
   FilterField,
@@ -597,6 +600,7 @@ export interface DownloadNotification {
   id: string;
   agent_id: string;
   download_task_id: string;
+  title_raw: string | null;
   status: NotificationStatus;
   delivery_summary: DeliverySummary;
   created_at: string;
@@ -792,8 +796,9 @@ export interface DashboardPendingItem {
   agent_id: string;
   agent_name: string;
   reason: string;
-  candidates: PendingDecision['candidates'];
+  candidates: string[];
   candidate_resources?: FileResource[];
+  season?: number | null;
   llm_suggestion: string | null;
   created_at: string;
 }
@@ -804,6 +809,7 @@ export interface DashboardData {
   active_download_count: number;
   active_download_groups: DashboardDownloadGroup[];
   pending_decisions: DashboardPendingItem[];
+  pending_plans: OrganizePlanListItem[];
 }
 
 // Filter suggestions (Agent-rules based)
@@ -948,6 +954,21 @@ export interface MediaServerTestResult {
   message: string | null;
 }
 
+/** Optional overrides for `POST /media-servers/{id}/test` (edit-form probe). */
+export interface MediaServerTestRequest {
+  type?: MediaServerType;
+  url?: string;
+  /** undefined = keep the stored token. */
+  token?: string;
+}
+
+/** Stateless probe body for `POST /media-servers/test` (create-form probe). */
+export interface MediaServerTestPayload {
+  type: MediaServerType;
+  url: string;
+  token?: string | null;
+}
+
 export interface MediaServerScanResult {
   created: number;
   updated: number;
@@ -1040,6 +1061,8 @@ export interface OrganizePlanListItem {
   created_at: string;
   updated_at: string;
   ops_summary: OrganizeOpsSummary;
+  /** First few ops (sorted by seq) for inline list preview. */
+  ops_preview: OrganizePlanOp[];
   /** Derived reason a plan stays pending: library/category unset →
       'unclassified'; target library has no volume binding → 'unbound'. */
   pending_reason: 'unclassified' | 'unbound' | null;

@@ -184,6 +184,10 @@ class OrganizePlanListItem(BaseModel):
     created_at: datetime
     updated_at: datetime
     ops_summary: dict[str, int] = {}
+    # First few ops (sorted by seq) for inline preview in the list; the full
+    # op list comes from the detail endpoint. Capped at 3 to keep the
+    # paginated list light (batch plans can have dozens of ops).
+    ops_preview: list[OrganizePlanOpOut] = []
     # pending 派生原因（R2）：library 未定 / 模板 {category} 未定 →
     # "unclassified"；目标库未绑定卷 → "unbound"；非 pending 或可执行 → None。
     pending_reason: Literal["unclassified", "unbound"] | None = None

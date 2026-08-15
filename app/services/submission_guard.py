@@ -13,7 +13,10 @@ import uuid
 
 
 class SubmissionGuard:
-    TTL_SECONDS = 300  # 5 minutes
+    # 1 hour: channel-form submission can be preceded by a long AI field-mapping
+    # analysis (LLM + feed fetch), so a 5-minute token expired before the user
+    # hit save, surfacing a misleading "already submitted" 409.
+    TTL_SECONDS = 3600  # 1 hour
 
     def __init__(self):
         self._tokens: dict[str, float] = {}  # token → issued_at (monotonic)

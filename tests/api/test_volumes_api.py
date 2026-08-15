@@ -143,3 +143,33 @@ class TestVolumeCheck:
     async def test_check_404(self, client):
         res = await client.post("/api/v1/volumes/nope/check")
         assert res.status_code == 404
+
+
+class TestVolumeDirs:
+    async def test_list_dirs(self, client, tmp_path):
+        # Two real subdirs + a hidden one (filtered) + a file (filtered).
+        (tmp_path / "alpha").mkdir()
+        (tmp_path / "Beta").mkdir()
+        (tmp_path / ".hidden").mkdir()
+        (tmp_path / "file.txt").write_text("x")
+        res = await client.get("/api/v1/volumes/dirs", params={"path": str(tmp_path)})
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["exists"] is True
+        assert data["path"] == str(tmp_path)
+        assert data["dirs"] == ["alpha", "Beta"]
+        # parent is tmp_path's parent (the pytest temp root).
+        assert data["parent"] != data["path"]
+
+    async def test_list_dirs_nonexistent(self, client, tmp_path):
+        res = await client.get(
+            "/api/v1/volumes/dirs", params={"path": str(tmp_path / "nope")}
+        )
+        assert res.status_code == 422
+
+    async def test_list_dirs_root(self, client):
+        res = await client.get("/api/v1/volumes/dirs", params={"path": "/"})
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["path"] == "/"
+        assert data["parent"] == "/"

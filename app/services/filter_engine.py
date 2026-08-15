@@ -19,6 +19,10 @@ STRING_FIELDS = {
     # value set. Reusing the string-field machinery keeps the filter engine
     # small; the UI restricts the input to the enum's valid values.
     "episode_confidence",
+    # ``content_type`` (work type) is derived from which work FK the resource
+    # carries (series_id → "tv", movie_id → "movie", audio_work_id → "audio"),
+    # resolved in ``get_field_value``; the UI restricts the input to that enum.
+    "content_type",
     # Work-collection display name (WorkCollection.title_cn or title_en),
     # resolved through the resource's linked work AND that work's loaded
     # ``collection`` relation — both must be eager-loaded (selectinload) at
@@ -367,6 +371,17 @@ def get_field_value(resource: Any, field: str) -> Any:
     through the linked Movie/TVSeries; ``year`` derives from the work's
     date field (Movie.release_date / TVSeries.start_date).
     """
+    # Work type is derived from the mutually-exclusive work FKs, not a column.
+    # Reading the FK ids needs no eager-loading (the relationships are never
+    # touched), so it is safe at every filter evaluation site.
+    if field == "content_type":
+        if getattr(resource, "series_id", None):
+            return "tv"
+        if getattr(resource, "movie_id", None):
+            return "movie"
+        if getattr(resource, "audio_work_id", None):
+            return "audio"
+        return None
     if "." in field:
         rel_name, attr = field.split(".", 1)
         related = loaded_relation(resource, rel_name)

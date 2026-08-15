@@ -271,3 +271,69 @@ class TestDownloaderActions:
     async def test_tasks_404(self, client):
         res = await client.get("/api/v1/downloaders/nope/tasks")
         assert res.status_code == 404
+
+
+class TestDownloaderTestVolumeCheck:
+    """「测试连接」同时校验卷配置有效性（存在且可读可写）。"""
+
+    async def _create_volume(self, client, mount_path, name="vol"):
+        res = await client.post(
+            "/api/v1/volumes", json={"name": name, "mount_path": mount_path}
+        )
+        assert res.status_code == 201
+        return res.json()["data"]["id"]
+
+    async def _create_bound_downloader(self, client, volume_id, volume_subpath=None):
+        res = await client.post("/api/v1/downloaders", json={
+            "name": "BoundDL", "type": "transmission",
+            "url": "http://127.0.0.1:9091/transmission/rpc",
+            "download_dir": "/downloads/rssripple",
+            "volume_id": volume_id,
+            "volume_subpath": volume_subpath,
+        })
+        assert res.status_code == 201
+        return res.json()["data"]["id"]
+
+    async def test_bound_volume_valid(self, client, tmp_path, mock_transmission):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        (tmp_path / "sub").mkdir()
+        dl_id = await self._create_bound_downloader(client, volume_id, "sub")
+        res = await client.post(f"/api/v1/downloaders/{dl_id}/test")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["success"] is True
+        assert data["volume_check"] == {
+            "exists": True, "readable": True, "writable": True,
+        }
+
+    async def test_bound_volume_missing_subpath(self, client, tmp_path, mock_transmission):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        dl_id = await self._create_bound_downloader(client, volume_id, "missing")
+        res = await client.post(f"/api/v1/downloaders/{dl_id}/test")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["success"] is False
+        assert data["volume_check"]["exists"] is False
+        assert "volume path does not exist" in data["message"]
+
+    async def test_override_volume_binding(self, client, sample_downloader, tmp_path, mock_transmission):
+        volume_id = await self._create_volume(client, str(tmp_path))
+        (tmp_path / "complete").mkdir()
+        res = await client.post(
+            f"/api/v1/downloaders/{sample_downloader.id}/test",
+            json={"volume_id": volume_id, "volume_subpath": "complete"},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["success"] is True
+        assert data["volume_check"]["exists"] is True
+
+    async def test_override_null_unbinds(self, client, sample_downloader, mock_transmission):
+        res = await client.post(
+            f"/api/v1/downloaders/{sample_downloader.id}/test",
+            json={"volume_id": None, "volume_subpath": None},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["success"] is True
+        assert data["volume_check"] is None

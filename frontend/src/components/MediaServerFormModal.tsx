@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Minus, Plus } from 'lucide-react';
+import { FolderOpen, Minus, Plus, Zap } from 'lucide-react';
 import { App, Button, Form, Input, Modal, Select, Switch } from 'antd';
 import { mediaServersApi } from '../api/mediaServers';
-import { isValidRelativeSubpath } from '../utils/paths';
+import { isValidRelativeSubpath, subpathBrowseStart, toVolumeSubpath } from '../utils/paths';
+import DirectoryBrowserModal from './DirectoryBrowserModal';
 import type { MediaServer, MediaServerType, StorageVolume } from '../types';
 
 const TYPE_OPTIONS: MediaServerType[] = ['plex', 'emby', 'jellyfin'];
@@ -27,6 +28,19 @@ export default function MediaServerFormModal({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [browseIndex, setBrowseIndex] = useState<number | null>(null);
+  // Watch the whole bindings array so each row's volume selection is reactive
+  // (drives the browse button's disabled state and the picker's root path).
+  const bindingsValues = (Form.useWatch('bindings', form) ?? []) as Array<{
+    server_path_prefix?: string;
+    volume_id?: string;
+    subpath?: string;
+  }>;
+  const browseVolume =
+    browseIndex != null
+      ? volumes.find((v) => v.id === bindingsValues[browseIndex]?.volume_id)
+      : undefined;
 
   useEffect(() => {
     if (open) {
@@ -84,18 +98,55 @@ export default function MediaServerFormModal({
     }
   };
 
+  const handleTest = async () => {
+    let values: { type?: MediaServerType; url?: string; token?: string };
+    try {
+      values = await form.validateFields(['type', 'url']);
+    } catch {
+      return; // url/type validation errors are shown inline
+    }
+    const type = values.type as MediaServerType;
+    const url = (values.url || '').trim();
+    const token = (values.token || '').trim() || undefined;
+    setTesting(true);
+    const res = server
+      ? await mediaServersApi.test(server.id, { type, url, token })
+      : await mediaServersApi.testUnsaved({ type, url, token });
+    setTesting(false);
+    if (res.success && res.data.ok) {
+      message.success(
+        res.data.server_version
+          ? t('mediaServers.testOk', { version: res.data.server_version })
+          : t('mediaServers.testOkNoVersion'),
+      );
+    } else if (res.success) {
+      message.error(res.data.message || t('mediaServers.testFailed'));
+    } else {
+      message.error(res.error?.message || t('mediaServers.testFailed'));
+    }
+  };
+
   return (
-    <Modal
-      open={open}
-      title={t(server ? 'mediaServers.editServer' : 'mediaServers.newServer')}
-      okText={t('common.save')}
-      cancelText={t('common.cancel')}
-      confirmLoading={saving}
-      onOk={submit}
-      onCancel={onClose}
-      width={760}
-      destroyOnHidden
-    >
+    <>
+      <Modal
+        open={open}
+        title={t(server ? 'mediaServers.editServer' : 'mediaServers.newServer')}
+        onOk={submit}
+        onCancel={onClose}
+        width={760}
+        destroyOnHidden
+        footer={[
+          <Button key="test" icon={<Zap size={14} />} onClick={handleTest} loading={testing}>
+            {t('mediaServers.test')}
+          </Button>,
+          <Button key="cancel" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>,
+          <Button key="ok" type="primary" loading={saving} onClick={submit}>
+            {t('common.save')}
+          </Button>,
+        ]}
+      >
       <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <Form.Item
@@ -172,7 +223,20 @@ export default function MediaServerFormModal({
                         },
                       ]}
                     >
-                      <Input maxLength={512} placeholder={t('mediaServers.subpath')} />
+                      <Input
+                        maxLength={512}
+                        placeholder={t('mediaServers.subpath')}
+                        suffix={
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<FolderOpen size={14} />}
+                            disabled={!bindingsValues?.[field.name]?.volume_id}
+                            title={t('volumes.browse')}
+                            onClick={() => setBrowseIndex(field.name)}
+                          />
+                        }
+                      />
                     </Form.Item>
                     <Button
                       type="text"
@@ -197,6 +261,23 @@ export default function MediaServerFormModal({
           </Form.List>
         </Form.Item>
       </Form>
-    </Modal>
+      </Modal>
+
+      <DirectoryBrowserModal
+        key={browseIndex ?? 'closed'}
+        open={browseIndex != null}
+        title={t('mediaServers.subpath')}
+        initialPath={subpathBrowseStart(
+          browseVolume?.mount_path ?? '',
+          browseIndex != null ? bindingsValues[browseIndex]?.subpath ?? '' : '',
+        )}
+        onSelect={(absPath) => {
+          if (browseIndex == null) return;
+          const rel = toVolumeSubpath(browseVolume?.mount_path ?? '', absPath);
+          if (rel !== null) form.setFieldValue(['bindings', browseIndex, 'subpath'], rel);
+        }}
+        onCancel={() => setBrowseIndex(null)}
+      />
+    </>
   );
 }

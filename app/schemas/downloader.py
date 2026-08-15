@@ -100,6 +100,11 @@ class DownloaderTestRequest(BaseModel):
     username: str | None = None
     password: str | None = None
     download_dir: str | None = None
+    # Volume binding (R1): probed alongside the connection so the edit form can
+    # validate the *unsaved* volume config. ``volume_id`` omitted = keep stored,
+    # explicit null = unbind (probe as identity).
+    volume_id: str | None = None
+    volume_subpath: str | None = None
 
 
 class TorrentInfo(BaseModel):

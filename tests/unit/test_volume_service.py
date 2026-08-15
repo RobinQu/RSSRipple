@@ -92,8 +92,8 @@ class TestResolveDownloaderPath:
 class TestCheckMount:
     def test_existing_dir(self, tmp_path):
         result = check_mount(str(tmp_path))
-        assert result == {"exists": True, "writable": True}
+        assert result == {"exists": True, "readable": True, "writable": True}
 
     def test_missing_dir(self, tmp_path):
         result = check_mount(str(tmp_path / "nope"))
-        assert result == {"exists": False, "writable": False}
+        assert result == {"exists": False, "readable": False, "writable": False}

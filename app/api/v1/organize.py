@@ -538,6 +538,7 @@ def _plan_list_item(plan: OrganizePlan) -> dict:
     for op in plan.ops:
         if op.op_type in summary:
             summary[op.op_type] += 1
+    ops = sorted(plan.ops, key=lambda o: o.seq)
     item = OrganizePlanListItem(
         id=plan.id,
         notification_id=plan.notification_id,
@@ -552,6 +553,7 @@ def _plan_list_item(plan: OrganizePlan) -> dict:
         created_at=plan.created_at,
         updated_at=plan.updated_at,
         ops_summary=summary,
+        ops_preview=[OrganizePlanOpOut.model_validate(o) for o in ops[:3]],
         pending_reason=_pending_reason(plan),
     )
     return item.model_dump()

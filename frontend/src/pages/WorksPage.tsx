@@ -272,7 +272,7 @@ export default function WorksPage() {
               <table className={`resource-table works-table${selectMode ? ' selectable' : ''}`}>
                 <colgroup>
                   {selectMode && <col style={{ width: 40 }} />}
-                  <col style={{ width: 60 }} />
+                  <col style={{ width: 120 }} />
                   <col />
                   <col style={{ width: 140 }} />
                   <col style={{ width: 84 }} />
@@ -325,7 +325,7 @@ export default function WorksPage() {
                             <Checkbox checked={isSelected} onChange={() => handleCardClick(w)} />
                           </td>
                         )}
-                        <td style={{ padding: '8px' }} data-label={t('works.colType')}>
+                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colType')}>
                           <Tag
                             color={
                               isAudio ? 'purple' : w.content_type === 'movie' ? 'green' : 'blue'

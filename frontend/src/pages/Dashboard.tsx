@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Bot, AlertTriangle, CheckCircle, Download, Rss } from 'lucide-react';
+import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye, FolderSync } from 'lucide-react';
 import {
   Typography,
   Row,
@@ -18,11 +18,17 @@ import {
   App,
   Tabs,
   theme,
+  InputNumber,
+  Tooltip,
 } from 'antd';
 import { dashboardApi, decisionsApi } from '../api/tasks';
 import { agentsApi } from '../api/agents';
+import { organizeApi } from '../api/organize';
 import { usePolling } from '../hooks/usePolling';
 import ProgressBar from '../components/ProgressBar';
+import OrganizeOpPaths from '../components/OrganizeOpPaths';
+import OrganizePlanDrawer from '../components/OrganizePlanDrawer';
+import StatusBadge from '../components/StatusBadge';
 import {
   collectFieldConditions,
   describeCondition,
@@ -30,10 +36,17 @@ import {
 } from '../components/filterUtils';
 import { timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
-import type { Agent, DashboardData, DashboardPendingItem, FileResource } from '../types';
+import type { Agent, DashboardData, DashboardPendingItem, FileResource, Library, OrganizePlanListItem } from '../types';
 import { resourcesApi } from '../api/channels';
 
 const { Title, Text } = Typography;
+
+// Per-candidate draft for the ambiguous episode/season correction form.
+interface EpisodeDraft {
+  season: number | null;
+  episode: number | null;
+  absolute_episode: number | null;
+}
 
 /** GET /agents rows carry a few extra joined fields beyond the Agent type. */
 type AgentListItem = Agent & {
@@ -54,47 +67,32 @@ const UNKNOWN_GROUP_TAG = { color: 'default', labelKey: 'dashboard.unidentified'
 export default function Dashboard() {
   const { t } = useTranslation();
   useDocumentTitle(t('nav.dashboard'));
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { token } = theme.useToken();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [topAgents, setTopAgents] = useState<AgentListItem[]>([]);
+  const [libraries, setLibraries] = useState<Library[]>([]);
   const [loading, setLoading] = useState(true);
-  const [candidateCache, setCandidateCache] = useState<Record<string, FileResource>>({});
   const [dlFilter, setDlFilter] = useState<'all' | 'agent' | 'untracked'>('all');
   // Set by clicking an agent's "downloading" badge: filters the active
   // downloads card to that agent's tasks only.
   const [dlAgentFilter, setDlAgentFilter] = useState<{ id: string; name: string } | null>(null);
   const downloadsRef = useRef<HTMLDivElement>(null);
-
-  // Preload candidate resources for pending decisions
-  const loadCandidates = useCallback(
-    async (items: DashboardPendingItem[]) => {
-      const ids = new Set<string>();
-      items.forEach((d) => d.candidates.forEach((c) => ids.add(c)));
-      const missing = Array.from(ids).filter((id) => !candidateCache[id]);
-      if (missing.length === 0) return;
-      const results = await Promise.all(
-        missing.map((id) =>
-          resourcesApi.get(id).then((r) => (r.success ? [id, r.data] as const : null)),
-        ),
-      );
-      const next: Record<string, FileResource> = { ...candidateCache };
-      results.forEach((entry) => {
-        if (entry) next[entry[0]] = entry[1];
-      });
-      setCandidateCache(next);
-    },
-    [candidateCache],
-  );
+  // Ambiguous episode/season correction (mirrors the agent detail decisions tab).
+  const [episodeDrafts, setEpisodeDrafts] = useState<Record<string, EpisodeDraft>>({});
+  const [savingEpisodeCid, setSavingEpisodeCid] = useState<string | null>(null);
+  // Pending organize plans — in-place actions + detail drawer.
+  const [planDrawerId, setPlanDrawerId] = useState<string | null>(null);
+  const [executingPlanId, setExecutingPlanId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    const [res, agentsRes] = await Promise.all([
+    const [res, agentsRes, libRes] = await Promise.all([
       dashboardApi.get(),
       agentsApi.list(1, 100),
+      organizeApi.listLibraries(),
     ]);
     if (res.success) {
       setDashboard(res.data);
-      loadCandidates(res.data.pending_decisions);
     }
     if (agentsRes.success) {
       // Top 4 active agents, busiest first.
@@ -104,14 +102,15 @@ export default function Dashboard() {
       active.sort((a, b) => (b.active_task_count ?? 0) - (a.active_task_count ?? 0));
       setTopAgents(active.slice(0, 4));
     }
+    if (libRes.success) setLibraries(libRes.data);
     setLoading(false);
-  }, [loadCandidates]);
+  }, []);
 
   usePolling(fetchData, 10000);
 
   useEffect(() => {
-    if (dashboard) loadCandidates(dashboard.pending_decisions);
-  }, [dashboard, loadCandidates]);
+    fetchData();
+  }, [fetchData]);
 
   const handleConfirm = async (decisionId: string, resourceId: string) => {
     const r = await decisionsApi.confirm(decisionId, resourceId);
@@ -129,6 +128,110 @@ export default function Dashboard() {
       message.success(t('dashboard.skipped'));
       fetchData();
     }
+  };
+
+  const handleCorrectEpisode = async (cid: string) => {
+    const draft = episodeDrafts[cid];
+    if (!draft || draft.episode == null) return;
+    setSavingEpisodeCid(cid);
+    const r = await resourcesApi.correctEpisode(cid, {
+      episode: draft.episode,
+      ...(draft.season != null ? { season: draft.season } : {}),
+      ...(draft.absolute_episode != null ? { absolute_episode: draft.absolute_episode } : {}),
+    });
+    setSavingEpisodeCid(null);
+    if (r.success) {
+      message.success(t('agents.episodeSaved'));
+      setEpisodeDrafts((prev) => {
+        const next = { ...prev };
+        delete next[cid];
+        return next;
+      });
+      fetchData();
+    } else {
+      message.error(r.error?.message || t('agents.saveFailed'));
+    }
+  };
+
+  const isAmbiguousDecision = (d: DashboardPendingItem): boolean => {
+    const cands = d.candidate_resources;
+    return !!cands && cands.length > 0 && cands.every((r) => r.episode_confidence === 'ambiguous');
+  };
+
+  // ---- Pending organize plans (in-place actions mirror the plans list) ----
+  const isPlanExecutable = (p: OrganizePlanListItem) =>
+    (p.status === 'pending' || p.status === 'failed') &&
+    p.library_id !== null &&
+    p.pending_reason !== 'unbound';
+  const isPlanCancellable = (p: OrganizePlanListItem) =>
+    p.status === 'pending' || p.status === 'failed';
+
+  const handleExecutePlan = async (id: string) => {
+    setExecutingPlanId(id);
+    const r = await organizeApi.executePlan(id);
+    setExecutingPlanId(null);
+    if (r.success) {
+      message.success(t('organize.executed'));
+      fetchData();
+    } else {
+      message.error(r.error?.message || t('organize.executeFailed'));
+    }
+  };
+
+  const handleCancelPlan = (record: OrganizePlanListItem) => {
+    modal.confirm({
+      title: t('organize.cancelConfirm'),
+      okText: t('common.confirm'),
+      okButtonProps: { danger: true },
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        const r = await organizeApi.cancelPlan(record.id);
+        if (r.success) {
+          message.success(t('organize.cancelled'));
+          fetchData();
+        } else {
+          message.error(r.error?.message || t('organize.cancelFailed'));
+        }
+      },
+    });
+  };
+
+  // Show the raw release title whenever it differs from the parsed/formatted
+  // title — the raw title carries the subtitle group / SxxExx markers a human
+  // needs to disambiguate candidates.
+  const renderRawTitle = (r: FileResource | undefined) => {
+    const raw = r?.title_raw;
+    if (!raw) return null;
+    const formatted = r?.title_cn || r?.title_en;
+    if (!formatted || raw === formatted) return null;
+    return (
+      <div
+        style={{
+          fontSize: 12,
+          color: '#8a8a94',
+          marginTop: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          minWidth: 0,
+        }}
+      >
+        <span style={{ flexShrink: 0 }}>{t('channels.rawTitle')}:</span>
+        <Tooltip title={raw}>
+          <span
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {raw}
+          </span>
+        </Tooltip>
+      </div>
+    );
   };
 
   if (loading) {
@@ -227,8 +330,173 @@ export default function Dashboard() {
         </Col>
       </Row>
 
+      {/* Pending decisions — surfaced right under the metrics so they are the
+          first thing on screen; the warning border/title sets them apart. */}
+      {dashboard.pending_decisions.length > 0 && (
+      <Card
+        title={
+          <Space size={8}>
+            <AlertTriangle size={16} color="#ff7759" />
+            <span style={{ color: '#ff7759' }}>{t('dashboard.pendingDecisions')}</span>
+          </Space>
+        }
+        style={{ border: '1px solid #ff7759', marginBottom: 24 }}
+        styles={{ body: { padding: 0 } }}
+      >
+        {(
+          <List
+            dataSource={dashboard.pending_decisions}
+            renderItem={(d) => (
+              <List.Item
+                key={d.id}
+                style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: 12,
+                  }}
+                >
+                  <div>
+                    <Text strong>{d.reason}</Text>
+                    <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                      <Link to={`/agents/${d.agent_id}`}>
+                        <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
+                      </Link>
+                      {' · '}
+                      {t('dashboard.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
+                    </div>
+                    {isAmbiguousDecision(d) && (
+                      <div style={{ fontSize: 12, color: '#b88500', marginTop: 4 }}>
+                        {t('agents.ambiguousHint')}
+                      </div>
+                    )}
+                  </div>
+                  <Button size="small" onClick={() => handleSkip(d.id)}>
+                    {t('common.skip')}
+                  </Button>
+                </div>
+
+                {d.llm_suggestion && (
+                  <div
+                    style={{
+                      padding: 10,
+                      borderRadius: 6,
+                      background: '#f1f5ff',
+                      border: '1px solid #b8cdf7',
+                      fontSize: 12,
+                      color: '#1863dc',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <strong>{t('dashboard.aiSuggestion')}</strong>
+                    {d.llm_suggestion}
+                  </div>
+                )}
+
+                <Space direction="vertical" style={{ width: '100%' }} size={6}>
+                  {d.candidate_resources?.map((r) => {
+                    const ambiguous = isAmbiguousDecision(d);
+                    const base = {
+                      season: r.season ?? null,
+                      episode: r.episode ?? null,
+                      absolute_episode: r.absolute_episode ?? null,
+                    };
+                    const draft = { ...base, ...(episodeDrafts[r.id] ?? {}) };
+                    const patchDraft = (patch: Partial<EpisodeDraft>) =>
+                      setEpisodeDrafts((prev) => ({
+                        ...prev,
+                        [r.id]: { ...base, ...(prev[r.id] ?? {}), ...patch },
+                      }));
+                    return (
+                      <div
+                        key={r.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '8px 12px',
+                          borderRadius: 6,
+                          border: '1px solid #e5e7eb',
+                          background: '#f7f7f5',
+                          gap: 12,
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <Text ellipsis style={{ fontSize: 13 }}>
+                            {r.title_cn || r.title_raw}
+                          </Text>
+                          {renderRawTitle(r)}
+                          <Space size={6} style={{ fontSize: 11, color: '#93939f', marginTop: 2 }} wrap>
+                            {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
+                            {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
+                            {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
+                            {r.season != null && <span>S{r.season}</span>}
+                            {r.episode != null && <span>EP{r.episode}</span>}
+                            {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
+                          </Space>
+                        </div>
+                        {ambiguous ? (
+                          <Space size={6} align="center" wrap>
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              value={draft.season}
+                              placeholder={t('resource.seasonLabel')}
+                              onChange={(v) => patchDraft({ season: typeof v === 'number' ? v : null })}
+                              style={{ width: 72 }}
+                            />
+                            <InputNumber
+                              size="small"
+                              min={1}
+                              value={draft.episode}
+                              placeholder={t('agents.correctEpisodePlaceholder')}
+                              onChange={(v) => patchDraft({ episode: typeof v === 'number' ? v : null })}
+                              style={{ width: 72 }}
+                            />
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              value={draft.absolute_episode}
+                              placeholder={t('resource.absoluteEpisodePlaceholder')}
+                              onChange={(v) => patchDraft({ absolute_episode: typeof v === 'number' ? v : null })}
+                              style={{ width: 130 }}
+                            />
+                            <Button
+                              type="primary"
+                              size="small"
+                              loading={savingEpisodeCid === r.id}
+                              disabled={draft.episode == null}
+                              onClick={() => handleCorrectEpisode(r.id)}
+                            >
+                              {t('agents.correctEpisode')}
+                            </Button>
+                          </Space>
+                        ) : (
+                          <Button
+                            type="primary"
+                            size="small"
+                            icon={<Check size={12} />}
+                            onClick={() => handleConfirm(d.id, r.id)}
+                          >
+                            {t('common.confirm')}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </Space>
+              </List.Item>
+            )}
+          />
+        )}
+      </Card>
+      )}
+
       {/* All-clear hint directly under the metrics when nothing is pending */}
-      {dashboard.pending_decisions.length === 0 && (
+      {dashboard.pending_decisions.length === 0 && dashboard.pending_plans.length === 0 && (
         <div style={{ marginTop: -8, marginBottom: 24 }}>
           <Text type="secondary" style={{ fontSize: 13 }}>
             <CheckCircle
@@ -238,6 +506,128 @@ export default function Dashboard() {
             {t('dashboard.noPendingHint')}
           </Text>
         </div>
+      )}
+
+      {/* Pending organize plans — actionable todos with the same in-place
+          execute / cancel / detail operations as the plans list. */}
+      {dashboard.pending_plans.length > 0 && (
+        <Card
+          title={
+            <Space size={8}>
+              <FolderSync size={16} color="#1863dc" />
+              <span>{t('dashboard.pendingPlans')}</span>
+            </Space>
+          }
+          style={{ marginBottom: 24 }}
+          styles={{ body: { padding: 0 } }}
+        >
+          <List
+            dataSource={dashboard.pending_plans}
+            renderItem={(p) => {
+              const preview = p.ops_preview ?? [];
+              const extra = p.ops_summary.total - preview.length;
+              return (
+                <List.Item
+                  key={p.id}
+                  style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      marginBottom: 8,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Space size={8} wrap>
+                        <StatusBadge status={p.status} />
+                        {p.pending_reason === 'unclassified' && (
+                          <Tag color="orange">{t('organize.uncategorizedTag')}</Tag>
+                        )}
+                        {p.pending_reason === 'unbound' && (
+                          <Tag color="volcano">{t('organize.unboundTag')}</Tag>
+                        )}
+                      </Space>
+                      <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                        {p.rule_name ?? t('format.dash')}
+                        {' · '}
+                        {p.library_name ?? t('organize.uncategorizedTag')}
+                        {p.category ? ` · ${p.category}` : ''}
+                        {' · '}
+                        {timeAgo(p.created_at)}
+                      </div>
+                    </div>
+                    <Space size={4} style={{ flexShrink: 0 }}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<Eye size={14} />}
+                        title={t('organize.detail')}
+                        onClick={() => setPlanDrawerId(p.id)}
+                      />
+                      {isPlanExecutable(p) && (
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<Play size={14} />}
+                          loading={executingPlanId === p.id}
+                          onClick={() => handleExecutePlan(p.id)}
+                        >
+                          {t('organize.execute')}
+                        </Button>
+                      )}
+                      {isPlanCancellable(p) && (
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<XCircle size={14} />}
+                          title={t('organize.cancelPlan')}
+                          onClick={() => handleCancelPlan(p)}
+                        />
+                      )}
+                    </Space>
+                  </div>
+
+                  {preview.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {preview.map((op) => {
+                        const color =
+                          op.op_type === 'move' ? 'green' : op.op_type === 'movedir' ? 'blue' : undefined;
+                        const label =
+                          op.op_type === 'move'
+                            ? t('organize.opMove')
+                            : op.op_type === 'movedir'
+                              ? t('organize.opMovedir')
+                              : t('organize.opKeep');
+                        return (
+                          <div key={op.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 }}>
+                            <Tag color={color} style={{ margin: 0, flexShrink: 0 }}>{label}</Tag>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <OrganizeOpPaths src={op.src} dst={op.dst} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {extra > 0 && (
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, alignSelf: 'flex-start' }}
+                          onClick={() => setPlanDrawerId(p.id)}
+                        >
+                          {t('organize.moreOps', { n: extra })}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </List.Item>
+              );
+            }}
+          />
+        </Card>
       )}
 
       {/* Download agents: top 4 active agents, busiest first. The task-count
@@ -510,118 +900,12 @@ export default function Dashboard() {
       </Card>
       </div>
 
-      {/* Pending decisions — only shown when there is something to decide;
-          the warning border/title sets it apart from the other sections. */}
-      {dashboard.pending_decisions.length > 0 && (
-      <Card
-        title={
-          <Space size={8}>
-            <AlertTriangle size={16} color="#ff7759" />
-            <span style={{ color: '#ff7759' }}>{t('dashboard.pendingDecisions')}</span>
-          </Space>
-        }
-        style={{ border: '1px solid #ff7759' }}
-        styles={{ body: { padding: 0 } }}
-      >
-        {(
-          <List
-            dataSource={dashboard.pending_decisions}
-            renderItem={(d) => (
-              <List.Item
-                key={d.id}
-                style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                    marginBottom: 12,
-                  }}
-                >
-                  <div>
-                    <Text strong>{d.reason}</Text>
-                    <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
-                      <Link to={`/agents/${d.agent_id}`}>
-                        <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
-                      </Link>
-                      {' · '}
-                      {t('dashboard.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
-                    </div>
-                  </div>
-                  <Button size="small" onClick={() => handleSkip(d.id)}>
-                    {t('common.skip')}
-                  </Button>
-                </div>
-
-                {d.llm_suggestion && (
-                  <div
-                    style={{
-                      padding: 10,
-                      borderRadius: 6,
-                      background: '#f1f5ff',
-                      border: '1px solid #b8cdf7',
-                      fontSize: 12,
-                      color: '#1863dc',
-                      marginBottom: 12,
-                    }}
-                  >
-                    <strong>{t('dashboard.aiSuggestion')}</strong>
-                    {d.llm_suggestion}
-                  </div>
-                )}
-
-                <Space direction="vertical" style={{ width: '100%' }} size={6}>
-                  {d.candidates.map((cid) => {
-                    const r = candidateCache[cid];
-                    return (
-                      <div
-                        key={cid}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '8px 12px',
-                          borderRadius: 6,
-                          border: '1px solid #e5e7eb',
-                          background: '#f7f7f5',
-                          gap: 12,
-                        }}
-                      >
-                        {r ? (
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <Text ellipsis style={{ fontSize: 13 }}>
-                              {r.title_cn || r.title_raw}
-                            </Text>
-                            <Space size={6} style={{ fontSize: 11, color: '#93939f', marginTop: 2 }} wrap>
-                              {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
-                              {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
-                              {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
-                              {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
-                            </Space>
-                          </div>
-                        ) : (
-                            <Text ellipsis style={{ flex: 1, fontSize: 12, color: '#93939f' }}>
-                              {t('common.loading')}
-                            </Text>
-                        )}
-                        <Button
-                          type="primary"
-                          size="small"
-                          onClick={() => handleConfirm(d.id, cid)}
-                        >
-                          {t('common.confirm')}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </Space>
-              </List.Item>
-            )}
-          />
-        )}
-      </Card>
-      )}
+      <OrganizePlanDrawer
+        planId={planDrawerId}
+        libraries={libraries}
+        onClose={() => setPlanDrawerId(null)}
+        onChanged={fetchData}
+      />
     </div>
   );
 }

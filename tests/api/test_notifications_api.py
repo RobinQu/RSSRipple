@@ -92,6 +92,29 @@ async def test_list_notifications_aggregated_pending(client, seed):
     assert "payload" not in item  # list items stay light
 
 
+async def test_list_notifications_title_from_resource(client, seed, db_session):
+    seed["notification"].payload = {
+        "notification_id": "n",
+        "resource": {"title_raw": "[G] Test Series - 05 [1080p]"},
+        "task": {"download_task_id": seed["task"].id},
+    }
+    await db_session.commit()
+    resp = await client.get(f"/api/v1/agents/{seed['agent'].id}/notifications")
+    item = resp.json()["data"][0]
+    assert item["title_raw"] == "[G] Test Series - 05 [1080p]"
+
+
+async def test_list_notifications_title_falls_back_to_torrent_name(client, seed, db_session):
+    seed["notification"].payload = {
+        "notification_id": "n",
+        "task": {"download_task_id": seed["task"].id, "torrent_name": "Foo.Bar.S01"},
+    }
+    await db_session.commit()
+    resp = await client.get(f"/api/v1/agents/{seed['agent'].id}/notifications")
+    item = resp.json()["data"][0]
+    assert item["title_raw"] == "Foo.Bar.S01"
+
+
 async def test_list_notifications_no_deliveries_is_pending(client, seed, db_session):
     seed["delivery"].status = "done"
     await db_session.delete(seed["delivery"])

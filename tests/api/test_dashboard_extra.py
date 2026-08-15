@@ -43,6 +43,79 @@ class TestDashboardPopulated:
         res = await client.get("/api/v1/dashboard")
         assert res.status_code == 200
 
+    async def test_pending_decision_carries_candidate_resources(
+        self, client, setup_with_task_and_decision,
+    ):
+        """Dashboard pending decisions expose full candidate rows (raw title +
+        episode_confidence) so the frontend can render an inline correction
+        form instead of a separate fetch."""
+        fx = setup_with_task_and_decision
+        res = await client.get("/api/v1/dashboard")
+        data = res.json()["data"]
+        decisions = [d for d in data["pending_decisions"] if d["id"] == fx.pd_id]
+        assert len(decisions) == 1
+        d = decisions[0]
+        assert d["candidates"] == [fx.r1]
+        assert len(d["candidate_resources"]) == 1
+        c = d["candidate_resources"][0]
+        assert c["id"] == fx.r1
+        assert c["title_raw"] == "[G] S - 01"
+        assert "episode_confidence" in c
+
+    async def test_dashboard_pending_plans(
+        self, client, db_session_factory, sample_channel, sample_downloader,
+        sample_series, mock_transmission,
+    ):
+        """Pending organize plans surface on the dashboard with ops preview."""
+        from app.models.download_notification import DownloadNotification
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+        from app.models.organize_plan import OrganizePlan
+        from app.models.organize_plan_op import OrganizePlanOp
+
+        async with db_session_factory() as s:
+            resource = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="g2",
+                title_raw="[G] S - 02", torrent_url="magnet:?xt=urn:btih:def",
+                series_id=sample_series.id,
+            )
+            s.add(resource)
+            await s.flush()
+            task = DownloadTask(
+                id=_uuid(), file_resource_id=resource.id,
+                downloader_id=sample_downloader.id, download_dir="/downloads/x",
+                status="completed",
+            )
+            s.add(task)
+            await s.flush()
+            notification = DownloadNotification(
+                id=_uuid(), download_task_id=task.id,
+                payload={"notification_id": "n"},
+            )
+            s.add(notification)
+            await s.flush()
+            plan = OrganizePlan(
+                id=_uuid(), notification_id=notification.id, status="pending",
+                payload=notification.payload,
+            )
+            s.add(plan)
+            await s.flush()
+            s.add(OrganizePlanOp(
+                id=_uuid(), plan_id=plan.id, seq=0, op_type="move",
+                src="/downloads/x/a.mkv", dst="/media/a.mkv", size=100,
+            ))
+            await s.commit()
+            plan_id = plan.id
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        plans = [p for p in data["pending_plans"] if p["id"] == plan_id]
+        assert len(plans) == 1
+        assert plans[0]["status"] == "pending"
+        assert len(plans[0]["ops_preview"]) == 1
+        assert plans[0]["ops_preview"][0]["src"] == "/downloads/x/a.mkv"
+
 
 @pytest.fixture
 async def setup_with_task_and_decision(client, db_session_factory, mock_transmission):

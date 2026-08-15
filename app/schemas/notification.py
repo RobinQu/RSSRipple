@@ -66,6 +66,9 @@ class NotificationListItem(BaseModel):
     id: str
     agent_id: str | None
     download_task_id: str
+    # Raw file title (resource.title_raw, fallback task.torrent_name) extracted
+    # from the frozen payload so the list can show it without loading the task.
+    title_raw: str | None = None
     # Aggregated across the notification's deliveries: no deliveries or any
     # pending → "pending"; all done → "done"; otherwise → "failed".
     status: str

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App, Form, Input, Modal, Select } from 'antd';
+import { FolderOpen } from 'lucide-react';
+import { App, Button, Form, Input, Modal, Select } from 'antd';
 import { organizeApi } from '../api/organize';
-import { isValidRelativeSubpath } from '../utils/paths';
+import { isValidRelativeSubpath, subpathBrowseStart, toVolumeSubpath } from '../utils/paths';
+import DirectoryBrowserModal from './DirectoryBrowserModal';
 import type { Library, StorageVolume } from '../types';
 
 /** In-place binding fix for an unbound (scan-derived) Library: pick the
@@ -24,6 +26,9 @@ export default function LibraryBindModal({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const volumeId = Form.useWatch('volume_id', form);
+  const selectedVolume = volumes.find((v) => v.id === volumeId);
 
   useEffect(() => {
     if (open) {
@@ -89,9 +94,35 @@ export default function LibraryBindModal({
             },
           ]}
         >
-          <Input maxLength={512} />
+          <Input
+            maxLength={512}
+            suffix={
+              <Button
+                type="text"
+                size="small"
+                icon={<FolderOpen size={14} />}
+                disabled={!volumeId}
+                onClick={() => setBrowserOpen(true)}
+              >
+                {t('volumes.browse')}
+              </Button>
+            }
+          />
         </Form.Item>
       </Form>
+      <DirectoryBrowserModal
+        open={browserOpen}
+        title={t('mediaServers.subpath')}
+        initialPath={subpathBrowseStart(
+          selectedVolume?.mount_path ?? '',
+          form.getFieldValue('root_subpath') ?? '',
+        )}
+        onSelect={(absPath) => {
+          const rel = toVolumeSubpath(selectedVolume?.mount_path ?? '', absPath);
+          if (rel !== null) form.setFieldValue('root_subpath', rel);
+        }}
+        onCancel={() => setBrowserOpen(false)}
+      />
     </Modal>
   );
 }
