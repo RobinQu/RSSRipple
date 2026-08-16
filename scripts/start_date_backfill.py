@@ -12,9 +12,13 @@ Two phases per series with ``start_date IS NULL``:
 
 1. **Offline**: derive from existing ``episodes`` rows (``MIN(air_date)``) —
    no network, covers works whose episode list was already upserted.
-2. **Wikipedia fetch**: for the remainder, fetch wikitext and run the
-   deterministic ``parse_episode_list``; the earliest parsed ``air_date``
-   becomes ``start_date``. Page location tries, in order:
+2. **Wikipedia fetch**: for the remainder, fetch wikitext and derive the
+   start date by priority: (a) earliest ``air_date`` from the deterministic
+   ``parse_episode_list``; (b) the same parser over episode-list sub-pages
+   (long series split them out, e.g. "葬送的芙莉蓮各話列表" — located via
+   ``{{main}}``/``{{see also}}`` hints and conventional naming, en tries
+   "List of <title> episodes"); (c) earliest infobox broadcast-start field
+   (放送開始/播放開始, en ``first``). Page location tries, in order:
    a. the exact ``wikipedia_url`` recorded in MetadataCache matched_entity
       (the pipeline knew the page's language at match time; the series row
       only kept the per-language pageid, which is meaningless without it);
@@ -59,6 +63,131 @@ _WIKI_URL_RE = re.compile(r"https?://([a-z-]+)\.wikipedia\.org/wiki/([^#?]+)")
 _PAGEID_RE = re.compile(r"^wikipedia:(\d+)$")
 # Order for the last-resort pageid resolution; zh catalog dominates.
 _PAGEID_LANGS = ("zh", "ja", "en")
+
+# Long series keep their episode list on a sub-page instead of the work's
+# main page (e.g. zh "葬送的芙莉蓮" -> "葬送的芙莉蓮各話列表"). Conventional
+# sub-page suffixes per language, plus {{main}}/{{see also}} links whose
+# target hints at an episode list or an anime-specific page.
+_SUBPAGE_SUFFIXES = {
+    "zh": ("各話列表", "各话列表", "剧集列表", "劇集列表"),
+    "ja": ("のエピソード一覧", "エピソード一覧"),
+}
+_MAIN_LINK_RE = re.compile(r"\{\{(?:[Mm]ain|[Ss]ee ?also|参见|參見)\|([^}|]+)")
+_SUBPAGE_HINT_RE = re.compile(r"各[話话]|[剧劇]集|エピソード|[(（][动動][画畫][)）]|episodes", re.IGNORECASE)
+
+# Last-resort broadcast-start extraction from infobox fields
+# (放送開始 / 播放開始 / 放送期間 / 播放期間; en uses "first" inside the
+# animanga infobox). Dates may be "1998年4月3日", "{{Start date|1998|4|3}}"
+# or "April 3, 1998". Extraction is scoped to the anime infobox blocks
+# (TVAnime for zh/ja, Video for en) so a manga block's earlier serialization
+# start is not picked up; unscoped fields would also hit "|first=" author
+# names inside citation templates.
+_ANIME_BLOCK_RE = re.compile(
+    r"\{\{Infobox animanga/(?:TVAnime|Video).*?(?=\{\{Infobox animanga/|\Z)",
+    re.DOTALL,
+)
+_BROADCAST_FIELD_RE = re.compile(
+    r"(?:放送開始|播放開始|放送期間|播放期間)\s*=\s*(.{0,60})"
+)
+# en: "| first = <value>" must start with a date (real infobox dates do;
+# citation "|first=Karen|title=..." does not).
+_EN_FIRST_RE = re.compile(r"^\|\s*first\s*=\s*(.{0,60})$", re.MULTILINE)
+_ZH_DATE_RE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?")
+_START_TPL_RE = re.compile(r"\{\{(?:[Ss]tart ?date|dts)\|(\d{4})\|(\d{1,2})\|(\d{1,2})")
+_EN_MONTHS = (
+    "January", "February", "March", "April", "May", "June", "July",
+    "August", "September", "October", "November", "December",
+)
+_EN_DATE_RE = re.compile(
+    r"(" + "|".join(_EN_MONTHS) + r")\s+(\d{1,2}),\s*(\d{4})"
+)
+_BARE_YEAR_RE = re.compile(r"((?:19|20)\d{2})")
+
+
+def _dates_in_text(text: str) -> list[date]:
+    """All parseable dates in a wikitext snippet, most specific first."""
+    out: list[date] = []
+    for m in _ZH_DATE_RE.finditer(text):
+        out.append(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+    for m in _START_TPL_RE.finditer(text):
+        out.append(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+    for m in _EN_DATE_RE.finditer(text):
+        out.append(
+            date(int(m.group(3)), _EN_MONTHS.index(m.group(1)) + 1, int(m.group(2)))
+        )
+    if not out:
+        for m in _BARE_YEAR_RE.finditer(text):
+            out.append(date(int(m.group(1)), 1, 1))
+    return out
+
+
+def _infobox_start_date(wikitext: str) -> date | None:
+    """Earliest broadcast-start date in the anime infobox blocks.
+
+    Without an animanga block, zh/ja broadcast fields (放送開始…) are still
+    specific enough to scan unscoped; the en ``first`` field is not (it also
+    names citation authors, and manga blocks carry the earlier serialization
+    start), so en pages without a Video block yield nothing.
+    """
+    blocks = _ANIME_BLOCK_RE.findall(wikitext)
+    candidates: list[date] = []
+    if blocks:
+        for block in blocks:
+            for m in _BROADCAST_FIELD_RE.finditer(block):
+                candidates.extend(_dates_in_text(m.group(1)))
+            for m in _EN_FIRST_RE.finditer(block):
+                value = m.group(1).lstrip()
+                # The value must *start* with a date-ish token, otherwise
+                # this is a citation author field or similar.
+                if re.match(r"(?:\{\{|\d{4}|" + "|".join(_EN_MONTHS) + r")", value):
+                    candidates.extend(_dates_in_text(value))
+    else:
+        for m in _BROADCAST_FIELD_RE.finditer(wikitext):
+            candidates.extend(_dates_in_text(m.group(1)))
+    return min(candidates) if candidates else None
+
+
+def _episode_start_date(wikitext: str) -> date | None:
+    """Earliest air_date from the deterministic episode-list parser."""
+    list_data = parse_episode_list(wikitext)
+    air_dates = sorted(
+        ep["air_date"]
+        for ep in ((list_data or {}).get("episodes") or [])
+        if ep.get("air_date")
+    )
+    if not air_dates:
+        return None
+    try:
+        return date.fromisoformat(air_dates[0])
+    except ValueError:
+        return None
+
+
+async def _episode_start_via_subpages(title: str, lang: str, wikitext: str) -> date | None:
+    """Try episode-list sub-pages: {{main}} hints, then conventional names."""
+    subpages: list[str] = []
+    for m in _MAIN_LINK_RE.finditer(wikitext):
+        target = m.group(1).strip()
+        if _SUBPAGE_HINT_RE.search(target) and target not in subpages:
+            subpages.append(target)
+    if lang == "en" and not title.lower().startswith("list of"):
+        subpages.append(f"List of {title} episodes")
+    for suffix in _SUBPAGE_SUFFIXES.get(lang, ()):
+        subpages.append(f"{title}{suffix}")
+    for sub in subpages:
+        sub_wt = await fetch_wikipedia_wikitext(sub, lang)
+        if not sub_wt:
+            continue
+        d = _episode_start_date(sub_wt)
+        if d is not None:
+            return d
+        # The anime sub-page may lack a parseable episode list but still
+        # carry an infobox broadcast start (e.g. "Re:從零開始的異世界生活
+        # (動畫)").
+        d = _infobox_start_date(sub_wt)
+        if d is not None:
+            return d
+    return None
 
 
 def _lang_title_from_url(url: str) -> tuple[str, str] | None:
@@ -164,19 +293,19 @@ async def _derive_from_wikipedia(
         if not wikitext:
             last_reason = f"wikitext fetch failed ({lang}:{title})"
             continue
-        list_data = parse_episode_list(wikitext)
-        air_dates = sorted(
-            ep["air_date"]
-            for ep in ((list_data or {}).get("episodes") or [])
-            if ep.get("air_date")
-        )
-        if not air_dates:
-            last_reason = f"no episode air dates on page ({lang}:{title})"
-            continue
-        try:
-            return date.fromisoformat(air_dates[0]), None
-        except ValueError:
-            last_reason = f"unparseable air_date {air_dates[0]!r}"
+        d = _episode_start_date(wikitext)
+        if d is not None:
+            return d, None
+        # Long series keep the episode list on a sub-page.
+        d = await _episode_start_via_subpages(title, lang, wikitext)
+        if d is not None:
+            return d, None
+        # Last resort: infobox broadcast-start field (year precision is
+        # enough for the works-library year display).
+        d = _infobox_start_date(wikitext)
+        if d is not None:
+            return d, None
+        last_reason = f"no air dates anywhere ({lang}:{title})"
     return None, last_reason
 
 
