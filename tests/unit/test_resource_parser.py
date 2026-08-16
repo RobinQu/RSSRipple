@@ -230,6 +230,45 @@ from app.services.resource_parser import detect_batch
         # Empty
         ("", (False, None, None)),
         (None, (False, None, None)),
+        # --- real-world titles that used to be missed ---
+        # Bare range after an S01 season marker, no keyword
+        (
+            "[7³ACG] 齐木楠雄的灾难/The Disastrous Life of Saiki K S01 | 01-24 [简繁字幕] BDrip 1080p x265 OPUS 2.0",
+            (True, 1, 24),
+        ),
+        # Same, with a "+SPx11" extras suffix on the range
+        (
+            "[7³ACG] 葬送的芙莉莲/Sousou no Frieren S01 | 01-28+SPx11 [简繁字幕] BDrip 1080p AV1 OPUS 2.0",
+            (True, 1, 28),
+        ),
+        # Range at the tail of a bracket that also holds title text
+        (
+            "[LinRip][青春猪头少年不会梦到圣诞服女郎 01-13][Rascal Does Not Dream of Santa Claus][BDRemux 1080p AVC FLAC]",
+            (True, 1, 13),
+        ),
+        (
+            "[LinRip][超超超超超喜欢你的100个女朋友 第二季 13-24][The 100 Girlfriends Who Really Love You][BDRip 1080p]",
+            (True, 13, 24),
+        ),
+        # "TV fin" keyword — batch without explicit boundaries
+        (
+            "[AYN爱·怨念·字幕组][UFO机器人古连泰沙][UFOロボ グレンダイザー][TV fin][1975][BD1080P][简中内封]",
+            (True, None, None),
+        ),
+        # Full-width tilde ～ (U+FF5E) and wave dash 〜 (U+301C) connectors
+        ("[Group] Show S01E01～13 1080p", (True, 1, 13)),
+        ("【某作品 01〜12】【BDRip 1080p】", (True, 1, 12)),
+        # --- false-positive guards ---
+        # Single episode with "S01 - 05" numbering (a dash, not a range)
+        ("[Group] Show S01 - 05 [1080p]", (False, None, None)),
+        ("[Group] Show S01E05 [1080p]", (False, None, None)),
+        # Year pair: bracket-range shape, rejected by the sanity cap (end > 999)
+        ("[Group] Show [2020-2021] [1080p]", (False, None, None)),
+        # Resolution / codec tokens are not ranges
+        ("[Group] Show [1080p-Hi10P] - 05", (False, None, None)),
+        ("[Group] Show - 05 [WebRip 1080p HEVC-10bit AAC]", (False, None, None)),
+        # Bare "Fin" on a single final episode is NOT a batch keyword
+        ("[Group] Show - 13 [1080p][Fin]", (False, None, None)),
     ],
 )
 def test_detect_batch(title, expected):

@@ -214,26 +214,52 @@ def _apply_transform(value: str, transform: str | None) -> Any:
 # ``(is_batch, start, end)`` — start/end may be None when the title marks a
 # batch (Season Pack / 全集 / Fin) without explicit boundaries.
 
+# Range connectors: half-width tilde, hyphen, en-dash, full-width tilde
+# (U+FF5E) and wave dash (U+301C).
+_RANGE_DASH = r"[~\-–～〜]"
+# Optional extras suffix after the end number, e.g. "01-28+SPx11".
+_SP_SUFFIX = r"(?:\s*\+\s*SP\s*x?\s*\d+)?"
+
 _BATCH_PATTERNS: list[tuple[re.Pattern[str], int, int]] = [
     # SxxEyy~zz  /  SxxEyy-zz  /  SxxEyy–zz  (with optional Exx suffix on rhs)
-    (re.compile(r"S\d+\s*E(\d{1,3})\s*[~\-–]\s*E?(\d{1,3})", re.IGNORECASE), 1, 2),
+    (re.compile(rf"S\d+\s*E(\d{{1,3}})\s*{_RANGE_DASH}\s*E?(\d{{1,3}})", re.IGNORECASE), 1, 2),
     # [01-12 合集] / [01~12 Fin] / [01-12] with batch keyword nearby
     (re.compile(
-        r"\[\s*(\d{1,3})\s*[~\-–]\s*(\d{1,3})\s*(?:合集|Batch|Fin|完结|全集|完整|Complete)?\s*\]",
+        rf"\[\s*(\d{{1,3}})\s*{_RANGE_DASH}\s*(\d{{1,3}})\s*(?:合集|Batch|Fin|完结|全集|完整|Complete)?\s*\]",
+        re.IGNORECASE,
+    ), 1, 2),
+    # Bracket whose content *ends* in an episode range, even when the bracket
+    # also holds title text: "[青春猪头少年不会梦到圣诞服女郎 01-13]".
+    # Year pairs like "[2020-2021]" match the shape but are rejected by the
+    # sanity cap below (end > 999).
+    (re.compile(
+        rf"[\[【][^\]】]*?(\d{{1,3}})\s*{_RANGE_DASH}\s*(\d{{1,3}}){_SP_SUFFIX}\s*[\]】]",
+        re.IGNORECASE,
+    ), 1, 2),
+    # Bare range in the context of an explicit season marker:
+    # "... S01 | 01-24 ..." / "... Season 2 01-12 ..." / "第2季 01-12".
+    # Possessive ``\d++`` keeps "S04 - 05" (single episode) from matching:
+    # without it the season number backtracks ("S0") so "4 - 05" looks like
+    # a range.
+    (re.compile(
+        rf"(?:S\d++|Season\s*\d++|第\s*\d++\s*季).{{0,80}}?(\d{{1,3}})\s*{_RANGE_DASH}\s*(\d{{1,3}}){_SP_SUFFIX}",
         re.IGNORECASE,
     ), 1, 2),
     # 01-12 合集 (no bracket)
     (re.compile(
-        r"(\d{1,3})\s*[~\-–]\s*(\d{1,3})\s*(?:合集|Batch|Fin|完结|全集|完整|Complete)",
+        rf"(\d{{1,3}})\s*{_RANGE_DASH}\s*(\d{{1,3}})\s*(?:合集|Batch|Fin|完结|全集|完整|Complete)",
         re.IGNORECASE,
     ), 1, 2),
     # 第01-第12话 / 第01~12話
-    (re.compile(r"第\s*(\d{1,3})\s*[~\-–]\s*第?\s*(\d{1,3})\s*[话話集]"), 1, 2),
+    (re.compile(rf"第\s*(\d{{1,3}})\s*{_RANGE_DASH}\s*第?\s*(\d{{1,3}})\s*[话話集]"), 1, 2),
 ]
 
 _BATCH_KEYWORD_RE = re.compile(
     r"(?:Season\s*Pack|Full\s*Season|Batch|BD-?BOX|BDBOX|BD\s*Rip\s*Box|"
     r"全集|全季|合集|完整|完结|Complete\s*Series|"
+    # "TV fin" marks a completed TV run; bare "Fin" is *not* a keyword — it
+    # is also used on single final-episode releases.
+    r"TV[\s_-]?fin|"
     r"整理搬运|合集整理|资源整合|全集整理|打包)",
     re.IGNORECASE,
 )

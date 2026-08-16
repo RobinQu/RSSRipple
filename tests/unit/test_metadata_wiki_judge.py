@@ -335,3 +335,61 @@ async def test_top_candidates_capped_at_six():
         )
     assert finalize["found"] is True
     assert page.await_count == 6  # 9 candidates capped at 6 before page fetches
+
+
+
+# ---------------------------------------------------------------------------
+# _attach_wikipedia_content: start_date derivation
+# ---------------------------------------------------------------------------
+
+
+def _attach_patches(list_data):
+    return (
+        patch(f"{_JUDGE}.fetch_wikipedia_wikitext", AsyncMock(return_value="wikitext")),
+        patch(f"{_JUDGE}.parse_seasons_from_infobox", return_value=None),
+        patch(f"{_JUDGE}.parse_episode_list", return_value=list_data),
+    )
+
+
+async def test_attach_wikipedia_content_derives_start_date_from_air_dates():
+    me = {}
+    page = {"title": "黃泉使者", "lang": "zh"}
+    episodes = [
+        {"season": 1, "episode": 1, "title": "a", "subtitle": None, "air_date": "2023-10-08"},
+        {"season": 1, "episode": 2, "title": "b", "subtitle": None, "air_date": None},
+        {"season": 1, "episode": 3, "title": "c", "subtitle": None, "air_date": "2023-10-01"},
+    ]
+    list_data = {"seasons": [{"season_number": 1, "episode_count": 3}], "episodes": episodes}
+    p1, p2, p3 = _attach_patches(list_data)
+    with p1, p2, p3:
+        await wj._attach_wikipedia_content(me, page)
+    assert me["episode_list"] == episodes
+    assert me["start_date"] == "2023-10-01"
+
+
+async def test_attach_wikipedia_content_empty_air_dates_leave_start_date_absent():
+    me = {}
+    page = {"title": "黃泉使者", "lang": "zh"}
+    episodes = [
+        {"season": 1, "episode": 1, "title": "a", "subtitle": None, "air_date": None},
+        {"season": 1, "episode": 2, "title": "b", "subtitle": None, "air_date": None},
+    ]
+    list_data = {"seasons": [{"season_number": 1, "episode_count": 2}], "episodes": episodes}
+    p1, p2, p3 = _attach_patches(list_data)
+    with p1, p2, p3:
+        await wj._attach_wikipedia_content(me, page)
+    assert me["episode_list"] == episodes
+    assert "start_date" not in me
+
+
+async def test_attach_wikipedia_content_keeps_existing_start_date():
+    me = {"start_date": "2020-01-01"}
+    page = {"title": "黃泉使者", "lang": "zh"}
+    episodes = [
+        {"season": 1, "episode": 1, "title": "a", "subtitle": None, "air_date": "2023-10-08"},
+    ]
+    list_data = {"seasons": [{"season_number": 1, "episode_count": 1}], "episodes": episodes}
+    p1, p2, p3 = _attach_patches(list_data)
+    with p1, p2, p3:
+        await wj._attach_wikipedia_content(me, page)
+    assert me["start_date"] == "2020-01-01"

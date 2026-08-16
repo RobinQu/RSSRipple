@@ -1058,12 +1058,16 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     return movie
 
 
-async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict) -> AudioWork:
+async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict) -> AudioWork | None:
     """Upsert an AudioWork by canonicalized external_id, then by exact title.
 
     Mirrors :func:`create_or_update_movie_from_external`. ``data["content_type"]``
     carries the sub-kind (asmr / music / drama_cd / radio / other) and is
     preserved on the entity.
+
+    Returns ``None`` when a *new* row would have no title at all — an AudioWork
+    without any of title_cn/title_en/original_title is a useless shell, so
+    creation is refused (updates of existing rows are unaffected).
     """
     raw_external_id = data.get("external_id")
     raw_source = data.get("external_source")
@@ -1141,9 +1145,17 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
         return audio
 
     remote_poster = data.get("poster_url")
-    local_url = await download_and_cache_poster(remote_poster)
     title_cn = data.get("title_cn")
     title_en = data.get("title_en") or data.get("original_title")
+    if not any((title_cn, data.get("title_en"), data.get("original_title"))):
+        logger.warning(
+            "[metadata] refusing to create an AudioWork without any title "
+            "(external_id=%r, external_source=%r)",
+            raw_external_id,
+            raw_source,
+        )
+        return None
+    local_url = await download_and_cache_poster(remote_poster)
     aliases: list[str] = []
     for t in (title_cn, title_en, data.get("original_title")):
         if t and t not in aliases:

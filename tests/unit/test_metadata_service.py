@@ -1281,3 +1281,66 @@ async def test_upsert_skips_manually_edited_fields(db_session):
     assert updated.id == work.id
     assert updated.rating == 7.5  # manual edit preserved
     assert updated.is_anime is None  # manual edit preserved (identity-ish is_anime True ignored)
+
+
+# ---------------------------------------------------------------------------
+# create_or_update_audio_work_from_external: no-title creation guard
+# ---------------------------------------------------------------------------
+
+
+async def test_audio_work_create_without_any_title_is_refused(db_session, caplog):
+    """A brand-new AudioWork with title_cn/title_en/original_title all empty is
+    a useless shell — creation is refused with a warning, no row inserted."""
+    import logging
+
+    from sqlalchemy import select
+
+    from app.models.audio_work import AudioWork
+
+    with caplog.at_level(logging.WARNING, logger="app.services.metadata_service"):
+        result = await ms.create_or_update_audio_work_from_external(db_session, {
+            "external_id": "wikipedia:900",
+            "external_source": "wikipedia",
+            "content_type": "asmr",
+        })
+    assert result is None
+    assert (await db_session.execute(select(AudioWork))).scalars().all() == []
+    assert any("without any title" in r.message for r in caplog.records)
+
+
+async def test_audio_work_create_with_title_still_works(db_session):
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        audio = await ms.create_or_update_audio_work_from_external(db_session, {
+            "external_id": "wikipedia:901",
+            "external_source": "wikipedia",
+            "title_cn": "音声作品",
+            "content_type": "asmr",
+        })
+    assert audio is not None
+    assert audio.title_cn == "音声作品"
+    assert audio.content_type == "asmr"
+
+
+async def test_audio_work_titleless_update_of_existing_row_allowed(db_session):
+    """The guard only applies to creation: a titleless payload that resolves to
+    an existing row (by external_id) still updates it."""
+    from app.models.audio_work import AudioWork
+
+    existing = AudioWork(
+        id=_uuid(), title_cn="既存作品", external_id="wikipedia:902",
+        external_source="wikipedia", content_type="music",
+    )
+    db_session.add(existing)
+    await db_session.flush()
+
+    audio = await ms.create_or_update_audio_work_from_external(db_session, {
+        "external_id": "wikipedia:902",
+        "external_source": "wikipedia",
+        "description": "updated desc",
+    })
+    assert audio is not None
+    assert audio.id == existing.id
+    assert audio.description == "updated desc"

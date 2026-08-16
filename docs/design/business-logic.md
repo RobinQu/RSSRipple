@@ -159,6 +159,8 @@ fetch_and_link_metadata(resource, channel, db)
 
 `create_or_update_movie_from_external` 同理。
 
+`create_or_update_audio_work_from_external` 同为幂等 upsert，但带**空壳守卫**：创建新记录时 `title_cn/title_en/original_title` 全空则拒绝（记 warning、返回 None）——LLM verdict 可能偏离 schema 返回无标题的 audio 类 matched_entity，空 AudioWork 没有价值（更新已有行不受限）。对应地，`_apply_to_resource` 的 audio 分支在调用前做两级修补：注入 `meta.content_type`（LLM 的 content_type 在 ResourceMetadata 顶层、从不在 matched_entity 里，缺它创建会错误兜底为 `"other"`）；matched_entity 无任何标题时依次用 `meta.title_cn/title_en/clean_title` 兜底回填。回填后仍无标题则不建 AudioWork、不设置 `resource.audio_work_id`，资源保持未匹配（记 warning）。
+
 ### Wikipedia 跨语言收敛（langlinks）
 
 Wikipedia 的 page id 按语言站点独立编号，同一作品的 zhwiki 页面（如 `wikipedia:7727654`"黃泉使者"）与 enwiki 页面（`wikipedia:70545449`"Daemons of the Shadow Realm"）external_id 不同、标题槽各填一个语言，标题回退无法命中 → 同一作品被建成多行。修复：`_execute_get_wikipedia_page` 抓取页面时一并取 **langlinks**（仅 en/zh/ja），search-then-judge 两条 finalize 路径据此：
@@ -176,7 +178,7 @@ wikipedia 主源频道的**季/集内容一律来自 Wikipedia 页面本身**（
 
 1. **抓取**：页面被选中后（search-then-judge 的 auto-link 短路**和** LLM judge 选中两条路径都会走），`_attach_wikipedia_content` 用 `fetch_wikipedia_wikitext`（MediaWiki `action=parse&prop=wikitext`，httpx + Wikimedia UA）取选中页面的原始 wikitext；完全解析失败时经 langlinks 重试**一次**（zh↔ja，剧集列表常只在一侧）。
 2. **解析**（`app/services/wikipedia_episode_parser.py`，纯函数）：infobox **仅取 `{{Infobox animanga/TVAnime}}` 块**（zh/ja 同名；块到下一个 `{{Infobox animanga/` 子模板为止；无 TVAnime 块的页面——如史萊姆主页面——返回 None，绝不把 Novel/Manga 块的 話數 当 TV 季数）→ `parse_seasons_from_infobox`（支持 `{{ubl|...}}` 与 `<br />` 分隔、`第N季/第N期/第一季`（汉字序数）、`話數/话数/話数/集數` 字段、全/共、全/半角数字；无季标记的 `全M話` 视作单季、但仅当恰好一个 plain 计数 TV 块）；`各話列表/各話リスト` 章节 → `parse_episode_list`（zh `{{劇集列表/base}}` 与 ja 规则变体 `{{エピソードリスト/base}}`；`Chapter = 第N季/期` 设当前季，`Number = 第M話`（含汉字数字 `第一話`）成行，Title/Subtitle 去 `{{lang|ja|...}}`/wiki 链接/简单模板，Aux5 解析 `'''2023年'''<br />10月8日` 与续年 `10月15日` 为 ISO 日期）。无 Chapter 标记 → 单季（season=1）；章节内编号若从 >1 开始（跨年绝对编号）则重排为季内 1 起；`番外編` 等无集号行跳过。无剧集章节 → 返回 None。已采样确认 zh/ja 真实页面（100カノ zh+ja、無職転生、小書痴、史萊姆、攻殻機動隊 SAC——后者无剧集章节，按 None 处理）；其余语言/模板形态本阶段不支持（代码注释注明）。
-3. **合并进 matched_entity**：`seasons`（infobox 集数权威；剧集列表季数更多时以列表为准——连载中 infobox 滞后）、`number_of_seasons`、`number_of_episodes`（求和）与新键 `episode_list`。`ResourceMetadata.from_dict`/MetadataCache 整体携带 `matched_entity`，`episode_list` 随缓存往返不丢失。
+3. **合并进 matched_entity**：`seasons`（infobox 集数权威；剧集列表季数更多时以列表为准——连载中 infobox 滞后）、`number_of_seasons`、`number_of_episodes`（求和）与新键 `episode_list`。`ResourceMetadata.from_dict`/MetadataCache 整体携带 `matched_entity`，`episode_list` 随缓存往返不丢失。此外，若实体尚无 `start_date`，从 `episode_list` 最早的非空 `air_date` 派生（series upsert 只认 `start_date` 键，而 wikipedia 路径此前无任何环节产生它）；已有 `start_date` 不覆盖。
 4. **落库**：`create_or_update_series_from_external` 在 `episode_list` 存在时调用 `upsert_episodes`（按 `(series_id, season, episode)` 幂等 upsert title/air_date；只增不删）；wikipedia 来源携带 `seasons` 时**覆盖** `series.seasons`/`number_of_seasons`（tmdb/exa 路径不变），但带**防退化 guard**（`seasons_overwrite_allowed`，`number_of_episodes` 一并门控）：现有结构为空、或解析季数 ≥ 现有季数才覆盖；解析季数**更少**（如合并建模的 {1:51} 覆盖已验证 4 季）一律拒绝并记 warning。陈旧的 TMDB 建模行在下一次刷新时被纠正。
 5. **覆盖率评测与回填**：`scripts/wikipedia_seasons_eval.py`（dry-run 默认）对所有 wikipedia 链接的 TVSeries 逐部抓取 + 解析并输出覆盖率汇总；`--apply` 复用同一 `evaluate_series` 读路径执行写回填（覆盖 seasons/number_of_seasons/number_of_episodes + `upsert_episodes`，批量提交），并走同一防退化 guard——被拒的报告打印 `[guard-skip]`，seasons 与 Episode 均不写入——对 wikipedia 主源作品取代 `series_seasons_backfill.py` 的 seasons 回填。
 
@@ -196,7 +198,7 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 
 - **prompt 注入**：ReAct `_SYSTEM_PROMPT`、wikipedia judge `_JUDGE_SYSTEM_PROMPT`、Exa judge `_EXA_JUDGE_SYSTEM_PROMPT` 三处 matched_entity schema 注入 `genre_prompt_block()` 生成的完整枚举清单，LLM 根据外部作品详情（摘要/categories/snippet）一并输出 genre；指令为**尽力推测**——源未显式列标签时须依据简介推断，有简介至少给一个，杜绝"不确定就留空"。`_EXA_CANDIDATE_SCHEMA` 的 genre description 同步列枚举。wiki auto-link 路径不经 LLM，genre 留空由兜底/回填补齐。
 - **兜底推断**：`_ensure_genre`（`metadata_agent.py`）在钳制后仍无 genre 且 matched_entity 有 description 时，用 `genre_inference_system_prompt()` 发一次低成本 LLM 调用按简介分类，结果再过 `normalize_genres`；失败静默不阻塞匹配。由此 judge 留空、auto-link 无 LLM、Exa 仅身份三条路径产出的作品都能拿到标签。
-- **出口钳制**：统一 finalize 消费点 `_clamp_finalize_genre`（`metadata_agent.py`，`process` 与 `process_title_only` 各一处）对 `matched_entity["genre"]` 调 `normalize_genres`——id 直译、大小写不敏感、少量别名，表外值丢弃（debug 日志），空结果置 None 视为"未提供"，genre 绝不阻塞匹配。TMDB 直连的 `_tmdb_genre_map` 动态拉取与注册表取交集、失败回退注册表静态表。
+- **出口钳制**：统一 finalize 消费点 `_clamp_finalize_genre`（`metadata_agent.py`，`process` 与 `process_title_only` 各一处）对 `matched_entity["genre"]` 调 `normalize_genres`——id 直译、大小写不敏感、少量别名，表外值丢弃（debug 日志），空结果置 None 视为"未提供"，genre 绝不阻塞匹配。TMDB 直连的 `_tmdb_genre_map` 动态拉取与注册表取交集、失败回退注册表静态表。同一消费点紧跟 `_normalize_finalize_dates`：确定性日期键名归一——series/tv 无 `start_date` 时依次从 `first_air_date`/`release_date` 补（TMDB 工具结果带 `first_air_date`，LLM 不总按 prompt 键名抄录），movie 对称补 `release_date`；只补空缺、绝不覆盖已有值。
 - **写回**：`metadata_service` 全部 genre 写入点（series/movie/audio 的新建/更新、`refresh_work_metadata` 填空）先过 `normalize_genres`；非空才覆盖，归一化为空不清空旧值。
 - **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 4（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底），旧缓存惰性失效重跑。
 - **存量**：`scripts/genre_backfill.py`——模式 A（默认）就地规范化既有 genre 数组；模式 B（`--refresh-empty`）对仍为空的 series/movie 调 `refresh_work_metadata` 重跑补齐（身份源为 wikipedia/tmdb 时用原源，否则回退 wikipedia 标题判定；有网络/LLM 成本，`--limit/--delay` 限速）。

@@ -349,6 +349,93 @@ async def test_audio_verdict_links_audio_work(db_session):
     assert resource.movie_id is None
 
 
+async def test_audio_verdict_injects_content_type_from_meta(db_session):
+    """The LLM verdict's content_type lives on the ResourceMetadata, never in
+    matched_entity — the upsert must not fall back to "other"."""
+    from app.models.audio_work import AudioWork
+
+    meta = _meta(
+        content_type="drama_cd",
+        matched_entity={
+            "external_id": "wikipedia:78", "external_source": "wikipedia",
+            "title_cn": "广播剧",
+        },
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    aw = (await db_session.execute(select(AudioWork))).scalar_one()
+    assert aw.content_type == "drama_cd"
+
+
+async def test_audio_verdict_titleless_entity_falls_back_to_meta_title(db_session):
+    """A matched_entity with no title at all borrows the meta-level title
+    instead of inserting a shell AudioWork."""
+    from app.models.audio_work import AudioWork
+
+    meta = _meta(
+        content_type="music", title_cn="专辑名",
+        matched_entity={"external_id": "wikipedia:79", "external_source": "wikipedia"},
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    aw = (await db_session.execute(select(AudioWork))).scalar_one()
+    assert aw.title_cn == "专辑名"
+    assert aw.content_type == "music"
+    assert resource.audio_work_id == aw.id
+
+
+async def test_audio_verdict_titleless_entity_falls_back_to_clean_title(db_session):
+    from app.models.audio_work import AudioWork
+
+    meta = _meta(
+        content_type="radio", clean_title="Cleaned Radio Show",
+        matched_entity={"external_id": "wikipedia:80"},
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    aw = (await db_session.execute(select(AudioWork))).scalar_one()
+    assert aw.title_cn == "Cleaned Radio Show"
+
+
+async def test_audio_verdict_without_any_title_creates_no_shell(db_session, caplog):
+    """No title anywhere (even clean_title empty) → no AudioWork row, the
+    resource stays unmatched, and a warning is logged."""
+    import logging
+
+    from app.models.audio_work import AudioWork
+
+    meta = _meta(
+        content_type="other", clean_title="",
+        matched_entity={"external_id": "wikipedia:81"},
+    )
+    resource = _resource()
+    with (
+        patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ),
+        caplog.at_level(logging.WARNING, logger="app.services.metadata_repository"),
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert (await db_session.execute(select(AudioWork))).scalars().all() == []
+    assert resource.audio_work_id is None
+    assert resource.series_id is None
+    assert resource.movie_id is None
+    assert any("no usable title" in r.message for r in caplog.records)
+
+
 # ---------------------------------------------------------------------------
 # Batch 2: season-uncertain marking (after reconciliation, never before)
 # ---------------------------------------------------------------------------

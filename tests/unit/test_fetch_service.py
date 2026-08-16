@@ -168,7 +168,53 @@ class TestFetchChannelResources:
         assert row.is_batch is True
         assert row.episode_start == 1
         assert row.episode_end == 13
+        assert row.episode is None
         assert row.subtitle_langs == ["zh-CN", "zh-TW"]
+
+    async def test_batch_detection_clears_field_mapped_episode(self, db_session, fake_queue):
+        """A detect_batch hit must clear a stray single ``episode`` parsed by
+        the channel field_mapping (e.g. a year like 1975 misparsed as an
+        episode number) — batches carry episode_start/end only."""
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        ch = Channel(
+            id=_uuid(), name="ch-ep", type="rss_feed", url="https://example.com/rss-ep",
+            field_mapping={
+                "list_locator": {"source": "entries"},
+                "field_mappings": {
+                    "episode": {
+                        "source": "title", "regex": r"\[(\d{4})\]", "group": 1, "transform": "int",
+                    },
+                },
+            },
+            metadata_agent_enabled=False, status="active",
+        )
+        db_session.add(ch)
+        await db_session.commit()
+        cur = await db_session.execute(
+            select(Channel).where(Channel.id == ch.id).options(
+                selectinload(Channel.agents),
+                selectinload(Channel.file_resources),
+                selectinload(Channel.raw_title_mappings),
+            )
+        )
+        ch = cur.scalar_one()
+
+        entries = [
+            _entry("gfin", "[AYN][UFO机器人古连泰沙][TV fin][1975][BD1080P][简中内封]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:fin"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(ch, db_session)
+
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "gfin")
+        )).scalar_one()
+        assert row.is_batch is True
+        assert row.episode is None
 
     async def test_existing_guid_skipped(self, db_session, channel, fake_queue):
         existing = FileResource(

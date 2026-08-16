@@ -2226,3 +2226,95 @@ async def test_process_short_circuit_derives_season_from_absolute(db_session, sa
     assert resource.series_id == series.id
     assert (resource.season, resource.episode) == (4, 17)
     assert resource.episode_confidence == "reconciled"
+
+
+
+# ---------------------------------------------------------------------------
+# _normalize_finalize_dates
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_finalize_dates_tv_first_air_date_fills_start_date():
+    from app.services.metadata_agent import _normalize_finalize_dates
+
+    fd = {
+        "found": True,
+        "content_type": "tv",
+        "matched_entity": {"first_air_date": "2023-10-08"},
+    }
+    _normalize_finalize_dates(fd)
+    assert fd["matched_entity"]["start_date"] == "2023-10-08"
+
+
+def test_normalize_finalize_dates_tv_release_date_fills_start_date():
+    from app.services.metadata_agent import _normalize_finalize_dates
+
+    fd = {
+        "found": True,
+        "content_type": "tv",
+        "matched_entity": {"release_date": "2021-04-01"},
+    }
+    _normalize_finalize_dates(fd)
+    assert fd["matched_entity"]["start_date"] == "2021-04-01"
+
+
+def test_normalize_finalize_dates_tv_keeps_existing_start_date():
+    from app.services.metadata_agent import _normalize_finalize_dates
+
+    fd = {
+        "found": True,
+        "content_type": "tv",
+        "matched_entity": {
+            "start_date": "2020-01-01",
+            "first_air_date": "2023-10-08",
+        },
+    }
+    _normalize_finalize_dates(fd)
+    assert fd["matched_entity"]["start_date"] == "2020-01-01"
+
+
+def test_normalize_finalize_dates_movie_symmetric_branch():
+    from app.services.metadata_agent import _normalize_finalize_dates
+
+    fd = {
+        "found": True,
+        "content_type": "movie",
+        "matched_entity": {"first_air_date": "2019-07-19"},
+    }
+    _normalize_finalize_dates(fd)
+    assert fd["matched_entity"]["release_date"] == "2019-07-19"
+
+    fd2 = {
+        "found": True,
+        "content_type": "movie",
+        "matched_entity": {"start_date": "2019-07-19"},
+    }
+    _normalize_finalize_dates(fd2)
+    assert fd2["matched_entity"]["release_date"] == "2019-07-19"
+
+
+def test_normalize_finalize_dates_movie_keeps_existing_release_date():
+    from app.services.metadata_agent import _normalize_finalize_dates
+
+    fd = {
+        "found": True,
+        "content_type": "movie",
+        "matched_entity": {
+            "release_date": "2019-07-19",
+            "first_air_date": "2020-01-01",
+        },
+    }
+    _normalize_finalize_dates(fd)
+    assert fd["matched_entity"]["release_date"] == "2019-07-19"
+
+
+def test_normalize_finalize_dates_no_entity_or_no_source_key_is_noop():
+    from app.services.metadata_agent import _normalize_finalize_dates
+
+    fd = {"found": False, "content_type": "tv"}
+    _normalize_finalize_dates(fd)
+    assert "matched_entity" not in fd
+
+    fd2 = {"found": True, "content_type": "tv", "matched_entity": {"title_cn": "x"}}
+    _normalize_finalize_dates(fd2)
+    assert "start_date" not in fd2["matched_entity"]

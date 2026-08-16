@@ -470,6 +470,11 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         pre_is_batch, pre_start, pre_end = detect_batch(title)
         if pre_is_batch:
             resource.is_batch = True
+            # A batch resource must not carry a stray single ``episode``
+            # (field_mapping may have parsed a year/resolution/title number
+            # as one) — batches are aggregated ranges, matching the LLM-path
+            # invariant in ``metadata_repository``.
+            resource.episode = None
             if pre_start is not None:
                 resource.episode_start = pre_start
             if pre_end is not None:

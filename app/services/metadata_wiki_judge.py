@@ -49,7 +49,9 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
     runs the deterministic parser; on total parse failure, retries ONCE via
     the zh<->ja langlink (episode sections often live on only one side).
     Merges ``seasons`` / ``number_of_seasons`` / ``number_of_episodes`` and
-    the new ``episode_list`` key. Also marks ``is_anime`` when the page
+    the new ``episode_list`` key, and derives ``start_date`` from the
+    earliest episode ``air_date`` when the entity has none (the series
+    upsert only reads ``start_date``). Also marks ``is_anime`` when the page
     carries an animanga infobox block (``TVAnime`` for TV works,
     ``Movie|Film|OVA`` for theatrical works — deterministic anime signals,
     see ``anime_signals``). Best-effort: any failure leaves ``me``
@@ -93,6 +95,18 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
     episodes = (list_data or {}).get("episodes")
     if episodes:
         me["episode_list"] = episodes
+    if not me.get("start_date"):
+        # The series upsert only reads ``start_date`` and no wikipedia step
+        # produces it - derive it from the earliest episode air date so the
+        # work gets a release year. Cached entities carry episode_list, so
+        # this also covers cache-hit replays of the same finalize payload.
+        air_dates = sorted(
+            ep["air_date"]
+            for ep in (me.get("episode_list") or [])
+            if ep.get("air_date")
+        )
+        if air_dates:
+            me["start_date"] = air_dates[0]
     logger.info(
         "[metadata_agent] wikipedia content for %r: %s seasons, %d episodes",
         title, len(seasons or []), len(episodes or []),

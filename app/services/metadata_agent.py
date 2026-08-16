@@ -315,6 +315,30 @@ def _clamp_finalize_genre(finalize_dict: dict) -> None:
     finalize_dict["matched_entity"] = me
 
 
+def _normalize_finalize_dates(finalize_dict: dict) -> None:
+    """Deterministic date-key normalization at the finalize-consumption point.
+
+    Producers disagree on date key names — TMDB tool results carry
+    ``first_air_date`` while the upserts only read ``start_date`` (series) /
+    ``release_date`` (movie), and the LLM does not always copy the value
+    under the key the upsert expects. Copies the value across when the
+    upsert's key is missing; never overwrites an existing value.
+    """
+    me = finalize_dict.get("matched_entity") or {}
+    if not me:
+        return
+    if finalize_dict.get("content_type") == "movie":
+        target, fallbacks = "release_date", ("first_air_date", "start_date")
+    else:
+        target, fallbacks = "start_date", ("first_air_date", "release_date")
+    if me.get(target):
+        return
+    for key in fallbacks:
+        if me.get(key):
+            me[target] = me[key]
+            break
+
+
 def _parse_genre_array(text: str) -> list[str]:
     """Extract the first JSON array from an LLM reply and clamp it."""
     m = re.search(r"\[.*\]", text or "", flags=re.DOTALL)
@@ -783,6 +807,7 @@ class UnifiedMetadataAgent:
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
         finalize_dict["search_error"] = search_info.get("error")
         _clamp_finalize_genre(finalize_dict)
+        _normalize_finalize_dates(finalize_dict)
         await self._ensure_genre(finalize_dict)
 
         # 3. Parse
@@ -863,6 +888,7 @@ class UnifiedMetadataAgent:
         finalize_dict["source_errors"] = search_info.get("source_errors") or {}
         finalize_dict["search_error"] = search_info.get("error")
         _clamp_finalize_genre(finalize_dict)
+        _normalize_finalize_dates(finalize_dict)
         await self._ensure_genre(finalize_dict)
         meta = ResourceMetadata.from_dict(finalize_dict)
 

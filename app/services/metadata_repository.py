@@ -94,12 +94,30 @@ async def _apply_to_resource(
         )
 
         if meta.content_type in AUDIO_CONTENT_TYPES:
-            audio = await create_or_update_audio_work_from_external(
-                db, meta.matched_entity
-            )
-            resource.audio_work_id = audio.id
-            resource.series_id = None
-            resource.movie_id = None
+            # The LLM verdict's content_type lives on the ResourceMetadata,
+            # never inside matched_entity — inject it so the upsert does not
+            # fall back to "other". When the matched entity carries no title
+            # at all, fall back to the titles on the metadata itself; if even
+            # those are empty, skip linking instead of inserting a shell row.
+            audio_data = dict(meta.matched_entity)
+            audio_data.setdefault("content_type", meta.content_type)
+            title_keys = ("title_cn", "title_en", "original_title")
+            if not any(audio_data.get(k) for k in title_keys):
+                fallback_title = meta.title_cn or meta.title_en or meta.clean_title
+                if fallback_title:
+                    audio_data["title_cn"] = fallback_title
+            if not any(audio_data.get(k) for k in title_keys):
+                logger.warning(
+                    "[metadata] audio verdict for %r has no usable title; "
+                    "leaving the resource unmatched instead of creating an empty AudioWork",
+                    meta.clean_title[:60],
+                )
+            else:
+                audio = await create_or_update_audio_work_from_external(db, audio_data)
+                if audio is not None:
+                    resource.audio_work_id = audio.id
+                    resource.series_id = None
+                    resource.movie_id = None
         elif meta.content_type == "movie":
             # Cross-table guard: the same external entity may already exist
             # as a TVSeries (an earlier tv classification, or a manual

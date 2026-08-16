@@ -96,8 +96,8 @@ class FileResource(Base):
 
 **合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分两层：
 
-1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。
-2. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end`；LLM 输出的非空值覆盖 pre-parser 结果。
+1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）。
+2. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end`；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）。
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
 
