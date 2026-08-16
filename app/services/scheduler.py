@@ -44,17 +44,24 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(seconds=30),
     )
+    # Daily jobs get a wide misfire grace window: APScheduler's default grace
+    # is 1 second, and with several workers running LLM-heavy metadata work
+    # the event loop is routinely blocked past the exact fire moment — the
+    # daily run was then skipped outright (next chance 24h later). One hour
+    # of grace lets a blocked scheduler catch up as soon as its loop frees.
     _scheduler.add_job(
         _enqueue_daily_cleanup,
         trigger=CronTrigger(hour=3, minute=0),
         id="daily_cleanup",
         replace_existing=True,
+        misfire_grace_time=3600,
     )
     _scheduler.add_job(
         _enqueue_daily_dedup,
         trigger=CronTrigger(hour=4, minute=0),
         id="daily_dedup",
         replace_existing=True,
+        misfire_grace_time=3600,
     )
     _scheduler.add_job(
         _enqueue_check_downloaders,

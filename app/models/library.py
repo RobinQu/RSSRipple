@@ -58,6 +58,10 @@ class Library(Base):
         nullable=True,
     )
     root_subpath: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    # 回收站目录（卷内相对路径，与 root_subpath 同卷）：合集 + move 计划
+    # 移走正片后，种子目录内的剩余文件整体移入 ``<卷挂载点>/<recycle_subpath>/
+    # <种子目录名>``；NULL = 默认原地保留（keep）。
+    recycle_subpath: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # tv | movie | mixed，仅提示性（由 CollectionType 派生），不做应用层强校验。
     kind: Mapped[str] = mapped_column(String(16), default="mixed", nullable=False)
     # BCP-47 语言标签 → Plex 字幕后缀映射（如 {"zh-CN": "zh-Hans"}），可空。

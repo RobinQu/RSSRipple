@@ -135,6 +135,7 @@ def _library_out(lib: Library) -> dict:
         volume_name=lib.volume.name if lib.volume else None,
         root_subpath=lib.root_subpath,
         root_path=resolve_library_root(lib),
+        recycle_subpath=lib.recycle_subpath,
         bound=lib.volume_id is not None,
         subtitle_lang_map=lib.subtitle_lang_map,
         created_at=lib.created_at,
@@ -208,6 +209,13 @@ async def update_library(
         try:
             update_data["root_subpath"] = validate_download_subdir(
                 update_data["root_subpath"]
+            )
+        except ValueError as e:
+            return _error(422, "VALIDATION_ERROR", str(e))
+    if "recycle_subpath" in update_data:
+        try:
+            update_data["recycle_subpath"] = validate_download_subdir(
+                update_data["recycle_subpath"]
             )
         except ValueError as e:
             return _error(422, "VALIDATION_ERROR", str(e))

@@ -183,6 +183,122 @@ async def test_merge_duplicate_series_repoints_agent_works_and_mappings(db_sessi
     assert m.series_id == s1.id
 
 
+async def test_merge_duplicate_series_drops_conflicting_children(db_session, channel):
+    """Regression: duplicates owning child rows whose natural key the survivor
+    already has (Episode uq, mapping uq, app-level AgentWork/PendingDecision
+    singletons) must not abort the whole merge with an IntegrityError —
+    conflicting duplicate rows are dropped, the rest re-pointed."""
+    from sqlalchemy import select
+
+    from app.models.episode import Episode
+    from app.models.pending_decision import PendingDecision
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:1",
+        title_cn="剧A", title_en="Show A", created_at=t0,
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 1",
+        title_cn="剧A", title_en="Show A", created_at=t0 + timedelta(seconds=1),
+    )
+    dl = DownloaderInstance(
+        id=_uuid(), name="dl", type="transmission", url="http://x", download_dir="/tmp",
+    )
+    db_session.add(dl)
+    await db_session.flush()
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id, downloader_id=dl.id,
+        task_expire_days=30, llm_enabled=False,
+        scope_channel_wide=False, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+
+    # Both series own (1,1); s1 additionally (1,2), s2 additionally (1,3).
+    # (Mapping collisions can't exist — its uq is series-independent.)
+    db_session.add_all([
+        Episode(id=_uuid(), series_id=s1.id, season=1, episode=1, title="s1e1"),
+        Episode(id=_uuid(), series_id=s1.id, season=1, episode=2),
+        Episode(id=_uuid(), series_id=s2.id, season=1, episode=1, title="s2e1"),
+        Episode(id=_uuid(), series_id=s2.id, season=1, episode=3),
+        AgentWork(
+            id=_uuid(), agent_id=agent.id, content_type="tv",
+            series_id=s1.id, enable_episode_dedup=True,
+        ),
+        AgentWork(
+            id=_uuid(), agent_id=agent.id, content_type="tv",
+            series_id=s2.id, enable_episode_dedup=True,
+        ),
+        ChannelRawTitleMapping(
+            id=_uuid(), channel_id=channel.id, raw_title="raw",
+            search_title_key="剧a", content_type="tv", series_id=s2.id,
+        ),
+        PendingDecision(
+            id=_uuid(), agent_id=agent.id, series_id=s1.id,
+            season=1, episode=1, candidates=["r1"], reason="x", status="pending",
+        ),
+        PendingDecision(
+            id=_uuid(), agent_id=agent.id, series_id=s2.id,
+            season=1, episode=1, candidates=["r2"], reason="x", status="pending",
+        ),
+    ])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_removed == 1
+    episodes = (await db_session.execute(
+        select(Episode).where(Episode.series_id == s1.id)
+    )).scalars().all()
+    assert sorted((e.season, e.episode) for e in episodes) == [(1, 1), (1, 2), (1, 3)]
+    # Survivor's own (1,1) wins over the duplicate's.
+    e11 = next(e for e in episodes if e.episode == 1)
+    assert e11.title == "s1e1"
+    assert len((await db_session.execute(select(AgentWork))).scalars().all()) == 1
+    mappings = (await db_session.execute(select(ChannelRawTitleMapping))).scalars().all()
+    assert len(mappings) == 1
+    assert mappings[0].series_id == s1.id
+    decisions = (await db_session.execute(select(PendingDecision))).scalars().all()
+    assert len(decisions) == 1
+    assert decisions[0].series_id == s1.id
+
+
+async def test_merge_skips_year_conflicting_group(db_session):
+    """Regression: rows sharing a normalized title but premiered years apart
+    (remake/reboot/同名系列, e.g. a 1995 film page and a 2026 TV series page)
+    must NOT be merged — the oldest row would otherwise swallow the newer
+    work and re-point its resources."""
+    from sqlalchemy import select
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    old = TVSeries(
+        id=_uuid(), title_cn="攻殼機動隊", title_en="Ghost in the Shell",
+        original_title="攻殻機動隊", external_id="wikipedia:190601",
+        external_source="wikipedia", content_type="tv",
+        start_date=datetime(1995, 11, 18, tzinfo=UTC).date(),
+        created_at=t0, updated_at=t0,
+    )
+    new = TVSeries(
+        id=_uuid(), title_cn="攻壳机动队", title_en="THE GHOST IN THE SHELL",
+        original_title="攻殻機動隊 THE GHOST IN THE SHELL",
+        external_id="wikipedia:9390967", external_source="wikipedia",
+        content_type="tv",
+        start_date=datetime(2026, 7, 7, tzinfo=UTC).date(),
+        created_at=t0 + timedelta(days=1), updated_at=t0,
+    )
+    db_session.add_all([old, new])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_removed == 0
+    assert any("year-conflicting" in n for n in report.notes)
+    assert len((await db_session.execute(select(TVSeries))).scalars().all()) == 2
+
+
 async def test_merge_duplicate_series_is_idempotent(db_session, channel):
     t0 = datetime(2025, 1, 1, tzinfo=UTC)
     await _make_series(

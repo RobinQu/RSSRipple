@@ -24,8 +24,9 @@ class LibraryUpdate(BaseModel):
     """Library 收敛为扫描派生（R2）：仅可局部更新。
 
     ``subtitle_lang_map`` 为 Library 级字幕映射覆盖；``volume_id`` /
-    ``root_subpath`` 用于待绑定行就地修复（补绑定）。其余字段由扫描派生，
-    提交即 422（extra="forbid"）。
+    ``root_subpath`` 用于待绑定行就地修复（补绑定）；
+    ``recycle_subpath`` 为合集 move 计划的回收站目录（卷内相对路径，
+    null = 原地保留）。其余字段由扫描派生，提交即 422（extra="forbid"）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -33,6 +34,7 @@ class LibraryUpdate(BaseModel):
     subtitle_lang_map: dict[str, str] | None = None
     volume_id: str | None = None
     root_subpath: str | None = None
+    recycle_subpath: str | None = None
 
 
 class LibraryOut(BaseModel):
@@ -50,6 +52,7 @@ class LibraryOut(BaseModel):
     volume_name: str | None = None
     root_subpath: str | None
     root_path: str | None
+    recycle_subpath: str | None = None
     bound: bool
     subtitle_lang_map: dict[str, str] | None
     created_at: datetime

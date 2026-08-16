@@ -301,13 +301,20 @@ async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
     agent-enabled channels; the scheduler re-enqueues with a stable key so the
     queue dedup runs it back-to-back while unparsed resources remain.
     """
-    from app.services.fetch_service import backfill_unmatched_resources_global
+    from app.services.fetch_service import (
+        backfill_unmatched_resources_global,
+        reconcile_stale_raw_episodes,
+    )
 
     await _refresh_runtime_config()
     async with committed_session() as session:
+        reconciled = await reconcile_stale_raw_episodes(session)
         processed = await backfill_unmatched_resources_global(session)
-    logger.info("[backfill_metadata] processed %d resources", processed)
-    return {"status": "done", "processed": processed}
+    logger.info(
+        "[backfill_metadata] processed %d resources, reconciled %d stale episodes",
+        processed, reconciled,
+    )
+    return {"status": "done", "processed": processed, "reconciled": reconciled}
 
 
 # ---------------------------------------------------------------------------

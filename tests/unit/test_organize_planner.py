@@ -274,6 +274,86 @@ class TestBatch:
                 assert "/Season 02/" in op.dst
 
 
+class TestBatchRecycleMovedir:
+    """合集 + move 计划：目标库配置回收站目录时，剩余文件（keep）随种子
+    目录整体移入（movedir op）；未配置（默认）则维持原地保留。"""
+
+    def _lib_with_recycle(self, recycle="/data/recycle"):
+        lib = _library("lib-anime", "/data/tv_anime")
+        lib.recycle_path = recycle
+        return lib
+
+    def _files_with_leftovers(self):
+        return _batch_files() + [
+            DiskFile("/downloads/complete/gits/特典.mkv", 50, "特典.mkv"),
+            DiskFile("/downloads/complete/gits/info.nfo", 1, "info.nfo"),
+        ]
+
+    def test_movedir_emitted_with_recycle(self):
+        lib = self._lib_with_recycle()
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            _batch_payload(), self._files_with_leftovers(), [rule], [lib],
+            source_dir="/downloads/complete/gits",
+        )
+        movedirs = [op for op in result.ops if op.op_type == "movedir"]
+        assert len(movedirs) == 1
+        assert movedirs[0].src == "/downloads/complete/gits"
+        assert movedirs[0].dst == "/data/recycle/gits"
+
+    def test_no_recycle_keeps_in_place(self):
+        lib = _library("lib-anime", "/data/tv_anime")  # recycle_path 缺失
+        lib.recycle_path = None
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            _batch_payload(), self._files_with_leftovers(), [rule], [lib],
+            source_dir="/downloads/complete/gits",
+        )
+        assert not [op for op in result.ops if op.op_type == "movedir"]
+
+    def test_hardlink_rule_never_moves_dir(self):
+        lib = self._lib_with_recycle()
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        rule.file_op = "hardlink"
+        result = build_plan(
+            _batch_payload(), self._files_with_leftovers(), [rule], [lib],
+            source_dir="/downloads/complete/gits",
+        )
+        assert not [op for op in result.ops if op.op_type == "movedir"]
+
+    def test_flat_torrent_no_movedir(self):
+        """平铺在下载根（source_dir=None）绝不移目录（不扫共享下载根）。"""
+        lib = self._lib_with_recycle()
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            _batch_payload(), self._files_with_leftovers(), [rule], [lib],
+            source_dir=None,
+        )
+        assert not [op for op in result.ops if op.op_type == "movedir"]
+
+    def test_no_leftovers_no_movedir(self):
+        """全部文件都是正片/字幕（无 keep）时无需回收。"""
+        lib = self._lib_with_recycle()
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            _batch_payload(), _batch_files(), [rule], [lib],
+            source_dir="/downloads/complete/gits",
+        )
+        assert not [op for op in result.ops if op.op_type == "movedir"]
+
+    def test_existing_recycle_target_rejected(self, tmp_path):
+        """回收站目标目录已存在 → 冲突预检拒绝（绝不覆盖）。"""
+        recycle = tmp_path / "recycle"
+        (recycle / "gits").mkdir(parents=True)
+        lib = self._lib_with_recycle(str(recycle))
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="拒绝覆盖"):
+            build_plan(
+                _batch_payload(), self._files_with_leftovers(), [rule], [lib],
+                source_dir="/downloads/complete/gits",
+            )
+
+
 def _multi_season_payload(seasons=None):
     """多季包：season/episode_start/end 均为 NULL，batch_scope=multi_season。"""
     payload = _batch_payload()

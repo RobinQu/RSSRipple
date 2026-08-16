@@ -63,6 +63,7 @@ from app.services.task_cleanup import (
 from app.services.volume_service import (
     VolumeResolutionError,
     resolve_downloader_path,
+    resolve_library_recycle,
     resolve_library_root,
 )
 from app.utils.time import utcnow
@@ -108,6 +109,7 @@ def _library_ns(lib: Library) -> SimpleNamespace:
         root_path=resolve_library_root(lib),
         kind=lib.kind,
         subtitle_lang_map=lib.subtitle_lang_map,
+        recycle_path=resolve_library_recycle(lib),
     )
 
 
@@ -255,9 +257,30 @@ def _collect_and_plan(
     """收集磁盘文件 + 调 build_plan（同步段，线程中运行）。
 
     文件路径已在收集时过卷绑定解析，build_plan 不再重复翻译。
+    ``source_dir`` 为种子独立目录（平铺/单文件种子为 None），供合集
+    回收站 movedir 判定。
     """
     disk_files = _collect_files(payload, downloader)
-    return build_plan(payload, disk_files, rules, libraries, category=category)
+    return build_plan(
+        payload, disk_files, rules, libraries,
+        category=category, source_dir=_scoped_source_dir(payload, downloader),
+    )
+
+
+def _scoped_source_dir(payload: NotificationPayload, downloader: Any | None) -> str | None:
+    """种子独立目录（download_dir/torrent_name）的本进程视角绝对路径；
+    单文件种子或平铺在下载根（无独立目录）→ None（绝不以共享下载根为
+    movedir 源）。"""
+    task = payload.task
+    download_dir = (task.download_dir if task else None) or ""
+    try:
+        base = Path(resolve_downloader_path(downloader, download_dir))
+    except VolumeResolutionError as e:
+        raise PlanError(str(e)) from e
+    tname = (task.torrent_name if task else None) or ""
+    if tname and (base / tname).is_dir():
+        return str(base / tname)
+    return None
 
 
 # ---------------------------------------------------------------- 审计
@@ -742,11 +765,14 @@ async def classify_plan(
             raise OrganizeError(f"无法定位磁盘文件：{e}") from e
     lib_ns = _library_ns(library)
     syn_rule = _synthetic_rule(library.id, template)
+    # 旧计划的 movedir（合集回收站）op 携带着种子目录信息，重渲染时保留
+    # 语义：目标按新库的回收站配置重算；新库未配置回收站则自然消失。
+    source_dir = next((op.src for op in ops if op.op_type == "movedir"), None)
     try:
         result = await asyncio.to_thread(
             build_plan, payload, disk_files, [syn_rule],
             {library.id: lib_ns},
-            category=category,
+            category=category, source_dir=source_dir,
         )
     except PlanError as e:
         raise OrganizeError(f"重渲染失败：{e}") from e

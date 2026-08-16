@@ -29,6 +29,7 @@ function LibraryOtherSettingsForm({
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [recycleBrowserOpen, setRecycleBrowserOpen] = useState(false);
   const volumeId = Form.useWatch('volume_id', form);
   const selectedVolume = volumes.find((v) => v.id === volumeId);
 
@@ -39,6 +40,7 @@ function LibraryOtherSettingsForm({
         : '',
       volume_id: library?.volume_id ?? undefined,
       root_subpath: library?.root_subpath ?? '',
+      recycle_subpath: library?.recycle_subpath ?? '',
     });
   }, [library, form]);
 
@@ -67,9 +69,10 @@ function LibraryOtherSettingsForm({
     }
     const volumeId = values.volume_id ?? null;
     const rootSubpath = values.root_subpath?.trim() || null;
+    const recycleSubpath = values.recycle_subpath?.trim() || null;
     // A subpath only makes sense with a bound volume — reject the combo early
     // with a clear message instead of letting the backend silently unbind.
-    if (rootSubpath && !volumeId) {
+    if ((rootSubpath || recycleSubpath) && !volumeId) {
       message.error(t('mediaServers.volumeRequired'));
       return;
     }
@@ -78,6 +81,7 @@ function LibraryOtherSettingsForm({
       subtitle_lang_map: langMap,
       volume_id: volumeId,
       root_subpath: rootSubpath,
+      recycle_subpath: recycleSubpath,
     });
     setSaving(false);
     if (res.success) {
@@ -133,6 +137,35 @@ function LibraryOtherSettingsForm({
           />
         </Form.Item>
 
+        <Form.Item
+          name="recycle_subpath"
+          label={t('libraries.recycleDir')}
+          extra={t('libraries.recycleDirExtra')}
+          rules={[
+            {
+              validator: (_, v: string) =>
+                !v || isValidRelativeSubpath(v)
+                  ? Promise.resolve()
+                  : Promise.reject(new Error(t('mediaServers.subpathInvalid'))),
+            },
+          ]}
+        >
+          <Input
+            maxLength={512}
+            suffix={
+              <Button
+                type="text"
+                size="small"
+                icon={<FolderOpen size={14} />}
+                disabled={!volumeId}
+                onClick={() => setRecycleBrowserOpen(true)}
+              >
+                {t('volumes.browse')}
+              </Button>
+            }
+          />
+        </Form.Item>
+
         <Divider style={{ margin: '16px 0' }} />
 
         <Form.Item
@@ -163,6 +196,19 @@ function LibraryOtherSettingsForm({
           if (rel !== null) form.setFieldValue('root_subpath', rel);
         }}
         onCancel={() => setBrowserOpen(false)}
+      />
+      <DirectoryBrowserModal
+        open={recycleBrowserOpen}
+        title={t('libraries.recycleDir')}
+        initialPath={subpathBrowseStart(
+          selectedVolume?.mount_path ?? '',
+          form.getFieldValue('recycle_subpath') ?? '',
+        )}
+        onSelect={(absPath) => {
+          const rel = toVolumeSubpath(selectedVolume?.mount_path ?? '', absPath);
+          if (rel !== null) form.setFieldValue('recycle_subpath', rel);
+        }}
+        onCancel={() => setRecycleBrowserOpen(false)}
       />
     </>
   );

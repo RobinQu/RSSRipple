@@ -82,3 +82,20 @@ def resolve_library_root(library: Any) -> str | None:
     base = volume.mount_path.rstrip("/")
     subpath = (getattr(library, "root_subpath", None) or "").strip("/")
     return f"{base}/{subpath}" if subpath else base
+
+
+def resolve_library_recycle(library: Any) -> str | None:
+    """Library 回收站目录动态解析 = ``volume.mount_path + recycle_subpath``。
+
+    与库根同卷；``recycle_subpath`` 为空（默认）或卷未绑定 → None（合集
+    move 计划的剩余文件原地保留，不产生 movedir op）。
+    """
+    subpath = (getattr(library, "recycle_subpath", None) or "").strip("/")
+    if not subpath:
+        return None
+    if library is None or not getattr(library, "volume_id", None):
+        return None
+    volume = getattr(library, "volume", None)
+    if volume is None:
+        return None
+    return f"{volume.mount_path.rstrip('/')}/{subpath}"

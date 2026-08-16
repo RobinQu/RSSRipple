@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rss_parser import (
@@ -351,6 +351,69 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
             )
         )
     return len(eligible)
+
+
+async def reconcile_stale_raw_episodes(db: AsyncSession, limit: int = 500) -> int:
+    """Re-run absolute→per-season episode reconciliation for linked resources
+    whose first reconcile ran before the series' per-season data existed.
+
+    A resource linked while its series had no usable ``seasons`` data keeps
+    ``episode_confidence NULL/"raw"`` with a possibly-absolute episode number
+    forever (reconcile only runs on link paths). Once the series' seasons are
+    later filled (wikipedia/TMDB attach, backfill scripts), this sweep
+    converts the stale numbers via the shared
+    :func:`apply_episode_reconcile` — same semantics as every link path.
+
+    Only resources whose episode exceeds the linked season's count
+    (+tolerance) can actually change; the rest are skipped without writes.
+    Ordered by episode DESC so large (likely-absolute) numbers are seen
+    first. Returns the number of resources converted/flagged.
+    """
+    from app.models.series import TVSeries
+    from app.services.metadata_episode_reconcile import (
+        _RECONCILE_TOLERANCE,
+        apply_episode_reconcile,
+        seasons_map_from_list,
+    )
+
+    resources = (
+        await db.execute(
+            select(FileResource)
+            .where(
+                FileResource.series_id.isnot(None),
+                FileResource.is_batch.is_(False),
+                FileResource.episode.isnot(None),
+                FileResource.season.isnot(None),
+                or_(
+                    FileResource.episode_confidence.is_(None),
+                    FileResource.episode_confidence == "raw",
+                ),
+            )
+            .order_by(FileResource.episode.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not resources:
+        return 0
+    series_rows = (
+        await db.execute(
+            select(TVSeries).where(
+                TVSeries.id.in_({r.series_id for r in resources})
+            )
+        )
+    ).scalars().all()
+    maps = {s.id: seasons_map_from_list(s.seasons) for s in series_rows}
+    changed = 0
+    for r in resources:
+        smap = maps.get(r.series_id) or {}
+        season_count = smap.get(r.season)
+        if season_count is None or r.episode <= season_count + _RECONCILE_TOLERANCE:
+            continue  # no basis, or already looks per-season (nothing to do)
+        if apply_episode_reconcile(r, smap):
+            changed += 1
+    if changed:
+        await db.commit()
+    return changed
 
 
 

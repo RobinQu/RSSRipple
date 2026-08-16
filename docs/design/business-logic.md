@@ -485,7 +485,10 @@ startup:
   │                                  # 退化为批量化与脚本/非 API 写入的兜底。
   │
   ├─ 5b. 每 5 分钟任务:
-  │     enqueue "backfill_metadata"  # 重试可重试的未匹配资源
+  │     enqueue "backfill_metadata"  # 重试可重试的未匹配资源；顺带重跑
+  │                                  # stale raw 集数 reconcile（链接时作品
+  │                                  # 尚无逐季数据、后补齐的绝对集号资源，
+  │                                  # reconcile_stale_raw_episodes）
   │
   ├─ 5c. 每小时任务（仅 Turso 后端注册）:
   │     enqueue "fts_reconcile"      # FTS 影子表对账：全量 diff 基表 vs 影子表，
@@ -505,17 +508,22 @@ startup:
   │                                    #   超时、指数退避，超限转 failed）。唯一投递路径，
   │                                    #   详见 notifications.md
   │
-  └─ 7. 全局每日任务:
+  └─ 7. 全局每日任务（CronTrigger + misfire_grace_time=3600：默认 1s 宽限
+        会被 LLM 重负载阻塞的事件循环反复错过，宽限放大到 1 小时兜底）:
         enqueue "daily_cleanup"      # 删除 completed 且 completed_at < now - task_expire_days 的任务
                                  # （跳过其通知存在任一非 done delivery 的任务；
                                  # 超过 NOTIFY_RETENTION_DAYS 保留期的通知整行删除，
                                  # delivery 随级联清理）+ 过期 pending decision → expired
         enqueue "daily_dedup"  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
                             # 防止 metadata agent 偶尔为同一作品新建第二行）。聚类 key 基于
-                            # 共享的 title_cn/title_en/original_title **+ aliases**，
-                            # 只折叠可证明为同一作品的行；幂等。P3：合并时身份袋
-                            # 取并集（存留方继承重复方的主 id 与袋行，见
-                            # merge_external_id_bags；跨表合并同样处理）
+                            # 共享的 title_cn/title_en/original_title **+ aliases**（归一化
+                            # 含 OpenCC 繁转简），只折叠可证明为同一作品的行；**年份守卫**：
+                            # 首播/发行年相差 >1 年的同标题聚类不合并（重制/重启/同名系列，
+                            # 记 note 跳过）；子表重指向防撞——Episode/AgentWork/
+                            # PendingDecision 自然键冲突的重复行删除而非强转（幂等）。
+                            # P3：合并时身份袋取并集（存留方继承重复方的主 id 与袋行，见
+                            # merge_external_id_bags；跨表合并同样处理，标题配对同样受
+                            # 年份守卫约束，外部 id 相等不受）
 ```
 
 任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。

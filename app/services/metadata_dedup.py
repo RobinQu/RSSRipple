@@ -78,6 +78,20 @@ def _title_keys(entity: TVSeries | Movie) -> set[str]:
     return keys
 
 
+def _year_conflict(dates: Iterable) -> bool:
+    """True when the dated rows of a cluster span more than one year.
+
+    A shared normalized title is NOT proof of identity across very different
+    premier years — remakes/reboots/同名系列 (e.g. the 1995 film vs the 2026
+    TV series of one franchise) would otherwise be folded into the oldest
+    row. ±1 year of slack covers the same work dated slightly differently by
+    different sources (December/January premieres). Rows without a date never
+    count as evidence either way.
+    """
+    years = [d.year for d in dates if d is not None]
+    return bool(years) and max(years) - min(years) > 1
+
+
 class _UnionFind:
     """Minimal union-find keyed by entity id."""
 
@@ -147,6 +161,93 @@ def _merge_aliases(entities: Iterable[TVSeries | Movie]) -> list[str] | None:
     return seen or None
 
 
+async def _repoint_series_children(
+    db: AsyncSession, dup_ids: list[str], survivor_id: str, report: DedupReport
+) -> None:
+    """Re-point every series-FK child row at the survivor.
+
+    Rows whose natural key the survivor already owns would violate a unique
+    constraint (episodes, channel_raw_title_mappings) or the app-level
+    singleton invariants (pending_decisions, agent_works) if blindly
+    re-pointed — those duplicates are deleted instead (the survivor's row is
+    the richer/original one; ambiguous resources re-surface via the normal
+    agent-run upsert).
+    """
+    n = (await db.execute(
+        update(FileResource)
+        .where(FileResource.series_id.in_(dup_ids))
+        .values(series_id=survivor_id)
+    )).rowcount or 0
+    report.file_resources_updated += n
+
+    # AgentWork: app-level one-row-per-(agent, work) — drop collisions.
+    survivor_agents = {
+        aw.agent_id
+        for aw in (await db.execute(
+            select(AgentWork).where(AgentWork.series_id == survivor_id)
+        )).scalars().all()
+    }
+    n = 0
+    for aw in (await db.execute(
+        select(AgentWork).where(AgentWork.series_id.in_(dup_ids))
+    )).scalars().all():
+        if aw.agent_id in survivor_agents:
+            await db.delete(aw)
+        else:
+            aw.series_id = survivor_id
+            survivor_agents.add(aw.agent_id)
+            n += 1
+    report.agent_works_updated += n
+
+    # ChannelRawTitleMapping: uq (channel_id, search_title_key) is series-
+    # independent, so re-pointing can never collide — bulk update is safe.
+    n = (await db.execute(
+        update(ChannelRawTitleMapping)
+        .where(ChannelRawTitleMapping.series_id.in_(dup_ids))
+        .values(series_id=survivor_id)
+    )).rowcount or 0
+    report.mappings_updated += n
+
+    # PendingDecision: app-level singleton per
+    # (agent, work, season, episode, status) — drop collisions.
+    survivor_decisions = {
+        (d.agent_id, d.season, d.episode, d.status)
+        for d in (await db.execute(
+            select(PendingDecision).where(PendingDecision.series_id == survivor_id)
+        )).scalars().all()
+    }
+    n = 0
+    for d in (await db.execute(
+        select(PendingDecision).where(PendingDecision.series_id.in_(dup_ids))
+    )).scalars().all():
+        if (d.agent_id, d.season, d.episode, d.status) in survivor_decisions:
+            await db.delete(d)
+        else:
+            d.series_id = survivor_id
+            survivor_decisions.add((d.agent_id, d.season, d.episode, d.status))
+            n += 1
+    report.pending_decisions_updated += n
+
+    # Episode: uq (series_id, season, episode) — drop collisions.
+    survivor_episodes = {
+        (e.season, e.episode)
+        for e in (await db.execute(
+            select(Episode).where(Episode.series_id == survivor_id)
+        )).scalars().all()
+    }
+    n = 0
+    for e in (await db.execute(
+        select(Episode).where(Episode.series_id.in_(dup_ids))
+    )).scalars().all():
+        if (e.season, e.episode) in survivor_episodes:
+            await db.delete(e)
+        else:
+            e.series_id = survivor_id
+            survivor_episodes.add((e.season, e.episode))
+            n += 1
+    report.episodes_updated += n
+
+
 async def _merge_series_group(
     db: AsyncSession, rows: list[TVSeries], report: DedupReport
 ) -> None:
@@ -156,37 +257,8 @@ async def _merge_series_group(
     survivor, *duplicates = rows
     dup_ids = [d.id for d in duplicates]
 
-    # Point child rows at survivor
-    n = (await db.execute(
-        update(FileResource)
-        .where(FileResource.series_id.in_(dup_ids))
-        .values(series_id=survivor.id)
-    )).rowcount or 0
-    report.file_resources_updated += n
-    n = (await db.execute(
-        update(AgentWork)
-        .where(AgentWork.series_id.in_(dup_ids))
-        .values(series_id=survivor.id)
-    )).rowcount or 0
-    report.agent_works_updated += n
-    n = (await db.execute(
-        update(ChannelRawTitleMapping)
-        .where(ChannelRawTitleMapping.series_id.in_(dup_ids))
-        .values(series_id=survivor.id)
-    )).rowcount or 0
-    report.mappings_updated += n
-    n = (await db.execute(
-        update(PendingDecision)
-        .where(PendingDecision.series_id.in_(dup_ids))
-        .values(series_id=survivor.id)
-    )).rowcount or 0
-    report.pending_decisions_updated += n
-    n = (await db.execute(
-        update(Episode)
-        .where(Episode.series_id.in_(dup_ids))
-        .values(series_id=survivor.id)
-    )).rowcount or 0
-    report.episodes_updated += n
+    # Point child rows at survivor (collision-safe)
+    await _repoint_series_children(db, dup_ids, survivor.id, report)
 
     # Enrich survivor from duplicates
     survivor.aliases = _merge_aliases(rows)
@@ -234,6 +306,63 @@ async def _merge_series_group(
     )
 
 
+async def _repoint_movie_children(
+    db: AsyncSession, dup_ids: list[str], survivor_id: str, report: DedupReport
+) -> None:
+    """Movie counterpart of :func:`_repoint_series_children` (no episodes)."""
+    n = (await db.execute(
+        update(FileResource)
+        .where(FileResource.movie_id.in_(dup_ids))
+        .values(movie_id=survivor_id)
+    )).rowcount or 0
+    report.file_resources_updated += n
+
+    survivor_agents = {
+        aw.agent_id
+        for aw in (await db.execute(
+            select(AgentWork).where(AgentWork.movie_id == survivor_id)
+        )).scalars().all()
+    }
+    n = 0
+    for aw in (await db.execute(
+        select(AgentWork).where(AgentWork.movie_id.in_(dup_ids))
+    )).scalars().all():
+        if aw.agent_id in survivor_agents:
+            await db.delete(aw)
+        else:
+            aw.movie_id = survivor_id
+            survivor_agents.add(aw.agent_id)
+            n += 1
+    report.agent_works_updated += n
+
+    # ChannelRawTitleMapping: uq (channel_id, search_title_key) is work-
+    # independent, so re-pointing can never collide — bulk update is safe.
+    n = (await db.execute(
+        update(ChannelRawTitleMapping)
+        .where(ChannelRawTitleMapping.movie_id.in_(dup_ids))
+        .values(movie_id=survivor_id)
+    )).rowcount or 0
+    report.mappings_updated += n
+
+    survivor_decisions = {
+        (d.agent_id, d.season, d.episode, d.status)
+        for d in (await db.execute(
+            select(PendingDecision).where(PendingDecision.movie_id == survivor_id)
+        )).scalars().all()
+    }
+    n = 0
+    for d in (await db.execute(
+        select(PendingDecision).where(PendingDecision.movie_id.in_(dup_ids))
+    )).scalars().all():
+        if (d.agent_id, d.season, d.episode, d.status) in survivor_decisions:
+            await db.delete(d)
+        else:
+            d.movie_id = survivor_id
+            survivor_decisions.add((d.agent_id, d.season, d.episode, d.status))
+            n += 1
+    report.pending_decisions_updated += n
+
+
 async def _merge_movie_group(
     db: AsyncSession, rows: list[Movie], report: DedupReport
 ) -> None:
@@ -243,30 +372,7 @@ async def _merge_movie_group(
     survivor, *duplicates = rows
     dup_ids = [d.id for d in duplicates]
 
-    n = (await db.execute(
-        update(FileResource)
-        .where(FileResource.movie_id.in_(dup_ids))
-        .values(movie_id=survivor.id)
-    )).rowcount or 0
-    report.file_resources_updated += n
-    n = (await db.execute(
-        update(AgentWork)
-        .where(AgentWork.movie_id.in_(dup_ids))
-        .values(movie_id=survivor.id)
-    )).rowcount or 0
-    report.agent_works_updated += n
-    n = (await db.execute(
-        update(ChannelRawTitleMapping)
-        .where(ChannelRawTitleMapping.movie_id.in_(dup_ids))
-        .values(movie_id=survivor.id)
-    )).rowcount or 0
-    report.mappings_updated += n
-    n = (await db.execute(
-        update(PendingDecision)
-        .where(PendingDecision.movie_id.in_(dup_ids))
-        .values(movie_id=survivor.id)
-    )).rowcount or 0
-    report.pending_decisions_updated += n
+    await _repoint_movie_children(db, dup_ids, survivor.id, report)
 
     survivor.aliases = _merge_aliases(rows)
     canonical_ext = _pick_canonical_external_id(rows)
@@ -316,6 +422,14 @@ async def merge_duplicate_series(db: AsyncSession, report: DedupReport | None = 
     keyed = [s for s in all_series if _title_keys(s)]
     for group in _cluster_by_shared_title(keyed):
         if len(group) > 1:
+            if _year_conflict([g.start_date for g in group]):
+                report.notes.append(
+                    "[series] skipped year-conflicting group: "
+                    + ", ".join(
+                        f"{g.id}({g.title_cn or g.title_en},{g.start_date})" for g in group
+                    )
+                )
+                continue
             await _merge_series_group(db, group, report)
     return report
 
@@ -327,6 +441,14 @@ async def merge_duplicate_movies(db: AsyncSession, report: DedupReport | None = 
     keyed = [m for m in all_movies if _title_keys(m)]
     for group in _cluster_by_shared_title(keyed):
         if len(group) > 1:
+            if _year_conflict([g.release_date for g in group]):
+                report.notes.append(
+                    "[movie] skipped year-conflicting group: "
+                    + ", ".join(
+                        f"{g.id}({g.title_cn or g.title_en},{g.release_date})" for g in group
+                    )
+                )
+                continue
             await _merge_movie_group(db, group, report)
     return report
 
@@ -396,8 +518,12 @@ async def merge_cross_type_duplicates(
             same_entity = bool(
                 (m_canon and s_canon and m_canon == s_canon)
                 or (movie.external_id and movie.external_id == series.external_id)
-                or (m_keys & series_keys[series.id])
             )
+            if not same_entity and m_keys & series_keys[series.id]:
+                # Title-key pairing alone is not proof across very different
+                # premier years (remakes/reboots in one franchise) — external
+                # id equality above stays unguarded.
+                same_entity = not _year_conflict([movie.release_date, series.start_date])
             if not same_entity:
                 continue
 

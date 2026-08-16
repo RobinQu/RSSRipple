@@ -909,6 +909,8 @@ export interface Library {
   volume_id: string | null;
   volume_name: string | null;
   root_subpath: string | null;
+  /** Recycle dir for batch-move leftovers (volume-relative), null = keep in place. */
+  recycle_subpath: string | null;
   root_path: string | null;
   /** volume_id !== null; unbound libraries need an in-place binding fix. */
   bound: boolean;
@@ -926,6 +928,7 @@ export interface LibraryUpdate {
   subtitle_lang_map?: Record<string, string> | null;
   volume_id?: string | null;
   root_subpath?: string | null;
+  recycle_subpath?: string | null;
 }
 
 // Media servers — mirrors app/schemas/media_server.py.

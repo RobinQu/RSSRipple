@@ -114,6 +114,8 @@ class Library(Base):
     volume_id: str | None → StorageVolume
     root_subpath: str | None             # 卷内相对路径；规划时 root_path 由 service 解析 =
                                          # volume.mount_path + root_subpath（不再是静态列）
+    recycle_subpath: str | None          # 回收站目录（卷内相对路径，与库根同卷）：合集 + move
+                                         # 计划剩余文件整体移入（movedir）；NULL = 原地保留
     kind: str                            # "tv" | "movie" | "mixed"；由 CollectionType 派生
                                          #（movies→movie、tvshows/show→tv）；提示性不做硬分流
     subtitle_lang_map: dict | None       # BCP-47 → Plex 后缀（Library 级覆盖；
@@ -122,7 +124,7 @@ class Library(Base):
 ```
 
 - `volume_id=NULL` = **待绑定**：可被一个待绑定 Library 占位引用，但以其为目标的计划落「待绑定」pending（见"触发链路"），补绑定后可执行。
-- **移除手工注册**：无 POST；PUT 仅限 `subtitle_lang_map` 与 `volume_id`/`root_subpath`（待绑定就地修复）；DELETE 允许删除未关联计划的行（存在关联计划 409 不变）。
+- **移除手工注册**：无 POST；PUT 仅限 `subtitle_lang_map`、`volume_id`/`root_subpath`（待绑定就地修复）与 `recycle_subpath`（回收站目录）；DELETE 允许删除未关联计划的行（存在关联计划 409 不变）。
 - 全局 `PLEX_URL`/`PLEX_TOKEN` 配置移除：轻迁移把已配置的全局 Plex 转为一条 `MediaServerInstance`（对齐 `agents.notify_webhook_*` → `agent_webhooks` 的迁移先例）。
 
 ### OrganizeRule（整理规则）
@@ -278,7 +280,7 @@ class OrganizeAuditEntry(Base):
 - **硬链接**（`file_op="hardlink"`）：`os.link`，源文件保留；EXDEV/EPERM 等 OSError → 该 op failed + 明确 error_message，**不静默退化为 copy**。
 - **复制**（`file_op="copy"`）：copy + size 校验（失败删不完整 dst 报 failed），源文件保留。
 - **后置校验**：全部文件 op 后复核每个 dst 存在且 size 一致；src 已消失仅对 move 校验（hardlink/copy 源文件本应保留）；任一不符 → failed（可修复后重执行，幂等）。
-- **movedir**：电影种子文件夹在关键文件移走后仍有剩余 → 移入 Extras 库（以一个 kind=mixed 的 Library 表达；未配置则不产生 movedir op，剩余文件原地保留）；目标已存在 = 冲突违例，绝不覆盖。平铺在下载根的散文件不产生 movedir。movedir 仅 move 语义，hardlink/copy 计划不产 movedir。
+- **movedir**：目录级移动，目标已存在 = 冲突违例，绝不覆盖；平铺在下载根的散文件不产生 movedir；仅 move 语义，hardlink/copy 计划不产 movedir。当前唯一产生场景：**合集（batch）+ move 计划且目标库配置了回收站目录**（`Library.recycle_subpath`，卷内相对路径，媒体库设置「其他设置」表单经文件夹选择器设置；NULL = 默认原地保留）——正片/字幕移走后，种子目录内的剩余文件（特典、附件等 keep 部分）随整个种子目录移入 ``<卷挂载点>/<recycle_subpath>/<种子目录名>``；无 keep 剩余时不产 op（空目录照常自底向上清理）。规划期冲突预检拒绝已存在的回收目标；执行期 movedir 在全部文件 op + 后置校验之后执行，源目录已空视为无需移动。
 - **空目录清理**：`os.walk(topdown=False)` 自底向上 `os.rmdir`（只删空目录，非空自然失败跳过），preserve 边界 = 经下载器卷绑定解析的下载根；**绝不 `rm -rf`**。hardlink/copy 计划恒跳过（源文件保留保种，目录本就不会空）。
 - **崩溃恢复**：running 计划可重放（幂等收敛：已移动的视为完成、半完成 copy 删残留 src、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
 

@@ -254,6 +254,7 @@ def build_plan(
     libraries: Mapping[str, Any] | Iterable[Any],
     *,
     category: str | None = None,
+    source_dir: str | None = None,
 ) -> OrganizePlanResult:
     """规划一个下载完成通知的整理 ops。
 
@@ -265,6 +266,9 @@ def build_plan(
       收集时已过下载器卷绑定解析）。
     - ``category``：电影类别目录（模板含 ``{category}`` 时使用）；None 且
       模板引用 ``{category}`` → 返回 ``needs_category=True`` 的待分类结果。
+    - ``source_dir``：种子独立目录的本进程视角绝对路径（平铺在下载根或
+      单文件种子为 None）。合集 + move 计划且目标库配置了回收站目录时，
+      剩余文件随该目录整体移入回收站（movedir op）。
     """
     if not isinstance(payload, NotificationPayload):
         payload = NotificationPayload.model_validate(payload)
@@ -330,6 +334,29 @@ def build_plan(
     else:
         raise PlanError(f"作品类型缺失或未知：{work_type!r}，无法规划")
 
+    # 合集 + move 计划：正片移走后种子目录内的剩余文件（keep 部分）整体
+    # 移入目标库配置的回收站目录（movedir）；库未配置回收站（默认）或有
+    # 序目录信息（平铺/单文件种子）时保持原地保留不变。hardlink/copy 计划
+    # 保种，绝不产生 movedir。
+    recycle_path = getattr(library, "recycle_path", None)
+    if (
+        matched.file_op == "move"
+        and work_type == "series"
+        and resource is not None
+        and resource.is_batch
+        and source_dir
+        and recycle_path
+        and any(op.op_type == "keep" for op in ops)
+    ):
+        dirname = os.path.basename(source_dir.rstrip("/"))
+        ops.append(PlanOp(
+            op_type="movedir",
+            src=source_dir,
+            dst=os.path.join(recycle_path, dirname),
+            size=0,
+            reason="合集剩余文件移入回收站",
+        ))
+
     _check_conflicts(ops)
     return OrganizePlanResult(
         ops=ops, rule=matched, library=library, category=category
@@ -355,8 +382,13 @@ def _keep(f: DiskFile, reason: str) -> PlanOp:
 
 
 def _check_conflicts(ops: list[PlanOp]) -> None:
-    """冲突预检：move 目标已存在且 size 不符 → 拒绝（绝不覆盖）。"""
+    """冲突预检：move 目标已存在且 size 不符 → 拒绝（绝不覆盖）；
+    movedir 目标目录已存在 → 拒绝（绝不覆盖）。"""
     for op in ops:
+        if op.op_type == "movedir":
+            if op.dst is not None and op.dst != op.src and os.path.exists(op.dst):
+                raise PlanError(f"回收站目标目录已存在，拒绝覆盖：{op.dst}")
+            continue
         if op.op_type != "move" or op.dst is None or op.dst == op.src:
             continue
         if os.path.exists(op.dst) and os.path.getsize(op.dst) != op.size:

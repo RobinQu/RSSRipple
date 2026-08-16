@@ -32,10 +32,41 @@ interface LinkedMeta {
   type: 'series' | 'movie';
   title: string;
   poster_url?: string | null;
+  year?: number | null;
+  secondary_titles?: string[];
+  genres?: string[];
+  rating?: number | null;
   description?: string | null;
 }
 
 type SeasonCount = { season_number: number; episode_count: number };
+
+/** Build the display extras for a linked work entity (series or movie):
+ * premier year, alternate titles distinct from the display title, genres,
+ * rating and description — the metadata block has room for these. */
+function workMetaExtras(entity: {
+  title_cn?: string | null;
+  title_en?: string | null;
+  original_title?: string | null;
+  start_date?: string | null;
+  release_date?: string | null;
+  genre?: string[] | null;
+  rating?: number | null;
+  description?: string | null;
+}, displayTitle: string) {
+  const dateStr = entity.start_date || entity.release_date || null;
+  const year = dateStr ? Number(dateStr.slice(0, 4)) || null : null;
+  const secondary = [entity.title_cn, entity.title_en, entity.original_title]
+    .filter((v): v is string => Boolean(v) && v !== displayTitle)
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+  return {
+    year,
+    secondary_titles: secondary,
+    genres: entity.genre ?? [],
+    rating: entity.rating ?? null,
+    description: entity.description ?? null,
+  };
+}
 
 /** Client-side mirror of the backend ``locate_absolute_episode``
  * (app/services/metadata_episode_reconcile.py): walk seasons ascending,
@@ -71,8 +102,8 @@ function PosterBlock({ url }: { url: string | null | undefined }) {
         height: 120,
         objectFit: 'cover',
         borderRadius: 6,
-        border: '1px solid #d9d9dd',
-        background: '#eeece7',
+        border: '1px solid var(--rr-border)',
+        background: 'var(--rr-surface-card)',
         flexShrink: 0,
       }}
       onError={useDefaultPoster}
@@ -116,37 +147,45 @@ export default function ResourceDetailDrawer({
         const d = metaRes.data;
         if (d.linked?.type === 'series') {
           const series = d.linked.entity as TVSeries;
+          const title =
+            series.original_title || series.title_cn || series.title_en || t('resource.unknownSeries');
           setMeta({
             type: 'series',
-            title:
-              series.original_title || series.title_cn || series.title_en || t('resource.unknownSeries'),
+            title,
             poster_url: series.poster_url,
+            ...workMetaExtras(series, title),
           });
           setSeriesSeasons(series.seasons ?? null);
         } else if (d.linked?.type === 'movie') {
           const movie = d.linked.entity;
+          const title =
+            movie.original_title || movie.title_cn || movie.title_en || t('resource.unknownMovie');
           setMeta({
             type: 'movie',
-            title:
-              movie.original_title || movie.title_cn || movie.title_en || t('resource.unknownMovie'),
+            title,
             poster_url: movie.poster_url,
+            ...workMetaExtras(movie, title),
           });
           setSeriesSeasons(null);
         } else if (d.series_id && d.series) {
+          const title =
+            d.series.original_title || d.series.title_cn || d.series.title_en || t('resource.unknownSeries');
           setMeta({
             type: 'series',
-            title:
-              d.series.original_title || d.series.title_cn || d.series.title_en || t('resource.unknownSeries'),
+            title,
             poster_url: d.series.poster_url,
+            ...workMetaExtras(d.series, title),
           });
           // The summary payload carries no per-season counts — no prefill.
           setSeriesSeasons(null);
         } else if (d.movie_id && d.movie) {
+          const title =
+            d.movie.original_title || d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie');
           setMeta({
             type: 'movie',
-            title:
-              d.movie.original_title || d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie'),
+            title,
             poster_url: d.movie.poster_url,
+            ...workMetaExtras(d.movie, title),
           });
           setSeriesSeasons(null);
         } else {
@@ -472,12 +511,59 @@ export default function ResourceDetailDrawer({
                 >
                   <PosterBlock url={meta.poster_url} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Space size={6} style={{ marginBottom: 6 }}>
-                      <Text strong>{meta.title}</Text>
-                      <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
-                        {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
-                      </Tag>
-                    </Space>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 8,
+                      }}
+                    >
+                      <Space size={6} style={{ marginBottom: 6 }} wrap>
+                        <Text strong>{meta.title}</Text>
+                        <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
+                          {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
+                        </Tag>
+                        {meta.year != null && <Tag>{meta.year}</Tag>}
+                        {meta.rating != null && <Tag color="gold">★ {meta.rating}</Tag>}
+                      </Space>
+                      <Tooltip title={t('resource.correctMatch')}>
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<Pencil size={14} />}
+                          onClick={() => setCorrectionOpen(true)}
+                        />
+                      </Tooltip>
+                    </div>
+                    {(meta.secondary_titles?.length ?? 0) > 0 && (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: token.colorTextSecondary,
+                          marginBottom: 6,
+                          wordBreak: 'break-all',
+                        }}
+                      >
+                        {meta.secondary_titles!.join(' / ')}
+                      </div>
+                    )}
+                    {(meta.genres?.length ?? 0) > 0 && (
+                      <div style={{ marginBottom: 6 }}>
+                        {meta.genres!.map((g) => (
+                          <Tag key={g} style={{ fontSize: 11, marginInlineEnd: 4 }}>{g}</Tag>
+                        ))}
+                      </div>
+                    )}
+                    {meta.description && (
+                      <Paragraph
+                        type="secondary"
+                        style={{ fontSize: 12, marginBottom: 0 }}
+                        ellipsis={{ rows: 3 }}
+                      >
+                        {meta.description}
+                      </Paragraph>
+                    )}
                   </div>
                 </div>
               ) : (

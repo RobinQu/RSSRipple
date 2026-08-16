@@ -968,3 +968,63 @@ async def test_reset_channel_metadata_for_source_change(db_session, channel, fak
     assert rows["tr"].metadata_failure_type is None
     assert rows["mt"].metadata_failure_type is None  # untouched (matched)
     assert rows["nw"].metadata_failure_type == "non_work"  # untouched
+
+
+async def test_reconcile_stale_raw_episodes(db_session, channel):
+    """Resources linked before the series' per-season data existed (still
+    ``raw`` with an absolute-looking episode) are reconciled once seasons
+    data is available; per-season-looking and manual rows are untouched."""
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=_uuid(), title_cn="Slime",
+        seasons=[
+            {"season_number": 1, "episode_count": 24},
+            {"season_number": 2, "episode_count": 24},
+            {"season_number": 3, "episode_count": 24},
+            {"season_number": 4, "episode_count": 24},
+        ],
+    )
+    no_map_series = TVSeries(id=_uuid(), title_cn="NoMap")
+    db_session.add_all([series, no_map_series])
+    await db_session.flush()
+
+    stale = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="stale",
+        title_raw="[ANi] Slime S4 - 90", torrent_url="magnet:?xt=urn:btih:s1",
+        series_id=series.id, season=4, episode=90, episode_confidence="raw",
+    )
+    per_season = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="per-season",
+        title_raw="[ANi] Slime S4 - 18", torrent_url="magnet:?xt=urn:btih:s2",
+        series_id=series.id, season=4, episode=18, episode_confidence="raw",
+    )
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="manual",
+        title_raw="[ANi] Slime S4 - 89", torrent_url="magnet:?xt=urn:btih:s3",
+        series_id=series.id, season=4, episode=89, episode_confidence="manual",
+    )
+    no_map = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="no-map",
+        title_raw="[G] X - 90", torrent_url="magnet:?xt=urn:btih:s4",
+        series_id=no_map_series.id, season=1, episode=90, episode_confidence="raw",
+    )
+    db_session.add_all([stale, per_season, manual, no_map])
+    await db_session.commit()
+
+    changed = await fs.reconcile_stale_raw_episodes(db_session)
+
+    assert changed == 1
+    await db_session.refresh(stale)
+    assert (stale.season, stale.episode) == (4, 18)
+    assert stale.episode_confidence == "reconciled"
+    assert stale.absolute_episode == 90
+    await db_session.refresh(per_season)
+    assert per_season.episode == 18 and per_season.episode_confidence == "raw"
+    await db_session.refresh(manual)
+    assert manual.episode == 89 and manual.episode_confidence == "manual"
+    await db_session.refresh(no_map)
+    assert no_map.episode == 90 and no_map.episode_confidence == "raw"
+
+    # Second run is a no-op (converted row no longer matches the filter).
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0

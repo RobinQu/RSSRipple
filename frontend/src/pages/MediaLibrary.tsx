@@ -595,10 +595,15 @@ export default function MediaLibrary() {
     {
       title: t('common.name'),
       key: 'name',
-      width: 240,
+      width: 340,
       render: (_, row) =>
         row.rowType === 'server' ? (
           <Space size={6} style={{ maxWidth: '100%' }}>
+            {row.server && (
+              <Tag color={TYPE_TAG_COLORS[row.server.type] ?? 'default'} style={{ flexShrink: 0 }}>
+                {row.server.type}
+              </Tag>
+            )}
             <Text
               strong
               ellipsis={{ tooltip: row.server ? row.server.name : t('mediaLibrary.orphanServers') }}
@@ -612,28 +617,19 @@ export default function MediaLibrary() {
             )}
           </Space>
         ) : (
-          <Text ellipsis={{ tooltip: row.library.name }}>{row.library.name}</Text>
-        ),
-    },
-    {
-      title: t('mediaServers.type'),
-      key: 'type',
-      width: 100,
-      render: (_, row) =>
-        row.rowType === 'server' ? (
-          row.server ? (
-            <Tag color={TYPE_TAG_COLORS[row.server.type] ?? 'default'}>{row.server.type}</Tag>
-          ) : (
-            t('format.dash')
-          )
-        ) : (
-          <Tag color={row.library.kind === 'tv' ? 'blue' : row.library.kind === 'movie' ? 'purple' : 'default'}>
-            {row.library.kind === 'tv'
-              ? t('libraries.kindTv')
-              : row.library.kind === 'movie'
-                ? t('libraries.kindMovie')
-                : t('libraries.kindMixed')}
-          </Tag>
+          <Space size={6} style={{ maxWidth: '100%' }}>
+            <Tag
+              color={row.library.kind === 'tv' ? 'blue' : row.library.kind === 'movie' ? 'purple' : 'default'}
+              style={{ flexShrink: 0 }}
+            >
+              {row.library.kind === 'tv'
+                ? t('libraries.kindTv')
+                : row.library.kind === 'movie'
+                  ? t('libraries.kindMovie')
+                  : t('libraries.kindMixed')}
+            </Tag>
+            <Text ellipsis={{ tooltip: row.library.name }}>{row.library.name}</Text>
+          </Space>
         ),
     },
     {
@@ -678,21 +674,6 @@ export default function MediaLibrary() {
             <Tag color="green">{t('mediaServers.bound')}</Tag>
           ) : (
             <Tag color="volcano">{t('mediaServers.unbound')}</Tag>
-          )
-        ) : (
-          t('format.dash')
-        ),
-    },
-    {
-      title: t('libraries.pendingPlans'),
-      key: 'pending_plan_count',
-      width: 110,
-      render: (_, row) =>
-        row.rowType === 'library' ? (
-          row.library.pending_plan_count > 0 ? (
-            <Tag color="gold">{row.library.pending_plan_count}</Tag>
-          ) : (
-            <Text type="secondary">0</Text>
           )
         ) : (
           t('format.dash')

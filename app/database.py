@@ -421,6 +421,9 @@ async def _apply_light_migrations(conn) -> None:
         ("libraries", "server_path", "VARCHAR(1024)"),
         ("libraries", "volume_id", "VARCHAR(36)"),
         ("libraries", "root_subpath", "VARCHAR(1024)"),
+        # 回收站目录（卷内相对路径）：合集 move 计划的剩余文件整体移入；
+        # NULL = 原地保留。
+        ("libraries", "recycle_subpath", "VARCHAR(1024)"),
         # Torrent content detection (P1): batch scope sub-classification on
         # FileResource (NULL = non-batch; season / multi_season / franchise),
         # a WorkCollection link for franchise packs, and the local relative
