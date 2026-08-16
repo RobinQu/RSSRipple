@@ -21,7 +21,7 @@ FieldCondition = {
            "episode_confidence" | "content_type" |
            "title_cn" | "title_en" | "search_title" |
            "movie.rating" | "movie.year" | "series.rating" | "series.year" |
-           "movie.collection" | "series.collection" |
+           "movie.collection" | "series.collection" | "collection" |
            "series.genre" | "movie.genre" | "series.is_anime" | "movie.is_anime",
   "operator": "eq" | "ne" | "contains" | "fuzzy" | "in" | "regex" |
               "gt" | "gte" | "lt" | "lte" |
@@ -47,6 +47,7 @@ FieldCondition = {
   - 合集字段（`movie.collection`, `series.collection`）是带命名空间的字符串字段，取值为作品所属 WorkCollection 的显示名（`title_cn or title_en`），支持字符串字段操作符：
     - 解析链有两层：资源的 `series`/`movie` 关系 + 作品的 `collection` 关系，任一未 eager-load（或未关联）时值为空，适用标准空值语义（`eq` 不通过、`ne` 通过、空值匹配用 `is_empty`/`is_not_empty`）。
     - 所有求值过滤的查询点必须链式加载 `.selectinload(FileResource.series).selectinload(TVSeries.collection)`（movie 同理），否则过滤静默误评。已知求值点：Agent 派发（main.py 后台任务）、回填提交、rules-preview、test-filter、PendingDecision LLM 重选。
+  - 资源级合集字段（`collection`，无命名空间）是字符串字段，取值为资源**直接**关联的 WorkCollection 显示名（franchise 多作品包的 `resource.collection_id`，见 data-models.md「合集资源识别」），操作符与空值语义同上；求值点须 `selectinload(FileResource.collection)`。
   - 布尔字段（`is_batch`, `series.is_anime`, `movie.is_anime`）支持：`eq`, `ne`。value 接受原生 bool、数字 `1/0`、字符串 `"true"/"false"/"yes"/"no"/"1"/"0"`。
     - `series.is_anime` / `movie.is_anime` 是带命名空间的三态布尔字段，取值来自资源关联的作品（True=日本动画 / False=确认实拍 / NULL=未判定，见 data-models.md「is_anime 判定约定」）。bool 空值语义与标量空值规则一致：值为 NULL 时正取值操作符（`eq`）不通过、`ne` 通过；区分「确认非动漫」（False）与「未判定」（NULL）必须用 `is_empty`/`is_not_empty`。（此前 bool 字段 NULL 被当 False 求值，已修正为与本文档记载的空值语义一致；`is_batch` 为 NOT NULL 不受影响。）
   - 列表字段（`subtitle_langs`）支持：`eq`, `ne`, `contains`, `in`。

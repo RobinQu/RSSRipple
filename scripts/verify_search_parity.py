@@ -25,9 +25,15 @@ import argparse
 import asyncio
 import os
 import sys
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+# `python scripts/verify_search_parity.py` 在镜像里运行时 sys.path[0] 是
+# scripts/ 而非 WORKDIR（/app），且镜像不把项目装成包；显式补上仓库根，让
+# `import app`（在 main() 内延迟执行）在宿主机与容器内都能解析。
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Characters that make Turso's ``fts_match`` query parser throw a parse error.
 # Includes the fullwidth forms common in CJK titles (：（）『』 etc.).

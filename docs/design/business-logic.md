@@ -20,6 +20,19 @@ fetch_channel_resources(channel, db)
   │     │     # "1920x1080" 等原样保留），降低订阅条件的编写成本
   │     ├─ c. 兜底提取 torrent_url：从 enclosure/link 中找 magnet 或 .torrent
   │     ├─ d. 创建 FileResource 对象（parsed_at = now）
+  │     │     # 预解析同步内联：detect_batch / extract_compilation_work_title /
+  │     │     # detect_subtitle_langs / detect_absolute_episode；合集命中即置
+  │     │     # is_batch + batch_scope="season"（标题层默认，torrent 分析可修正）
+  │     │     # 并清空 episode
+  │     ├─ d2. 通道 A torrent 内容检测（metadata 匹配前，工作锁之外）：
+  │     │     # is_batch=false 且 torrent_url 为 http(s) 直链时下载 .torrent 落盘
+  │     │     # （TORRENT_CACHE_DIR，记 torrent_file）→ bencode 解析文件清单 →
+  │     │     # analyze_torrent_files 判 scope（season/multi_season/franchise），
+  │     │     # franchise 触发 franchise_service.link_franchise_pack（成员作品
+  │     │     # 逐个走 process_title_only 匹配落库 → get-or-create
+  │     │     # franchise_pack 来源 WorkCollection → 资源挂 collection_id、
+  │     │     # 作品 FK 全清）。magnet/下载失败静默跳过；通道 B（下载后 RPC
+  │     │     # 修正）为保留优化项未实现。
   │     ├─ e. 统一 Metadata Agent（通过 LangGraph ReAct 循环，单次调用完成标题清洗 + 单数据源 metadata 搜索）
   │     │     agent = UnifiedMetadataAgent()
   │     │     await agent.process(resource, channel, db)
@@ -388,7 +401,7 @@ process_resources(agent, resources, db)
 2. 解析下载目录：`effective_download_dir = join(downloader.download_dir, agent.download_subdir)`；若 `download_subdir` 为空则直接使用 `downloader.download_dir`。
 3. 校验 `download_subdir`：必须是相对路径，禁止绝对路径、`..`、空段逃逸、控制字符；标准化后不得跳出 `downloader.download_dir`。
 4. 将 `effective_download_dir` 写入 `DownloadTask.download_dir`，用于审计、重试与后续配置变更隔离。
-5. 调用 `TransmissionWrapper.add_torrent(resource.torrent_url, download_dir=effective_download_dir)`。
+5. 调用 `TransmissionWrapper.add_torrent(payload, download_dir=effective_download_dir)`，payload 由 `resolve_torrent_payload(resource)` 得出：`resource.torrent_file`（通道 A 缓存的本地 .torrent）存在时读字节推送（读失败回退 URL），否则透传 `torrent_url`（URL/magnet 原样）。
 6. 成功 → 更新 `task.status="downloading"`, `task.transmission_torrent_id=返回值`, `task.confirmed_at=now`。
 7. 失败 → 更新 `task.status="error"`, `task.error_message=异常信息`；触发重试逻辑（若 retry_count < max_retries 则入队重试）。
 8. RPC 结束后统一 `flush`，由调用方（请求路径）或 autocommit（后台路径）提交。

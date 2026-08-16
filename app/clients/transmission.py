@@ -157,21 +157,21 @@ class TransmissionWrapper:
 
     async def add_torrent(
         self,
-        torrent_url: str,
+        torrent: str | bytes,
         download_dir: str | None = None,
         paused: bool = False,
     ) -> dict:
-        """Add a torrent by URL (.torrent file or magnet link)."""
+        """Add a torrent by URL/magnet or raw .torrent metainfo bytes."""
         def _run():
             c = self._client()
             kwargs: dict[str, Any] = {"paused": paused}
             if download_dir:
                 kwargs["download_dir"] = download_dir
-            torrent = c.add_torrent(torrent_url, **kwargs)
+            torrent_obj = c.add_torrent(torrent, **kwargs)
             return {
-                "torrent_id": torrent.id,
-                "name": torrent.name,
-                "hash": torrent.hashString,
+                "torrent_id": torrent_obj.id,
+                "name": torrent_obj.name,
+                "hash": torrent_obj.hashString,
             }
         return await asyncio.to_thread(_run)
 

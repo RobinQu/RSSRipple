@@ -132,6 +132,8 @@
     "rawTitleCopied": "原始标题已复制",
     "copyFailed": "复制失败",
     "batch": "合集",
+    "batchMultiSeason": "跨季合集",
+    "batchFranchise": "作品集合集",
     "episodeReconciledTag": "已调整",
     "episodeReconciled": "根据 metadata 中的季集数信息，从绝对集号自动换算为季内集号",
     "episodeReconciledFrom": "原绝对集号：{n}",
@@ -658,6 +660,7 @@
       "is_anime": "剧集是否动漫"
     },
     "content_type": "作品类型",
+    "collection": "资源合集（系列包）",
     "enumValue_raw": "原始",
     "enumValue_reconciled": "已调整",
     "enumValue_ambiguous": "待确认",
@@ -881,6 +884,7 @@
     "colStatus": "状态",
     "colInfo": "季集/年份",
     "colGenre": "分类",
+    "year": "年份",
     "collections": "合集"
   },
   "collections": {

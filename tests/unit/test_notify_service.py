@@ -83,6 +83,8 @@ def _resource_ns(series=None, movie=None, **overrides):
         season=1,
         episode=5,
         is_batch=False,
+        batch_scope=None,
+        collection=None,
         episode_start=None,
         episode_end=None,
         subtitle_langs=["zh-CN"],

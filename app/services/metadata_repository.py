@@ -57,6 +57,13 @@ async def _apply_to_resource(
     # Batch info — LLM output overrides pre-parser only when non-null.
     if meta.is_batch:
         resource.is_batch = True
+        # Default to a single-season pack when the LLM gave no scope; a
+        # later torrent content analysis may correct this to multi_season /
+        # franchise. Never downgrade an existing multi_season / franchise
+        # (torrent analysis may already have run ahead of the LLM) — only
+        # write when the current value is None or "season".
+        if resource.batch_scope in (None, "season"):
+            resource.batch_scope = meta.batch_scope or "season"
     if meta.episode_start is not None:
         resource.episode_start = meta.episode_start
     if meta.episode_end is not None:

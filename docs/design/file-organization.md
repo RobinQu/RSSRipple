@@ -237,7 +237,7 @@ class OrganizeAuditEntry(Base):
 规划是纯函数：`build_plan(快照, 磁盘文件列表, 解析后的库根)`——**接口不变**，收的是 service 层已解析好的 `root_path`（volume.mount_path + root_subpath），planner 自身不感知卷模型。沿用 vault-organizer 的文件归类语义：主视频 = 最大视频文件，按模板渲染 move；字幕判定语言后同名随正片 move；其余文件 keep。安全不变量：
 
 - **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；两者皆无 → 规划失败。
-- **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx → 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」（期望集由 `episode_start/end` 或 `work.seasons` 展开），缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。解析不出集号的视频按特典 keep。
+- **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx → 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」（期望集由 `episode_start/end` 或 `work.seasons` 展开），缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 按文件解析季号分组逐组校验（不回退 `resource.season`——该 scope 下恒为 NULL；期望集仍优先 episode_start/end、回退 work.seasons，两者皆无的季只记 warning 跳过校验而非整体拒绝，因多季包边界信息不全）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
 - **冲突预检**：move op 的 dst 已存在且 size 与源不符 → 规划失败（绝不覆盖）；size 相符视为已移动的重放，交执行器收敛。
 
 ## 触发与执行链路

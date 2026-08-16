@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # and the DB pointer is updated to the local /posters/<file> path.
     poster_cache_dir: str = "data/posters"
 
+    # Torrent file cache — .torrent files fetched for content inspection
+    # (file-listing batch analysis) are stored here as
+    # ``<resource_id>.torrent``. Env var: TORRENT_CACHE_DIR.
+    torrent_cache_dir: str = "data/torrents"
+
     # Task queue backend: "memory" (default, single-process) or "redis" (distributed)
     queue_backend: str = "memory"
     redis_url: str = "redis://localhost:6379/0"

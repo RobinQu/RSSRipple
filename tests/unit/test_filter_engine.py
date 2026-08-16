@@ -917,6 +917,64 @@ class TestCollectionFields:
 
 
 # ---------------------------------------------------------------------------
+# Resource-level ``collection`` field (franchise packs link a WorkCollection
+# directly via FileResource.collection_id; all work FKs are NULL there)
+# ---------------------------------------------------------------------------
+
+
+class TestResourceCollectionField:
+    def test_resolves_display_name(self):
+        res = _res(collection=_collection(
+            title_cn="攻壳机动队（系列）", title_en="Ghost in the Shell",
+        ))
+        assert get_field_value(res, "collection") == "攻壳机动队（系列）"
+
+    def test_falls_back_to_title_en(self):
+        res = _res(collection=_collection(title_cn=None, title_en="Spider-Man"))
+        assert get_field_value(res, "collection") == "Spider-Man"
+
+    def test_eq_contains_case_insensitive(self):
+        res = _res(collection=_collection(title_cn=None, title_en="Spider-Man"))
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "eq", "value": "spider-man"}, res
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "contains", "value": "SPIDER"}, res
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "ne", "value": "spider-man"}, res
+        ) is False
+
+    def test_no_linked_collection_null_semantics(self):
+        res = _res()  # collection 关系未加载/未链接 → None + 空值语义
+        assert get_field_value(res, "collection") is None
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "is_empty"}, res
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "is_not_empty"}, res
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "eq", "value": "x"}, res
+        ) is False
+        assert evaluate_field_condition(
+            {"field": "collection", "operator": "ne", "value": "x"}, res
+        ) is True
+
+    def test_validate_accepts(self):
+        assert validate_filter_config({
+            "field": "collection", "operator": "eq", "value": "x",
+        }) == []
+        assert validate_filter_config({
+            "field": "collection", "operator": "is_empty",
+        }) == []
+        # String-field operators only — numeric ops rejected.
+        assert validate_filter_config({
+            "field": "collection", "operator": "gt", "value": 3,
+        })
+
+
+# ---------------------------------------------------------------------------
 # content_type (work type) — derived from the mutually-exclusive work FKs
 # ---------------------------------------------------------------------------
 

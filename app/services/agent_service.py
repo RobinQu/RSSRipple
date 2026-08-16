@@ -6,6 +6,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import and_, delete, select
@@ -178,6 +179,26 @@ def _resolution_score(resolution: str | None) -> int:
     return _RESOLUTION_SCORE.get(resolution.lower().strip(), 0)
 
 
+def resolve_torrent_payload(resource: FileResource) -> str | bytes:
+    """Pick the payload handed to the downloader's ``add_torrent``.
+
+    When the fetch pipeline cached the .torrent file locally
+    (``resource.torrent_file``), push its raw bytes so the daemon does not
+    re-download it (dead links, private-tracker cookie requirements). Falls
+    back to the URL/magnet when there is no cached file or it cannot be read.
+    """
+    if resource.torrent_file:
+        try:
+            return Path(resource.torrent_file).read_bytes()
+        except OSError as e:
+            logger.warning(
+                "Cached torrent file unreadable for resource %s (%s): %s; "
+                "falling back to torrent_url",
+                resource.id, resource.torrent_file, e,
+            )
+    return resource.torrent_url
+
+
 async def create_and_submit_task(
     resource: FileResource,
     downloader: DownloaderInstance,
@@ -209,7 +230,7 @@ async def create_and_submit_task(
     try:
         result = await asyncio.wait_for(
             wrapper.add_torrent(
-                resource.torrent_url,
+                resolve_torrent_payload(resource),
                 download_dir=task.download_dir,
             ),
             timeout=settings.transmission_timeout,

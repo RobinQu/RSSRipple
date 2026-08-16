@@ -169,10 +169,13 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 # series/movie are read by the filter DSL (movie.rating …) and
                 # the LLM pick summary — eager-load to avoid async lazy loads.
                 # The work's collection feeds the series.collection /
-                # movie.collection DSL fields, so chain-load it too.
+                # movie.collection DSL fields, so chain-load it too; the
+                # resource's own collection feeds the resource-level
+                # ``collection`` field (franchise packs).
                 .options(
                     selectinload(FileResource.series).selectinload(TVSeries.collection),
                     selectinload(FileResource.movie).selectinload(Movie.collection),
+                    selectinload(FileResource.collection),
                 )
                 .order_by(FileResource.created_at.asc())
             )

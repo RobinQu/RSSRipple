@@ -129,3 +129,70 @@ async def test_factory_falls_back_to_transmission_for_other_types():
     dl.url = "http://127.0.0.1:9091/transmission/rpc"
     client = get_downloader_client(dl)
     assert isinstance(client, TransmissionWrapper)
+
+
+# ---------------------------------------------------------------------------
+# add_torrent with raw metainfo bytes
+# ---------------------------------------------------------------------------
+
+
+def _multi_file_torrent_bytes() -> bytes:
+    import bencodepy
+
+    return bencodepy.encode({
+        b"announce": b"https://tracker.example/announce",
+        b"info": {
+            b"name": b"My Show",
+            b"piece length": 16384,
+            b"pieces": b"0" * 20,
+            b"files": [
+                {b"length": 100, b"path": [b"ep01.mkv"]},
+                {b"length": 200, b"path": [b"subs", b"ep01.ass"]},
+            ],
+        },
+    })
+
+
+def _single_file_torrent_bytes() -> bytes:
+    import bencodepy
+
+    return bencodepy.encode({
+        b"info": {
+            b"name": b"movie.mkv",
+            b"piece length": 16384,
+            b"pieces": b"0" * 20,
+            b"length": 4096,
+        },
+    })
+
+
+async def test_add_torrent_bytes_multi_file_parses_name_and_files():
+    w = md.MockDownloaderWrapper(downloader=_dl())
+    result = await w.add_torrent(_multi_file_torrent_bytes(), download_dir="/tmp/x")
+    assert result["name"] == "My Show"
+    assert result["hash"]
+
+    listing = await w.get_torrent_files(result["torrent_id"])
+    assert listing["name"] == "My Show"
+    assert listing["files"] == [
+        {"name": "ep01.mkv", "size": 100},
+        {"name": "subs/ep01.ass", "size": 200},
+    ]
+    # total_size follows the parsed file listing, like a real daemon
+    t = await w.get_torrent(result["torrent_id"])
+    assert t["total_size"] == 300
+
+
+async def test_add_torrent_bytes_single_file_uses_info_name():
+    w = md.MockDownloaderWrapper(downloader=_dl())
+    result = await w.add_torrent(_single_file_torrent_bytes())
+    assert result["name"] == "movie.mkv"
+    listing = await w.get_torrent_files(result["torrent_id"])
+    assert listing["files"] == [{"name": "movie.mkv", "size": 4096}]
+
+
+async def test_add_torrent_undecodable_bytes_falls_back_to_placeholder():
+    w = md.MockDownloaderWrapper(downloader=_dl())
+    result = await w.add_torrent(b"not-a-torrent")
+    assert result["name"] == "unnamed.torrent"
+    assert result["hash"]

@@ -13,6 +13,7 @@
 | [docs/design/frontend.md](docs/design/frontend.md) | 前端路由、页面与关键交互 |
 | [docs/design/error-handling.md](docs/design/error-handling.md) | 统一响应结构、错误码、全局异常处理 |
 | [docs/design/conventions.md](docs/design/conventions.md) | 时间格式、下载目录规则、环境变量、海报、日志、幂等性 |
+| [docs/design/db-migration.md](docs/design/db-migration.md) | 数据库迁移方案：SQLite→Turso→PostgreSQL 迁移矩阵、`migrate_to_turso.py`/`migrate_to_postgres.py`/`verify_search_parity.py` 用法、Docker 部署迁移步骤、数据安全不变量 |
 | [docs/design/branching.md](docs/design/branching.md) | 分支命名规范、CI/CD 与发布流程 |
 
 修改任何上述领域的实现时，必须同步更新对应子文档。
@@ -27,7 +28,7 @@
 
 - 所有 ORM 模型使用 SQLAlchemy 2.0 风格声明，主键为 UUID v4 字符串，时间字段均为 UTC。
 - `FileResource` 的 FK 互斥：剧集资源 `series_id` 非空且 `movie_id` 为空；电影资源反之；未识别两者皆空。TV 集数统一用 `episode` 字段。
-- 合集资源（`is_batch=true`）：`episode` 固定为空，`episode_start/end` 尽力而为；不参与 `(series_id, episode)` 聚合和 PendingDecision。
+- 合集资源（`is_batch=true`）：`episode` 固定为空，`episode_start/end` 尽力而为；不参与 `(series_id, episode)` 聚合和 PendingDecision。`batch_scope` 细分（NULL=非合集；`season`/`multi_season`/`franchise`）：三层判定——标题 pre-parser（含"有季标记+无集号+整碟 token"规则，命中默认 scope=season）→ torrent 内容检测（通道 A，`torrent_inspect.maybe_inspect_torrent`：http(s) 直链下载 .torrent 落盘 `TORRENT_CACHE_DIR`、bencode 解析清单、纯函数 `analyze_torrent_files` 判 scope；franchise 由 `franchise_service.link_franchise_pack` 匹配成员作品、get-or-create `franchise_pack` 来源 WorkCollection、资源挂 `collection_id` 且作品 FK 全清；通道 B 下载后修正为保留优化项）→ LLM（可选 `batch_scope` 键，仅不降级写入）。任务创建优先推送 `torrent_file` 本地字节（`resolve_torrent_payload`）。organize 按 scope 分流：season 维持缺集拒绝、multi_season 按季分组校验（无依据的季跳过）、franchise 落 unclassified 待人工。
 - `episode_confidence`：`raw | reconciled | ambiguous | manual | None`；`ambiguous` 资源不参与派发，按资源状态创建 PendingDecision（跳过 LLM）：`season` 非空为"集号不确定"，`season=None` 为"季号不确定"；用户修正为 `manual` 后自动回流。季号绝不猜测：无季标记时仅当作品可验证为单季（`number_of_seasons`/`seasons` 证据）才落 `season=1`，多季或未知一律 `season=None` + `ambiguous`。
 - `Agent.last_consumed_at` 是消费水位线：增量运行只处理 `created_at > last_consumed_at` 的资源；null 表示从未运行（推进到 now、不处理任何资源，回填必须走 rules-preview 流程）。
 - `PendingDecision` 幂等：同一 `(agent_id, series_id|movie_id, season, episode, status='pending')` 全局唯一，重复运行 upsert 合并 candidates。
@@ -80,7 +81,7 @@
 ### 其他约定（详见 conventions.md）
 
 - API 时间一律 ISO 8601 UTC 字符串。
-- 数据库后端二选一：`sqlite+aioturso:///`（嵌入式 Turso，MVCC 并发写；**单进程独占文件锁**，多容器/多实例不得共享同一文件，需共享用 PostgreSQL；旧 SQLite 库迁移走 `scripts/migrate_to_turso.py`，Turso→PostgreSQL 迁移走 `scripts/migrate_to_postgres.py`）、`postgresql+asyncpg://`。**项目默认 `docker-compose.yml` 为分布式（PostgreSQL+Redis），Turso 单节点版在 `docker-compose.standalone.yml`**。锁/冲突重试设施对两者语义一致。全文检索双后端统一基于 `search_text`（作品表上 `normalize_title` 归一化标题拼接列，由 ORM `before_flush` 钩子同事务维护，启动空值回填）：**Turso** 走原生 FTS（ngram）边车库 `<主库名>_fts.db`（WAL，可随时重建、启动自动回填），同步 = `fts_outbox` 表（ORM 钩子同事务入队 upsert/delete）+ 每 30 秒 drain 任务定向投递 + 每小时全量对账兜底（脚本/直连 SQL）；**PostgreSQL** 无 sidecar，`search_text` + `pg_trgm` GIN 索引（需 `CREATE EXTENSION pg_trgm` 权限，无权限回退 Python 扫描），`_search_pg_like` 复刻 ngram 分词语义（空白切分、单 token 连续子串、多 token 对 ≥2 字符 token 取 OR、LIKE 通配符转义），候选集与 Turso 一致且不含其零散 bigram 假阳性、不受其 `:`/`'` 等查询解析错误影响。ngram 单字查询不命中，`search_*_fts` 对归一化后 <2 字符的查询回退 Python 扫描；对比校验走 `scripts/verify_search_parity.py`。
+- 数据库后端二选一：`sqlite+aioturso:///`（嵌入式 Turso，MVCC 并发写；**单进程独占文件锁**，多容器/多实例不得共享同一文件，需共享用 PostgreSQL；旧 SQLite 库迁移走 `scripts/migrate_to_turso.py`，Turso→PostgreSQL 迁移走 `scripts/migrate_to_postgres.py`）、`postgresql+asyncpg://`。**项目默认 `docker-compose.yml` 为分布式（PostgreSQL+Redis），Turso 单节点版在 `docker-compose.standalone.yml`**。锁/冲突重试设施对两者语义一致。全文检索双后端统一基于 `search_text`（作品表上 `normalize_title` 归一化标题拼接列，由 ORM `before_flush` 钩子同事务维护，启动空值回填）：**Turso** 走原生 FTS（ngram）边车库 `<主库名>_fts.db`（WAL，可随时重建、启动自动回填），同步 = `fts_outbox` 表（ORM 钩子同事务入队 upsert/delete）+ 每 30 秒 drain 任务定向投递 + 每小时全量对账兜底（脚本/直连 SQL）；**PostgreSQL** 无 sidecar，`search_text` + `pg_trgm` GIN 索引（需 `CREATE EXTENSION pg_trgm` 权限，无权限回退 Python 扫描），`_search_pg_like` 复刻 ngram 分词语义（空白切分、单 token 连续子串、多 token 对 ≥2 字符 token 取 OR、LIKE 通配符转义），候选集与 Turso 一致且不含其零散 bigram 假阳性、不受其 `:`/`'` 等查询解析错误影响。ngram 单字查询不命中，`search_*_fts` 对归一化后 <2 字符的查询回退 Python 扫描；对比校验走 `scripts/verify_search_parity.py`。迁移矩阵（SQLite→Turso→PostgreSQL）、Docker 部署迁移与数据安全不变量见 [docs/design/db-migration.md](docs/design/db-migration.md)。
 - `DownloaderInstance.download_dir` 以 Transmission daemon 视角为准（POSIX/Windows/UNC）；`Agent.download_subdir` 必须是相对路径，禁止 `..`/绝对路径/控制字符；不调用 `session_set` 改全局目录。
 - 关键环境变量：`DATABASE_URL`、`QUEUE_BACKEND`、`LLM_API_KEY/BASE_URL/MODEL`、`EXA_API_KEY`、`JINA_API_KEY`、`TMDB_API_KEY`、`BANGUMI_API_KEY`、`*_ENABLED` 数据源开关、`POSTER_CACHE_DIR`、`AUTH_ENABLED`（认证总开关，默认开）、`API_KEY`（可选静态引导 key）等（完整列表见子文档；`PLEX_URL`/`PLEX_TOKEN` 已移除，媒体服务器配置入库；内置整理常开，无 `ORGANIZE_ENABLED`）。
 

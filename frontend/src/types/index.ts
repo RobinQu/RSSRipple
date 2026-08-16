@@ -69,6 +69,15 @@ export interface ResourceWorkRef {
   title_en?: string | null;
   original_title?: string | null;
   poster_url?: string | null;
+  genre?: string[] | null;
+  status?: string | null;
+  is_anime?: boolean | null;
+  rating?: number | null;
+  number_of_seasons?: number | null;
+  number_of_episodes?: number | null;
+  start_date?: string | null;
+  release_date?: string | null;
+  description?: string | null;
 }
 
 // FileResource
@@ -84,6 +93,12 @@ export interface FileResource {
   episode: number | null;
   season: number | null;
   is_batch: boolean;
+  // Torrent content detection (P1): batch scope sub-classification
+  // (null = single-episode resource or a legacy pre-scope batch row) and the
+  // franchise-pack collection link.
+  batch_scope: 'season' | 'multi_season' | 'franchise' | null;
+  collection_id: string | null;
+  collection_name: string | null;
   episode_start: number | null;
   episode_end: number | null;
   absolute_episode: number | null;
@@ -339,7 +354,10 @@ export type FilterField =
   | 'series.year'
   | 'series.genre'
   | 'series.collection'
-  | 'series.is_anime';
+  | 'series.is_anime'
+  // Resource-level collection (franchise packs link a WorkCollection
+  // directly, with all work FKs empty).
+  | 'collection';
 
 export type StringFilterField = Exclude<
   FilterField,

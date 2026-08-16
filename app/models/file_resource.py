@@ -42,6 +42,13 @@ class FileResource(Base):
     is_batch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     episode_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     episode_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Batch scope sub-classification (torrent content detection P1):
+    #   NULL           – not a batch (single-episode resource).
+    #   "season"       – single-season pack (all files in one season).
+    #   "multi_season" – pack spanning multiple seasons of one work.
+    #   "franchise"    – pack spanning multiple works (linked via
+    #                    ``collection_id`` below).
+    batch_scope: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # ── Cross-season episode reconciliation ──
     # RSS titles sometimes number episodes absolutely across all seasons
     # (e.g. ``S04 - 84`` where 84 = cumulative count across seasons 1-4)
@@ -72,6 +79,10 @@ class FileResource(Base):
     container: Mapped[str | None] = mapped_column(String(20), nullable=True)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     torrent_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    # Local relative path of the downloaded-and-cached .torrent file (torrent
+    # content detection P1). The bytes are cached on disk only — never stored
+    # in the DB. NULL = not (yet) fetched.
+    torrent_file: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     detail_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -86,6 +97,14 @@ class FileResource(Base):
     # general-purpose sources (Wikipedia / Exa) only.
     audio_work_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("audio_works.id", ondelete="SET NULL"), nullable=True
+    )
+    # Franchise-pack link (WorkCollection): only set when ``batch_scope ==
+    # "franchise"``. FK-exclusivity invariant extended: when this is non-null,
+    # ``series_id`` / ``movie_id`` / ``audio_work_id`` must all be NULL (same
+    # convention-only discipline as the existing work-FK exclusivity — no
+    # CheckConstraint).
+    collection_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("work_collections.id"), nullable=True
     )
     metadata_matched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # ── Metadata retry state ──
@@ -115,6 +134,7 @@ class FileResource(Base):
     series = relationship("TVSeries", back_populates="file_resources")
     movie = relationship("Movie", back_populates="file_resources")
     audio_work = relationship("AudioWork", back_populates="file_resources")
+    collection = relationship("WorkCollection")
     # delete-orphan is required: without it the ORM nullifies
     # download_tasks.file_resource_id when a resource is deleted (e.g. via
     # channel cascade), which violates the NOT NULL constraint.

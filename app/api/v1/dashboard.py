@@ -170,7 +170,9 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         # and, for ambiguous episode/season decisions, an inline correction
         # form keyed off ``episode_confidence``).
         res_q = await db.execute(
-            select(FileResource).where(FileResource.id.in_(pd.candidates or []))
+            select(FileResource)
+            .where(FileResource.id.in_(pd.candidates or []))
+            .options(selectinload(FileResource.collection))
         )
         candidates = res_q.scalars().all()
         pending_decisions.append({

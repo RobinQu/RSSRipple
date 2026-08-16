@@ -264,6 +264,57 @@ _BATCH_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --- Season-marked whole-disc (BD) season packs -----------------------------
+# Titles like "[LinRip] Show Season 2 [BDRip 1080p ...]" carry an explicit
+# season marker, no episode number at all, and a whole-disc release token —
+# almost certainly a full-season BD pack even without a range/batch keyword.
+
+# Whole-disc release tokens. ``BD`` must be a standalone token (word
+# boundaries) so a stray "BD" substring inside another word never matches;
+# ``BDRip``/``BD-Rip`` are listed explicitly because ``\bBD\b`` cannot match
+# inside "BDRip" (no boundary between "BD" and "Rip").
+_BATCH_DISC_TOKEN_RE = re.compile(
+    r"\b(?:BD|BD-?Rip|BDMV|BDRemux|Blu-?ray|BD-?BOX)\b",
+    re.IGNORECASE,
+)
+# Episode tail " - NN" on single-episode releases ("Show S02 - 03 (BDRip)").
+# Requires whitespace (or string start) before the hyphen so codec strings
+# like "HEVC-10bit" never count as an episode number. ``_EPISODE_TAIL_RE``
+# (below) is NOT reused here precisely because it lacks that guard.
+_BATCH_EPISODE_DASH_RE = re.compile(r"(?:^|\s)-\s*\d{1,3}(?:v\d+)?\b")
+
+
+def _title_has_episode_number(title: str) -> bool:
+    """True when the title carries an episode number in any common form:
+    SxxExx, a bracketed ``[NN]``, a `` - NN`` tail, or the ``NN(MM)`` form.
+    """
+    if _SXXEXX_RE.search(title) or _BRACKET_EPISODE_RE.search(title):
+        return True
+    if _BATCH_EPISODE_DASH_RE.search(title):
+        return True
+    per_season, absolute = detect_absolute_episode(title)
+    return per_season is not None and absolute is not None
+
+
+def _is_season_marked_disc_pack(title: str) -> bool:
+    """Full-season BD pack heuristic: explicit season marker (``S02`` /
+    ``Season 2`` / ``2nd Season`` / ``第N季`` incl. kanji numerals), NO
+    episode number anywhere, and a whole-disc token (BD / BDRip / BDMV /
+    BDRemux / Blu-ray / BD-BOX). A season marker alone is not enough (WEB
+    simulcast singles may only carry the season), and a disc token alone is
+    not enough (movies and season-less shows ship on BD too).
+    """
+    if not _BATCH_DISC_TOKEN_RE.search(title):
+        return False
+    if _title_has_episode_number(title):
+        return False
+    return (
+        _FB_SEASON_SUFFIX_RE.search(title) is not None
+        or _FB_SEASON_ORDINAL_RE.search(title) is not None
+        or _FB_SEASON_S_RE.search(title) is not None
+        or _FB_SEASON_KANJI_RE.search(title) is not None
+    )
+
 
 # Leading tag marking a compilation/archive torrent that bundles an entire
 # work (TV + movies + CDs + manga, e.g. "[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版...").
@@ -328,6 +379,11 @@ def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
         return True, start, end
 
     if _BATCH_KEYWORD_RE.search(title):
+        return True, None, None
+
+    # Season-marked whole-disc pack ("Show Season 2 [BDRip 1080p ...]"):
+    # explicit season marker + no episode number + BD/Blu-ray disc token.
+    if _is_season_marked_disc_pack(title):
         return True, None, None
 
     return False, None, None
@@ -550,6 +606,74 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
     elif (m := _FB_SEASON_KANJI_RE.search(title_raw)):
         season = _kanji_to_int(m.group(1))
     return episode, season
+
+
+# Episode-number forms trusted on a *filename* component only (directory
+# names often carry batch ranges like "01-12", so bare/bracketed numbers in
+# directories are not treated as episode markers):
+#   "Show - 01.mkv"            -> 1   (dash form)
+#   "Show 第03話.mkv"          -> 3   (kanji form)
+_PATH_SPLIT_RE = re.compile(r"[/\\]+")
+_DASH_EPISODE_RE = re.compile(r"\s-\s(\d{1,3})(?:v\d+)?(?=[\s.\[\(（【]|$)")
+_KANJI_EPISODE_RE = re.compile(r"第\s*(\d{1,3})\s*[话話集]")
+
+
+def _season_marker(text: str) -> int | None:
+    """Season number from a single path component, or None."""
+    m = _FB_SEASON_SUFFIX_RE.search(text)
+    if m:
+        return int(m.group(1))
+    if (m := _FB_SEASON_ORDINAL_RE.search(text)):
+        return int(m.group(1))
+    if (m := _FB_SEASON_KANJI_RE.search(text)):
+        return _kanji_to_int(m.group(1))
+    if (m := _FB_SEASON_S_RE.search(text)):
+        return int(m.group(1))
+    return None
+
+
+def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]:
+    """Best-effort ``(season, episode)`` from every component of a file path.
+
+    Season markers (``S01`` directory, ``Season 2``, ``第3季``) may live in
+    ANY component — directory or filename. Episode numbers are only trusted
+    from the filename component: directory names frequently carry batch
+    ranges (``01-12``) that would otherwise be misread as episode 12.
+    ``SxxEyy`` is recognized anywhere and yields both values. Either side of
+    the returned pair may be None; both are None when nothing matches.
+    """
+    if not path:
+        return None, None
+    components = [c for c in _PATH_SPLIT_RE.split(path) if c]
+    if not components:
+        return None, None
+
+    season: int | None = None
+    episode: int | None = None
+    for comp in components:
+        m = _SXXEXX_RE.search(comp)
+        if m:
+            if season is None:
+                season = int(m.group(1))
+            if episode is None:
+                episode = int(m.group(2))
+        if season is None:
+            season = _season_marker(comp)
+
+    filename = components[-1]
+    if episode is None:
+        m = _BRACKET_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    if episode is None:
+        m = _DASH_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    if episode is None:
+        m = _KANJI_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    return season, episode
 
 _CJK_RE = re.compile(r"[一-鿿]")
 _ASCII_ONLY_RE = re.compile(r"[\x00-\x7f\s]+")

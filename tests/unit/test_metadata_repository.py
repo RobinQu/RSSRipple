@@ -67,7 +67,7 @@ def _resource() -> SimpleNamespace:
     return SimpleNamespace(
         search_title=None, episode=16, season=1, is_batch=False,
         episode_start=None, episode_end=None, title_cn=None, title_en=None,
-        subtitle_langs=None, episode_confidence=None,
+        subtitle_langs=None, episode_confidence=None, batch_scope=None,
         series_id=None, movie_id=None, audio_work_id=None,
         metadata_matched_at=None,
     )
@@ -256,6 +256,60 @@ async def test_batch_flags_clear_single_episode(db_session):
     assert resource.episode_end == 12
     # No episode reconciliation for batches
     assert resource.episode_confidence is None
+
+
+async def test_batch_scope_defaults_to_season(db_session):
+    """LLM is_batch without a scope → single-season pack default."""
+    meta = _meta(
+        is_batch=True, episode_start=1, episode_end=12,
+        matched_entity={
+            "external_id": "tmdb:601", "external_source": "tmdb", "title_cn": "剧集",
+        },
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.is_batch is True
+    assert resource.batch_scope == "season"
+
+
+async def test_batch_scope_explicit_multi_season(db_session):
+    """An explicit LLM scope lands on the resource."""
+    meta = _meta(
+        is_batch=True, batch_scope="multi_season",
+        matched_entity={
+            "external_id": "tmdb:602", "external_source": "tmdb", "title_cn": "剧集",
+        },
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.batch_scope == "multi_season"
+
+
+async def test_batch_scope_not_downgraded_from_torrent_analysis(db_session):
+    """Torrent analysis may run ahead of the LLM — a wider scope it set
+    (multi_season/franchise) must survive the LLM's default."""
+    meta = _meta(
+        is_batch=True,  # no batch_scope from the LLM
+        matched_entity={
+            "external_id": "tmdb:603", "external_source": "tmdb", "title_cn": "剧集",
+        },
+    )
+    resource = _resource()
+    resource.batch_scope = "multi_season"
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.batch_scope == "multi_season"
 
 
 async def test_episode_reconciliation_absolute_to_per_season(db_session):
@@ -447,7 +501,7 @@ def _season_uncertain_resource(**kw) -> SimpleNamespace:
         episode_start=None, episode_end=None, title_cn=None, title_en=None,
         subtitle_langs=None, episode_confidence=None, absolute_episode=None,
         series_id=None, movie_id=None, audio_work_id=None,
-        metadata_matched_at=None,
+        metadata_matched_at=None, batch_scope=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)

@@ -123,6 +123,7 @@ async def get_series(series_id: str, db: AsyncSession = Depends(get_db)):
     res_q = await db.execute(
         select(FileResource)
         .where(FileResource.series_id == series_id)
+        .options(selectinload(FileResource.collection))
         .order_by(FileResource.published_at.desc())
         .limit(20)
     )

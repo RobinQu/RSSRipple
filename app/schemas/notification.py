@@ -125,6 +125,12 @@ class NotificationResourcePayload(BaseModel):
     season: int | None = None
     episode: int | None = None
     is_batch: bool = False
+    # Batch scope sub-classification (NULL/"season"/"multi_season"/
+    # "franchise") — drives the organize batch planner's dispatch.
+    batch_scope: str | None = None
+    # Resource-level collection display name (franchise packs link a
+    # WorkCollection directly) — feeds the DSL ``collection`` field.
+    collection: str | None = None
     episode_start: int | None = None
     episode_end: int | None = None
     subtitle_langs: list[str] | None = None

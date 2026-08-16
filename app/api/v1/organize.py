@@ -416,6 +416,8 @@ async def _load_preview_payload(
                 selectinload(FileResource.series).selectinload(TVSeries.episodes),
                 selectinload(FileResource.series).selectinload(TVSeries.collection),
                 selectinload(FileResource.movie).selectinload(Movie.collection),
+                # 资源级合集（franchise 包）：预览快照与触发链路同构。
+                selectinload(FileResource.collection),
             )
         )
     ).scalar_one_or_none()

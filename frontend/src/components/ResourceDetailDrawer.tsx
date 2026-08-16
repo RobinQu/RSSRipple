@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Drawer,
   Spin,
@@ -19,6 +20,7 @@ import { Copy, Pencil, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
 import { formatBytes, formatDate } from '../utils/format';
+import { batchScopeLabel } from '../utils/batch';
 import MetadataCorrectionModal from './MetadataCorrectionModal';
 import CreateTaskModal from './CreateTaskModal';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
@@ -223,12 +225,15 @@ export default function ResourceDetailDrawer({
               <span>
                 {r.is_batch
                   ? (r.episode_start != null && r.episode_end != null
-                      ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end} · ${t('channels.batch')}`
-                      : `${r.season != null ? `S${r.season} · ` : ''}${t('channels.batch')}`)
+                      ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end} · ${batchScopeLabel(t, r)}`
+                      : `${r.season != null ? `S${r.season} · ` : ''}${batchScopeLabel(t, r)}`)
                   : (r.episode != null
                       ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode }))
                       : dash)}
               </span>
+              {r.batch_scope === 'franchise' && r.collection_id && r.collection_name && (
+                <Link to={`/collections/${r.collection_id}`}>{r.collection_name}</Link>
+              )}
               {/* Only expose the manual editor for single-episode TV rows.
                   Batches don't have a single episode number to correct, and
                   movies don't carry episode metadata. */}

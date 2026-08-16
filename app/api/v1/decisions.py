@@ -102,7 +102,9 @@ async def list_decisions(
         data = PendingDecisionResponse.model_validate(d).model_dump()
         # Load candidate resources
         cands = (await db.execute(
-            select(FileResource).where(FileResource.id.in_(d.candidates or []))
+            select(FileResource)
+            .where(FileResource.id.in_(d.candidates or []))
+            .options(selectinload(FileResource.collection))
         )).scalars().all()
         from app.schemas.file_resource import FileResourceResponse
         data["candidate_resources"] = [

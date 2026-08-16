@@ -39,11 +39,13 @@ import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import { timeAgo } from '../utils/format';
+import { batchScopeLabel } from '../utils/batch';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
   GroupedResource,
+  ResourceWorkRef,
 } from '../types';
 
 const { Title, Text } = Typography;
@@ -104,8 +106,11 @@ function EpisodeCell({ r }: { r: FileResource }) {
       <span>{ep.label}</span>
       {ep.batch && (
         <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
-          {t('channels.batch')}
+          {batchScopeLabel(t, r)}
         </Tag>
+      )}
+      {r.batch_scope === 'franchise' && r.collection_id && r.collection_name && (
+        <Link to={`/collections/${r.collection_id}`}>{r.collection_name}</Link>
       )}
       {showReconciled && (
         <Tooltip title={reconciledTip}>
@@ -196,6 +201,70 @@ function ResourceRowActions({ r }: { r: FileResource }) {
         />
       </Tooltip>
     </Space>
+  );
+}
+
+function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null; isSeries: boolean }) {
+  const { t } = useTranslation();
+  if (!work) return null;
+  const dateStr = isSeries ? work.start_date : work.release_date;
+  const year = dateStr ? dateStr.slice(0, 4) : null;
+  const rows: Array<{ label: string; value: string }> = [];
+  if (year) rows.push({ label: t('works.year'), value: year });
+  if (work.is_anime != null) {
+    rows.push({
+      label: t('works.animeStatus'),
+      value: work.is_anime ? t('works.anime') : t('works.liveAction'),
+    });
+  }
+  if (work.rating != null) rows.push({ label: t('works.colRating'), value: work.rating.toFixed(1) });
+  if (work.genre && work.genre.length > 0) rows.push({ label: t('works.colGenre'), value: work.genre.join(' · ') });
+  if (work.status) rows.push({ label: t('works.colStatus'), value: work.status });
+  if (isSeries && (work.number_of_seasons != null || work.number_of_episodes != null)) {
+    rows.push({
+      label: t('series.seasonsEpisodes'),
+      value: `${work.number_of_seasons ?? '—'} / ${work.number_of_episodes ?? '—'}`,
+    });
+  }
+  if (rows.length === 0 && !work.description) return null;
+  return (
+    <Tooltip
+      title={
+        <div style={{ maxWidth: 320 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6, color: '#fff', wordBreak: 'break-word' }}>
+            {work.title_cn || work.title_en || work.original_title || work.id}
+          </div>
+          {rows.map((row) => (
+            <div key={row.label} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: '18px' }}>
+              <span style={{ color: '#b0b0ba', flexShrink: 0 }}>{row.label}</span>
+              <span style={{ color: '#fff', wordBreak: 'break-word' }}>{row.value}</span>
+            </div>
+          ))}
+          {work.description && (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 12,
+                color: '#c8c8d0',
+                wordBreak: 'break-word',
+                maxHeight: 80,
+                overflow: 'hidden',
+              }}
+            >
+              {work.description}
+            </div>
+          )}
+        </div>
+      }
+      placement="topLeft"
+    >
+      <span
+        onClick={(e) => e.stopPropagation()}
+        style={{ display: 'inline-flex', alignItems: 'center' }}
+      >
+        <Info size={12} style={{ color: '#93939f', flexShrink: 0, cursor: 'help' }} />
+      </span>
+    </Tooltip>
   );
 }
 
@@ -686,17 +755,22 @@ export default function ChannelDetail() {
                                     onError={useDefaultPoster}
                                   />
                                   <div style={{ minWidth: 0 }}>
-                                    {workUrl ? (
-                                      <Link to={workUrl} onClick={(e) => e.stopPropagation()}>
-                                        <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-                                          {workTitle}
-                                        </Text>
-                                      </Link>
-                                    ) : (
-                                      <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-                                        {workTitle}
-                                      </Text>
-                                    )}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        {workUrl ? (
+                                          <Link to={workUrl} onClick={(e) => e.stopPropagation()}>
+                                            <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                                              {workTitle}
+                                            </Text>
+                                          </Link>
+                                        ) : (
+                                          <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                                            {workTitle}
+                                          </Text>
+                                        )}
+                                      </div>
+                                      <WorkInfoIcon work={work} isSeries={!!r.series_id} />
+                                    </div>
                                     {(r.series_id || r.movie_id) && (
                                       <Tag
                                         color={r.series_id ? 'blue' : 'green'}
@@ -760,6 +834,10 @@ export default function ChannelDetail() {
               <div>
                 <Space size={6}>
                   <Text strong>{g.title}</Text>
+                  <WorkInfoIcon
+                    work={g.resources[0]?.series ?? g.resources[0]?.movie ?? null}
+                    isSeries={g.type === 'series'}
+                  />
                   <Tag color={groupColor(g.type)} icon={groupIcon(g.type)}>
                     {g.type === 'series' ? t('dashboard.series') : t('dashboard.movie')}
                   </Tag>

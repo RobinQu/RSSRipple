@@ -90,6 +90,42 @@ def test_resource_metadata_parses_batch_fields():
     assert meta.episode_end == 13
 
 
+def test_resource_metadata_parses_batch_scope():
+    meta = ResourceMetadata.from_dict({
+        "clean_title": "Show",
+        "content_type": "tv",
+        "found": True,
+        "is_batch": True,
+        "batch_scope": "multi_season",
+    })
+    assert meta.is_batch is True
+    assert meta.batch_scope == "multi_season"
+
+
+def test_resource_metadata_batch_scope_absent_is_none():
+    meta = ResourceMetadata.from_dict({
+        "clean_title": "Show",
+        "content_type": "tv",
+        "found": True,
+        "is_batch": True,
+    })
+    assert meta.batch_scope is None
+
+
+def test_resource_metadata_batch_scope_off_whitelist_is_none():
+    """Free-form LLM output must not poison the writeback — anything outside
+    season|multi_season|franchise is dropped."""
+    for bad in ("whole_series", "MULTI_SEASON", "", 3, True):
+        meta = ResourceMetadata.from_dict({
+            "clean_title": "Show",
+            "content_type": "tv",
+            "found": True,
+            "is_batch": True,
+            "batch_scope": bad,
+        })
+        assert meta.batch_scope is None
+
+
 def test_resource_metadata_defaults_are_non_batch():
     meta = ResourceMetadata.from_dict({
         "clean_title": "Show",
