@@ -12,12 +12,17 @@ Two phases per series with ``start_date IS NULL``:
 
 1. **Offline**: derive from existing ``episodes`` rows (``MIN(air_date)``) —
    no network, covers works whose episode list was already upserted.
-2. **Wikipedia fetch**: for the remainder with a wikipedia identity
-   (``external_id=wikipedia:<pageid>`` or ``wikipedia_url``), fetch wikitext
-   and run the deterministic ``parse_episode_list``; earliest parsed
-   ``air_date`` becomes ``start_date``. Series without parseable dates are
-   reported and left untouched (run ``wikipedia_seasons_eval.py --apply``
-   separately if their episode rows are also missing).
+2. **Wikipedia fetch**: for the remainder, fetch wikitext and run the
+   deterministic ``parse_episode_list``; the earliest parsed ``air_date``
+   becomes ``start_date``. Page location tries, in order:
+   a. the exact ``wikipedia_url`` recorded in MetadataCache matched_entity
+      (the pipeline knew the page's language at match time; the series row
+      only kept the per-language pageid, which is meaningless without it);
+   b. ``series.wikipedia_url``;
+   c. last resort: resolve the pageid against zh/ja/en wikis in order.
+   Series without parseable dates are reported and left untouched (run
+   ``wikipedia_seasons_eval.py --apply`` separately if their episode rows
+   are also missing).
 
 NOTE on locking: the embedded-Turso backend holds a single-process exclusive
 file lock, so STOP the app (``docker compose stop app``) before running this
@@ -31,12 +36,14 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import re
 from datetime import date
 from urllib.parse import unquote
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory
 from app.models.episode import Episode
@@ -48,77 +55,129 @@ from app.services.metadata_wikipedia_client import (
 from app.services.wikipedia_episode_parser import parse_episode_list
 
 APPLY_BATCH_SIZE = 20
+_WIKI_URL_RE = re.compile(r"https?://([a-z-]+)\.wikipedia\.org/wiki/([^#?]+)")
+_PAGEID_RE = re.compile(r"^wikipedia:(\d+)$")
+# Order for the last-resort pageid resolution; zh catalog dominates.
+_PAGEID_LANGS = ("zh", "ja", "en")
 
 
-def _page_locator(series: TVSeries) -> tuple[str | None, str | None, int | None]:
-    """Derive (lang, title, page_id) for the work's wikipedia page.
+def _lang_title_from_url(url: str) -> tuple[str, str] | None:
+    m = _WIKI_URL_RE.search(url or "")
+    if not m:
+        return None
+    return m.group(1), unquote(m.group(2)).replace("_", " ")
 
-    Same rule as ``wikipedia_seasons_eval._page_locator``.
+
+async def _cache_wikipedia_urls(db: AsyncSession, series: TVSeries) -> list[str]:
+    """wikipedia_urls recorded in MetadataCache entities for this work.
+
+    The cache payload remembers the exact page (language + title) the
+    pipeline selected; the series row only kept the bare pageid.
     """
-    url = series.wikipedia_url or ""
-    m = re.search(r"https?://([a-z-]+)\.wikipedia\.org/wiki/([^#?]+)", url)
-    if m:
-        return m.group(1), unquote(m.group(2)).replace("_", " "), None
-    ext = series.external_id or ""
-    m = re.match(r"^wikipedia:(\d+)$", ext)
-    if m:
-        # Wikipedia page ids are per-language-wiki; without a URL we cannot
-        # know the language - the zh catalog is the dominant case here.
-        return "zh", None, int(m.group(1))
-    return None, None, None
+    m = _PAGEID_RE.match(series.external_id or "")
+    if not m:
+        return []
+    pageid = m.group(1)
+    rows = (
+        await db.execute(
+            text(
+                "SELECT metadata_json FROM metadata_cache "
+                "WHERE source = 'metadata_agent:wikipedia' "
+                "AND metadata_json LIKE :pat"
+            ),
+            {"pat": f"%{pageid}%"},
+        )
+    ).scalars().all()
+    urls: list[str] = []
+    wanted = {series.external_id}
+    for payload in rows:
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except ValueError:
+                continue
+        me = (payload or {}).get("matched_entity") or {}
+        ids = {me.get("external_id")} | {
+            a.get("id") for a in (me.get("alt_external_ids") or [])
+        }
+        if not (wanted & ids):
+            continue
+        url = me.get("wikipedia_url")
+        if url and url not in urls:
+            urls.append(url)
+    return urls
 
 
-async def _title_from_page_id(page_id: int, lang: str) -> str | None:
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"https://{lang}.wikipedia.org/w/api.php",
-                params={
-                    "action": "query",
-                    "format": "json",
-                    "pageids": page_id,
-                    "redirects": 1,
-                },
-                headers={"User-Agent": _WIKIPEDIA_USER_AGENT},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        for page in (data.get("query") or {}).get("pages", {}).values():
-            if page.get("title"):
-                return page["title"]
-    except Exception as e:  # noqa: BLE001 - reported as unresolved reason
-        print(f"    pageid resolve failed: {e}")
+async def _title_from_page_id(page_id: str) -> tuple[str, str] | None:
+    """Last-resort pageid resolution, trying zh/ja/en in order."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        for lang in _PAGEID_LANGS:
+            try:
+                resp = await client.get(
+                    f"https://{lang}.wikipedia.org/w/api.php",
+                    params={
+                        "action": "query",
+                        "format": "json",
+                        "pageids": page_id,
+                        "redirects": 1,
+                    },
+                    headers={"User-Agent": _WIKIPEDIA_USER_AGENT},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:  # noqa: BLE001 - try the next language
+                print(f"    pageid resolve failed ({lang}): {e}")
+                continue
+            for page in (data.get("query") or {}).get("pages", {}).values():
+                if page.get("title"):
+                    return lang, page["title"]
     return None
 
 
-async def _derive_from_wikipedia(series: TVSeries) -> tuple[date | None, str | None]:
+async def _derive_from_wikipedia(
+    db: AsyncSession, series: TVSeries
+) -> tuple[date | None, str | None]:
     """Fetch + parse the series' wikipedia page; earliest episode air_date.
 
-    Returns ``(start_date, failure_reason)`` — exactly one is set. Pure read,
-    no DB access.
+    Returns ``(start_date, failure_reason)`` — exactly one is set. Writes
+    nothing.
     """
-    lang, title, page_id = _page_locator(series)
-    if not lang:
+    candidates: list[tuple[str, str]] = []
+    for url in await _cache_wikipedia_urls(db, series):
+        lt = _lang_title_from_url(url)
+        if lt and lt not in candidates:
+            candidates.append(lt)
+    lt = _lang_title_from_url(series.wikipedia_url or "")
+    if lt and lt not in candidates:
+        candidates.append(lt)
+    m = _PAGEID_RE.match(series.external_id or "")
+    if not candidates and m:
+        resolved = await _title_from_page_id(m.group(1))
+        if resolved:
+            candidates.append(resolved)
+    if not candidates:
         return None, "no wikipedia locator"
-    if title is None:
-        title = await _title_from_page_id(page_id, lang)
-        if not title:
-            return None, f"pageid {page_id} unresolved ({lang})"
-    wikitext = await fetch_wikipedia_wikitext(title, lang)
-    if not wikitext:
-        return None, "wikitext fetch failed"
-    list_data = parse_episode_list(wikitext)
-    air_dates = sorted(
-        ep["air_date"]
-        for ep in ((list_data or {}).get("episodes") or [])
-        if ep.get("air_date")
-    )
-    if not air_dates:
-        return None, "no episode air dates on page"
-    try:
-        return date.fromisoformat(air_dates[0]), None
-    except ValueError:
-        return None, f"unparseable air_date {air_dates[0]!r}"
+
+    last_reason = "no wikipedia locator"
+    for lang, title in candidates:
+        wikitext = await fetch_wikipedia_wikitext(title, lang)
+        if not wikitext:
+            last_reason = f"wikitext fetch failed ({lang}:{title})"
+            continue
+        list_data = parse_episode_list(wikitext)
+        air_dates = sorted(
+            ep["air_date"]
+            for ep in ((list_data or {}).get("episodes") or [])
+            if ep.get("air_date")
+        )
+        if not air_dates:
+            last_reason = f"no episode air dates on page ({lang}:{title})"
+            continue
+        try:
+            return date.fromisoformat(air_dates[0]), None
+        except ValueError:
+            last_reason = f"unparseable air_date {air_dates[0]!r}"
+    return None, last_reason
 
 
 async def main(limit: int | None, delay: float, apply: bool) -> None:
@@ -140,12 +199,10 @@ async def main(limit: int | None, delay: float, apply: bool) -> None:
             ).all()
         )
         if apply:
-            n_offline = 0
             for s in rows:
                 d = ep_dates.get(s.id)
                 if d is not None:
                     s.start_date = d
-                    n_offline += 1
             await db.commit()
     if limit:
         rows = rows[:limit]
@@ -164,12 +221,11 @@ async def main(limit: int | None, delay: float, apply: bool) -> None:
 
     n_fetched = 0
     failures: dict[str, int] = {}
-    session = async_session_factory() if apply else None
-    try:
+    async with async_session_factory() as session:
         for i, s in enumerate(needs_fetch, 1):
             if i > 1:
                 await asyncio.sleep(delay)  # ~1 req/s, Wikimedia-friendly
-            d, reason = await _derive_from_wikipedia(s)
+            d, reason = await _derive_from_wikipedia(session, s)
             title = s.title_cn or s.title_en
             if d is None:
                 failures[reason] = failures.get(reason, 0) + 1
@@ -186,9 +242,6 @@ async def main(limit: int | None, delay: float, apply: bool) -> None:
                     print(f"    ... committed batch ({n_fetched} works)")
         if apply:
             await session.commit()
-    finally:
-        if session is not None:
-            await session.close()
     print(f"phase 2 (wikipedia fetch): {n_fetched} resolved")
     if failures:
         print("unresolved (left untouched):")
