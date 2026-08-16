@@ -310,3 +310,64 @@ async def test_check_downloader_connections_failure(db_session, _seed, monkeypat
         await sch._check_downloader_connections()
     await db_session.refresh(_seed.dl)
     assert _seed.dl.status == "error"
+
+
+# ---------------------------------------------------------------------------
+# Periodic-job enqueue wrappers: the scheduler only enqueues (stable key);
+# the function bodies are executed by the queue consumer.
+# ---------------------------------------------------------------------------
+
+_PERIODIC_WRAPPERS = [
+    ("_enqueue_sync_progress", "sync_progress"),
+    ("_enqueue_daily_cleanup", "daily_cleanup"),
+    ("_enqueue_daily_dedup", "daily_dedup"),
+    ("_enqueue_check_downloaders", "check_downloaders"),
+    ("_enqueue_fts_drain", "fts_drain"),
+    ("_enqueue_fts_reconcile", "fts_reconcile"),
+    ("_enqueue_download_notifications", "download_notifications"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper_name,job_type", _PERIODIC_WRAPPERS)
+async def test_periodic_job_wrapper_enqueues_with_stable_key(monkeypatch, wrapper_name, job_type):
+    import app.services.task_queue as tq_mod
+
+    fake_queue = MagicMock()
+    fake_queue.throttle = AsyncMock(return_value=True)
+    fake_queue.enqueue = AsyncMock(return_value={"status": "queued"})
+    monkeypatch.setattr(tq_mod, "task_queue", fake_queue)
+
+    await getattr(sch, wrapper_name)()
+
+    fake_queue.throttle.assert_awaited_once()
+    fake_queue.enqueue.assert_awaited_once_with(job_type, f"job:{job_type}", {})
+
+
+@pytest.mark.asyncio
+async def test_periodic_job_wrapper_skips_when_throttled(monkeypatch):
+    """A losing tick (another worker already ticked this interval) must not
+    enqueue at all — this is what keeps N schedulers to one job/interval."""
+    import app.services.task_queue as tq_mod
+
+    fake_queue = MagicMock()
+    fake_queue.throttle = AsyncMock(return_value=False)
+    fake_queue.enqueue = AsyncMock()
+    monkeypatch.setattr(tq_mod, "task_queue", fake_queue)
+
+    await sch._enqueue_sync_progress()
+
+    fake_queue.enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_periodic_job_wrapper_swallows_enqueue_errors(monkeypatch):
+    """A queue outage must not crash the scheduler job — just log and drop."""
+    import app.services.task_queue as tq_mod
+
+    fake_queue = MagicMock()
+    fake_queue.throttle = AsyncMock(return_value=True)
+    fake_queue.enqueue = AsyncMock(side_effect=ConnectionError("redis down"))
+    monkeypatch.setattr(tq_mod, "task_queue", fake_queue)
+
+    await sch._enqueue_sync_progress()  # must not raise

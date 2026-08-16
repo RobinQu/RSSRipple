@@ -3,14 +3,18 @@
 #
 #   • PostgreSQL (shared database)
 #   • Redis (shared task queue)
-#   • Two app replicas behind independent health checks
+#   • app-1: web role (HTTP + enqueue, APP_ROLE=web)
+#   • app-2: worker role (queue consumer, APP_ROLE=worker, no HTTP)
 #
 # Complements docker-compose.test.yml (single-node SQLite/MemoryQueue).
 # Runs all deterministic integration tests. External metadata search/accuracy
 # benchmarks and real-feed tests are excluded from the default compose suite.
 #
-# test_task_queue.py is parametrized over both app-1 and app-2, exercising
-# the Redis-backed queue in a true multi-instance configuration.
+# test_task_queue.py runs against app-1's API; jobs it enqueues onto the
+# Redis queue are consumed by the app-2 worker, so the Redis-backed queue is
+# still exercised end-to-end across processes. REDIS_APP_URL is no longer set
+# (app-2 serves no HTTP), so the cross-instance parametrization collapses to
+# the single web URL and the distinct-instance dedup class skips.
 #
 # Usage:
 #   docker compose -f docker-compose.test-distributed.yml run --rm test-runner
@@ -55,7 +59,7 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  # ── RSSRipple replica 1 ────────────────────────────────────────────────────
+  # ── RSSRipple web (APP_ROLE=web: HTTP + enqueue only) ────────────────────
   app-1:
     build: .
     env_file: .env
@@ -66,6 +70,7 @@ services:
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
+      - APP_ROLE=web
       # Scheduler off (same as the single-node stack, see cff0af0): auto-
       # fetch-on-create is gated on scheduler_enabled, and the integration
       # tests drive fetches explicitly — an auto fetch racing the explicit
@@ -89,7 +94,7 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  # ── RSSRipple replica 2 ────────────────────────────────────────────────────
+  # ── RSSRipple worker (APP_ROLE=worker: queue consumer, no HTTP) ──────────
   app-2:
     build: .
     env_file: .env
@@ -100,24 +105,24 @@ services:
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
+      - APP_ROLE=worker
       # See app-1: scheduler stays off so tests control every fetch.
       - SCHEDULER_ENABLED=false
       # Static bootstrap key for the auth gate (AUTH_ENABLED defaults to
       # true); integration tests send it as X-API-Key.
       - API_KEY=test-integration-key
+    command: ["uv", "run", "--no-project", "python", "-m", "app.worker"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # Workers execute the fetch/download jobs, so they need the feed
+      # server reachable just like the web tier.
       test-server:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:9001/api/v1/channels', headers={'X-API-Key': 'test-integration-key'}), timeout=3)"]
-      interval: 5s
-      timeout: 15s
-      retries: 30
-      start_period: 40s
+    # No healthcheck: the worker serves no HTTP. test-runner only needs the
+    # process started — enqueue/poll timeouts absorb the consumer boot lag.
     restart: unless-stopped
 
   # ── Test runner ────────────────────────────────────────────────────────────
@@ -128,7 +133,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
       - TEST_SERVER_URL=http://test-server:8080
       - RSSRIPPLE_URL=http://app-1:9001
-      - REDIS_APP_URL=http://app-2:9001
+      # REDIS_APP_URL intentionally unset: app-2 is a worker without HTTP, so
+      # test_task_queue.py falls back to the single web URL (see header).
     volumes:
       - ./.env:/app/.env:ro
       - ./tests:/app/tests:ro
@@ -136,7 +142,7 @@ services:
       app-1:
         condition: service_healthy
       app-2:
-        condition: service_healthy
+        condition: service_started
       test-server:
         condition: service_healthy
     command:

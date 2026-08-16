@@ -1,6 +1,5 @@
 """FastAPI application entry point."""
 
-import asyncio
 import logging
 import traceback
 from contextlib import asynccontextmanager
@@ -17,275 +16,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 # Import models for SQLAlchemy discovery
 import app.models  # noqa: F401
 from app.config import settings
-from app.database import async_session_factory, committed_session, create_tables, install_db_retry_middleware
+from app.database import async_session_factory, create_tables, install_db_retry_middleware
 
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
-
-
-# ---------------------------------------------------------------------------
-# Background job handlers
-# ---------------------------------------------------------------------------
-
-async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
-    from app.models.channel import Channel
-    from app.services.fetch_service import fetch_channel_resources
-
-    channel_id: str = payload["channel_id"]
-    force: bool = bool(payload.get("force", False))
-    async with committed_session() as session:
-        ch = await session.get(Channel, channel_id)
-        if not ch:
-            raise RuntimeError(f"Channel {channel_id} not found")
-        result = await fetch_channel_resources(ch, session, force=force)
-        return result
-
-
-async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
-    from datetime import datetime
-
-    from sqlalchemy import select
-    from sqlalchemy.orm import selectinload
-
-    from app.models.agent import Agent
-    from app.models.agent_run import AgentRun
-    from app.models.file_resource import FileResource
-    from app.models.movie import Movie
-    from app.models.series import TVSeries
-    from app.services.agent_service import process_resources
-    from app.utils.time import utcnow
-
-    agent_id: str = payload["agent_id"]
-    resource_ids: list[str] | None = payload.get("resource_ids")
-    # Manual windowed run (scenario ④): the key's presence marks the run as
-    # "scan from a user-chosen start time"; a null value means "no limit"
-    # (full channel history). Already normalised to naive UTC by the API.
-    scan_since: datetime | None = None
-    scan_windowed = "scan_since" in payload
-    if scan_windowed and payload["scan_since"] is not None:
-        scan_since = datetime.fromisoformat(payload["scan_since"])
-    # Lower bound recorded on the AgentRun for run-history display. None =
-    # delta/targeted run; 1970-01-01 = explicit "no limit" full scan.
-    run_scan_since: datetime | None = None
-
-    # Phase 1 (short transaction): persist the "running" record up front and
-    # pick the resources this run covers, then COMMIT. The slow processing
-    # phase below must not run inside this transaction — holding the SQLite
-    # write lock across LLM calls / Transmission RPCs stalls every foreground
-    # write request until the retry middleware gives up.
-    async with committed_session() as session:
-        agent = await session.get(Agent, agent_id)
-        if not agent:
-            raise RuntimeError(f"Agent {agent_id} not found")
-
-        run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
-        session.add(run)
-        await session.flush()
-        run_id = run.id
-        channel_id = agent.channel_id
-
-        advance_to = None
-        if resource_ids:
-            # Targeted run (scenario ③, e.g. correct_episode): process exactly
-            # the given resources against the agent's *current* rules. Bypasses
-            # the watermark and does NOT advance it — the resource may be old,
-            # and advancing would skip its neighbours.
-            stmt = (
-                select(FileResource.id)
-                .where(
-                    FileResource.channel_id == channel_id,
-                    FileResource.id.in_(resource_ids),
-                )
-                .order_by(FileResource.created_at.asc())
-            )
-            selected_ids = list((await session.execute(stmt)).scalars().all())
-        elif scan_windowed:
-            # Windowed run (scenario ④): scan channel resources created after
-            # the user-chosen start time, or the full channel history when
-            # scan_since is null ("no limit"). Only the scan range of THIS
-            # run is affected — the watermark still advances past everything
-            # considered (dedup makes re-processing idempotent), so the next
-            # delta run resumes normal incremental behaviour.
-            stmt = (
-                select(FileResource.id, FileResource.created_at)
-                .where(FileResource.channel_id == channel_id)
-                .order_by(FileResource.created_at.asc())
-            )
-            if scan_since is not None:
-                stmt = stmt.where(FileResource.created_at > scan_since)
-            rows = (await session.execute(stmt)).all()
-            selected_ids = [r.id for r in rows]
-            if rows:
-                advance_to = max(r.created_at for r in rows)
-            run_scan_since = scan_since if scan_since is not None else datetime(1970, 1, 1)
-        else:
-            # Delta run (scenario ①): only resources newer than the agent's
-            # consumption watermark. Replaces the old hard-coded ``limit(200)``
-            # which silently dropped anything beyond the latest 200.
-            wm = agent.last_consumed_at
-            if wm is None:
-                # No watermark yet (e.g. migration skipped this row): treat as
-                # "caught up to now" and process nothing, so we never silently
-                # auto-dispatch historical backfill — that must go through the
-                # rules-preview selection flow.
-                agent.last_consumed_at = utcnow()
-                selected_ids = []
-            else:
-                stmt = (
-                    select(FileResource.id, FileResource.created_at)
-                    .where(
-                        FileResource.channel_id == channel_id,
-                        FileResource.created_at > wm,
-                    )
-                    .order_by(FileResource.created_at.asc())
-                )
-                rows = (await session.execute(stmt)).all()
-                selected_ids = [r.id for r in rows]
-                # Advance the watermark past everything we just considered
-                # (delta run only). Targeted runs leave it untouched.
-                if rows:
-                    advance_to = max(r.created_at for r in rows)
-
-    # Phase 2 (incremental commits): the slow part — filtering, LLM picks,
-    # Transmission RPCs. ``autocommit=True`` makes process_resources commit
-    # after each dispatch/decision, so the write lock is never held across an
-    # external call. The block-level retry of committed_session is safe here:
-    # every unit is idempotent (task dedup / decision upsert), so a re-run
-    # after a lock error just skips already-committed work.
-    async with committed_session() as session:
-        agent = await session.get(Agent, agent_id)
-        if not agent:
-            raise RuntimeError(f"Agent {agent_id} not found")
-        run = await session.get(AgentRun, run_id)
-        if not run:
-            raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
-
-        resources: list[FileResource] = []
-        if selected_ids:
-            result = await session.execute(
-                select(FileResource)
-                .where(FileResource.id.in_(selected_ids))
-                # series/movie are read by the filter DSL (movie.rating …) and
-                # the LLM pick summary — eager-load to avoid async lazy loads.
-                # The work's collection feeds the series.collection /
-                # movie.collection DSL fields, so chain-load it too.
-                .options(
-                    selectinload(FileResource.series).selectinload(TVSeries.collection),
-                    selectinload(FileResource.movie).selectinload(Movie.collection),
-                )
-                .order_by(FileResource.created_at.asc())
-            )
-            resources = list(result.scalars().all())
-        run_result = await process_resources(agent, resources, session, autocommit=True)
-
-        if advance_to is not None:
-            agent.last_consumed_at = advance_to
-
-        agent.last_run_at = utcnow()
-        # More granular status so the UI can badge "待决策" instead of a
-        # deceptively-green "success" when the run generated PDs but
-        # dispatched nothing.
-        if run_result.errors:
-            agent.last_run_status = "failed"
-        elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
-            agent.last_run_status = "pending_decisions"
-        else:
-            agent.last_run_status = "success"
-
-        # Finalise the run record.
-        run.status = agent.last_run_status
-        run.finished_at = utcnow()
-        run.scan_since = run_scan_since
-        run.total_resources = run_result.total_resources
-        run.matched = run_result.matched
-        run.dispatched = run_result.dispatched
-        run.pending_decisions = run_result.pending_decisions
-        run.filter_failed = run_result.filter_failed
-        run.duplicates_skipped = run_result.duplicates_skipped
-        run.unrecognized = run_result.unrecognized
-        run.matched_resource_ids = list(run_result.matched_resource_ids)
-        run.errors = list(run_result.errors)
-
-        return {
-            "agent_id": agent_id,
-            "run_id": run.id,
-            "total_resources": run_result.total_resources,
-            "matched": run_result.matched,
-            "dispatched": run_result.dispatched,
-            "pending_decisions": run_result.pending_decisions,
-            "filter_failed": run_result.filter_failed,
-            "duplicates_skipped": run_result.duplicates_skipped,
-            "unrecognized": run_result.unrecognized,
-            "errors": run_result.errors,
-        }
-
-
-# Per-work ceiling for the background metadata-refresh job. A single hung
-# external search (Jina/LLM call that never returns) must not stall the whole
-# batch - and with it the shared task queue.
-_REFRESH_WORK_TIMEOUT = 120  # seconds
-
-
-async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no cover
-    """Background job: refresh metadata for a batch of works sequentially.
-
-    Each work is bounded by ``_REFRESH_WORK_TIMEOUT`` so a single hung external
-    search cannot stall the whole batch - and the shared task queue - forever.
-    """
-    from app.services.metadata_service import refresh_work_metadata
-
-    items: list[dict] = payload.get("items", []) or []
-    source: str | None = payload.get("source")
-    results: list[dict] = []
-    # One short transaction per work. A single transaction wrapping the whole
-    # batch would hold the SQLite write lock across every external metadata
-    # search (up to ``_REFRESH_WORK_TIMEOUT`` each), stalling foreground writes
-    # for minutes. (refresh_work_metadata also commits internally; the wrapper
-    # gives per-work lock-retry semantics instead of retrying the whole batch.)
-    for item in items:
-        work_id = item.get("id")
-        content_type = item.get("content_type")
-        try:
-            async with committed_session() as session:
-                r = await asyncio.wait_for(
-                    refresh_work_metadata(session, work_id, content_type, source),
-                    timeout=_REFRESH_WORK_TIMEOUT,
-                )
-            results.append({"id": work_id, "content_type": content_type, **r})
-        except TimeoutError:
-            logger.warning(
-                "[refresh_works] timed out after %ds for %s/%s",
-                _REFRESH_WORK_TIMEOUT, content_type, work_id,
-            )
-            results.append(
-                {"id": work_id, "content_type": content_type, "found": False, "error": "timeout"}
-            )
-        except Exception as e:  # noqa: BLE001 — keep processing the rest
-            logger.warning(
-                "[refresh_works] failed for %s/%s: %s", content_type, work_id, e
-            )
-            results.append(
-                {"id": work_id, "content_type": content_type, "found": False, "error": str(e)}
-            )
-    return {"status": "done", "processed": len(results), "results": results}
-
-
-async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
-    """Background job: globally backfill retry-eligible unmatched resources.
-
-    Driven by the standalone ``metadata_backfill`` scheduler job (not tied to
-    fetch_channel) so metadata repair progresses even when feeds are slow or
-    quiet. Processes up to ``MAX_GLOBAL_BACKFILL_PER_RUN`` resources across all
-    agent-enabled channels; the scheduler re-enqueues with a stable key so the
-    queue dedup runs it back-to-back while unparsed resources remain.
-    """
-    from app.services.fetch_service import backfill_unmatched_resources_global
-
-    async with committed_session() as session:
-        processed = await backfill_unmatched_resources_global(session)
-    logger.info("[backfill_metadata] processed %d resources", processed)
-    return {"status": "done", "processed": processed}
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +86,13 @@ async def lifespan(app: FastAPI):  # pragma: no cover
         totp_provisioning_uri(totp_secret),
     )
 
+    # Web/worker separation: with APP_ROLE=web this process only serves HTTP
+    # and enqueues jobs — the scheduler and queue consumer live in the worker
+    # process (app/worker.py). APP_ROLE=all (default) keeps everything in one
+    # process. Handler registration happens in every role so status/clear
+    # semantics stay consistent.
+    is_web_only = settings.app_role == "web"
+
     # Init scheduler
     from app.services.scheduler import (
         init_scheduler,
@@ -358,15 +100,17 @@ async def lifespan(app: FastAPI):  # pragma: no cover
         setup_metadata_refresh_job,
         shutdown_scheduler,
     )
-    await init_scheduler()
+    if not is_web_only:
+        await init_scheduler()
 
-    # Setup channel jobs with a DB session
-    async with async_session_factory() as sess:
-        await setup_channel_jobs(sess)
-        await sess.commit()
+        # Setup channel jobs with a DB session
+        async with async_session_factory() as sess:
+            await setup_channel_jobs(sess)
+            await sess.commit()
 
     # Build task queue
     import app.services.task_queue as _tq_mod
+    from app.job_handlers import register_all_handlers
     from app.services.task_queue import create_queue
 
     queue = create_queue(
@@ -376,15 +120,14 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     )
     _tq_mod.task_queue = queue
 
-    queue.register("fetch_channel", _handle_fetch_channel)
-    queue.register("run_agent", _handle_run_agent)
-    queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
-    queue.register("backfill_metadata", _handle_backfill_metadata)
+    register_all_handlers(queue)
 
-    await queue.start()
-    async with async_session_factory() as sess:
-        await setup_metadata_refresh_job(sess)
-        await sess.commit()
+    # The web role never consumes: jobs it enqueues are executed by a worker.
+    await queue.start(consume=not is_web_only)
+    if not is_web_only:
+        async with async_session_factory() as sess:
+            await setup_metadata_refresh_job(sess)
+            await sess.commit()
     try:
         yield
     finally:

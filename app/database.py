@@ -421,6 +421,13 @@ async def _apply_light_migrations(conn) -> None:
         ("libraries", "server_path", "VARCHAR(1024)"),
         ("libraries", "volume_id", "VARCHAR(36)"),
         ("libraries", "root_subpath", "VARCHAR(1024)"),
+        # Torrent content detection (P1): batch scope sub-classification on
+        # FileResource (NULL = non-batch; season / multi_season / franchise),
+        # a WorkCollection link for franchise packs, and the local relative
+        # path of the cached .torrent file (bytes live on disk only).
+        ("file_resources", "batch_scope", "VARCHAR(16)"),
+        ("file_resources", "collection_id", "VARCHAR(36)"),
+        ("file_resources", "torrent_file", "VARCHAR(2048)"),
     ]
 
     for table, column, ddl in additions:

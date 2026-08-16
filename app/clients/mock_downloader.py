@@ -24,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+import bencodepy
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,6 +121,54 @@ def _hash_for(torrent_url: str) -> str:
     return hashlib.sha1(torrent_url.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _decode_text(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _parse_metainfo(data: bytes) -> tuple[str, list[dict[str, Any]], str] | None:
+    """Decode raw .torrent bytes into ``(name, files, info_hash)``.
+
+    Mirrors what a real daemon learns from pushed metainfo: the display name
+    comes from ``info/name`` and the file listing from ``info/files``
+    (multi-file) or the single-file ``info/name`` entry. Returns None when
+    the payload is not a decodable torrent.
+    """
+    try:
+        decoded = bencodepy.decode(data)
+        info = decoded.get(b"info") if isinstance(decoded, dict) else None
+        if not isinstance(info, dict):
+            return None
+        raw_name = info.get(b"name.utf-8") or info.get(b"name")
+        if raw_name is None:
+            return None
+        name = _decode_text(raw_name)
+        files: list[dict[str, Any]] = []
+        entries = info.get(b"files")
+        if isinstance(entries, list):
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    return None
+                length = entry.get(b"length")
+                parts = entry.get(b"path.utf-8") or entry.get(b"path")
+                if not isinstance(length, int) or not isinstance(parts, list) or not parts:
+                    return None
+                files.append({
+                    "name": "/".join(_decode_text(p) for p in parts),
+                    "size": length,
+                })
+        else:
+            length = info.get(b"length")
+            if not isinstance(length, int):
+                return None
+            files.append({"name": name, "size": length})
+        info_hash = hashlib.sha1(bencodepy.encode(info)).hexdigest()
+        return name, files, info_hash
+    except Exception:
+        return None
+
+
 def reset_state() -> None:
     """Wipe all mock-downloader state. Used by tests."""
     _STATE.clear()
@@ -153,7 +203,7 @@ class MockDownloaderWrapper:
 
     async def add_torrent(
         self,
-        torrent_url: str,
+        torrent: str | bytes,
         download_dir: str | None = None,
         paused: bool = False,
     ) -> dict[str, Any]:
@@ -161,14 +211,32 @@ class MockDownloaderWrapper:
         torrent_id = store.next_id
         store.next_id += 1
         duration = random.uniform(MIN_DURATION_S, MAX_DURATION_S)
+        files: list[dict[str, Any]] | None = None
+        if isinstance(torrent, bytes):
+            meta = _parse_metainfo(torrent)
+            if meta is not None:
+                name, files, torrent_hash = meta
+            else:
+                logger.warning(
+                    "[mock_downloader:%s] undecodable torrent bytes; using placeholder name",
+                    self._downloader_id,
+                )
+                name = "unnamed.torrent"
+                torrent_hash = hashlib.sha1(torrent).hexdigest()
+        else:
+            name = _guess_name(torrent)
+            torrent_hash = _hash_for(torrent)
         state = _TorrentState(
             id=torrent_id,
-            name=_guess_name(torrent_url),
-            hash=_hash_for(torrent_url),
+            name=name,
+            hash=torrent_hash,
             download_dir=download_dir or "",
             added_at=time.monotonic(),
             duration=duration,
+            files=files,
         )
+        if files:
+            state.total_size = sum(f["size"] for f in files)
         if paused:
             state.paused = True
             state.paused_at = state.added_at

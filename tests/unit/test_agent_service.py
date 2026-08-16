@@ -28,6 +28,7 @@ from app.services.agent_service import (
     create_pending_decision,
     dispatch_download,
     process_resources,
+    resolve_torrent_payload,
     score_and_pick,
 )
 from app.utils.download_paths import DownloadPathError
@@ -1511,3 +1512,58 @@ def test_resource_matches_rules_unsubscribed_series_no_match():
     matched, _ = _resource_matches_rules(r, rules)
     assert matched is False
 
+
+
+# ---------------------------------------------------------------------------
+# resolve_torrent_payload
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTorrentPayload:
+    def test_cached_file_returns_bytes(self, tmp_path):
+        cached = tmp_path / "abc.torrent"
+        cached.write_bytes(b"d8:announce4:teste")
+        r = _make_resource("ch", torrent_file=str(cached))
+        assert resolve_torrent_payload(r) == b"d8:announce4:teste"
+
+    def test_missing_file_falls_back_to_url(self, tmp_path):
+        r = _make_resource("ch", torrent_file=str(tmp_path / "gone.torrent"))
+        assert resolve_torrent_payload(r) == r.torrent_url
+
+    def test_no_torrent_file_returns_url(self):
+        r = _make_resource("ch", torrent_file=None)
+        assert resolve_torrent_payload(r) == r.torrent_url
+
+
+class TestDispatchPushesCachedTorrent:
+    async def test_dispatch_sends_cached_torrent_bytes(
+        self, db_session, channel, downloader, tmp_path
+    ):
+        agent = Agent(
+            id=_uuid(), name="a", channel_id=channel.id,
+            downloader_id=downloader.id, status="active",
+            download_subdir="", scope_channel_wide=True, conflict_resolution="ask",
+        )
+        db_session.add(agent)
+        await db_session.flush()
+        payload = b"d4:infod4:name4:test6:lengthi1e4:pathl4:testee"
+        cached = tmp_path / "res.torrent"
+        cached.write_bytes(payload)
+        res = _make_resource(
+            channel.id, series_id=None, movie_id=None, torrent_file=str(cached),
+        )
+        db_session.add(res)
+        await db_session.flush()
+
+        with patch(
+            "app.clients.transmission.TransmissionWrapper.add_torrent",
+            new_callable=AsyncMock,
+            return_value={"torrent_id": 9, "name": "x", "hash": "h"},
+        ) as add_torrent:
+            task = await dispatch_download(agent, res, db_session)
+
+        assert task.status == "downloading"
+        add_torrent.assert_awaited_once_with(
+            payload,
+            download_dir="/downloads/rssripple",
+        )

@@ -77,6 +77,9 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
   // Collection display name (WorkCollection.title_cn or title_en) on the work.
   'movie.collection': 'string',
   'series.collection': 'string',
+  // Resource-level collection display name — franchise packs link a
+  // WorkCollection directly via collection_id (work FKs all empty).
+  collection: 'string',
   // Tri-state booleans on the work: true = anime, false = live-action,
   // null (empty) = undetermined — use is_empty/is_not_empty to match null.
   'series.is_anime': 'bool',
@@ -161,7 +164,9 @@ function useFieldOptions(t: TFunction) {
     'is_batch', 'episode_confidence',
   ];
   const title_fields: FilterField[] = ['title_cn', 'title_en', 'search_title'];
-  const work_type_fields: FilterField[] = ['content_type'];
+  // content_type 与资源级 collection（franchise 包直挂合集）都刻画
+  // 「资源是什么/属于哪个系列」，归入作品类型分组。
+  const work_type_fields: FilterField[] = ['content_type', 'collection'];
   const series_fields: FilterField[] = [
     'series.rating', 'series.year', 'series.genre', 'series.collection', 'series.is_anime',
   ];

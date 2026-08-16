@@ -109,6 +109,8 @@ uv run uvicorn app.main:app --reload --port 9001
 
 compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热重载 — 在 `frontend/` 下运行 `corepack pnpm run build`，或 `docker compose build app` 把新 bundle 重新打包进镜像。前端构建需要 Node.js 20.19+ 或 22.12+（Vite 8），包管理器为 **pnpm**（经 corepack，版本固定在 `frontend/package.json` 的 `packageManager` 字段）；Docker 镜像内的前端构建阶段使用 `node:22-slim` + BuildKit pnpm store 缓存挂载。
 
+在三种数据库后端（旧 SQLite / Turso / PostgreSQL）之间搬数据，用 `scripts/migrate_to_turso.py`、`scripts/migrate_to_postgres.py`，迁移后跑 `scripts/verify_search_parity.py` 校验；完整矩阵与 Docker 部署迁移步骤见 [docs/design/db-migration.md](docs/design/db-migration.md)。
+
 ## 测试
 
 **单元 & API 测试**（快速，本地 Turso）：

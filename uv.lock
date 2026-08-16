@@ -1528,6 +1528,7 @@ source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
     { name = "asyncpg" },
+    { name = "bencodepy" },
     { name = "exa-py" },
     { name = "fastapi" },
     { name = "feedparser" },
@@ -1554,7 +1555,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "bencodepy" },
     { name = "fakeredis" },
     { name = "httpx" },
     { name = "mutmut" },
@@ -1568,6 +1568,7 @@ dev = [
 requires-dist = [
     { name = "apscheduler", specifier = "==3.10.4" },
     { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "bencodepy", specifier = ">=0.9.5" },
     { name = "exa-py", specifier = ">=2.15.0" },
     { name = "fastapi", specifier = "==0.115.0" },
     { name = "feedparser", specifier = "==6.0.11" },
@@ -1594,7 +1595,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "bencodepy", specifier = ">=0.9.5" },
     { name = "fakeredis", specifier = ">=2.0" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "mutmut", specifier = ">=3.7.0" },

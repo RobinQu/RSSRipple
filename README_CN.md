@@ -85,6 +85,22 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | `QUEUE_BACKEND` | `"memory"`（默认）或 `"redis"`（需 `REDIS_URL`） |
 | `POSTER_CACHE_DIR` | 海报缓存目录，挂载到 `/posters` |
 
+## 数据库迁移
+
+默认栈（`docker-compose.yml`）跑 PostgreSQL + Redis。若你此前用单节点 Turso 栈（`docker-compose.standalone.yml`）并切换到默认栈，旧数据仍在 `app-data` 卷里，但**不会**自动加载——新的 PostgreSQL 是空的。用以下命令迁移：
+
+```bash
+docker compose stop app
+docker compose run --rm app \
+  uv run --no-project python scripts/migrate_to_postgres.py \
+  --source sqlite+aioturso:///data/rss_ripple_turso.db \
+  --target postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple \
+  --force
+docker compose start app
+```
+
+完整迁移矩阵（SQLite → Turso → PostgreSQL）、脚本用法与校验见 [docs/design/db-migration.md](docs/design/db-migration.md)。
+
 ## 使用指引
 
 应用运行在 http://localhost:9001 后：

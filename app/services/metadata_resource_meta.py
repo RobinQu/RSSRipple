@@ -9,6 +9,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+BATCH_SCOPE_VALUES = ("season", "multi_season", "franchise")
+
+
+def _parse_batch_scope(value: object) -> str | None:
+    """Whitelist-validate a ``batch_scope`` from finalize JSON.
+
+    Anything outside ``BATCH_SCOPE_VALUES`` (or non-string) is treated as
+    None — the LLM is free-form here and a garbage value must not poison
+    the writeback.
+    """
+    if isinstance(value, str) and value in BATCH_SCOPE_VALUES:
+        return value
+    return None
+
 
 @dataclass
 class ResourceMetadata:
@@ -37,6 +51,12 @@ class ResourceMetadata:
     is_batch: bool = False
     episode_start: int | None = None
     episode_end: int | None = None
+    # Batch scope: how wide a batch torrent spans. "season" (single-season
+    # pack, the default when the LLM says is_batch without a scope),
+    # "multi_season" (whole-run pack), "franchise" (multi-work compilation).
+    # None when unknown / not a batch. Values outside this whitelist are
+    # treated as None.
+    batch_scope: str | None = None
     resolution: str | None = None
     source: str | None = None
     video_codec: str | None = None
@@ -93,6 +113,7 @@ class ResourceMetadata:
             is_batch=bool(data.get("is_batch", False)),
             episode_start=data.get("inferred_episode_start") or data.get("episode_start"),
             episode_end=data.get("inferred_episode_end") or data.get("episode_end"),
+            batch_scope=_parse_batch_scope(data.get("batch_scope")),
             resolution=data.get("resolution"),
             source=data.get("source"),
             video_codec=data.get("video_codec"),

@@ -78,13 +78,14 @@ async def get_audio_work(audio_work_id: str, db: AsyncSession = Depends(get_db))
     res_q = await db.execute(
         select(FileResource)
         .where(FileResource.audio_work_id == audio_work_id)
-        # FileResourceResponse reads the series/movie/audio_work relationships;
-        # eager-load them — lazy loading inside model_validate blows up with
-        # MissingGreenlet under the async session.
+        # FileResourceResponse reads the series/movie/audio_work/collection
+        # relationships; eager-load them — lazy loading inside model_validate
+        # blows up with MissingGreenlet under the async session.
         .options(
             selectinload(FileResource.series),
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
         )
         .order_by(FileResource.published_at.desc())
         .limit(20)

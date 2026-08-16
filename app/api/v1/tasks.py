@@ -45,10 +45,13 @@ async def _apply_torrent_action(db, task: DownloadTask, action: str, delete_data
         elif action == "retry":
             # Re-add the torrent
             from app.models.file_resource import FileResource
+            from app.services.agent_service import resolve_torrent_payload
             resource = await db.get(FileResource, task.file_resource_id)
             if not resource:
                 return False
-            result = await wrapper.add_torrent(resource.torrent_url, download_dir=task.download_dir)
+            result = await wrapper.add_torrent(
+                resolve_torrent_payload(resource), download_dir=task.download_dir
+            )
             task.transmission_torrent_id = result["torrent_id"]
             task.status = "downloading"
             task.error_message = None

@@ -269,6 +269,38 @@ from app.services.resource_parser import detect_batch
         ("[Group] Show - 05 [WebRip 1080p HEVC-10bit AAC]", (False, None, None)),
         # Bare "Fin" on a single final episode is NOT a batch keyword
         ("[Group] Show - 13 [1080p][Fin]", (False, None, None)),
+        # --- season-marked whole-disc (BD) season packs ---
+        # Real-world titles: explicit season marker + no episode number + BD.
+        (
+            "[Shiniori-Raws] 葬送的芙莉莲 第二季/Sousou no Frieren S2 (BD 1920x1080 x265 10bit FLAC)",
+            (True, None, None),
+        ),
+        (
+            "[H-Enc] 葬送的芙莉莲 第二季 / Sousou no Frieren 2nd Season (BDRip 1080p HEVC FLAC)",
+            (True, None, None),
+        ),
+        (
+            "[LinRip] Hime-sama Goumon no Jikan desu Season 2 [BDRip 1080p HEVC-10bit FLAC ASSx2]",
+            (True, None, None),
+        ),
+        # Marker variants: 第2季 / Season 2 / 2nd Season
+        ("[Group] Show 第2季 [BDRip 1080p]", (True, None, None)),
+        ("[Group] Show Season 2 (BDMV 1080p)", (True, None, None)),
+        ("[Group] Show 2nd Season [Blu-ray 1080p]", (True, None, None)),
+        # Negatives: any episode number, or no season marker, or no disc token.
+        # Single-episode BD release with a "- NN" episode number
+        ("[Group] Show S02 - 03 (BDRip 1080p)", (False, None, None)),
+        # SxxExx single episode
+        ("[Group] Show S02E03 [BDRip]", (False, None, None)),
+        # Movie BD without any season marker
+        ("Movie Title (BDRip 1080p)", (False, None, None)),
+        # Season marker but WEB-DL (no whole-disc token)
+        ("Show 第二季 (WEB-DL 1080p)", (False, None, None)),
+        # BD but no season marker (conservative: not this rule)
+        (
+            "[Shiniori-Raws] 葬送的芙莉莲/Sousou no Frieren (BD 1920x1080 x265 10bit FLAC)",
+            (False, None, None),
+        ),
     ],
 )
 def test_detect_batch(title, expected):

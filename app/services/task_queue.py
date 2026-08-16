@@ -33,6 +33,7 @@ JOB_TTL_SECONDS = 86_400  # 24 h — how long Redis keeps job state after comple
 # Redis key prefixes
 _QUEUE_LIST = "rssripple:jobs"
 _ACTIVE_PFX = "rssripple:active:"
+_TICK_PFX = "rssripple:tick:"
 _JOB_PFX = "rssripple:job:"
 
 
@@ -63,8 +64,13 @@ class BaseQueue(ABC):
         logger.debug("Registered handler: job_type=%s", job_type)
 
     @abstractmethod
-    async def start(self) -> None:
-        """Start background worker(s). Must be awaited inside a running event loop."""
+    async def start(self, consume: bool = True) -> None:
+        """Start background worker(s). Must be awaited inside a running event loop.
+
+        With ``consume=False`` the queue only enqueues/tracks jobs — no
+        dispatcher/worker loop is started (used by the web role in a split
+        web/worker deployment, where a separate worker process consumes).
+        """
 
     @abstractmethod
     async def stop(self) -> None:
@@ -91,6 +97,19 @@ class BaseQueue(ABC):
         Callers use this after a terminal job has been observed so a new job
         with the same key can be enqueued. Implementations must be idempotent.
         """
+
+    async def throttle(self, key: str, ttl: int) -> bool:
+        """Cross-process tick throttle: True if the caller may proceed.
+
+        The first caller within ``ttl`` seconds wins; everyone else gets
+        False. Used by periodic scheduler ticks so that N worker processes
+        each running their own scheduler collapse to one enqueue per
+        interval (the queue's active-key dedup alone only covers
+        *concurrent* duplicates — staggered ticks each complete before the
+        next fires). The default implementation always returns True:
+        single-process backends have exactly one scheduler.
+        """
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -148,10 +167,14 @@ class MemoryQueue(BaseQueue):
         # dedup key would leak in _active_keys.
         self._run_tasks: set[asyncio.Task] = set()
 
-    async def start(self) -> None:
+    async def start(self, consume: bool = True) -> None:
         self._sem = asyncio.Semaphore(self._max_concurrent)
-        self._dispatcher = asyncio.create_task(self._dispatch_loop())
-        logger.info("MemoryQueue started (max_concurrent=%d)", self._max_concurrent)
+        if consume:
+            self._dispatcher = asyncio.create_task(self._dispatch_loop())
+        logger.info(
+            "MemoryQueue started (max_concurrent=%d, consume=%s)",
+            self._max_concurrent, consume,
+        )
 
     async def stop(self) -> None:
         if self._dispatcher:
@@ -249,13 +272,17 @@ class RedisQueue(BaseQueue):
         self._sem: asyncio.Semaphore | None = None
         self._worker: asyncio.Task | None = None
 
-    async def start(self) -> None:
+    async def start(self, consume: bool = True) -> None:
         if self._redis is None:
             import redis.asyncio as aioredis  # lazy — not installed for MemoryQueue setups
             self._redis = aioredis.from_url(self._redis_url, decode_responses=True)
         self._sem = asyncio.Semaphore(self._max_concurrent)
-        self._worker = asyncio.create_task(self._worker_loop())
-        logger.info("RedisQueue started (url=%s, max_concurrent=%d)", self._redis_url, self._max_concurrent)
+        if consume:
+            self._worker = asyncio.create_task(self._worker_loop())
+        logger.info(
+            "RedisQueue started (url=%s, max_concurrent=%d, consume=%s)",
+            self._redis_url, self._max_concurrent, consume,
+        )
 
     async def stop(self) -> None:
         if self._worker:
@@ -267,6 +294,13 @@ class RedisQueue(BaseQueue):
         if self._redis is not None:
             await self._redis.aclose()
         logger.info("RedisQueue stopped")
+
+    async def throttle(self, key: str, ttl: int) -> bool:
+        """SET NX EX on a tick key — only the first scheduler tick within
+        ``ttl`` seconds across all worker processes proceeds."""
+        if self._redis is None:
+            return True  # not started yet — nothing to throttle against
+        return bool(await self._redis.set(f"{_TICK_PFX}{key}", "1", nx=True, ex=ttl))
 
     async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
         active_key = f"{_ACTIVE_PFX}{key}"
@@ -418,7 +452,8 @@ def create_queue(backend: str = "memory", **kwargs) -> BaseQueue:
 
 
 # ---------------------------------------------------------------------------
-# Process-level singleton — replaced during app lifespan (see app/main.py)
+# Process-level singleton — replaced during startup (app/main.py lifespan for
+# the web/all roles, app/worker.py for the worker role)
 # ---------------------------------------------------------------------------
 
 task_queue: BaseQueue = MemoryQueue()

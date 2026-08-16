@@ -71,10 +71,14 @@ class FileResource(Base):
     container: str | None                # 容器格式 (MKV, MP4)
     file_size: int | None                # 文件大小（bytes）
     torrent_url: str                     # 下载链接（magnet:?xt=... 或 .torrent URL）
+    torrent_file: str | None             # 通道 A 缓存的 .torrent 本地相对路径（TORRENT_CACHE_DIR
+                                         # 下 <resource_id>.torrent；字节不落库，任务创建时本地推送）
     detail_url: str | None               # 详情页链接
     published_at: datetime | None        # RSS 发布时间
-    # 合集（多集打包）标识 —— 由 pre-parser 与 MetadataAgent 联合判定
+    # 合集（多集打包）标识 —— 由 pre-parser、torrent 内容检测与 MetadataAgent 联合判定
     is_batch: bool                       # 该资源是否为多集合集，默认 False
+    batch_scope: str | None              # 合集细分：NULL=非合集；"season"=单季包；
+                                         # "multi_season"=跨季包；"franchise"=多作品大 IP 包
     episode_start: int | None            # 合集起始集，尽力而为（标题里可能没有）
     episode_end: int | None              # 合集结束集，尽力而为（标题里可能没有）
     # 跨季集号 reconciliation
@@ -83,6 +87,7 @@ class FileResource(Base):
     # Metadata 关联（series/movie 用于定位作品；episode 字段用于定位剧集集数）
     series_id: str | None → TVSeries     # 关联剧集系列 FK
     movie_id: str | None → Movie         # 关联电影 FK
+    collection_id: str | None → WorkCollection  # franchise 包关联合集 FK（此时作品 FK 全空）
     parsed_at: datetime | None           # 字段映射解析完成时间
     metadata_matched_at: datetime | None # metadata 匹配完成时间
     created_at: datetime
@@ -92,12 +97,14 @@ class FileResource(Base):
 资源的 FK 互斥规则：
 - 若为剧集资源，`series_id` 非空，`movie_id` 必须为空；具体集数统一使用 `episode` 字段。
 - 若为电影资源，`movie_id` 非空，`series_id` 必须为空。
+- 若为 franchise（多作品包）资源，`collection_id` 非空，`series_id`/`movie_id`/`audio_work_id` 三者必须全空。
 - 未识别资源两个 FK 均为空。
 
-**合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分两层：
+**合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分三层：
 
-1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）。
-2. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end`；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）。
+1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。**整碟包规则**：标题含显式季标记（`S0x`/`Season N`/`Nst|nd|rd|th Season`/`第N季` 含中文数字）且解析不出任何集号且含整碟 token（`BD`/`BDRip`/`BDMV`/`BDRemux`/`Blu-ray`/`BD-BOX`，词边界）→ 判合集（`葬送的芙莉莲 第二季 (BD ...)` 形态）。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）并设 `batch_scope="season"`（标题层默认单季包，torrent 分析可修正）。
+2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end）/`franchise`（≥2 作品簇，触发 `franchise_service.link_franchise_pack` 创建/复用 `franchise_pack` 来源的 WorkCollection、逐个匹配成员作品并挂 `collection_id`、资源改挂 collection）/`unknown`（不改判）。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）为保留优化项，未实现。
+3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise 不被降级），LLM 未输出时默认 `"season"`。
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
 

@@ -135,6 +135,8 @@
     "rawTitleCopied": "Raw title copied",
     "copyFailed": "Copy failed",
     "batch": "Batch",
+    "batchMultiSeason": "Multi-season pack",
+    "batchFranchise": "Franchise pack",
     "episodeReconciledTag": "Adj.",
     "episodeReconciled": "Episode number converted from absolute to per-season using metadata evidence.",
     "episodeReconciledFrom": "Original absolute episode: {n}",
@@ -660,6 +662,7 @@
       "is_anime": "Series Anime"
     },
     "content_type": "Work Type",
+    "collection": "Resource Collection (Franchise Pack)",
     "enumValue_raw": "Raw",
     "enumValue_reconciled": "Reconciled",
     "enumValue_ambiguous": "Ambiguous",
@@ -884,6 +887,7 @@
     "colStatus": "Status",
     "colInfo": "Seasons/Year",
     "colGenre": "Genre",
+    "year": "Year",
     "collections": "Collections"
   },
   "collections": {

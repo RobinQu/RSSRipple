@@ -183,6 +183,7 @@ async def _process_resource_metadata(
     from app.models.series import TVSeries
     from app.services.metadata_agent import get_agent
     from app.services.metadata_service import download_and_cache_poster
+    from app.services.torrent_inspect import maybe_inspect_torrent
 
     async with semaphore:
         async with async_session_factory() as task_db:
@@ -191,6 +192,13 @@ async def _process_resource_metadata(
                 channel = await task_db.get(Channel, channel_id)
                 if resource is None or channel is None:
                     return
+                # Channel A torrent inspection: deterministic .torrent
+                # file-listing analysis may reclassify the resource as a
+                # batch the title regexes missed. Runs before metadata
+                # matching; batches still need work linking, so matching
+                # continues regardless of the verdict. No commit here — the
+                # metadata-phase commit below persists any changes.
+                await maybe_inspect_torrent(task_db, resource, channel)
                 work_key = normalize_title(resource.search_title or extract_search_title(resource))
                 async with _work_metadata_lock(work_key):
                     if channel.metadata_agent_enabled:
@@ -470,6 +478,10 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         pre_is_batch, pre_start, pre_end = detect_batch(title)
         if pre_is_batch:
             resource.is_batch = True
+            # Title-regex hits default to a single-season pack; torrent
+            # analysis (maybe_inspect_torrent) may later refine this to
+            # multi_season/franchise, which only it can produce.
+            resource.batch_scope = "season"
             # A batch resource must not carry a stray single ``episode``
             # (field_mapping may have parsed a year/resolution/title number
             # as one) — batches are aggregated ranges, matching the LLM-path
@@ -487,6 +499,9 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         compilation_work = extract_compilation_work_title(title)
         if compilation_work:
             resource.is_batch = True
+            # The title layer cannot subdivide a compilation pack; default to
+            # "season" — torrent analysis may refine it (e.g. to franchise).
+            resource.batch_scope = "season"
             resource.search_title = compilation_work
         # Subtitle language pre-fill. Store an empty list (rather than None)
         # once parsed, so downstream code can distinguish "never parsed" from

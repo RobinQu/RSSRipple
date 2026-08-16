@@ -20,6 +20,19 @@ fetch_channel_resources(channel, db)
   │     │     # "1920x1080" 等原样保留），降低订阅条件的编写成本
   │     ├─ c. 兜底提取 torrent_url：从 enclosure/link 中找 magnet 或 .torrent
   │     ├─ d. 创建 FileResource 对象（parsed_at = now）
+  │     │     # 预解析同步内联：detect_batch / extract_compilation_work_title /
+  │     │     # detect_subtitle_langs / detect_absolute_episode；合集命中即置
+  │     │     # is_batch + batch_scope="season"（标题层默认，torrent 分析可修正）
+  │     │     # 并清空 episode
+  │     ├─ d2. 通道 A torrent 内容检测（metadata 匹配前，工作锁之外）：
+  │     │     # is_batch=false 且 torrent_url 为 http(s) 直链时下载 .torrent 落盘
+  │     │     # （TORRENT_CACHE_DIR，记 torrent_file）→ bencode 解析文件清单 →
+  │     │     # analyze_torrent_files 判 scope（season/multi_season/franchise），
+  │     │     # franchise 触发 franchise_service.link_franchise_pack（成员作品
+  │     │     # 逐个走 process_title_only 匹配落库 → get-or-create
+  │     │     # franchise_pack 来源 WorkCollection → 资源挂 collection_id、
+  │     │     # 作品 FK 全清）。magnet/下载失败静默跳过；通道 B（下载后 RPC
+  │     │     # 修正）为保留优化项未实现。
   │     ├─ e. 统一 Metadata Agent（通过 LangGraph ReAct 循环，单次调用完成标题清洗 + 单数据源 metadata 搜索）
   │     │     agent = UnifiedMetadataAgent()
   │     │     await agent.process(resource, channel, db)
@@ -388,7 +401,7 @@ process_resources(agent, resources, db)
 2. 解析下载目录：`effective_download_dir = join(downloader.download_dir, agent.download_subdir)`；若 `download_subdir` 为空则直接使用 `downloader.download_dir`。
 3. 校验 `download_subdir`：必须是相对路径，禁止绝对路径、`..`、空段逃逸、控制字符；标准化后不得跳出 `downloader.download_dir`。
 4. 将 `effective_download_dir` 写入 `DownloadTask.download_dir`，用于审计、重试与后续配置变更隔离。
-5. 调用 `TransmissionWrapper.add_torrent(resource.torrent_url, download_dir=effective_download_dir)`。
+5. 调用 `TransmissionWrapper.add_torrent(payload, download_dir=effective_download_dir)`，payload 由 `resolve_torrent_payload(resource)` 得出：`resource.torrent_file`（通道 A 缓存的本地 .torrent）存在时读字节推送（读失败回退 URL），否则透传 `torrent_url`（URL/magnet 原样）。
 6. 成功 → 更新 `task.status="downloading"`, `task.transmission_torrent_id=返回值`, `task.confirmed_at=now`。
 7. 失败 → 更新 `task.status="error"`, `task.error_message=异常信息`；触发重试逻辑（若 retry_count < max_retries 则入队重试）。
 8. RPC 结束后统一 `flush`，由调用方（请求路径）或 autocommit（后台路径）提交。
@@ -434,7 +447,7 @@ process_resources(agent, resources, db)
 
 ### Schedule 调度
 
-APScheduler 在 FastAPI lifespan 启动时初始化（使用 AsyncIOScheduler）。
+APScheduler（AsyncIOScheduler，内存 store）在 **worker 进程**启动时初始化（`APP_ROLE=worker` 或 `all`；`APP_ROLE=web` 的进程不起调度器、不消费队列）。**所有周期 job 只 enqueue 不执行**。两层机制保证 N 个 worker 各跑一份调度器时每个 interval 只执行一次：① tick 节流——`queue.throttle(<type>, ttl=interval)`（Redis SET NX EX，键 `rssripple:tick:<type>`），本 interval 内第一个 tick 胜出，其余直接跳过（active-key 去重只挡并发重复，挡不住错峰 tick，必须有这层）；② 队列 active-key 去重兜底并发窗口，BLPOP 单消费者保证恰好执行一次。job 函数体仍可直接调用（单测依赖）。
 
 ```
 startup:
@@ -455,13 +468,14 @@ startup:
   │     删除/paused → remove_job
   │
   ├─ 3. 全局每分钟任务:
-  │     sync_download_progress()
+  │     enqueue "sync_progress"（key=job:sync_progress）
   │
   ├─ 4. 全局每小时任务:
-  │     check_downloader_connections()  # 调用 POST /downloaders/{id}/test
+  │     enqueue "check_downloaders"  # handler 调用 POST /downloaders/{id}/test
   │
-  ├─ 5. 每 30 秒任务:
-  │     fts_drain                    # FTS 边车同步：把 fts_outbox 变更行定向投递到
+  ├─ 5. 每 30 秒任务（仅 Turso 后端注册；PostgreSQL 无边车，
+  │     search_text + pg_trgm 由 ORM 钩子同事务维护）:
+  │     enqueue "fts_drain"          # FTS 边车同步：把 fts_outbox 变更行定向投递到
   │                                  # 边车影子表（ORM 钩子与作品行同事务入队，
   │                                  # 幂等全量写；写入失败留给对账兜底）。
   │                                  # 搜索路径额外在读前 drain（search_*_fts 顶部
@@ -471,18 +485,19 @@ startup:
   │                                  # 退化为批量化与脚本/非 API 写入的兜底。
   │
   ├─ 5b. 每 5 分钟任务:
-  │     metadata_backfill            # 重试可重试的未匹配资源
+  │     enqueue "backfill_metadata"  # 重试可重试的未匹配资源
   │
-  ├─ 5c. 每小时任务:
-  │     fts_reconcile                # FTS 影子表对账：全量 diff 基表 vs 影子表，
+  ├─ 5c. 每小时任务（仅 Turso 后端注册）:
+  │     enqueue "fts_reconcile"      # FTS 影子表对账：全量 diff 基表 vs 影子表，
   │                                  # 修补绕过 outbox 的路径（脚本、直连 SQL）
   │
   ├─ 6. 每分钟任务（NOTIFY_ENABLED 开启时）:
-  │     _process_download_notifications  # 三段式 tick：
+  │     enqueue "download_notifications"  # handler 三段式 tick：
   │                                    # ① 入队：为 completed 且无通知的任务停种（best-effort）
   │                                    #   + 补建 DownloadNotification（download_task_id 唯一
   │                                    #   + SAVEPOINT 竞争回读，幂等；仅当 Agent 有启用
-  │                                    #   webhook 时才补建，无 webhook 不生成通知）；
+  │                                    #   webhook 或存在启用 OrganizeRule 时才补建，
+  │                                    #   两者皆无不生成通知）；
   │                                    # ② fan-out：ensure_deliveries 为"通知 × 每启用
   │                                    #   webhook"补建缺失的 pending WebhookDelivery；
   │                                    # ③ 投递：deliver_due_deliveries 并发投递到期 delivery
@@ -491,12 +506,11 @@ startup:
   │                                    #   详见 notifications.md
   │
   └─ 7. 全局每日任务:
-        cleanup_expired_tasks()  # 删除 completed 且 completed_at < now - task_expire_days 的任务
+        enqueue "daily_cleanup"      # 删除 completed 且 completed_at < now - task_expire_days 的任务
                                  # （跳过其通知存在任一非 done delivery 的任务；
                                  # 超过 NOTIFY_RETENTION_DAYS 保留期的通知整行删除，
-                                 # delivery 随级联清理）
-        expire_pending_decisions()  # 过期 pending decision → status="expired"
-        _dedup_metadata()  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
+                                 # delivery 随级联清理）+ 过期 pending decision → expired
+        enqueue "daily_dedup"  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
                             # 防止 metadata agent 偶尔为同一作品新建第二行）。聚类 key 基于
                             # 共享的 title_cn/title_en/original_title **+ aliases**，
                             # 只折叠可证明为同一作品的行；幂等。P3：合并时身份袋
@@ -504,7 +518,7 @@ startup:
                             # merge_external_id_bags；跨表合并同样处理）
 ```
 
-任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），用于承载手动触发的 fetch/run；APScheduler 定时任务也通过 enqueue 投递到同一队列，保证同一 Channel/Agent 的任务串行执行（分布式锁，避免重复运行）。
+任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
 
 ### 下载状态同步
 

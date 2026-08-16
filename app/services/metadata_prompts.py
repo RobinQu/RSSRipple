@@ -58,6 +58,11 @@ Example 7 — Batch without explicit boundaries:
   → is_batch: true, inferred_episode_start: null, inferred_episode_end: null
   → episode: null, season: 2
 
+Example 8 — Season-marked whole-disc pack (season marker, no episode number):
+  Raw: "[LinRip] Some Show Season 2 [BDRip 1080p HEVC-10bit FLAC]"
+  → is_batch: true, inferred_episode_start: null, inferred_episode_end: null
+  → episode: null, season: 2, resolution: "1080p", source: "BDRip"
+
 ## RULES
 
 1. Use only the metadata source selected by the caller. The available tools
@@ -112,6 +117,13 @@ From raw RSS titles, extract:
   * ``[01-12 合集]``, ``[01~16 Fin]``, ``01-12 合集``
   * ``Season Pack``, ``Full Season``, ``Batch``, ``BD-BOX``
   * ``全集``, ``全季``, ``完整`` / ``完结`` + range
+  * Season-marked whole-disc packs: the title names a season (``第二季``,
+    ``S02``, ``Season 2``) but carries NO episode number at all, and is a
+    BD/Blu-ray release (``BD``, ``BDRip``, ``BDMV``, ``BDRemux``, ``Blu-ray``,
+    ``BD-BOX``) — e.g. "[LinRip] Show Season 2 [BDRip 1080p HEVC FLAC]" is a
+    full-season BD pack → ``is_batch: true``, ``season: 2``. A season marker
+    alone (e.g. WEB-DL simulcast) or a disc token alone (a movie BD) is NOT
+    enough — both must hold.
   Fill ``inferred_episode_start`` / ``inferred_episode_end`` when the boundaries
   are stated; leave them null when the title only says "Batch" / "全集".
 - Quality: resolution (1080p/720p/2160p/4K), source (WebRip/WEB-DL/BDRip),
@@ -152,6 +164,10 @@ Always output valid JSON matching:
   "inferred_episode": int|null,
   "inferred_season": int|null,
   "is_batch": true/false,
+  "batch_scope": "season"|"multi_season"|"franchise",  # optional, only when
+                         # is_batch=true: multi-season whole-run packs use
+                         # "multi_season", multi-work compilations use
+                         # "franchise", default/omit for single-season packs
   "inferred_episode_start": int|null,
   "inferred_episode_end": int|null,
   "title_cn": "string|null",

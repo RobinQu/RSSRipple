@@ -198,7 +198,12 @@ async def get_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(
         select(FileResource)
         .where(FileResource.channel_id == channel_id)
-        .options(selectinload(FileResource.series), selectinload(FileResource.movie))
+        .options(
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
         .order_by(FileResource.published_at.desc())
         .limit(20)
     )

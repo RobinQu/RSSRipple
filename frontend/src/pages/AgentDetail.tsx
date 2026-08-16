@@ -166,9 +166,6 @@ export default function AgentDetail() {
   const [runsNonEmptyOnly, setRunsNonEmptyOnly] = useState(true);
   // Drawer showing a single run's matched file resources.
   const [runDrawerRun, setRunDrawerRun] = useState<AgentRun | null>(null);
-  // Per-resource toggle for revealing the raw release title inside the run
-  // drawer (hidden by default — the formatted title + tags are shown first).
-  const [runRawTitleOpen, setRunRawTitleOpen] = useState<Record<string, boolean>>({});
 
   const loadAgent = useCallback(async () => {
     if (!id) return;
@@ -1428,29 +1425,11 @@ export default function AgentDetail() {
                     }}
                   >
                     <Text strong style={{ fontSize: 13, color: '#17171c', wordBreak: 'break-word' }}>
-                      {r.title_cn || r.title_raw}
+                      {r.title_raw}
                     </Text>
-                    {r.title_cn && r.title_raw && r.title_cn !== r.title_raw && (
-                      <div style={{ marginTop: 2 }}>
-                        <Button
-                          type="link"
-                          size="small"
-                          style={{ padding: 0, height: 'auto', fontSize: 12 }}
-                          onClick={() =>
-                            setRunRawTitleOpen((prev) => ({ ...prev, [r.id]: !prev[r.id] }))
-                          }
-                        >
-                          {runRawTitleOpen[r.id]
-                            ? t('channels.hideRawTitle')
-                            : t('channels.showRawTitle')}
-                        </Button>
-                        {runRawTitleOpen[r.id] && (
-                          <div
-                            style={{ fontSize: 12, color: '#8a8a94', wordBreak: 'break-word' }}
-                          >
-                            {r.title_raw}
-                          </div>
-                        )}
+                    {r.title_cn && r.title_cn !== r.title_raw && (
+                      <div style={{ marginTop: 2, fontSize: 12, color: '#8a8a94', wordBreak: 'break-word' }}>
+                        {r.title_cn}
                       </div>
                     )}
                     <Space size={4} wrap style={{ fontSize: 11, color: '#616161', marginTop: 4 }}>

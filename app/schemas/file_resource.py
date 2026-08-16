@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def _coerce_file_size(v: int | float | None) -> int | None:
@@ -53,9 +53,19 @@ class FileResourceResponse(BaseModel):
     series_id: str | None = None
     movie_id: str | None = None
     audio_work_id: str | None = None
+    # Torrent content detection (P1): batch scope sub-classification and the
+    # franchise-pack collection link.
+    batch_scope: str | None = None
+    collection_id: str | None = None
     series: Any | None = None
     movie: Any | None = None
     audio_work: Any | None = None
+    # Excluded from the serialized payload; only used to derive
+    # ``collection_name`` below. Callers must selectinload the relationship —
+    # lazy access under the async session raises MissingGreenlet when
+    # ``collection_id`` is non-null.
+    collection: Any | None = Field(default=None, exclude=True)
+    collection_name: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -63,6 +73,12 @@ class FileResourceResponse(BaseModel):
     @classmethod
     def coerce_file_size(cls, v: Any) -> int | None:
         return _coerce_file_size(v)
+
+    @model_validator(mode="after")
+    def _fill_collection_name(self) -> "FileResourceResponse":
+        if self.collection is not None:
+            self.collection_name = self.collection.title_cn or self.collection.title_en
+        return self
 
 
 class GroupedResource(BaseModel):

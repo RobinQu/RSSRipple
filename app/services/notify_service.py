@@ -120,6 +120,16 @@ def build_payload(
             "season": resource.season if resource else None,
             "episode": resource.episode if resource else None,
             "is_batch": resource.is_batch if resource else False,
+            # batch_scope 驱动 organize 的合集分流（season/multi_season/
+            # franchise）；collection 是资源级合集显示名（franchise 包经
+            # collection_id 直挂 WorkCollection），供规则 DSL 的
+            # ``collection`` 字段求值。
+            "batch_scope": resource.batch_scope if resource else None,
+            "collection": (
+                resource.collection.display_name
+                if resource is not None and resource.collection is not None
+                else None
+            ),
             "episode_start": resource.episode_start if resource else None,
             "episode_end": resource.episode_end if resource else None,
             "subtitle_langs": resource.subtitle_langs if resource else None,
@@ -142,6 +152,8 @@ async def _load_resource(db, file_resource_id: str) -> FileResource | None:
             selectinload(FileResource.series).selectinload(TVSeries.episodes),
             selectinload(FileResource.series).selectinload(TVSeries.collection),
             selectinload(FileResource.movie).selectinload(Movie.collection),
+            # 资源级合集（franchise 包）进快照供 organize 规则 DSL 求值。
+            selectinload(FileResource.collection),
         )
     )
     return (await db.execute(stmt)).scalar_one_or_none()

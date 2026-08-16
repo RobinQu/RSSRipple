@@ -118,7 +118,8 @@ pending --(2xx / mock)--> done
   "task": {"download_task_id": "...", "download_dir": "<daemon 视角绝对路径>",
            "torrent_name": "..."},
   "resource": {"title_raw": "...", "season": 4, "episode": 9,
-               "is_batch": false, "episode_start": null, "episode_end": null,
+               "is_batch": false, "batch_scope": null, "collection": null,
+               "episode_start": null, "episode_end": null,
                "subtitle_langs": ["zh-CN"], "resolution": "1080p",
                "container": "MKV", "title_year": 2023},
   "work": {"type": "series | movie",
@@ -140,7 +141,7 @@ pending --(2xx / mock)--> done
 
 单一投递路径：scheduler 每分钟 `_process_download_notifications` tick ——
 
-1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook 时才补建**——未注册 webhook 的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。
+1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
 2. **fan-out（`ensure_deliveries`）**：为"通知 × 其 Agent 每个启用 webhook"补建缺失的 `pending` delivery（`next_attempt_at=now`）。幂等（`(notification_id, webhook_id)` 唯一约束 + SAVEPOINT 吸收竞争）；新注册/重新启用的 webhook 在下一次运行（或注册时立即，见下）收到全部积压。
 3. **投递（`deliver_due_deliveries`）**：捞取全部到期 `pending` delivery（每 tick 上限 50 条，`created_at` 升序），并发投递（`Semaphore(10)` 上限）。
 

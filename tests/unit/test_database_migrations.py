@@ -71,6 +71,37 @@ async def test_migrations_are_idempotent(db_engine, db_session):
     assert row == "wikipedia"
 
 
+async def test_torrent_detection_columns_are_added(db_engine, db_session):
+    """Torrent content detection P1: batch_scope / collection_id / torrent_file
+    on file_resources — migration is idempotent and values round-trip."""
+    from app.models.file_resource import FileResource
+
+    for _ in range(2):  # idempotent
+        async with db_engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            cols = (await conn.execute(text("PRAGMA table_info(file_resources)"))).fetchall()
+            names = {row[1] for row in cols}
+            assert {"batch_scope", "collection_id", "torrent_file"} <= names
+
+    ch = _channel("det", "wikipedia")
+    db_session.add(ch)
+    await db_session.flush()
+    res = FileResource(
+        channel_id=ch.id,
+        guid="g1",
+        title_raw="[Group] Franchise Pack",
+        torrent_url="magnet:?xt=urn:btih:xyz",
+        batch_scope="franchise",
+        torrent_file="cache/torrents/xyz.torrent",
+    )
+    db_session.add(res)
+    await db_session.commit()
+    await db_session.refresh(res)
+    assert res.batch_scope == "franchise"
+    assert res.collection_id is None
+    assert res.torrent_file == "cache/torrents/xyz.torrent"
+
+
 async def test_plex_env_migration_creates_media_server(db_engine, db_session, monkeypatch):
     """存量全局 PLEX_URL/PLEX_TOKEN 环境变量 → 一条 Plex MediaServerInstance；
     libraries.plex_section 值拷到 section_key。幂等：实例表非空不再插。"""

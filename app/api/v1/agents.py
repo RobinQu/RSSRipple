@@ -112,9 +112,12 @@ async def _apply_backfill(
             ).options(
                 # Filter DSL / LLM pick summary read series/movie — eager-load
                 # to avoid async lazy loads during evaluation. The work's
-                # collection feeds series.collection / movie.collection.
+                # collection feeds series.collection / movie.collection; the
+                # resource's own collection feeds the resource-level
+                # ``collection`` field (franchise packs).
                 selectinload(FileResource.series).selectinload(TVSeries.collection),
                 selectinload(FileResource.movie).selectinload(Movie.collection),
+                selectinload(FileResource.collection),
             )
         )).scalars().all()
         if rows:
@@ -563,10 +566,12 @@ async def test_filters(
     else:
         base_q = base_q.order_by(FileResource.published_at.desc()).limit(50)
     # Work-namespaced DSL fields (movie.rating, series.collection …) resolve
-    # via these relations.
+    # via these relations; the resource-level ``collection`` field (franchise
+    # packs) resolves via the resource's own collection relation.
     base_q = base_q.options(
         selectinload(FileResource.series).selectinload(TVSeries.collection),
         selectinload(FileResource.movie).selectinload(Movie.collection),
+        selectinload(FileResource.collection),
     )
     result = await db.execute(base_q)
     resources = result.scalars().all()
@@ -633,9 +638,11 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
     resources = (await db.execute(
         select(FileResource).where(FileResource.channel_id == channel_id).options(
             # Work-namespaced DSL fields (movie.rating, series.collection …)
-            # resolve via these.
+            # resolve via these; the resource-level ``collection`` field
+            # (franchise packs) via the resource's own collection relation.
             selectinload(FileResource.series).selectinload(TVSeries.collection),
             selectinload(FileResource.movie).selectinload(Movie.collection),
+            selectinload(FileResource.collection),
         )
     )).scalars().all()
     diff = await compute_rule_diff(old, new, list(resources), db)

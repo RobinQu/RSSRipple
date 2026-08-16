@@ -85,6 +85,22 @@ Common variables (full list in [docs/design/conventions.md](docs/design/conventi
 | `QUEUE_BACKEND` | `"memory"` (default) or `"redis"` (requires `REDIS_URL`) |
 | `POSTER_CACHE_DIR` | Poster image cache, served at `/posters` |
 
+## Migrating between databases
+
+The default stack (`docker-compose.yml`) runs PostgreSQL + Redis. If you previously ran the single-node Turso stack (`docker-compose.standalone.yml`) and switch to the default, your data stays in the `app-data` volume but is **not** loaded automatically — the new PostgreSQL starts empty. Migrate it with:
+
+```bash
+docker compose stop app
+docker compose run --rm app \
+  uv run --no-project python scripts/migrate_to_postgres.py \
+  --source sqlite+aioturso:///data/rss_ripple_turso.db \
+  --target postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple \
+  --force
+docker compose start app
+```
+
+Full migration matrix (SQLite → Turso → PostgreSQL), script usage, and verification are documented in [docs/design/db-migration.md](docs/design/db-migration.md).
+
 ## Using RSSRipple
 
 Once the app is running at http://localhost:9001:

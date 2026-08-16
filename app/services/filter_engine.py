@@ -28,6 +28,12 @@ STRING_FIELDS = {
     # ``collection`` relation — both must be eager-loaded (selectinload) at
     # the query site or the value is None and null semantics apply.
     "series.collection", "movie.collection",
+    # Resource-level collection display name: franchise packs link a
+    # WorkCollection directly via ``FileResource.collection_id`` (all work
+    # FKs are NULL in that case). Same display-name semantics as the
+    # work-namespaced variants; the ``collection`` relation must be
+    # eager-loaded (selectinload) at the query site.
+    "collection",
 }
 NUMBER_FIELDS = {"file_size", "episode", "season", "episode_start", "episode_end", "absolute_episode"}
 # Namespaced fields resolved through the resource's linked work (Movie /
@@ -382,6 +388,14 @@ def get_field_value(resource: Any, field: str) -> Any:
         if getattr(resource, "audio_work_id", None):
             return "audio"
         return None
+    if field == "collection":
+        # Resource-level collection (franchise packs): the relation itself
+        # lives on the FileResource — defensive access (unloaded → None →
+        # standard null semantics), then resolve to the display name.
+        collection = loaded_relation(resource, "collection")
+        if collection is None:
+            return None
+        return collection.title_cn or collection.title_en
     if "." in field:
         rel_name, attr = field.split(".", 1)
         related = loaded_relation(resource, rel_name)

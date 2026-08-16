@@ -83,6 +83,8 @@ def _resource_ns(series=None, movie=None, **overrides):
         season=1,
         episode=5,
         is_batch=False,
+        batch_scope=None,
+        collection=None,
         episode_start=None,
         episode_end=None,
         subtitle_langs=["zh-CN"],
@@ -774,6 +776,33 @@ async def test_scheduler_tick_skips_agents_without_webhook(db_session, seed):
     assert (
         await db_session.execute(select(DownloadNotification))
     ).scalars().all() == []
+
+
+async def test_scheduler_tick_creates_notification_for_organize_without_webhook(
+    db_session, seed,
+):
+    """agent 无启用 webhook，但存在启用的 organize 规则时，tick 仍生成通知
+    （organize 是通知快照的内置消费者），只是不产生任何 delivery。"""
+    from app.models.library import Library
+    from app.models.organize_rule import OrganizeRule
+    from app.services.scheduler import _process_download_notifications
+
+    library = Library(id=_uuid(), name="TV", kind="tv")  # 未绑定卷即可
+    rule = OrganizeRule(
+        id=_uuid(), name="tv", priority=100, enabled=True, filter=None,
+        library_id=library.id, path_template="{title}/S{season:02d}",
+        file_op="move", auto_execute=False,
+    )
+    db_session.add_all([library, rule])
+    await db_session.commit()
+
+    await _process_download_notifications()
+
+    rows = (
+        await db_session.execute(select(DownloadNotification))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert await _deliveries(db_session, rows[0].id) == []
 
 
 async def test_scheduler_tick_disabled(db_session, seed, monkeypatch):

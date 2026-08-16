@@ -144,6 +144,7 @@ async def list_resources(
             selectinload(FileResource.series),
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
         )
 
         if series_ids_on_page:
@@ -248,6 +249,7 @@ async def list_resources(
             selectinload(FileResource.series),
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
         )
         .order_by(FileResource.published_at.desc())
         .offset(offset).limit(page_size)
@@ -357,6 +359,7 @@ async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
             selectinload(FileResource.series),
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
         ],
     )
     if not resource:
@@ -485,6 +488,7 @@ async def link_metadata(
             selectinload(FileResource.series),
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
         )
     )).scalar_one()
     return success_response(FileResourceResponse.model_validate(resource).model_dump())
@@ -600,6 +604,7 @@ async def correct_episode(
             selectinload(FileResource.series),
             selectinload(FileResource.movie),
             selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
         )
     )).scalar_one()
     return success_response(FileResourceResponse.model_validate(resource).model_dump())

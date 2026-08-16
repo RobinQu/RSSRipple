@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.download_task import DownloadTask
@@ -111,6 +112,10 @@ async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
     res_q = await db.execute(
         select(FileResource)
         .where(FileResource.movie_id == movie_id)
+        .options(
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
         .order_by(FileResource.published_at.desc())
         .limit(20)
     )

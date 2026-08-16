@@ -274,6 +274,109 @@ class TestBatch:
                 assert "/Season 02/" in op.dst
 
 
+def _multi_season_payload(seasons=None):
+    """多季包：season/episode_start/end 均为 NULL，batch_scope=multi_season。"""
+    payload = _batch_payload()
+    payload["notification_id"] = "n-4"
+    payload["resource"] = {
+        **payload["resource"],
+        "season": None,
+        "episode_start": None,
+        "episode_end": None,
+        "batch_scope": "multi_season",
+    }
+    payload["work"] = {
+        **payload["work"],
+        "seasons": seasons
+        if seasons is not None
+        else [
+            {"season_number": 1, "episode_count": 2},
+            {"season_number": 2, "episode_count": 2},
+        ],
+        "episodes": [],
+    }
+    return payload
+
+
+def _multi_season_files(*keys: tuple[int, int], base="/downloads/complete/gits"):
+    return [
+        DiskFile(
+            f"{base}/GITS.S{s:02d}E{e:02d}.1080p.mkv",
+            300,
+            f"GITS.S{s:02d}E{e:02d}.1080p.mkv",
+        )
+        for s, e in keys
+    ]
+
+
+class TestMultiSeasonBatch:
+    def test_groups_by_parsed_season(self):
+        lib = _library("lib-anime", "/data/tv_anime")
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 2))
+        result = build_plan(_multi_season_payload(), files, [rule], [lib])
+        moves = {op.src: op.dst for op in result.ops if op.op_type == "move"}
+        assert "/Season 01/" in moves["/downloads/complete/gits/GITS.S01E01.1080p.mkv"]
+        assert "/Season 02/" in moves["/downloads/complete/gits/GITS.S02E02.1080p.mkv"]
+
+    def test_missing_episode_in_one_season_rejected(self):
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        files = _multi_season_files((1, 1), (1, 2), (2, 1))  # 缺 S02E02
+        with pytest.raises(PlanError, match="第 2 季覆盖度不足"):
+            build_plan(_multi_season_payload(), files, [rule], [lib])
+
+    def test_season_without_episode_data_skips_check(self, caplog):
+        # 逐季数据缺第 3 季 → 该季跳过覆盖度校验（warning），不整个拒绝。
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _multi_season_payload(
+            seasons=[{"season_number": 1, "episode_count": 2}]
+        )
+        files = _multi_season_files((1, 1), (1, 2), (3, 1))
+        with caplog.at_level("WARNING", logger="app.services.organize_planner"):
+            result = build_plan(payload, files, [rule], [lib])
+        moves = {op.src: op.dst for op in result.ops if op.op_type == "move"}
+        assert "/Season 03/" in moves["/downloads/complete/gits/GITS.S03E01.1080p.mkv"]
+        assert any("跳过该季校验" in r.message for r in caplog.records)
+
+    def test_no_season_fallback_to_resource_season(self):
+        # 多季包不回退 resource.season：解析不出季号的视频按特典 keep，
+        # 而不是被并进某一季。
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _multi_season_payload()
+        payload["resource"] = {**payload["resource"], "season": 1}  # 防御：意外有值
+        files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 2)) + [
+            DiskFile("/downloads/complete/gits/特典.mkv", 50, "特典.mkv"),
+        ]
+        result = build_plan(payload, files, [rule], [lib])
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert "/downloads/complete/gits/特典.mkv" in keeps
+
+
+class TestFranchiseBatch:
+    def test_franchise_pack_lands_unclassified(self):
+        # franchise 合集包 v1 不自动整理：不落 ops、rule=None（待分类/待人工），
+        # 不抛 PlanError（避免每 tick 重试）。
+        payload = _batch_payload()
+        payload["notification_id"] = "n-5"
+        payload["resource"] = {
+            **payload["resource"],
+            "season": None,
+            "episode_start": None,
+            "episode_end": None,
+            "batch_scope": "franchise",
+            "collection": "攻壳机动队（系列）",
+        }
+        payload["work"] = None  # franchise 资源四作品 FK 全空
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, _batch_files(), [rule], [lib])
+        assert result.uncategorized
+        assert result.ops == []
+
+
 class TestMovie:
     def test_category_dir_from_rule(self):
         lib = _library("lib-movies", "/data/movies", kind="movie")
