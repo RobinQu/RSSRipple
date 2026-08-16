@@ -637,7 +637,7 @@ export default function MediaLibrary() {
         ),
     },
     {
-      title: t('common.url'),
+      title: t('mediaLibrary.location'),
       key: 'location',
       render: (_, row) =>
         row.rowType === 'server' ? (

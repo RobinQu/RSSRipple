@@ -1095,6 +1095,7 @@
     "tabRules": "Library Rules",
     "tabOtherSettings": "Other Settings",
     "librarySettings": "Library Settings — {name}",
+    "location": "Location",
     "orphanServers": "Unlinked servers"
   },
   "mediaServers": {

@@ -16,6 +16,7 @@ this module only does request validation and response shaping.
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Query
@@ -65,6 +66,19 @@ from app.services.volume_service import resolve_library_root
 from app.utils.download_paths import validate_download_subdir
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+
+async def _replan_after_config_change(db: AsyncSession, reason: str) -> None:
+    """规则/媒体库配置变更后刷新全部未执行计划（replan_open_plans）。
+
+    附带动作：变更本身已提交，重建失败只记日志、不影响响应。
+    """
+    try:
+        await organize_service.replan_open_plans(db, reason=reason)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[organize] %s 后重建计划失败：%s", reason, e)
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -210,6 +224,7 @@ async def update_library(
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
+    await _replan_after_config_change(db, f"媒体库「{lib.name}」更新")
     return success_response(_library_out(lib))
 
 
@@ -308,6 +323,7 @@ async def create_organize_rule(
     db.add(rule)
     await db.commit()
     await db.refresh(rule)
+    await _replan_after_config_change(db, f"规则「{rule.name}」创建")
     return success_response(OrganizeRuleOut.model_validate(rule).model_dump())
 
 
@@ -492,6 +508,7 @@ async def update_organize_rule(
         rule.auto_execute = body.auto_execute
     await db.commit()
     await db.refresh(rule)
+    await _replan_after_config_change(db, f"规则「{rule.name}」更新")
     return success_response(OrganizeRuleOut.model_validate(rule).model_dump())
 
 
@@ -502,6 +519,7 @@ async def delete_organize_rule(rule_id: str, db: AsyncSession = Depends(get_db))
         return rule
     # 已有计划的 rule_id SET NULL 保留历史（与模型 ondelete 一致，显式执行
     # 以兼容未启用 FK 强制的部署）。
+    rule_name = rule.name
     await db.execute(
         update(OrganizePlan)
         .where(OrganizePlan.rule_id == rule_id)
@@ -509,6 +527,7 @@ async def delete_organize_rule(rule_id: str, db: AsyncSession = Depends(get_db))
     )
     await db.delete(rule)
     await db.commit()
+    await _replan_after_config_change(db, f"规则「{rule_name}」删除")
     return success_response({"deleted": True})
 
 

@@ -258,6 +258,13 @@ class OrganizeAuditEntry(Base):
    - 清理/恢复均为 best-effort，失败只记日志不改写计划状态。
    - **媒体服务器刷新**（三种 file_op 一致）：经 `Library → MediaServerInstance` 寻址（天然支持多服务器/多类型），按 adapter 分 type——Plex 优先**按触及目录 partial refresh**（`GET /library/sections/{section_key}/refresh?path=...`），失败或不适用退整库刷新；Emby/Jellyfin 走对应 refresh 端点。服务器停用/未配置/刷新失败一律 best-effort：只记日志，不改写计划状态。
 
+**未执行计划的刷新（replan）**：pending/failed 计划的语义是「按当前规则与库绑定待执行」，因此两类时机都会触发重建（共用 `_rebuild_plan`：人工指定的 library/category 沿用，其余按当前规则 first-match 重路由、op 目标重渲染；done/running/cancelled 不动）：
+
+1. **通知 regenerate**（快照变化）：notify tick / 手动重新生成消费到 payload 已变的通知时自动重建（上方链路）。
+2. **配置变更**（快照未变）：规则增删改（`POST/PUT/DELETE /organize-rules`）与媒体库更新（`PUT /libraries/{id}`，卷绑定/根子路径修复）提交后，API 同步调用 `replan_open_plans` 对**全部**未执行计划重建——规则改指库则计划重路由、新建规则收编待分类计划、补绑定后待绑定计划渲染出 ops。附带动作：重建失败只记日志，不影响配置变更本身的响应；无 enabled 规则时整步跳过（规则全禁用不清空既有计划）。
+
+重建均落 `plan_rebuilt` 审计；命中 `auto_execute` 规则的重建与新建一样随后台自动执行。
+
 并发模型沿用 vault-organizer：单 `asyncio.Lock` 串行化规划与执行，阻塞文件操作经 `asyncio.to_thread` 跑线程，不卡事件循环；批量执行锁内逐计划顺序执行，单个失败不影响其余。
 
 ## 执行器不变量

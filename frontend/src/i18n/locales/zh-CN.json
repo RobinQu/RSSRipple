@@ -1094,6 +1094,7 @@
     "tabRules": "媒体库规则",
     "tabOtherSettings": "其他设置",
     "librarySettings": "媒体库设置 — {name}",
+    "location": "位置",
     "orphanServers": "无关联服务器"
   },
   "mediaServers": {

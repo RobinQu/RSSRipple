@@ -10,6 +10,8 @@
   整理常开，无开关；不存在 enabled 规则时整步跳过。
 - 重建：通知 regenerate 后，pending/failed 计划随新快照重建（沿用已人工
   指定的 library/category，op 目标重渲染）；done/running 短路不重建。
+  规则/媒体库配置变更（规则增删改、库更新）经 :func:`replan_open_plans`
+  对全部未执行计划做同样的重建（配置变更 API 的附带动作，失败只记日志）。
 - 执行（:func:`execute_plan` / :func:`execute_plans`）：状态门禁 +
   单 ``asyncio.Lock`` 进程内串行（对齐 vault-organizer），阻塞文件 IO 经
   ``asyncio.to_thread``；执行器本体在 :mod:`app.services.organize_executor`。
@@ -430,6 +432,55 @@ async def _rebuild_plan(
     await db.commit()
     _maybe_auto_execute(plan.id, result)
     return "rebuilt"
+
+
+async def replan_open_plans(db, *, reason: str) -> dict:
+    """规则/媒体库配置变更后，重建全部未执行（pending/failed）计划。
+
+    与通知 regenerate 共用 :func:`_rebuild_plan` 的重建语义：人工指定的
+    library/category 沿用，其余按当前规则 first-match 重路由、op 目标按
+    当前库绑定重渲染；done/running 不动。不存在 enabled 规则时整步跳过
+    （与规划一致：规则全禁用不清空既有计划）。单条失败不影响其余计划；
+    调用方（配置变更 API）应把它当附带动作——失败只记日志。返回统计
+    dict ``{"rebuilt", "failed"}``。
+    """
+    stats = {"rebuilt": 0, "failed": 0}
+    rules = (
+        await db.execute(
+            select(OrganizeRule)
+            .where(OrganizeRule.enabled.is_(True))
+            .order_by(OrganizeRule.priority, OrganizeRule.created_at)
+        )
+    ).scalars().all()
+    if not rules:
+        return stats
+    plans = (
+        await db.execute(
+            select(OrganizePlan)
+            .where(OrganizePlan.status.in_(("pending", "failed")))
+            .options(selectinload(OrganizePlan.notification))
+        )
+    ).scalars().all()
+    if not plans:
+        return stats
+    libraries = (
+        await db.execute(select(Library).options(selectinload(Library.volume)))
+    ).scalars().all()
+    rule_ns = [_rule_ns(r) for r in rules]
+    lib_ns = {lib.id: _library_ns(lib) for lib in libraries}
+    for plan in plans:
+        notification = plan.notification
+        if notification is None:
+            continue
+        try:
+            outcome = await _rebuild_plan(db, plan, notification, rule_ns, lib_ns)
+        except Exception as e:  # noqa: BLE001 — 单条失败不影响其余计划
+            logger.error("[organize] 计划 %s 配置重建失败：%s", plan.id, e)
+            stats["failed"] += 1
+            continue
+        stats["rebuilt" if outcome == "rebuilt" else "failed"] += 1
+    logger.info("[organize] %s：重建未执行计划 %s", reason, stats)
+    return stats
 
 
 def _maybe_auto_execute(plan_id: str, result: OrganizePlanResult) -> None:

@@ -37,6 +37,7 @@ from app.services.organize_service import (
     execute_plan,
     execute_plans,
     plan_for_notifications,
+    replan_open_plans,
 )
 
 
@@ -407,6 +408,132 @@ async def test_done_plan_short_circuits(db_session, tmp_path):
     await db_session.refresh(plan)
     assert plan.status == "done"
     assert plan.payload["resource"]["episode"] == 4  # 快照未重建
+
+
+# ---------------------------------------------------------------- 配置变更重建
+
+
+async def test_replan_open_plans_reroutes_on_rule_change(db_session, tmp_path):
+    """规则目标库变更 → 未执行计划按当前规则重路由，op 目标重渲染。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib_a = await _make_library(db_session, tmp_path / "lib-a", name="A")
+    lib_b = await _make_library(db_session, tmp_path / "lib-b", name="B")
+    rule = await _make_rule(db_session, lib_a.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    assert plan.library_id == lib_a.id
+
+    # 用户把规则改指到库 B（快照未变，plan_for_notifications 不会触发重建）
+    rule.library_id = lib_b.id
+    await db_session.commit()
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 1, "failed": 0}
+    await db_session.refresh(plan)
+    assert plan.library_id == lib_b.id
+    assert plan.rule_id == rule.id
+    assert plan.status == "pending"
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert len(ops) == 1
+    assert ops[0].dst.startswith(str(tmp_path / "lib-b"))
+
+
+async def test_replan_open_plans_categorizes_uncategorized(db_session, tmp_path):
+    """新建匹配规则 → 待分类（无规则命中）计划被新规则收编。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    # 先有一条永不匹配的规则（保证规划步激活），造出待分类计划
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["uncategorized"] == 1
+    [plan] = await _plans(db_session)
+    assert plan.library_id is None and plan.rule_id is None
+
+    rule = await _make_rule(db_session, lib.id, TV_TEMPLATE, priority=50)
+    stats = await replan_open_plans(db_session, reason="规则创建")
+    assert stats == {"rebuilt": 1, "failed": 0}
+    await db_session.refresh(plan)
+    assert plan.library_id == lib.id
+    assert plan.rule_id == rule.id
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert len(ops) == 1
+
+
+async def test_replan_open_plans_preserves_manual_and_done(db_session, tmp_path):
+    """人工指定的 library/category 与 done 计划在配置重建中原样保留。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "hamnet.mkv", 500)
+    lib = await _make_library(db_session, tmp_path / "movies", name="Movies", kind="movie")
+    await _make_rule(db_session, lib.id, MOVIE_TEMPLATE)
+    notification = await _seed(
+        db_session, _movie_payload(str(dl_dir), files=[{"name": "hamnet.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    await classify_plan(db_session, plan.id, lib.id, category="Drama")
+
+    # 第二条：done 计划
+    _mkfile(dl_dir / "other.mkv", 400)
+    notification2 = await _seed(
+        db_session, _movie_payload(str(dl_dir), files=[{"name": "other.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification2])
+    plans = await _plans(db_session)
+    done_plan = next(p for p in plans if p.notification_id == notification2.id)
+    done_plan.status = "done"
+    await db_session.commit()
+
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 1, "failed": 0}
+    await db_session.refresh(plan)
+    assert plan.library_id == lib.id
+    assert plan.category == "Drama"
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert "/Drama/" in ops[0].dst
+    await db_session.refresh(done_plan)
+    assert done_plan.status == "done"
+
+
+async def test_replan_open_plans_skips_without_enabled_rules(db_session, tmp_path):
+    """规则全禁用时不做重建（既有计划保留，不清空）。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    rule = await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+
+    rule.enabled = False
+    await db_session.commit()
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 0, "failed": 0}
+    await db_session.refresh(plan)
+    assert plan.library_id == lib.id
 
 
 # ---------------------------------------------------------------- 人工分类
