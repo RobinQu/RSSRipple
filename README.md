@@ -37,14 +37,16 @@ cp .env.example .env
 docker compose up --build
 ```
 
-This starts the app (bring your own Transmission — you register its RPC URL as a downloader in the UI):
+This starts the app plus its PostgreSQL database and Redis queue (bring your own Transmission — you register its RPC URL as a downloader in the UI):
 
 | Service | URL | Purpose |
 | --- | --- | --- |
 | RSSRipple | http://localhost:9001 | Web UI |
 | API docs | http://localhost:9001/docs | OpenAPI / Swagger |
+| PostgreSQL | (internal) | Shared database |
+| Redis | (internal) | Distributed task queue |
 
-Turso (embedded, SQLite-compatible) + in-memory queue by default; data is persisted under `./data/`.
+PostgreSQL (`postgres:16-alpine`) + Redis (`redis:7-alpine`) are the default backend; data is persisted in named volumes. To run a single-node, dependency-free stack (embedded Turso + in-memory queue, no PostgreSQL/Redis), use `docker compose -f docker-compose.standalone.yml up --build`.
 
 ### 3. Run manually
 
@@ -111,7 +113,7 @@ Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTR
 | Layer | Technology |
 | --- | --- |
 | Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
-| Database | Turso (embedded, MVCC concurrent writes) by default; PostgreSQL-compatible architecture |
+| Database | PostgreSQL by default; Turso (embedded, MVCC concurrent writes) via `docker-compose.standalone.yml` |
 | Queue / Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
 | Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Wikipedia / TMDB / Bangumi (+ ordered Exa fallback) |
