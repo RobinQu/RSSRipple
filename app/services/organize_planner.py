@@ -154,6 +154,12 @@ def build_filter_context(
         )
 
     return SimpleNamespace(
+        # 作品互斥 FK：filter_engine 据此派生 ``content_type``
+        # （series_id→tv、movie_id→movie、audio_work_id→audio），缺失会
+        # 让一切 content_type 条件静默不命中。快照 work 段携带真实 id。
+        series_id=work.series_id if work else None,
+        movie_id=work.movie_id if work else None,
+        audio_work_id=None,  # 快照无 audio 作品段（organize 暂不整理音频）
         season=resource.season if resource else None,
         episode=resource.episode if resource else None,
         is_batch=resource.is_batch if resource else False,

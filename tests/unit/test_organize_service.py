@@ -536,6 +536,40 @@ async def test_replan_open_plans_skips_without_enabled_rules(db_session, tmp_pat
     assert plan.library_id == lib.id
 
 
+async def test_replan_unmatched_rule_demotes_to_uncategorized(db_session, tmp_path):
+    """规则收紧后不再命中：重建必须退回「待分类」（rule_id/library_id
+    置空），绝不让规则指向停留在已不匹配的旧规则上。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    rule = await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    assert plan.rule_id == rule.id and plan.library_id == lib.id
+
+    # 收紧规则：加一条永不命中的过滤条件
+    rule.filter = {"field": "series.is_anime", "operator": "eq", "value": False}
+    await db_session.commit()
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 1, "failed": 0}
+    await db_session.refresh(plan)
+    assert plan.rule_id is None
+    assert plan.library_id is None
+    assert plan.status == "pending"
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert ops == []
+    audits = await _audits(db_session, plan.id)
+    assert audits[-1].action == "plan_rebuilt"
+    assert audits[-1].detail["uncategorized"] is True
+
+
 # ---------------------------------------------------------------- 人工分类
 
 

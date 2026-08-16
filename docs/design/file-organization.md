@@ -153,7 +153,7 @@ class OrganizeRule(Base):
     created_at / updated_at
 ```
 
-filter 求值以通知快照对应的 FileResource + 关联作品为输入，与 Agent 过滤同一求值设施（同样必须 `selectinload` series/movie 及其 collection 关系）。vault-organizer 的硬编码分流改由 DSL 表达，示例：
+filter 求值以通知快照对应的 FileResource + 关联作品为输入，与 Agent 过滤同一求值设施（同样必须 `selectinload` series/movie 及其 collection 关系）。规划/预览路径的快照适配器（`organize_planner.build_filter_context`）必须提供与 FileResource 同形的字段面——尤其是作品互斥 FK（`series_id`/`movie_id`/`audio_work_id`，取自快照 work 段），`content_type` 由引擎从这些 FK 派生，缺失会使一切 content_type 条件静默不命中。vault-organizer 的硬编码分流改由 DSL 表达，示例：
 
 - 「动漫剧集入动漫库」：`{"field": "series.is_anime", "operator": "eq", "value": true}` → 动漫剧集库 + TV 模板（替代 `content_type == "anime"` 硬编码；is_anime 三态语义见 filter-dsl.md，「未判定」可用 `is_empty` 单列规则兜底）。
 - 「SF/恐怖电影入对应类别目录」：`{"field": "movie.genre", "operator": "contains", "value": "Horror"}` → movies 库 + 模板 `Horror/{title} ({year})/{title} ({year}){ext}`（按 priority 排布多条，替代 `movie_category_map` 的表序优先匹配）。
@@ -263,7 +263,7 @@ class OrganizeAuditEntry(Base):
 **未执行计划的刷新（replan）**：pending/failed 计划的语义是「按当前规则与库绑定待执行」，因此两类时机都会触发重建（共用 `_rebuild_plan`：人工指定的 library/category 沿用，其余按当前规则 first-match 重路由、op 目标重渲染；done/running/cancelled 不动）：
 
 1. **通知 regenerate**（快照变化）：notify tick / 手动重新生成消费到 payload 已变的通知时自动重建（上方链路）。
-2. **配置变更**（快照未变）：规则增删改（`POST/PUT/DELETE /organize-rules`）与媒体库更新（`PUT /libraries/{id}`，卷绑定/根子路径修复）提交后，API 同步调用 `replan_open_plans` 对**全部**未执行计划重建——规则改指库则计划重路由、新建规则收编待分类计划、补绑定后待绑定计划渲染出 ops。附带动作：重建失败只记日志，不影响配置变更本身的响应；无 enabled 规则时整步跳过（规则全禁用不清空既有计划）。
+2. **配置变更**（快照未变）：规则增删改（`POST/PUT/DELETE /organize-rules`）与媒体库更新（`PUT /libraries/{id}`，卷绑定/根子路径修复）提交后，API 同步调用 `replan_open_plans` 对**全部**未执行计划重建——规则改指库则计划重路由、新建规则收编待分类计划、补绑定后待绑定计划渲染出 ops。**当前规则无一命中时退回「待分类」**（rule_id/library_id 置空、ops 清空，绝不让规则指向停留在已不匹配的旧规则上；人工指定过 library 的计划走合成规则分支、不受规则集变化影响）。附带动作：重建失败只记日志，不影响配置变更本身的响应；无 enabled 规则时整步跳过（规则全禁用不清空既有计划）。
 
 重建均落 `plan_rebuilt` 审计；命中 `auto_execute` 规则的重建与新建一样随后台自动执行。
 

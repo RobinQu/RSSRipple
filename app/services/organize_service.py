@@ -407,7 +407,9 @@ async def _rebuild_plan(
 
     沿用已人工指定的 library/category：library_id 已人工指定（rule_id 为
     null）时按预设模板直指该库重渲染；否则按当前规则 first-match 重算，
-    category 沿用计划现值。重建失败保留旧计划（下 tick 重试）。
+    category 沿用计划现值；当前规则无一命中时退回「待分类」（rule_id /
+    library_id 置空，绝不让规则指向停留在已不再匹配的旧规则上）。重建
+    失败保留旧计划（下 tick 重试）。
     """
     payload = NotificationPayload.model_validate(notification.payload)
     downloader = await _resolve_downloader(db, payload)
@@ -445,12 +447,23 @@ async def _rebuild_plan(
         plan.rule_id = result.rule.id if result.rule and result.rule.id else plan.rule_id
         plan.library_id = result.library.id if result.library else plan.library_id
         plan.category = result.category
+    else:
+        # 当前规则无一命中（规则被收紧/改指/删除）：退回「待分类」——清掉
+        # 不再有效的规则/库指向，而不是让 rule_id 停留在已不匹配的旧规则
+        # 上（界面会误显示为该规则命中）。人工分类（rule_id 本就为 None
+        # 且 library 已指定）走合成规则分支，不会落到这里。
+        plan.rule_id = None
+        plan.library_id = None
     plan.payload = notification.payload
     plan.status = "pending"
     plan.error_message = None
     _audit(
         db, plan.id, "plan_rebuilt",
-        {"notification_id": notification.id, "ops": len(result.ops)},
+        {
+            "notification_id": notification.id,
+            "ops": len(result.ops),
+            "uncategorized": result.uncategorized,
+        },
     )
     await db.commit()
     _maybe_auto_execute(plan.id, result)

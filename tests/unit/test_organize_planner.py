@@ -621,3 +621,45 @@ class TestFilterContext:
         assert evaluate_filter_config(
             {"field": "season", "operator": "eq", "value": 1}, ctx
         )
+
+
+class TestContentTypeRuleMatching:
+    """Regression: build_filter_context must populate the mutually-exclusive
+    work FKs (series_id/movie_id) — filter_engine derives ``content_type``
+    from them; without them every rule with a content_type condition
+    silently never matches in organize planning."""
+
+    def test_content_type_tv_matches_series_payload(self):
+        lib = _library()
+        rule = _rule(
+            "tv", 10, lib.id, PRESET_TV,
+            filter={"field": "content_type", "operator": "eq", "value": "tv"},
+        )
+        result = build_plan(
+            GITS_PAYLOAD, [DiskFile("/d/gits ep04.mkv", 1000, "gits ep04.mkv")],
+            [rule], [lib],
+        )
+        assert result.rule is rule
+
+    def test_content_type_movie_rejects_series_payload(self):
+        lib = _library()
+        rule = _rule(
+            "tv", 10, lib.id, PRESET_TV,
+            filter={"field": "content_type", "operator": "eq", "value": "movie"},
+        )
+        result = build_plan(
+            GITS_PAYLOAD, [DiskFile("/d/gits ep04.mkv", 1000, "gits ep04.mkv")],
+            [rule], [lib],
+        )
+        assert result.rule is None  # 不命中 → 待分类
+
+    def test_is_batch_condition_distinguishes_batch(self):
+        lib = _library()
+        singles_only = _rule(
+            "singles", 10, lib.id, PRESET_TV,
+            filter={"field": "is_batch", "operator": "eq", "value": False},
+        )
+        result = build_plan(
+            _batch_payload(), _batch_files(), [singles_only], [lib],
+        )
+        assert result.rule is None  # 合集不命中单集规则
