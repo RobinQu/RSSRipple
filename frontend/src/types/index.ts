@@ -823,12 +823,22 @@ export interface DashboardPendingItem {
   created_at: string;
 }
 
+// A file resource with an ambiguous episode/season number awaiting manual
+// correction (episode_confidence="ambiguous"). Surfaced on the dashboard as an
+// actionable todo independent of any single agent's PendingDecision.
+export interface DashboardConfirmationItem {
+  resource: FileResource;
+  channel_name: string | null;
+  work_title: string | null;
+}
+
 export interface DashboardData {
   active_agents: number;
   active_channels: number;
   active_download_count: number;
   active_download_groups: DashboardDownloadGroup[];
   pending_decisions: DashboardPendingItem[];
+  pending_confirmations: DashboardConfirmationItem[];
   pending_plans: OrganizePlanListItem[];
 }
 

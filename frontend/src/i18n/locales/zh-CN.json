@@ -84,7 +84,9 @@
     "filterConditions": "订阅条件：",
     "noFilterConditions": "无过滤条件",
     "pendingPlans": "等待中的变更计划",
-    "noPendingHint": "暂无待决策事项"
+    "pendingConfirmations": "待确认事项",
+    "pendingItems": "待办事项",
+    "noPendingHint": "暂无待办事项"
   },
   "channels": {
     "title": "频道",
