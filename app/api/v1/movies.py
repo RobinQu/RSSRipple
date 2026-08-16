@@ -112,7 +112,10 @@ async def get_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
     res_q = await db.execute(
         select(FileResource)
         .where(FileResource.movie_id == movie_id)
-        .options(selectinload(FileResource.collection))
+        .options(
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
         .order_by(FileResource.published_at.desc())
         .limit(20)
     )

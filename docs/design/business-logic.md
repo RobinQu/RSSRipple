@@ -473,7 +473,8 @@ startup:
   ├─ 4. 全局每小时任务:
   │     enqueue "check_downloaders"  # handler 调用 POST /downloaders/{id}/test
   │
-  ├─ 5. 每 30 秒任务:
+  ├─ 5. 每 30 秒任务（仅 Turso 后端注册；PostgreSQL 无边车，
+  │     search_text + pg_trgm 由 ORM 钩子同事务维护）:
   │     enqueue "fts_drain"          # FTS 边车同步：把 fts_outbox 变更行定向投递到
   │                                  # 边车影子表（ORM 钩子与作品行同事务入队，
   │                                  # 幂等全量写；写入失败留给对账兜底）。
@@ -486,7 +487,7 @@ startup:
   ├─ 5b. 每 5 分钟任务:
   │     enqueue "backfill_metadata"  # 重试可重试的未匹配资源
   │
-  ├─ 5c. 每小时任务:
+  ├─ 5c. 每小时任务（仅 Turso 后端注册）:
   │     enqueue "fts_reconcile"      # FTS 影子表对账：全量 diff 基表 vs 影子表，
   │                                  # 修补绕过 outbox 的路径（脚本、直连 SQL）
   │
@@ -495,7 +496,8 @@ startup:
   │                                    # ① 入队：为 completed 且无通知的任务停种（best-effort）
   │                                    #   + 补建 DownloadNotification（download_task_id 唯一
   │                                    #   + SAVEPOINT 竞争回读，幂等；仅当 Agent 有启用
-  │                                    #   webhook 时才补建，无 webhook 不生成通知）；
+  │                                    #   webhook 或存在启用 OrganizeRule 时才补建，
+  │                                    #   两者皆无不生成通知）；
   │                                    # ② fan-out：ensure_deliveries 为"通知 × 每启用
   │                                    #   webhook"补建缺失的 pending WebhookDelivery；
   │                                    # ③ 投递：deliver_due_deliveries 并发投递到期 delivery

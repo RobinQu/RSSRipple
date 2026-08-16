@@ -75,27 +75,31 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(seconds=30),
     )
-    # FTS sidecar synchronization: replay fts_outbox change rows onto the
-    # sidecar shadow tables every 30s (outbox rows are enqueued atomically
-    # with the base-row transaction by the ORM before_flush hook). The hourly
-    # reconcile below heals whatever this misses (raw SQL, scripts, swallowed
-    # write failures).
-    _scheduler.add_job(
-        _enqueue_fts_drain,
-        trigger=IntervalTrigger(seconds=30),
-        id="fts_drain",
-        replace_existing=True,
-        next_run_time=utcnow() + timedelta(seconds=5),
-    )
-    # FTS shadow-table reconcile: full diff base vs shadow as a backstop for
-    # paths that bypass the outbox (scripts, dedup merges, direct SQL).
-    _scheduler.add_job(
-        _enqueue_fts_reconcile,
-        trigger=IntervalTrigger(hours=1),
-        id="fts_reconcile",
-        replace_existing=True,
-        next_run_time=utcnow() + timedelta(minutes=1),
-    )
+    # FTS sidecar synchronization (Turso only — on PostgreSQL there is no
+    # sidecar; ``search_text`` + pg_trgm is maintained in-transaction by the
+    # ORM flush hooks): replay fts_outbox change rows onto the sidecar shadow
+    # tables every 30s (outbox rows are enqueued atomically with the base-row
+    # transaction by the ORM before_flush hook). The hourly reconcile below
+    # heals whatever this misses (raw SQL, scripts, swallowed write failures).
+    from app.database import is_turso_url
+
+    if is_turso_url(settings.database_url):
+        _scheduler.add_job(
+            _enqueue_fts_drain,
+            trigger=IntervalTrigger(seconds=30),
+            id="fts_drain",
+            replace_existing=True,
+            next_run_time=utcnow() + timedelta(seconds=5),
+        )
+        # FTS shadow-table reconcile: full diff base vs shadow as a backstop
+        # for paths that bypass the outbox (scripts, dedup merges, direct SQL).
+        _scheduler.add_job(
+            _enqueue_fts_reconcile,
+            trigger=IntervalTrigger(hours=1),
+            id="fts_reconcile",
+            replace_existing=True,
+            next_run_time=utcnow() + timedelta(minutes=1),
+        )
     # Download notifications: enqueue rows for freshly completed tasks, fan
     # out to per-webhook deliveries, then deliver every due pending one.
     _scheduler.add_job(
@@ -602,6 +606,7 @@ async def _process_download_notifications() -> None:
     from app.models.agent_webhook import AgentWebhook
     from app.models.download_notification import DownloadNotification
     from app.models.download_task import DownloadTask
+    from app.models.organize_rule import OrganizeRule
     from app.services.notify_service import (
         create_notification_for_task,
         deliver_due_deliveries,
@@ -611,7 +616,9 @@ async def _process_download_notifications() -> None:
     async with committed_session() as db:
         try:
             notified = select(DownloadNotification.download_task_id).scalar_subquery()
-            # 未注册启用 webhook 的 agent 不生成通知，避免堆积无用记录
+            # 未注册启用 webhook 的 agent 不生成通知，避免堆积无用记录；但内置
+            # organize 也是通知快照的消费者（常开，存在启用规则即激活），因此
+            # 有启用 organize 规则时同样生成通知以驱动变更计划。
             has_webhook = (
                 select(AgentWebhook.id)
                 .where(
@@ -620,10 +627,15 @@ async def _process_download_notifications() -> None:
                 )
                 .exists()
             )
+            organize_active = (
+                select(OrganizeRule.id)
+                .where(OrganizeRule.enabled.is_(True))
+                .exists()
+            )
             stmt = select(DownloadTask).where(
                 DownloadTask.status == "completed",
                 DownloadTask.id.notin_(notified),
-                has_webhook,
+                has_webhook | organize_active,
             )
             tasks = (await db.execute(stmt)).scalars().all()
             enqueued = 0

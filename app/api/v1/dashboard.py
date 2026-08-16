@@ -172,7 +172,10 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         res_q = await db.execute(
             select(FileResource)
             .where(FileResource.id.in_(pd.candidates or []))
-            .options(selectinload(FileResource.collection))
+            .options(
+                selectinload(FileResource.audio_work),
+                selectinload(FileResource.collection),
+            )
         )
         candidates = res_q.scalars().all()
         pending_decisions.append({

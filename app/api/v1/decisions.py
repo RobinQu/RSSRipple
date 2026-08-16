@@ -104,7 +104,10 @@ async def list_decisions(
         cands = (await db.execute(
             select(FileResource)
             .where(FileResource.id.in_(d.candidates or []))
-            .options(selectinload(FileResource.collection))
+            .options(
+                selectinload(FileResource.audio_work),
+                selectinload(FileResource.collection),
+            )
         )).scalars().all()
         from app.schemas.file_resource import FileResourceResponse
         data["candidate_resources"] = [
