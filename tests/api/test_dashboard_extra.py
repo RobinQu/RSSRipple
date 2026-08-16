@@ -117,6 +117,35 @@ class TestDashboardPopulated:
         assert plans[0]["ops_preview"][0]["src"] == "/downloads/x/a.mkv"
 
 
+    async def test_dashboard_pending_confirmations(
+        self, client, db_session_factory, sample_channel, sample_series,
+    ):
+        """Ambiguous-episode resources surface as actionable confirmations
+        (channel + work title attached for inline correction)."""
+        from app.models.file_resource import FileResource
+
+        async with db_session_factory() as s:
+            resource = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="gc",
+                title_raw="[G] Amb - 01", torrent_url="magnet:?xt=urn:btih:gh",
+                series_id=sample_series.id, episode_confidence="ambiguous",
+                episode=1,
+            )
+            s.add(resource)
+            await s.commit()
+            rid = resource.id
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        confs = [c for c in data["pending_confirmations"] if c["resource"]["id"] == rid]
+        assert len(confs) == 1
+        c = confs[0]
+        assert c["resource"]["episode_confidence"] == "ambiguous"
+        assert c["channel_name"] == sample_channel.name
+        assert c["work_title"] == sample_series.title_cn
+
+
 @pytest.fixture
 async def setup_with_task_and_decision(client, db_session_factory, mock_transmission):
     from app.models.agent import Agent

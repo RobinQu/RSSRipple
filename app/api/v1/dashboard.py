@@ -196,6 +196,36 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
             "created_at": pd.created_at.isoformat(),
         })
 
+    # Pending resource confirmations — file resources whose episode/season
+    # number is ambiguous (episode_confidence="ambiguous") and awaits a manual
+    # correction. Surfaced on the dashboard alongside agent decisions and
+    # organize plans as an actionable todo; correcting the episode via
+    # ``PATCH /resources/{id}/episode`` flips the confidence to "manual" and
+    # re-runs the channel's agents.
+    pending_confirmations = []
+    conf_q = await db.execute(
+        select(FileResource)
+        .where(FileResource.episode_confidence == "ambiguous")
+        .order_by(FileResource.created_at.desc())
+        .limit(10)
+        .options(
+            selectinload(FileResource.channel),
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+        )
+    )
+    for r in conf_q.scalars().all():
+        pending_confirmations.append({
+            "resource": FileResourceResponse.model_validate(r).model_dump(),
+            "channel_name": r.channel.name if r.channel else None,
+            "work_title": (
+                (r.series.title_cn or r.series.title_en) if r.series_id and r.series
+                else (r.movie.title_cn or r.movie.title_en) if r.movie_id and r.movie
+                else None
+            ),
+        })
+
     # Pending organize plans (top 10) — they are actionable todos too, surfaced
     # on the dashboard with the same in-place execute/cancel/detail operations.
     # Reuse the plan list-item builder from the organize routes (includes the
@@ -219,5 +249,6 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         "active_download_count": len(tasks) + len(untracked_tasks),
         "active_download_groups": active_download_groups,
         "pending_decisions": pending_decisions,
+        "pending_confirmations": pending_confirmations,
         "pending_plans": pending_plans,
     })

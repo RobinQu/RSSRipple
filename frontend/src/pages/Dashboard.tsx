@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye, FolderSync } from 'lucide-react';
+import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye } from 'lucide-react';
 import {
   Typography,
   Row,
@@ -257,6 +257,19 @@ export default function Dashboard() {
     )
     .filter((g) => g.tasks.length > 0);
 
+  // Combined pending todo count (agent decisions + resource confirmations +
+  // organize plans) shown as a single headline metric.
+  const pendingCount =
+    dashboard.pending_decisions.length +
+    dashboard.pending_confirmations.length +
+    dashboard.pending_plans.length;
+  const firstPendingTab =
+    dashboard.pending_decisions.length > 0
+      ? 'decisions'
+      : dashboard.pending_confirmations.length > 0
+        ? 'confirmations'
+        : 'plans';
+
   return (
     <div>
       <div
@@ -321,29 +334,36 @@ export default function Dashboard() {
         <Col xs={12} md={6}>
           <Card>
             <Statistic
-              title={t('dashboard.pendingDecisions')}
-              value={dashboard.pending_decisions.length}
+              title={t('dashboard.pendingItems')}
+              value={pendingCount}
               prefix={<AlertTriangle size={18} />}
-              valueStyle={{ color: dashboard.pending_decisions.length > 0 ? '#ff7759' : undefined }}
+              valueStyle={{ color: pendingCount > 0 ? '#ff7759' : undefined }}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* Pending decisions — surfaced right under the metrics so they are the
-          first thing on screen; the warning border/title sets them apart. */}
-      {dashboard.pending_decisions.length > 0 && (
+      {/* Pending block — agent decisions, resource confirmations and organize
+          plans share one tabbed card right under the metrics so every
+          actionable todo is the first thing on screen. */}
+      {pendingCount > 0 ? (
       <Card
         title={
           <Space size={8}>
             <AlertTriangle size={16} color="#ff7759" />
-            <span style={{ color: '#ff7759' }}>{t('dashboard.pendingDecisions')}</span>
+            <span style={{ color: '#ff7759' }}>{t('dashboard.pendingItems')}</span>
           </Space>
         }
         style={{ border: '1px solid #ff7759', marginBottom: 24 }}
         styles={{ body: { padding: 0 } }}
       >
-        {(
+        <Tabs
+          defaultActiveKey={firstPendingTab}
+          items={[
+            {
+              key: 'decisions',
+              label: `${t('dashboard.pendingDecisions')} (${dashboard.pending_decisions.length})`,
+              children: (
           <List
             dataSource={dashboard.pending_decisions}
             renderItem={(d) => (
@@ -490,40 +510,116 @@ export default function Dashboard() {
                 </Space>
               </List.Item>
             )}
-          />
-        )}
-      </Card>
-      )}
-
-      {/* All-clear hint directly under the metrics when nothing is pending */}
-      {dashboard.pending_decisions.length === 0 && dashboard.pending_plans.length === 0 && (
-        <div style={{ marginTop: -8, marginBottom: 24 }}>
-          <Text type="secondary" style={{ fontSize: 13 }}>
-            <CheckCircle
-              size={14}
-              style={{ marginRight: 6, color: '#52c41a', verticalAlign: 'text-bottom' }}
-            />
-            {t('dashboard.noPendingHint')}
-          </Text>
-        </div>
-      )}
-
-      {/* Pending organize plans — actionable todos with the same in-place
-          execute / cancel / detail operations as the plans list. */}
-      {dashboard.pending_plans.length > 0 && (
-        <Card
-          title={
-            <Space size={8}>
-              <FolderSync size={16} color="#1863dc" />
-              <span>{t('dashboard.pendingPlans')}</span>
-            </Space>
-          }
-          style={{ marginBottom: 24 }}
-          styles={{ body: { padding: 0 } }}
-        >
-          <List
-            dataSource={dashboard.pending_plans}
-            renderItem={(p) => {
+              />
+              ),
+            },
+            {
+              key: 'confirmations',
+              label: `${t('dashboard.pendingConfirmations')} (${dashboard.pending_confirmations.length})`,
+              children: (
+                <List
+                  dataSource={dashboard.pending_confirmations}
+                  renderItem={(item) => {
+                    const r = item.resource;
+                    const base = {
+                      season: r.season ?? null,
+                      episode: r.episode ?? null,
+                      absolute_episode: r.absolute_episode ?? null,
+                    };
+                    const draft = { ...base, ...(episodeDrafts[r.id] ?? {}) };
+                    const patchDraft = (patch: Partial<EpisodeDraft>) =>
+                      setEpisodeDrafts((prev) => ({
+                        ...prev,
+                        [r.id]: { ...base, ...(prev[r.id] ?? {}), ...patch },
+                      }));
+                    return (
+                      <List.Item
+                        key={r.id}
+                        style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
+                            <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                              {item.channel_name && (
+                                <>
+                                  <Link to={`/channels/${r.channel_id}`}>
+                                    <Text style={{ fontSize: 12 }}>{item.channel_name}</Text>
+                                  </Link>
+                                  {' · '}
+                                </>
+                              )}
+                              {timeAgo(r.created_at)}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#b88500', marginTop: 4 }}>
+                              {t('agents.ambiguousHint')}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#f7f7f5', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text ellipsis style={{ fontSize: 13 }}>
+                              {r.title_cn || r.title_raw}
+                            </Text>
+                            {renderRawTitle(r)}
+                            <Space size={6} style={{ fontSize: 11, color: '#93939f', marginTop: 2 }} wrap>
+                              {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
+                              {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
+                              {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
+                              {r.season != null && <span>S{r.season}</span>}
+                              {r.episode != null && <span>EP{r.episode}</span>}
+                              {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
+                            </Space>
+                          </div>
+                          <Space size={6} align="center" wrap>
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              value={draft.season}
+                              placeholder={t('resource.seasonLabel')}
+                              onChange={(v) => patchDraft({ season: typeof v === 'number' ? v : null })}
+                              style={{ width: 72 }}
+                            />
+                            <InputNumber
+                              size="small"
+                              min={1}
+                              value={draft.episode}
+                              placeholder={t('agents.correctEpisodePlaceholder')}
+                              onChange={(v) => patchDraft({ episode: typeof v === 'number' ? v : null })}
+                              style={{ width: 72 }}
+                            />
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              value={draft.absolute_episode}
+                              placeholder={t('resource.absoluteEpisodePlaceholder')}
+                              onChange={(v) => patchDraft({ absolute_episode: typeof v === 'number' ? v : null })}
+                              style={{ width: 130 }}
+                            />
+                            <Button
+                              type="primary"
+                              size="small"
+                              loading={savingEpisodeCid === r.id}
+                              disabled={draft.episode == null}
+                              onClick={() => handleCorrectEpisode(r.id)}
+                            >
+                              {t('agents.correctEpisode')}
+                            </Button>
+                          </Space>
+                        </div>
+                      </List.Item>
+                    );
+                  }}
+                />
+              ),
+            },
+            {
+              key: 'plans',
+              label: `${t('dashboard.pendingPlans')} (${dashboard.pending_plans.length})`,
+              children: (
+                <List
+                  dataSource={dashboard.pending_plans}
+                  renderItem={(p) => {
               const preview = p.ops_preview ?? [];
               const extra = p.ops_summary.total - preview.length;
               return (
@@ -626,8 +722,22 @@ export default function Dashboard() {
                 </List.Item>
               );
             }}
-          />
-        </Card>
+              />
+              ),
+            },
+          ]}
+        />
+      </Card>
+      ) : (
+        <div style={{ marginTop: -8, marginBottom: 24 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            <CheckCircle
+              size={14}
+              style={{ marginRight: 6, color: '#52c41a', verticalAlign: 'text-bottom' }}
+            />
+            {t('dashboard.noPendingHint')}
+          </Text>
+        </div>
       )}
 
       {/* Download agents: top 4 active agents, busiest first. The task-count

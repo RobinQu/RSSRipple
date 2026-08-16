@@ -84,7 +84,9 @@
     "filterConditions": "Conditions:",
     "noFilterConditions": "No filter conditions",
     "pendingPlans": "Pending Change Plans",
-    "noPendingHint": "No pending decisions"
+    "pendingConfirmations": "Pending Confirmations",
+    "pendingItems": "Pending Items",
+    "noPendingHint": "No pending items"
   },
   "channels": {
     "title": "Channels",
