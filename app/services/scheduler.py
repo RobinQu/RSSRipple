@@ -31,27 +31,33 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
         return
     _scheduler = AsyncIOScheduler()
+    # All periodic jobs are queue-only: each tick enqueues a job with a stable
+    # key (``job:<type>``) instead of running the function body in the
+    # scheduler process. The queue's active-key dedup collapses concurrent
+    # ticks (including duplicate schedulers across multiple workers) to a
+    # single queued job, and the queue consumer executes it exactly once. The
+    # function bodies below stay directly callable (unit tests invoke them).
     _scheduler.add_job(
-        _sync_download_progress,
+        _enqueue_sync_progress,
         trigger=IntervalTrigger(minutes=1),
         id="sync_progress",
         replace_existing=True,
         next_run_time=utcnow() + timedelta(seconds=30),
     )
     _scheduler.add_job(
-        _cleanup_expired,
+        _enqueue_daily_cleanup,
         trigger=CronTrigger(hour=3, minute=0),
         id="daily_cleanup",
         replace_existing=True,
     )
     _scheduler.add_job(
-        _dedup_metadata,
+        _enqueue_daily_dedup,
         trigger=CronTrigger(hour=4, minute=0),
         id="daily_dedup",
         replace_existing=True,
     )
     _scheduler.add_job(
-        _check_downloader_connections,
+        _enqueue_check_downloaders,
         trigger=IntervalTrigger(hours=1),
         id="check_downloaders",
         replace_existing=True,
@@ -75,7 +81,7 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
     # reconcile below heals whatever this misses (raw SQL, scripts, swallowed
     # write failures).
     _scheduler.add_job(
-        _drain_fts_outbox,
+        _enqueue_fts_drain,
         trigger=IntervalTrigger(seconds=30),
         id="fts_drain",
         replace_existing=True,
@@ -84,7 +90,7 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
     # FTS shadow-table reconcile: full diff base vs shadow as a backstop for
     # paths that bypass the outbox (scripts, dedup merges, direct SQL).
     _scheduler.add_job(
-        _reconcile_fts,
+        _enqueue_fts_reconcile,
         trigger=IntervalTrigger(hours=1),
         id="fts_reconcile",
         replace_existing=True,
@@ -93,7 +99,7 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
     # Download notifications: enqueue rows for freshly completed tasks, fan
     # out to per-webhook deliveries, then deliver every due pending one.
     _scheduler.add_job(
-        _process_download_notifications,
+        _enqueue_download_notifications,
         trigger=IntervalTrigger(minutes=1),
         id="download_notifications",
         replace_existing=True,
@@ -258,6 +264,75 @@ async def _run_metadata_backfill() -> None:  # pragma: no cover - wiring only
         )
     except Exception as e:
         logger.warning("Failed to enqueue metadata backfill: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Periodic-job enqueue wrappers
+#
+# The function bodies further below stay directly callable (unit tests invoke
+# them after monkeypatching the session factory). The scheduler only registers
+# these thin wrappers. Two layers keep a job to one execution per interval
+# across N worker processes, each running its own scheduler:
+#
+# 1. ``throttle`` — a cross-process tick key (SET NX EX, TTL = the interval)
+#    so only the first tick of each interval proceeds to enqueue at all;
+# 2. the queue's active-key dedup — collapses any remaining concurrent
+#    duplicates to a single queued job, executed exactly once by whichever
+#    consumer pops it.
+# ---------------------------------------------------------------------------
+
+# Throttle TTL per job type: slightly below the tick interval so a slow tick
+# never eats the next interval's slot.
+_PERIODIC_THROTTLE_TTL = {
+    "sync_progress": 50,
+    "download_notifications": 50,
+    "fts_drain": 25,
+    "fts_reconcile": 3540,
+    "check_downloaders": 3540,
+    "daily_cleanup": 86340,
+    "daily_dedup": 86340,
+}
+
+
+async def _enqueue_periodic_job(job_type: str) -> None:
+    from app.services.task_queue import task_queue
+
+    try:
+        if not await task_queue.throttle(
+            job_type, _PERIODIC_THROTTLE_TTL[job_type]
+        ):
+            return  # another worker's scheduler already ticked this interval
+        await task_queue.enqueue(job_type, f"job:{job_type}", {})
+    except Exception as e:
+        logger.warning("Failed to enqueue %s: %s", job_type, e)
+
+
+async def _enqueue_sync_progress() -> None:
+    await _enqueue_periodic_job("sync_progress")
+
+
+async def _enqueue_daily_cleanup() -> None:
+    await _enqueue_periodic_job("daily_cleanup")
+
+
+async def _enqueue_daily_dedup() -> None:
+    await _enqueue_periodic_job("daily_dedup")
+
+
+async def _enqueue_check_downloaders() -> None:
+    await _enqueue_periodic_job("check_downloaders")
+
+
+async def _enqueue_fts_drain() -> None:
+    await _enqueue_periodic_job("fts_drain")
+
+
+async def _enqueue_fts_reconcile() -> None:
+    await _enqueue_periodic_job("fts_reconcile")
+
+
+async def _enqueue_download_notifications() -> None:
+    await _enqueue_periodic_job("download_notifications")
 
 
 async def _run_metadata_refresh() -> None:  # pragma: no cover - wiring only

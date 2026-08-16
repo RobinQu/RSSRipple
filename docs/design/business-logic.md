@@ -447,7 +447,7 @@ process_resources(agent, resources, db)
 
 ### Schedule 调度
 
-APScheduler 在 FastAPI lifespan 启动时初始化（使用 AsyncIOScheduler）。
+APScheduler（AsyncIOScheduler，内存 store）在 **worker 进程**启动时初始化（`APP_ROLE=worker` 或 `all`；`APP_ROLE=web` 的进程不起调度器、不消费队列）。**所有周期 job 只 enqueue 不执行**。两层机制保证 N 个 worker 各跑一份调度器时每个 interval 只执行一次：① tick 节流——`queue.throttle(<type>, ttl=interval)`（Redis SET NX EX，键 `rssripple:tick:<type>`），本 interval 内第一个 tick 胜出，其余直接跳过（active-key 去重只挡并发重复，挡不住错峰 tick，必须有这层）；② 队列 active-key 去重兜底并发窗口，BLPOP 单消费者保证恰好执行一次。job 函数体仍可直接调用（单测依赖）。
 
 ```
 startup:
@@ -468,13 +468,13 @@ startup:
   │     删除/paused → remove_job
   │
   ├─ 3. 全局每分钟任务:
-  │     sync_download_progress()
+  │     enqueue "sync_progress"（key=job:sync_progress）
   │
   ├─ 4. 全局每小时任务:
-  │     check_downloader_connections()  # 调用 POST /downloaders/{id}/test
+  │     enqueue "check_downloaders"  # handler 调用 POST /downloaders/{id}/test
   │
   ├─ 5. 每 30 秒任务:
-  │     fts_drain                    # FTS 边车同步：把 fts_outbox 变更行定向投递到
+  │     enqueue "fts_drain"          # FTS 边车同步：把 fts_outbox 变更行定向投递到
   │                                  # 边车影子表（ORM 钩子与作品行同事务入队，
   │                                  # 幂等全量写；写入失败留给对账兜底）。
   │                                  # 搜索路径额外在读前 drain（search_*_fts 顶部
@@ -484,14 +484,14 @@ startup:
   │                                  # 退化为批量化与脚本/非 API 写入的兜底。
   │
   ├─ 5b. 每 5 分钟任务:
-  │     metadata_backfill            # 重试可重试的未匹配资源
+  │     enqueue "backfill_metadata"  # 重试可重试的未匹配资源
   │
   ├─ 5c. 每小时任务:
-  │     fts_reconcile                # FTS 影子表对账：全量 diff 基表 vs 影子表，
+  │     enqueue "fts_reconcile"      # FTS 影子表对账：全量 diff 基表 vs 影子表，
   │                                  # 修补绕过 outbox 的路径（脚本、直连 SQL）
   │
   ├─ 6. 每分钟任务（NOTIFY_ENABLED 开启时）:
-  │     _process_download_notifications  # 三段式 tick：
+  │     enqueue "download_notifications"  # handler 三段式 tick：
   │                                    # ① 入队：为 completed 且无通知的任务停种（best-effort）
   │                                    #   + 补建 DownloadNotification（download_task_id 唯一
   │                                    #   + SAVEPOINT 竞争回读，幂等；仅当 Agent 有启用
@@ -504,12 +504,11 @@ startup:
   │                                    #   详见 notifications.md
   │
   └─ 7. 全局每日任务:
-        cleanup_expired_tasks()  # 删除 completed 且 completed_at < now - task_expire_days 的任务
+        enqueue "daily_cleanup"      # 删除 completed 且 completed_at < now - task_expire_days 的任务
                                  # （跳过其通知存在任一非 done delivery 的任务；
                                  # 超过 NOTIFY_RETENTION_DAYS 保留期的通知整行删除，
-                                 # delivery 随级联清理）
-        expire_pending_decisions()  # 过期 pending decision → status="expired"
-        _dedup_metadata()  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
+                                 # delivery 随级联清理）+ 过期 pending decision → expired
+        enqueue "daily_dedup"  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
                             # 防止 metadata agent 偶尔为同一作品新建第二行）。聚类 key 基于
                             # 共享的 title_cn/title_en/original_title **+ aliases**，
                             # 只折叠可证明为同一作品的行；幂等。P3：合并时身份袋
@@ -517,7 +516,7 @@ startup:
                             # merge_external_id_bags；跨表合并同样处理）
 ```
 
-任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），用于承载手动触发的 fetch/run；APScheduler 定时任务也通过 enqueue 投递到同一队列，保证同一 Channel/Agent 的任务串行执行（分布式锁，避免重复运行）。
+任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
 
 ### 下载状态同步
 

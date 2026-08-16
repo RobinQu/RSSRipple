@@ -13,7 +13,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 | External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), TMDB API, Wikipedia REST, Bangumi API, Exa Search（有序回退补身份）、feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |
 
-数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
+数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。分布式部署（PostgreSQL + Redis 队列）下进程按 `APP_ROLE` 拆分：`web` 只服务 HTTP 并入队，`worker`（入口 `python -m app.worker`）运行调度器与队列消费、无 HTTP；默认 `docker-compose.yml` 为 1 web + 3 worker，单机/standalone 保持 `all`（单进程全功能）。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
 
 ## 3. 模块划分
 

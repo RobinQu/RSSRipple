@@ -212,6 +212,35 @@ class TestMemoryQueue:
         await queue.stop()
         await queue.stop()  # second stop should not raise
 
+    async def test_consume_false_enqueues_without_consuming(self, queue):
+        """start(consume=False) (web role): enqueue/status work but no
+        dispatcher runs, so the handler is never invoked."""
+        ran = []
+
+        async def handler(payload):
+            ran.append(payload)
+
+        queue.register("echo", handler)
+        await queue.start(consume=False)
+
+        job = await queue.enqueue("echo", "nc1", {"x": 1})
+        assert job is not None
+        assert job["status"] == JobStatus.QUEUED
+
+        await asyncio.sleep(0.1)
+        assert ran == []
+        state = await queue.status("nc1")
+        assert state["status"] == JobStatus.QUEUED
+
+        await queue.stop()  # safe without a dispatcher
+        await queue.stop()
+
+    async def test_throttle_always_true_single_process(self, queue):
+        """MemoryQueue (single process, one scheduler) never throttles."""
+        await queue.start()
+        assert await queue.throttle("sync_progress", 60) is True
+        assert await queue.throttle("sync_progress", 60) is True
+
     async def test_multiple_different_keys(self, queue):
         counts = {}
 
@@ -311,6 +340,38 @@ class TestRedisQueue:
     async def test_status_before_enqueue(self, queue):
         await queue.start()
         assert await queue.status("never") is None
+
+    async def test_consume_false_enqueues_without_consuming(self, queue, redis_client):
+        """start(consume=False) (web role): the job lands in the Redis list
+        and its state hash is readable, but no worker loop pops it."""
+        ran = []
+
+        async def handler(payload):
+            ran.append(payload)
+
+        queue.register("echo", handler)
+        await queue.start(consume=False)
+
+        job = await queue.enqueue("echo", "rnc1", {"x": 1})
+        assert job is not None
+        assert job["status"] == JobStatus.QUEUED
+
+        await asyncio.sleep(0.1)
+        assert ran == []
+        assert await redis_client.llen("rssripple:jobs") == 1
+        state = await queue.status("rnc1")
+        assert state["status"] == JobStatus.QUEUED
+
+        await queue.stop()  # safe without a worker loop
+
+    async def test_throttle_first_tick_wins(self, queue):
+        """throttle(): first caller within the TTL wins; everyone else is
+        told to skip — this collapses N worker schedulers to one tick."""
+        await queue.start()
+        assert await queue.throttle("sync_progress", 60) is True
+        assert await queue.throttle("sync_progress", 60) is False
+        # A different key is independent.
+        assert await queue.throttle("fts_drain", 60) is True
 
     async def test_status_transitions(self, queue):
         started = asyncio.Event()

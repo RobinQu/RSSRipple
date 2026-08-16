@@ -1,5 +1,7 @@
-# Default stack: distributed (PostgreSQL + Redis) — the multi-instance
-# deployment. Configure your own downloader (Transmission RPC) via the UI.
+# Default stack: distributed (PostgreSQL + Redis) — 1 web + 3 workers.
+# The web service serves HTTP and enqueues jobs (APP_ROLE=web); the worker
+# replicas run the scheduler and consume the queue, with no HTTP listener
+# (APP_ROLE=worker). Configure your own downloader (Transmission RPC) via the UI.
 # The eval service lives in docker-compose.eval.yml and is started separately;
 # the test stacks (docker-compose.test*.yml) bundle their own transmission.
 #
@@ -57,6 +59,9 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
+      # Pure web role: HTTP + enqueue only; scheduling/queue consumption
+      # runs in the worker service below.
+      - APP_ROLE=web
     command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001", "--reload"]
     depends_on:
       postgres:
@@ -83,6 +88,39 @@ services:
         - action: rebuild
           path: frontend
     restart: unless-stopped
+
+  # ── Workers (scheduler + queue consumers, no HTTP) ────────────────────────
+  # Scale with `deploy.replicas` (or `docker compose up --scale worker=N`).
+  # No port mapping and no develop.watch sync: workers don't serve HTTP and
+  # don't hot-reload.
+  worker:
+    build: .
+    volumes:
+      # Same volumes as web: posters/torrent cache (app-data) and the
+      # logical-volume mount for organize file operations (vault-storage).
+      - app-data:/app/data
+      - vault-storage:/storage/vault
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rssripple}:${POSTGRES_PASSWORD:-rssripple}@postgres:5432/${POSTGRES_DB:-rssripple}
+      - QUEUE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+      - POSTER_CACHE_DIR=/app/data/posters
+      - APP_ROLE=worker
+    command: ["uv", "run", "--no-project", "python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Webhook deliveries run on the worker now (notify loop lives in the
+    # scheduler); same host-gateway pin as web for host-side consumers.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    deploy:
+      replicas: 3
 
 volumes:
   app-data:
