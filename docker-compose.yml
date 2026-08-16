@@ -1,31 +1,68 @@
-# Default stack: app only — configure your own downloader (Transmission RPC)
-# via the UI. The eval service lives in docker-compose.eval.yml and is started
-# separately; the test stacks (docker-compose.test*.yml) bundle their own
-# transmission service.
+# Default stack: distributed (PostgreSQL + Redis) — the multi-instance
+# deployment. Configure your own downloader (Transmission RPC) via the UI.
+# The eval service lives in docker-compose.eval.yml and is started separately;
+# the test stacks (docker-compose.test*.yml) bundle their own transmission.
+#
+# For a single-node, dependency-free deployment (embedded Turso DB + in-memory
+# queue, no PostgreSQL/Redis services), use docker-compose.standalone.yml.
 services:
+  # ── PostgreSQL (shared database) ──────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-rssripple}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-rssripple}
+      - POSTGRES_DB=${POSTGRES_DB:-rssripple}
+    volumes:
+      # Named volume for the PostgreSQL data directory — never put it on the
+      # CIFS/SMB share below.
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rssripple} -d ${POSTGRES_DB:-rssripple}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Redis (shared task queue) ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build: .
     ports:
       - "9001:9001"
     volumes:
-      # Named volume (not a bind mount) for the SQLite DB + posters. The DB on a
-      # bind mount hit recurring "disk I/O error" under concurrent writes on
-      # Docker Desktop/macOS (virtiofs EIO); a named volume is backed by the
-      # Linux VM's filesystem and avoids that.
+      # Named volume (not a bind mount) for posters + misc app data. The SQLite
+      # DB on a bind mount hit recurring "disk I/O error" under concurrent
+      # writes on Docker Desktop/macOS (virtiofs EIO); a named volume is backed
+      # by the Linux VM's filesystem and avoids that. The database itself now
+      # lives in the PostgreSQL service above; this volume only holds posters.
       - app-data:/app/data
       # 远程存储（逻辑卷挂载点，可选；不需要内置文件整理时可移除）。
       # SMB/CIFS 共享挂到容器 /storage/vault，运行时在「存储卷」页面建逻辑卷
       # 记录指向该路径，下载器/媒体服务器再按（逻辑卷 + 子路径）绑定。
       # 凭据走 .env 的 SMB_USER/SMB_PASSWORD/SMB_UID/SMB_GID。
-      # 注意：应用数据（上面的 app-data）必须留在本地卷，**不要**放到这个
-      # 网络共享上——SQLite/Turso 文件锁在网络文件系统不可靠。
       - vault-storage:/storage/vault
     env_file: .env
     environment:
-      - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_turso.db
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rssripple}:${POSTGRES_PASSWORD:-rssripple}@postgres:5432/${POSTGRES_DB:-rssripple}
+      - QUEUE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
     command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001", "--reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     # Webhook consumers running on the Docker host (e.g. vault-organizer):
     # the machine hostname resolves to loopback (127.0.1.1) and never works
     # across containers; this pins host.docker.internal to the host gateway.
@@ -49,6 +86,7 @@ services:
 
 volumes:
   app-data:
+  postgres-data:
   vault-storage:
     driver: local
     driver_opts:

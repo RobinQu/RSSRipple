@@ -174,6 +174,72 @@ async def test_search_swallows_db_errors():
 
 
 # ---------------------------------------------------------------------------
+# PostgreSQL search path (mirrors the Turso ngram tokenizer semantics)
+# ---------------------------------------------------------------------------
+
+
+def test_escape_like_escapes_wildcards():
+    from app.services.fts import _escape_like
+
+    assert _escape_like("100%_ok\\x") == "100\\%\\_ok\\\\x"
+    assert _escape_like("plain") == "plain"
+
+
+def _capturing_db() -> tuple[object, dict]:
+    """Return a fake async session that records the compiled SQL and returns [].
+
+    ``_search_pg_like`` only touches ``db.execute(...).all()``, so a minimal
+    stub suffices to assert on the generated query without a live backend.
+    """
+    captured: dict = {}
+
+    class _Result:
+        def all(self):
+            return []
+
+    class _Db:
+        async def execute(self, stmt):
+            captured["sql"] = str(
+                stmt.compile(compile_kwargs={"literal_binds": True})
+            )
+            return _Result()
+
+    return _Db(), captured
+
+
+async def test_search_pg_like_word_or_and_escaping():
+    from app.models.series import TVSeries
+    from app.services.fts import _search_pg_like
+
+    db, captured = _capturing_db()
+
+    # Multi-word English query → one LIKE per ≥2-char token, OR-ed together.
+    await _search_pg_like(db, TVSeries, "ghost in the shell", 30)
+    assert captured["sql"].count("LIKE") == 4
+    assert "%ghost%" in captured["sql"] and "%shell%" in captured["sql"]
+
+    # Single-token CJK query → single substring LIKE (contiguous match).
+    await _search_pg_like(db, TVSeries, "攻壳机动队", 30)
+    assert captured["sql"].count("LIKE") == 1
+    assert "%攻壳机动队%" in captured["sql"]
+
+    # Single-character query → still matched as a substring (Turso Python-scan
+    # fallback parity).
+    await _search_pg_like(db, TVSeries, "测", 30)
+    assert captured["sql"].count("LIKE") == 1
+    assert "%测%" in captured["sql"]
+
+    # LIKE wildcards in the query term are escaped, so "100%" matches literally.
+    await _search_pg_like(db, TVSeries, "100%", 30)
+    assert "%100\\%%" in captured["sql"]
+
+    # 1-char tokens in a multi-word query are dropped (ngram min_token_size=2).
+    captured.clear()
+    await _search_pg_like(db, TVSeries, "a b", 30)
+    assert "sql" not in captured
+
+
+# ---------------------------------------------------------------------------
 # Reconciliation
 # ---------------------------------------------------------------------------
 

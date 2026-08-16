@@ -37,14 +37,16 @@ cp .env.example .env
 docker compose up --build
 ```
 
-这只会启动应用本身（Transmission 需自备 —— 在 UI 中把它的 RPC 地址注册为下载器）：
+这会启动应用本体、PostgreSQL 数据库与 Redis 队列（Transmission 需自备 —— 在 UI 中把它的 RPC 地址注册为下载器）：
 
 | 服务 | 地址 | 用途 |
 | --- | --- | --- |
 | RSSRipple | http://localhost:9001 | Web UI |
 | API 文档 | http://localhost:9001/docs | OpenAPI / Swagger |
+| PostgreSQL | （内部） | 共享数据库 |
+| Redis | （内部） | 分布式任务队列 |
 
-默认使用 Turso（嵌入式，兼容 SQLite 文件格式）+ 内存队列；数据持久化在 `./data/` 下。
+默认使用 PostgreSQL（`postgres:16-alpine`）+ Redis（`redis:7-alpine`），数据持久化在命名卷中。如需单节点、无依赖部署（嵌入式 Turso + 内存队列，无需 PostgreSQL/Redis），使用 `docker compose -f docker-compose.standalone.yml up --build`。
 
 ### 3. 手动运行
 
@@ -111,7 +113,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | 层 | 技术 |
 | --- | --- |
 | 后端 | Python 3.11+、FastAPI、SQLAlchemy 2.0 async、Pydantic v2 |
-| 数据库 | 默认 Turso（嵌入式，MVCC 并发写）；架构兼容 PostgreSQL |
+| 数据库 | 默认 PostgreSQL；Turso（嵌入式，MVCC 并发写）见 `docker-compose.standalone.yml` |
 | 队列 / 调度 | MemoryQueue 或 RedisQueue、APScheduler |
 | RSS | feedparser |
 | 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Wikipedia / TMDB / Bangumi（+ 有序 Exa 回退） |

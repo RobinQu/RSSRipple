@@ -30,7 +30,9 @@ Design:
   scan of the base tables.
 
 On PostgreSQL there is no sidecar: searches match the in-table ``search_text``
-column via ``pg_trgm`` GIN (see ``_search_pg_like``).
+column via ``pg_trgm`` GIN. ``_search_pg_like`` replicates the ngram tokenizer
+semantics (whitespace-split, ≥2-char tokens OR-ed as literal substrings) so the
+candidate set matches the Turso sidecar for CJK and English alike.
 """
 
 from __future__ import annotations
@@ -38,7 +40,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
@@ -211,20 +213,52 @@ async def _search_entities_like(db: AsyncSession, model: Any, norm: str, limit: 
     return ids
 
 
+def _escape_like(term: str) -> str:
+    """Escape LIKE wildcards so a literal substring never mis-matches.
+
+    ``search_text`` is already normalized (NFKC + OpenCC t2s + lowercase), so
+    case folding happens on both sides and a plain ``LIKE`` is equivalent to
+    ``ILIKE``. Titles/aliases can legitimately contain ``%``/``_``/``\\``, so
+    the query term must be escaped or those characters would turn into
+    wildcards and silently change the match set.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 async def _search_pg_like(db: AsyncSession, model: Any, norm: str, limit: int) -> list[str]:
-    """Indexed trigram substring search over ``search_text`` (PostgreSQL).
+    """Indexed substring search over ``search_text`` (PostgreSQL).
 
     ``search_text`` holds the normalized title concatenation maintained by the
     ORM before_flush hook; the ``pg_trgm`` GIN index accelerates the
     ``LIKE '%q%'`` pattern. Same normalization as the Turso FTS indexed
     content, so matching semantics stay consistent across backends.
+
+    Matching mirrors the Turso ``ngram`` tokenizer (``min_token_size``=2):
+    the normalized query is split on whitespace and each token with ≥2
+    characters is matched as a literal substring (``LIKE '%tok%'``), with the
+    tokens OR-ed together. For CJK titles (no whitespace) this degenerates to
+    an exact substring match — the same result as Turso's contiguous
+    AND-of-bigrams. A single-character query (Turso's Python-scan fallback) is
+    matched as a substring too.
     """
     try:
-        stmt = (
-            select(model.id)
-            .where(model.search_text.like(f"%{norm}%"))
-            .limit(limit)
-        )
+        tokens = norm.split()
+        if len(tokens) == 1:
+            # Single token (CJK title, single English word, or a single
+            # character): contiguous substring match — Turso's single-token
+            # AND-of-bigrams, or its single-char Python-scan fallback.
+            patterns = tokens
+        else:
+            # Multi-word query: OR the ≥2-char tokens (Turso's ngram
+            # ``min_token_size``=2 drops 1-char tokens entirely).
+            patterns = [t for t in tokens if len(t) >= 2]
+            if not patterns:
+                return []
+        conditions = [
+            model.search_text.like(f"%{_escape_like(t)}%", escape="\\")
+            for t in patterns
+        ]
+        stmt = select(model.id).where(or_(*conditions)).limit(limit)
         result = await db.execute(stmt)
         return [row[0] for row in result.all()]
     except Exception as e:
