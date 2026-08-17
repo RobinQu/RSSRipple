@@ -20,6 +20,7 @@ from typing import Any
 
 from app.services.metadata_exa_fallback import exa_fallback_judge
 from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT
+from app.services.metadata_source_registry import parse_wikipedia_id
 from app.services.metadata_sources import normalize_metadata_source_type
 from app.services.metadata_wiki_classify import (
     _classify_wikipedia_page,
@@ -157,13 +158,13 @@ def _wikipedia_alt_external_ids(entry: dict) -> list[dict]:
     """P3: baggable secondary wikipedia ids from a page's langlink pageids.
 
     Wikipedia pageids are per-language-wiki; the same work's zh/en/ja pages
-    have different pageids. Bagging all of them (as ``alt_external_ids`` on
-    matched_entity) lets a later upsert that arrives with ANY language's
-    pageid converge on the same work row deterministically.
+    have different pageids. Bagging all of them in the language-qualified
+    form ``wikipedia:{lang}:{pageid}`` lets a later upsert that arrives with
+    ANY language's pageid converge on the same work row deterministically.
     """
     return [
-        {"source": "wikipedia", "id": f"wikipedia:{pid}"}
-        for pid in (entry.get("langlink_pageids") or {}).values()
+        {"source": "wikipedia", "id": f"wikipedia:{lang}:{pid}"}
+        for lang, pid in (entry.get("langlink_pageids") or {}).items()
     ]
 
 
@@ -311,7 +312,10 @@ async def run_search_then_judge(
                 "title_cn": xl["title_cn"],
                 "title_en": xl["title_en"],
                 "matched_entity": {
-                    "external_id": f"wikipedia:{page_id}" if page_id else None,
+                    "external_id": (
+                        f"wikipedia:{lang}:{page_id}" if page_id and lang
+                        else f"wikipedia:{page_id}" if page_id else None
+                    ),
                     "external_source": "wikipedia",
                     "title_cn": xl["title_cn"],
                     "title_en": xl["title_en"],
@@ -466,18 +470,25 @@ async def run_search_then_judge(
         )
     # B3: carry the matched page's categories onto matched_entity so
     # process() can defense-check the entity kind. The judge returns
-    # external_id "wikipedia:<page_id>"; find the evidence page with that
-    # page_id and copy its categories (plus a description if missing).
+    # external_id "wikipedia:<lang>:<page_id>" (legacy "wikipedia:<page_id>");
+    # find the evidence page with that page_id and copy its categories (plus
+    # a description if missing).
     if finalize_dict.get("found"):
         me = finalize_dict.get("matched_entity") or {}
         ext_id = me.get("external_id") or ""
-        pid = ext_id.split(":", 1)[1] if ext_id.startswith("wikipedia:") else None
+        _, pid = parse_wikipedia_id(ext_id)
         if pid:
             for e in evidence:
                 if str(e.get("page_id")) == str(pid):
                     me["categories"] = list(e.get("categories", [])[:10])
                     if not me.get("description"):
                         me["description"] = (e.get("summary") or "")[:500] or None
+                    # Language-qualify the pageid (pageids are per-edition)
+                    # and carry the page URL for display/wikidata resolution.
+                    if e.get("lang"):
+                        me["external_id"] = f"wikipedia:{e['lang']}:{pid}"
+                    if not me.get("wikipedia_url") and e.get("url"):
+                        me["wikipedia_url"] = e.get("url")
                     # Cross-language bridge: backfill the other language's
                     # title slot and carry all langlink titles as alt_titles
                     # so the upsert's title fallback can converge per-language

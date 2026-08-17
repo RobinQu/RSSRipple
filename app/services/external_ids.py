@@ -9,6 +9,10 @@ Conventions (see the model docstring):
   * ``source`` is a registry source name; non-registry sources are skipped.
   * ``external_id`` stores the FULL canonical ``source:id`` string, mirroring
     the ``TVSeries.external_id`` convention.
+  * Wikipedia pageids are per-language-edition: the canonical form is
+    ``wikipedia:{lang}:{pageid}``. Legacy bare ``wikipedia:{pageid}`` rows
+    still match (both directions) via ``wikipedia_match_keys``; adding a
+    qualified id over a same-work bare row upgrades the row in place.
   * Creator-wins primary: the bag never overwrites a work's primary
     ``external_id`` column; later-discovered ids only enter the bag.
   * One id → at most one work. Adding an id already owned by ANOTHER work
@@ -19,7 +23,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.movie import Movie
@@ -28,6 +32,8 @@ from app.models.work_external_id import WorkExternalId
 from app.services.metadata_source_registry import (
     REGISTRY_SOURCES,
     canonicalize_external_id,
+    parse_wikipedia_id,
+    wikipedia_match_keys,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,6 +64,22 @@ def _canonical(source: str | None, external_id: str | None) -> tuple[str, str] |
     return src, f"{src}:{canon}"
 
 
+def _bag_match_condition(src: str, canon: str):
+    """SQLAlchemy filter matching a bag id across legacy/canonical forms.
+
+    Wikipedia numeric ids exist in two storage forms (qualified
+    ``wikipedia:{lang}:{pid}`` and legacy bare ``wikipedia:{pid}``); a lookup
+    in either form must hit rows written in the other.
+    """
+    if src == "wikipedia":
+        keys, like_pattern = wikipedia_match_keys(canon)
+        conds = [WorkExternalId.external_id.in_(keys)]
+        if like_pattern:
+            conds.append(WorkExternalId.external_id.like(like_pattern))
+        return or_(*conds)
+    return WorkExternalId.external_id == canon
+
+
 async def add_external_id(
     db: AsyncSession,
     work_type: str,
@@ -71,6 +93,11 @@ async def add_external_id(
     sources / empty ids. When the (source, id) pair is already owned by
     ANOTHER work, the existing mapping is kept (creator-wins, no stealing)
     and a warning is logged — such pairs are dedup candidates.
+
+    Wikipedia forms: adding a qualified ``wikipedia:{lang}:{pid}`` when the
+    SAME work already holds the legacy bare ``wikipedia:{pid}`` upgrades that
+    row in place (no duplicate); a bare incoming id matching an
+    already-bagged qualified row is a no-op.
     """
     if work_type not in _WORK_MODELS:
         logger.warning("[external_ids] unknown work_type %r — skipped", work_type)
@@ -83,11 +110,18 @@ async def add_external_id(
     existing = (await db.execute(
         select(WorkExternalId).where(
             WorkExternalId.source == src,
-            WorkExternalId.external_id == canon,
+            _bag_match_condition(src, canon),
         )
-    )).scalar_one_or_none()
+    )).scalars().first()
     if existing is not None:
         if existing.work_id == work_id and existing.work_type == work_type:
+            # Same work, same pageid in the legacy bare form while the
+            # incoming id carries the edition → upgrade the row in place.
+            ex_lang, ex_pid = parse_wikipedia_id(existing.external_id)
+            in_lang, in_pid = parse_wikipedia_id(canon)
+            if ex_pid and ex_pid == in_pid and ex_lang is None and in_lang:
+                existing.external_id = canon
+                await db.flush()
             return False  # already bagged for this work
         logger.warning(
             "[external_ids] %s:%s already maps to %s %s — NOT re-pointing to %s %s "
@@ -126,9 +160,9 @@ async def find_work_by_external_id(
         select(WorkExternalId).where(
             WorkExternalId.work_type == work_type,
             WorkExternalId.source == src,
-            WorkExternalId.external_id == canon,
+            _bag_match_condition(src, canon),
         )
-    )).scalar_one_or_none()
+    )).scalars().first()
     if row is None:
         return None
     return await db.get(model, row.work_id)
@@ -167,14 +201,28 @@ async def merge_external_id_bags(
         (r.source, r.external_id)
         for r in await list_external_ids(db, work_type, survivor.id)
     }
+    # Wikipedia pageids bagged by the survivor in EITHER storage form — a
+    # duplicate's bare ``wikipedia:{pid}`` row and the survivor's qualified
+    # ``wikipedia:{lang}:{pid}`` row are the same identity.
+    survivor_wiki_pids = {
+        pid
+        for _, ext in survivor_ids
+        for _, pid in [parse_wikipedia_id(ext)]
+        if pid
+    }
 
     async def _claim(source: str | None, external_id: str | None) -> None:
         nonlocal gained
         norm = _canonical(source, external_id)
         if norm is None or norm in survivor_ids:
             return
+        _, pid = parse_wikipedia_id(norm[1])
+        if pid and pid in survivor_wiki_pids:
+            return
         if await add_external_id(db, work_type, survivor.id, norm[0], norm[1]):
             survivor_ids.add(norm)
+            if pid:
+                survivor_wiki_pids.add(pid)
             gained += 1
 
     for dup in duplicates:
@@ -184,12 +232,15 @@ async def merge_external_id_bags(
         # Re-point (or drop, on collision) the duplicate's own bag rows.
         for row in await list_external_ids(db, dup_type, dup.id):
             key = (row.source, row.external_id)
-            if key in survivor_ids:
+            _, pid = parse_wikipedia_id(row.external_id)
+            if key in survivor_ids or (pid and pid in survivor_wiki_pids):
                 await db.delete(row)
             else:
                 row.work_type = work_type
                 row.work_id = survivor.id
                 survivor_ids.add(key)
+                if pid:
+                    survivor_wiki_pids.add(pid)
                 gained += 1
     await db.flush()
     return gained

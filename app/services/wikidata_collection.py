@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.services.metadata_source_registry import parse_wikipedia_id
 
 logger = logging.getLogger(__name__)
 
@@ -222,12 +223,13 @@ async def resolve_series_entity_qid(series: TVSeries) -> str | None:
         if qid:
             return qid
     # Rows matched by the Wikipedia source store the page id in
-    # ``external_id`` ("wikipedia:<pageid>") — often without filling
-    # ``wikipedia_page_id``/``wikipedia_url``. Treat it as the same evidence.
+    # ``external_id`` ("wikipedia:<lang>:<pageid>", legacy "wikipedia:<pageid>")
+    # — often without filling ``wikipedia_page_id``/``wikipedia_url``. Treat
+    # it as the same evidence.
     page_id = series.wikipedia_page_id
-    if page_id is None and (series.external_id or "").startswith("wikipedia:"):
-        raw = (series.external_id or "").split(":", 1)[1]
-        page_id = int(raw) if raw.isdigit() else None
+    if page_id is None:
+        _, pid = parse_wikipedia_id(series.external_id)
+        page_id = int(pid) if pid else None
     if page_id:
         qid = await resolve_qid_from_page_id(page_id, titles)
         if qid:

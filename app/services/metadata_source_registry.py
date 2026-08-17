@@ -50,7 +50,10 @@ _SOURCE_SPECS: tuple[SourceSpec, ...] = (
     SourceSpec(
         name="wikipedia",
         label="Wikipedia",
-        canonical_id_form="wikipedia:{page_id} (numeric; slug form from URL extraction)",
+        canonical_id_form=(
+            "wikipedia:{lang}:{page_id} (numeric; legacy bare "
+            "wikipedia:{page_id}; slug form from URL extraction)"
+        ),
         host_pattern=r"(^|\.)wikipedia\.org$",
         id_pattern=re.compile(r"/wiki/(?P<id>[^/?#]+)"),
         # Numeric page ids link via curid; slug ids have no stable link.
@@ -119,6 +122,87 @@ def _link_for(spec: SourceSpec, raw_id: str, content_type: str | None) -> str | 
         return None  # slug-form ids have no stable display link
     seg = "movie" if content_type == "movie" else "tv"
     return spec.link_template.format(id=raw_id, seg=seg)
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia id forms
+#
+# Wikipedia pageids are PER-LANGUAGE-EDITION (zh/en/ja each number their own
+# pages), so the canonical storage form carries the edition:
+# ``wikipedia:{lang}:{pageid}`` (e.g. ``wikipedia:zh:7301786``). Rows written
+# before the lang qualifier existed use the legacy bare form
+# ``wikipedia:{pageid}``; lookups must accept both, and the bare form's
+# display link is unreliable (the edition is unrecoverable without an API
+# call — the backfill script rewrites it).
+# ---------------------------------------------------------------------------
+
+_WIKI_QUALIFIED_RE = re.compile(r"^wikipedia:([a-z][a-z-]*):(\d{1,12})$")
+_WIKI_BARE_RE = re.compile(r"^wikipedia:(\d{1,12})$")
+# ``{lang}.wikipedia.org`` host, e.g. from a matched page's fullurl.
+_WIKI_URL_LANG_RE = re.compile(r"(?:^|\.)([a-z][a-z-]*)\.wikipedia\.org$")
+
+
+def parse_wikipedia_id(external_id: str | None) -> tuple[str | None, str | None]:
+    """Parse a wikipedia external id into (lang, pageid) for numeric forms.
+
+    ``wikipedia:zh:7301786`` → ``("zh", "7301786")``;
+    ``wikipedia:7301786`` (legacy bare) → ``(None, "7301786")``;
+    slug forms (``wikipedia:Some_Title``) and non-wikipedia ids → ``(None, None)``.
+    """
+    if not external_id:
+        return None, None
+    m = _WIKI_QUALIFIED_RE.match(external_id.strip().lower())
+    if m:
+        return m.group(1), m.group(2)
+    m = _WIKI_BARE_RE.match(external_id.strip().lower())
+    if m:
+        return None, m.group(1)
+    return None, None
+
+
+def qualify_wikipedia_id(
+    external_id: str | None,
+    *,
+    lang: str | None = None,
+    wikipedia_url: str | None = None,
+) -> str | None:
+    """Return the language-qualified form of a numeric wikipedia id.
+
+    Already-qualified ids pass through; the edition comes from the explicit
+    ``lang`` (the wiki the page was fetched from) or, failing that, the
+    ``{lang}.wikipedia.org`` host of ``wikipedia_url``. Bare ids whose edition
+    cannot be determined, slug ids, and non-wikipedia ids are returned
+    unchanged.
+    """
+    if not external_id:
+        return external_id
+    s = external_id.strip().lower()
+    id_lang, pid = parse_wikipedia_id(s)
+    if pid is None or id_lang is not None:
+        return s
+    if not lang and wikipedia_url:
+        m = _WIKI_URL_LANG_RE.search((urlparse(wikipedia_url).hostname or "").lower())
+        lang = m.group(1) if m else None
+    if not lang:
+        return s
+    return f"wikipedia:{lang}:{pid}"
+
+
+def wikipedia_match_keys(external_id: str | None) -> tuple[list[str], str | None]:
+    """Lookup keys for a wikipedia id across both storage forms.
+
+    Returns ``(exact_keys, like_pattern)``: a qualified id matches its own
+    form plus the legacy bare form exactly; a bare id matches itself exactly
+    plus any qualified form via the LIKE pattern ``wikipedia:%:{pageid}``
+    (pageids are digits-only, so the pattern holds no user-controlled
+    wildcards). Non-numeric ids match only themselves.
+    """
+    lang, pid = parse_wikipedia_id(external_id)
+    if pid is None:
+        return [external_id] if external_id else [], None
+    if lang:
+        return [f"wikipedia:{lang}:{pid}", f"wikipedia:{pid}"], None
+    return [f"wikipedia:{pid}"], f"wikipedia:%:{pid}"
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +299,32 @@ def source_and_id_from_url(url: str) -> tuple[str, str] | None:
 # Display links for work detail pages
 # ---------------------------------------------------------------------------
 
+def _wikipedia_link(external_id: str) -> dict | None:
+    """Display link for a numeric wikipedia id, language-edition aware.
+
+    Qualified ids (``wikipedia:zh:7301786``) link to their own edition's
+    curid and are labelled with the language (``Wikipedia (zh)``) so the
+    per-language pages of one work are distinguishable. Legacy bare ids keep
+    the historical en-edition curid link (their edition is unrecoverable
+    offline; the backfill script rewrites them). Slug ids have no stable
+    link.
+    """
+    lang, pid = parse_wikipedia_id(external_id)
+    if pid is None:
+        return None
+    if lang:
+        return {
+            "source": "wikipedia",
+            "label": f"Wikipedia ({lang})",
+            "url": f"https://{lang}.wikipedia.org/?curid={pid}",
+        }
+    return {
+        "source": "wikipedia",
+        "label": "Wikipedia",
+        "url": f"https://en.wikipedia.org/?curid={pid}",
+    }
+
+
 def build_source_links(
     external_id: str | None,
     external_source: str | None,
@@ -236,7 +346,9 @@ def build_source_links(
     has_wikipedia = False
 
     if wikipedia_url:
-        links.append({"source": "wikipedia", "label": "Wikipedia", "url": wikipedia_url})
+        m = _WIKI_URL_LANG_RE.search((urlparse(wikipedia_url).hostname or "").lower())
+        label = f"Wikipedia ({m.group(1)})" if m else "Wikipedia"
+        links.append({"source": "wikipedia", "label": label, "url": wikipedia_url})
         has_wikipedia = True
 
     if external_id:
@@ -262,14 +374,12 @@ def build_source_links(
                     "url": _link_for(REGISTRY["imdb"], m.group(1), content_type),
                 })
                 continue
-            m = re.search(r"wikipedia[:：\s]*(\d+)", token, flags=re.IGNORECASE)
-            if m:
+            if token.lower().startswith(("wikipedia:", "wikipedia：")):
                 if not has_wikipedia:
-                    links.append({
-                        "source": "wikipedia", "label": "Wikipedia",
-                        "url": _link_for(REGISTRY["wikipedia"], m.group(1), content_type),
-                    })
-                    has_wikipedia = True
+                    link = _wikipedia_link(token.lower().replace("：", ":"))
+                    if link:
+                        links.append(link)
+                        has_wikipedia = True
                 continue
             # Canonical "source:id" form for the other registry sites.
             m = re.match(r"^([a-z_]+)[:：](.+)$", token)
@@ -289,10 +399,16 @@ def build_source_links(
     # P3: identity-bag secondary ids (canonical "source:id" only; the bag
     # convention guarantees the form). Unlike the primary wikipedia token,
     # each bag pageid gets its own curid link — langlink pageids are distinct
-    # pages and all worth showing. Final dedupe removes any repeat of the
-    # primary link.
+    # pages and all worth showing, labelled per language edition. Final
+    # dedupe removes any repeat of the primary link.
     for token in (extra_ids or []):
-        m = re.match(r"^([a-z_]+)[:：](.+)$", token.strip())
+        token = token.strip()
+        if token.lower().startswith(("wikipedia:", "wikipedia：")):
+            link = _wikipedia_link(token.lower().replace("：", ":"))
+            if link:
+                links.append(link)
+            continue
+        m = re.match(r"^([a-z_]+)[:：](.+)$", token)
         if not m or m.group(1) not in REGISTRY:
             continue
         spec = REGISTRY[m.group(1)]
@@ -321,5 +437,8 @@ __all__ = [
     "SourceSpec",
     "build_source_links",
     "canonicalize_external_id",
+    "parse_wikipedia_id",
+    "qualify_wikipedia_id",
     "source_and_id_from_url",
+    "wikipedia_match_keys",
 ]

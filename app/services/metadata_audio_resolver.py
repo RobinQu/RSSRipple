@@ -32,7 +32,7 @@ async def _search_audio_wikipedia(
     raw_title: str, search_title: str
 ) -> dict | None:
     """Best-effort Wikipedia match for an audio work. Returns a matched
-    entity dict (``external_id`` = ``wikipedia:<page_id>``) or None."""
+    entity dict (``external_id`` = ``wikipedia:<lang>:<page_id>``) or None."""
     from app.services.text_normalizer import similarity_score
 
     queries = _candidate_queries(raw_title, None)
@@ -69,7 +69,7 @@ async def _search_audio_wikipedia(
         page_id = d.get("page_id") or page_id
     return {
         "title_cn": best.get("title"),
-        "external_id": f"wikipedia:{page_id}" if page_id else None,
+        "external_id": f"wikipedia:{best_lang}:{page_id}" if page_id else None,
         "external_source": "wikipedia",
         "description": desc or None,
         "wikipedia_url": url,

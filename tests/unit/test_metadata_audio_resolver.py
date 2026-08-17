@@ -55,7 +55,7 @@ async def test_search_audio_wikipedia_match():
     ):
         out = await mar._search_audio_wikipedia("深夜音声作品 01", "深夜音声作品")
 
-    assert out["external_id"] == "wikipedia:7"
+    assert out["external_id"] == "wikipedia:zh:7"  # language-qualified pageid
     assert out["external_source"] == "wikipedia"
     assert out["description"] == "a much longer description"
     assert out["wikipedia_url"] == "http://w/canonical"

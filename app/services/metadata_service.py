@@ -36,7 +36,12 @@ from app.services import fts as fts_service
 from app.services.anime_signals import apply_is_anime
 from app.services.external_ids import add_external_id, find_work_by_external_id
 from app.services.genre_registry import normalize_genres
-from app.services.metadata_source_registry import canonicalize_external_id  # noqa: F401
+from app.services.metadata_source_registry import (
+    canonicalize_external_id,  # noqa: F401
+    parse_wikipedia_id,
+    qualify_wikipedia_id,
+    wikipedia_match_keys,
+)
 from app.services.resource_parser import strip_season_from_title
 from app.services.text_normalizer import normalize_title, similarity_score
 from app.utils.time import utcnow
@@ -595,7 +600,7 @@ async def find_series_by_external_id(db: AsyncSession, data: dict) -> TVSeries |
     Cross-table guard: a "movie" verdict for an external entity that already
     owns a TVSeries row must not spawn a duplicate Movie (and vice versa).
     """
-    raw_external_id = data.get("external_id")
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
     raw_source = data.get("external_source")
     canonical_id = canonicalize_external_id(
         raw_external_id, raw_source, data.get("content_type")
@@ -603,7 +608,7 @@ async def find_series_by_external_id(db: AsyncSession, data: dict) -> TVSeries |
     lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
     if not lookup_ids:
         return None
-    stmt = select(TVSeries).where(TVSeries.external_id.in_(lookup_ids))
+    stmt = select(TVSeries).where(_external_id_match(TVSeries.external_id, lookup_ids))
     lookup_sources = {s for s in (raw_source, "llm_search") if s}
     if lookup_sources:
         stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
@@ -612,7 +617,7 @@ async def find_series_by_external_id(db: AsyncSession, data: dict) -> TVSeries |
 
 async def find_movie_by_external_id(db: AsyncSession, data: dict) -> Movie | None:
     """Mirror of :func:`find_series_by_external_id` for the movies table."""
-    raw_external_id = data.get("external_id")
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
     raw_source = data.get("external_source")
     canonical_id = canonicalize_external_id(
         raw_external_id, raw_source, data.get("content_type")
@@ -620,11 +625,67 @@ async def find_movie_by_external_id(db: AsyncSession, data: dict) -> Movie | Non
     lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
     if not lookup_ids:
         return None
-    stmt = select(Movie).where(Movie.external_id.in_(lookup_ids))
+    stmt = select(Movie).where(_external_id_match(Movie.external_id, lookup_ids))
     lookup_sources = {s for s in (raw_source, "llm_search") if s}
     if lookup_sources:
         stmt = stmt.where(Movie.external_source.in_(lookup_sources))
     return (await db.execute(stmt)).scalars().first()
+
+
+def _qualify_incoming_wikipedia_id(data: dict) -> str | None:
+    """Upgrade a bare ``wikipedia:{pageid}`` to ``wikipedia:{lang}:{pageid}``.
+
+    The lang is taken from the matched page's ``wikipedia_url`` host — this
+    covers paths (ReAct, cache replays) where the finalize JSON carries the
+    pageid but not the edition. Non-wikipedia / already-qualified / slug ids
+    pass through unchanged.
+    """
+    raw = data.get("external_id")
+    if raw and (data.get("external_source") or "").strip().lower() == "wikipedia":
+        qualified = qualify_wikipedia_id(raw, wikipedia_url=data.get("wikipedia_url"))
+        if qualified != raw:
+            data["external_id"] = qualified
+        return qualified
+    return raw
+
+
+def _external_id_match(column, lookup_ids: set[str]):
+    """Column filter honoring both wikipedia id storage forms.
+
+    A qualified incoming id also matches legacy bare ``wikipedia:{pid}``
+    rows exactly; a bare incoming id additionally LIKE-matches any qualified
+    ``wikipedia:{lang}:{pid}`` row (pageids are digits-only, so the LIKE
+    pattern holds no user-controlled wildcards).
+    """
+    ids: set[str] = set()
+    likes: list[str] = []
+    for i in lookup_ids:
+        keys, like = wikipedia_match_keys(i)
+        ids.update(keys)
+        if like:
+            likes.append(like)
+    conds = [column.in_(ids)]
+    conds.extend(column.like(p) for p in likes)
+    return or_(*conds)
+
+
+def _merge_primary_external_id(existing: str | None, incoming: str) -> str:
+    """Resolve the primary external_id when an upsert re-matches a work.
+
+    Default: the incoming canonical form wins (migrates legacy id shapes).
+    Exception: two wikipedia numeric ids with DIFFERENT pageids are the same
+    work's pages in different language editions — flipping the primary
+    between them on alternate upserts would destabilize the display link, so
+    the creator's primary is kept (the incoming id still joins the identity
+    bag). The same pageid upgrades the legacy bare form to the qualified one.
+    """
+    ex_lang, ex_pid = parse_wikipedia_id(existing)
+    in_lang, in_pid = parse_wikipedia_id(incoming)
+    if ex_pid and in_pid:
+        if ex_pid != in_pid:
+            return existing
+        return incoming if in_lang else existing
+    return incoming
 
 
 def seasons_overwrite_allowed(
@@ -719,7 +780,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     On every successful upsert the incoming id(s) are written into the bag;
     the primary column keeps its creator-wins semantics.
     """
-    raw_external_id = data.get("external_id")
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
     raw_source = data.get("external_source")
     content_type = data.get("content_type")
     canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
@@ -736,7 +797,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     lookup_sources = {s for s in (raw_source, "llm_search") if s}
 
     if series is None and lookup_ids:
-        stmt = select(TVSeries).where(TVSeries.external_id.in_(lookup_ids))
+        stmt = select(TVSeries).where(_external_id_match(TVSeries.external_id, lookup_ids))
         if lookup_sources:
             stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
         result = await db.execute(stmt)
@@ -777,11 +838,15 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
 
     if series:
         # Migrate legacy/inconsistent identifiers to the canonical form so the
-        # next upsert converges even faster.
+        # next upsert converges even faster. Wikipedia primaries are the
+        # exception: different pageids are per-edition pages of the same work,
+        # so the creator's primary is kept (incoming ids join the bag).
         if canonical_id:
-            series.external_id = canonical_id
+            series.external_id = _merge_primary_external_id(series.external_id, canonical_id)
         if raw_source and raw_source != "llm_search":
             series.external_source = raw_source
+        if not series.wikipedia_url and data.get("wikipedia_url"):
+            series.wikipedia_url = data["wikipedia_url"]
         if not field_manually_edited(series, "description"):
             series.description = data.get("description") or series.description
         if not field_manually_edited(series, "rating") and data.get("rating") is not None:
@@ -901,6 +966,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         aliases=aliases or None,
         external_id=canonical_id or raw_external_id,
         external_source=data.get("external_source", "llm_search"),
+        wikipedia_url=data.get("wikipedia_url"),
         description=data.get("description"),
         poster_url=local_url or remote_poster,
         rating=data.get("rating"),
@@ -929,7 +995,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     See :func:`create_or_update_series_from_external` for the lookup order and
     identity-bag (P3) rationale.
     """
-    raw_external_id = data.get("external_id")
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
     raw_source = data.get("external_source")
     content_type = data.get("content_type")
     canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
@@ -944,7 +1010,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
     lookup_sources = {s for s in (raw_source, "llm_search") if s}
 
     if movie is None and lookup_ids:
-        stmt = select(Movie).where(Movie.external_id.in_(lookup_ids))
+        stmt = select(Movie).where(_external_id_match(Movie.external_id, lookup_ids))
         if lookup_sources:
             stmt = stmt.where(Movie.external_source.in_(lookup_sources))
         result = await db.execute(stmt)
@@ -973,9 +1039,11 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
 
     if movie:
         if canonical_id:
-            movie.external_id = canonical_id
+            movie.external_id = _merge_primary_external_id(movie.external_id, canonical_id)
         if raw_source and raw_source != "llm_search":
             movie.external_source = raw_source
+        if not movie.wikipedia_url and data.get("wikipedia_url"):
+            movie.wikipedia_url = data["wikipedia_url"]
         if not field_manually_edited(movie, "description"):
             movie.description = data.get("description") or movie.description
         if not field_manually_edited(movie, "rating") and data.get("rating") is not None:
@@ -1041,6 +1109,7 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
         aliases=aliases or None,
         external_id=canonical_id or raw_external_id,
         external_source=data.get("external_source", "llm_search"),
+        wikipedia_url=data.get("wikipedia_url"),
         description=data.get("description"),
         poster_url=local_url or remote_poster,
         rating=data.get("rating"),
@@ -1069,7 +1138,7 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
     without any of title_cn/title_en/original_title is a useless shell, so
     creation is refused (updates of existing rows are unaffected).
     """
-    raw_external_id = data.get("external_id")
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
     raw_source = data.get("external_source")
     content_type = data.get("content_type") or "other"
     canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
@@ -1079,7 +1148,7 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
 
     audio: AudioWork | None = None
     if lookup_ids:
-        stmt = select(AudioWork).where(AudioWork.external_id.in_(lookup_ids))
+        stmt = select(AudioWork).where(_external_id_match(AudioWork.external_id, lookup_ids))
         if lookup_sources:
             stmt = stmt.where(AudioWork.external_source.in_(lookup_sources))
         result = await db.execute(stmt)
@@ -1107,7 +1176,7 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
 
     if audio:
         if canonical_id:
-            audio.external_id = canonical_id
+            audio.external_id = _merge_primary_external_id(audio.external_id, canonical_id)
         if raw_source and raw_source != "llm_search":
             audio.external_source = raw_source
         audio.description = data.get("description") or audio.description

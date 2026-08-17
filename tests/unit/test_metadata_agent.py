@@ -1628,7 +1628,7 @@ async def test_search_then_judge_autolink_fills_cross_language_titles(monkeypatc
 
     assert info["method"] == "search_then_autolink"
     me = finalize["matched_entity"]
-    assert me["external_id"] == "wikipedia:70545449"
+    assert me["external_id"] == "wikipedia:en:70545449"
     assert me["title_en"] == "Daemons of the Shadow Realm"
     assert me["title_cn"] == "黃泉使者"          # filled from langlinks
     assert me["alt_titles"] == ["黃泉使者"]

@@ -365,9 +365,9 @@ async def test_langlink_pageids_become_alt_external_ids_in_auto_link():
         )
     assert info["method"] == "search_then_autolink"
     me = finalize["matched_entity"]
-    assert me["external_id"] == "wikipedia:5"
+    assert me["external_id"] == "wikipedia:zh:5"
     assert {a["id"] for a in me["alt_external_ids"]} == {
-        "wikipedia:70545449", "wikipedia:4433221",
+        "wikipedia:en:70545449", "wikipedia:ja:4433221",
     }
     assert all(a["source"] == "wikipedia" for a in me["alt_external_ids"])
 
@@ -411,3 +411,70 @@ async def test_fetch_langlink_pageids_maps_titles_to_pageids():
     assert out == {"en": 111, "ja": 222}
     # Empty input short-circuits without any HTTP.
     assert await _fetch_langlink_pageids({}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia dual storage forms (qualified wikipedia:{lang}:{pid} vs legacy
+# bare wikipedia:{pid}) — cross-form lookup, in-place upgrade, pid dedup.
+# ---------------------------------------------------------------------------
+
+
+async def test_wikipedia_cross_form_lookup(db_session):
+    s = _series()
+    db_session.add(s)
+    await db_session.flush()
+    await add_external_id(db_session, "series", s.id, "wikipedia", "wikipedia:zh:7301786")
+
+    # Qualified row is found by the legacy bare form and vice versa.
+    found = await find_work_by_external_id(db_session, "series", "wikipedia", "wikipedia:7301786")
+    assert found is not None and found.id == s.id
+    found = await find_work_by_external_id(db_session, "series", "wikipedia", "wikipedia:zh:7301786")
+    assert found is not None and found.id == s.id
+    # A different EDITION with the same numeric pageid is a different page
+    # entirely (pageids are per-edition) and must NOT converge.
+    assert await find_work_by_external_id(
+        db_session, "series", "wikipedia", "wikipedia:en:7301786"
+    ) is None
+    # A different pageid misses.
+    assert await find_work_by_external_id(
+        db_session, "series", "wikipedia", "wikipedia:ja:999"
+    ) is None
+
+
+async def test_wikipedia_bare_row_upgraded_by_qualified_add(db_session):
+    s = _series()
+    db_session.add(s)
+    await db_session.flush()
+    assert await add_external_id(db_session, "series", s.id, "wikipedia", "wikipedia:7301786") is True
+    # Same pageid with the edition known upgrades the legacy row in place.
+    assert await add_external_id(db_session, "series", s.id, "wikipedia", "wikipedia:zh:7301786") is False
+    assert await _bag_pairs(db_session, "series", s.id) == {("wikipedia", "wikipedia:zh:7301786")}
+
+
+async def test_wikipedia_pid_collision_never_steals(db_session):
+    s1, s2 = _series(title_cn="剧集A"), _series(title_cn="剧集B")
+    db_session.add_all([s1, s2])
+    await db_session.flush()
+    assert await add_external_id(db_session, "series", s1.id, "wikipedia", "wikipedia:4053941") is True
+    # s2's ja-edition pageid numerically collides with s1's bare legacy row —
+    # the existing mapping is kept (dedup candidate), nothing inserted.
+    assert await add_external_id(db_session, "series", s2.id, "wikipedia", "wikipedia:ja:4053941") is False
+    assert await list_external_ids(db_session, "series", s2.id) == []
+
+
+async def test_merge_bags_dedups_wikipedia_by_pageid(db_session):
+    survivor = _series(title_cn="留存")
+    dup = _series(title_cn="重复", external_source="wikipedia", external_id="wikipedia:7301786")
+    db_session.add_all([survivor, dup])
+    await db_session.flush()
+    await add_external_id(db_session, "series", survivor.id, "wikipedia", "wikipedia:zh:7301786")
+    await add_external_id(db_session, "series", dup.id, "wikipedia", "wikipedia:en:65944845")
+
+    await merge_external_id_bags(db_session, survivor, [dup])
+    pairs = await _bag_pairs(db_session, "series", survivor.id)
+    # The duplicate's bare primary is the SAME pageid as the survivor's
+    # qualified row — dropped, not duplicated.
+    assert pairs == {
+        ("wikipedia", "wikipedia:zh:7301786"),
+        ("wikipedia", "wikipedia:en:65944845"),
+    }

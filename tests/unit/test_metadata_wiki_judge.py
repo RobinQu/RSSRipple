@@ -106,7 +106,7 @@ async def test_auto_link_exact_title_match_skips_judge():
     assert finalize["content_type"] == "tv"
     assert finalize["confidence"] == 0.9
     me = finalize["matched_entity"]
-    assert me["external_id"] == "wikipedia:5"
+    assert me["external_id"] == "wikipedia:zh:5"  # language-qualified pageid
     assert me["title_en"] == "Mushoku Tensei"
     assert me["title_cn"] == "無職転生"
     assert info["method"] == "search_then_autolink"
@@ -159,6 +159,10 @@ async def test_judge_found_enriches_matched_entity_from_evidence():
     me = finalize["matched_entity"]
     assert me["categories"] == ["2018年日本電視動畫"]
     assert me["description"] == "anime summary"
+    # evidence page is lang=en: the pageid is language-qualified and the
+    # page URL carried onto the entity.
+    assert me["external_id"] == "wikipedia:en:123"
+    assert me["wikipedia_url"] == "http://w/1"
     # evidence page is lang=en, so its own title fills title_en; langlink -> alt
     assert me["title_en"] == "Totally Different ZZZ"
     assert me["alt_titles"] == ["日本語タイトル"]

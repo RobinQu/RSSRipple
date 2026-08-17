@@ -227,7 +227,7 @@ matching this schema:
   "subtitle_group": "string|null",
   "resolution": "string|null",
   "matched_entity": {
-    "external_id": "wikipedia:<page_id>",
+    "external_id": "wikipedia:<lang>:<page_id>",
     "external_source": "wikipedia",
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "wikipedia_url": "...", "canonical_name": "...",
@@ -266,8 +266,10 @@ Rules:
   overview page often carries BOTH TV-anime and film categories (the series
   spawned a movie adaptation, which has its own separate page) - classify
   such a page as "tv" whenever any TV/series category is present.
-- external_id MUST be "wikipedia:<page_id>" using the chosen candidate's
-  page_id; external_source "wikipedia"; include wikipedia_url.
+- external_id MUST be "wikipedia:<lang>:<page_id>" using the chosen
+  candidate's page_id and its language edition (the lang= field shown with
+  each candidate, e.g. "wikipedia:zh:7301786"); external_source "wikipedia";
+  include wikipedia_url.
 - Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
   When the title has NO season marker, never guess: if the chosen work clearly
   has only one season, inferred_season=1; otherwise leave it null and set
@@ -337,7 +339,8 @@ Rules:
   external_source="exa_web".
 - Include the chosen candidate's URL in matched_entity as either "url" or
   "wikipedia_url". If the candidate is a Wikipedia page, include page_id in
-  external_id as "wikipedia:<page_id>" if known.
+  external_id as "wikipedia:<lang>:<page_id>" if known (lang = the page's
+  language edition, e.g. zh/en/ja).
 - Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
   When the title has NO season marker, never guess: if the chosen work clearly
   has only one season, inferred_season=1; otherwise leave it null and set

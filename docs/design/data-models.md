@@ -263,10 +263,11 @@ class WorkExternalId(Base):
 
 **语义与规则**：
 
-- **主 id 规则（creator-wins）**：`TVSeries.external_id/external_source`（及 Movie）仍是创建时确定的展示/主 id；后续发现的 id 只进袋，绝不抢占主 id 列。
+- **主 id 规则（creator-wins）**：`TVSeries.external_id/external_source`（及 Movie）仍是创建时确定的展示/主 id；后续发现的 id 只进袋，绝不抢占主 id 列。wikipedia 主 id 特例外（见下）：不同 pageid 是同作品的不同语言版本页面，upsert 重匹配时主 id 不随来源语言翻转而保持稳定（`_merge_primary_external_id`）。
 - **存储约定**：`source` 存 registry 源名，`external_id` 存完整 canonical `source:id`；裸 id（如纯 pageid）写入/查询时一律补 `source:` 前缀归一；非 registry 源（如 `llm_search`）跳过。
+- **wikipedia id 带语言版本**：pageid 是每个语言版本各自编号的，canonical 形式为 `wikipedia:{lang}:{pageid}`（如 `wikipedia:zh:7301786`）；早期存量为无语言的 `wikipedia:{pageid}`。写入点（auto-link/judge/audio resolver/upsert 入口 `_qualify_incoming_wikipedia_id` 经 `wikipedia_url` 宿主推导）一律产出带语言形式；袋查询与作品列查询双形式兼容（`wikipedia_match_keys`：带语言精确匹配两种形式，裸 id 额外 LIKE 匹配任意语言）；同作品加带语言 id 命中裸行时原地升级为带语言形式；不同作品的同数字 pageid（跨语言撞号）不互抢（记 warning）。展示链接按语言渲染 `https://{lang}.wikipedia.org/?curid={pid}`，label 为 `Wikipedia (zh/en/ja)`；存量迁移走 `scripts/wikipedia_lang_backfill.py`（dry-run 默认 + `--apply`，标题锚定主页面语言 → langlinks 重解析各语言 pageid → 重写主 id/袋行并回填 `wikipedia_url`/`wikipedia_page_id`）。
 - **no-steal**：`UniqueConstraint(source, external_id)` 保证一个 id 至多映射一个作品；把已属于作品 A 的 id 加给作品 B 时不改指、记 warning（该对成为去重候选）。
-- **写入点**：upsert 成功时写入 matched_entity 的主 id + `alt_external_ids`（如 wikipedia langlinks pageids）；去重合并（`_merge_series_group`/`_merge_movie_group`/跨表合并）对袋取并集（存留方继承重复方的主 id 与袋行）。
+- **写入点**：upsert 成功时写入 matched_entity 的主 id + `alt_external_ids`（如 wikipedia langlinks pageids）；去重合并（`_merge_series_group`/`_merge_movie_group`/跨表合并）对袋取并集（存留方继承重复方的主 id 与袋行；wikipedia 行按 pageid 去重，与存储形式无关）。
 - **回填**：`_apply_light_migrations` 启动时从存量 TVSeries/Movie 行的主 external_id 播种（幂等；仅 registry 源）。
 - **读取**：`find_work_by_external_id` 只按同 `work_type` 反查——另一类型的袋命中在 upsert 中被忽略（跨表收敛由 metadata_repository 跨表守卫与每日去重负责）。
 

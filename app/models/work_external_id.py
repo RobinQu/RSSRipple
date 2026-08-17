@@ -9,9 +9,13 @@ deterministic instead of title-luck.
 
 Storage convention (mirrors ``TVSeries.external_id``): ``source`` holds the
 registry source name (``wikipedia``/``tmdb``/...) and ``external_id`` holds
-the FULL canonical ``source:id`` string (e.g. ``wikipedia:7727654``,
+the FULL canonical ``source:id`` string (e.g. ``wikipedia:zh:7727654``,
 ``tmdb:82684``) as produced by
 :func:`app.services.metadata_source_registry.canonicalize_external_id`.
+Wikipedia pageids are per-language-edition, so the canonical wikipedia form
+carries the edition (``wikipedia:{lang}:{pageid}``); legacy rows store the
+bare ``wikipedia:{pageid}`` and both forms are matched on lookup
+(``wikipedia_match_keys``).
 
 Primary-id rule (creator-wins): the bag never replaces
 ``TVSeries.external_id``/``external_source`` (and the Movie equivalents) —

@@ -1344,3 +1344,74 @@ async def test_audio_work_titleless_update_of_existing_row_allowed(db_session):
     assert audio is not None
     assert audio.id == existing.id
     assert audio.description == "updated desc"
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia language-qualified ids: primary merge + incoming qualification
+# ---------------------------------------------------------------------------
+
+
+def test_merge_primary_external_id_wikipedia_same_pageid_upgrades():
+    # Legacy bare primary + qualified incoming of the SAME pageid -> upgrade.
+    assert ms._merge_primary_external_id("wikipedia:7301786", "wikipedia:zh:7301786") == (
+        "wikipedia:zh:7301786"
+    )
+    # Already-qualified primary is not degraded by a bare incoming id.
+    assert ms._merge_primary_external_id("wikipedia:zh:7301786", "wikipedia:7301786") == (
+        "wikipedia:zh:7301786"
+    )
+
+
+def test_merge_primary_external_id_wikipedia_different_pageid_keeps_creator():
+    # Different pageids = the same work's pages in different editions; the
+    # creator's primary wins, the incoming id only joins the identity bag.
+    assert ms._merge_primary_external_id("wikipedia:zh:7301786", "wikipedia:en:65944845") == (
+        "wikipedia:zh:7301786"
+    )
+
+
+def test_merge_primary_external_id_non_wikipedia_incoming_wins():
+    assert ms._merge_primary_external_id("wikipedia:zh:7301786", "tmdb:82684") == "tmdb:82684"
+    assert ms._merge_primary_external_id(None, "tmdb:82684") == "tmdb:82684"
+    assert ms._merge_primary_external_id("TMDB 82684", "tmdb:82684") == "tmdb:82684"
+
+
+def test_qualify_incoming_wikipedia_id_via_url():
+    data = {
+        "external_id": "wikipedia:7301786",
+        "external_source": "wikipedia",
+        "wikipedia_url": "https://zh.wikipedia.org/wiki/X",
+    }
+    assert ms._qualify_incoming_wikipedia_id(data) == "wikipedia:zh:7301786"
+    # The dict itself is updated so downstream bagging uses the qualified form.
+    assert data["external_id"] == "wikipedia:zh:7301786"
+
+
+def test_qualify_incoming_wikipedia_id_passthrough():
+    # Non-wikipedia sources and unqualifiable ids are untouched.
+    data = {"external_id": "tmdb:82684", "external_source": "tmdb"}
+    assert ms._qualify_incoming_wikipedia_id(data) == "tmdb:82684"
+    data = {"external_id": "wikipedia:7301786", "external_source": "wikipedia"}
+    assert ms._qualify_incoming_wikipedia_id(data) == "wikipedia:7301786"
+    data = {"external_id": None, "external_source": "wikipedia"}
+    assert ms._qualify_incoming_wikipedia_id(data) is None
+
+
+async def test_upsert_converges_qualified_incoming_on_legacy_bare_row(db_session):
+    """A row created with the legacy bare primary converges when a later
+    upsert arrives with the qualified form of the same pageid (column lookup),
+    and the primary is upgraded in place."""
+    s = TVSeries(
+        id=_uuid(), title_cn="剧集X", content_type="tv",
+        external_id="wikipedia:7301786", external_source="wikipedia",
+    )
+    db_session.add(s)
+    await db_session.flush()
+
+    out = await ms.create_or_update_series_from_external(db_session, {
+        "external_id": "wikipedia:zh:7301786",
+        "external_source": "wikipedia",
+        "title_cn": "剧集X",
+    })
+    assert out.id == s.id
+    assert out.external_id == "wikipedia:zh:7301786"
