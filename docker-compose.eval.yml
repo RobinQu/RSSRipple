@@ -17,6 +17,12 @@ services:
       - DATABASE_URL=sqlite+aioturso:///data/rss_ripple_eval_turso.db
       - LOG_LEVEL=DEBUG
     command: ["uv", "run", "--no-project", "uvicorn", "tests.integration.eval.main:app", "--host", "0.0.0.0", "--port", "9002", "--reload"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     develop:
       watch:
         - action: sync

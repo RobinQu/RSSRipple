@@ -37,6 +37,14 @@ services:
     # across containers; this pins host.docker.internal to the host gateway.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # /health is auth-free and verifies DB reachability (readiness, not
+      # just process liveness). Uses python3 so no curl dependency is needed.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     develop:
       watch:
         - action: sync

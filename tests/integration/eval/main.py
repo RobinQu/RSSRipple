@@ -62,6 +62,12 @@ from tests.integration.eval.api import router as api_router
 app.include_router(api_router)
 
 
+@app.get("/health")
+async def health():
+    """Container healthcheck probe (auth-free, process liveness)."""
+    return {"status": "ok"}
+
+
 @app.get("/")
 async def index(request: Request):
     """Serve the labeling page."""

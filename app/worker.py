@@ -20,6 +20,13 @@ from app.database import async_session_factory, create_tables
 
 logger = logging.getLogger("app.worker")
 
+# The worker serves no HTTP, so the container healthcheck cannot probe a
+# health endpoint. Instead the worker touches this file periodically and the
+# healthcheck asserts it is fresh — a wedged event loop stops refreshing it
+# and flips the container unhealthy.
+HEARTBEAT_PATH = Path("/tmp/rssripple_worker_heartbeat")
+HEARTBEAT_INTERVAL = 30
+
 
 def _ensure_data_dirs() -> None:
     """Create the poster cache dir and the SQLite DB parent dir (same rules
@@ -105,13 +112,34 @@ async def _run() -> None:  # pragma: no cover - process wiring
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop_event.set)
 
+    heartbeat_task = asyncio.create_task(_heartbeat_loop(stop_event))
+
     logger.info("Worker started (queue_backend=%s)", settings.queue_backend)
     try:
         await stop_event.wait()
     finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
         await queue.stop()
         await shutdown_scheduler()
         logger.info("Worker shut down.")
+
+
+async def _heartbeat_loop(stop_event: asyncio.Event) -> None:
+    """Touch the heartbeat file every HEARTBEAT_INTERVAL seconds so the
+    container healthcheck can distinguish a live worker from a wedged one."""
+    while not stop_event.is_set():
+        try:
+            HEARTBEAT_PATH.touch()
+        except OSError as e:
+            logger.warning("Cannot write worker heartbeat %s (%s)", HEARTBEAT_PATH, e)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=HEARTBEAT_INTERVAL)
+        except TimeoutError:
+            continue
 
 
 def main() -> None:  # pragma: no cover - process wiring

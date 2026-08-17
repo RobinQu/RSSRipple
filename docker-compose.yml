@@ -73,6 +73,14 @@ services:
     # across containers; this pins host.docker.internal to the host gateway.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # /health is auth-free and verifies DB reachability (readiness, not
+      # just process liveness). Uses python3 so no curl dependency is needed.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     develop:
       watch:
         - action: sync
@@ -118,6 +126,15 @@ services:
     # scheduler); same host-gateway pin as web for host-side consumers.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # The worker exposes no HTTP, so the healthcheck checks the heartbeat file
+    # that app/worker.py touches every 30s: stale >90s means the event loop is
+    # wedged. Read-only — never opens the DB from a second process (Turso).
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os, time; assert time.time() - os.path.getmtime('/tmp/rssripple_worker_heartbeat') < 90"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
     deploy:
       replicas: 3

@@ -275,6 +275,25 @@ app.include_router(organize.router, prefix="/api/v1", tags=["organize"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(api_keys.router, prefix="/api/v1", tags=["api-keys"])
 
+# Container healthcheck probe. Auth-exempt: lives at the app root, outside the
+# AuthMiddleware-protected /api/v1/* and /posters/* prefixes, so it must be
+# registered before the SPA catch-all below. Verifies DB reachability so the
+# probe doubles as a readiness signal, not just process liveness.
+@app.get("/health")
+async def health():
+    from sqlalchemy import text
+
+    try:
+        async with async_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "database": "unreachable"},
+        )
+    return {"status": "ok", "database": "ok"}
+
+
 # Poster image cache - mount even if empty/default
 _poster_dir = Path(settings.poster_cache_dir)
 try:  # pragma: no cover

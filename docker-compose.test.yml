@@ -186,6 +186,14 @@ services:
       - PUID=1000
       - PGID=1000
       - PEERPORT=51413
+    # 401 also counts as up (RPC answers with auth required); the linuxserver
+    # image ships curl.
+    healthcheck:
+      test: ["CMD", "curl", "-o", "/dev/null", "http://localhost:9091/transmission/rpc"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
 volumes:
   transmission-test-config:

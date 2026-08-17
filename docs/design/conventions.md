@@ -35,7 +35,7 @@
   - `NOTIFY_MAX_ATTEMPTS`（默认 `5`）/ `NOTIFY_RETRY_BASE_SECONDS`（默认 `30`）：webhook delivery 退避策略，`base * 2^attempt` 封顶 30 分钟，超限该 delivery 转 `failed`（界面可重试）。
   - `NOTIFY_RETENTION_DAYS`：通知（及其 delivery，级联删除）的保留天数（默认 `30`）。
   - 内置文件整理子系统（organize）**无环境变量开关**：常开，存在 enabled 规则即激活。语义见 file-organization.md；逻辑卷/媒体服务器/库根/规则/模板全部入库（StorageVolume/MediaServerInstance/Library/OrganizeRule），不走环境变量。媒体服务器**无全局配置**：旧版 `PLEX_URL`/`PLEX_TOKEN` 已移除，存量环境变量由启动轻迁移转为一条 `MediaServerInstance`（type=plex）。
-  - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*` 与 SPA/静态资源开放。
+  - `AUTH_ENABLED`：应用认证总开关（默认 `true`）。开启时 `/api/v1/*` 与 `/posters/*` 需携带凭证，`/api/v1/auth/*`、`/health`（容器健康检查探针）与 SPA/静态资源开放。
   - `API_KEY`：可选静态引导 API key（运维恢复与集成测试用；与 `api_keys` 表中的 key 同等效力）。
 - **认证凭证约定**：Web 端 TOTP 登录（秘钥 `auth_totp_secret` 首次启动自动生成并持久化于 `app_settings`，provisioning URI 每次启动以 WARNING 打印，运维手动加入认证器）；登录成功签发 HttpOnly Cookie `rssripple_auth`（值格式 `{expiry_ts}.{hmac_sha256}`，以 `app_settings` 的 `auth_cookie_secret` 签名，30 天有效，SameSite=Lax）。程序端用全局 API key（`Authorization: Bearer` 或 `X-API-Key` 头；`api_keys` 表仅存 SHA-256 摘要，`rr_` 明文仅创建时返回一次）。
   - `DEBUG` / `LOG_LEVEL`（默认 `INFO`）：调试开关与日志级别。

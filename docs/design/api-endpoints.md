@@ -15,7 +15,7 @@
 
 ### 认证（Auth）
 
-`AUTH_ENABLED=true`（默认）时，`/api/v1/*` 与 `/posters/*` 全部受 `AuthMiddleware` 保护，需携带有效凭证；`/api/v1/auth/*` 开放（登录与状态查询）；SPA 页面与静态资源开放（前端在收到 401 后自行跳转 `/login`）。无凭证或凭证无效一律返回 401 `{success:false, data:null, error:{code:"UNAUTHORIZED",...}, meta:{}}`。
+`AUTH_ENABLED=true`（默认）时，`/api/v1/*` 与 `/posters/*` 全部受 `AuthMiddleware` 保护，需携带有效凭证；`/api/v1/auth/*` 与 `/health`（容器健康检查探针）开放；SPA 页面与静态资源开放（前端在收到 401 后自行跳转 `/login`）。无凭证或凭证无效一律返回 401 `{success:false, data:null, error:{code:"UNAUTHORIZED",...}, meta:{}}`。
 
 两类凭证（任一有效即可）：
 - **会话 Cookie**（Web 端）：`POST /auth/otp` 签发的 HttpOnly Cookie `rssripple_auth`。
@@ -31,6 +31,12 @@
 | DELETE | `/api-keys/{id}` | 删除 API key；不存在 404 |
 
 TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 `app_settings`（`auth_totp_secret` / `auth_cookie_secret`）；provisioning URI（`otpauth://totp/RSSRipple:admin?...`）每次启动以 WARNING 级别打印，由运维手动添加到认证器。
+
+### 健康检查（Health）
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/health` | 容器健康检查探针。**免认证**（不在 `/api/v1/*`、`/posters/*` 保护前缀内）：对 DB 执行 `SELECT 1`，可达返回 200 `{status:"ok", database:"ok"}`，不可达返回 503 `{status:"unhealthy", database:"unreachable"}`（不做 DB 写入，Turso 单进程文件锁下健康检查进程不直接开库，只经 HTTP 进应用进程）。所有 docker compose 的 app/eval 服务健康检查均指向该端点 |
 
 ### Dashboard
 
