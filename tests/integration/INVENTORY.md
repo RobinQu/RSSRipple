@@ -44,8 +44,16 @@ tests/integration/
     test_genre_unification.py      # genre 统一：works CRUD 枚举 422 + OpenAPI 枚举渲染、手动 link
                                    # 写回归一化、DSL series/movie.genre 语义与 422、mock-LLM 钳制（app-llm）
     test_coverage_supplement.py    # 覆盖率补充：API Keys 全生命周期 + AuthMiddleware 401、合集 CRUD/
-                                   # attach/detach/siblings、tmdb_collection 链接失败分支、
-                                   # refresh-metadata 各源错误分支与 canned 填充（app-llm）
+                                    # attach/detach/siblings、tmdb_collection 链接失败分支、
+                                    # refresh-metadata 各源错误分支与 canned 填充（app-llm）
+    test_tasks_api.py              # DownloadTask API 面：全局 GET /tasks 过滤 + 非法 status 422、
+                                    # 手动创建（resource/downloader 404 + 成功 201）、动作 404、
+                                    # batch-retry（暂停后处理 + 范围 + 错误路径）、delete_data 两种语义
+    test_notifications_api_coverage.py  # 通知 API 次路径（主 app）：webhook CRUD/更新/删除 + 404、
+                                    # 列表 status 过滤 + 校验、bulk retry、regenerate 无 completed 任务、
+                                    # 通知/重试 404
+    test_misc_coverage.py          # 杂项覆盖：/auth/status|otp(401)|logout、/volumes CRUD+重复 409+
+                                    # dirs 错误路径、decisions 列表与动作 404、/dashboard、作品 404/校验
   external/                        # 直连 Python + 真实外部 API（无需 docker 栈，只需 API key）
     __init__.py
     test_metadata_agent_accuracy.py     # MetadataAgent.process_title_only 对 ground_truth_v1 准确率（LLM）
@@ -54,11 +62,19 @@ tests/integration/
     __init__.py
     conftest.py                    # 复用 tests/unit/conftest.py 的 DB fixtures + 共享卷/RPC/Plex mock fixtures
     test_organize_pipeline.py      # 通知→规划→执行→落位→清理全链路（卷绑定解析、单集/合集/电影/待分类/恒等）
+    test_notify_service_coverage.py  # notify 服务进程内覆盖：快照构建、create 幂等、fan-out、投递
+                                      # （mock/HTTP 成功/失败退避→failed）、regenerate 重建/保旧、retry 重置
+    test_scheduler_coverage.py     # 调度周期 tick 进程内覆盖：periodic enqueue、下载进度同步（状态迁移/
+                                      # RPC 失败）、daily cleanup（决策过期/任务保留护栏/通知保留）、连通性检查
+    test_task_queue_redis.py       # RedisQueue（fakeredis）进程内覆盖：worker/去重/状态/节流/consume=false
     README.md                      # 本目录说明 + 容器级半 E2E（docker-compose.organize-e2e.yml + scripts/organize_e2e.py）用法
   metadata/                        # metadata 纯函数/DB 服务进程内集成测试（覆盖率批次，复用 tests/unit/conftest.py）
     __init__.py
     conftest.py                    # 复用 tests/unit/conftest.py 的 db_engine/db_session fixtures
     test_metadata_db_integration.py  # metadata_dedup 合并系列/电影/跨类型 + collection_service 确定性 TMDB 链接
+    test_feed_analyzer_coverage.py   # feed_analyzer 进程内覆盖：JSON 解析变体（含 \\[ 合法转义对修复）、
+                                      # validate/confidence、analyze_feed 成功/无 key/重试/限流、stream 路径
+    test_auth_service_coverage.py    # auth_service 进程内覆盖：cookie 签名/校验/过期、TOTP 校验、密钥 get-or-create
   test_metadata_core_integration.py  # 顶层纯函数覆盖率批次：wikipedia 剧集解析、集号 reconciliation、
                                      # anime 信号、wiki classify/query、url/parser/text 归一化、Filter DSL、
                                      # metadata_dedup 纯 helper、genre 注册表、failure 分类、wikidata 纯 helper
@@ -107,13 +123,21 @@ tests/integration/
 | http/test_notifications.py | 1 |
 | http/test_genre_unification.py | 10 |
 | http/test_coverage_supplement.py | 13 |
+| http/test_tasks_api.py | 10 |
+| http/test_notifications_api_coverage.py | 8 |
+| http/test_misc_coverage.py | 11 |
 | external/test_metadata_agent_accuracy.py | 5 |
 | external/test_metadata_search_agent.py | 6 |
 | organize/test_organize_pipeline.py | 6 |
+| organize/test_notify_service_coverage.py | 14 |
+| organize/test_scheduler_coverage.py | 7 |
+| organize/test_task_queue_redis.py | 13 |
 | metadata/test_metadata_db_integration.py | 6 |
+| metadata/test_feed_analyzer_coverage.py | 19 |
+| metadata/test_auth_service_coverage.py | 5 |
 | test_metadata_core_integration.py | 85 |
 | eval/test_api.py | 31 |
-| **合计** | **181** |
+| **合计** | **268** |
 
 ## 3. 重组做了什么
 

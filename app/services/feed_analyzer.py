@@ -49,7 +49,13 @@ def _fix_invalid_escapes(text: str) -> str:
         elif ch == '\\' and in_string and i + 1 < len(text):
             next_ch = text[i + 1]
             if next_ch in _VALID_JSON_ESCAPES:
+                # A valid escape pair (e.g. ``\\``, ``\n``): keep it intact and
+                # skip both characters so the second one isn't re-examined as
+                # an invalid escape on its own (``"\\["`` must stay ``"\\["``).
                 result.append(ch)
+                result.append(next_ch)
+                i += 2
+                continue
             else:
                 result.append('\\\\')
         else:
