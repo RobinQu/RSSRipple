@@ -227,9 +227,9 @@ export default function WorkSelector({
                   display: 'flex',
                   gap: 10,
                   padding: 10,
-                  border: '1px solid #e5e7eb',
+                  border: '1px solid var(--rr-border-soft)',
                   borderRadius: 8,
-                  background: already ? '#edfce9' : 'transparent',
+                  background: already ? 'var(--rr-success-soft)' : 'transparent',
                 }}
               >
                 {item.poster_url ? (
@@ -242,7 +242,7 @@ export default function WorkSelector({
                       objectFit: 'cover',
                       borderRadius: 4,
                       flexShrink: 0,
-                      background: '#eeece7',
+                      background: 'var(--rr-surface-card)',
                     }}
                     onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
                   />
@@ -252,12 +252,12 @@ export default function WorkSelector({
                       width: 40,
                       height: 60,
                       borderRadius: 4,
-                      background: '#eeece7',
+                      background: 'var(--rr-surface-card)',
                       flexShrink: 0,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      color: '#75758a',
+                      color: 'var(--rr-text-muted)',
                     }}
                   >
                     {type === 'tv' ? <Tv /> : <Film />}
@@ -332,7 +332,7 @@ export default function WorkSelector({
                     display: 'flex',
                     gap: 10,
                     padding: 10,
-                    border: '1px solid #e5e7eb',
+                    border: '1px solid var(--rr-border-soft)',
                     borderRadius: 8,
                   }}
                 >
@@ -346,7 +346,7 @@ export default function WorkSelector({
                         objectFit: 'cover',
                         borderRadius: 4,
                         flexShrink: 0,
-                        background: '#eeece7',
+                        background: 'var(--rr-surface-card)',
                       }}
                       onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
                     />
@@ -356,12 +356,12 @@ export default function WorkSelector({
                         width: 40,
                         height: 60,
                         borderRadius: 4,
-                        background: '#eeece7',
+                        background: 'var(--rr-surface-card)',
                         flexShrink: 0,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: '#75758a',
+                        color: 'var(--rr-text-muted)',
                       }}
                     >
                       <Headphones />
@@ -457,7 +457,7 @@ export default function WorkSelector({
         <div
           style={{
             padding: 32,
-            border: '1px dashed #d9d9dd',
+            border: '1px dashed var(--rr-border)',
             borderRadius: 8,
             textAlign: 'center',
           }}
@@ -498,12 +498,12 @@ export default function WorkSelector({
                         width: 48,
                         height: 72,
                         borderRadius: 4,
-                        background: '#eeece7',
+                        background: 'var(--rr-surface-card)',
                         flexShrink: 0,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: '#75758a',
+                        color: 'var(--rr-text-muted)',
                       }}
                     >
                       {isTv ? <Tv /> : <Film />}

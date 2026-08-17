@@ -208,7 +208,7 @@ export default function Dashboard() {
       <div
         style={{
           fontSize: 12,
-          color: '#8a8a94',
+          color: 'var(--rr-text-muted)',
           marginTop: 2,
           display: 'flex',
           alignItems: 'center',
@@ -327,7 +327,7 @@ export default function Dashboard() {
               title={t('dashboard.downloading')}
               value={dashboard.active_download_count}
               prefix={<Download size={18} />}
-              valueStyle={{ color: '#1863dc' }}
+              valueStyle={{ color: 'var(--rr-primary)' }}
             />
           </Card>
         </Col>
@@ -337,7 +337,7 @@ export default function Dashboard() {
               title={t('dashboard.pendingItems')}
               value={pendingCount}
               prefix={<AlertTriangle size={18} />}
-              valueStyle={{ color: pendingCount > 0 ? '#ff7759' : undefined }}
+              valueStyle={{ color: pendingCount > 0 ? 'var(--rr-accent)' : undefined }}
             />
           </Card>
         </Col>
@@ -350,11 +350,11 @@ export default function Dashboard() {
       <Card
         title={
           <Space size={8}>
-            <AlertTriangle size={16} color="#ff7759" />
-            <span style={{ color: '#ff7759' }}>{t('dashboard.pendingItems')}</span>
+            <AlertTriangle size={16} color="var(--rr-accent)" />
+            <span style={{ color: 'var(--rr-accent)' }}>{t('dashboard.pendingItems')}</span>
           </Space>
         }
-        style={{ border: '1px solid #ff7759', marginBottom: 24 }}
+        style={{ border: '1px solid var(--rr-accent)', marginBottom: 24 }}
         styles={{ body: { padding: 0 } }}
       >
         <Tabs
@@ -369,7 +369,7 @@ export default function Dashboard() {
             renderItem={(d) => (
               <List.Item
                 key={d.id}
-                style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
+                style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
               >
                 <div
                   style={{
@@ -381,7 +381,7 @@ export default function Dashboard() {
                 >
                   <div>
                     <Text strong>{d.reason}</Text>
-                    <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                    <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                       <Link to={`/agents/${d.agent_id}`}>
                         <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
                       </Link>
@@ -389,7 +389,7 @@ export default function Dashboard() {
                       {t('dashboard.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
                     </div>
                     {isAmbiguousDecision(d) && (
-                      <div style={{ fontSize: 12, color: '#b88500', marginTop: 4 }}>
+                      <div style={{ fontSize: 12, color: 'var(--rr-warning)', marginTop: 4 }}>
                         {t('agents.ambiguousHint')}
                       </div>
                     )}
@@ -404,10 +404,10 @@ export default function Dashboard() {
                     style={{
                       padding: 10,
                       borderRadius: 6,
-                      background: '#f1f5ff',
-                      border: '1px solid #b8cdf7',
+                      background: 'var(--rr-primary-soft)',
+                      border: '1px solid var(--rr-info-border)',
                       fontSize: 12,
-                      color: '#1863dc',
+                      color: 'var(--rr-primary)',
                       marginBottom: 12,
                     }}
                   >
@@ -439,8 +439,8 @@ export default function Dashboard() {
                           alignItems: 'center',
                           padding: '8px 12px',
                           borderRadius: 6,
-                          border: '1px solid #e5e7eb',
-                          background: '#f7f7f5',
+                          border: '1px solid var(--rr-border-soft)',
+                          background: 'var(--rr-surface-elevated)',
                           gap: 12,
                         }}
                       >
@@ -449,7 +449,7 @@ export default function Dashboard() {
                             {r.title_cn || r.title_raw}
                           </Text>
                           {renderRawTitle(r)}
-                          <Space size={6} style={{ fontSize: 11, color: '#93939f', marginTop: 2 }} wrap>
+                          <Space size={6} style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }} wrap>
                             {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                             {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                             {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
@@ -535,12 +535,12 @@ export default function Dashboard() {
                     return (
                       <List.Item
                         key={r.id}
-                        style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
+                        style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
-                            <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                            <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                               {item.channel_name && (
                                 <>
                                   <Link to={`/channels/${r.channel_id}`}>
@@ -551,18 +551,18 @@ export default function Dashboard() {
                               )}
                               {timeAgo(r.created_at)}
                             </div>
-                            <div style={{ fontSize: 12, color: '#b88500', marginTop: 4 }}>
+                            <div style={{ fontSize: 12, color: 'var(--rr-warning)', marginTop: 4 }}>
                               {t('agents.ambiguousHint')}
                             </div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 6, border: '1px solid #e5e7eb', background: '#f7f7f5', gap: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--rr-border-soft)', background: 'var(--rr-surface-elevated)', gap: 12 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <Text ellipsis style={{ fontSize: 13 }}>
                               {r.title_cn || r.title_raw}
                             </Text>
                             {renderRawTitle(r)}
-                            <Space size={6} style={{ fontSize: 11, color: '#93939f', marginTop: 2 }} wrap>
+                            <Space size={6} style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }} wrap>
                               {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                               {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                               {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
@@ -625,7 +625,7 @@ export default function Dashboard() {
               return (
                 <List.Item
                   key={p.id}
-                  style={{ padding: '16px 24px', borderBottom: '1px solid #e5e7eb', display: 'block' }}
+                  style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
                 >
                   <div
                     style={{
@@ -646,7 +646,7 @@ export default function Dashboard() {
                           <Tag color="volcano">{t('organize.unboundTag')}</Tag>
                         )}
                       </Space>
-                      <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                      <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                         {p.rule_name ?? t('format.dash')}
                         {' · '}
                         {p.library_name ?? t('organize.uncategorizedTag')}
@@ -733,7 +733,7 @@ export default function Dashboard() {
           <Text type="secondary" style={{ fontSize: 13 }}>
             <CheckCircle
               size={14}
-              style={{ marginRight: 6, color: '#52c41a', verticalAlign: 'text-bottom' }}
+              style={{ marginRight: 6, color: 'var(--rr-success)', verticalAlign: 'text-bottom' }}
             />
             {t('dashboard.noPendingHint')}
           </Text>
@@ -795,7 +795,7 @@ export default function Dashboard() {
                 <Col xs={24} md={12} key={agent.id}>
                   <div
                     style={{
-                      border: '1px solid #e5e7eb',
+                      border: '1px solid var(--rr-border-soft)',
                       borderRadius: 8,
                       padding: 16,
                       height: '100%',
@@ -829,7 +829,7 @@ export default function Dashboard() {
                         </Tag>
                       )}
                     </div>
-                    <div style={{ fontSize: 12, color: '#93939f', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginBottom: 8 }}>
                       {agent.channel_name && (
                         <>
                           <Link to={`/channels/${agent.channel_id}`}>{agent.channel_name}</Link>
@@ -860,7 +860,7 @@ export default function Dashboard() {
                               height: 42,
                               objectFit: 'cover',
                               borderRadius: 4,
-                              background: '#eeece7',
+                              background: 'var(--rr-surface-card)',
                             }}
                             onError={useDefaultPoster}
                           />
@@ -984,7 +984,7 @@ export default function Dashboard() {
                             <Text ellipsis style={{ flex: 1, fontSize: 13 }}>
                               {task.resource_title}
                             </Text>
-                            <Space size="small" style={{ color: '#93939f', fontSize: 12, flexShrink: 0 }}>
+                            <Space size="small" style={{ color: 'var(--rr-text-muted)', fontSize: 12, flexShrink: 0 }}>
                               {task.agent_id ? (
                                 <Link to={`/agents/${task.agent_id}`}>
                                   <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>

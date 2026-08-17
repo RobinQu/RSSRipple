@@ -470,7 +470,7 @@ export default function AgentDetail() {
       <div
         style={{
           fontSize: 12,
-          color: '#8a8a94',
+          color: 'var(--rr-text-muted)',
           marginTop: 2,
           display: 'flex',
           alignItems: 'center',
@@ -719,10 +719,10 @@ export default function AgentDetail() {
             <Button type="text" size="small" icon={<Pause size={14} />} onClick={() => handlePause(record.id)} />
           )}
           {record.status === 'paused' && (
-            <Button type="text" size="small" icon={<Play size={14} style={{ color: '#003c33' }} />} onClick={() => handleResume(record.id)} />
+            <Button type="text" size="small" icon={<Play size={14} style={{ color: 'var(--rr-success)' }} />} onClick={() => handleResume(record.id)} />
           )}
           {(record.status === 'error' || record.status === 'paused') && (
-            <Button type="text" size="small" icon={<RotateCcw size={14} style={{ color: '#1863dc' }} />} onClick={() => handleRetry(record.id)} />
+            <Button type="text" size="small" icon={<RotateCcw size={14} style={{ color: 'var(--rr-primary)' }} />} onClick={() => handleRetry(record.id)} />
           )}
           <Button type="text" size="small" danger icon={<Trash2 size={14} />} onClick={() => handleDeleteTask(record.id)} />
         </Space>
@@ -980,11 +980,11 @@ export default function AgentDetail() {
                               />
                               <div>
                                 <Text strong>{d.reason}</Text>
-                                <div style={{ fontSize: 12, color: '#93939f', marginTop: 4 }}>
+                                <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                                   {t('agents.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
                                 </div>
                                 {ambiguous && (
-                                  <div style={{ fontSize: 12, color: '#b88500', marginTop: 4 }}>
+                                  <div style={{ fontSize: 12, color: 'var(--rr-warning)', marginTop: 4 }}>
                                     {t('agents.ambiguousHint')}
                                   </div>
                                 )}
@@ -994,10 +994,10 @@ export default function AgentDetail() {
                                       marginTop: 8,
                                       padding: 8,
                                       borderRadius: 6,
-                                      background: '#f1f5ff',
-                                      border: '1px solid #b8cdf7',
+                                      background: 'var(--rr-primary-soft)',
+                                      border: '1px solid var(--rr-info-border)',
                                       fontSize: 12,
-                                      color: '#1863dc',
+                                      color: 'var(--rr-primary)',
                                     }}
                                   >
                                     <strong>{t('dashboard.aiSuggestion')}</strong>
@@ -1047,7 +1047,7 @@ export default function AgentDetail() {
                                       alignItems: 'center',
                                       padding: '8px 12px',
                                       borderRadius: 6,
-                                      border: '1px solid #e5e7eb',
+                                      border: '1px solid var(--rr-border-soft)',
                                       gap: 12,
                                     }}
                                   >
@@ -1056,7 +1056,7 @@ export default function AgentDetail() {
                                         {r?.title_cn || r?.title_raw || cid.slice(0, 8)}
                                       </Text>
                                       {renderRawTitle(r)}
-                                      <Space size={4} wrap style={{ fontSize: 11, color: '#93939f', marginTop: 2 }}>
+                                      <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }}>
                                         {r?.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                                         {r?.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                                         {r?.season != null && <span>S{r.season}</span>}
@@ -1118,8 +1118,8 @@ export default function AgentDetail() {
                                     alignItems: 'center',
                                     padding: '8px 12px',
                                     borderRadius: 6,
-                                    border: `1px solid ${isAiPick ? '#1863dc' : '#e5e7eb'}`,
-                                    background: isAiPick ? '#f1f5ff' : 'transparent',
+                                    border: `1px solid ${isAiPick ? 'var(--rr-primary)' : 'var(--rr-border-soft)'}`,
+                                    background: isAiPick ? 'var(--rr-primary-soft)' : 'transparent',
                                     gap: 12,
                                   }}
                                 >
@@ -1134,7 +1134,7 @@ export default function AgentDetail() {
                                         )}
                                       </Space>
                                       {renderRawTitle(r)}
-                                      <Space size={4} wrap style={{ fontSize: 11, color: '#93939f', marginTop: 2 }}>
+                                      <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }}>
                                         {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                                         {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                                         {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
@@ -1209,14 +1209,14 @@ export default function AgentDetail() {
                         <Statistic
                           title={t('agents.passed')}
                           value={filterTest.stats.passed}
-                          valueStyle={{ color: '#003c33' }}
+                          valueStyle={{ color: 'var(--rr-success)' }}
                         />
                       </Col>
                       <Col xs={24} sm={8}>
                         <Statistic
                           title={t('agents.failed')}
                           value={filterTest.stats.failed}
-                          valueStyle={{ color: '#b30000' }}
+                          valueStyle={{ color: 'var(--rr-error)' }}
                         />
                       </Col>
                     </Row>
@@ -1228,15 +1228,15 @@ export default function AgentDetail() {
                             padding: 10,
                             marginBottom: 6,
                             borderRadius: 6,
-                            border: `1px solid ${r.passed ? '#8fbfb7' : '#f2b8b8'}`,
+                            border: `1px solid ${r.passed ? 'var(--rr-success-border)' : 'var(--rr-error-border)'}`,
                             background: r.passed
-                              ? '#edfce9'
-                              : '#fff1f0',
+                              ? 'var(--rr-success-soft)'
+                              : 'var(--rr-error-soft)',
                           }}
                         >
                           <Space style={{ marginBottom: 4 }}>
                             {r.passed ? (
-                              <CheckCircle size={14} color="#003c33" />
+                              <CheckCircle size={14} color="var(--rr-success)" />
                             ) : (
                               <Tag color="error">FAIL</Tag>
                             )}
@@ -1419,20 +1419,20 @@ export default function AgentDetail() {
                     key={r.id}
                     style={{
                       padding: 10,
-                      border: '1px solid #e5e7eb',
+                      border: '1px solid var(--rr-border-soft)',
                       borderRadius: 8,
-                      background: '#fafafa',
+                      background: 'var(--rr-surface-elevated)',
                     }}
                   >
-                    <Text strong style={{ fontSize: 13, color: '#17171c', wordBreak: 'break-word' }}>
+                    <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
                       {r.title_raw}
                     </Text>
                     {r.title_cn && r.title_cn !== r.title_raw && (
-                      <div style={{ marginTop: 2, fontSize: 12, color: '#8a8a94', wordBreak: 'break-word' }}>
+                      <div style={{ marginTop: 2, fontSize: 12, color: 'var(--rr-text-muted)', wordBreak: 'break-word' }}>
                         {r.title_cn}
                       </div>
                     )}
-                    <Space size={4} wrap style={{ fontSize: 11, color: '#616161', marginTop: 4 }}>
+                    <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-secondary)', marginTop: 4 }}>
                       {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                       {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                       {r.source && <Tag style={{ margin: 0 }}>{r.source}</Tag>}

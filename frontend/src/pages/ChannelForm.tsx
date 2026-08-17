@@ -526,11 +526,11 @@ export default function ChannelForm() {
             {urlStatus === 'valid' && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <CheckCircle size={14} color="#003c33" />
-                  <Text style={{ fontSize: 12, color: '#003c33' }}>{urlMessage}</Text>
+                  <CheckCircle size={14} color="var(--rr-success)" />
+                  <Text style={{ fontSize: 12, color: 'var(--rr-success)' }}>{urlMessage}</Text>
                 </div>
                 {downloadableCount === 0 && (
-                  <Text style={{ fontSize: 12, color: '#ff7759' }}>
+                  <Text style={{ fontSize: 12, color: 'var(--rr-accent)' }}>
                     {t('channels.noTorrentWarning')}
                   </Text>
                 )}
@@ -538,8 +538,8 @@ export default function ChannelForm() {
             )}
             {urlStatus === 'invalid' && (
               <div style={{ marginBottom: 16, display: 'flex', gap: 6, alignItems: 'center' }}>
-                <XCircle size={14} color="#b30000" />
-                <Text style={{ fontSize: 12, color: '#b30000' }}>{urlMessage}</Text>
+                <XCircle size={14} color="var(--rr-error)" />
+                <Text style={{ fontSize: 12, color: 'var(--rr-error)' }}>{urlMessage}</Text>
               </div>
             )}
 
@@ -651,7 +651,7 @@ export default function ChannelForm() {
                 <Space size={6}>
                   <Text strong>{t('channels.fieldMapping')}</Text>
                   <Tooltip title={t('channels.fieldMappingDesc')}>
-                    <Info size={13} style={{ color: '#93939f' }} />
+                    <Info size={13} style={{ color: 'var(--rr-text-muted)' }} />
                   </Tooltip>
                 </Space>
                 <Space size={8}>
@@ -729,11 +729,11 @@ export default function ChannelForm() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '10px 16px',
-              borderBottom: '1px solid #eeece7',
+              borderBottom: '1px solid var(--rr-surface-card)',
             }}
           >
             <Space>
-              <Wand2 size={14} style={{ color: '#93939f' }} />
+              <Wand2 size={14} style={{ color: 'var(--rr-text-muted)' }} />
               <Text strong style={{ fontSize: 13 }}>
                 {t('channels.analyze')}
               </Text>
@@ -743,7 +743,7 @@ export default function ChannelForm() {
               size="small"
               icon={<X size={14} />}
               onClick={closeSidebar}
-              style={{ color: '#93939f' }}
+              style={{ color: 'var(--rr-text-muted)' }}
             />
           </div>
           <div
@@ -755,20 +755,20 @@ export default function ChannelForm() {
               fontFamily: 'monospace',
               fontSize: 12,
               lineHeight: 1.65,
-              color: '#93939f',
+              color: 'var(--rr-text-muted)',
               whiteSpace: 'pre-wrap',
             }}
           >
             {streamText}
             {sidebarStatus === 'streaming' && <span className="stream-cursor" />}
             {sidebarStatus === 'error' && (
-              <div style={{ color: '#b30000' }}>{sidebarError}</div>
+              <div style={{ color: 'var(--rr-error)' }}>{sidebarError}</div>
             )}
           </div>
           <div
             style={{
               padding: '8px 16px',
-              borderTop: '1px solid #eeece7',
+              borderTop: '1px solid var(--rr-surface-card)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -776,20 +776,20 @@ export default function ChannelForm() {
           >
             {sidebarStatus === 'streaming' && (
               <Space>
-                <Loader2 size={13} style={{ color: '#1863dc', animation: 'spin 1s linear infinite' }} />
-                <Text style={{ fontSize: 12, color: '#1863dc' }}>{t('channels.analyzing')}</Text>
+                <Loader2 size={13} style={{ color: 'var(--rr-primary)', animation: 'spin 1s linear infinite' }} />
+                <Text style={{ fontSize: 12, color: 'var(--rr-primary)' }}>{t('channels.analyzing')}</Text>
               </Space>
             )}
             {sidebarStatus === 'done' && (
               <Space>
-                <CheckCircle size={13} color="#003c33" />
-                <Text style={{ fontSize: 12, color: '#003c33' }}>{t('channels.analysisDone')}</Text>
+                <CheckCircle size={13} color="var(--rr-success)" />
+                <Text style={{ fontSize: 12, color: 'var(--rr-success)' }}>{t('channels.analysisDone')}</Text>
               </Space>
             )}
             {sidebarStatus === 'error' && (
               <Space>
-                <XCircle size={13} color="#b30000" />
-                <Text style={{ fontSize: 12, color: '#b30000' }}>{sidebarError}</Text>
+                <XCircle size={13} color="var(--rr-error)" />
+                <Text style={{ fontSize: 12, color: 'var(--rr-error)' }}>{sidebarError}</Text>
               </Space>
             )}
           </div>
@@ -803,16 +803,16 @@ export default function ChannelForm() {
               alignItems: 'center',
               justifyContent: 'space-between',
               padding: '14px 16px',
-              borderBottom: '1px solid #eeece7',
+              borderBottom: '1px solid var(--rr-surface-card)',
             }}
           >
             <Space>
-              <Rss size={14} style={{ color: '#93939f' }} />
+              <Rss size={14} style={{ color: 'var(--rr-text-muted)' }} />
               <Text strong style={{ fontSize: 13 }}>
                 {t('channels.preview')}
               </Text>
               {previewEntries.length > 0 && (
-                <Text style={{ fontSize: 12, color: '#93939f' }}>
+                <Text style={{ fontSize: 12, color: 'var(--rr-text-muted)' }}>
                   {previewEntries.length} {t('channels.entries')}
                 </Text>
               )}
@@ -826,7 +826,7 @@ export default function ChannelForm() {
                   const url = form.getFieldValue('url');
                   if (url) fetchPreview(url, fieldMapping);
                 }}
-                style={{ color: '#93939f' }}
+                style={{ color: 'var(--rr-text-muted)' }}
               />
             )}
           </div>
@@ -836,7 +836,7 @@ export default function ChannelForm() {
                 <Spin />
               </div>
             ) : previewEntries.length === 0 ? (
-              <div style={{ padding: 48, textAlign: 'center', color: '#75758a', fontSize: 13 }}>
+              <div style={{ padding: 48, textAlign: 'center', color: 'var(--rr-text-muted)', fontSize: 13 }}>
                 {mode === 'edit' ? t('common.loading') : t('channels.enterUrlFirst')}
               </div>
             ) : (
@@ -848,7 +848,7 @@ export default function ChannelForm() {
                     key={i}
                     style={{
                       padding: '12px 16px',
-                      borderBottom: '1px solid #eeece7',
+                      borderBottom: '1px solid var(--rr-surface-card)',
                     }}
                   >
                     <Text
@@ -857,7 +857,7 @@ export default function ChannelForm() {
                       {entry.title || 'Untitled'}
                     </Text>
                     {entry.published && (
-                      <Text style={{ fontSize: 11, color: '#93939f', display: 'block', marginBottom: hasParsed ? 6 : 0 }}>
+                      <Text style={{ fontSize: 11, color: 'var(--rr-text-muted)', display: 'block', marginBottom: hasParsed ? 6 : 0 }}>
                         {new Date(entry.published).toLocaleDateString()}
                       </Text>
                     )}
@@ -870,13 +870,13 @@ export default function ChannelForm() {
                               key={k}
                               style={{
                                 fontSize: 11,
-                                background: '#f7f7f5',
-                                border: '1px solid #d9d9dd',
-                                color: '#93939f',
+                                background: 'var(--rr-surface-elevated)',
+                                border: '1px solid var(--rr-border)',
+                                color: 'var(--rr-text-muted)',
                                 marginInlineEnd: 0,
                               }}
                             >
-                              <span style={{ color: '#93939f' }}>{k}:</span> {String(v)}
+                              <span style={{ color: 'var(--rr-text-muted)' }}>{k}:</span> {String(v)}
                             </Tag>
                           ))}
                       </div>

@@ -98,7 +98,7 @@ export default function DirectoryBrowserModal({
         )}
         <div
           style={{
-            border: '1px solid #e5e7eb',
+            border: '1px solid var(--rr-border-soft)',
             borderRadius: 6,
             maxHeight: 280,
             overflow: 'auto',
@@ -124,14 +124,14 @@ export default function DirectoryBrowserModal({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  borderBottom: '1px solid #f0f0f0',
+                  borderBottom: '1px solid var(--rr-surface-elevated)',
                   fontSize: 13,
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#f5f5f5')}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--rr-surface-elevated)')}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                 onClick={() => loadDir(joinPath(curPath, d))}
               >
-                <FolderOpen size={14} style={{ color: '#d89614', flexShrink: 0 }} />
+                <FolderOpen size={14} style={{ color: 'var(--rr-warning)', flexShrink: 0 }} />
                 <span>{d}</span>
               </div>
             ))

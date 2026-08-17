@@ -375,7 +375,7 @@ function FieldConditionNode({
         flexWrap: 'wrap',
         padding: nested ? '8px 0' : '8px 12px',
         borderRadius: 8,
-        background: nested ? '#f7f7f5' : 'transparent',
+        background: nested ? 'var(--rr-surface-elevated)' : 'transparent',
       }}
     >
       <Select
@@ -580,9 +580,9 @@ function BoolConditionNode({
     <div
       style={{
         padding: isRoot ? 0 : '12px',
-        border: isRoot ? 'none' : '1px dashed #d9d9dd',
+        border: isRoot ? 'none' : '1px dashed var(--rr-border)',
         borderRadius: 10,
-        background: isRoot ? 'transparent' : '#f7f7f5',
+        background: isRoot ? 'transparent' : 'var(--rr-surface-elevated)',
         position: 'relative',
       }}
     >
@@ -635,9 +635,9 @@ function BoolConditionNode({
           style={{
             padding: '24px 0',
             textAlign: 'center',
-            color: '#93939f',
+            color: 'var(--rr-text-muted)',
             fontSize: 13,
-            border: '1px dashed #d9d9dd',
+            border: '1px dashed var(--rr-border)',
             borderRadius: 8,
           }}
         >

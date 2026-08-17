@@ -241,7 +241,7 @@ export default function SeriesDetail() {
               <Descriptions.Item label={t('series.updatedAt')}>{timeAgo(series.updated_at)}</Descriptions.Item>
             </Descriptions>
             {series.description && (
-              <Text style={{ display: 'block', marginTop: 12, color: '#93939f' }}>
+              <Text style={{ display: 'block', marginTop: 12, color: 'var(--rr-text-muted)' }}>
                 {series.description}
               </Text>
             )}
@@ -333,7 +333,7 @@ export default function SeriesDetail() {
         >
           {t('works.overrideManualEdits')}
         </Checkbox>
-        <p style={{ marginTop: 8, color: '#93939f', fontSize: 12 }}>
+        <p style={{ marginTop: 8, color: 'var(--rr-text-muted)', fontSize: 12 }}>
           {t('works.overrideManualEditsDesc')}
         </p>
       </Modal>

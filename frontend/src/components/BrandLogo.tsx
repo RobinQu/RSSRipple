@@ -17,8 +17,8 @@ function PixelRIcon({ size = 38 }: { size?: number }) {
       <rect fill="var(--rr-logo-fg)" x="32" y="14" width="20" height="12" />
       <rect fill="var(--rr-logo-fg)" x="52" y="26" width="12" height="12" />
       <rect fill="var(--rr-logo-fg)" x="32" y="38" width="20" height="12" />
-      <rect fill="#ff7759" x="44" y="50" width="12" height="12" />
-      <rect fill="#1863dc" x="56" y="62" width="8" height="8" />
+      <rect fill="var(--rr-accent)" x="44" y="50" width="12" height="12" />
+      <rect fill="var(--rr-primary)" x="56" y="62" width="8" height="8" />
     </svg>
   );
 }

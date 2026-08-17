@@ -40,13 +40,13 @@ const { Title, Text } = Typography;
 // Transmission status → icon-only mapping; the text label moves to a tooltip
 // so the column can shrink to icon width (same pattern as the agent task list).
 const TORRENT_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
-  downloading: { icon: <ArrowDown size={15} />, color: '#1863dc' },
-  'download pending': { icon: <Clock size={15} />, color: '#616161' },
-  checking: { icon: <Loader size={15} />, color: '#1863dc' },
-  'check pending': { icon: <Clock size={15} />, color: '#616161' },
-  seeding: { icon: <ArrowUp size={15} />, color: '#003c33' },
-  'seed pending': { icon: <Clock size={15} />, color: '#616161' },
-  stopped: { icon: <Pause size={15} />, color: '#c4502a' },
+  downloading: { icon: <ArrowDown size={15} />, color: 'var(--rr-primary)' },
+  'download pending': { icon: <Clock size={15} />, color: 'var(--rr-text-secondary)' },
+  checking: { icon: <Loader size={15} />, color: 'var(--rr-primary)' },
+  'check pending': { icon: <Clock size={15} />, color: 'var(--rr-text-secondary)' },
+  seeding: { icon: <ArrowUp size={15} />, color: 'var(--rr-success)' },
+  'seed pending': { icon: <Clock size={15} />, color: 'var(--rr-text-secondary)' },
+  stopped: { icon: <Pause size={15} />, color: 'var(--rr-warning)' },
 };
 
 const ACTIVE_STATUSES = new Set([

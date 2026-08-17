@@ -138,7 +138,7 @@ function EpisodeCell({ r }: { r: FileResource }) {
 function SubtitleLangsCell({ langs }: { langs: string[] | null }) {
   const { t } = useTranslation();
   const list = langs || [];
-  if (list.length === 0) return <span style={{ color: '#93939f' }}>—</span>;
+  if (list.length === 0) return <span style={{ color: 'var(--rr-text-muted)' }}>—</span>;
   const shown = list.slice(0, 2);
   const rest = list.length - shown.length;
   const inner = (
@@ -262,7 +262,7 @@ function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null; isSeri
         onClick={(e) => e.stopPropagation()}
         style={{ display: 'inline-flex', alignItems: 'center' }}
       >
-        <Info size={12} style={{ color: '#93939f', flexShrink: 0, cursor: 'help' }} />
+        <Info size={12} style={{ color: 'var(--rr-text-muted)', flexShrink: 0, cursor: 'help' }} />
       </span>
     </Tooltip>
   );
@@ -536,7 +536,7 @@ export default function ChannelDetail() {
             <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                {t('channels.lastFetchPrefix')}{channel.last_fetched_at ? timeAgo(channel.last_fetched_at) : t('common.never')}
               {channel.last_fetch_error && (
-                <span style={{ color: '#b30000', marginLeft: 8 }}>
+                <span style={{ color: 'var(--rr-error)', marginLeft: 8 }}>
                   ⚠ {channel.last_fetch_error}
                 </span>
               )}
@@ -562,19 +562,19 @@ export default function ChannelDetail() {
       <Row gutter={[12, 12]} style={{ marginBottom: 24 }}>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.fetchInterval')}</div>
+            <div style={{ fontSize: 12, color: 'var(--rr-text-muted)' }}>{t('channels.fetchInterval')}</div>
             <div style={{ fontWeight: 500 }}>{channel.fetch_interval}s</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.unparsedResources')}</div>
+            <div style={{ fontSize: 12, color: 'var(--rr-text-muted)' }}>{t('channels.unparsedResources')}</div>
             <div style={{ fontWeight: 500 }}>{unparsedTotal}</div>
           </Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <div style={{ fontSize: 12, color: '#93939f' }}>{t('channels.workGroups')}</div>
+            <div style={{ fontSize: 12, color: 'var(--rr-text-muted)' }}>{t('channels.workGroups')}</div>
             <div style={{ fontWeight: 500 }}>{parsedTotal}</div>
           </Card>
         </Col>
@@ -586,12 +586,12 @@ export default function ChannelDetail() {
           size="small"
           style={{
             marginBottom: 16,
-            borderColor: '#8fbfb7',
-            background: '#edfce9',
+            borderColor: 'var(--rr-success-border)',
+            background: 'var(--rr-success-soft)',
           }}
         >
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Text style={{ color: '#003c33' }}>{t('common.selected')} {selectedIds.size} {t('channels.resources')}</Text>
+            <Text style={{ color: 'var(--rr-success)' }}>{t('common.selected')} {selectedIds.size} {t('channels.resources')}</Text>
             <Space>
               <Button size="small" onClick={() => setSelectedIds(new Set())}>
                 {t('common.deselect')}
@@ -683,7 +683,7 @@ export default function ChannelDetail() {
                         <col style={{ width: 76 }} />
                       </colgroup>
                       <thead>
-                        <tr style={{ color: '#93939f', fontSize: 12 }}>
+                        <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
                           <th style={{ textAlign: 'left', padding: '6px 8px' }}>
                             <Checkbox
                               aria-label={t('common.selectAll')}
@@ -797,7 +797,7 @@ export default function ChannelDetail() {
                                   {r.subtitle_group || '—'}
                                 </Text>
                               </td>
-                              <td style={{ padding: '6px 8px', color: '#93939f' }} data-label={t('channels.publishedAt')}>
+                              <td style={{ padding: '6px 8px', color: 'var(--rr-text-muted)' }} data-label={t('channels.publishedAt')}>
                                 {r.published_at ? timeAgo(r.published_at) : '—'}
                               </td>
                               <td
@@ -887,7 +887,7 @@ export default function ChannelDetail() {
                   <col style={{ width: 76 }} />
                 </colgroup>
                 <thead>
-                  <tr style={{ color: '#93939f', fontSize: 12 }}>
+                  <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.episode')}</th>
                     <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
@@ -933,7 +933,7 @@ export default function ChannelDetail() {
                           {r.subtitle_group || '—'}
                         </Text>
                       </td>
-                      <td style={{ padding: '6px 8px', color: '#93939f' }} data-label={t('channels.publishedAt')}>
+                      <td style={{ padding: '6px 8px', color: 'var(--rr-text-muted)' }} data-label={t('channels.publishedAt')}>
                         {r.published_at ? timeAgo(r.published_at) : '—'}
                       </td>
                       <td
@@ -1010,7 +1010,7 @@ export default function ChannelDetail() {
                           <col style={{ width: 180 }} />
                         </colgroup>
                         <thead>
-                          <tr style={{ color: '#93939f', fontSize: 12 }}>
+                          <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
                             <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
                             <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.rawTitle')}</th>
                             <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>

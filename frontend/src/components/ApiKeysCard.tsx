@@ -125,7 +125,7 @@ export default function ApiKeysCard() {
       style={{ marginTop: 16 }}
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <KeyRound size={16} style={{ color: '#1863dc' }} />
+          <KeyRound size={16} style={{ color: 'var(--rr-primary)' }} />
           <span>{t('settings.apiKeys.title')}</span>
         </span>
       }

@@ -106,7 +106,7 @@ export default function MovieDetail() {
       key: 'title_raw',
       ellipsis: true,
       render: (text: string) => (
-        <Text style={{ fontSize: 13, color: '#212121' }}>{text}</Text>
+        <Text style={{ fontSize: 13, color: 'var(--rr-text)' }}>{text}</Text>
       ),
     },
     {
@@ -224,7 +224,7 @@ export default function MovieDetail() {
               <Descriptions.Item label={t('movies.updatedAt')}>{timeAgo(movie.updated_at)}</Descriptions.Item>
             </Descriptions>
             {movie.description && (
-              <Text style={{ display: 'block', marginTop: 12, color: '#93939f' }}>
+              <Text style={{ display: 'block', marginTop: 12, color: 'var(--rr-text-muted)' }}>
                 {movie.description}
               </Text>
             )}
@@ -239,14 +239,14 @@ export default function MovieDetail() {
             <Statistic
               title={t('movies.resourceCount')}
               value={movie.resource_count ?? 0}
-              valueStyle={{ fontSize: 28, fontWeight: 600, color: '#212121' }}
+              valueStyle={{ fontSize: 28, fontWeight: 600, color: 'var(--rr-text)' }}
             />
           </Col>
           <Col>
             <Statistic
               title={t('movies.downloadTasks')}
               value={movie.task_count ?? 0}
-              valueStyle={{ fontSize: 28, fontWeight: 600, color: '#212121' }}
+              valueStyle={{ fontSize: 28, fontWeight: 600, color: 'var(--rr-text)' }}
             />
           </Col>
         </Row>
@@ -304,7 +304,7 @@ export default function MovieDetail() {
         >
           {t('works.overrideManualEdits')}
         </Checkbox>
-        <p style={{ marginTop: 8, color: '#93939f', fontSize: 12 }}>
+        <p style={{ marginTop: 8, color: 'var(--rr-text-muted)', fontSize: 12 }}>
           {t('works.overrideManualEditsDesc')}
         </p>
       </Modal>

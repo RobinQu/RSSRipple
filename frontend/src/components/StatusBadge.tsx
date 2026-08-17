@@ -2,17 +2,17 @@ import { Tag } from 'antd';
 import { useTranslation } from 'react-i18next';
 
 // Explicit (background, text, border) triples per status group. The app theme
-// derives colorSuccess/colorError from very dark anchors (#003c33 / #b30000),
+// derives colorSuccess/colorError from very dark anchors (var(--rr-success) / var(--rr-error)),
 // and antd's preset Tag tints for those come out muddy — e.g. the "已完成"
 // success tag had a text colour too close to its background. Pinning explicit
 // soft backgrounds + strong foregrounds keeps every status readable.
 type Pair = { bg: string; fg: string; border: string };
 
-const SUCCESS: Pair = { bg: '#edfce9', fg: '#003c33', border: '#bfe3d4' };
-const ERROR: Pair = { bg: '#fff1f0', fg: '#b30000', border: '#f2b8b8' };
-const INFO: Pair = { bg: '#f1f5ff', fg: '#1863dc', border: '#b8cdf7' };
-const WARN: Pair = { bg: '#fff1ea', fg: '#c4502a', border: '#ffbfa6' };
-const NEUTRAL: Pair = { bg: '#eeece7', fg: '#616161', border: '#d9d9dd' };
+const SUCCESS: Pair = { bg: 'var(--rr-success-soft)', fg: 'var(--rr-success)', border: 'var(--rr-success-border)' };
+const ERROR: Pair = { bg: 'var(--rr-error-soft)', fg: 'var(--rr-error)', border: 'var(--rr-error-border)' };
+const INFO: Pair = { bg: 'var(--rr-primary-soft)', fg: 'var(--rr-primary)', border: 'var(--rr-info-border)' };
+const WARN: Pair = { bg: 'var(--rr-warning-soft)', fg: 'var(--rr-warning)', border: 'var(--rr-warning-border)' };
+const NEUTRAL: Pair = { bg: 'var(--rr-surface-card)', fg: 'var(--rr-text-secondary)', border: 'var(--rr-border)' };
 
 const statusStyleMap: Record<string, Pair> = {
   active: SUCCESS,

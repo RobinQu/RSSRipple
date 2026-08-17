@@ -19,10 +19,10 @@ const previewColumns = (t: (k: string, opts?: Record<string, unknown>) => string
         : null;
       return (
         <div>
-          <Text strong style={{ fontSize: 13, color: '#17171c', wordBreak: 'break-word' }}>
+          <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
             {r.title_cn || v}
           </Text>
-          <Space size={4} wrap style={{ fontSize: 11, color: '#616161', marginTop: 2 }}>
+          <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-secondary)', marginTop: 2 }}>
             {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
             {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
             {r.source && <Tag style={{ margin: 0 }}>{r.source}</Tag>}

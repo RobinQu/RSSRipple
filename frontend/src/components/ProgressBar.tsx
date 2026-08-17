@@ -10,8 +10,8 @@ export default function ProgressBar({ progress }: ProgressBarProps) {
     <Progress
       percent={Math.min(100, Math.max(0, progress * 100))}
       size="small"
-      strokeColor="#1863dc"
-      trailColor="#d9d9dd"
+      strokeColor="var(--rr-primary)"
+      trailColor="var(--rr-border)"
       format={(p) => `${p?.toFixed(2)}%`}
     />
   );

@@ -173,7 +173,7 @@ export default function SettingsPage() {
         style={{ marginBottom: 16 }}
         title={
           <Space>
-            <Sparkles size={16} style={{ color: '#1863dc' }} />
+            <Sparkles size={16} style={{ color: 'var(--rr-primary)' }} />
             <span>{t('settings.llm.title')}</span>
           </Space>
         }
@@ -232,7 +232,7 @@ export default function SettingsPage() {
         size="small"
         title={
           <Space>
-            <Database size={16} style={{ color: '#1863dc' }} />
+            <Database size={16} style={{ color: 'var(--rr-primary)' }} />
             <span>{t('settings.sources.title')}</span>
           </Space>
         }
@@ -310,7 +310,7 @@ export default function SettingsPage() {
         style={{ marginBottom: 16 }}
         title={
           <Space>
-            <HardDrive size={16} style={{ color: '#1863dc' }} />
+            <HardDrive size={16} style={{ color: 'var(--rr-primary)' }} />
             <span>{t('settings.volumes.title')}</span>
           </Space>
         }

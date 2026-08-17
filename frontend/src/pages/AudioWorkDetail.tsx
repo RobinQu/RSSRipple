@@ -62,7 +62,7 @@ export default function AudioWorkDetail() {
       key: 'title_raw',
       ellipsis: true,
       render: (text: string) => (
-        <Text style={{ fontSize: 13, color: '#212121' }}>{text}</Text>
+        <Text style={{ fontSize: 13, color: 'var(--rr-text)' }}>{text}</Text>
       ),
     },
     {
@@ -130,7 +130,7 @@ export default function AudioWorkDetail() {
               </a>
             )}
             {work.description && (
-              <Text style={{ display: 'block', marginTop: 12, color: '#93939f' }}>
+              <Text style={{ display: 'block', marginTop: 12, color: 'var(--rr-text-muted)' }}>
                 {work.description}
               </Text>
             )}
@@ -144,7 +144,7 @@ export default function AudioWorkDetail() {
             <Statistic
               title={t('movies.resourceCount')}
               value={work.resource_count ?? 0}
-              valueStyle={{ fontSize: 28, fontWeight: 600, color: '#212121' }}
+              valueStyle={{ fontSize: 28, fontWeight: 600, color: 'var(--rr-text)' }}
             />
           </Col>
         </Row>

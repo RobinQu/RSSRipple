@@ -31,6 +31,19 @@ html {
   --rr-shadow: rgba(15, 23, 42, 0.12);
   --rr-logo-bg: #17171c;
   --rr-logo-fg: #ffffff;
+  /* Semantic status colors (soft background + strong foreground + border),
+     used by StatusBadge / TaskStatusIcon and inline status tints. */
+  --rr-success: #003c33;
+  --rr-success-soft: #edfce9;
+  --rr-success-border: #bfe3d4;
+  --rr-error: #b30000;
+  --rr-error-soft: #fff1f0;
+  --rr-error-border: #f2b8b8;
+  --rr-warning: #c4502a;
+  --rr-warning-soft: #fff1ea;
+  --rr-warning-border: #ffbfa6;
+  --rr-info-border: #b8cdf7;
+  --rr-accent: #ff7759;
 }
 
 :root[data-theme='dark'] {
@@ -49,6 +62,17 @@ html {
   --rr-shadow: rgba(0, 0, 0, 0.42);
   --rr-logo-bg: #f3f3f5;
   --rr-logo-fg: #17171c;
+  --rr-success: #89d9c8;
+  --rr-success-soft: #15352f;
+  --rr-success-border: #2f5b52;
+  --rr-error: #ff8b8b;
+  --rr-error-soft: #341919;
+  --rr-error-border: #5c2b2b;
+  --rr-warning: #ffb29c;
+  --rr-warning-soft: #3d241f;
+  --rr-warning-border: #5c3830;
+  --rr-info-border: #2c4670;
+  --rr-accent: #ffb29c;
 }
 
 body {

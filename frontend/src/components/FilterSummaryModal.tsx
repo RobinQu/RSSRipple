@@ -311,11 +311,11 @@ export default function FilterSummaryModal({
           width: 32,
           height: 45,
           borderRadius: 4,
-          background: '#f0f0f2',
+          background: 'var(--rr-surface-elevated)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#93939f',
+          color: 'var(--rr-text-muted)',
           flexShrink: 0,
         }}
       >
@@ -347,7 +347,7 @@ export default function FilterSummaryModal({
       {loading ? (
         <div style={{ textAlign: 'center', padding: '48px 0' }}>
           <Spin />
-          <div style={{ marginTop: 12, color: '#93939f', fontSize: 13 }}>
+          <div style={{ marginTop: 12, color: 'var(--rr-text-muted)', fontSize: 13 }}>
             {t('filter.analyzing', { n: selectedIds.length })}
           </div>
         </div>
@@ -508,7 +508,7 @@ export default function FilterSummaryModal({
                 </Typography.Text>
               ) : (
                 <>
-                  <Typography.Text style={{ fontSize: 12, color: '#93939f', display: 'block', marginBottom: 6 }}>
+                  <Typography.Text style={{ fontSize: 12, color: 'var(--rr-text-muted)', display: 'block', marginBottom: 6 }}>
                     {t('filter.selectTargetAgent')}
                   </Typography.Text>
                   <Select
@@ -519,7 +519,7 @@ export default function FilterSummaryModal({
                     style={{ width: '100%' }}
                   />
                   {applyAgentId && (
-                    <Typography.Text style={{ fontSize: 12, color: '#93939f', display: 'block', marginTop: 8 }}>
+                    <Typography.Text style={{ fontSize: 12, color: 'var(--rr-text-muted)', display: 'block', marginTop: 8 }}>
                       {t('filter.mergeHint')}
                     </Typography.Text>
                   )}

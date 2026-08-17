@@ -39,19 +39,19 @@ class PageErrorBoundaryInner extends Component<ErrorBoundaryProps, ErrorBoundary
           style={{
             maxWidth: 520,
             width: '100%',
-            border: '1px solid #eeece7',
+            border: '1px solid var(--rr-surface-card)',
             borderRadius: 8,
             padding: 24,
-            background: '#ffffff',
+            background: 'var(--rr-surface)',
           }}
         >
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-            <AlertTriangle size={22} style={{ color: '#b30000', marginTop: 2 }} />
+            <AlertTriangle size={22} style={{ color: 'var(--rr-error)', marginTop: 2 }} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
                 Page failed to render
               </div>
-              <div style={{ color: '#75758a', fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+              <div style={{ color: 'var(--rr-text-muted)', fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
                 {this.state.error.message || 'An unexpected rendering error occurred.'}
               </div>
               <Button

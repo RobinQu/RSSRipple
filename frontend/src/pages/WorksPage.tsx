@@ -185,7 +185,7 @@ export default function WorksPage() {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Library size={22} style={{ color: '#1863dc' }} />
+          <Library size={22} style={{ color: 'var(--rr-primary)' }} />
           <Title level={3} style={{ margin: 0 }}>
             {t('works.title')}
           </Title>
