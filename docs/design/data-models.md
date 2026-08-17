@@ -600,7 +600,8 @@ class AgentRun(Base):
     duplicates_skipped: int              # 因去重跳过的资源数
     unrecognized: int                    # 未识别 metadata（含集号不确定）的资源数
     matched_resource_ids: list[str]      # 本次通过 work-scope + filter 的资源 ID 列表
-                                         #（供运行历史抽屉展示"匹配资源"明细）
+                                         #（含集号/季号不确定转待决策的资源，
+                                         # 供运行历史抽屉展示"匹配资源"明细）
     errors: list[str]                    # 本次运行捕获的错误信息列表
     created_at: datetime
 

@@ -639,6 +639,11 @@ async def process_resources(
                     await db.commit()
                 result.pending_decisions += 1
                 result.unrecognized += 1
+                # The resource passed work-scope + filter; it merely couldn't
+                # be auto-dispatched (ambiguous number). Record it so the
+                # run-history drawer can show the pending-decision resource.
+                result.matched += 1
+                result.matched_resource_ids.append(resource.id)
             except Exception as e:
                 logger.exception("Failed to create ambiguous-episode decision for %s: %s", resource.id, e)
                 result.errors.append(str(e))

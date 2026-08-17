@@ -1527,10 +1527,12 @@ const runColumns = (
     render: (_, r) => (
       <Button
         size="small"
-        disabled={r.matched_resources.length === 0}
+        disabled={r.matched_resources.length === 0 && r.pending_decisions === 0}
         onClick={() => onView(r)}
       >
-        {t('agents.viewResources', { n: r.matched_resources.length })}
+        {r.pending_decisions > 0
+          ? t('agents.pendingDecisionAction')
+          : t('agents.viewResources', { n: r.matched_resources.length })}
       </Button>
     ),
   },

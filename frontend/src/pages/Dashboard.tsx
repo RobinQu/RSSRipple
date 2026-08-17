@@ -355,10 +355,11 @@ export default function Dashboard() {
           </Space>
         }
         style={{ border: '1px solid var(--rr-accent)', marginBottom: 24 }}
-        styles={{ body: { padding: 0 } }}
+        styles={{ header: { borderBottom: 'none' }, body: { padding: 0 } }}
       >
         <Tabs
           defaultActiveKey={firstPendingTab}
+          style={{ paddingLeft: 24, paddingRight: 24 }}
           items={[
             {
               key: 'decisions',

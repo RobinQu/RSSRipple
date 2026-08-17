@@ -343,6 +343,9 @@ process_resources(agent, resources, db)
   │     │     "集号不确定，需要人工确认集号: {title}"。
   │     │     创建 PendingDecision（reason_override=上述文案、
   │     │     candidates=[该资源]、skip_llm=True），pending_decisions++ 且 unrecognized++，
+  │     │     同时 matched++ 并 append 进 matched_resource_ids——该资源已通过
+  │     │     work-scope + filter，只是集号/季号不确定无法自动派发，仍应出现在
+  │     │     运行历史抽屉的"匹配资源"清单（前端按钮以"待决策"呈现）。
   │     │     continue。绝不自动下载集号/季号不确定的资源。
   │     │
   │     ├─ d. 合集分支（resource.is_batch=True）:

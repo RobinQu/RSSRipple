@@ -917,6 +917,10 @@ class TestProcessResources:
         assert result.dispatched == 0
         assert result.pending_decisions == 1
         assert len(result.suggestions) == 0
+        # The resource matched the rules, so it's recorded for the run-history
+        # "matched resources" list (viewable in the run drawer as 待决策).
+        assert result.matched == 1
+        assert result.matched_resource_ids == [r.id]
         pds = (await db_session.execute(
             select(PendingDecision).where(PendingDecision.agent_id == agent.id)
         )).scalars().all()
