@@ -162,6 +162,32 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
         return None
 
 
+async def ensure_torrent_cached(resource: "FileResource") -> str | None:
+    """Best-effort .torrent caching for a resource during fetch.
+
+    Downloads ``resource.torrent_url`` into the cache dir when it is a plain
+    http(s) direct link and no usable cache exists yet (``torrent_file`` is
+    empty or points at a file that has since been deleted). On success the
+    local path is written to ``resource.torrent_file``. Magnets and any
+    download/write failure are silent (returns None). Does NOT commit — the
+    caller's session owns the transaction.
+    """
+    path = resource.torrent_file
+    if path and Path(path).exists():
+        return path
+    url = resource.torrent_url or ""
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return None
+    try:
+        new_path = await fetch_torrent_file(url, resource.id)
+    except Exception as e:
+        logger.debug("[torrent] cache failed for %s: %s", resource.id, e)
+        return None
+    if new_path:
+        resource.torrent_file = new_path
+    return new_path
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -365,9 +391,11 @@ async def maybe_inspect_torrent(
     - ``season``: ``is_batch=True``, ``batch_scope="season"``,
       ``episode=None``, ``episode_start/end`` from the report.
     - ``multi_season``: ``is_batch=True``, ``batch_scope="multi_season"``,
-      ``episode=None``, ``season=None``, ``episode_start/end=None``.
+      ``episode=None``, ``season=None``, ``episode_start/end=None``,
+      ``batch_seasons`` from the report.
     - ``franchise``: ``is_batch=True``, ``batch_scope="franchise"``,
-      ``episode=None``, then ``franchise_service.link_franchise_pack``
+      ``episode=None``, ``batch_seasons`` from the report, then
+      ``franchise_service.link_franchise_pack``
       resolves the member works and links ``collection_id`` (failures are
       isolated — the batch verdict above is kept regardless).
     - ``single`` / ``unknown``: no reclassification — only the cache path
@@ -388,10 +416,15 @@ async def maybe_inspect_torrent(
         return False
 
     try:
-        path = await fetch_torrent_file(url, resource.id)
-        if not path:
-            return False
-        resource.torrent_file = path
+        # Reuse an already-cached .torrent (``ensure_torrent_cached`` runs
+        # first in the fetch pipeline); only download when there is no
+        # usable cache on disk.
+        path = resource.torrent_file
+        if not (path and Path(path).exists()):
+            path = await fetch_torrent_file(url, resource.id)
+            if not path:
+                return False
+            resource.torrent_file = path
 
         files = parse_torrent_files(path)
         if files is None:
@@ -411,10 +444,14 @@ async def maybe_inspect_torrent(
             resource.season = None
             resource.episode_start = None
             resource.episode_end = None
+            # Persist the covered seasons — the agent runner's batch dedup
+            # keys on the exact coverage (see _batch_coverage_key).
+            resource.batch_seasons = report.seasons or None
         elif report.scope == "franchise":
             resource.is_batch = True
             resource.batch_scope = "franchise"
             resource.episode = None
+            resource.batch_seasons = report.seasons or None
             # Member-work linking + collection attach. Isolated from the
             # verdict above: a linking failure must not lose the batch
             # classification (nor turn this call into a False return).

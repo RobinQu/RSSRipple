@@ -332,7 +332,10 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
       title: t('agents.notifColTitle'),
       dataIndex: 'title_raw',
       key: 'title_raw',
-      width: 240,
+      // Flex column (no width): with tableLayout="fixed" it takes whatever
+      // the compact columns leave, and EllipsisText truncates instead of
+      // pushing the table past the card width (same pattern as the
+      // DownloaderDetail task title column).
       render: (v: string | null) =>
         v ? <EllipsisText text={v} /> : <Text type="secondary">—</Text>,
     },
@@ -516,7 +519,7 @@ export default function NotificationsPanel({ agentId }: { agentId: string }) {
           rowKey="id"
           loading={loading}
           size="small"
-          scroll={{ x: 880 }}
+          tableLayout="fixed"
           pagination={{
             current: page,
             pageSize: PAGE_SIZE,

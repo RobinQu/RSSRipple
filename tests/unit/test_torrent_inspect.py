@@ -19,6 +19,7 @@ import app.services.torrent_inspect as ti
 from app.services.resource_parser import extract_season_episode_from_path
 from app.services.torrent_inspect import (
     analyze_torrent_files,
+    ensure_torrent_cached,
     fetch_torrent_file,
     maybe_inspect_torrent,
     parse_torrent_files,
@@ -488,3 +489,83 @@ async def test_inspect_parse_failure_silent(monkeypatch):
     assert r.is_batch is False
     # The cached file path survives a parse failure.
     assert r.torrent_file == "/tmp/rid-a.torrent"
+
+
+# =============================================================================
+# ensure_torrent_cached + cache reuse in maybe_inspect_torrent
+# =============================================================================
+
+async def test_ensure_caches_when_missing(monkeypatch):
+    async def _fake_fetch(url, rid):
+        return "/tmp/rid-a.torrent"
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    r = _resource()
+    assert await ensure_torrent_cached(r) == "/tmp/rid-a.torrent"
+    assert r.torrent_file == "/tmp/rid-a.torrent"
+
+
+async def test_ensure_skips_fetch_when_cache_exists(tmp_path, monkeypatch):
+    cached = tmp_path / "rid-a.torrent"
+    cached.write_bytes(b"d4:infod4:name4:spam6:lengthi1eee")
+
+    async def _boom(url, rid):  # pragma: no cover - must not be called
+        raise AssertionError("fetch_torrent_file called with a live cache")
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _boom)
+    r = _resource(torrent_file=str(cached))
+    assert await ensure_torrent_cached(r) == str(cached)
+    assert r.torrent_file == str(cached)
+
+
+async def test_ensure_refetches_when_cache_file_deleted(tmp_path, monkeypatch):
+    missing = str(tmp_path / "gone.torrent")
+
+    async def _fake_fetch(url, rid):
+        return "/tmp/rid-a.torrent"
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    r = _resource(torrent_file=missing)
+    assert await ensure_torrent_cached(r) == "/tmp/rid-a.torrent"
+    assert r.torrent_file == "/tmp/rid-a.torrent"
+
+
+async def test_ensure_skips_magnet(monkeypatch):
+    async def _boom(url, rid):  # pragma: no cover - must not be called
+        raise AssertionError("fetch_torrent_file called for magnet")
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _boom)
+    r = _resource(torrent_url="magnet:?xt=urn:btih:abc")
+    assert await ensure_torrent_cached(r) is None
+    assert r.torrent_file is None
+
+
+async def test_ensure_fetch_failure_silent(monkeypatch):
+    async def _none(url, rid):
+        return None
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _none)
+    r = _resource()
+    assert await ensure_torrent_cached(r) is None
+    assert r.torrent_file is None
+
+
+async def test_inspect_reuses_existing_cache(tmp_path, monkeypatch):
+    """maybe_inspect_torrent must not re-download when the fetch pipeline's
+    ensure_torrent_cached already cached the .torrent."""
+    cached = tmp_path / "rid-a.torrent"
+    cached.write_bytes(b"not-really-parsed")
+
+    async def _boom(url, rid):  # pragma: no cover - must not be called
+        raise AssertionError("fetch_torrent_file called with a live cache")
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _boom)
+    monkeypatch.setattr(ti, "parse_torrent_files", lambda p: [
+        _f("Show.S01E01.1080p.mkv"),
+        _f("Show.S01E02.1080p.mkv"),
+    ])
+    r = _resource(torrent_file=str(cached))
+    assert await maybe_inspect_torrent(None, r) is True
+    assert r.is_batch is True
+    assert r.batch_scope == "season"
+    assert r.torrent_file == str(cached)

@@ -11,6 +11,7 @@ from app.models.series import TVSeries
 from app.schemas.common import paginated_response, success_response
 from app.schemas.series import TVSeriesCreate, TVSeriesResponse, TVSeriesUpdate
 from app.services import fts as fts_service
+from app.services.external_ids import add_external_id
 from app.services.metadata_service import mark_manually_edited
 
 router = APIRouter()
@@ -184,6 +185,17 @@ async def update_series(
             },
         )
     update_data = body.model_dump(exclude_unset=True)
+    # Manual identity change: keep the work reachable under its previous
+    # (external_source, external_id) by bagging the old pair before the
+    # primary columns are overwritten (idempotent; an id already owned by
+    # another work is kept — only a warning is logged).
+    if {"external_id", "external_source"} & update_data.keys():
+        new_id = update_data.get("external_id", series.external_id)
+        new_source = update_data.get("external_source", series.external_source)
+        if (series.external_source, series.external_id) != (new_source, new_id):
+            await add_external_id(
+                db, "series", series.id, series.external_source, series.external_id
+            )
     # Aliases merge: append new aliases without dedup (per AGENTS.md spec)
     if "aliases" in update_data and update_data["aliases"]:
         existing = set(series.aliases or [])
@@ -192,6 +204,22 @@ async def update_series(
     for key, value in update_data.items():
         setattr(series, key, value)
     mark_manually_edited(series, update_data)
+    # Work manually reclassified away from tv (e.g. series → movie): linked
+    # resources no longer carry an episode/season question, so a stale
+    # "ambiguous" flag would pin them on the pending-confirmation todo list
+    # forever. Clear it (NULL = no episode assessment applies).
+    if update_data.get("content_type") not in (None, "tv"):
+        from sqlalchemy import update as sql_update
+
+        from app.models.file_resource import FileResource
+        await db.execute(
+            sql_update(FileResource)
+            .where(
+                FileResource.series_id == series_id,
+                FileResource.episode_confidence == "ambiguous",
+            )
+            .values(episode_confidence=None)
+        )
     await db.flush()
     await db.refresh(series)
     return success_response(TVSeriesResponse.model_validate(series).model_dump())

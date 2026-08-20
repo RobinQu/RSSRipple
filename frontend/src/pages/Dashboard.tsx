@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye } from 'lucide-react';
+import useUrlTab from '../hooks/useUrlTab';
+import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye, ListTree } from 'lucide-react';
 import {
   Typography,
   Row,
@@ -29,6 +30,8 @@ import ProgressBar from '../components/ProgressBar';
 import OrganizeOpPaths from '../components/OrganizeOpPaths';
 import OrganizePlanDrawer from '../components/OrganizePlanDrawer';
 import StatusBadge from '../components/StatusBadge';
+import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
+import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import {
   collectFieldConditions,
   describeCondition,
@@ -73,7 +76,7 @@ export default function Dashboard() {
   const [topAgents, setTopAgents] = useState<AgentListItem[]>([]);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dlFilter, setDlFilter] = useState<'all' | 'agent' | 'untracked'>('all');
+  const [dlFilter, setDlFilter] = useUrlTab('all', ['all', 'agent', 'untracked'] as const, 'dl');
   // Set by clicking an agent's "downloading" badge: filters the active
   // downloads card to that agent's tasks only.
   const [dlAgentFilter, setDlAgentFilter] = useState<{ id: string; name: string } | null>(null);
@@ -84,6 +87,10 @@ export default function Dashboard() {
   // Pending organize plans — in-place actions + detail drawer.
   const [planDrawerId, setPlanDrawerId] = useState<string | null>(null);
   const [executingPlanId, setExecutingPlanId] = useState<string | null>(null);
+  // Resource file listing drawer + parse-field correction modal, shared by
+  // the decisions candidates and the confirmations rows.
+  const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
+  const [correctionResource, setCorrectionResource] = useState<FileResource | null>(null);
 
   const fetchData = useCallback(async () => {
     const [res, agentsRes, libRes] = await Promise.all([
@@ -386,6 +393,18 @@ export default function Dashboard() {
                       <Link to={`/agents/${d.agent_id}`}>
                         <Text style={{ fontSize: 12 }}>{d.agent_name}</Text>
                       </Link>
+                      {d.title && (
+                        <>
+                          {' · '}
+                          {d.series_id || d.movie_id ? (
+                            <Link to={d.series_id ? `/series/${d.series_id}` : `/movies/${d.movie_id}`}>
+                              <Text style={{ fontSize: 12 }}>{d.title}</Text>
+                            </Link>
+                          ) : (
+                            <Text style={{ fontSize: 12 }}>{d.title}</Text>
+                          )}
+                        </>
+                      )}
                       {' · '}
                       {t('dashboard.candidateCount', { n: d.candidates.length })} · {timeAgo(d.created_at)}
                     </div>
@@ -461,6 +480,14 @@ export default function Dashboard() {
                         </div>
                         {ambiguous ? (
                           <Space size={6} align="center" wrap>
+                            <Tooltip title={t('resource.files')}>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ListTree size={14} />}
+                                onClick={() => setFilesResourceId(r.id)}
+                              />
+                            </Tooltip>
                             <InputNumber
                               size="small"
                               min={0}
@@ -496,14 +523,24 @@ export default function Dashboard() {
                             </Button>
                           </Space>
                         ) : (
-                          <Button
-                            type="primary"
-                            size="small"
-                            icon={<Check size={12} />}
-                            onClick={() => handleConfirm(d.id, r.id)}
-                          >
-                            {t('common.confirm')}
-                          </Button>
+                          <Space size={6} align="center" wrap>
+                            <Tooltip title={t('resource.files')}>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ListTree size={14} />}
+                                onClick={() => setFilesResourceId(r.id)}
+                              />
+                            </Tooltip>
+                            <Button
+                              type="primary"
+                              size="small"
+                              icon={<Check size={12} />}
+                              onClick={() => handleConfirm(d.id, r.id)}
+                            >
+                              {t('common.confirm')}
+                            </Button>
+                          </Space>
                         )}
                       </div>
                     );
@@ -540,7 +577,13 @@ export default function Dashboard() {
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
+                            {r.series_id || r.movie_id ? (
+                              <Link to={r.series_id ? `/series/${r.series_id}` : `/movies/${r.movie_id}`}>
+                                <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
+                              </Link>
+                            ) : (
+                              <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
+                            )}
                             <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                               {item.channel_name && (
                                 <>
@@ -573,6 +616,17 @@ export default function Dashboard() {
                             </Space>
                           </div>
                           <Space size={6} align="center" wrap>
+                            <Tooltip title={t('resource.files')}>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<ListTree size={14} />}
+                                onClick={() => setFilesResourceId(r.id)}
+                              />
+                            </Tooltip>
+                            <Button size="small" onClick={() => setCorrectionResource(r)}>
+                              {t('resource.correct')}
+                            </Button>
                             <InputNumber
                               size="small"
                               min={0}
@@ -648,9 +702,13 @@ export default function Dashboard() {
                         )}
                       </Space>
                       <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
-                        {p.rule_name ?? t('format.dash')}
+                        <Link to="/media-library">
+                          <Text style={{ fontSize: 12 }}>{p.rule_name ?? t('format.dash')}</Text>
+                        </Link>
                         {' · '}
-                        {p.library_name ?? t('organize.uncategorizedTag')}
+                        <Link to="/media-library">
+                          <Text style={{ fontSize: 12 }}>{p.library_name ?? t('organize.uncategorizedTag')}</Text>
+                        </Link>
                         {p.category ? ` · ${p.category}` : ''}
                         {' · '}
                         {timeAgo(p.created_at)}
@@ -1016,6 +1074,22 @@ export default function Dashboard() {
         libraries={libraries}
         onClose={() => setPlanDrawerId(null)}
         onChanged={fetchData}
+      />
+
+      <ResourceFilesDrawer
+        resourceId={filesResourceId}
+        open={!!filesResourceId}
+        onClose={() => setFilesResourceId(null)}
+      />
+
+      <ResourceCorrectionModal
+        resource={correctionResource}
+        open={!!correctionResource}
+        onClose={() => setCorrectionResource(null)}
+        onSaved={() => {
+          setCorrectionResource(null);
+          fetchData();
+        }}
       />
     </div>
   );

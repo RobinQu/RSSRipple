@@ -431,6 +431,10 @@ async def _apply_light_migrations(conn) -> None:
         ("file_resources", "batch_scope", "VARCHAR(16)"),
         ("file_resources", "collection_id", "VARCHAR(36)"),
         ("file_resources", "torrent_file", "VARCHAR(2048)"),
+        # Seasons covered by a multi_season/franchise batch pack (JSON int
+        # list, persisted from torrent content analysis) — drives the strict
+        # content-coverage dedup of batch resources in the agent runner.
+        ("file_resources", "batch_seasons", "TEXT" if is_turso else "JSONB"),
     ]
 
     for table, column, ddl in additions:
@@ -671,6 +675,55 @@ async def _apply_light_migrations(conn) -> None:
             logger.info(
                 "[migrate] reset %s not_found rows for auto-link reprocessing",
                 getattr(res, "rowcount", "?"),
+            )
+
+    # ── one-time stale "ambiguous" episode-confidence cleanup ────────────
+    # The episode/season question only exists for single-episode tv resources,
+    # but earlier versions could leave the flag stuck on resources the user
+    # had already reclassified: marking a resource as 合集 without touching
+    # episode fields, relinking to a movie, or flipping the work's
+    # content_type away from tv all left ``episode_confidence='ambiguous'``
+    # untouched, pinning the resource on the dashboard 待确认 list forever.
+    # Clear those once: batches become "manual" (a human made the call),
+    # movie-linked / non-tv-linked rows drop the flag (NULL = no episode
+    # assessment applies).
+    async with _best_effort(conn, "stale ambiguous cleanup"):
+        sentinel = "ambiguous_stale_clear"
+        if is_turso:
+            await conn.execute(text(
+                f"INSERT OR IGNORE INTO app_settings(key, value) "
+                f"VALUES ('{sentinel}', 'pending')"
+            ))
+        elif is_postgres:
+            await conn.execute(text(
+                f"INSERT INTO app_settings(key, value) "
+                f"VALUES ('{sentinel}', 'pending') ON CONFLICT (key) DO NOTHING"
+            ))
+        row = (await conn.execute(text(
+            f"SELECT value FROM app_settings WHERE key = '{sentinel}'"
+        ))).first()
+        if row and row[0] == "pending":
+            r1 = await conn.execute(text(
+                "UPDATE file_resources SET episode_confidence = 'manual' "
+                "WHERE is_batch AND episode_confidence = 'ambiguous'"
+            ))
+            r2 = await conn.execute(text(
+                "UPDATE file_resources SET episode_confidence = NULL "
+                "WHERE movie_id IS NOT NULL AND episode_confidence = 'ambiguous'"
+            ))
+            r3 = await conn.execute(text(
+                "UPDATE file_resources SET episode_confidence = NULL "
+                "WHERE episode_confidence = 'ambiguous' AND series_id IN "
+                "(SELECT id FROM tv_series WHERE content_type <> 'tv')"
+            ))
+            await conn.execute(text(
+                f"UPDATE app_settings SET value = 'done' WHERE key = '{sentinel}'"
+            ))
+            logger.info(
+                "[migrate] cleared stale ambiguous flags: %s batch, %s movie-linked, "
+                "%s non-tv-series-linked",
+                getattr(r1, "rowcount", "?"), getattr(r2, "rowcount", "?"),
+                getattr(r3, "rowcount", "?"),
             )
 
     # ── work_external_ids identity-bag seed (Phase P3) ───────────────────

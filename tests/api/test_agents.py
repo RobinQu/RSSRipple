@@ -414,6 +414,7 @@ class TestAgentsCRUD:
     async def test_list_agent_runs_non_empty_filter(self, client, channel_and_dl, db_session):
         """GET /agents/{id}/runs?non_empty=true hides routine no-op runs."""
         from app.models.agent_run import AgentRun
+        from app.models.pending_decision import PendingDecision
 
         ch_id, dl_id = channel_and_dl
         create = await client.post("/api/v1/agents", json={
@@ -440,6 +441,12 @@ class TestAgentsCRUD:
                 AgentRun(agent_id=aid, status="failed", started_at=now,
                          finished_at=now, errors=["boom"]),
             ])
+        # An open pending decision keeps the frozen run status visible as-is;
+        # with none, the read-time correction would present it as "success".
+        async with db_session.begin():
+            db_session.add(PendingDecision(
+                agent_id=aid, status="pending", candidates=["x"], reason="冲突",
+            ))
         res = await client.get(f"/api/v1/agents/{aid}/runs?non_empty=true")
         assert res.status_code == 200
         assert res.json()["meta"]["total"] == 4
@@ -724,3 +731,126 @@ class TestAgentWorks:
                                 json={"resource_ids": [rid]})
         assert res.status_code == 200
         assert res.json()["data"]["total"] == 1
+
+
+class TestAgentRunsPendingDecisionCorrection:
+    """Read-time correction of frozen run snapshots on GET /agents/{id}/runs.
+
+    A run frozen as "pending_decisions" is presented as "success" once the
+    agent has no pending decisions left (response only — the DB row keeps its
+    snapshot), and matched resources carry a "pending_decision" marker while
+    their decision is still open.
+    """
+
+    async def test_pending_run_kept_and_marked_then_corrected(
+        self, client, channel_and_dl, db_session, db_session_factory
+    ):
+        from sqlalchemy import select
+
+        from app.models.agent_run import AgentRun
+        from app.models.file_resource import FileResource
+        from app.models.pending_decision import PendingDecision
+
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        r1 = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] PD - 01", torrent_url="magnet:?xt=urn:btih:pd1",
+        )
+        r2 = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G2] PD - 01", torrent_url="magnet:?xt=urn:btih:pd2",
+        )
+        db_session.add_all([r1, r2])
+        await db_session.commit()
+        run_id = _uuid()
+        async with db_session.begin():
+            db_session.add(AgentRun(
+                id=run_id, agent_id=aid, status="pending_decisions",
+                started_at=datetime.now(UTC), finished_at=datetime.now(UTC),
+                total_resources=2, matched=2, pending_decisions=1,
+                matched_resource_ids=[r1.id, r2.id],
+            ))
+        did = _uuid()
+        async with db_session_factory() as s:
+            s.add(PendingDecision(
+                id=did, agent_id=aid, status="pending",
+                candidates=[r1.id, r2.id], reason="冲突",
+            ))
+            await s.commit()
+
+        # While a pending decision exists: run status stays as snapshotted and
+        # the candidate resources are marked pending_decision=true.
+        res = await client.get(f"/api/v1/agents/{aid}/runs")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert len(data) == 1
+        assert data[0]["status"] == "pending_decisions"
+        assert {m["pending_decision"] for m in data[0]["matched_resources"]} == {True}
+
+        # Decision handled -> read-time correction kicks in.
+        async with db_session_factory() as s:
+            pd = await s.get(PendingDecision, did)
+            pd.status = "decided"
+            await s.commit()
+        res = await client.get(f"/api/v1/agents/{aid}/runs")
+        data = res.json()["data"]
+        assert data[0]["status"] == "success"
+        # Historical snapshot fields stay untouched in the response.
+        assert data[0]["pending_decisions"] == 1
+        assert {m["pending_decision"] for m in data[0]["matched_resources"]} == {False}
+        # The DB row itself is never rewritten.
+        async with db_session_factory() as s:
+            row = (await s.execute(
+                select(AgentRun).where(AgentRun.id == run_id)
+            )).scalar_one()
+            assert row.status == "pending_decisions"
+
+    async def test_unrelated_resources_not_marked(
+        self, client, channel_and_dl, db_session, db_session_factory
+    ):
+        """Matched resources that are not candidates of any pending decision
+        get pending_decision=false even while a decision is open."""
+        from app.models.agent_run import AgentRun
+        from app.models.file_resource import FileResource
+        from app.models.pending_decision import PendingDecision
+
+        ch_id, dl_id = channel_and_dl
+        create = await client.post("/api/v1/agents", json={
+            "name": "A", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        })
+        aid = create.json()["data"]["id"]
+        r_cand = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] UN - 01", torrent_url="magnet:?xt=urn:btih:un1",
+        )
+        r_other = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] UN - 02", torrent_url="magnet:?xt=urn:btih:un2",
+        )
+        db_session.add_all([r_cand, r_other])
+        await db_session.commit()
+        async with db_session.begin():
+            db_session.add(AgentRun(
+                agent_id=aid, status="pending_decisions",
+                started_at=datetime.now(UTC), finished_at=datetime.now(UTC),
+                total_resources=2, matched=2, pending_decisions=1,
+                matched_resource_ids=[r_cand.id, r_other.id],
+            ))
+        async with db_session_factory() as s:
+            s.add(PendingDecision(
+                id=_uuid(), agent_id=aid, status="pending",
+                candidates=[r_cand.id], reason="冲突",
+            ))
+            await s.commit()
+        res = await client.get(f"/api/v1/agents/{aid}/runs")
+        marks = {
+            m["id"]: m["pending_decision"]
+            for m in res.json()["data"][0]["matched_resources"]
+        }
+        assert marks == {r_cand.id: True, r_other.id: False}

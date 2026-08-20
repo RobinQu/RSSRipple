@@ -183,7 +183,7 @@ async def _process_resource_metadata(
     from app.models.series import TVSeries
     from app.services.metadata_agent import get_agent
     from app.services.metadata_service import download_and_cache_poster
-    from app.services.torrent_inspect import maybe_inspect_torrent
+    from app.services.torrent_inspect import ensure_torrent_cached, maybe_inspect_torrent
 
     async with semaphore:
         async with async_session_factory() as task_db:
@@ -192,6 +192,9 @@ async def _process_resource_metadata(
                 channel = await task_db.get(Channel, channel_id)
                 if resource is None or channel is None:
                     return
+                # Cache the .torrent for every resource (http(s) direct links
+                # only) so later file-listing lookups never re-download.
+                await ensure_torrent_cached(resource)
                 # Channel A torrent inspection: deterministic .torrent
                 # file-listing analysis may reclassify the resource as a
                 # batch the title regexes missed. Runs before metadata

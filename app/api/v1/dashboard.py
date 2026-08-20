@@ -210,7 +210,14 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     pending_confirmations = []
     conf_q = await db.execute(
         select(FileResource)
-        .where(FileResource.episode_confidence == "ambiguous")
+        .where(
+            FileResource.episode_confidence == "ambiguous",
+            # The episode/season question only exists for single-episode tv
+            # resources: batches dedup by content coverage and movies carry
+            # no episode number, so neither is actionable here.
+            FileResource.is_batch.is_(False),
+            FileResource.movie_id.is_(None),
+        )
         .order_by(FileResource.created_at.desc())
         .limit(10)
         .options(

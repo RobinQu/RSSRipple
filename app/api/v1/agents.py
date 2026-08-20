@@ -499,11 +499,37 @@ async def list_agent_runs(
         )).scalars().all()
         res_by_id = {r.id: r for r in res_rows}
 
+    # Query the agent's currently-pending decisions once: they drive both the
+    # read-time run-status correction and the per-resource "pending_decision"
+    # marker below.
+    from app.models.pending_decision import PendingDecision
+
+    pending_rows = (await db.execute(
+        select(PendingDecision).where(
+            PendingDecision.agent_id == agent_id,
+            PendingDecision.status == "pending",
+        )
+    )).scalars().all()
+    pending_resource_ids: set[str] = set()
+    for pd in pending_rows:
+        pending_resource_ids.update(pd.candidates or [])
+
     items = []
     for r in rows:
         data = AgentRunResponse.model_validate(r).model_dump()
+        # Read-time correction: the run status is a snapshot frozen at run end.
+        # Once every pending decision has been handled, historical
+        # "pending_decisions" runs are presented as "success" (response only —
+        # the DB row and its pending_decisions count stay untouched). While
+        # pending decisions still exist we can't attribute them to a specific
+        # run, so the original status is kept as-is.
+        if r.status == "pending_decisions" and not pending_rows:
+            data["status"] = "success"
         data["matched_resources"] = [
-            RulesPreviewResource.model_validate(res_by_id[rid]).model_dump()
+            {
+                **RulesPreviewResource.model_validate(res_by_id[rid]).model_dump(),
+                "pending_decision": rid in pending_resource_ids,
+            }
             for rid in (r.matched_resource_ids or [])
             if rid in res_by_id
         ]

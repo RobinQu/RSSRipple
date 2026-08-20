@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
+import useUrlTab from '../hooks/useUrlTab';
 import {
   ArrowLeft,
   Pencil,
@@ -16,6 +17,8 @@ import {
   ExternalLink,
   LayoutGrid,
   List,
+  ListTree,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   Typography,
@@ -37,6 +40,8 @@ import {
 import { channelsApi } from '../api/channels';
 import StatusBadge from '../components/StatusBadge';
 import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
+import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
+import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import { timeAgo } from '../utils/format';
 import { batchScopeLabel } from '../utils/batch';
@@ -169,6 +174,8 @@ function SubtitleLangsCell({ langs }: { langs: string[] | null }) {
 function ResourceRowActions({ r }: { r: FileResource }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [correctOpen, setCorrectOpen] = useState(false);
   const copyRawTitle = async () => {
     try {
       await navigator.clipboard.writeText(r.title_raw);
@@ -178,29 +185,63 @@ function ResourceRowActions({ r }: { r: FileResource }) {
     }
   };
   return (
-    <Space size={2}>
-      <Tooltip
-        title={<span className="raw-title-tooltip-content">{r.title_raw}</span>}
-        placement="topRight"
-        classNames={{ root: 'raw-title-tooltip' }}
-      >
-        <Button
-          type="text"
-          size="small"
-          icon={<Info size={14} />}
-          aria-label={t('channels.showRawTitle')}
+    <>
+      <Space size={2}>
+        <Tooltip
+          title={<span className="raw-title-tooltip-content">{r.title_raw}</span>}
+          placement="topRight"
+          classNames={{ root: 'raw-title-tooltip' }}
+        >
+          <Button
+            type="text"
+            size="small"
+            icon={<Info size={14} />}
+            aria-label={t('channels.showRawTitle')}
+          />
+        </Tooltip>
+        <Tooltip title={t('channels.copyRawTitle')}>
+          <Button
+            type="text"
+            size="small"
+            icon={<Copy size={14} />}
+            aria-label={t('channels.copyRawTitle')}
+            onClick={copyRawTitle}
+          />
+        </Tooltip>
+        <Tooltip title={t('resource.files')}>
+          <Button
+            type="text"
+            size="small"
+            icon={<ListTree size={14} />}
+            aria-label={t('resource.files')}
+            onClick={() => setFilesOpen(true)}
+          />
+        </Tooltip>
+        <Tooltip title={t('resource.correct')}>
+          <Button
+            type="text"
+            size="small"
+            icon={<SlidersHorizontal size={14} />}
+            aria-label={t('resource.correct')}
+            onClick={() => setCorrectOpen(true)}
+          />
+        </Tooltip>
+      </Space>
+      {filesOpen && (
+        <ResourceFilesDrawer
+          resourceId={r.id}
+          open
+          onClose={() => setFilesOpen(false)}
         />
-      </Tooltip>
-      <Tooltip title={t('channels.copyRawTitle')}>
-        <Button
-          type="text"
-          size="small"
-          icon={<Copy size={14} />}
-          aria-label={t('channels.copyRawTitle')}
-          onClick={copyRawTitle}
+      )}
+      {correctOpen && (
+        <ResourceCorrectionModal
+          resource={r}
+          open
+          onClose={() => setCorrectOpen(false)}
         />
-      </Tooltip>
-    </Space>
+      )}
+    </>
   );
 }
 
@@ -296,7 +337,7 @@ export default function ChannelDetail() {
 
   const [channel, setChannel] = useState<ChannelDetailData | null>(null);
   useDocumentTitle(channel?.name ?? t('channels.title'));
-  const [tab, setTab] = useState<'parsed' | 'unparsed'>('parsed');
+  const [tab, setTab] = useUrlTab('parsed', ['parsed', 'unparsed'] as const);
   const [parsedGroups, setParsedGroups] = useState<GroupedResource[]>([]);
   const [parsedPage, setParsedPage] = useState(1);
   const [parsedTotal, setParsedTotal] = useState(0);

@@ -2,10 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Trash2, RefreshCw, Download, Pencil } from 'lucide-react';
+import { ArrowLeft, Trash2, RefreshCw, Download, Pencil, ListTree } from 'lucide-react';
 import {
   Typography, Spin, Card, Button, Tag, Descriptions,
-  Row, Col, Statistic, Table, Modal, App, Checkbox,
+  Row, Col, Statistic, Table, Modal, App, Checkbox, Space,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { seriesApi } from '../api/series';
@@ -16,7 +16,7 @@ import { withMobileLabels } from '../utils/table';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
-import WorkEditModal from '../components/WorkEditModal';
+import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 
 const { Title, Text, Link: AntdLink } = Typography;
 
@@ -30,7 +30,7 @@ export default function SeriesDetail() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
+  const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
   const [refreshOpen, setRefreshOpen] = useState(false);
   const [overrideManualEdits, setOverrideManualEdits] = useState(false);
 
@@ -142,15 +142,24 @@ export default function SeriesDetail() {
     {
       title: t('common.actions'),
       key: 'actions',
-      width: 150,
+      width: 210,
       render: (_: unknown, record: FileResource) => (
-        <Button
-          size="small"
-          icon={<Download size={12} />}
-          onClick={() => setCreateTaskResourceId(record.id)}
-        >
-          {t('tasks.createTask')}
-        </Button>
+        <Space size={4}>
+          <Button
+            size="small"
+            icon={<ListTree size={12} />}
+            onClick={() => setFilesResourceId(record.id)}
+          >
+            {t('resource.files')}
+          </Button>
+          <Button
+            size="small"
+            icon={<Download size={12} />}
+            onClick={() => setCreateTaskResourceId(record.id)}
+          >
+            {t('tasks.createTask')}
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -172,7 +181,7 @@ export default function SeriesDetail() {
         <Tag color="blue">{t('series.title')}</Tag>
         <Button
           icon={<Pencil size={14} />}
-          onClick={() => setEditOpen(true)}
+          onClick={() => navigate(`/series/${id}/edit`)}
         >
           {t('common.edit')}
         </Button>
@@ -310,12 +319,10 @@ export default function SeriesDetail() {
         onClose={() => setCreateTaskResourceId(null)}
       />
 
-      <WorkEditModal
-        open={editOpen}
-        work={series}
-        contentType="tv"
-        onClose={() => setEditOpen(false)}
-        onSaved={(updated) => setSeries(updated as TVSeries)}
+      <ResourceFilesDrawer
+        resourceId={filesResourceId}
+        open={!!filesResourceId}
+        onClose={() => setFilesResourceId(null)}
       />
 
       <Modal

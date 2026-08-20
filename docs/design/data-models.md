@@ -79,6 +79,8 @@ class FileResource(Base):
     is_batch: bool                       # 该资源是否为多集合集，默认 False
     batch_scope: str | None              # 合集细分：NULL=非合集；"season"=单季包；
                                          # "multi_season"=跨季包；"franchise"=多作品大 IP 包
+    batch_seasons: list[int] | None      # multi_season/franchise 包覆盖的季集合（torrent 内容
+                                         # 检测持久化）；驱动合集内容覆盖度去重；NULL=覆盖度未知
     episode_start: int | None            # 合集起始集，尽力而为（标题里可能没有）
     episode_end: int | None              # 合集结束集，尽力而为（标题里可能没有）
     # 跨季集号 reconciliation
@@ -103,10 +105,10 @@ class FileResource(Base):
 **合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分三层：
 
 1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。**整碟包规则**：标题含显式季标记（`S0x`/`Season N`/`Nst|nd|rd|th Season`/`第N季` 含中文数字）且解析不出任何集号且含整碟 token（`BD`/`BDRip`/`BDMV`/`BDRemux`/`Blu-ray`/`BD-BOX`，词边界）→ 判合集（`葬送的芙莉莲 第二季 (BD ...)` 形态）。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）并设 `batch_scope="season"`（标题层默认单季包，torrent 分析可修正）。
-2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end）/`franchise`（≥2 作品簇，触发 `franchise_service.link_franchise_pack` 创建/复用 `franchise_pack` 来源的 WorkCollection、逐个匹配成员作品并挂 `collection_id`、资源改挂 collection）/`unknown`（不改判）。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）为保留优化项，未实现。
+2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end，并把覆盖季集合持久化到 `batch_seasons`）/`franchise`（≥2 作品簇，同写 `batch_seasons`，触发 `franchise_service.link_franchise_pack` 创建/复用 `franchise_pack` 来源的 WorkCollection、逐个匹配成员作品并挂 `collection_id`、资源改挂 collection）/`unknown`（不改判）。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）为保留优化项，未实现。
 3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise 不被降级），LLM 未输出时默认 `"season"`。
 
-合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。
+合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`(series_id, season)`；跨季包→`(series_id, batch_seasons)`。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision，episode 哨兵 -1；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的 active 任务判重跳过；覆盖度不同（S1 包 vs S2 包）或未知（标题层无季号依据）的合集不去重、各自派发。franchise 包作品 FK 全清，不进入派发。
 
 **跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, season, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
 
@@ -114,6 +116,7 @@ class FileResource(Base):
 - **只标了 MM**（如 `S04 - 84`）——`reconcile_episode()` 检查 `raw_episode ≤ season_count + tolerance(2)`：符合就保留（`raw`）；否则减去前几季累计集数得到 candidate；candidate 落在 `[1, season_count + tolerance]` → 记为 `reconciled`（写回 `absolute_episode`），否则记为 `ambiguous`。
 - `apply_episode_reconcile()` 跳过条件：合集资源；`episode` 与 `absolute_episode` 均为空；`episode_confidence == "manual"`；以及 `season` 已知且已为 `reconciled` 的资源（不重算）。无判定依据（空 map / 未知季）时仅给无标记资源补上 `raw`。
 - `ambiguous` 的资源**不参与派发**。`agent_service` 在通过 work-scope + filter 之后，将其创建为一条 PendingDecision（reason 以 `"集号不确定，需要人工确认集号: {title}"` 标记、`candidates` 仅含该资源本身、跳过 LLM 候选选择），等待用户在前端手动修正集号；**不再**归入 `AgentSuggestion`。用户修正集号（`episode_confidence` 变为 `manual`）后，下一次运行会自动把这条过期决策标记为 `decided`，资源重新进入正常 filter→派发流程。
+- `ambiguous` 只对**单集 tv 资源**有意义：合集资源（`is_batch`，按内容覆盖度去重）与电影链接资源（无集号/季号问题）携带的 ambiguous 一律为残留标记——派发流程的 ambiguous 分支跳过这两类；Dashboard「待确认」列表（`pending_confirmations`）同样排除。各人工修订入口负责了结残留：标记为合集（PATCH `/resources/{id}`）置 `manual`；重新链接为电影（`/metadata/link`）或将作品 `content_type` 改为非 tv（PUT `/series/{id}`）置 null。存量遗留行由启动轻迁移 `ambiguous_stale_clear` 一次性清理（合集→`manual`，电影链接/非 tv 作品链接→null，app_settings 哨兵保证只跑一次）。
 - `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
 **reconciliation 的触发路径**：早期只在 MetadataAgent 的 `_apply_to_resource` 里执行，导致免 Agent 的链接路径（已知作品短路 S1、ChannelRawTitleMapping、本地模糊 auto-link ≥85）完全绕过 reconcile——同一作品的新集恰恰都走这些路径。现在 `apply_episode_reconcile()` 作为统一的链接后步骤挂到全部四条路径：agent 完整路径优先用当次 `matched_entity.seasons`，其余路径（及 entity 缺 seasons 的兜底）用 `TVSeries.seasons` 持久化列。`NN(MM)` 预解析不受影响，仍在抓取期先行处理。
@@ -237,11 +240,12 @@ class Movie(Base):
 
 ### 人工编辑保护（manually_edited_fields）
 
-`TVSeries` / `Movie` 新增 JSON 列 `manually_edited_fields`（字段名列表），记录用户经作品详情页「编辑」表单显式改过的字段。权威取值集合一处定义：`app/services/metadata_service.py` 的 `MANUAL_EDITABLE_FIELDS`（标题三字段、aliases、description、poster_url、rating、genre、status、is_anime、series 的季集/日期、movie 的 release_date/runtime）。
+`TVSeries` / `Movie` 新增 JSON 列 `manually_edited_fields`（字段名列表），记录用户经作品编辑页表单显式改过的字段。权威取值集合一处定义：`app/services/metadata_service.py` 的 `MANUAL_EDITABLE_FIELDS`（标题三字段、aliases、description、poster_url、rating、genre、status、is_anime、series 的季集/日期、movie 的 release_date/runtime、`content_type`、`external_id`、`external_source`）。
 
-- **可编辑 vs 系统托管**：仅 `MANUAL_EDITABLE_FIELDS` 中的字段可在详情页编辑；`external_id`/`external_source`/`canonical_name`/`wikipedia_url`/`wikipedia_page_id`/`seasons`/`collection_id`/`content_type`/`search_text`/时间戳为系统托管，不可编辑。
+- **可编辑 vs 系统托管**：仅 `MANUAL_EDITABLE_FIELDS` 中的字段可在编辑页修改（`content_type` 限 `tv`/`movie`）；`canonical_name`/`wikipedia_url`/`wikipedia_page_id`/`seasons`/`collection_id`/`search_text`/时间戳为系统托管，不可编辑。
 - **记录时机**：`PUT /series/{id}` / `PUT /movies/{id}` 按 `exclude_unset` 后的显式发送字段（含显式 null）与 `MANUAL_EDITABLE_FIELDS` 求交，并入 `manually_edited_fields`（`mark_manually_edited`，去重排序）。
-- **自动扫描跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写任一字段前检查 `field_manually_edited`，命中即不改写该字段（新建作品无该列表，不受影响）。
+- **身份变更入袋**：PUT 显式发送 `external_id`/`external_source` 且 `(external_source, external_id)` 实际变化时，先把旧身份对幂等写入 `WorkExternalId` 身份袋（`add_external_id`；id 已被其他作品占用则冲突不抢、仅记 warning），再覆盖主列——作品在旧身份下仍可反查。
+- **自动扫描跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写任一字段前检查 `field_manually_edited`，命中即不改写该字段（新建作品无该列表，不受影响）；`content_type`/`external_id`/`external_source` 三字段在 upsert 与 `refresh_work_metadata` 中同样受此守卫（`override_manual_edits=true` 时可覆盖）。
 - **刷新元数据**：`refresh_work_metadata` 默认跳过 `manually_edited_fields` 中的字段；仅当请求带 `override_manual_edits=true`（作品模块刷新对话框「覆盖所有人工编辑字段」）时才覆盖。批量/周期刷新不传该 flag，恒为默认（不覆盖）。
 
 ### WorkExternalId（作品外部身份袋 - Phase P3）

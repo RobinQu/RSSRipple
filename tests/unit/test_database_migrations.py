@@ -136,3 +136,52 @@ async def test_plex_env_migration_skipped_without_env(db_engine, db_session, mon
         await _apply_light_migrations(conn)
     servers = (await db_session.execute(select(MediaServerInstance))).scalars().all()
     assert servers == []
+
+
+async def test_stale_ambiguous_cleanup(db_engine, db_session):
+    """One-time healing: ambiguous flags stuck on resources that carry no
+    episode/season question (合集 / movie-linked / non-tv work) are cleared;
+    genuinely ambiguous tv episodes are untouched. Idempotent via the
+    app_settings sentinel."""
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
+    ch = _channel("ambig", "wikipedia")
+    movie = Movie(title_en="M", content_type="movie")
+    movie_typed_series = TVSeries(title_en="MS", content_type="movie")
+    tv_series = TVSeries(title_en="TS", content_type="tv")
+    db_session.add_all([ch, movie, movie_typed_series, tv_series])
+    await db_session.flush()
+
+    def _res(guid, **kw):
+        return FileResource(
+            channel_id=ch.id, guid=guid, title_raw=f"[G] {guid}",
+            torrent_url=f"magnet:?xt=urn:btih:{guid}", **kw,
+        )
+
+    db_session.add_all([
+        # 合集 + ambiguous → "manual" (a human made the batch call)
+        _res("b1", series_id=tv_series.id, is_batch=True, batch_scope="season",
+             season=1, episode_confidence="ambiguous"),
+        # movie-linked + ambiguous → NULL
+        _res("m1", movie_id=movie.id, episode_confidence="ambiguous"),
+        # linked to a work reclassified away from tv → NULL
+        _res("s1", series_id=movie_typed_series.id, episode_confidence="ambiguous"),
+        # genuine tv episode question → untouched
+        _res("t1", series_id=tv_series.id, episode=200, episode_confidence="ambiguous"),
+    ])
+    await db_session.commit()
+
+    for _ in range(2):  # second run must be a no-op (sentinel = done)
+        async with db_engine.begin() as conn:
+            await _apply_light_migrations(conn)
+
+    rows = (await db_session.execute(
+        select(FileResource.guid, FileResource.episode_confidence)
+    )).all()
+    by_guid = dict(rows)
+    assert by_guid["b1"] == "manual"
+    assert by_guid["m1"] is None
+    assert by_guid["s1"] is None
+    assert by_guid["t1"] == "ambiguous"

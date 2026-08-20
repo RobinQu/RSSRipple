@@ -1,6 +1,7 @@
 """FileResource API routes."""
 
 from collections import Counter
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
@@ -10,6 +11,9 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.channel import Channel
+from app.models.download_notification import DownloadNotification
+from app.models.download_task import DownloadTask
+from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.schemas.common import paginated_response, success_response
 from app.schemas.file_resource import (
@@ -18,6 +22,8 @@ from app.schemas.file_resource import (
     MetadataLinkRequest,
     MetadataSearchRequest,
     MetadataSearchResult,
+    ResourceFilesResponse,
+    ResourceParseCorrectionRequest,
 )
 from app.services.metadata_service import (
     fetch_and_link_metadata,
@@ -25,6 +31,7 @@ from app.services.metadata_service import (
     manual_search_metadata,
 )
 from app.services.task_queue import task_queue
+from app.services.torrent_inspect import fetch_torrent_file, parse_torrent_files
 
 router = APIRouter()
 
@@ -581,6 +588,179 @@ async def correct_episode(
     # resource id explicitly so run_agent does a *targeted* run against the
     # agent's current rules — bypassing the consumption watermark, since the
     # corrected resource may be old. The watermark is not advanced.
+    channel = await db.get(Channel, channel_id, options=[
+        selectinload(Channel.agents),
+    ])
+    if channel:
+        for agent in channel.agents:
+            if agent.status == "active":
+                try:
+                    await task_queue.enqueue(
+                        "run_agent",
+                        f"agent:{agent.id}",
+                        {"agent_id": agent.id, "resource_ids": [resource_id]},
+                    )
+                except Exception:
+                    pass
+
+    # Re-fetch with relationships so Pydantic can serialize without lazy IO.
+    resource = (await db.execute(
+        select(FileResource)
+        .where(FileResource.id == resource_id)
+        .options(
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
+    )).scalar_one()
+    return success_response(FileResourceResponse.model_validate(resource).model_dump())
+
+
+@router.get("/resources/{resource_id}/files")
+async def get_resource_files(resource_id: str, db: AsyncSession = Depends(get_db)):
+    """Return the resource's torrent file listing.
+
+    Resolution order (first hit wins, recorded in ``source``):
+
+    1. ``torrent_cache`` — a previously cached .torrent on disk.
+    2. ``torrent_fetch`` — live-download the http(s) ``torrent_url`` (the
+       local path is persisted back to ``resource.torrent_file``).
+    3. ``downloader`` — the latest download task's downloader RPC.
+    4. ``notification`` — the frozen download-notification snapshot.
+    5. ``none`` — no source could produce a listing.
+    """
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+        )
+
+    def _respond(files: list[dict], source: str):
+        return success_response(
+            ResourceFilesResponse(files=files, source=source).model_dump()
+        )
+
+    # 1. Local .torrent cache.
+    cached = resource.torrent_file
+    if cached and Path(cached).exists():
+        files = parse_torrent_files(cached)
+        if files is not None:
+            return _respond(files, "torrent_cache")
+
+    # 2. Live fetch of an http(s) direct link (persist the cache path).
+    url = resource.torrent_url or ""
+    if url.startswith(("http://", "https://")):
+        path = await fetch_torrent_file(url, resource.id)
+        if path:
+            resource.torrent_file = path
+            await db.commit()
+            files = parse_torrent_files(path)
+            if files is not None:
+                return _respond(files, "torrent_fetch")
+
+    # 3. Latest download task → downloader RPC (best-effort, failures silent).
+    task = (await db.execute(
+        select(DownloadTask)
+        .where(DownloadTask.file_resource_id == resource.id)
+        .order_by(DownloadTask.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if task is not None and task.transmission_torrent_id is not None and task.downloader_id:
+        downloader = await db.get(DownloaderInstance, task.downloader_id)
+        if downloader is not None:
+            from app.clients.downloader import get_downloader_client
+
+            try:
+                torrent_info = await get_downloader_client(
+                    downloader
+                ).get_torrent_files(task.transmission_torrent_id)
+            except Exception:  # noqa: BLE001 — best-effort
+                torrent_info = None
+            if torrent_info and torrent_info.get("files"):
+                return _respond(torrent_info["files"], "downloader")
+
+    # 4. Frozen download-notification snapshot.
+    notification = (await db.execute(
+        select(DownloadNotification)
+        .join(DownloadTask, DownloadNotification.download_task_id == DownloadTask.id)
+        .where(DownloadTask.file_resource_id == resource.id)
+        .order_by(DownloadNotification.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if notification is not None:
+        files = (notification.payload or {}).get("files")
+        if files:
+            return _respond(files, "notification")
+
+    return _respond([], "none")
+
+
+@router.patch("/resources/{resource_id}")
+async def correct_parse_fields(
+    resource_id: str,
+    body: ResourceParseCorrectionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Record a user's manual correction of parsed resource fields.
+
+    Applies only explicitly-sent fields, then enforces the batch invariants
+    (see ``ResourceParseCorrectionRequest``). Sending any episode-number field
+    marks ``episode_confidence="manual"``. Re-runs the channel's active agents
+    as a targeted run (like ``correct_episode``) so the corrected resource can
+    be dispatched immediately.
+    """
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+        )
+
+    sent = body.model_fields_set
+    if "episode" in sent:
+        resource.episode = body.episode
+    if "season" in sent:
+        resource.season = body.season
+    if "absolute_episode" in sent:
+        resource.absolute_episode = body.absolute_episode
+    if "episode_start" in sent:
+        resource.episode_start = body.episode_start
+    if "episode_end" in sent:
+        resource.episode_end = body.episode_end
+    if "is_batch" in sent:
+        resource.is_batch = body.is_batch
+    if "batch_scope" in sent:
+        resource.batch_scope = body.batch_scope
+
+    # Batch invariants (aligned with the fetch-service pre-parser).
+    if resource.is_batch:
+        resource.episode = None
+        if resource.batch_scope is None:
+            resource.batch_scope = "season"
+    else:
+        resource.batch_scope = None
+        resource.episode_start = None
+        resource.episode_end = None
+
+    if sent & {"episode", "season", "absolute_episode"}:
+        resource.episode_confidence = "manual"
+    elif resource.is_batch and resource.episode_confidence == "ambiguous":
+        # A 合集 has no single episode/season to confirm — marking it as batch
+        # settles the ambiguous question even when no episode field was sent.
+        resource.episode_confidence = "manual"
+
+    # Capture the channel id before commit (the ORM object may be expired
+    # after commit and ``resource`` is about to be re-fetched below).
+    channel_id = resource.channel_id
+    await db.flush()
+    # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
+    # session and only sees committed data.
+    await db.commit()
+
     channel = await db.get(Channel, channel_id, options=[
         selectinload(Channel.agents),
     ])

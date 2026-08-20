@@ -133,6 +133,38 @@ export interface GroupedResource {
   last_update?: string | null;
 }
 
+// GET /resources/{id}/files — torrent/download file listing for a resource.
+// source="none" means no listing exists (magnet without metadata, not
+// downloaded); files is empty in that case.
+export interface ResourceFileItem {
+  name: string;
+  size: number;
+}
+
+export type ResourceFilesSource =
+  | 'torrent_cache'
+  | 'torrent_fetch'
+  | 'downloader'
+  | 'notification'
+  | 'none';
+
+export interface ResourceFilesResponse {
+  files: ResourceFileItem[];
+  source: ResourceFilesSource;
+}
+
+// PATCH /resources/{id} — manual correction of the parsed episode/batch
+// fields. Every key is optional; only explicitly sent keys are updated.
+export interface ResourceCorrectionBody {
+  episode?: number | null;
+  season?: number | null;
+  absolute_episode?: number | null;
+  episode_start?: number | null;
+  episode_end?: number | null;
+  is_batch?: boolean;
+  batch_scope?: 'season' | 'multi_season' | 'franchise' | null;
+}
+
 // TV Series
 export interface CollectionSummary {
   id: string;
@@ -498,6 +530,9 @@ export interface RulesPreviewResource {
   published_at?: string | null;
   series_id?: string | null;
   movie_id?: string | null;
+  // Only populated on AgentRun.matched_resources entries: true while the
+  // resource still has an unresolved pending decision.
+  pending_decision?: boolean;
 }
 
 export interface RulesPreviewResponse {
@@ -819,6 +854,11 @@ export interface DashboardPendingItem {
   candidates: string[];
   candidate_resources?: FileResource[];
   season?: number | null;
+  // Linked work identity (when the decision is work-scoped) — used to link
+  // the work title from the dashboard pending list.
+  title?: string | null;
+  series_id?: string | null;
+  movie_id?: string | null;
   llm_suggestion: string | null;
   created_at: string;
 }

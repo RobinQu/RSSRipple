@@ -13,6 +13,7 @@ from app.models.movie import Movie
 from app.schemas.common import paginated_response, success_response
 from app.schemas.movie import MovieCreate, MovieResponse, MovieUpdate
 from app.services import fts as fts_service
+from app.services.external_ids import add_external_id
 from app.services.metadata_service import mark_manually_edited
 
 router = APIRouter()
@@ -174,6 +175,17 @@ async def update_movie(
             },
         )
     update_data = body.model_dump(exclude_unset=True)
+    # Manual identity change: keep the work reachable under its previous
+    # (external_source, external_id) by bagging the old pair before the
+    # primary columns are overwritten (idempotent; an id already owned by
+    # another work is kept — only a warning is logged).
+    if {"external_id", "external_source"} & update_data.keys():
+        new_id = update_data.get("external_id", movie.external_id)
+        new_source = update_data.get("external_source", movie.external_source)
+        if (movie.external_source, movie.external_id) != (new_source, new_id):
+            await add_external_id(
+                db, "movie", movie.id, movie.external_source, movie.external_id
+            )
     for key, value in update_data.items():
         setattr(movie, key, value)
     mark_manually_edited(movie, update_data)

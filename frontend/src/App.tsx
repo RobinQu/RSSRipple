@@ -12,6 +12,7 @@ import AgentForm from './pages/AgentForm';
 import AgentDetail from './pages/AgentDetail';
 import SeriesDetail from './pages/SeriesDetail';
 import MovieDetail from './pages/MovieDetail';
+import WorkEditPage from './pages/WorkEditPage';
 import AudioWorkDetail from './pages/AudioWorkDetail';
 import WorksPage from './pages/WorksPage';
 import CollectionDetail from './pages/CollectionDetail';
@@ -48,8 +49,10 @@ function App() {
               and stale list links redirect to /works. */}
           <Route path="series" element={<Navigate to="/works" replace />} />
           <Route path="series/:id" element={<SeriesDetail />} />
+          <Route path="series/:id/edit" element={<WorkEditPage contentType="tv" />} />
           <Route path="movies" element={<Navigate to="/works" replace />} />
           <Route path="movies/:id" element={<MovieDetail />} />
+          <Route path="movies/:id/edit" element={<WorkEditPage contentType="movie" />} />
           <Route path="audio-works/:id" element={<AudioWorkDetail />} />
           {/* Collection detail is a full page; the list stays inside the
               /works 合集 browse mode (CollectionsPanel). */}

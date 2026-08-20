@@ -210,6 +210,32 @@ class TestResourceSearchLink:
                                json={"selected_result": {"content_type": "tv", "external_id": "x"}})
         assert res.status_code == 404
 
+    async def test_link_movie_clears_ambiguous(
+        self, client, sample_channel, db_session_factory
+    ):
+        """Relinking an ambiguous resource to a movie settles the episode/
+        season question — a movie carries no episode number."""
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            season=None, episode=5, episode_confidence="ambiguous",
+        )
+        sel = {
+            "content_type": "movie",
+            "title_cn": "电影", "title_en": "Film", "original_title": "Film",
+            "external_id": "ext-movie", "external_source": "manual",
+        }
+        with patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ):
+            res = await client.put(f"/api/v1/resources/{rid}/metadata/link",
+                                   json={"selected_result": sel})
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["movie_id"] is not None
+        assert d["series_id"] is None
+        assert d["episode_confidence"] is None
+
 
 class TestEpisodeCorrection:
     """PATCH /resources/{id}/episode — user manually confirms the per-season
@@ -426,3 +452,303 @@ class TestResourceMatchedFilter:
         assert len(p1["data"]) == 2
         p2 = (await client.get(f"{base}&page=2&page_size=2")).json()
         assert len(p2["data"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# GET /resources/{id}/files
+# ---------------------------------------------------------------------------
+
+def _write_torrent(tmp_path, entries):
+    """Build a multi-file .torrent from (path components, length) pairs."""
+    import bencodepy
+
+    p = tmp_path / "r.torrent"
+    p.write_bytes(bencodepy.encode({
+        b"info": {
+            b"name": b"root",
+            b"files": [
+                {b"length": length, b"path": [c.encode() for c in parts]}
+                for parts, length in entries
+            ],
+            b"piece length": 16384,
+            b"pieces": b"x" * 20,
+        }
+    }))
+    return str(p)
+
+
+class TestResourceFiles:
+    async def test_404(self, client):
+        res = await client.get("/api/v1/resources/nope/files")
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
+
+    async def test_torrent_cache_hit(
+        self, client, sample_channel, db_session_factory, tmp_path,
+    ):
+        path = _write_torrent(tmp_path, [(["a.mkv"], 100), (["sub", "b.mkv"], 200)])
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, torrent_file=path,
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["source"] == "torrent_cache"
+        assert d["files"] == [
+            {"name": "a.mkv", "size": 100},
+            {"name": "sub/b.mkv", "size": 200},
+        ]
+
+    async def test_torrent_fetch_live(
+        self, client, sample_channel, db_session_factory, tmp_path,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            torrent_url="https://x/r.torrent",
+        )
+        path = _write_torrent(tmp_path, [(["c.mkv"], 300)])
+        with patch(
+            "app.api.v1.resources.fetch_torrent_file",
+            new_callable=AsyncMock, return_value=path,
+        ):
+            res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["source"] == "torrent_fetch"
+        assert d["files"] == [{"name": "c.mkv", "size": 300}]
+        # The freshly cached path is persisted back onto the resource.
+        from app.models.file_resource import FileResource
+        async with db_session_factory() as s:
+            r = await s.get(FileResource, rid)
+            assert r.torrent_file == path
+
+    async def test_downloader_fallback(
+        self, client, sample_channel, sample_downloader, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.download_task import DownloadTask
+        rid = await _make_resource(db_session_factory, sample_channel.id)  # magnet URL
+        async with db_session_factory() as s:
+            s.add(DownloadTask(
+                id=_uuid(), file_resource_id=rid,
+                downloader_id=sample_downloader.id, download_dir="/d",
+                transmission_torrent_id=42, status="completed",
+            ))
+            await s.commit()
+        fake_client = SimpleNamespace(
+            get_torrent_files=AsyncMock(return_value={
+                "name": "t",
+                "files": [{"name": "root/x.mkv", "size": 5}],
+            }),
+        )
+        monkeypatch.setattr(
+            "app.clients.downloader.get_downloader_client", lambda d: fake_client,
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["source"] == "downloader"
+        assert d["files"] == [{"name": "root/x.mkv", "size": 5}]
+
+    async def test_downloader_rpc_failure_falls_through(
+        self, client, sample_channel, sample_downloader, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.download_task import DownloadTask
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        async with db_session_factory() as s:
+            s.add(DownloadTask(
+                id=_uuid(), file_resource_id=rid,
+                downloader_id=sample_downloader.id, download_dir="/d",
+                transmission_torrent_id=42, status="completed",
+            ))
+            await s.commit()
+        fake_client = SimpleNamespace(
+            get_torrent_files=AsyncMock(side_effect=RuntimeError("rpc down")),
+        )
+        monkeypatch.setattr(
+            "app.clients.downloader.get_downloader_client", lambda d: fake_client,
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        assert res.json()["data"] == {"files": [], "source": "none"}
+
+    async def test_notification_snapshot_fallback(
+        self, client, sample_channel, sample_downloader, db_session_factory,
+    ):
+        from app.models.download_notification import DownloadNotification
+        from app.models.download_task import DownloadTask
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        task_id = _uuid()
+        async with db_session_factory() as s:
+            s.add(DownloadTask(
+                id=task_id, file_resource_id=rid,
+                downloader_id=sample_downloader.id, download_dir="/d",
+                transmission_torrent_id=None, status="completed",
+            ))
+            s.add(DownloadNotification(
+                id=_uuid(), agent_id=None, download_task_id=task_id,
+                payload={"files": [{"name": "n.mkv", "size": 9}]},
+            ))
+            await s.commit()
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["source"] == "notification"
+        assert d["files"] == [{"name": "n.mkv", "size": 9}]
+
+    async def test_none_when_no_source(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)  # magnet, no task
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        assert res.json()["data"] == {"files": [], "source": "none"}
+
+
+class TestParseCorrection:
+    """PATCH /resources/{id} — manual correction of parsed fields."""
+
+    async def test_single_to_batch_clears_episode_and_defaults_scope(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=5, season=1, is_batch=False,
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"is_batch": True, "episode_start": 1, "episode_end": 12},
+        )
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["is_batch"] is True
+        assert d["episode"] is None
+        assert d["batch_scope"] == "season"
+        assert d["episode_start"] == 1
+        assert d["episode_end"] == 12
+
+    async def test_batch_to_single_clears_scope_and_range(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            is_batch=True, batch_scope="season",
+            episode=None, episode_start=1, episode_end=12,
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"is_batch": False, "episode": 7},
+        )
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["is_batch"] is False
+        assert d["batch_scope"] is None
+        assert d["episode_start"] is None
+        assert d["episode_end"] is None
+        assert d["episode"] == 7
+        assert d["episode_confidence"] == "manual"
+
+    async def test_explicit_episode_marks_manual(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=200, episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"episode": 13},
+        )
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["episode"] == 13
+        assert d["episode_confidence"] == "manual"
+
+    async def test_non_episode_fields_do_not_mark_manual(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, is_batch=False,
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"is_batch": True},
+        )
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["is_batch"] is True
+        assert d["batch_scope"] == "season"
+        assert d["episode_confidence"] is None
+
+    async def test_batch_mark_clears_ambiguous(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """Marking an ambiguous resource as 合集 settles the episode/season
+        question even when no episode field is sent — a batch bypasses
+        per-episode flow, so the ambiguous flag would otherwise pin it on
+        the dashboard 待确认 list forever."""
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            season=None, episode=None, episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"is_batch": True},
+        )
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["is_batch"] is True
+        assert d["episode_confidence"] == "manual"
+
+    async def test_explicit_batch_scope_wins_over_default(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"is_batch": True, "batch_scope": "multi_season"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["batch_scope"] == "multi_season"
+
+    async def test_invalid_batch_scope_422(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"is_batch": True, "batch_scope": "bogus"},
+        )
+        assert res.status_code == 422
+
+    async def test_enqueues_targeted_agent_run(
+        self, client, sample_channel, sample_downloader, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.agent import Agent
+        agent_id = _uuid()
+        async with db_session_factory() as s:
+            s.add(Agent(
+                id=agent_id, name="A", channel_id=sample_channel.id,
+                downloader_id=sample_downloader.id,
+                scope_channel_wide=True, status="active",
+            ))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        enqueue = AsyncMock(return_value={"job_id": "j", "status": "queued"})
+        monkeypatch.setattr(
+            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        enqueue.assert_awaited_once_with(
+            "run_agent", f"agent:{agent_id}",
+            {"agent_id": agent_id, "resource_ids": [rid]},
+        )
+
+    async def test_404(self, client):
+        res = await client.patch("/api/v1/resources/nope", json={"episode": 5})
+        assert res.status_code == 404

@@ -1415,3 +1415,123 @@ async def test_upsert_converges_qualified_incoming_on_legacy_bare_row(db_session
     })
     assert out.id == s.id
     assert out.external_id == "wikipedia:zh:7301786"
+
+
+# ---------------------------------------------------------------------------
+# Manual-edit protection for content_type / external_id / external_source
+# ---------------------------------------------------------------------------
+
+async def test_upsert_preserves_manually_edited_identity_series(db_session):
+    """Auto-scan upsert must not overwrite a hand-set external identity."""
+    work = TVSeries(
+        id=_uuid(), title_en="Id Show", content_type="tv",
+        external_id="tmdb:900", external_source="tmdb",
+        manually_edited_fields=["external_id", "external_source"],
+    )
+    db_session.add(work)
+    await db_session.flush()
+    data = {
+        "content_type": "tv",
+        "title_en": "Id Show",
+        "external_id": "tmdb:901",
+        "external_source": "tmdb",
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        updated = await ms.create_or_update_series_from_external(db_session, data)
+    assert updated.id == work.id
+    assert updated.external_id == "tmdb:900"  # manual edit preserved
+    assert updated.external_source == "tmdb"
+
+
+async def test_upsert_preserves_manually_edited_identity_movie(db_session):
+    work = Movie(
+        id=_uuid(), title_en="Id Movie", content_type="movie",
+        external_id="tmdb:800", external_source="tmdb",
+        manually_edited_fields=["external_id", "external_source"],
+    )
+    db_session.add(work)
+    await db_session.flush()
+    data = {
+        "content_type": "movie",
+        "title_en": "Id Movie",
+        "external_id": "tmdb:801",
+        "external_source": "tmdb",
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        updated = await ms.create_or_update_movie_from_external(db_session, data)
+    assert updated.id == work.id
+    assert updated.external_id == "tmdb:800"  # manual edit preserved
+
+
+async def test_upsert_preserves_manually_edited_content_type(db_session):
+    """A user who reclassified a work keeps their content_type on upsert."""
+    work = TVSeries(
+        id=_uuid(), title_en="Type Show", content_type="movie",
+        external_id="tmdb:700", external_source="tmdb",
+        manually_edited_fields=["content_type"],
+    )
+    db_session.add(work)
+    await db_session.flush()
+    data = {
+        "content_type": "tv",
+        "title_en": "Type Show",
+        "external_id": "tmdb:700",
+        "external_source": "tmdb",
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        updated = await ms.create_or_update_series_from_external(db_session, data)
+    assert updated.content_type == "movie"  # manual edit preserved
+
+
+async def test_refresh_work_metadata_respects_manual_external_id(db_session):
+    """Refresh fills an empty external_id only when it was NOT manually
+    cleared; override_manual_edits opts back into filling."""
+    work = TVSeries(
+        id=_uuid(), title_en="Ext Show", content_type="tv",
+        external_id=None, external_source=None,
+        manually_edited_fields=["external_id", "external_source"],
+    )
+    db_session.add(work)
+    await db_session.flush()
+    candidate = {
+        "title_en": "Ext Show",
+        "content_type": "tv",
+        "external_id": "tmdb:555",
+        "external_source": "tmdb",
+    }
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[candidate],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result = await ms.refresh_work_metadata(db_session, work.id, "tv", "tmdb")
+    assert "external_id" not in result["filled"]
+    assert "external_source" not in result["filled"]
+    assert work.external_id is None
+    assert work.external_source is None
+
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[candidate],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result2 = await ms.refresh_work_metadata(
+            db_session, work.id, "tv", "tmdb", override_manual_edits=True,
+        )
+    assert "external_id" in result2["filled"]
+    assert "external_source" in result2["filled"]
+    assert work.external_id == "tmdb:555"
+    assert work.external_source == "tmdb"

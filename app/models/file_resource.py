@@ -34,9 +34,13 @@ class FileResource(Base):
     title_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # ── Multi-episode batch (合集) support ──
     # ``is_batch`` marks a torrent that contains multiple episodes (S01E01~13,
-    # [01-12 合集], "Season Pack", 全集 …). Batch resources bypass Agent-level
-    # per-episode dedup — the current design lets users decide via the filter
-    # DSL whether they want singles, batches, or both.
+    # [01-12 合集], "Season Pack", 全集 …). Batch resources dedup/conflict by
+    # *content coverage* (see ``batch_seasons`` below and
+    # ``agent_service._batch_coverage_key``): two batches are duplicates only
+    # when they cover exactly the same content — same-coverage versions go
+    # through the normal ask/auto conflict resolution, different coverage
+    # (S1 pack vs S2 pack) never conflicts. Users can still pre-filter via
+    # the ``is_batch`` DSL field.
     # ``episode_start`` / ``episode_end`` are best-effort — the raw title may
     # omit the boundaries (e.g. "Batch", "Full Season").
     is_batch: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
@@ -49,6 +53,11 @@ class FileResource(Base):
     #   "franchise"    – pack spanning multiple works (linked via
     #                    ``collection_id`` below).
     batch_scope: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Seasons covered by a multi_season/franchise pack (JSON int list),
+    # persisted from the torrent content analysis. Drives the strict
+    # content-coverage dedup of batch resources in the agent runner.
+    # NULL = coverage unknown (title-only packs) → no cross-version dedup.
+    batch_seasons: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     # ── Cross-season episode reconciliation ──
     # RSS titles sometimes number episodes absolutely across all seasons
     # (e.g. ``S04 - 84`` where 84 = cumulative count across seasons 1-4)

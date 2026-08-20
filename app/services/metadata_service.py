@@ -52,8 +52,8 @@ FUZZY_THRESHOLD = 70
 AUTO_LINK_THRESHOLD = 85
 
 # Fields a human may edit through the work detail edit form. Everything else
-# (external_id / external_source / canonical_name / wikipedia_* / seasons /
-# collection_id / content_type / search_text / timestamps) is system-managed.
+# (canonical_name / wikipedia_* / seasons / collection_id / search_text /
+# timestamps) is system-managed.
 # A work's ``manually_edited_fields`` list holds the subset of these the user
 # touched; automatic scans (upsert + refresh) must not overwrite them.
 MANUAL_EDITABLE_FIELDS: frozenset[str] = frozenset({
@@ -61,6 +61,7 @@ MANUAL_EDITABLE_FIELDS: frozenset[str] = frozenset({
     "poster_url", "rating", "genre", "status", "is_anime",
     "number_of_episodes", "number_of_seasons", "start_date", "end_date",
     "release_date", "runtime",
+    "content_type", "external_id", "external_source",
 })
 
 
@@ -841,9 +842,9 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         # next upsert converges even faster. Wikipedia primaries are the
         # exception: different pageids are per-edition pages of the same work,
         # so the creator's primary is kept (incoming ids join the bag).
-        if canonical_id:
+        if canonical_id and not field_manually_edited(series, "external_id"):
             series.external_id = _merge_primary_external_id(series.external_id, canonical_id)
-        if raw_source and raw_source != "llm_search":
+        if raw_source and raw_source != "llm_search" and not field_manually_edited(series, "external_source"):
             series.external_source = raw_source
         if not series.wikipedia_url and data.get("wikipedia_url"):
             series.wikipedia_url = data["wikipedia_url"]
@@ -928,7 +929,8 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
             if remote_poster and not (series.poster_url or "").startswith("/posters/"):
                 local_url = await download_and_cache_poster(remote_poster)
                 series.poster_url = local_url or remote_poster
-        series.content_type = "tv"
+        if not field_manually_edited(series, "content_type"):
+            series.content_type = "tv"
         apply_is_anime(series, data)
         # P2: wikipedia-sourced episode_list populates Episode rows (additive
         # upsert; seasons/number_of_seasons were already overwritten above).
@@ -1038,9 +1040,9 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             movie = title_result.scalars().first()
 
     if movie:
-        if canonical_id:
+        if canonical_id and not field_manually_edited(movie, "external_id"):
             movie.external_id = _merge_primary_external_id(movie.external_id, canonical_id)
-        if raw_source and raw_source != "llm_search":
+        if raw_source and raw_source != "llm_search" and not field_manually_edited(movie, "external_source"):
             movie.external_source = raw_source
         if not movie.wikipedia_url and data.get("wikipedia_url"):
             movie.wikipedia_url = data["wikipedia_url"]
@@ -1088,7 +1090,8 @@ async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> 
             if remote_poster and not (movie.poster_url or "").startswith("/posters/"):
                 local_url = await download_and_cache_poster(remote_poster)
                 movie.poster_url = local_url or remote_poster
-        movie.content_type = "movie"
+        if not field_manually_edited(movie, "content_type"):
+            movie.content_type = "movie"
         apply_is_anime(movie, data)
         # P3: bag every id this entity carries (primary + alt_external_ids).
         await _bag_matched_entity_ids(db, "movie", movie.id, data)
@@ -1384,10 +1387,14 @@ async def refresh_work_metadata(
             work.poster_url = local_url or remote_poster
             filled.append("poster_url")
 
-    if not work.external_id and best.get("external_id"):
+    if (override_manual_edits or "external_id" not in manual) and not work.external_id and best.get("external_id"):
         work.external_id = best["external_id"]
         filled.append("external_id")
-    if not work.external_source and best.get("external_source"):
+    if (
+        (override_manual_edits or "external_source" not in manual)
+        and not work.external_source
+        and best.get("external_source")
+    ):
         work.external_source = best["external_source"]
         filled.append("external_source")
 
@@ -1848,6 +1855,10 @@ async def manual_link_metadata(
         content_type = "movie"
         from app.services.collection_service import link_movie_collection
         await link_movie_collection(db, entity)
+        # A movie carries no episode/season question: relinking to a movie
+        # settles any stale "ambiguous" flag left over from a previous tv link.
+        if getattr(resource, "episode_confidence", None) == "ambiguous":
+            resource.episode_confidence = None
     else:
         entity = await create_or_update_series_from_external(db, selected_result)
         resource.series_id = entity.id

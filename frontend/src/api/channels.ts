@@ -12,6 +12,8 @@ import type {
   MetadataSource,
   Movie,
   PreviewEntry,
+  ResourceCorrectionBody,
+  ResourceFilesResponse,
   TVSeries,
 } from '../types';
 
@@ -181,4 +183,7 @@ export const resourcesApi = {
     id: string,
     body: { episode: number | null; season?: number | null; absolute_episode?: number | null; note?: string },
   ) => api.patch<FileResource>(`/resources/${id}/episode`, body),
+  getFiles: (id: string) => api.get<ResourceFilesResponse>(`/resources/${id}/files`),
+  correctParseFields: (id: string, body: ResourceCorrectionBody) =>
+    api.patch<FileResource>(`/resources/${id}`, body),
 };

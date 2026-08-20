@@ -181,3 +181,58 @@ class TestMoviesCRUD:
         assert [(link["source"], link["url"]) for link in links] == [
             ("tmdb", "https://www.themoviedb.org/movie/550"),
         ]
+
+
+class TestMovieIdentityManualEdit:
+    """PUT /movies/{id} with content_type / external_id / external_source."""
+
+    async def test_update_new_fields_marked_manually_edited(self, client):
+        create = await client.post("/api/v1/movies", json={"title_en": "M"})
+        mid = create.json()["data"]["id"]
+        res = await client.put(
+            f"/api/v1/movies/{mid}",
+            json={
+                "content_type": "tv",
+                "external_id": "bangumi:456",
+                "external_source": "bangumi",
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["content_type"] == "tv"
+        assert data["external_id"] == "bangumi:456"
+        assert data["external_source"] == "bangumi"
+        assert {"content_type", "external_id", "external_source"} <= set(
+            data["manually_edited_fields"]
+        )
+
+    async def test_identity_change_bags_old_external_id(
+        self, client, db_session_factory,
+    ):
+        from sqlalchemy import select
+
+        from app.models.movie import Movie
+        from app.models.work_external_id import WorkExternalId
+
+        mid = _uuid()
+        async with db_session_factory() as s:
+            s.add(Movie(
+                id=mid, title_en="Bagged Movie", content_type="movie",
+                external_id="tmdb:550", external_source="tmdb",
+            ))
+            await s.commit()
+
+        res = await client.put(
+            f"/api/v1/movies/{mid}", json={"external_id": "tmdb:551"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["external_id"] == "tmdb:551"
+
+        async with db_session_factory() as s:
+            rows = (await s.execute(
+                select(WorkExternalId).where(
+                    WorkExternalId.work_type == "movie",
+                    WorkExternalId.work_id == mid,
+                )
+            )).scalars().all()
+        assert {(r.source, r.external_id) for r in rows} == {("tmdb", "tmdb:550")}

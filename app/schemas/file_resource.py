@@ -1,7 +1,7 @@
 """FileResource Pydantic schemas."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -134,4 +134,47 @@ class EpisodeCorrectionRequest(BaseModel):
     season: int | None = None
     absolute_episode: int | None = None
     note: str | None = None
+
+
+class ResourceParseCorrectionRequest(BaseModel):
+    """Payload for PATCH /resources/{id} — manual correction of parsed fields.
+
+    All fields are optional; only explicitly-sent fields are applied
+    (``model_fields_set`` semantics). Invariants enforced server-side
+    (mirroring the fetch-service pre-parser):
+
+    - ``is_batch=True`` forces ``episode=None`` and defaults ``batch_scope``
+      to ``"season"`` when not explicitly sent.
+    - ``is_batch=False`` clears ``batch_scope`` / ``episode_start`` /
+      ``episode_end``.
+    - Sending any of ``episode`` / ``season`` / ``absolute_episode`` marks
+      ``episode_confidence="manual"``.
+    """
+
+    episode: int | None = None
+    season: int | None = None
+    absolute_episode: int | None = None
+    episode_start: int | None = None
+    episode_end: int | None = None
+    is_batch: bool | None = None
+    batch_scope: Literal["season", "multi_season", "franchise"] | None = None
+
+
+class ResourceFileEntry(BaseModel):
+    name: str
+    size: int
+
+
+class ResourceFilesResponse(BaseModel):
+    """Payload for GET /resources/{id}/files — the torrent's file listing.
+
+    ``source`` records where the listing came from: the local .torrent cache,
+    a live .torrent fetch, the downloader RPC, a frozen download-notification
+    snapshot, or "none" when no source could produce one.
+    """
+
+    files: list[ResourceFileEntry] = []
+    source: Literal[
+        "torrent_cache", "torrent_fetch", "downloader", "notification", "none"
+    ] = "none"
 

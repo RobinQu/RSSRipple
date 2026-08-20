@@ -233,3 +233,89 @@ class TestDecisionSerializationWithSeries:
         data = res.json()["data"]
         assert data["status"] == "skipped"
         assert data["series"] is not None
+
+
+class TestLastRunStatusReset:
+    """Agent.last_run_status is frozen as "pending_decisions" at run end; the
+    decision endpoints reset it to "success" once no pending decisions remain."""
+
+    async def _set_last_run_status(self, db_session_factory, aid, status):
+        from app.models.agent import Agent
+        async with db_session_factory() as s:
+            agent = await s.get(Agent, aid)
+            agent.last_run_status = status
+            await s.commit()
+
+    async def _get_last_run_status(self, db_session_factory, aid):
+        from app.models.agent import Agent
+        async with db_session_factory() as s:
+            return (await s.get(Agent, aid)).last_run_status
+
+    async def test_skip_resets_status_when_no_pending_left(
+        self, client, setup, db_session_factory
+    ):
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] RS1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] RS1 - 01")
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        await self._set_last_run_status(db_session_factory, aid, "pending_decisions")
+        res = await client.post(f"/api/v1/decisions/{did}/skip")
+        assert res.status_code == 200
+        assert await self._get_last_run_status(db_session_factory, aid) == "success"
+
+    async def test_skip_keeps_status_when_pending_remain(
+        self, client, setup, db_session_factory
+    ):
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] RS2 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] RS2 - 01")
+        r3 = await _create_resource(db_session_factory, ch, "[G] RS3 - 01")
+        r4 = await _create_resource(db_session_factory, ch, "[G2] RS3 - 01")
+        d1 = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        await _make_decision(db_session_factory, aid, r3["id"], r4["id"])
+        await self._set_last_run_status(db_session_factory, aid, "pending_decisions")
+        res = await client.post(f"/api/v1/decisions/{d1}/skip")
+        assert res.status_code == 200
+        # Another decision is still pending -> status stays frozen.
+        assert await self._get_last_run_status(
+            db_session_factory, aid) == "pending_decisions"
+
+    async def test_confirm_resets_status_when_no_pending_left(
+        self, client, setup, db_session_factory, mock_transmission
+    ):
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] RC1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] RC1 - 01")
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        await self._set_last_run_status(db_session_factory, aid, "pending_decisions")
+        res = await client.post(f"/api/v1/decisions/{did}/confirm",
+                                json={"resource_id": r1["id"]})
+        assert res.status_code == 200
+        assert await self._get_last_run_status(db_session_factory, aid) == "success"
+
+    async def test_batch_skip_resets_status_when_no_pending_left(
+        self, client, setup, db_session_factory
+    ):
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] RB1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] RB1 - 01")
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        await self._set_last_run_status(db_session_factory, aid, "pending_decisions")
+        res = await client.post(f"/api/v1/agents/{aid}/decisions/batch", json={
+            "decision_ids": [did], "action": "skip",
+        })
+        assert res.status_code == 200
+        assert await self._get_last_run_status(db_session_factory, aid) == "success"
+
+    async def test_other_statuses_untouched(
+        self, client, setup, db_session_factory
+    ):
+        """A last_run_status other than "pending_decisions" is never rewritten."""
+        ch, dl, aid = setup
+        r1 = await _create_resource(db_session_factory, ch, "[G] RO1 - 01")
+        r2 = await _create_resource(db_session_factory, ch, "[G2] RO1 - 01")
+        did = await _make_decision(db_session_factory, aid, r1["id"], r2["id"])
+        await self._set_last_run_status(db_session_factory, aid, "failed")
+        res = await client.post(f"/api/v1/decisions/{did}/skip")
+        assert res.status_code == 200
+        assert await self._get_last_run_status(db_session_factory, aid) == "failed"

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
+import useUrlTab from '../hooks/useUrlTab';
 import {
   Tabs,
   Table,
@@ -45,6 +46,7 @@ import {
   Edit,
   AlertTriangle,
   Copy,
+  ListTree,
 } from 'lucide-react';
 import { agentsApi } from '../api/agents';
 import { tasksApi, decisionsApi } from '../api/tasks';
@@ -63,6 +65,7 @@ import {
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import NotificationsPanel from '../components/NotificationsPanel';
+import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
 import type {
@@ -79,6 +82,9 @@ import { resourcesApi } from '../api/channels';
 
 const { Title, Text } = Typography;
 
+// Page-level tabs mirrored to `?tab=` (see useUrlTab).
+const AGENT_DETAIL_TABS = ['works', 'tasks', 'decisions', 'filters', 'notifications', 'run'] as const;
+
 // Per-candidate draft for the ambiguous-episode correction action (season +
 // episode + absolute_episode, all optional; the backend PATCH preserves any
 // field the user left out).
@@ -94,7 +100,7 @@ export default function AgentDetail() {
   const { message, modal } = App.useApp();
   const [agent, setAgent] = useState<Agent | null>(null);
   useDocumentTitle(agent?.name ?? t('agents.title'));
-  const [tab, setTab] = useState('works');
+  const [tab, setTab] = useUrlTab('works', AGENT_DETAIL_TABS);
   const [loadingAgent, setLoadingAgent] = useState(true);
 
   // Tasks
@@ -117,6 +123,8 @@ export default function AgentDetail() {
   // absolute_episode) + in-flight flag for the "correct episode" action.
   const [episodeDrafts, setEpisodeDrafts] = useState<Record<string, EpisodeDraft>>({});
   const [savingEpisodeCid, setSavingEpisodeCid] = useState<string | null>(null);
+  // File-listing drawer for decision candidates.
+  const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
   // Batch selection + AI auto-handle loading state for the decisions tab.
   const [selectedDecisionIds, setSelectedDecisionIds] = useState<string[]>([]);
   const [aiPickLoading, setAiPickLoading] = useState<string | null>(null);
@@ -783,7 +791,7 @@ export default function AgentDetail() {
 
       <Tabs
         activeKey={tab}
-        onChange={setTab}
+        onChange={(k) => setTab(k as typeof tab)}
         items={[
           {
             key: 'works',
@@ -1066,6 +1074,16 @@ export default function AgentDetail() {
                                       </Space>
                                     </div>
                                     <Space size={6} align="center" wrap>
+                                      {r && (
+                                        <Tooltip title={t('resource.files')}>
+                                          <Button
+                                            type="text"
+                                            size="small"
+                                            icon={<ListTree size={14} />}
+                                            onClick={() => setFilesResourceId(r.id)}
+                                          />
+                                        </Tooltip>
+                                      )}
                                       <InputNumber
                                         size="small"
                                         min={0}
@@ -1144,14 +1162,26 @@ export default function AgentDetail() {
                                   ) : (
                                     <Text type="secondary" style={{ fontSize: 12 }}>{t('common.loading')}</Text>
                                   )}
-                                  <Button
-                                    type="primary"
-                                    size="small"
-                                    icon={<CheckCircle size={12} />}
-                                    onClick={() => handleConfirm(d.id, cid)}
-                                  >
-                                    {t('common.confirm')}
-                                  </Button>
+                                  <Space size={6} align="center" wrap>
+                                    {r && (
+                                      <Tooltip title={t('resource.files')}>
+                                        <Button
+                                          type="text"
+                                          size="small"
+                                          icon={<ListTree size={14} />}
+                                          onClick={() => setFilesResourceId(r.id)}
+                                        />
+                                      </Tooltip>
+                                    )}
+                                    <Button
+                                      type="primary"
+                                      size="small"
+                                      icon={<CheckCircle size={12} />}
+                                      onClick={() => handleConfirm(d.id, cid)}
+                                    >
+                                      {t('common.confirm')}
+                                    </Button>
+                                  </Space>
                                 </div>
                               );
                             })}
@@ -1424,15 +1454,30 @@ export default function AgentDetail() {
                       background: 'var(--rr-surface-elevated)',
                     }}
                   >
-                    <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
-                      {r.title_raw}
-                    </Text>
-                    {r.title_cn && r.title_cn !== r.title_raw && (
-                      <div style={{ marginTop: 2, fontSize: 12, color: 'var(--rr-text-muted)', wordBreak: 'break-word' }}>
-                        {r.title_cn}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <Text strong style={{ fontSize: 13, color: 'var(--rr-text)', wordBreak: 'break-word' }}>
+                          {r.title_raw}
+                        </Text>
+                        {r.title_cn && r.title_cn !== r.title_raw && (
+                          <div style={{ marginTop: 2, fontSize: 12, color: 'var(--rr-text-muted)', wordBreak: 'break-word' }}>
+                            {r.title_cn}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <Tooltip title={t('resource.files')}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ListTree size={14} />}
+                          onClick={() => setFilesResourceId(r.id)}
+                        />
+                      </Tooltip>
+                    </div>
                     <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-secondary)', marginTop: 4 }}>
+                      {r.pending_decision && (
+                        <Tag color="warning" style={{ margin: 0 }}>{t('agents.pendingDecisionAction')}</Tag>
+                      )}
                       {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                       {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                       {r.source && <Tag style={{ margin: 0 }}>{r.source}</Tag>}
@@ -1452,6 +1497,12 @@ export default function AgentDetail() {
           </Space>
         )}
       </Drawer>
+
+      <ResourceFilesDrawer
+        resourceId={filesResourceId}
+        open={!!filesResourceId}
+        onClose={() => setFilesResourceId(null)}
+      />
     </div>
   );
 }
@@ -1530,7 +1581,7 @@ const runColumns = (
         disabled={r.matched_resources.length === 0 && r.pending_decisions === 0}
         onClick={() => onView(r)}
       >
-        {r.pending_decisions > 0
+        {r.status === 'pending_decisions'
           ? t('agents.pendingDecisionAction')
           : t('agents.viewResources', { n: r.matched_resources.length })}
       </Button>

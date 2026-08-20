@@ -145,6 +145,39 @@ class TestDashboardPopulated:
         assert c["channel_name"] == sample_channel.name
         assert c["work_title"] == sample_series.title_cn
 
+    async def test_dashboard_pending_confirmations_excludes_batch_and_movie(
+        self, client, db_session_factory, sample_channel, sample_series,
+    ):
+        """Batches (coverage dedup, no single episode) and movie-linked
+        resources (no episode question) are not actionable confirmations even
+        if a stale ambiguous flag lingers."""
+        from app.models.file_resource import FileResource
+        from app.models.movie import Movie
+
+        async with db_session_factory() as s:
+            m = Movie(id=_uuid(), title_en="M")
+            s.add(m)
+            batch = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="gb",
+                title_raw="[G] Batch", torrent_url="magnet:?xt=urn:btih:gb",
+                series_id=sample_series.id, episode_confidence="ambiguous",
+                is_batch=True, batch_scope="season", season=1,
+            )
+            movie_res = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="gm",
+                title_raw="[G] Movie", torrent_url="magnet:?xt=urn:btih:gm",
+                movie_id=m.id, episode_confidence="ambiguous",
+            )
+            s.add_all([batch, movie_res])
+            await s.commit()
+            batch_id, movie_id = batch.id, movie_res.id
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        ids = {c["resource"]["id"] for c in res.json()["data"]["pending_confirmations"]}
+        assert batch_id not in ids
+        assert movie_id not in ids
+
 
 @pytest.fixture
 async def setup_with_task_and_decision(client, db_session_factory, mock_transmission):

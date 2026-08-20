@@ -16,6 +16,7 @@ import {
 import { App, Button, Empty, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import useDocumentTitle from '../hooks/useDocumentTitle';
+import useUrlTab from '../hooks/useUrlTab';
 import { organizeApi } from '../api/organize';
 import { mediaServersApi } from '../api/mediaServers';
 import { volumesApi } from '../api/volumes';
@@ -65,7 +66,7 @@ export default function MediaLibrary() {
   useDocumentTitle(t('mediaLibrary.title'));
   const { message, modal } = App.useApp();
 
-  const [tab, setTab] = useState<'plans' | 'audit' | 'config'>('plans');
+  const [tab, setTab] = useUrlTab('plans', ['plans', 'audit', 'config'] as const);
 
   // ------------------------------------------------------------------ Config
   const [servers, setServers] = useState<MediaServerListItem[]>([]);

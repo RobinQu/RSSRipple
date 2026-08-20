@@ -24,15 +24,18 @@ fetch_channel_resources(channel, db)
   │     │     # detect_subtitle_langs / detect_absolute_episode；合集命中即置
   │     │     # is_batch + batch_scope="season"（标题层默认，torrent 分析可修正）
   │     │     # 并清空 episode
-  │     ├─ d2. 通道 A torrent 内容检测（metadata 匹配前，工作锁之外）：
-  │     │     # is_batch=false 且 torrent_url 为 http(s) 直链时下载 .torrent 落盘
-  │     │     # （TORRENT_CACHE_DIR，记 torrent_file）→ bencode 解析文件清单 →
-  │     │     # analyze_torrent_files 判 scope（season/multi_season/franchise），
-  │     │     # franchise 触发 franchise_service.link_franchise_pack（成员作品
-  │     │     # 逐个走 process_title_only 匹配落库 → get-or-create
-  │     │     # franchise_pack 来源 WorkCollection → 资源挂 collection_id、
-  │     │     # 作品 FK 全清）。magnet/下载失败静默跳过；通道 B（下载后 RPC
-  │     │     # 修正）为保留优化项未实现。
+  │     ├─ d2. torrent 缓存与通道 A 内容检测（metadata 匹配前，工作锁之外）：
+  │     │     # ① 一律缓存：所有 http(s) 直链资源先 ensure_torrent_cached
+  │     │     #   （下载 .torrent 落盘 TORRENT_CACHE_DIR、写回 torrent_file；
+  │     │     #   已有缓存复用不重复下载；magnet/下载失败静默），保证后续
+  │     │     #   文件清单查询（GET /resources/{id}/files）无需重新下载；
+  │     │     # ② 合集分析门控不变：maybe_inspect_torrent 仅对 is_batch=false
+  │     │     #   的资源跑 bencode 解析文件清单 → analyze_torrent_files 判
+  │     │     #   scope（season/multi_season/franchise），franchise 触发
+  │     │     #   franchise_service.link_franchise_pack（成员作品逐个走
+  │     │     #   process_title_only 匹配落库 → get-or-create franchise_pack
+  │     │     #   来源 WorkCollection → 资源挂 collection_id、作品 FK 全清）。
+  │     │     #   通道 B（下载后 RPC 修正）为保留优化项未实现。
   │     ├─ e. 统一 Metadata Agent（通过 LangGraph ReAct 循环，单次调用完成标题清洗 + 单数据源 metadata 搜索）
   │     │     agent = UnifiedMetadataAgent()
   │     │     await agent.process(resource, channel, db)
@@ -338,6 +341,9 @@ process_resources(agent, resources, db)
   │     │
   │     ├─ c. 集号/季号不确定分支（episode_confidence == "ambiguous"）:
   │     │     在通过 work-scope + filter 之后才判定——只对 Agent 真会下载的资源询问。
+  │     │     合集资源（is_batch）与电影链接资源（movie_id 非空）不进本分支：
+  │     │     合集绕过单集流程（按内容覆盖度去重），电影没有集号/季号问题——
+  │     │     两者身上的 ambiguous 只能是旧 tv 链接残留的 stale 标记。
   │     │     按资源状态选择 reason：season 为 None（季号不确定）→
   │     │     "季号不确定，需要人工确认季号: {title}"；否则（集号不确定）→
   │     │     "集号不确定，需要人工确认集号: {title}"。
@@ -349,10 +355,22 @@ process_resources(agent, resources, db)
   │     │     continue。绝不自动下载集号/季号不确定的资源。
   │     │
   │     ├─ d. 合集分支（resource.is_batch=True）:
-  │     │     合集资源不参与 (series_id, episode) 聚合、不参与 PendingDecision。
-  │     │     检查是否已有该 FileResource 的 active/completed 下载任务；
-  │     │     若无 → dispatch_download 派发本条资源（dispatched++、matched++、
-  │     │     matched_resource_ids 记录），continue。
+  │     │     先查同一 FileResource 的 active/completed 任务（防重跑重复派发）。
+  │     │     再按内容覆盖度去重（_batch_coverage_key）：电影包→movie_id；
+  │     │     单季包→(series_id, season)（season 未知则覆盖度未知）；
+  │     │     跨季包→(series_id, batch_seasons 季集合)（batch_seasons 由
+  │     │     torrent 内容检测持久化，未知则覆盖度未知）。覆盖度未知 →
+  │     │     直接 dispatch_download（旧行为）。覆盖度已知 → 先查同
+  │     │     agent 同作品 active 任务中是否有覆盖度完全相同的合集
+  │     │     （Python 侧比对；剧集包受 enable_episode_dedup 门控、电影包
+  │     │     与单集电影一致不门控），命中则 duplicates_skipped++；否则以
+  │     │     ("batch", work_id, coverage) 进 candidates_by_key，与单集走
+  │     │     同一冲突解决（ask → PendingDecision，episode 置哨兵 -1 与
+  │     │     无集号单集决策区分，reason 用合集文案；auto → LLM pick →
+  │     │     启发式评分）。覆盖度不同的合集（S1 包 vs S2 包、S1-S2 vs
+  │     │     S1-S3）互不冲突、各自派发；franchise 包作品 FK 全清走不到
+  │     │     这里。已知限制：同一作品不同季集合的 multi_season 冲突会
+  │     │     合并进同一条 PendingDecision（幂等键编不下季集合）。
   │     │
   │     ├─ e. 去重检查（仅单集资源）:
   │     │     电影：按 movie_id 查询 active DownloadTask，存在则跳过；key=("movie", movie_id, None, None)
@@ -395,7 +413,10 @@ process_resources(agent, resources, db)
   └─ 7. 返回 RunResult（dispatched / pending_decisions / filter_failed /
         duplicates_skipped / unrecognized / suggestions / errors / matched_resource_ids）
         ——run_agent 据此回填 AgentRun 记录与 Agent.last_run_status
+          （均为运行结束时的快照；待决策处理完后的状态修正见下）
 ```
+
+**待决策处理后的状态复位**：PendingDecision 经 confirm/skip/batch 端点处理（status → decided/skipped）后，若该 agent 已无其他 pending 决策且 `last_run_status == "pending_decisions"`，复位为 `"success"`（decisions.py 的 `_maybe_reset_agent_run_status`，同事务内完成）。历史 AgentRun 行不回写，由 `GET /agents/{id}/runs` 读时修正（见 api-endpoints.md）。
 
 **LLM 候选选择器**（`_generate_llm_pick`）：`conflict_resolution="auto"` 多候选自动选择、`"ask"` 模式下的 LLM 建议、以及 `POST /decisions/{id}/ai-pick` 共用同一逻辑。返回 `(picked_resource_id, reason)`：使用 `agent.llm_prompt`（若非空）否则内置默认 prompt（metadata 字段最完整 > 清晰度最高 > 带字幕 > 发布时间最新），要求 LLM 返回 JSON `{"pick": <候选编号>, "reason": "<一句话理由>"}`，`_parse_llm_pick` 兼容 markdown 包裹与裸数字兜底。发给 LLM 的候选摘要包含 `title`（资源原始标题）与关联作品的 `year`（电影 `release_date` / 剧集 `start_date` 的年份）、`rating`（0-10 分），无关联作品或字段为空时为 `null`；prompt 中附带字段说明。LLM 未启用 / 无 API key / 调用失败 / 未给出有效选择时返回 `(None, None)`，`"auto"` 回退到纯启发式评分（分辨率 > 体积 > 发布时间）。结果缓存在 `PendingDecision.llm_picked_resource_id`，AI 自动处理优先复用缓存值。
 

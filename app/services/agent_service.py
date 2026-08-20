@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.models.agent import Agent
@@ -554,6 +555,103 @@ async def _persist_suggestions(
         )
 
 
+# ── Batch (合集) content-coverage dedup ─────────────────────────────────────
+# Batch resources carry no per-episode identity, so the (series, season,
+# episode) dedup key doesn't apply. Instead they dedup/conflict by *content
+# coverage*: two batches are duplicates only when they cover exactly the same
+# content. Same-coverage versions (different encodes / subtitle groups) go
+# through the same conflict resolution as single episodes (ask →
+# PendingDecision / auto → LLM pick → heuristic scorer); different coverage
+# (S1 pack vs S2 pack, S1-S2 vs S1-S3) never conflicts.
+
+# PendingDecision.episode marker for batch-conflict decisions. Distinguishes
+# them from episode-less single-episode decisions, which would otherwise
+# share the (series, season, NULL) idempotency key and merge. The decisions
+# UI renders only reason + candidates, so the sentinel is never displayed.
+_BATCH_EPISODE_SENTINEL = -1
+
+
+def _batch_coverage_key(resource: FileResource) -> tuple | None:
+    """Content-coverage signature of a batch resource.
+
+    - movie-linked batch → ``("movie",)`` (a movie pack covers the movie).
+    - season pack → ``("season", season)``; requires a known season (title
+      marker or torrent analysis) — the season number is never guessed.
+    - multi-season pack → ``("multi_season", tuple(sorted(seasons)))``;
+      requires ``batch_seasons`` from the torrent content analysis.
+
+    Returns None when the coverage is unknown: such resources keep the legacy
+    behavior (dispatched immediately, guarded only against re-dispatching the
+    same FileResource), since strict duplication cannot be proven. Franchise
+    packs never reach the batch branch (their work FKs are cleared).
+    """
+    if resource.movie_id:
+        return ("movie",)
+    scope = resource.batch_scope or "season"  # legacy title-marked packs
+    if scope == "season":
+        return ("season", resource.season) if resource.season is not None else None
+    if scope == "multi_season":
+        seasons = tuple(sorted(resource.batch_seasons or []))
+        return ("multi_season", seasons) if seasons else None
+    return None
+
+
+async def _find_active_batch_duplicate(
+    agent: Agent,
+    resource: FileResource,
+    coverage: tuple,
+    db: AsyncSession,
+) -> DownloadTask | None:
+    """Active/completed task of this agent whose batch resource covers exactly
+    the same content as ``resource``. Compared in Python because the coverage
+    of multi-season packs lives in a JSON list (small N per agent+work)."""
+    work_filter = (
+        FileResource.movie_id == resource.movie_id
+        if resource.movie_id
+        else FileResource.series_id == resource.series_id
+    )
+    stmt = (
+        select(DownloadTask)
+        .join(FileResource, DownloadTask.file_resource_id == FileResource.id)
+        .where(
+            DownloadTask.agent_id == agent.id,
+            DownloadTask.status.in_(
+                ["pending", "queued", "downloading", "paused", "completed"]
+            ),
+            FileResource.is_batch.is_(True),
+            work_filter,
+        )
+        .options(selectinload(DownloadTask.file_resource))
+    )
+    for task in (await db.execute(stmt)).scalars():
+        if _batch_coverage_key(task.file_resource) == coverage:
+            return task
+    return None
+
+
+def _batch_decision_key(key: tuple) -> tuple[tuple, str]:
+    """Translate an internal batch candidate key ``("batch", target_id, cov)``
+    into a ``create_pending_decision`` key + reason template.
+
+    Known limitation: multi-season packs of the same work share one
+    PendingDecision row even when their season sets differ — the
+    (series, season, episode) idempotency columns can't encode a season set.
+    """
+    _, target_id, cov = key
+    if cov[0] == "movie":
+        return ("movie", target_id, None, _BATCH_EPISODE_SENTINEL), (
+            "多个合集资源匹配电影 {title}，内容相同，请选择一个版本"
+        )
+    if cov[0] == "season":
+        return ("series", target_id, cov[1], _BATCH_EPISODE_SENTINEL), (
+            f"多个合集资源匹配 {{title}} 第{cov[1]}季，内容相同，请选择一个版本"
+        )
+    seasons = "/".join(str(s) for s in cov[1])
+    return ("series", target_id, None, _BATCH_EPISODE_SENTINEL), (
+        f"多个合集资源匹配 {{title}}（第{seasons}季），内容相同，请选择一个版本"
+    )
+
+
 async def process_resources(
     agent: Agent,
     resources: list[FileResource],
@@ -619,8 +717,16 @@ async def process_resources(
         # a dispatch, not a suggestion) so the user can manually confirm
         # before we download — never auto-download something we're unsure
         # about. This runs AFTER work-scope + filter so we only ask about
-        # resources the agent would actually download.
-        if getattr(resource, "episode_confidence", None) == "ambiguous":
+        # resources the agent would actually download. Batch resources skip
+        # this gate: a 合集 bypasses per-episode flow and dedups by content
+        # coverage instead. Movie-linked resources skip it too — a movie
+        # carries no episode/season question (a stale ambiguous flag from a
+        # previous tv link must not hold a movie hostage).
+        if (
+            getattr(resource, "episode_confidence", None) == "ambiguous"
+            and not getattr(resource, "is_batch", False)
+            and not resource.movie_id
+        ):
             reason = (
                 _AMBIGUOUS_SEASON_REASON
                 if resource.season is None
@@ -649,12 +755,14 @@ async def process_resources(
                 result.errors.append(str(e))
             continue
 
-        # Batch (合集) resources bypass per-episode dedup and conflict
-        # resolution entirely — per the design agreed with the product owner:
-        # a batch torrent is treated as a distinct payload that the user
-        # opted into via the filter DSL. We still avoid dispatching the same
-        # FileResource twice (crash recovery / re-run).
+        # Batch (合集) resources dedup/conflict by *content coverage* (see
+        # _batch_coverage_key): strictly identical coverage (same work + same
+        # season / same season set) goes through the normal conflict
+        # resolution; different coverage never conflicts; unknown coverage
+        # keeps the legacy immediate-dispatch behavior. Franchise packs never
+        # reach here (work FKs are cleared → unrecognized bucket).
         if getattr(resource, "is_batch", False):
+            # Same-FileResource guard (crash recovery / re-run).
             existing_stmt = select(DownloadTask).where(
                 and_(
                     DownloadTask.agent_id == agent.id,
@@ -667,6 +775,30 @@ async def process_resources(
             if (await db.execute(existing_stmt)).scalars().first():
                 result.duplicates_skipped += 1
                 continue
+            coverage = _batch_coverage_key(resource)
+            if coverage is not None:
+                # Cross-run dedup against active/completed tasks with the
+                # exact same coverage. Series packs honor the per-work
+                # enable_episode_dedup toggle (same as single episodes);
+                # movie packs dedup unconditionally (same as movie singles).
+                dedup_enabled = (
+                    True
+                    if resource.movie_id
+                    else (work.enable_episode_dedup if work else True)
+                )
+                if dedup_enabled and await _find_active_batch_duplicate(
+                    agent, resource, coverage, db
+                ):
+                    result.duplicates_skipped += 1
+                    continue
+                # Aggregate same-coverage versions for conflict resolution
+                # (ask → PendingDecision / auto → LLM pick → heuristic).
+                key = ("batch", resource.series_id or resource.movie_id, coverage)
+                candidates_by_key.setdefault(key, []).append(resource)
+                result.matched += 1
+                result.matched_resource_ids.append(resource.id)
+                continue
+            # Unknown coverage: legacy immediate dispatch.
             try:
                 await dispatch_download(agent, resource, db)
                 if autocommit:
@@ -727,7 +859,13 @@ async def process_resources(
                 result.dispatched += 1
             else:
                 if agent.conflict_resolution == "ask":
-                    await create_pending_decision(agent, key, cands, db)
+                    if key[0] == "batch":
+                        pd_key, reason = _batch_decision_key(key)
+                        await create_pending_decision(
+                            agent, pd_key, cands, db, reason_override=reason
+                        )
+                    else:
+                        await create_pending_decision(agent, key, cands, db)
                     result.pending_decisions += 1
                 else:
                     # "auto": try the LLM pick first (self-gated on

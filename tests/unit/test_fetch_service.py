@@ -1028,3 +1028,46 @@ async def test_reconcile_stale_raw_episodes(db_session, channel):
 
     # Second run is a no-op (converted row no longer matches the filter).
     assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+
+
+# ---------------------------------------------------------------------------
+# _process_resource_metadata: torrent caching wiring
+# ---------------------------------------------------------------------------
+
+async def test_process_resource_metadata_caches_torrent_before_inspect(
+    db_session, sample_channel, monkeypatch,
+):
+    """Every resource gets its .torrent cached (ensure_torrent_cached) before
+    the batch-detection analysis (maybe_inspect_torrent) runs."""
+    import asyncio
+
+    import app.services.torrent_inspect as ti
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Show - 01 [1080p]",
+        torrent_url="https://x/a.torrent", search_title="Show",
+    )
+    db_session.add(res)
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    async def _ensure(resource):
+        calls.append("ensure")
+
+    async def _inspect(db, resource, channel):
+        calls.append("inspect")
+        return False
+
+    async def _link(db, resource, channel):
+        calls.append("link")
+
+    monkeypatch.setattr(ti, "ensure_torrent_cached", _ensure)
+    monkeypatch.setattr(ti, "maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+    assert calls == ["ensure", "inspect", "link"]

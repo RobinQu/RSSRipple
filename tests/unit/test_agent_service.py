@@ -898,6 +898,202 @@ class TestProcessResources:
         assert result.dispatched == 0
         assert result.duplicates_skipped == 1
 
+    async def test_batch_same_season_versions_conflict_ask(
+        self, db_session, channel, downloader, series
+    ):
+        """Two season packs covering the exact same season (different
+        encodes) go through conflict resolution: ask mode → one
+        PendingDecision, no dispatch."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        r1 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", episode_start=1,
+            episode_end=13, guid=_uuid(),
+        )
+        r2 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", episode_start=1,
+            episode_end=13, guid=_uuid(),
+        )
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 0
+        assert result.pending_decisions == 1
+        assert result.matched == 2
+        pd = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalar_one()
+        assert pd.season == 1
+        assert pd.episode == -1  # batch sentinel
+        assert sorted(pd.candidates) == sorted([r1.id, r2.id])
+
+    async def test_batch_same_season_versions_auto_dispatches_one(
+        self, db_session, channel, downloader, series
+    ):
+        """Same-coverage season packs in auto mode: exactly one version is
+        dispatched (heuristic scorer — LLM disabled in tests)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="auto",
+        )
+        r1 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", resolution="1080p",
+            guid=_uuid(),
+        )
+        r2 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", resolution="720p",
+            guid=_uuid(),
+        )
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 1
+        assert result.pending_decisions == 0
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+        )).scalar_one()
+        assert task.file_resource_id == r1.id  # 1080p beats 720p
+
+    async def test_batch_different_seasons_do_not_conflict(
+        self, db_session, channel, downloader, series
+    ):
+        """S1 pack vs S2 pack: different coverage → both dispatch, no
+        PendingDecision."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        r1 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", guid=_uuid(),
+        )
+        r2 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=2,
+            is_batch=True, batch_scope="season", guid=_uuid(),
+        )
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 2
+        assert result.pending_decisions == 0
+
+    async def test_batch_multi_season_same_coverage_conflicts(
+        self, db_session, channel, downloader, series
+    ):
+        """Multi-season packs with identical season sets conflict; different
+        season sets (S1-S2 vs S1-S3) do not."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        r1 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=None,
+            is_batch=True, batch_scope="multi_season", batch_seasons=[1, 2],
+            guid=_uuid(),
+        )
+        r2 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=None,
+            is_batch=True, batch_scope="multi_season", batch_seasons=[2, 1],
+            guid=_uuid(),
+        )
+        r3 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=None,
+            is_batch=True, batch_scope="multi_season", batch_seasons=[1, 2, 3],
+            guid=_uuid(),
+        )
+        db_session.add_all([r1, r2, r3])
+        await db_session.flush()
+        result = await process_resources(agent, [r1, r2, r3], db_session)
+        # r1+r2 (same coverage, order-independent) → one decision; r3 → dispatch.
+        assert result.pending_decisions == 1
+        assert result.dispatched == 1
+
+    async def test_batch_unknown_coverage_dispatches_immediately(
+        self, db_session, channel, downloader, series
+    ):
+        """Title-marked packs without season evidence (coverage unknown) keep
+        the legacy behavior: each dispatches immediately, no dedup."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        r1 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=None,
+            is_batch=True, guid=_uuid(),
+        )
+        r2 = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=None,
+            is_batch=True, guid=_uuid(),
+        )
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 2
+        assert result.pending_decisions == 0
+
+    async def test_batch_cross_run_same_coverage_skipped(
+        self, db_session, channel, downloader, series
+    ):
+        """A season pack is skipped when an active/completed task already
+        covers the same season (different FileResource, same coverage)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        old = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", guid=_uuid(),
+        )
+        db_session.add(old)
+        await db_session.flush()
+        db_session.add(DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=old.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        ))
+        new = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", guid=_uuid(),
+        )
+        db_session.add(new)
+        await db_session.flush()
+        result = await process_resources(agent, [new], db_session)
+        assert result.dispatched == 0
+        assert result.duplicates_skipped == 1
+
+    async def test_batch_cross_run_different_coverage_dispatches(
+        self, db_session, channel, downloader, series
+    ):
+        """An S2 pack is NOT blocked by a completed S1 pack task."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        old = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=1,
+            is_batch=True, batch_scope="season", guid=_uuid(),
+        )
+        db_session.add(old)
+        await db_session.flush()
+        db_session.add(DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=old.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        ))
+        new = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=2,
+            is_batch=True, batch_scope="season", guid=_uuid(),
+        )
+        db_session.add(new)
+        await db_session.flush()
+        result = await process_resources(agent, [new], db_session)
+        assert result.dispatched == 1
+        assert result.duplicates_skipped == 0
+
     async def test_ambiguous_episode_routes_to_pending_decision(
         self, db_session, channel, downloader, series
     ):
@@ -1014,6 +1210,48 @@ class TestProcessResources:
         )).scalars().all()
         assert len(pds) == 1
         assert pds[0].status == "decided"
+
+    async def test_ambiguous_batch_resource_skips_episode_gate(
+        self, db_session, channel, downloader, series
+    ):
+        """A 合集 bypasses per-episode flow (it dedups by content coverage),
+        so the ambiguous episode/season gate must not route it to a
+        PendingDecision — it enters the normal batch flow."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, season=1, episode=None,
+            is_batch=True, batch_scope="season", episode_confidence="ambiguous",
+        )
+        db_session.add(r)
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.pending_decisions == 0
+        # Known coverage (series, S1) + single version → dispatched.
+        assert result.dispatched == 1
+        pds = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalars().all()
+        assert len(pds) == 0
+
+    async def test_ambiguous_movie_resource_skips_episode_gate(
+        self, db_session, channel, downloader, movie
+    ):
+        """A movie carries no episode/season question: a stale ambiguous flag
+        (left over from a previous tv link) must not block dispatch."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=None, movie_id=movie.id,
+            season=None, episode=None, episode_confidence="ambiguous",
+        )
+        db_session.add(r)
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.pending_decisions == 0
+        assert result.dispatched == 1
 
 
 # ---------------------------------------------------------------------------

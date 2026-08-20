@@ -14,17 +14,25 @@ import {
   Descriptions,
   Popover,
   InputNumber,
+  Form,
+  Select,
+  Switch,
   theme,
 } from 'antd';
 import { Copy, Pencil, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
+import { seriesApi } from '../api/series';
+import { moviesApi } from '../api/movies';
 import { formatBytes, formatDate } from '../utils/format';
 import { batchScopeLabel } from '../utils/batch';
 import MetadataCorrectionModal from './MetadataCorrectionModal';
 import CreateTaskModal from './CreateTaskModal';
+import { ResourceFilesView } from './ResourceFilesDrawer';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
-import type { FileResource, TVSeries } from '../types';
+import type { FileResource, Movie, ResourceCorrectionBody, TVSeries } from '../types';
+
+type Work = TVSeries | Movie;
 
 const { Text, Paragraph } = Typography;
 
@@ -124,6 +132,12 @@ export default function ResourceDetailDrawer({
   const [correctionOpen, setCorrectionOpen] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [resourceData, setResourceData] = useState<FileResource | null>(null);
+  // Inline parsed-fields editing (view/edit toggle inside the section).
+  const [parseForm] = Form.useForm();
+  const [parseEditing, setParseEditing] = useState(false);
+  const [parseSaving, setParseSaving] = useState(false);
+  const [editWork, setEditWork] = useState<Work | null>(null);
+  const isBatchWatch = Form.useWatch('is_batch', parseForm) ?? false;
   const [episodeEditOpen, setEpisodeEditOpen] = useState(false);
   const [seasonDraft, setSeasonDraft] = useState<number | null>(null);
   const [episodeDraft, setEpisodeDraft] = useState<number | null>(null);
@@ -203,9 +217,11 @@ export default function ResourceDetailDrawer({
       setMeta(null);
       setResourceData(null);
       setSeriesSeasons(null);
+      setParseEditing(false);
       return;
     }
     setResourceData(resource);
+    setParseEditing(false);
     loadMeta(resource.id);
   }, [resource, loadMeta]);
 
@@ -252,10 +268,129 @@ export default function ResourceDetailDrawer({
   const r = resourceData || resource;
   const open = resource !== null;
 
+  const workKind: 'series' | 'movie' | null = r?.series_id
+    ? 'series'
+    : r?.movie_id
+      ? 'movie'
+      : null;
+
+  // Enter inline edit mode: prefill the form from the resource and pull the
+  // full linked-work row (the resource payload doesn't carry content_type).
+  const enterParseEdit = () => {
+    if (!r) return;
+    parseForm.setFieldsValue({
+      season: r.season ?? null,
+      episode: r.episode ?? null,
+      absolute_episode: r.absolute_episode ?? null,
+      episode_start: r.episode_start ?? null,
+      episode_end: r.episode_end ?? null,
+      is_batch: r.is_batch,
+      batch_scope: r.batch_scope ?? null,
+      is_anime: null,
+      content_type: null,
+    });
+    setEditWork(null);
+    setParseEditing(true);
+    const workId = r.series_id || r.movie_id;
+    if (!workId) return;
+    const load = r.series_id ? seriesApi.get : moviesApi.get;
+    load(workId).then((res) => {
+      if (res.success) {
+        setEditWork(res.data as Work);
+        parseForm.setFieldsValue({
+          is_anime: (res.data as Work).is_anime ?? null,
+          content_type: (res.data as Work).content_type ?? null,
+        });
+      }
+    });
+  };
+
+  const handleBatchToggle = (checked: boolean) => {
+    // Batch resources have no single episode number; single-episode resources
+    // have no batch scope/range. Clear the mutually exclusive group.
+    if (checked) {
+      parseForm.setFieldsValue({ episode: null, absolute_episode: null });
+    } else {
+      parseForm.setFieldsValue({ batch_scope: null, episode_start: null, episode_end: null });
+    }
+  };
+
+  // Same save semantics as ResourceCorrectionModal: PUT the linked work first
+  // (changed fields only), then PATCH the resource (changed fields only).
+  const submitParseEdit = async () => {
+    if (!r) return;
+    const values = await parseForm.validateFields();
+    setParseSaving(true);
+    try {
+      let changed = false;
+      if (editWork && workKind) {
+        const workPayload: Record<string, unknown> = {};
+        const nextAnime = values.is_anime ?? null;
+        if (nextAnime !== (editWork.is_anime ?? null)) workPayload.is_anime = nextAnime;
+        const nextType = values.content_type ?? null;
+        if (nextType !== (editWork.content_type ?? null)) workPayload.content_type = nextType;
+        if (Object.keys(workPayload).length > 0) {
+          const res =
+            workKind === 'series'
+              ? await seriesApi.update(editWork.id, workPayload)
+              : await moviesApi.update(editWork.id, workPayload);
+          if (!res.success) {
+            message.error(res.error?.message || t('resource.correctSaveFailed'));
+            return;
+          }
+          changed = true;
+        }
+      }
+
+      const payload: ResourceCorrectionBody = {};
+      const numField = (
+        key: 'season' | 'episode' | 'absolute_episode' | 'episode_start' | 'episode_end',
+      ) => {
+        const next = (values[key] ?? null) as number | null;
+        if (next !== (r[key] ?? null)) payload[key] = next;
+      };
+      numField('season');
+      numField('episode');
+      numField('absolute_episode');
+      numField('episode_start');
+      numField('episode_end');
+      if (values.is_batch !== r.is_batch) payload.is_batch = values.is_batch;
+      const nextScope = (values.batch_scope ?? null) as ResourceCorrectionBody['batch_scope'];
+      if (nextScope !== (r.batch_scope ?? null)) payload.batch_scope = nextScope;
+
+      let updated = r;
+      if (Object.keys(payload).length > 0) {
+        const res = await resourcesApi.correctParseFields(r.id, payload);
+        if (!res.success) {
+          message.error(res.error?.message || t('resource.correctSaveFailed'));
+          return;
+        }
+        updated = res.data;
+        changed = true;
+      }
+
+      setParseEditing(false);
+      if (changed) {
+        message.success(t('resource.correctSaved'));
+        setResourceData(updated);
+        loadMeta(r.id);
+        onCorrected?.();
+      }
+    } finally {
+      setParseSaving(false);
+    }
+  };
+
   const dash = t('format.dash');
   const parsedItems: Array<{ key: string; label: string; children: React.ReactNode }> = r
     ? [
         { key: 'subtitle_group', label: t('resource.subtitleGroup'), children: r.subtitle_group || dash },
+        {
+          key: 'is_batch',
+          label: t('resource.isBatch'),
+          children: r.is_batch ? t('common.yes') : t('common.no'),
+        },
+        { key: 'season', label: t('resource.seasonLabel'), children: r.season ?? dash },
         {
           key: 'episode',
           label: t('resource.episode'),
@@ -362,23 +497,34 @@ export default function ResourceDetailDrawer({
             </Space>
           ),
         },
-        // Absolute episode + confidence — only render when the reconciliation
-        // pipeline had something to say. Keeps the drawer clean for the
-        // vast majority of resources that don't need this metadata.
-        ...(r.absolute_episode != null || r.episode_confidence
+        {
+          key: 'absolute_episode',
+          label: t('resource.absoluteEpisode'),
+          children: r.absolute_episode ?? dash,
+        },
+        {
+          key: 'episode_start',
+          label: t('resource.episodeStart'),
+          children: r.episode_start ?? dash,
+        },
+        {
+          key: 'episode_end',
+          label: t('resource.episodeEnd'),
+          children: r.episode_end ?? dash,
+        },
+        {
+          key: 'batch_scope',
+          label: t('resource.batchScope'),
+          children: r.batch_scope ? batchScopeLabel(t, r) : dash,
+        },
+        // Confidence — only render when the reconciliation pipeline had
+        // something to say. Keeps the drawer clean for the vast majority of
+        // resources that don't need this metadata.
+        ...(r.episode_confidence
           ? [{
               key: 'episode_confidence',
               label: t('resource.episodeConfidence'),
-              children: (() => {
-                const parts: string[] = [];
-                if (r.absolute_episode != null) {
-                  parts.push(t('resource.absoluteEpisodeLabel', { n: r.absolute_episode }));
-                }
-                if (r.episode_confidence) {
-                  parts.push(t(`resource.confidence_${r.episode_confidence}` as never, { defaultValue: r.episode_confidence }));
-                }
-                return parts.join(' · ');
-              })(),
+              children: t(`resource.confidence_${r.episode_confidence}` as never, { defaultValue: r.episode_confidence }),
             }]
           : []),
         { key: 'resolution', label: t('resource.resolution'), children: r.resolution || dash },
@@ -471,13 +617,6 @@ export default function ResourceDetailDrawer({
               onClick={() => setCreateTaskOpen(true)}
             >
               {t('tasks.createTask')}
-            </Button>
-            <Button
-              type="primary"
-              icon={<Pencil size={14} />}
-              onClick={() => setCorrectionOpen(true)}
-            >
-              {t('resource.correctMetadata')}
             </Button>
           </Space>
         }
@@ -598,18 +737,122 @@ export default function ResourceDetailDrawer({
 
             <Divider style={{ margin: '16px 0', borderColor: token.colorBorder }} />
 
-            {/* Parsed details */}
+            {/* Parsed details — view mode (Descriptions) / inline edit mode (Form) */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 10,
+              }}
+            >
+              <Text strong style={{ fontSize: 13 }}>
+                {t('resource.parsedFields')}
+              </Text>
+              {!parseEditing && (
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<Pencil size={14} />}
+                  onClick={enterParseEdit}
+                >
+                  {t('common.edit')}
+                </Button>
+              )}
+            </div>
+            {parseEditing ? (
+              <Form form={parseForm} layout="vertical" size="small">
+                <Form.Item name="is_batch" label={t('resource.isBatch')} valuePropName="checked">
+                  <Switch onChange={handleBatchToggle} />
+                </Form.Item>
+                <Form.Item name="season" label={t('resource.seasonLabel')}>
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="episode" label={t('resource.episodePerSeasonLabel')}>
+                  <InputNumber min={0} disabled={isBatchWatch} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="absolute_episode" label={t('resource.absoluteEpisodePlaceholder')}>
+                  <InputNumber min={0} disabled={isBatchWatch} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="episode_start" label={t('resource.episodeStart')}>
+                  <InputNumber min={0} disabled={!isBatchWatch} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="episode_end" label={t('resource.episodeEnd')}>
+                  <InputNumber min={0} disabled={!isBatchWatch} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="batch_scope" label={t('resource.batchScope')}>
+                  <Select
+                    allowClear
+                    disabled={!isBatchWatch}
+                    options={[
+                      { value: 'season', label: t('channels.batch') },
+                      { value: 'multi_season', label: t('channels.batchMultiSeason') },
+                      { value: 'franchise', label: t('channels.batchFranchise') },
+                    ]}
+                  />
+                </Form.Item>
+
+                {workKind && (
+                  <>
+                    <Divider style={{ margin: '8px 0 12px' }} />
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                      {t('resource.linkedWork')}
+                    </div>
+                    <Form.Item name="is_anime" label={t('works.animeStatus')}>
+                      <Select
+                        allowClear
+                        placeholder={t('common.unknown')}
+                        options={[
+                          { value: true, label: t('works.anime') },
+                          { value: false, label: t('works.liveAction') },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item name="content_type" label={t('resource.contentType')}>
+                      <Select
+                        allowClear
+                        placeholder={t('common.unknown')}
+                        options={[
+                          { value: 'tv', label: t('works.tv') },
+                          { value: 'movie', label: t('works.movie') },
+                        ]}
+                      />
+                    </Form.Item>
+                  </>
+                )}
+
+                <Space size={8} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button size="small" onClick={() => setParseEditing(false)}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={parseSaving}
+                    onClick={submitParseEdit}
+                  >
+                    {t('common.save')}
+                  </Button>
+                </Space>
+              </Form>
+            ) : (
+              <Descriptions
+                column={1}
+                size="small"
+                labelStyle={{ color: token.colorTextTertiary, width: 100, padding: '4px 8px' }}
+                contentStyle={{ color: token.colorTextSecondary, padding: '4px 8px' }}
+                style={{ fontSize: 12 }}
+                items={parsedItems}
+              />
+            )}
+
+            <Divider style={{ margin: '16px 0', borderColor: token.colorBorder }} />
+
+            {/* File listing (torrent contents / downloader files) */}
             <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
-              {t('resource.parsedFields')}
+              {t('resource.files')}
             </Text>
-            <Descriptions
-              column={1}
-              size="small"
-              labelStyle={{ color: token.colorTextTertiary, width: 100, padding: '4px 8px' }}
-              contentStyle={{ color: token.colorTextSecondary, padding: '4px 8px' }}
-              style={{ fontSize: 12 }}
-              items={parsedItems}
-            />
+            <ResourceFilesView resourceId={r.id} />
           </div>
         )}
       </Drawer>

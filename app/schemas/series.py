@@ -1,6 +1,7 @@
 """TVSeries Pydantic schemas."""
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -32,6 +33,8 @@ class TVSeriesUpdate(BaseModel):
     title_en: str | None = None
     original_title: str | None = None
     aliases: list[str] | None = None
+    external_id: str | None = None
+    external_source: str | None = None
     description: str | None = None
     poster_url: str | None = None
     rating: float | None = None
@@ -41,6 +44,7 @@ class TVSeriesUpdate(BaseModel):
     number_of_seasons: int | None = None
     start_date: date | None = None
     end_date: date | None = None
+    content_type: Literal["tv", "movie"] | None = None
     is_anime: bool | None = None
 
 

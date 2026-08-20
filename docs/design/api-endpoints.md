@@ -122,7 +122,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/agents/{id}/run-status` | 轮询处理状态 |
 | POST | `/agents/{id}/test-filters` | 给定资源或全部资源测试 filter_config 匹配情况，返回匹配结果明细 |
 | GET | `/agents/{id}/suggestions` | 读取持久化的未识别资源建议分组，供用户一键添加为订阅作品 |
-| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表、`scan_since`（指定起始时间运行的扫描下界；null=增量/定向，`1970-01-01`=全量）；`non_empty=true` 时仅返回"非空"运行（dispatched>0 或 pending_decisions>0 或 status 为 running/failed），隐藏无产出的例行空跑 |
+| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表、`scan_since`（指定起始时间运行的扫描下界；null=增量/定向，`1970-01-01`=全量）；`non_empty=true` 时仅返回"非空"运行（dispatched>0 或 pending_decisions>0 或 status 为 running/failed），隐藏无产出的例行空跑。读时修正：AgentRun 的 status/pending_decisions 是运行结束时的快照，若该 agent 当前已无 pending 决策，响应中 `status="pending_decisions"` 的 run 改写为 `"success"` 返回（不回写 DB，历史计数保留）；`matched_resources` 每条目附 `pending_decision: bool`——该资源仍是当前 pending 决策候选时为 true，供前端打「待决策」标 |
 | POST | `/agents/rules-preview` | 提交拟变更的订阅规则，预览匹配差异（新增匹配 / 不再匹配 / 已在队列跳过），供用户选择回填资源 |
 
 `POST /agents` 请求体示例：
@@ -363,8 +363,10 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/resources/{id}` | 资源详情 |
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询）；链接为剧集时 `linked.entity` 额外携带 `seasons`（每季 `season_number`/`episode_count`），供集号修正 UI 从绝对集号前端预填季号 |
 | POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"|"bangumi"? }` → 返回候选列表 |
-| PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤 |
+| PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤；链接为电影时清除资源上残留的 `episode_confidence="ambiguous"`（置 null——电影无集号/季号问题；链接为剧集时保留 reconcile/季号判定的原有语义） |
 | PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "season": int?, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。未显式发送 `season` 且已知 absolute 集号、资源已链接剧集且该剧集有逐季集数数据时，服务端用 `locate_absolute_episode` 推导 season（episode 也未显式发送时一并推导）——显式值永远优先。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
+| PATCH | `/resources/{id}` | 人工修订解析字段（`ResourceParseCorrectionRequest`）：`{ "episode"?, "season"?, "absolute_episode"?, "episode_start"?, "episode_end"?, "is_batch"?, "batch_scope"?: "season"\|"multi_season"\|"franchise" }` —— 全可选，仅显式发送的字段被更新（`model_fields_set` 语义）。服务端强制合集不变量（与抓取期 pre-parser 对齐）：`is_batch=true` 强制 `episode=null` 且未显式发送 scope 时缺省 `batch_scope="season"`；`is_batch=false` 清空 `batch_scope`/`episode_start`/`episode_end`。显式发送 `episode`/`season`/`absolute_episode` 任一即置 `episode_confidence="manual"`；未发送集号字段但修订结果为 `is_batch=true` 且原为 `ambiguous` 时同样置 `manual`（合集无单集概念，标记合集即了结集号/季号问题）。**先 commit 再入队**对该频道全部 active Agent 的定向运行（`resource_ids=[该资源]`，绕过且不推进水位线，语义同 PATCH `/episode`）。旧 `PATCH /resources/{id}/episode` 保留。 |
+| GET | `/resources/{id}/files` | 资源 torrent 文件清单（`ResourceFilesResponse`）：`{ "files": [{"name", "size"}], "source" }`，`source` 记录清单来源（首个命中即返回）：`torrent_cache`（本地缓存 .torrent 经 bencode 解析）→ `torrent_fetch`（http(s) `torrent_url` 现场下载，缓存路径写回 `torrent_file`）→ `downloader`（最新 DownloadTask 的下载器 RPC `get_torrent_files`，失败静默）→ `notification`（最新完成通知冻结快照 `payload.files`）→ `none`（全部不可用，返回空 `files`）。404 遵循统一错误结构。 |
 
 `POST /resources/{id}/metadata/search` 请求体示例：
 ```json
@@ -399,14 +401,14 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 
 ### TVSeries
 
-`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。`is_anime` 字段（Create/Update/Response）为可空布尔三态（True=日本动画 / False=确认实拍 / null=未判定，判定与赋值规则见 data-models.md「is_anime 判定约定」）；Create/Update 接受手动指定。`manually_edited_fields`（Response 透出，不可直接提交）为人工编辑保护字段名列表：PUT 时按显式发送的 `MANUAL_EDITABLE_FIELDS` 字段（含显式 null）记录，自动扫描不再覆盖。
+`genre` 字段（Create/Update/Response）为封闭 TMDB 27 类枚举（/docs 中 `GenreName` 渲染完整取值，约定见 data-models.md「genre 取值约定」）；Create/Update 提交表外值返回 422。`is_anime` 字段（Create/Update/Response）为可空布尔三态（True=日本动画 / False=确认实拍 / null=未判定，判定与赋值规则见 data-models.md「is_anime 判定约定」）；Create/Update 接受手动指定。`manually_edited_fields`（Response 透出，不可直接提交）为人工编辑保护字段名列表：PUT 时按显式发送的 `MANUAL_EDITABLE_FIELDS` 字段（含显式 null）记录，自动扫描不再覆盖。`MANUAL_EDITABLE_FIELDS` 另含 `content_type`（Update 限 `tv`/`movie`）与 `external_id`/`external_source`（外部身份）：PUT 显式发送且身份实际变化时，先把旧 `(external_source, external_id)` 幂等写入 `WorkExternalId` 身份袋（id 已被其他作品占用则冲突不抢、仅记 warning），再覆盖主列——作品在旧身份下仍可反查。
 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/series` | 列表（分页，支持 title 模糊搜索） |
 | POST | `/series` | 手动创建剧集元数据（极少使用） |
 | GET | `/series/{id}` | 剧集详情（含 episodes、资源数、任务数） |
-| PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields` |
+| PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，见上）；`content_type` 显式改为非 tv（如 movie）时，联动清除该剧集下资源残留的 `episode_confidence="ambiguous"`（置 null——非 tv 作品无集号/季号问题） |
 | DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
 
 ### Movies
@@ -418,7 +420,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/movies` | 列表（分页，支持 title 模糊搜索） |
 | POST | `/movies` | 手动创建电影元数据 |
 | GET | `/movies/{id}` | 电影详情 |
-| PUT | `/movies/{id}` | 更新电影元数据；显式发送的可编辑字段记入 `manually_edited_fields` |
+| PUT | `/movies/{id}` | 更新电影元数据；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，语义同 PUT `/series/{id}`） |
 | DELETE | `/movies/{id}` | 删除电影 |
 
 系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，来自本地库共享 collection_id 查询）。响应顶层同时暴露 `external_id`/`external_source`、`canonical_name`/`wikipedia_url`（Wikipedia 实际 URL，优先于 curid 回退），以及服务端计算的 `source_links`（`[{source, label, url}]`，由站点注册表 `metadata_source_registry.build_source_links` 生成，支持旧复合形 `TMDB:NNN; IMDb:ttNNN` 拆分，TMDB 链接按 tv/movie 区分路径）——前端详情页直接渲染，不再自行解析。
