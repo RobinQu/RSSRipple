@@ -54,7 +54,9 @@ logger = logging.getLogger(__name__)
 class PlanError(Exception):
     """规划无法安全完成（文件缺失/覆盖度不足/模板缺数据/目标冲突等）。
 
-    上层不落计划，下一 tick 自然重试（vault-organizer webhook 500 重投
+    上层落 ``status=failed`` 的计划行（不抛）：拒绝在变更计划界面可见、
+    可人工处置；payload 变化（通知 regenerate）或配置变更
+    （replan_open_plans）时自动重建（vault-organizer webhook 500 重投
     语义在内置语境的等价物）。
     """
 
@@ -547,7 +549,9 @@ def _plan_batch(
         episodes[key] = f
 
     # 覆盖度校验：期望集由 episode_start/end 或 work.seasons 展开，
-    # 「期望集 ⊆ 已解析集」；缺集 / 无校验依据 → 规划失败，绝不硬猜。
+    # 「期望集 ⊆ 已解析集」；缺集 → 规划失败，绝不硬猜。两者皆无时回退到
+    # **本地文件清单推导**：全部已解析文件同季 → 期望集 = 该季 min..max
+    # 连续区间（中间缺集仍拒绝）；无法推导才视为无校验依据。
     # 多季包按季分组逐组校验（见 _check_multi_season_coverage）。
     if multi_season:
         _check_multi_season_coverage(resource, work, episodes)
@@ -570,7 +574,13 @@ def _plan_batch(
                 for e in range(1, s["episode_count"] + 1)
             }
         else:
-            raise PlanError("合集缺少集数范围与逐季数据，无法校验覆盖度")
+            derived = _derive_expected_from_files(episodes)
+            if derived is None:
+                raise PlanError(
+                    "合集缺少集数范围与逐季数据，文件清单亦无法推导，"
+                    "无法校验覆盖度"
+                )
+            expected = derived
         missing = sorted(expected - episodes.keys())
         if missing:
             desc = ", ".join(f"s{s:02d}e{e:02d}" for s, e in missing[:5])
@@ -596,6 +606,25 @@ def _plan_batch(
     return ops
 
 
+def _derive_expected_from_files(
+    episodes: dict[tuple[int, int], DiskFile],
+) -> set[tuple[int, int]] | None:
+    """从本地文件清单推导期望集：全部已解析文件同属一季时，取该季
+    min..max 连续区间；无法推导（无已解析集 / 跨季）返回 None。
+
+    推导出的区间会做连续性校验——中间有文件解析不出集号（被当特典
+    keep）会形成缺口，按缺集拒绝，与显式依据的语义一致。
+    """
+    if not episodes:
+        return None
+    seasons = {s for s, _ in episodes}
+    if len(seasons) != 1:
+        return None
+    season = next(iter(seasons))
+    nums = [e for _, e in episodes]
+    return {(season, e) for e in range(min(nums), max(nums) + 1)}
+
+
 def _check_multi_season_coverage(
     resource: Any,
     work: Any,
@@ -607,10 +636,11 @@ def _check_multi_season_coverage(
     work.seasons 逐季集数）——但 multi_season scope 下
     ``resource.episode_start/end`` 恒为 NULL，实际走的是逐季数据。
 
-    与单季包「缺集拒绝整理 / 无校验依据拒绝」的不变量**不同**：多季包
-    的季边界信息不全（包内可能只含作品的部分季，作品的逐季数据也可能
-    缺某些季），因此某一季拿不到期望集时**只记 warning 跳过该季**的
-    校验，不整个拒绝；拿到期望集的季仍保持「缺集拒绝」。
+    某一季拿不到显式依据（episode_start/end 与 work.seasons 皆无）时
+    回退到**本地文件清单推导**（该季 min..max 连续区间，中间缺集仍
+    拒绝）；该季已解析集 <2 无法构成区间时才**只记 warning 跳过该季**
+    的校验，不整个拒绝——多季包边界信息不全（包内可能只含作品的部分
+    季）。拿到期望集的季（显式或推导）保持「缺集拒绝」。
     """
     by_season: dict[int, set[int]] = {}
     for season, episode in episodes:
@@ -634,12 +664,18 @@ def _check_multi_season_coverage(
             if entry and entry.get("episode_count"):
                 expected_eps = set(range(1, entry["episode_count"] + 1))
         if expected_eps is None:
-            logger.warning(
-                "[organize] 多季包第 %s 季缺少覆盖度校验依据"
-                "（episode_start/end 与逐季数据皆无），跳过该季校验",
-                season,
-            )
-            continue
+            have = sorted(by_season[season])
+            if len(have) >= 2:
+                # 文件清单推导：该季 min..max 连续区间（中间缺集仍拒绝）。
+                expected_eps = set(range(have[0], have[-1] + 1))
+            else:
+                logger.warning(
+                    "[organize] 多季包第 %s 季缺少覆盖度校验依据"
+                    "（episode_start/end、逐季数据与文件清单区间皆无），"
+                    "跳过该季校验",
+                    season,
+                )
+                continue
         missing = sorted(expected_eps - by_season[season])
         if missing:
             desc = ", ".join(f"e{e:02d}" for e in missing[:5])

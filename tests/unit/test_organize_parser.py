@@ -40,6 +40,18 @@ class TestParseEpisode:
         assert parse_episode("某动画 第09話.mkv") == (None, 9)
         assert parse_episode("某剧 第12集.mkv") == (None, 12)
 
+    def test_bracket_episode(self):
+        # fansub 裸方括号集号（与 resource_parser._BRACKET_EPISODE_RE 对齐）
+        assert parse_episode(
+            "[Kisssub][Tefuda ga Oome no Victoria][1080P][BIG5][01][MP4].mp4"
+        ) == (None, 1)
+        assert parse_episode("[Group] Title [12v2].mkv") == (None, 12)
+
+    def test_bracket_tech_tags_not_episode(self):
+        # 4 位年份 / 带字母的技术标签不匹配裸方括号集号
+        assert parse_episode("Movie [2026].mkv") == (None, None)
+        assert parse_episode("[Group] Title [1080P].mkv") == (None, None)
+
     def test_anime_dash(self):
         assert parse_episode("Title - 09 (1080p).mkv") == (None, 9)
         assert parse_episode("Title - 09v2 [ABC123].mkv") == (None, 9)

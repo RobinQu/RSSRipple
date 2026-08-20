@@ -273,6 +273,58 @@ class TestBatch:
             if op.op_type == "move":
                 assert "/Season 02/" in op.dst
 
+    def test_episode_range_derived_from_files(self):
+        # episode_start/end 与 work.seasons 皆无 → 期望集由本地文件清单
+        # 推导（已解析集同季，min..max 连续区间）。
+        payload = _batch_payload()
+        payload["resource"] = {
+            **payload["resource"],
+            "episode_start": None,
+            "episode_end": None,
+        }
+        payload["work"] = {**payload["work"], "seasons": None, "episodes": []}
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, _batch_files(), [rule], [lib])
+        moves = {op.src: op.dst for op in result.ops if op.op_type == "move"}
+        assert "/Season 01/" in moves["/downloads/complete/gits/GITS.S01E03.1080p.mkv"]
+
+    def test_derived_range_gap_rejected(self):
+        # 推导区间中间缺集（E03 解析不出 → 特典 keep）→ 覆盖度不足拒绝。
+        payload = _batch_payload()
+        payload["resource"] = {
+            **payload["resource"],
+            "episode_start": None,
+            "episode_end": None,
+        }
+        payload["work"] = {**payload["work"], "seasons": None, "episodes": []}
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        files = _batch_files()[:2] + [
+            DiskFile("/downloads/complete/gits/GITS.S01E04.1080p.mkv", 300,
+                     "GITS.S01E04.1080p.mkv"),
+        ]
+        with pytest.raises(PlanError, match="覆盖度不足"):
+            build_plan(payload, files, [rule], [lib])
+
+    def test_no_basis_and_unparseable_files_rejected(self):
+        # 无显式依据且文件清单也推导不出（无已解析集）→ 拒绝。
+        payload = _batch_payload()
+        payload["resource"] = {
+            **payload["resource"],
+            "episode_start": None,
+            "episode_end": None,
+        }
+        payload["work"] = {**payload["work"], "seasons": None, "episodes": []}
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        files = [
+            DiskFile("/d/特典A.mkv", 300, "特典A.mkv"),
+            DiskFile("/d/特典B.mkv", 300, "特典B.mkv"),
+        ]
+        with pytest.raises(PlanError, match="无法校验覆盖度"):
+            build_plan(payload, files, [rule], [lib])
+
 
 class TestBatchRecycleMovedir:
     """合集 + move 计划：目标库配置回收站目录时，剩余文件（keep）随种子
@@ -433,6 +485,27 @@ class TestMultiSeasonBatch:
         result = build_plan(payload, files, [rule], [lib])
         keeps = {op.src for op in result.ops if op.op_type == "keep"}
         assert "/downloads/complete/gits/特典.mkv" in keeps
+
+    def test_season_range_derived_from_files(self):
+        # 逐季数据完全缺失 → 每季期望集由本地文件清单推导（min..max）。
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _multi_season_payload(seasons=None)
+        payload["work"]["seasons"] = None
+        files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 2))
+        result = build_plan(payload, files, [rule], [lib])
+        moves = {op.src: op.dst for op in result.ops if op.op_type == "move"}
+        assert "/Season 02/" in moves["/downloads/complete/gits/GITS.S02E02.1080p.mkv"]
+
+    def test_derived_season_range_gap_rejected(self):
+        # 推导区间中间缺集（S02E02 缺失）→ 该季覆盖度不足拒绝。
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _multi_season_payload(seasons=None)
+        payload["work"]["seasons"] = None
+        files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 3))
+        with pytest.raises(PlanError, match="第 2 季覆盖度不足"):
+            build_plan(payload, files, [rule], [lib])
 
 
 class TestFranchiseBatch:

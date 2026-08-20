@@ -29,9 +29,12 @@ fetch_channel_resources(channel, db)
   │     │     #   （下载 .torrent 落盘 TORRENT_CACHE_DIR、写回 torrent_file；
   │     │     #   已有缓存复用不重复下载；magnet/下载失败静默），保证后续
   │     │     #   文件清单查询（GET /resources/{id}/files）无需重新下载；
-  │     │     # ② 合集分析门控不变：maybe_inspect_torrent 仅对 is_batch=false
-  │     │     #   的资源跑 bencode 解析文件清单 → analyze_torrent_files 判
-  │     │     #   scope（season/multi_season/franchise），franchise 触发
+  │     │     # ② 合集分析门控：maybe_inspect_torrent 对 is_batch=false 的
+  │     │     #   资源、以及已判合集但信息不完整（batch_scope 为 NULL，或
+  │     │     #   scope="season" 缺 episode_start/end）的资源跑 bencode 解析
+  │     │     #   文件清单 → analyze_torrent_files 判
+  │     │     #   scope（season/multi_season/franchise）并补齐集数范围
+  │     │     #   （single/unknown 不降级既有合集判定），franchise 触发
   │     │     #   franchise_service.link_franchise_pack（成员作品逐个走
   │     │     #   process_title_only 匹配落库 → get-or-create franchise_pack
   │     │     #   来源 WorkCollection → 资源挂 collection_id、作品 FK 全清）。

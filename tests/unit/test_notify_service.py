@@ -815,6 +815,49 @@ async def test_scheduler_tick_disabled(db_session, seed, monkeypatch):
     ).scalars().all() == []
 
 
+async def test_scheduler_tick_plans_orphan_notifications(db_session, seed):
+    """tick 兜底补扫：已存在但没有任何计划行的通知（旧版本规划失败未落
+    计划 / 规划被意外中断）在后续 tick 被补做规划。"""
+    from app.models.library import Library
+    from app.models.organize_plan import OrganizePlan
+    from app.models.organize_rule import OrganizeRule
+    from app.services.scheduler import _process_download_notifications
+
+    # 先造一条孤儿通知：此时无 organize 规则，通知存在但绝无计划行。
+    notification, created = await create_notification_for_task(db_session, seed.task)
+    assert created
+    await db_session.commit()
+
+    # 补上启用的 organize 规则后跑 tick：补扫应捡起草儿通知并落计划
+    # （测试环境磁盘无文件 → 确定性拒绝落 failed 计划行，关键是有行）。
+    library = Library(id=_uuid(), name="TV", kind="tv")
+    rule = OrganizeRule(
+        id=_uuid(), name="tv", priority=100, enabled=True, filter=None,
+        library_id=library.id, path_template="{title}/S{season:02d}",
+        file_op="move", auto_execute=False,
+    )
+    db_session.add_all([library, rule])
+    await db_session.commit()
+
+    await _process_download_notifications()
+
+    plans = (
+        await db_session.execute(select(OrganizePlan))
+    ).scalars().all()
+    assert len(plans) == 1
+    assert plans[0].notification_id == notification.id
+    assert plans[0].status == "failed"
+
+    # 再跑 tick：failed 计划已有行、快照未变 → 不重复重建。
+    await _process_download_notifications()
+    plans2 = (
+        await db_session.execute(select(OrganizePlan))
+    ).scalars().all()
+    assert len(plans2) == 1
+    actions = [a.action for a in plans2[0].audit_entries]
+    assert actions.count("plan_failed") == 1
+
+
 async def test_create_notification_survives_concurrent_race(db_session, seed, monkeypatch):
     """回归：regenerate/调度 tick 竞态——预检通过（无行）后、插入前，并发写
     入者已提交同一 download_task_id 的通知。唯一约束冲突必须被 SAVEPOINT

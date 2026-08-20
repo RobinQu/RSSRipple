@@ -283,8 +283,9 @@ async def test_volume_binding_translation(db_session, tmp_path):
     assert op.src.startswith(str(local_dir))
 
 
-async def test_plan_failure_leaves_no_plan_and_retries(db_session, tmp_path):
-    """规划失败不落计划；文件补齐后下一 tick 自然重试成功。"""
+async def test_plan_failure_lands_failed_plan_and_recovers(db_session, tmp_path):
+    """规划被确定性拒绝 → 落 failed 计划行（界面可见）；外部条件修复后
+    重新触发规划（快照未变也重建 failed 计划）可恢复为 pending。"""
     dl_dir = tmp_path / "downloads"
     (dl_dir / "Show.S01").mkdir(parents=True)  # 空种子目录 → 规划失败
     lib = await _make_library(db_session, tmp_path / "lib")
@@ -294,12 +295,20 @@ async def test_plan_failure_leaves_no_plan_and_retries(db_session, tmp_path):
     )
     stats = await plan_for_notifications(db_session, [notification])
     assert stats["failed"] == 1
-    assert await _plans(db_session) == []
+    [plan] = await _plans(db_session)
+    assert plan.status == "failed"
+    assert plan.error_message
+    assert plan.notification_id == notification.id
+    actions = [a.action for a in await _audits(db_session, plan.id)]
+    assert "plan_failed" in actions
 
     _mkfile(dl_dir / "Show.S01" / "ep04.mkv", 300)
     stats = await plan_for_notifications(db_session, [notification])
-    assert stats["planned"] == 1
-    assert len(await _plans(db_session)) == 1
+    assert stats["rebuilt"] == 1
+    [plan] = await _plans(db_session)
+    assert plan.status == "pending"
+    assert plan.error_message is None
+    assert plan.library_id == lib.id
 
 
 async def test_no_matching_rule_creates_uncategorized_plan(db_session, tmp_path):

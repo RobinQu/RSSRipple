@@ -35,6 +35,10 @@ def classify(name: str) -> FileKind:
 _SXXEXX = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,4})")
 _EP_TOKEN = re.compile(r"(?:^|[\s._\-\[])[Ee][Pp]?\.?\s*(\d{1,4})(?:\s*[vV]\d+)?(?=[\s._\-\]\)]|$)")
 _CJK_EP = re.compile(r"第\s*(\d{1,4})\s*[話话集回]")
+# 裸方括号集号（fansub 常见：``[Kisssub][Title][1080P][01][MP4].mp4``）——
+# 与 ``resource_parser._BRACKET_EPISODE_RE`` 保持一致：1-3 位纯数字 +
+# 可选 vN 修订号，``[1080P]``/``[2026]`` 这类技术标签不会匹配。
+_BRACKET_EP = re.compile(r"\[(\d{1,3})(?:\s*[vV]\d+)?\]")
 _ANIME_DASH = re.compile(r"-\s*(\d{1,4})(?:\s*[vV]\d+)?\s*(?=$|[\[\(.])")
 
 _SEASON_WORD = re.compile(r"[Ss]eason\s*(\d{1,2})")
@@ -44,8 +48,8 @@ _SEASON_TOKEN = re.compile(r"[Ss](\d{1,2})")
 def parse_episode(name: str) -> tuple[int | None, int | None]:
     """从文件名解析 (season, episode)；解析不出返回 (None, None)。
 
-    支持：S04E09 / E09 / EP09 / 第09話 / 动画常见的 ``Title - 09 (1080p)``
-    （含 v2 修订号）。
+    支持：S04E09 / E09 / EP09 / 第09話 / 裸方括号 ``[09]``（含 v2 修订号）
+    / 动画常见的 ``Title - 09 (1080p)``。
     """
     stem = Path(name).stem
     if m := _SXXEXX.search(stem):
@@ -53,6 +57,8 @@ def parse_episode(name: str) -> tuple[int | None, int | None]:
     if m := _EP_TOKEN.search(stem):
         return None, int(m.group(1))
     if m := _CJK_EP.search(stem):
+        return None, int(m.group(1))
+    if m := _BRACKET_EP.search(stem):
         return None, int(m.group(1))
     if m := _ANIME_DASH.search(stem):
         return None, int(m.group(1))

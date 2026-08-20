@@ -3,9 +3,14 @@
 职责（docs/design/file-organization.md「触发与执行链路」）：
 
 - 规划（:func:`plan_for_notifications`）：消费 notify tick 新建/重建的通知，
-  以 ``notification_id`` 唯一约束为幂等键落 OrganizePlan + ops。规划失败
-  （文件定位不到 / PlanError）不落计划、记 error 日志，下一 tick 自然重试。
-  无规则匹配落 ``library_id=null`` 的「待分类」pending 计划。规则
+  以及 tick 补扫到的无任何计划的存量通知（兜底：意外异常中断的规划在
+  后续 tick 重试），以 ``notification_id`` 唯一约束为幂等键落
+  OrganizePlan + ops。规划被确定性拒绝（缺集/缺季号/文件定位不到等
+  PlanError）落 ``status=failed`` 的计划行（无 ops，``error_message``
+  记原因）——拒绝在变更计划界面可见、可人工处置；payload 未变时
+  短路不重复规划，payload 变化（regenerate）或配置变更
+  （:func:`replan_open_plans`）时自动重建。无规则匹配落
+  ``library_id=null`` 的「待分类」pending 计划。规则
   ``auto_execute=true`` 时落库后调度后台执行（两阶段持久化边界不变）。
   整理常开，无开关；不存在 enabled 规则时整步跳过。
 - 重建：通知 regenerate 后，pending/failed 计划随新快照重建（沿用已人工
@@ -299,8 +304,10 @@ async def plan_for_notifications(
     """对一批通知做整理规划（幂等）。返回统计 dict。
 
     常开：不存在 enabled 规则时整步跳过（对通知流水线零影响）。
-    已有计划：done/running 短路；pending/failed 且 payload 已 regenerate
-    （与计划冻结快照不一致）→ 重建（沿用人工指定的 library/category）。
+    已有计划：done/running 短路；pending/failed 且 payload 未变（快照
+    一致）短路；payload 已 regenerate（与计划冻结快照不一致）→ 重建
+    （沿用人工指定的 library/category）。确定性拒绝（PlanError）落
+    failed 计划行（详见 :func:`_plan_one`）。
     """
     stats = {"planned": 0, "rebuilt": 0, "uncategorized": 0, "skipped": 0, "failed": 0}
     if not notifications:
@@ -347,8 +354,11 @@ async def _plan_one(
     if existing is not None:
         if existing.status in ("done", "running"):
             return "skipped"
-        if existing.payload == notification.payload:
-            return "skipped"  # 快照未变，无重建必要
+        # 快照未变：pending 无重建必要；failed 则仍重建——本函数只在被显式
+        # 触发（tick 新建/补扫、regenerate、配置变更 replan）时拿到通知，
+        # failed 计划多因磁盘状态等外部条件失败，快照不变也值得重试。
+        if existing.payload == notification.payload and existing.status != "failed":
+            return "skipped"
         return await _rebuild_plan(db, existing, notification, rules, libraries)
 
     payload = NotificationPayload.model_validate(notification.payload)
@@ -358,11 +368,35 @@ async def _plan_one(
             _collect_and_plan, payload, downloader, rules, libraries, None
         )
     except PlanError as e:
-        # 不落计划：记 error 日志，下一 tick 自然重试。
+        # 规划被确定性拒绝（缺集/缺季号/文件缺失等）：落 failed 计划行
+        # 而不是什么都不留——拒绝在变更计划界面可见、可人工处置（重试/
+        # 取消/分类），不再依赖"下 tick 重试"的空口承诺。payload 未变时
+        # 后续 tick / regenerate 短路（快照一致 skipped），payload 变化或
+        # 配置变更（replan_open_plans）时自动重建。
         logger.error(
-            "[organize] 通知 %s 规划失败（不落计划，下 tick 重试）：%s",
+            "[organize] 通知 %s 规划失败（落 failed 计划）：%s",
             notification.id, e,
         )
+        plan = OrganizePlan(
+            notification_id=notification.id,
+            rule_id=None,
+            library_id=None,
+            category=None,
+            status="failed",
+            payload=notification.payload,
+            error_message=str(e)[:2048],
+        )
+        try:
+            async with db.begin_nested():  # SAVEPOINT：吸收并发规划竞争
+                db.add(plan)
+                await db.flush()
+        except IntegrityError:
+            return "skipped"  # 输掉唯一约束竞争：计划已存在
+        _audit(
+            db, plan.id, "plan_failed",
+            {"notification_id": notification.id, "error": str(e)},
+        )
+        await db.commit()
         return "failed"
 
     plan = OrganizePlan(

@@ -9,7 +9,10 @@ from the video files' paths and sizes.
 ``maybe_inspect_torrent`` is the fetch-period wiring ("channel A"): given a
 fresh FileResource it downloads/parses/analyzes the .torrent and
 reclassifies the resource (``is_batch`` / ``batch_scope`` / episode range)
-when the listing proves a batch the title regexes could not see.
+when the listing proves a batch the title regexes could not see. Resources
+already judged as batches but still missing ``batch_scope`` / episode range
+(e.g. title-regex batches) are likewise enriched from the file listing —
+an existing batch verdict is never downgraded.
 """
 
 import asyncio
@@ -379,8 +382,11 @@ async def maybe_inspect_torrent(
 
     Preconditions (all required, otherwise a no-op returning False):
 
-    - ``resource.is_batch`` is False — resources already judged as batches
-      (title regexes, LLM) are left alone.
+    - The resource still needs classification info: ``is_batch`` is False,
+      or it is True (title regexes / LLM already judged it a batch) but the
+      torrent-derived details are still missing — ``batch_scope`` unset, or
+      ``batch_scope="season"`` without ``episode_start/end``. Batches with
+      complete scope info are left alone.
     - ``resource.torrent_url`` is a plain http(s) direct link; magnets carry
       no file listing and are skipped.
 
@@ -399,7 +405,7 @@ async def maybe_inspect_torrent(
       resolves the member works and links ``collection_id`` (failures are
       isolated — the batch verdict above is kept regardless).
     - ``single`` / ``unknown``: no reclassification — only the cache path
-      is kept.
+      is kept (an existing ``is_batch=True`` verdict is never downgraded).
 
     The function does NOT commit: it runs inside the caller's session
     (``fetch_service._process_resource_metadata``), whose own commit after
@@ -410,7 +416,15 @@ async def maybe_inspect_torrent(
     download/parse failure is silent (debug log) and returns False.
     """
     if resource.is_batch:
-        return False
+        # 已判定合集且信息完整（scope 已细分；season scope 时集数范围齐全）
+        # 不重跑；标题正则判出的合集（scope NULL）或缺集数范围的 season
+        # 包仍用 torrent 文件清单补齐。
+        scoped = resource.batch_scope is not None
+        has_range = (
+            resource.episode_start is not None and resource.episode_end is not None
+        )
+        if scoped and (resource.batch_scope != "season" or has_range):
+            return False
     url = resource.torrent_url or ""
     if not (url.startswith("http://") or url.startswith("https://")):
         return False

@@ -227,7 +227,7 @@ class OrganizeAuditEntry(Base):
 | `{ext}` | 源文件扩展名（含前导点，如 `.mkv`） |
 
 - **保存时校验**：非法占位符 / 非法格式说明符 → 422；模板渲染结果含绝对路径、`..` 段 → 422。
-- **运行时缺数据**（如 TV 模板缺 `season`）→ 规划失败（不落计划，下 tick 重试，见"触发链路"）。
+- **运行时缺数据**（如 TV 模板缺 `season`）→ 规划失败（落 failed 计划行，见"触发链路"）。
 - **内置 Plex 兼容预设**（创建规则时可一键填入）：
   - TV：`{title}/Season {season:02d}/{title} - s{season:02d}e{episode:02d}[ - {episode_title}]{ext}`
   - 电影：`{category}/{title} ({year})/{title} ({year}){ext}`
@@ -239,7 +239,7 @@ class OrganizeAuditEntry(Base):
 规划是纯函数：`build_plan(快照, 磁盘文件列表, 解析后的库根)`——**接口不变**，收的是 service 层已解析好的 `root_path`（volume.mount_path + root_subpath），planner 自身不感知卷模型。沿用 vault-organizer 的文件归类语义：主视频 = 最大视频文件，按模板渲染 move；字幕判定语言后同名随正片 move；其余文件 keep。安全不变量：
 
 - **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；两者皆无 → 规划失败。
-- **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx → 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」（期望集由 `episode_start/end` 或 `work.seasons` 展开），缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 按文件解析季号分组逐组校验（不回退 `resource.season`——该 scope 下恒为 NULL；期望集仍优先 episode_start/end、回退 work.seasons，两者皆无的季只记 warning 跳过校验而非整体拒绝，因多季包边界信息不全）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
+- **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx / E09 / EP09 / 第09話 / 裸方括号 `[01]`（含 vN 修订号）→ 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」，缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。期望集的展开顺序：`episode_start/end` 优先 → `work.seasons` 逐季集数 → **本地文件清单推导**（已解析集同季时取 min..max 连续区间，中间缺集仍拒绝——torrent 文件清单本地可缓存，合集范围解析以实际内容为准）→ 皆无才视为无校验依据。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 按文件解析季号分组逐组校验（不回退 `resource.season`——该 scope 下恒为 NULL；期望集展开顺序同单季，显式依据与文件清单区间（≥2 集）皆无的季只记 warning 跳过校验而非整体拒绝，因多季包边界信息不全）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
 - **冲突预检**：move op 的 dst 已存在且 size 与源不符 → 规划失败（绝不覆盖）；size 相符视为已移动的重放，交执行器收敛。
 
 ## 触发与执行链路
@@ -247,8 +247,8 @@ class OrganizeAuditEntry(Base):
 规划挂在 scheduler 每分钟 notify tick 内，**补建通知之后、fan-out 之前**插入 organize 规划步：
 
 1. 整理**常开、无环境变量开关**：只要存在 enabled 规则即对本 tick 的通知做规划；无 enabled 规则时整步跳过（对通知流水线零影响）。
-2. consume 本 tick 新建/重建的通知：以 `notification_id` 唯一约束为幂等键，对尚无 OrganizePlan 的通知做规划（落库走 SAVEPOINT 吸收并发竞争）。
-3. **规划失败不落计划**（如文件定位不到、模板缺数据、冲突预检不过）：记 error 日志（含原因与 notification_id），因无计划行，下一 tick 自然重试——这是 vault-organizer「webhook 500 → 退避重投」语义在内置语境的等价物。
+2. consume 本 tick 新建/重建的通知，外加**兜底补扫**：每 tick 限量（50）选取没有任何计划行的存量通知一并规划——规划被意外异常中断（非 PlanError）不留任何行，靠补扫在后续 tick 重试；落库走 SAVEPOINT 吸收并发竞争。
+3. **规划被确定性拒绝落 failed 计划行**（缺集/缺季号/文件定位不到/模板缺数据/冲突预检不过等 PlanError）：计划行 `status=failed`、无 ops、`error_message` 记原因——拒绝在变更计划界面可见、可人工处置（重试/取消/分类），这是 vault-organizer「webhook 500 → 退避重投」语义在内置语境的等价物。payload 未变的 failed 计划不随 tick 重复规划（快照一致短路仅限 pending）；被显式触及时（通知 regenerate、配置变更 `replan_open_plans`）即便快照未变也重建——failed 多因磁盘状态等外部条件，快照不变也值得重试。
 4. 无规则匹配 → 落「待分类」pending 计划（`library_id=null`）；命中规则的 Library 待绑定 → 落「待绑定」pending 计划。
 5. `auto_execute=true` 的规则：计划落库后立即经同一代码路径后台执行（两阶段持久化不变）。
 6. 执行完成后按命中规则的 `file_op` 分流清理：

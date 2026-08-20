@@ -466,9 +466,48 @@ async def test_inspect_already_batch_skipped(monkeypatch):
         raise AssertionError("fetch_torrent_file called for batch resource")
 
     monkeypatch.setattr(ti, "fetch_torrent_file", _boom)
-    r = _resource(is_batch=True, batch_scope="season")
+    # 信息完整（scope 已细分、season 包集数范围齐全）的合集不重跑。
+    r = _resource(is_batch=True, batch_scope="season", episode_start=1, episode_end=3)
     assert await maybe_inspect_torrent(None, r) is False
     assert r.batch_scope == "season"
+
+
+async def test_inspect_enriches_unscoped_batch(monkeypatch):
+    """标题正则判出的合集（batch_scope NULL）用 torrent 清单补齐 scope
+    与集数范围。"""
+    _stub_pipeline(monkeypatch, [
+        _f("[ANi] 勇者之渣 - 01 [1080P][Baha].mkv"),
+        _f("[ANi] 勇者之渣 - 02 [1080P][Baha].mkv"),
+        _f("[ANi] 勇者之渣 - 03 [1080P][Baha].mkv"),
+    ])
+    r = _resource(is_batch=True, batch_scope=None, episode=None, season=None)
+    assert await maybe_inspect_torrent(None, r) is True
+    assert r.is_batch is True
+    assert r.batch_scope == "season"
+    assert r.episode_start == 1
+    assert r.episode_end == 3
+
+
+async def test_inspect_enriches_season_batch_missing_range(monkeypatch):
+    """scope=season 但缺集数范围的合集同样补齐范围。"""
+    _stub_pipeline(monkeypatch, [
+        _f("Show.S01E01.1080p.mkv"),
+        _f("Show.S01E02.1080p.mkv"),
+    ])
+    r = _resource(is_batch=True, batch_scope="season", episode=None)
+    assert await maybe_inspect_torrent(None, r) is True
+    assert r.episode_start == 1
+    assert r.episode_end == 2
+
+
+async def test_inspect_batch_single_listing_keeps_verdict(monkeypatch):
+    """已判合集但清单只见到单文件（single/unknown）→ 不降级既有判定。"""
+    _stub_pipeline(monkeypatch, [_f("Show.S01E05.1080p.mkv")])
+    r = _resource(is_batch=True, batch_scope=None, episode=None)
+    assert await maybe_inspect_torrent(None, r) is False
+    assert r.is_batch is True
+    assert r.batch_scope is None
+    assert r.torrent_file == "/tmp/rid-a.torrent"
 
 
 async def test_inspect_download_failure_silent(monkeypatch):

@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
 
+# 每 tick 补扫的无计划通知上限（organize 兜底重试）。
+_ORGANIZE_ORPHAN_BATCH = 50
+
 
 def get_scheduler() -> AsyncIOScheduler:
     if _scheduler is None:
@@ -613,6 +616,7 @@ async def _process_download_notifications() -> None:
     from app.models.agent_webhook import AgentWebhook
     from app.models.download_notification import DownloadNotification
     from app.models.download_task import DownloadTask
+    from app.models.organize_plan import OrganizePlan
     from app.models.organize_rule import OrganizeRule
     from app.services.notify_service import (
         create_notification_for_task,
@@ -655,11 +659,34 @@ async def _process_download_notifications() -> None:
                         created_notifications.append(notification)
                 await db.commit()
             # organize 规划步：补建通知之后、fan-out 之前；失败不中断 tick 其余阶段
-            if created_notifications:
+            plan_targets = list(created_notifications)
+            try:
+                # 兜底补扫：没有任何计划行的存量通知（规划被意外异常中断，
+                # 或旧版本拒绝未落计划），每 tick 限量重试。确定性拒绝
+                # （PlanError）已落 failed 计划行，不在此列，不会每 tick
+                # 重复规划。
+                plan_exists = (
+                    select(OrganizePlan.id)
+                    .where(OrganizePlan.notification_id == DownloadNotification.id)
+                    .exists()
+                )
+                orphans = (
+                    await db.execute(
+                        select(DownloadNotification)
+                        .where(~plan_exists)
+                        .order_by(DownloadNotification.created_at.asc())
+                        .limit(_ORGANIZE_ORPHAN_BATCH)
+                    )
+                ).scalars().all()
+                seen = {n.id for n in plan_targets}
+                plan_targets += [n for n in orphans if n.id not in seen]
+            except Exception as e:
+                logger.warning("[organize] orphan notification scan failed: %s", e)
+            if plan_targets:
                 try:
                     from app.services.organize_service import plan_for_notifications
 
-                    ostats = await plan_for_notifications(db, created_notifications)
+                    ostats = await plan_for_notifications(db, plan_targets)
                     if any(ostats.values()):
                         logger.info(
                             "[organize] planned=%d rebuilt=%d uncategorized=%d "
