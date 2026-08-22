@@ -11,7 +11,7 @@ export type ChannelStatus = 'active' | 'inactive' | 'error';
 // Channel primary metadata source (two-source architecture). The wider
 // MetadataSource union remains for legacy manual-search paths.
 export type ChannelMetadataSource = 'wikipedia' | 'tmdb';
-export type MetadataSource = 'exa' | 'jina' | 'wikipedia' | 'tmdb' | 'local';
+export type MetadataSource = 'jina' | 'wikipedia' | 'tmdb' | 'local';
 export interface Channel {
   id: string;
   name: string;
@@ -24,6 +24,10 @@ export interface Channel {
   metadata_source: ChannelMetadataSource | null;
   // Ordered Exa-fallback site whitelist; null = default order, [] = disabled.
   metadata_fallback_sources: string[] | null;
+  // Channel-declared required work-metadata fields (catalog keys). Drives the
+  // resource-list display column and agent filter-DSL gating; null =
+  // unrestricted (legacy), [] = agent filters locked to resource-level fields.
+  required_metadata_fields?: string[] | null;
   auto_cleanup_unresolved_enabled: boolean;
   auto_cleanup_unresolved_days: number;
   // Default is_anime flag for works matched from this channel; immutable after creation.
@@ -78,6 +82,8 @@ export interface ResourceWorkRef {
   start_date?: string | null;
   release_date?: string | null;
   description?: string | null;
+  // Work-collection brief, present when the list query eager-loads it.
+  collection?: { title_cn?: string | null; title_en?: string | null } | null;
 }
 
 // FileResource
@@ -117,6 +123,8 @@ export interface FileResource {
   parsed_at: string | null;
   series_id: string | null;
   movie_id: string | null;
+  // AudioWork link for non-TV/non-movie works (ASMR / music / drama CD).
+  audio_work_id: string | null;
   series?: ResourceWorkRef | null;
   movie?: ResourceWorkRef | null;
   metadata_matched_at: string | null;
@@ -470,6 +478,9 @@ export interface Agent {
   scope_channel_wide: boolean;
   conflict_resolution: 'ask' | 'auto';
   llm_prompt: string | null;
+  /** Ordered candidate-preference rules (deterministic ranking ahead of the
+   *  LLM pick; rank-only, never filters candidates). */
+  pick_preferences: FieldCondition[] | null;
   filter_config: BoolCondition | null;
   status: AgentStatus;
   last_run_at: string | null;
@@ -491,6 +502,7 @@ export interface AgentCreate {
   scope_channel_wide?: boolean;
   conflict_resolution?: 'ask' | 'auto';
   llm_prompt?: string | null;
+  pick_preferences?: FieldCondition[] | null;
   filter_config?: BoolCondition | null;
   works?: AgentWorkCreate[];
   /** Resource ids selected from the rules-preview diff to backfill. Present
@@ -806,24 +818,27 @@ export interface AgentSuggestionGroup {
   updated_at: string | null;
 }
 
-// Filter test result
+// Filter test result (mirrors backend TestFilterResult / TestFilterResourceResult)
 export interface ConditionTestResult {
+  path?: string;
   field: string;
   operator: string;
-  value: string | number | string[];
+  value: string | number | string[] | null;
+  actual?: unknown;
   passed: boolean;
 }
 
 export interface ResourceTestResult {
   resource_id: string;
-  title: string;
+  title_raw: string;
   passed: boolean;
-  conditions: ConditionTestResult[];
+  condition_results: ConditionTestResult[];
 }
 
 export interface FilterTestResponse {
-  results: ResourceTestResult[];
-  stats: { total: number; passed: number; failed: number };
+  resources: ResourceTestResult[];
+  total: number;
+  passed: number;
 }
 
 // Dashboard

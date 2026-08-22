@@ -2,10 +2,11 @@
 
 Pure leaf module - no DB, no LangGraph. When the Wikipedia S3 path returns
 found=False (coverage gap, misclassified novel page, or bad translated title),
-this module runs one Exa web search and a single LLM judge call. The resulting
-``matched_entity`` reuses the existing TVSeries/Movie upsert path with stable
-IDs parsed from authoritative URLs (see ``metadata_source_registry`` for the
-7-site identity scheme).
+this module runs one Exa web search (via the free Exa MCP endpoint — see
+``exa_mcp_client``; no API key, no billing) and a single LLM judge call. The
+resulting ``matched_entity`` reuses the existing TVSeries/Movie upsert path
+with stable IDs parsed from authoritative URLs (see
+``metadata_source_registry`` for the 7-site identity scheme).
 
 Candidate URLs are filtered to the channel's *ordered* fallback whitelist
 (``Channel.metadata_fallback_sources``; empty list disables the fallback
@@ -55,41 +56,30 @@ def _source_and_id_from_url(url: str) -> tuple[str, str | None]:
 # ---------------------------------------------------------------------------
 
 async def _exa_web_search(query: str) -> list[dict[str, Any]]:
-    """Call Exa /search for a query and return normalised web hits.
+    """Call the free Exa MCP ``web_search_exa`` tool and return normalised hits.
 
     Each hit has: url, title, text (truncated), source_domain, external_source,
     external_id (parsed from the URL where possible).
     """
-    if not runtime_config.exa_api_key or not runtime_config.exa_enabled:
+    if not runtime_config.exa_enabled:
         return []
-    from exa_py import AsyncExa
+    from app.services.exa_mcp_client import web_search
 
-    exa = AsyncExa(api_key=runtime_config.exa_api_key)
     try:
-        resp = await exa.search(
-            query=query,
-            type="neural",
-            num_results=5,
-            contents={"text": True, "highlights": True},
-        )
+        raw_hits = await web_search(query, num_results=5)
     except Exception as e:
         logger.warning("[metadata_agent][exa_fallback] search failed: %s", e)
         raise  # let caller classify as transient
 
     hits: list[dict[str, Any]] = []
-    for r in getattr(resp, "results", []) or []:
-        def g(name: str) -> str:
-            if isinstance(r, dict):
-                return r.get(name, "") or ""
-            return getattr(r, name, "") or ""
-
-        url = g("url")
+    for r in raw_hits:
+        url = r.get("url", "") or ""
         source, ext_id = _source_and_id_from_url(url)
         hits.append({
             "url": url,
-            "title": g("title"),
-            "text": g("text"),
-            "highlights": list(g("highlights") or [])[:2],
+            "title": r.get("title", "") or "",
+            "text": r.get("text", "") or "",
+            "highlights": [],
             "source_domain": (urlparse(url).hostname or "").lower(),
             "external_source": source,
             "external_id": ext_id,
@@ -179,7 +169,7 @@ async def exa_fallback_judge(
     Returns a (finalize_dict, search_info) tuple:
       - found=True  -> match found on the web; search_info.error is None.
       - found=False -> Exa searched and found no credible match; definitive.
-      - search_info.error set -> Exa itself failed (network/rate/API key);
+      - search_info.error set -> Exa itself failed (network/rate limit);
         the caller should treat this as transient and not cache.
 
     Returns None when Exa is disabled/unconfigured OR the channel's fallback
@@ -198,9 +188,7 @@ async def exa_fallback_judge(
         return None
 
     searcher = exa_searcher or _exa_web_search
-    if exa_searcher is None and (
-        not runtime_config.exa_api_key or not runtime_config.exa_enabled
-    ):
+    if exa_searcher is None and not runtime_config.exa_enabled:
         return None
 
     # Build a query: raw title + light source-language context. Exa neural

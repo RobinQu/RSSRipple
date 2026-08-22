@@ -106,6 +106,13 @@ class MetadataSearchResult(BaseModel):
     external_id: str | None = None
     rating: float | None = None
     genre: list[str] = []
+
+    @field_validator("genre", mode="before")
+    @classmethod
+    def _none_genre_to_empty(cls, v: Any) -> Any:
+        # LLM 与本地库候选都可能给出 genre=None（未提供）；响应结构对前端
+        # 保持 list 形状，空列表即"未提供"。
+        return [] if v is None else v
     status: str | None = None
     number_of_episodes: int | None = None
     number_of_seasons: int | None = None

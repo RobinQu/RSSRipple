@@ -28,7 +28,7 @@ RSSRipple 是一个面向 TV / 番剧 / 电影资源的 RSS 订阅下载器。�
 cp .env.example .env
 # 至少设置：LLM_API_KEY、LLM_BASE_URL、LLM_MODEL
 # 可选元数据源：TMDB_API_KEY / BANGUMI_API_KEY
-# 旧版/仅环境变量源（手动搜索/评测）：EXA_API_KEY / JINA_API_KEY
+# 旧版/仅环境变量源（手动搜索/评测）：JINA_API_KEY
 ```
 
 ### 2. 用 Docker Compose 启动
@@ -68,10 +68,10 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)（申请 v3 key） | `TMDB_API_KEY` | 可选 — 影视 ID 匹配最佳 |
 | Bangumi | [bgm.tv](https://bgm.tv/)（开发者 token） | `BANGUMI_API_KEY` | 可选 — 仅动画分类条目搜索；配置 token 即启用 |
 | Wikipedia | — | — | 无需 key（免费 `wikipedia` 库）— 默认频道源 |
-| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | 可选 — 仅环境变量；用于有序 Exa 回退与手动搜索/评测（已废弃为频道源） |
+| Exa（MCP） | [exa.ai](https://exa.ai/) — 免费公共 MCP 端点 | `EXA_MCP_URL` | 可选 — 免费无需 key；仅用作主源未命中时的有序 Exa 回退 |
 | Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | 可选 — 仅环境变量；仅手动搜索/评测（已废弃为频道源） |
 
-一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（exa/jina 仅环境变量，设置页密钥行已移除）。`local` 源无需凭证 — 仅本地 DB 匹配。
+一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（`EXA_ENABLED` 只控制 Exa MCP 回退；jina 仅环境变量，设置页密钥行已移除）。`local` 源无需凭证 — 仅本地 DB 匹配。
 
 ## 配置
 
@@ -81,7 +81,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy 数据库 URL |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI 兼容 LLM，用于 feed 分析、元数据 agent、建议 |
-| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | 元数据源凭证 — 按需配置 |
+| `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | 元数据源凭证 — 按需配置 |
 | `QUEUE_BACKEND` | `"memory"`（默认）或 `"redis"`（需 `REDIS_URL`） |
 | `POSTER_CACHE_DIR` | 海报缓存目录，挂载到 `/posters` |
 

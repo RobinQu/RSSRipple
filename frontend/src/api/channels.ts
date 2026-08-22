@@ -45,6 +45,7 @@ export interface ChannelCreate {
   metadata_agent_enabled?: boolean;
   metadata_source?: MetadataSource | null;
   metadata_fallback_sources?: string[] | null;
+  required_metadata_fields?: string[] | null;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
   // Immutable after channel creation (server returns 422 on change attempts).
@@ -60,8 +61,33 @@ export interface ChannelUpdate {
   metadata_agent_enabled?: boolean;
   metadata_source?: MetadataSource | null;
   metadata_fallback_sources?: string[] | null;
+  required_metadata_fields?: string[] | null;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
+}
+
+// GET /channels/required-field-catalog — the selectable required metadata
+// fields for the channel form dialog, grouped two levels deep: ``section``
+// is the work-type grouping (base/tv/pack first, then cross-cutting
+// release/work), ``group`` the semantic sub-group within it. ``lock`` is the
+// code-enforced requirement scope ("always", or a row shape such as
+// "tv_single"); locked fields are always present in a channel's list and can
+// never be removed (the list itself is add-only after creation).
+// ``applies_to`` lists the row shapes the field is relevant for
+// (null = every shape).
+export interface RequiredFieldCatalogEntry {
+  key: string;
+  section: string;
+  group: string;
+  dsl_fields: string[];
+  lock: string | null;
+  locked: boolean;
+  applies_to: string[] | null;
+}
+
+export interface RequiredFieldCatalogResponse {
+  sections: string[];
+  fields: RequiredFieldCatalogEntry[];
 }
 
 type ChannelResourcesPayload =
@@ -87,6 +113,8 @@ export const channelsApi = {
   get: (id: string) => api.get<ChannelDetail>(`/channels/${id}`),
   getFormToken: () => api.get<{ token: string }>('/channels/form-token'),
   metadataSources: () => api.get<MetadataSourcesResponse>('/channels/metadata-sources'),
+  requiredFieldCatalog: () =>
+    api.get<RequiredFieldCatalogResponse>('/channels/required-field-catalog'),
   create: (data: ChannelCreate, formToken?: string) =>
     api.post<Channel>('/channels', data, formToken ? { 'X-Form-Token': formToken } : undefined),
   update: (id: string, data: ChannelUpdate, formToken?: string) =>

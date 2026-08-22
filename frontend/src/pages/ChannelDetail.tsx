@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import useUrlTab from '../hooks/useUrlTab';
 import {
@@ -13,7 +14,6 @@ import {
   HelpCircle,
   Info,
   Copy,
-  Package,
   ExternalLink,
   LayoutGrid,
   List,
@@ -43,9 +43,14 @@ import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import FilterSummaryModal from '../components/FilterSummaryModal';
-import { timeAgo } from '../utils/format';
-import { batchScopeLabel } from '../utils/batch';
+import { timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
+import {
+  fieldApplicable,
+  orderedRequiredKeys,
+  requiredFieldWidth,
+  resourceShape,
+} from '../utils/requiredFields';
 import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
@@ -67,108 +72,112 @@ function groupColor(type: GroupedResource['type']) {
   return 'default';
 }
 
-function formatEpisodeCell(r: FileResource): {
-  label: string;
-  batch: boolean;
-  confidence: FileResource['episode_confidence'];
-  absoluteEpisode: number | null;
-} {
-  const confidence = r.episode_confidence ?? null;
-  const absoluteEpisode = r.absolute_episode ?? null;
-  if (r.is_batch) {
-    const seasonPart = r.season != null ? `S${r.season} · ` : '';
-    if (r.episode_start != null && r.episode_end != null) {
-      return {
-        label: `${seasonPart}E${r.episode_start}-${r.episode_end}`,
-        batch: true,
-        confidence,
-        absoluteEpisode,
-      };
-    }
-    if (r.episode_start != null) {
-      return { label: `${seasonPart}E${r.episode_start}+`, batch: true, confidence, absoluteEpisode };
-    }
-    return { label: `${seasonPart || ''}Batch`.trim() || 'Batch', batch: true, confidence, absoluteEpisode };
-  }
-  if (r.episode == null) return { label: '—', batch: false, confidence, absoluteEpisode };
-  const perSeason = r.season != null ? `S${r.season}E${r.episode}` : `E${r.episode}`;
-  return { label: perSeason, batch: false, confidence, absoluteEpisode };
-}
-
-function EpisodeCell({ r }: { r: FileResource }) {
-  const { t } = useTranslation();
-  const ep = formatEpisodeCell(r);
-  // Confidence indicators — only render when the metadata agent flagged the
-  // number, so the common "raw" case stays visually quiet.
-  const showReconciled = ep.confidence === 'reconciled';
-  const showAmbiguous = ep.confidence === 'ambiguous';
-  const showManual = ep.confidence === 'manual';
-  const reconciledTip = ep.absoluteEpisode != null
-    ? t('channels.episodeReconciledFrom', { n: ep.absoluteEpisode })
-    : t('channels.episodeReconciled');
-  return (
-    <Space size={4} style={{ flexWrap: 'nowrap' }}>
-      <span>{ep.label}</span>
-      {ep.batch && (
-        <Tag color="purple" style={{ marginRight: 0 }} icon={<Package size={10} />}>
-          {batchScopeLabel(t, r)}
-        </Tag>
-      )}
-      {r.batch_scope === 'franchise' && r.collection_id && r.collection_name && (
-        <Link to={`/collections/${r.collection_id}`}>{r.collection_name}</Link>
-      )}
-      {showReconciled && (
-        <Tooltip title={reconciledTip}>
-          <Tag color="blue" style={{ marginRight: 0 }}>
-            {t('channels.episodeReconciledTag')}
-          </Tag>
-        </Tooltip>
-      )}
-      {showAmbiguous && (
-        <Tooltip title={t('channels.episodeAmbiguousTip')}>
-          <Tag color="warning" style={{ marginRight: 0 }}>
-            {t('channels.episodeAmbiguousTag')}
-          </Tag>
-        </Tooltip>
-      )}
-      {showManual && (
-        <Tag color="green" style={{ marginRight: 0 }}>
-          {t('channels.episodeManualTag')}
-        </Tag>
-      )}
-    </Space>
-  );
-}
-
-function SubtitleLangsCell({ langs }: { langs: string[] | null }) {
-  const { t } = useTranslation();
-  const list = langs || [];
-  if (list.length === 0) return <span style={{ color: 'var(--rr-text-muted)' }}>—</span>;
-  const shown = list.slice(0, 2);
-  const rest = list.length - shown.length;
-  const inner = (
-    <Space size={2} style={{ flexWrap: 'nowrap' }}>
-      {shown.map((l) => (
-        <Tag key={l} style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>
-          {l === 'multi' ? t('channels.langMulti') : l}
-        </Tag>
-      ))}
-      {rest > 0 && (
-        <Tag style={{ margin: 0, fontSize: 11, lineHeight: '18px' }}>+{rest}</Tag>
-      )}
-    </Space>
-  );
-  return list.length > shown.length ? (
-    <Tooltip
-      title={
-        <span>
-          {list.map((l) => (l === 'multi' ? t('channels.langMulti') : l)).join(', ')}
-        </span>
+/** Resolve the display value for one required-field column. Resource-level
+ * keys read straight off FileResource; work-level keys resolve through the
+ * linked series/movie; enum keys localize via filter.enumValue_*. */
+function requiredFieldValue(
+  r: FileResource,
+  key: string,
+  t: TFunction,
+): string | null {
+  const num = (v: number | null | undefined): string | null =>
+    v != null ? String(v) : null;
+  const str = (v: string | null | undefined): string | null => {
+    const s = (v ?? '').trim();
+    return s.length > 0 ? s : null;
+  };
+  const work = r.series ?? r.movie ?? null;
+  switch (key) {
+    // ── Resource-level fields ──
+    case 'title_cn':
+      return str(r.title_cn);
+    case 'title_en':
+      return str(r.title_en);
+    case 'search_title':
+      return str(r.search_title);
+    case 'episode':
+      return num(r.episode);
+    case 'season':
+      return num(r.season);
+    case 'episode_start':
+      return num(r.episode_start);
+    case 'episode_end':
+      return num(r.episode_end);
+    case 'absolute_episode':
+      return num(r.absolute_episode);
+    case 'is_batch':
+      return r.is_batch ? t('filter.true') : t('filter.false');
+    case 'episode_confidence':
+      return r.episode_confidence
+        ? t(`filter.enumValue_${r.episode_confidence}`, { defaultValue: r.episode_confidence })
+        : null;
+    case 'content_type':
+      // Derived from which work FK the resource carries (mirrors the DSL).
+      if (r.series_id) return t('filter.enumValue_tv', { defaultValue: 'tv' });
+      if (r.movie_id) return t('filter.enumValue_movie', { defaultValue: 'movie' });
+      if (r.audio_work_id) return t('filter.enumValue_audio', { defaultValue: 'audio' });
+      return null;
+    case 'subtitle_group':
+      return str(r.subtitle_group);
+    case 'resolution':
+      return str(r.resolution);
+    case 'source':
+      return str(r.source);
+    case 'video_codec':
+      return str(r.video_codec);
+    case 'audio_codec':
+      return str(r.audio_codec);
+    case 'subtitle_type':
+      return str(r.subtitle_type);
+    case 'subtitle_langs':
+      return r.subtitle_langs && r.subtitle_langs.length > 0
+        ? r.subtitle_langs.join(' · ')
+        : null;
+    case 'container':
+      return str(r.container);
+    case 'file_size':
+      return r.file_size != null ? formatBytes(r.file_size) : null;
+    case 'resource_collection':
+      return str(r.collection_name);
+    // ── Work-level fields (resolve through the linked work) ──
+    default:
+      if (!work) return null;
+      switch (key) {
+        case 'rating':
+          return work.rating != null ? work.rating.toFixed(1) : null;
+        case 'year': {
+          const d = work.start_date || work.release_date;
+          return d ? d.slice(0, 4) : null;
+        }
+        case 'genre':
+          return work.genre && work.genre.length > 0 ? work.genre.join(' · ') : null;
+        case 'is_anime':
+          return work.is_anime == null
+            ? null
+            : work.is_anime
+              ? t('works.anime')
+              : t('works.liveAction');
+        case 'collection': {
+          const c = work.collection;
+          return c ? (c.title_cn || c.title_en || null) : null;
+        }
+        default:
+          return null;
       }
-    >
-      {inner}
-    </Tooltip>
-  ) : inner;
+  }
+}
+
+/** Single required-field column cell: type-irrelevant fields render blank
+ * (e.g. batch ranges on movies), applicable-but-missing values render — so
+ * unparsed fields stay visible without misleading dashes elsewhere. */
+function RequiredFieldCell({ r, fieldKey }: { r: FileResource; fieldKey: string }) {
+  const { t } = useTranslation();
+  if (!fieldApplicable(fieldKey, resourceShape(r))) return null;
+  const v = requiredFieldValue(r, fieldKey, t);
+  if (v == null) {
+    return <span style={{ color: 'var(--rr-text-muted)' }}>—</span>;
+  }
+  return <span>{v}</span>;
 }
 
 function ResourceRowActions({ r }: { r: FileResource }) {
@@ -245,8 +254,7 @@ function ResourceRowActions({ r }: { r: FileResource }) {
   );
 }
 
-function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null; isSeries: boolean }) {
-  const { t } = useTranslation();
+function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null; isSeries: boolean }) {  const { t } = useTranslation();
   if (!work) return null;
   const dateStr = isSeries ? work.start_date : work.release_date;
   const year = dateStr ? dateStr.slice(0, 4) : null;
@@ -542,6 +550,13 @@ export default function ChannelDetail() {
   const parsedViewTotal = parsedView === 'flat' ? flatTotal : parsedTotal;
   const parsedTotalPages = Math.ceil(parsedViewTotal / PAGE_SIZE);
   const unparsedTotalPages = Math.ceil(unparsedTotal / PAGE_SIZE);
+  // Channel-declared required work-metadata fields: rendered as individual
+  // columns between the fixed 作品/操作 columns, ordered by work-type
+  // applicability grouping then semantic category.
+  const requiredColumns = useMemo(
+    () => orderedRequiredKeys(channel?.required_metadata_fields ?? []),
+    [channel?.required_metadata_fields],
+  );
 
   if (channelLoading) {
     return <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />;
@@ -712,20 +727,19 @@ export default function ChannelDetail() {
                     <div className="resource-table-wrap">
                     <table className="resource-table resource-table-known">
                       <colgroup>
-                        <col style={{ width: 40 }} />
-                        <col style={{ width: 260 }} />
-                        <col style={{ width: 120 }} />
-                        <col style={{ width: 84 }} />
-                        <col style={{ width: 88 }} />
-                        <col style={{ width: 84 }} />
-                        <col style={{ width: 150 }} />
-                        <col />
-                        <col style={{ width: 120 }} />
-                        <col style={{ width: 76 }} />
+                        <col className="col-sticky-check" style={{ width: 40 }} />
+                        <col className="col-sticky-work" style={{ width: 260 }} />
+                        {requiredColumns.map((k) => (
+                          <col key={k} style={{ width: requiredFieldWidth(k) }} />
+                        ))}
+                        <col className="col-sticky-actions" style={{ width: 120 }} />
                       </colgroup>
                       <thead>
                         <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>
+                          <th
+                            className="cell-sticky cell-sticky-check"
+                            style={{ textAlign: 'left', padding: '6px 8px' }}
+                          >
                             <Checkbox
                               aria-label={t('common.selectAll')}
                               checked={
@@ -739,15 +753,21 @@ export default function ChannelDetail() {
                               onChange={(e) => toggleAllInList(flatResources, e.target.checked)}
                             />
                           </th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.work')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.episode')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.videoCodec')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.audioCodec')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleLangs')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
-                          <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
-                          <th style={{ textAlign: 'right', padding: '6px 8px' }}></th>
+                          <th
+                            className="cell-sticky cell-sticky-work"
+                            style={{ textAlign: 'left', padding: '6px 8px' }}
+                          >
+                            {t('channels.work')}
+                          </th>
+                          {requiredColumns.map((k) => (
+                            <th key={k} style={{ textAlign: 'left', padding: '6px 8px' }}>
+                              {t(`channels.requiredField_${k}`, { defaultValue: k })}
+                            </th>
+                          ))}
+                          <th
+                            className="cell-sticky-actions"
+                            style={{ textAlign: 'right', padding: '6px 8px' }}
+                          ></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -771,7 +791,7 @@ export default function ChannelDetail() {
                               className="resource-row"
                             >
                               <td
-                                className="resource-check-cell"
+                                className="resource-check-cell cell-sticky cell-sticky-check"
                                 style={{ padding: '6px 8px' }}
                                 onClick={(e) => e.stopPropagation()}
                               >
@@ -780,7 +800,11 @@ export default function ChannelDetail() {
                                   onChange={(e) => toggleResource(r.id, e.target.checked)}
                                 />
                               </td>
-                              <td style={{ padding: '6px 8px' }} data-label={t('channels.work')}>
+                              <td
+                                className="cell-sticky cell-sticky-work"
+                                style={{ padding: '6px 8px' }}
+                                data-label={t('channels.work')}
+                              >
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                   <img
                                     src={posterUrl(work?.poster_url)}
@@ -812,36 +836,48 @@ export default function ChannelDetail() {
                                       </div>
                                       <WorkInfoIcon work={work} isSeries={!!r.series_id} />
                                     </div>
-                                    {(r.series_id || r.movie_id) && (
-                                      <Tag
-                                        color={r.series_id ? 'blue' : 'green'}
-                                        icon={r.series_id ? <Tv size={10} /> : <Film size={10} />}
-                                        style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
-                                      >
-                                        {r.series_id ? t('dashboard.series') : t('dashboard.movie')}
-                                      </Tag>
+                                    {(r.series_id || r.movie_id || r.is_batch) && (
+                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+                                        {r.series_id && (
+                                          <Tag
+                                            color="blue"
+                                            icon={<Tv size={10} />}
+                                            style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
+                                          >
+                                            {t('dashboard.series')}
+                                          </Tag>
+                                        )}
+                                        {r.movie_id && (
+                                          <Tag
+                                            color="green"
+                                            icon={<Film size={10} />}
+                                            style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
+                                          >
+                                            {t('dashboard.movie')}
+                                          </Tag>
+                                        )}
+                                        {/* Batch flag lives here instead of its own column */}
+                                        {r.is_batch && (
+                                          <Tag style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }} color="orange">
+                                            {t('channels.tagBatch')}
+                                          </Tag>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
                                 </div>
                               </td>
-                              <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} data-label={t('channels.episode')}>
-                                <EpisodeCell r={r} />
-                              </td>
-                              <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
-                              <td style={{ padding: '6px 8px' }} data-label={t('channels.videoCodec')}>{r.video_codec || '—'}</td>
-                              <td style={{ padding: '6px 8px' }} data-label={t('channels.audioCodec')}>{r.audio_codec || '—'}</td>
-                              <td style={{ padding: '6px 8px' }} data-label={t('channels.subtitleLangs')}>
-                                <SubtitleLangsCell langs={r.subtitle_langs} />
-                              </td>
-                              <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
-                                <Text ellipsis style={{ display: 'block' }}>
-                                  {r.subtitle_group || '—'}
-                                </Text>
-                              </td>
-                              <td style={{ padding: '6px 8px', color: 'var(--rr-text-muted)' }} data-label={t('channels.publishedAt')}>
-                                {r.published_at ? timeAgo(r.published_at) : '—'}
-                              </td>
+                              {requiredColumns.map((k) => (
+                                <td
+                                  key={k}
+                                  style={{ padding: '6px 8px' }}
+                                  data-label={t(`channels.requiredField_${k}`, { defaultValue: k })}
+                                >
+                                  <RequiredFieldCell r={r} fieldKey={k} />
+                                </td>
+                              ))}
                               <td
+                                className="cell-sticky-actions"
                                 style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}
                                 onClick={(e) => e.stopPropagation()}
                               >
@@ -882,6 +918,11 @@ export default function ChannelDetail() {
                   <Tag color={groupColor(g.type)} icon={groupIcon(g.type)}>
                     {g.type === 'series' ? t('dashboard.series') : t('dashboard.movie')}
                   </Tag>
+                  {g.resources.length > 0 && g.resources.every((r) => r.is_batch) && (
+                    <Tag color="orange" style={{ fontSize: 11 }}>
+                      {t('channels.tagBatch')}
+                    </Tag>
+                  )}
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {g.resources.length}{t('channels.resources')}
                   </Text>
@@ -916,29 +957,27 @@ export default function ChannelDetail() {
               <div className="resource-table-wrap">
               <table className="resource-table resource-table-known">
                 <colgroup>
-                  <col style={{ width: 40 }} />
-                  <col style={{ width: 140 }} />
-                  <col style={{ width: 84 }} />
-                  <col style={{ width: 88 }} />
-                  <col style={{ width: 84 }} />
-                  <col style={{ width: 72 }} />
-                  <col style={{ width: 150 }} />
-                  <col />
-                  <col style={{ width: 120 }} />
-                  <col style={{ width: 76 }} />
+                  <col className="col-sticky-check" style={{ width: 40 }} />
+                  {requiredColumns.map((k) => (
+                    <col key={k} style={{ width: requiredFieldWidth(k) }} />
+                  ))}
+                  <col className="col-sticky-actions" style={{ width: 120 }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}></th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.episode')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.resolution')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.videoCodec')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.audioCodec')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.container')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleLangs')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.subtitleGroup')}</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>{t('channels.publishedAt')}</th>
-                    <th style={{ textAlign: 'right', padding: '6px 8px' }}></th>
+                    <th
+                      className="cell-sticky cell-sticky-check"
+                      style={{ textAlign: 'left', padding: '6px 8px' }}
+                    ></th>
+                    {requiredColumns.map((k) => (
+                      <th key={k} style={{ textAlign: 'left', padding: '6px 8px' }}>
+                        {t(`channels.requiredField_${k}`, { defaultValue: k })}
+                      </th>
+                    ))}
+                    <th
+                      className="cell-sticky-actions"
+                      style={{ textAlign: 'right', padding: '6px 8px' }}
+                    ></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -950,7 +989,7 @@ export default function ChannelDetail() {
                       className="resource-row"
                     >
                       <td
-                        className="resource-check-cell"
+                        className="resource-check-cell cell-sticky cell-sticky-check"
                         style={{ padding: '6px 8px' }}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -959,25 +998,17 @@ export default function ChannelDetail() {
                           onChange={(e) => toggleResource(r.id, e.target.checked)}
                         />
                       </td>
-                      <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} data-label={t('channels.episode')}>
-                        <EpisodeCell r={r} />
-                      </td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.resolution')}>{r.resolution || '—'}</td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.videoCodec')}>{r.video_codec || '—'}</td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.audioCodec')}>{r.audio_codec || '—'}</td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.container')}>{r.container || '—'}</td>
-                      <td style={{ padding: '6px 8px' }} data-label={t('channels.subtitleLangs')}>
-                        <SubtitleLangsCell langs={r.subtitle_langs} />
-                      </td>
-                      <td className="resource-text-cell" style={{ padding: '6px 8px' }} data-label={t('channels.subtitleGroup')}>
-                        <Text ellipsis style={{ display: 'block' }}>
-                          {r.subtitle_group || '—'}
-                        </Text>
-                      </td>
-                      <td style={{ padding: '6px 8px', color: 'var(--rr-text-muted)' }} data-label={t('channels.publishedAt')}>
-                        {r.published_at ? timeAgo(r.published_at) : '—'}
-                      </td>
+                      {requiredColumns.map((k) => (
+                        <td
+                          key={k}
+                          style={{ padding: '6px 8px' }}
+                          data-label={t(`channels.requiredField_${k}`, { defaultValue: k })}
+                        >
+                          <RequiredFieldCell r={r} fieldKey={k} />
+                        </td>
+                      ))}
                       <td
+                        className="cell-sticky-actions"
                         style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}
                         onClick={(e) => e.stopPropagation()}
                       >

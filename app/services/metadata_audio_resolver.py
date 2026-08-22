@@ -1,7 +1,7 @@
 """AudioWork resolver for the metadata agent.
 
 Resolves audio-marked resources (ASMR / music / drama CD / radio) into
-AudioWork entities: local title match -> Wikipedia/Exa search -> title-stub
+AudioWork entities: local title match -> Wikipedia search -> title-stub
 fallback. Extracted from ``metadata_agent`` (Phase 3); the agent keeps a thin
 delegating ``_resolve_audio_work`` method so ``process``'s ``self._resolve_audio_work``
 call is unchanged.
@@ -16,8 +16,6 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.metadata_resource_meta import ResourceMetadata
-from app.services.metadata_source_io import _execute_search_exa_agent
-from app.services.metadata_sources import resolve_metadata_source
 from app.services.metadata_wiki_query import _CJK_RE, _candidate_queries
 from app.services.metadata_wikipedia_client import (
     _execute_get_wikipedia_page,
@@ -76,40 +74,19 @@ async def _search_audio_wikipedia(
     }
 
 
-async def _search_audio_exa(search_title: str) -> dict | None:
-    """Best-effort Exa match for an audio work. Returns a matched entity
-    dict or None."""
-    res = await _execute_search_exa_agent(search_title)
-    if not isinstance(res, dict) or not res.get("success"):
-        return None
-    data = res.get("data") or []
-    if not data:
-        return None
-    cand = data[0]
-    return {
-        "title_cn": cand.get("title_cn") or cand.get("title_en") or cand.get("title"),
-        "title_en": cand.get("title_en"),
-        "external_id": cand.get("external_id"),
-        "external_source": cand.get("external_source") or "exa",
-        "description": cand.get("description"),
-        "poster_url": cand.get("poster_url"),
-    }
-
-
 async def _resolve_audio_work(
     resource: Any,
-    channel: Any,
+    channel: Any,  # noqa: ARG002 - kept for signature parity
     db: AsyncSession,
     audio_type: str,
     force_refresh: bool,  # noqa: ARG002 - kept for signature parity
 ) -> ResourceMetadata | None:
     """Resolve an audio-marked resource into an AudioWork entity.
 
-    Tries a local match first (no search), then a general-purpose source
-    search (Wikipedia / Exa; TMDB falls back to Wikipedia). On no external
-    match, creates a title-stub AudioWork so the resource is grouped and
-    never retried. Links ``resource.audio_work_id`` and returns a
-    found=True ``ResourceMetadata``.
+    Tries a local match first (no search), then a Wikipedia search (audio
+    works have no TMDB coverage). On no external match, creates a title-stub
+    AudioWork so the resource is grouped and never retried. Links
+    ``resource.audio_work_id`` and returns a found=True ``ResourceMetadata``.
     """
     from app.services.metadata_service import (
         AUTO_LINK_THRESHOLD,
@@ -146,22 +123,15 @@ async def _resolve_audio_work(
             matched_entity={"external_id": existing.external_id},
         )
 
-    # 2. External search via a general-purpose source. Audio works have no
-    # TMDB coverage, so TMDB/local channels fall back to Wikipedia (free).
-    source = resolve_metadata_source(getattr(channel, "metadata_source", None))
-    if source not in ("wikipedia", "exa"):
-        source = "wikipedia"
-
+    # 2. External search via Wikipedia (free, general-purpose). Audio works
+    # have no TMDB coverage, so every channel source resolves here.
     matched: dict | None = None
     try:
-        if source == "wikipedia":
-            matched = await _search_audio_wikipedia(raw_title, search_title)
-        else:
-            matched = await _search_audio_exa(search_title)
+        matched = await _search_audio_wikipedia(raw_title, search_title)
     except Exception as e:
         logger.warning(
-            "[metadata_agent] audio %s search failed for %r: %s",
-            source, raw_title[:60], e,
+            "[metadata_agent] audio wikipedia search failed for %r: %s",
+            raw_title[:60], e,
         )
 
     if matched is None:

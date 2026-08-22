@@ -34,14 +34,16 @@ class Settings(BaseSettings):
     # CJK/JA/EN coverage. Empty string disables the jina source at runtime.
     jina_api_key: str = ""
 
-    # Exa AI Agent API (deeper, structured-agent web metadata source)
-    exa_api_key: str = ""
-    exa_effort_level: str = "low"  # "minimal" | "low" | "medium" | "high" | "xhigh"
+    # Exa MCP (free web-search fallback for the wikipedia/tmdb/bangumi
+    # primary sources). Uses the public Exa MCP endpoint — no API key, no
+    # billing. Env var: EXA_MCP_URL.
+    exa_mcp_url: str = "https://mcp.exa.ai/mcp"
 
     # Metadata source enable switches. A source is offered as a candidate in the
     # channel form only when its switch is on AND its credentials are configured
     # (wikipedia needs no API key). Turning a switch off hides an otherwise
-    # configured source without clearing its key. Env vars: EXA_ENABLED,
+    # configured source without clearing its key. ``exa_enabled`` gates only
+    # the Exa MCP search fallback. Env vars: EXA_ENABLED,
     # JINA_ENABLED, TMDB_ENABLED, WIKIPEDIA_ENABLED.
     exa_enabled: bool = True
     jina_enabled: bool = True

@@ -19,6 +19,7 @@ import { Wand2, PlusCircle, ListFilter, Tv, Film } from 'lucide-react';
 import { channelsApi } from '../api/channels';
 import { agentsApi } from '../api/agents';
 import FilterBuilder from './FilterBuilder';
+import useAgentFilterFields from '../hooks/useAgentFilterFields';
 import { findInvalidConditions, nullIfEmptyFilter } from './filterUtils';
 import type {
   Agent,
@@ -146,6 +147,8 @@ export default function FilterSummaryModal({
   const [applyAgentId, setApplyAgentId] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [form] = Form.useForm();
+  // Channel required-fields gate for the filter editors below.
+  const allowedFilterFields = useAgentFilterFields(channelId);
 
   useEffect(() => {
     if (!open || selectedIds.length === 0) return;
@@ -422,6 +425,7 @@ export default function FilterSummaryModal({
                       value={w.filter_overrides}
                       onChange={(v) => updateWorkOverrides(idx, v)}
                       channelId={channelId}
+                      allowedFields={allowedFilterFields}
                     />
                   </Card>
                 ))}
@@ -449,7 +453,7 @@ export default function FilterSummaryModal({
                 {t('filter.globalRulesEmptyHint')}
               </Typography.Text>
             )}
-            <FilterBuilder value={globalConfig} onChange={setGlobalConfig} channelId={channelId} />
+            <FilterBuilder value={globalConfig} onChange={setGlobalConfig} channelId={channelId} allowedFields={allowedFilterFields} />
           </div>
 
           <Segmented

@@ -52,6 +52,41 @@ class TestResourceList:
         assert res.status_code == 200
         assert res.json()["data"]["id"] == rid
 
+    async def test_list_includes_work_collection(
+        self, client, sample_channel, db_session_factory
+    ):
+        """The work-collection brief rides along on the nested series/movie
+        (eager-loaded); serialization must not recurse on the
+        collection.members backref."""
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+
+        async with db_session_factory() as s:
+            coll = WorkCollection(
+                title_cn="测试合集", external_source="tmdb_collection", external_id="1"
+            )
+            series = TVSeries(
+                title_cn="剧集", external_id="tmdb:1", external_source="tmdb",
+                collection=coll,
+            )
+            s.add_all([coll, series])
+            await s.flush()
+            sid = series.id
+            await s.commit()
+        await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="R-coll", series_id=sid
+        )
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/resources?matched=true"
+        )
+        assert res.status_code == 200, res.text[:500]
+        data = res.json()["data"]
+        items = data["groups"] if isinstance(data, dict) else data
+        item = items[0]
+        if "resources" in item:
+            item = item["resources"][0]
+        assert item["series"]["collection"]["title_cn"] == "测试合集"
+
     async def test_get_resource_404(self, client):
         res = await client.get("/api/v1/resources/nope")
         assert res.status_code == 404
@@ -178,6 +213,19 @@ class TestResourceSearchLink:
                                     json={"search_title": "unk", "content_type": "tv"})
         assert res.status_code == 200
         assert len(res.json()["data"]["results"]) == 1
+
+    async def test_search_result_none_genre_coerced(self, client, sample_channel, db_session_factory):
+        """LLM 候选 genre=None（未提供）不再 500，响应统一为空列表。"""
+        rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="RAW-g")
+        fake = [{"content_type": "tv", "title_cn": "猫与龙", "genre": None}]
+        with patch(
+            "app.services.metadata_service.search_metadata_via_llm",
+            new_callable=AsyncMock, return_value=fake,
+        ):
+            res = await client.post(f"/api/v1/resources/{rid}/metadata/search",
+                                    json={"search_title": "猫与龙", "content_type": "tv"})
+        assert res.status_code == 200
+        assert res.json()["data"]["results"][0]["genre"] == []
 
     async def test_search_llm_error_returns_502(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="RAW-e")

@@ -4,7 +4,7 @@ Stores cached results keyed by ``(title, source)`` where ``source`` namespaces
 the cache by both type and data source:
 
 - ``"metadata_agent:<source>"`` - Full metadata agent result for one external
-  source (e.g. ``"metadata_agent:jina"``, ``"metadata_agent:exa"``), including
+  source (e.g. ``"metadata_agent:jina"``, ``"metadata_agent:wikipedia"``), including
   clean_title, content_type, inferred episode/season, matched entity, and
   confidence. Namespacing by source keeps one source's results from being
   served for a channel configured with a different source.

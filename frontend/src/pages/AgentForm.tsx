@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
+import useAgentFilterFields from '../hooks/useAgentFilterFields';
 import {
   Form,
   Input,
@@ -18,12 +19,20 @@ import {
   Radio,
   Spin,
   Divider,
+  Alert,
+  Tabs,
 } from 'antd';
 import { agentsApi } from '../api/agents';
 import { channelsApi } from '../api/channels';
 import { downloadersApi } from '../api/downloaders';
 import FilterBuilder from '../components/FilterBuilder';
-import { findInvalidConditions, nullIfEmptyFilter } from '../components/filterUtils';
+import PreferenceListEditor from '../components/PreferenceListEditor';
+import {
+  findInvalidConditions,
+  isEmptyValue,
+  isNoValueOperator,
+  nullIfEmptyFilter,
+} from '../components/filterUtils';
 import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import type {
@@ -33,6 +42,7 @@ import type {
   BoolCondition,
   Channel,
   DownloaderInstance,
+  FieldCondition,
   RulesPreviewRequest,
   RulesPreviewResponse,
 } from '../types';
@@ -64,6 +74,7 @@ export default function AgentForm() {
   const [downloaders, setDownloaders] = useState<DownloaderInstance[]>([]);
   const [works, setWorks] = useState<AgentWork[]>([]);
   const [filterConfig, setFilterConfig] = useState<BoolCondition | null>(null);
+  const [pickPreferences, setPickPreferences] = useState<FieldCondition[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(mode === 'edit');
   const [channelWide, setChannelWide] = useState(false);
@@ -79,6 +90,9 @@ export default function AgentForm() {
   // the form is submitted.
   const channelId = Form.useWatch('channel_id', form) as string | undefined;
   const llmEnabled = Form.useWatch('llm_enabled', form) as boolean | undefined;
+  // Channel required-fields gate for the filter DSL editors (null =
+  // unrestricted; pick preferences are exempt and never receive this).
+  const allowedFilterFields = useAgentFilterFields(channelId);
 
   useEffect(() => {
     Promise.all([channelsApi.list(1, 100), downloadersApi.list(1, 100)]).then(
@@ -115,6 +129,7 @@ export default function AgentForm() {
           });
           setChannelWide(a.scope_channel_wide);
           setFilterConfig(a.filter_config);
+          setPickPreferences(a.pick_preferences ?? []);
           if (a.works) setWorks(a.works);
         } else {
           message.error(t('agents.loadFailed'));
@@ -161,6 +176,7 @@ export default function AgentForm() {
     llm_prompt: values.llm_prompt?.trim() || null,
     scope_channel_wide: values.scope_channel_wide,
     conflict_resolution: values.conflict_resolution,
+    pick_preferences: pickPreferences.length > 0 ? pickPreferences : null,
     filter_config: nullIfEmptyFilter(filterConfig),
     works: values.scope_channel_wide
       ? []
@@ -216,7 +232,10 @@ export default function AgentForm() {
     // block the save here so the user gets a clear inline-level message.
     if (
       findInvalidConditions(filterConfig).length > 0 ||
-      works.some((w) => findInvalidConditions(w.filter_overrides).length > 0)
+      works.some((w) => findInvalidConditions(w.filter_overrides).length > 0) ||
+      pickPreferences.some(
+        (c) => !isNoValueOperator(c.operator) && isEmptyValue(c.value),
+      )
     ) {
       message.error(t('filter.emptyValueNotAllowed'));
       return;
@@ -294,139 +313,215 @@ export default function AgentForm() {
             }
           }}
         >
-          <Form.Item name="name" label={t('common.name')} rules={[{ required: true, message: t('agents.pleaseEnterName') }]}>
-            <Input placeholder={t('agents.nameExample')} />
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="channel_id"
-                label={t('agents.channel')}
-                rules={[{ required: true, message: t('agents.selectChannel') }]}
-              >
-                <Select
-                  placeholder={t('agents.selectChannel')}
-                  options={channels.map((c) => ({ label: c.name, value: c.id }))}
-                  disabled={mode === 'edit'}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="downloader_id"
-                label={t('agents.downloader')}
-                rules={[{ required: true, message: t('agents.selectDownloader') }]}
-              >
-                <Select
-                  placeholder={t('agents.selectDownloader')}
-                  options={downloaders.map((d) => ({ label: d.name, value: d.id }))}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item
-            name="download_subdir"
-            label={t('agents.downloadSubdir')}
-            rules={[
+          <Tabs
+            defaultActiveKey="basic"
+            items={[
               {
-                pattern: /^(?![\\/])(?![A-Za-z]:[\\/])(?!~)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))(?!.*[\\/]$).*$/,
-                message: t('agents.subdirHint'),
+                key: 'basic',
+                label: t('agents.tabBasic'),
+                forceRender: true,
+                children: (
+                  <>
+                    <Form.Item name="name" label={t('common.name')} rules={[{ required: true, message: t('agents.pleaseEnterName') }]}>
+                      <Input placeholder={t('agents.nameExample')} />
+                    </Form.Item>
+
+                    <Row gutter={16}>
+                      <Col xs={24} sm={12}>
+                        <Form.Item
+                          name="channel_id"
+                          label={t('agents.channel')}
+                          rules={[{ required: true, message: t('agents.selectChannel') }]}
+                        >
+                          <Select
+                            placeholder={t('agents.selectChannel')}
+                            options={channels.map((c) => ({ label: c.name, value: c.id }))}
+                            disabled={mode === 'edit'}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} sm={12}>
+                        <Form.Item
+                          name="downloader_id"
+                          label={t('agents.downloader')}
+                          rules={[{ required: true, message: t('agents.selectDownloader') }]}
+                        >
+                          <Select
+                            placeholder={t('agents.selectDownloader')}
+                            options={downloaders.map((d) => ({ label: d.name, value: d.id }))}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    <Form.Item
+                      name="download_subdir"
+                      label={t('agents.downloadSubdir')}
+                      rules={[
+                        {
+                          pattern: /^(?![\\/])(?![A-Za-z]:[\\/])(?!~)(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))(?!.*[\\/]$).*$/,
+                          message: t('agents.subdirHint'),
+                        },
+                      ]}
+                    >
+                      <Input placeholder={t('agents.subdirExample')} allowClear />
+                    </Form.Item>
+
+                    <Row gutter={16}>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="task_expire_days" label={t('agents.taskRetention')}>
+                          <InputNumber min={1} style={{ width: '100%' }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="conflict_resolution" label={t('agents.conflictResolution')}>
+                          <Radio.Group>
+                            <Radio value="ask">{t('agents.ask')}</Radio>
+                            <Radio value="auto">{t('agents.auto')}</Radio>
+                          </Radio.Group>
+                        </Form.Item>
+                      </Col>
+                    </Row>
+
+                    {mode === 'create' && (
+                      <Form.Item
+                        name="run_immediately"
+                        label={t('agents.runImmediately')}
+                        valuePropName="checked"
+                        extra={t('agents.runImmediatelyHint')}
+                      >
+                        <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
+                      </Form.Item>
+                    )}
+                  </>
+                ),
+              },
+              {
+                key: 'filters',
+                label: t('agents.tabFilters'),
+                forceRender: true,
+                children: (
+                  <>
+                    {/* 内置去重逻辑：信息提示高亮、默认展开，置于所有 DSL 条件表单之前 */}
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 20 }}
+                      message={t('agents.dedupInfoTitle')}
+                      description={
+                        <Space direction="vertical" size={8} style={{ display: 'flex' }}>
+                          {(['Tv', 'Movie', 'Batch'] as const).map((kind) => (
+                            <div key={kind}>
+                              <Text strong style={{ fontSize: 12, display: 'block' }}>
+                                {t(`agents.dedup${kind}Title`)}
+                              </Text>
+                              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                                {t(`agents.dedup${kind}Desc`)}
+                              </Text>
+                            </div>
+                          ))}
+                        </Space>
+                      }
+                    />
+
+                    {/* ① 全局过滤条件 */}
+                    <div style={{ marginBottom: 20 }}>
+                      <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                        {t('agents.globalFilter')}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        {t('agents.globalFilterDesc')}
+                      </Text>
+                      {allowedFilterFields != null && (
+                        <Text type="warning" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                          {t('agents.filterFieldsGated')}
+                        </Text>
+                      )}
+                      <FilterBuilder value={filterConfig} onChange={setFilterConfig} channelId={channelId} allowedFields={allowedFilterFields} />
+                    </div>
+
+                    <Divider style={{ margin: '16px 0' }} />
+
+                    {/* ② 订阅作品：「订阅范围」toggle 与订阅条件编辑一体化 */}
+                    <div style={{ marginBottom: 20 }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                          marginBottom: 4,
+                        }}
+                      >
+                        <Text strong>{t('agents.subscribedWorks')}</Text>
+                        <Space size={8}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {t('agents.subscribeScope')}
+                          </Text>
+                          <Form.Item name="scope_channel_wide" valuePropName="checked" noStyle>
+                            <Switch
+                              checkedChildren={t('agents.channelWide')}
+                              unCheckedChildren={t('agents.selectedWorks')}
+                            />
+                          </Form.Item>
+                        </Space>
+                      </div>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        {channelWide ? t('agents.scopeChannelWideDesc') : t('agents.scopeWorksDesc')}
+                      </Text>
+                      {!channelWide && (
+                        <WorkSelector value={works} onChange={setWorks} maxWorks={10} channelId={channelId} globalFilter={filterConfig} allowedFields={allowedFilterFields} />
+                      )}
+                    </div>
+
+                    <Divider style={{ margin: '16px 0' }} />
+
+                    {/* ③ 按条件优选（pick_preferences 不受必选字段门控） */}
+                    <div style={{ marginBottom: 20 }}>
+                      <Text strong style={{ display: 'block', marginBottom: 4 }}>
+                        {t('agents.pickPreferences')}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+                        {t('agents.pickPreferencesDesc')}
+                      </Text>
+                      <PreferenceListEditor
+                        value={pickPreferences}
+                        onChange={setPickPreferences}
+                        channelId={channelId}
+                      />
+                    </div>
+
+                    <Divider style={{ margin: '16px 0' }} />
+
+                    {/* ④ LLM 判断优选 */}
+                    <div style={{ marginBottom: 16 }}>
+                      <Space size={8}>
+                        <Form.Item name="llm_enabled" valuePropName="checked" noStyle>
+                          <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
+                        </Form.Item>
+                        <Text strong>{t('agents.llmDecision')}</Text>
+                      </Space>
+                      {llmEnabled && (
+                        <Form.Item
+                          name="llm_prompt"
+                          label={t('agents.llmPrompt')}
+                          tooltip={t('agents.llmPromptHint')}
+                          style={{ marginTop: 12 }}
+                        >
+                          <Input.TextArea
+                            placeholder={t('agents.llmPromptPlaceholder')}
+                            autoSize={{ minRows: 2, maxRows: 6 }}
+                            allowClear
+                          />
+                        </Form.Item>
+                      )}
+                    </div>
+                  </>
+                ),
               },
             ]}
-          >
-            <Input placeholder={t('agents.subdirExample')} allowClear />
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item name="task_expire_days" label={t('agents.taskRetention')}>
-                <InputNumber min={1} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item name="conflict_resolution" label={t('agents.conflictResolution')}>
-                <Radio.Group>
-                  <Radio value="ask">{t('agents.ask')}</Radio>
-                  <Radio value="auto">{t('agents.auto')}</Radio>
-                </Radio.Group>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="llm_enabled"
-                label={t('agents.llmDecision')}
-                valuePropName="checked"
-              >
-                <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item
-                name="scope_channel_wide"
-                label={t('agents.subscribeScope')}
-                valuePropName="checked"
-              >
-                <Switch
-                  checkedChildren={t('agents.channelWide')}
-                  unCheckedChildren={t('agents.selectedWorks')}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          {mode === 'create' && (
-            <Form.Item
-              name="run_immediately"
-              label={t('agents.runImmediately')}
-              valuePropName="checked"
-              extra={t('agents.runImmediatelyHint')}
-            >
-              <Switch checkedChildren={t('agents.on')} unCheckedChildren={t('agents.off')} />
-            </Form.Item>
-          )}
-
-          {llmEnabled && (
-            <Form.Item
-              name="llm_prompt"
-              label={t('agents.llmPrompt')}
-              tooltip={t('agents.llmPromptHint')}
-            >
-              <Input.TextArea
-                placeholder={t('agents.llmPromptPlaceholder')}
-                autoSize={{ minRows: 2, maxRows: 6 }}
-                allowClear
-              />
-            </Form.Item>
-          )}
-
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: -8, marginBottom: 16 }}>
-            {channelWide
-              ? t('agents.scopeChannelWideDesc')
-              : t('agents.scopeWorksDesc')}
-          </Text>
-
-          <Divider style={{ margin: '12px 0' }} />
-
-          {!channelWide && (
-            <div style={{ marginBottom: 20 }}>
-              <WorkSelector value={works} onChange={setWorks} maxWorks={10} channelId={channelId} globalFilter={filterConfig} />
-            </div>
-          )}
-
-          <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>
-              {t('agents.globalFilter')}
-            </Text>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-              {t('agents.globalFilterDesc')}
-            </Text>
-            <FilterBuilder value={filterConfig} onChange={setFilterConfig} channelId={channelId} />
-          </div>
+          />
 
           <Form.Item style={{ marginTop: 24, marginBottom: 0 }}>
             <Space>

@@ -1,7 +1,7 @@
-"""Tests for metadata_exa_fallback: URL id extraction, Exa search wrapper,
+"""Tests for metadata_exa_fallback: URL id extraction, Exa MCP search wrapper,
 LLM judge, and the public exa_fallback_judge entry point.
 
-No network: exa_py and the LLM model are mocked.
+No network: the Exa MCP client and the LLM model are mocked.
 """
 
 from types import SimpleNamespace
@@ -86,52 +86,47 @@ def test_build_exa_evidence_text_format():
 # ---------------------------------------------------------------------------
 
 
-async def test_exa_web_search_returns_empty_without_config():
+async def test_exa_web_search_returns_empty_when_disabled():
     with patch.dict(
         "app.services.runtime_config._overrides",
-        {"exa_api_key": "", "exa_enabled": "false"},
+        {"exa_enabled": "false"},
     ):
         assert await _exa_web_search("anything") == []
 
 
 async def test_exa_web_search_normalizes_results():
-    resp = SimpleNamespace(results=[
-        SimpleNamespace(
-            url="https://bangumi.tv/subject/42",
-            title="Work",
-            text="desc",
-            highlights=["h1", "h2", "h3"],
-        ),
+    raw = [
+        {"url": "https://bangumi.tv/subject/42", "title": "Work", "text": "desc"},
         {"url": "https://example.com/p", "title": "Doc", "text": "t"},
-    ])
-    exa = SimpleNamespace(search=AsyncMock(return_value=resp))
+    ]
     with (
         patch.dict(
             "app.services.runtime_config._overrides",
-            {"exa_api_key": "k", "exa_enabled": "true"},
+            {"exa_enabled": "true"},
         ),
-        patch("exa_py.AsyncExa", return_value=exa),
+        patch("app.services.exa_mcp_client.web_search", new=AsyncMock(return_value=raw)),
     ):
         hits = await _exa_web_search("query")
 
     assert len(hits) == 2
     assert hits[0]["external_source"] == "bangumi"
     assert hits[0]["external_id"] == "bangumi:42"
-    assert hits[0]["highlights"] == ["h1", "h2"]  # capped at 2
     assert hits[0]["source_domain"] == "bangumi.tv"
-    # dict-shaped result also supported; unknown host -> exa_web
+    # unknown host -> exa_web
     assert hits[1]["external_source"] == "exa_web"
     assert hits[1]["external_id"] is None
 
 
 async def test_exa_web_search_reraises_search_errors():
-    exa = SimpleNamespace(search=AsyncMock(side_effect=RuntimeError("rate limited")))
     with (
         patch.dict(
             "app.services.runtime_config._overrides",
-            {"exa_api_key": "k", "exa_enabled": "true"},
+            {"exa_enabled": "true"},
         ),
-        patch("exa_py.AsyncExa", return_value=exa),
+        patch(
+            "app.services.exa_mcp_client.web_search",
+            new=AsyncMock(side_effect=RuntimeError("rate limited")),
+        ),
         pytest.raises(RuntimeError, match="rate limited"),
     ):
         await _exa_web_search("query")
@@ -194,10 +189,10 @@ async def test_exa_judge_unparseable_json_returns_none():
 # ---------------------------------------------------------------------------
 
 
-async def test_fallback_returns_none_when_exa_not_configured():
+async def test_fallback_returns_none_when_exa_disabled():
     with patch.dict(
         "app.services.runtime_config._overrides",
-        {"exa_api_key": "", "exa_enabled": "false"},
+        {"exa_enabled": "false"},
     ):
         assert await exa_fallback_judge(AsyncMock(), "title") is None
 

@@ -34,6 +34,13 @@ class Agent(Base):
     # metadata, highest resolution, subtitles, newest). Applies to both the
     # "auto" conflict-resolution path and the suggestion shown in "ask" mode.
     llm_prompt: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    # Ordered candidate-preference rules (FieldCondition JSON list, first rule
+    # = highest priority). In conflict resolution they rank same-key candidates
+    # deterministically (lexicographic tie-break) BEFORE the LLM pick: a unique
+    # winner dispatches/suggests without any LLM call; a remaining tie goes to
+    # the LLM, then the heuristic scorer. Preferences only ever reorder —
+    # they never filter candidates out of the conflict set.
+    pick_preferences: Mapped[list | None] = mapped_column(JSON, nullable=True)
     filter_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("active", "paused", "error", name="agent_status"),

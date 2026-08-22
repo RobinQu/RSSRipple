@@ -349,6 +349,10 @@ async def _apply_light_migrations(conn) -> None:
         # Ordered Exa-fallback site whitelist for the channel (JSON list of
         # registry source names). NULL → default order; [] → fallback disabled.
         ("channels", "metadata_fallback_sources", "TEXT" if is_turso else "JSONB"),
+        # Channel-declared required work-metadata fields (JSON list of catalog
+        # keys). NULL → unrestricted (legacy); [] → agent filters locked to
+        # resource-level fields only.
+        ("channels", "required_metadata_fields", "TEXT" if is_turso else "JSONB"),
         # Metadata retry state on FileResource: ``metadata_matched_at`` only
         # records successes, so failed attempts looked like "never tried".
         # These let the fetch-time backfill re-run transient failures (with
@@ -435,6 +439,10 @@ async def _apply_light_migrations(conn) -> None:
         # list, persisted from torrent content analysis) — drives the strict
         # content-coverage dedup of batch resources in the agent runner.
         ("file_resources", "batch_seasons", "TEXT" if is_turso else "JSONB"),
+        # Ordered candidate-preference rules on Agent (JSON FieldCondition
+        # list): deterministic ranking layer ahead of the LLM pick in
+        # conflict resolution (ranks only, never filters).
+        ("agents", "pick_preferences", "TEXT" if is_turso else "JSONB"),
     ]
 
     for table, column, ddl in additions:
@@ -518,6 +526,61 @@ async def _apply_light_migrations(conn) -> None:
             "WHERE metadata_source IS NOT NULL "
             "AND metadata_source NOT IN ('wikipedia', 'tmdb')"
         ))
+
+    # ── channels.required_metadata_fields baseline convergence ───────────
+    # The required-fields list is mandatory and add-only after creation:
+    # every channel must carry at least the code-enforced baseline (base
+    # title/type/batch/year/anime fields plus the shape-scoped TV episode
+    # fields and the franchise-pack collection link). Legacy NULL rows and
+    # partial lists are converged once here: NULL → baseline; existing lists
+    # gain any missing locked keys; every row is reordered into canonical
+    # catalog order so the stacked display column renders deterministically.
+    # Idempotent: converged rows normalize to themselves on re-run.
+    async with _best_effort(conn, "channels.required_metadata_fields baseline"):
+        import json as _json
+
+        from app.services.required_fields import normalize_required_fields
+
+        rows = await conn.execute(
+            text("SELECT id, required_metadata_fields FROM channels")
+        )
+        updated = 0
+        for row in rows:
+            raw = row.required_metadata_fields
+            if isinstance(raw, str):
+                try:
+                    current = _json.loads(raw)
+                except ValueError:
+                    current = []
+            else:
+                current = list(raw or [])
+            normalized = normalize_required_fields(current)
+            if normalized == current:
+                continue
+            payload = _json.dumps(normalized)
+            if is_postgres:
+                await conn.execute(
+                    text(
+                        "UPDATE channels SET required_metadata_fields = "
+                        "CAST(:val AS JSONB) WHERE id = :id"
+                    ),
+                    {"val": payload, "id": row.id},
+                )
+            else:
+                await conn.execute(
+                    text(
+                        "UPDATE channels SET required_metadata_fields = :val "
+                        "WHERE id = :id"
+                    ),
+                    {"val": payload, "id": row.id},
+                )
+            updated += 1
+        if updated:
+            logger.info(
+                "[migrate] converged %d channel required_metadata_fields rows "
+                "to the locked baseline",
+                updated,
+            )
 
     # ── downloader_type enum widening ────────────────────────────────────
     # Older PostgreSQL DBs may have a native enum restricting

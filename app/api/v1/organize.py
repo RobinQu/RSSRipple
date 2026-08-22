@@ -45,6 +45,7 @@ from app.schemas.organize import (
     LibraryOut,
     LibraryUpdate,
     OrganizeAuditOut,
+    OrganizeCancelRequest,
     OrganizeClassifyRequest,
     OrganizeExecuteBatchRequest,
     OrganizePlanDetail,
@@ -241,17 +242,24 @@ async def delete_library(library_id: str, db: AsyncSession = Depends(get_db)):
     lib = await _get_library_or_404(db, library_id)
     if isinstance(lib, JSONResponse):
         return lib
-    plan_count = (
+    # Only *active* plans block deletion — a library mid-planning/execution
+    # must not disappear under the executor. Terminal plans (done / failed /
+    # cancelled) are historical audit rows; they are detached below instead of
+    # blocking the deletion forever.
+    active_plan_count = (
         await db.execute(
             select(func.count())
             .select_from(OrganizePlan)
-            .where(OrganizePlan.library_id == library_id)
+            .where(
+                OrganizePlan.library_id == library_id,
+                OrganizePlan.status.in_(("pending", "running")),
+            )
         )
     ).scalar_one()
-    if plan_count > 0:
+    if active_plan_count > 0:
         return _error(
             409, "DELETE_BLOCKED",
-            f"无法删除：{plan_count} 个整理计划仍引用该库，请先处理/取消计划",
+            f"无法删除：{active_plan_count} 个进行中的整理计划仍引用该库，请先处理/取消计划",
         )
     rule_count = (
         await db.execute(
@@ -265,6 +273,14 @@ async def delete_library(library_id: str, db: AsyncSession = Depends(get_db)):
             409, "DELETE_BLOCKED",
             f"无法删除：{rule_count} 条整理规则仍指向该库，请先删除或改指规则",
         )
+    # Detach terminal plans explicitly (dialect-safe equivalent of the FK's
+    # ON DELETE SET NULL): the rows survive as audit history without pinning
+    # the library row.
+    await db.execute(
+        update(OrganizePlan)
+        .where(OrganizePlan.library_id == library_id)
+        .values(library_id=None)
+    )
     await db.delete(lib)
     await db.commit()
     return success_response({"deleted": True})
@@ -652,15 +668,17 @@ async def get_plan(plan_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/organize/plans/{plan_id}/execute", status_code=202)
 async def execute_plan_endpoint(plan_id: str, db: AsyncSession = Depends(get_db)):
-    """后台执行单个计划（202）。仅 pending/failed 可执行；其余状态 409。"""
+    """后台执行单个计划（202）。pending/failed 与崩溃遗留的 running 可执行；其余状态 409。"""
     plan = await _get_plan_or_404(db, plan_id)
     if isinstance(plan, JSONResponse):
         return plan
-    if plan.status not in ("pending", "failed"):
+    if plan.status not in ("pending", "failed", "running"):
         return _error(
             409, "INVALID_STATE",
-            f"计划当前状态（{plan.status}）不可执行，仅 pending/failed 可执行",
+            f"计划当前状态（{plan.status}）不可执行，仅 pending/failed/running 可执行",
         )
+    if plan.status == "running" and organize_service.is_plan_executing(plan.id):
+        return _error(409, "ALREADY_RUNNING", "计划正在执行中")
     if plan.library_id is None:
         return _error(
             409, "INVALID_STATE", "待分类计划请先指定目标库（classify）再执行"
@@ -723,25 +741,65 @@ async def classify_plan_endpoint(
 
 
 @router.post("/organize/plans/{plan_id}/cancel")
-async def cancel_plan(plan_id: str, db: AsyncSession = Depends(get_db)):
-    """取消 pending/failed 计划 → cancelled；done/running 409。"""
+async def cancel_plan(
+    plan_id: str,
+    body: OrganizeCancelRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """取消 pending/failed 及崩溃遗留的 running 计划 → cancelled；done 409。
+
+    可选附带动作（body）：``delete_task`` 同时删除关联下载任务（任务行置
+    cancelled、移除下载器 torrent，保留磁盘数据）；``delete_data`` 蕴含
+    删除任务并连同磁盘数据一起删除。任务清理失败不阻断取消，清理结果随
+    响应的 ``task_cleaned`` 返回（未请求删除时为 null）。
+    """
     plan = await _get_plan_or_404(db, plan_id)
     if isinstance(plan, JSONResponse):
         return plan
-    if plan.status not in ("pending", "failed"):
+    if plan.status not in ("pending", "failed", "running"):
         return _error(
             409, "INVALID_STATE",
-            f"计划当前状态（{plan.status}）不可取消，仅 pending/failed 可取消",
+            f"计划当前状态（{plan.status}）不可取消，仅 pending/failed/running 可取消",
         )
+    if plan.status == "running" and organize_service.is_plan_executing(plan.id):
+        return _error(409, "ALREADY_RUNNING", "计划正在执行中，不可取消")
+    opts = body or OrganizeCancelRequest()
+    delete_task = opts.delete_task or opts.delete_data
+    task_cleaned: bool | None = None
+    if delete_task:
+        from app.services.task_cleanup import (
+            delete_task_after_organize,
+            delete_task_with_data,
+        )
+
+        notification = await db.get(DownloadNotification, plan.notification_id)
+        if notification is not None:
+            if opts.delete_data:
+                task_cleaned = await delete_task_with_data(
+                    db, notification.download_task_id
+                )
+            else:
+                task_cleaned = await delete_task_after_organize(
+                    db, notification.download_task_id
+                )
+    from_status = plan.status
     plan.status = "cancelled"
+    detail: dict = {"from_status": from_status}
+    if delete_task:
+        detail.update(
+            {"delete_task": True, "delete_data": opts.delete_data,
+             "task_cleaned": task_cleaned}
+        )
     db.add(
         OrganizeAuditEntry(
             plan_id=plan.id, action="cancelled",
-            detail={"from_status": "pending/failed"},
+            detail=detail,
         )
     )
     await db.commit()
-    return success_response({"id": plan.id, "status": plan.status})
+    return success_response(
+        {"id": plan.id, "status": plan.status, "task_cleaned": task_cleaned}
+    )
 
 
 # ---------------------------------------------------------------------------

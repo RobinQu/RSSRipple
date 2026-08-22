@@ -69,6 +69,101 @@ class TestChannelsCRUD:
         assert res.status_code == 200
         assert res.json()["data"]["name"] == "Renamed"
 
+    async def test_required_metadata_fields_crud(self, client, sample_channel):
+        from app.services.required_fields import (
+            REQUIRED_FIELD_CATALOG,
+            normalize_required_fields,
+        )
+
+        baseline = normalize_required_fields([])
+
+        # Default: locked baseline (mandatory, never unrestricted).
+        res = await client.get(f"/api/v1/channels/{sample_channel.id}")
+        assert res.json()["data"]["required_metadata_fields"] == baseline
+
+        # Set a selection: duplicates drop, baseline force-included,
+        # canonical catalog order applied.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_fields": ["rating", "genre", "rating"]},
+        )
+        assert res.status_code == 200
+        expected = [
+            k for k in REQUIRED_FIELD_CATALOG
+            if k in set(baseline) | {"rating", "genre"}
+        ]
+        assert res.json()["data"]["required_metadata_fields"] == expected
+
+        # Add-only policy: removing any saved key → 422. ("year" rides in with
+        # the locked baseline now, so an opt-in key exercises the removal.)
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_fields": ["rating"]},
+        )
+        assert res.status_code == 422
+        assert "genre" in res.json()["error"]["message"]
+
+        # Adding new keys on top of the saved ones is fine.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={
+                "required_metadata_fields": expected + ["genre"],
+            },
+        )
+        assert res.status_code == 200
+        assert "genre" in res.json()["data"]["required_metadata_fields"]
+
+        # Unknown catalog key → 422.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_fields": ["bogus"]},
+        )
+        assert res.status_code == 422
+
+        # Explicit null is rejected — there is no "unrestricted" state.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_fields": None},
+        )
+        assert res.status_code == 422
+
+    async def test_required_field_catalog_endpoint(self, client):
+        from app.services.required_fields import REQUIRED_FIELD_CATALOG
+
+        res = await client.get("/api/v1/channels/required-field-catalog")
+        assert res.status_code == 200
+        data = res.json()["data"]
+        # Sections order work-type grouping first, then cross-cutting groups.
+        assert data["sections"] == ["base", "tv", "pack", "release", "work"]
+        keys = [f["key"] for f in data["fields"]]
+        # Catalog covers every DSL field (resource-level keys under their own
+        # name; work fields paired under semantic keys).
+        assert keys == list(REQUIRED_FIELD_CATALOG)
+        rating = next(f for f in data["fields"] if f["key"] == "rating")
+        assert rating["dsl_fields"] == ["series.rating", "movie.rating"]
+        assert rating["locked"] is False
+        assert rating["section"] == "work"
+        resource_collection = next(
+            f for f in data["fields"] if f["key"] == "resource_collection"
+        )
+        assert resource_collection["dsl_fields"] == ["collection"]
+        assert resource_collection["section"] == "pack"
+        assert resource_collection["applies_to"] == ["franchise"]
+        season = next(f for f in data["fields"] if f["key"] == "season")
+        assert season["lock"] == "tv"
+        episode = next(f for f in data["fields"] if f["key"] == "episode")
+        assert episode["lock"] == "tv_single"
+        year = next(f for f in data["fields"] if f["key"] == "year")
+        assert year["locked"] is True
+        assert year["lock"] == "always"
+        locked_keys = {f["key"] for f in data["fields"] if f["locked"]}
+        assert locked_keys == {
+            "title_cn", "title_en", "search_title",
+            "content_type", "is_batch", "year", "is_anime",
+            "season", "episode", "episode_start", "episode_end",
+            "resource_collection",
+        }
+
     async def test_update_channel_status_not_editable(self, client, sample_channel):
         # status is system-managed; the edit form must not be able to set it.
         res = await client.put(

@@ -17,7 +17,6 @@ from app.database import get_db
 from app.schemas.common import success_response
 from app.services.metadata_agent import reset_metadata_agent
 from app.services.runtime_config import (
-    EXA_EFFORT_LEVELS,
     RUNTIME_SETTING_KEYS,
     is_secret,
     kind_of,
@@ -39,7 +38,7 @@ _GROUPS: list[dict[str, Any]] = [
         "keys": [
             "tmdb_api_key", "tmdb_enabled",
             "jina_api_key", "jina_enabled",
-            "exa_api_key", "exa_effort_level", "exa_enabled",
+            "exa_mcp_url", "exa_enabled",
             "wikipedia_enabled",
         ],
     },
@@ -78,7 +77,6 @@ def _build_response() -> dict[str, Any]:
     return {
         "settings": settings_map,
         "groups": _GROUPS,
-        "exa_effort_levels": list(EXA_EFFORT_LEVELS),
     }
 
 
@@ -96,8 +94,7 @@ class SystemSettingsUpdate(BaseModel):
     llm_enable_thinking: bool | None = None
     tmdb_api_key: str | None = None
     jina_api_key: str | None = None
-    exa_api_key: str | None = None
-    exa_effort_level: str | None = None
+    exa_mcp_url: str | None = None
     exa_enabled: bool | None = None
     jina_enabled: bool | None = None
     tmdb_enabled: bool | None = None
@@ -123,15 +120,6 @@ async def put_system_settings(
     payload = body.model_dump(exclude_unset=True)
     if not payload:
         raise HTTPException(status_code=400, detail="no settings fields provided")
-
-    if "exa_effort_level" in payload and payload["exa_effort_level"] is not None:
-        level = str(payload["exa_effort_level"]).strip().lower()
-        if level not in EXA_EFFORT_LEVELS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"exa_effort_level must be one of {', '.join(EXA_EFFORT_LEVELS)}",
-            )
-        payload["exa_effort_level"] = level
 
     for key, value in payload.items():
         if key not in RUNTIME_SETTING_KEYS:

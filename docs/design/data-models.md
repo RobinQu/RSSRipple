@@ -22,6 +22,20 @@ class Channel(Base):
                                          # 其他值被轻迁移归一为 "wikipedia"）；None = 运行时用默认值
     metadata_fallback_sources: list[str] | None  # Exa 回退有序站点白名单（注册表站点名）；
                                          # None = 默认顺序，[] = 禁用回退；仅补身份/链接
+    required_metadata_fields: list[str] | None   # 频道声明的必填元数据字段（覆盖全部 Filter DSL 字段：
+                                         # 资源级字段以 DSL 字段名为键，作品字段按 series./movie.
+                                         # 成对归入语义键 rating/year/genre/is_anime/collection，
+                                         # 资源级 franchise 合集展示名走 resource_collection 键；
+                                         # 权威目录 app/services/required_fields.py，两级分组：
+                                         # section 按作品形态（base/tv/pack 先行）+ 语义 group；
+                                         # 每键带 lock 作用域与 applies_to 形态适用性）；驱动资源列表
+                                         # 「必填字段」列展示与 Agent 过滤 DSL 门控。
+                                         # 强制且创建后只增不删：代码强制基线 = 基础必选七件套
+                                         # （title_cn/title_en/search_title/content_type/is_batch/
+                                         # year/is_anime）+ 形态必填（tv→season、tv_single→episode、
+                                         # tv_batch→episode_start/end、franchise→resource_collection）
+                                         # 永不可清除，不存在"不限制"状态；
+                                         # 存量 NULL/残缺行由启动轻迁移收敛为基线
     default_is_anime: bool               # 「默认标记为 Anime」：NOT NULL DEFAULT FALSE（轻迁移加列）；
                                          # 创建后不可改（PUT 提交不同值 422）；开启后该频道资源链接到的
                                          # 作品 is_anime 先置 True（详见 business-logic.md「is_anime 分层判定」）
@@ -108,7 +122,7 @@ class FileResource(Base):
 2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end，并把覆盖季集合持久化到 `batch_seasons`）/`franchise`（≥2 作品簇，同写 `batch_seasons`，触发 `franchise_service.link_franchise_pack` 创建/复用 `franchise_pack` 来源的 WorkCollection、逐个匹配成员作品并挂 `collection_id`、资源改挂 collection）/`unknown`（不改判）。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）为保留优化项，未实现。
 3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise 不被降级），LLM 未输出时默认 `"season"`。
 
-合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`(series_id, season)`；跨季包→`(series_id, batch_seasons)`。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision，episode 哨兵 -1；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的 active 任务判重跳过；覆盖度不同（S1 包 vs S2 包）或未知（标题层无季号依据）的合集不去重、各自派发。franchise 包作品 FK 全清，不进入派发。
+合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`(series_id, season)`；跨季包→`(series_id, batch_seasons)`。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision，episode 哨兵 -1；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的 active 任务判重跳过；覆盖度不同（S1 包 vs S2 包）的合集不去重、各自派发。**覆盖度未知（season 包无季号、multi_season 无 batch_seasons）不再派发**——覆盖度是 organize 覆盖度校验的必填依据，落 PendingDecision（episode 哨兵 -2，reason 前缀「合集范围不确定」）待人工修订补齐后定向重跑。franchise 包作品 FK 全清，不进入派发。
 
 **跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, season, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
 

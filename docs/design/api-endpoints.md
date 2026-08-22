@@ -73,19 +73,22 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels` | 创建频道（服务端校验 RSS URL 可达与格式合法性） |
 | GET | `/channels/form-token` | 获取表单防重复提交 Token（一次有效，存服务端 Cache） |
 | GET | `/channels/metadata-sources` | 频道表单数据源目录（三数据源架构：仅 wikipedia/tmdb/bangumi + 可用性标志 + 默认值） |
+| GET | `/channels/required-field-catalog` | 必填元数据字段目录（覆盖全部 Filter DSL 字段；两级分组 `sections`（作品形态先行：base/tv/pack → release/work）+ 每项 `{key, section, group, dsl_fields, lock, locked, applies_to}`，`lock`=代码强制作用域（`always` 或行形态如 `tv_single`），`applies_to`=适用行形态（null=全形态）） |
 | GET | `/channels/{id}` | 频道详情（含最近 20 条 FileResource 预览） |
-| PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存） |
+| PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存；`required_metadata_fields` 只增不删，见下） |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
 | POST | `/channels/{id}/fetch` | 手动触发抓取（入队，返回 task_id） |
 | GET | `/channels/{id}/fetch-status` | 轮询抓取任务状态（running/success/failed + 进度信息） |
 | POST | `/channels/{id}/analyze` | 非流式 LLM 分析 RSS，返回 field_mapping（阻塞等待直到完成或超时） |
-| POST | `/channels/{id}/analyze-stream` | SSE 流式 LLM 分析（delta/done/error 事件） |
+| POST | `/channels/{id}/analyze-stream` | SSE 流式 LLM 分析（`status/delta/reset/done/error` 事件；连接建立即冲刷响应头，RSS 抓取与 LLM 生成的 delta 实时下发，重试前发 `reset` 通知前端清空半程文本） |
 | POST | `/channels/{id}/summarize-filters` | 给定若干资源 ID，按 Agent 规则结构生成建议：作品订阅 + 全局共性条件 + 按作品差异化条件 |
 | POST | `/channels/validate-url` | 验证 RSS URL 可达性与格式（创建前校验） |
 | POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
 
 频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为 Exa 回退的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
+
+`required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选七件套**（`title_cn/title_en/search_title/content_type/is_batch/year/is_anime`，全形态适用）∪ **形态必填**（TV 单集→`season`+`episode`；TV 合集→`season`+`episode_start`+`episode_end`；多作品合集→`resource_collection`）；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR（消息列出被移除的键），仅允许在其上新增。存量 NULL/残缺行由启动轻迁移收敛为基线。
 
 `POST /channels/{id}/summarize-filters` 请求体：`{ "resource_ids": ["...", "..."] }`；响应 `data`：
 
@@ -114,7 +117,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/agents` | Agent 列表（分页） |
-| POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `dispatch_resource_ids`（规则预览回填提交） |
+| POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `pick_preferences`（优选偏好：有序 FieldCondition 列表，确定性排序层，422 校验同 Filter DSL 叶子规则）、可选 `dispatch_resource_ids`（规则预览回填提交） |
 | GET | `/agents/{id}` | Agent 详情（含 works、统计信息；TV 类型 works 附带 `latest_completed_season/episode`——该剧集全库范围内最新已完成下载的季/集号，无完成记录或为电影时为 null） |
 | PUT | `/agents/{id}` | 更新 Agent（整体替换，含 works 列表） |
 | DELETE | `/agents/{id}` | 删除 Agent（级联删除其 works、pending_decisions、runs；tasks 标记 cancelled） |
@@ -136,6 +139,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
   "conflict_resolution": "auto",
   "llm_enabled": true,
   "llm_prompt": "优先选择内封简繁日字幕的 2160p HEVC 资源",
+  "pick_preferences": [ { "field": "subtitle_langs", "operator": "contains", "value": "zh-CN" } ],
   "filter_config": { "combinator": "and", "conditions": [ { "field": "resolution", "operator": "in", "value": ["1080p","2160p"] } ] },
   "works": [
     { "content_type": "tv", "series_id": "...", "enable_episode_dedup": true, "filter_overrides": null }
@@ -329,7 +333,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/libraries` | 库列表（不分页，量小；每项含 `pending_plan_count`、`bound`、派生 `root_path`；`unbound=true` 过滤待绑定） |
 | GET | `/libraries/{id}` | 详情（含来源服务器 `media_server_id`/`media_server_name`、`server_path`、解析后的 `root_path` 展示） |
 | PUT | `/libraries/{id}` | 仅可更新 `subtitle_lang_map` 与 `volume_id`/`root_subpath`（待绑定就地修复；volume 不存在 404，root_subpath 非法 422）；其余字段由扫描派生，提交即 422 |
-| DELETE | `/libraries/{id}` | 删除；存在关联计划或指向该库的规则时 **409 `DELETE_BLOCKED`** |
+| DELETE | `/libraries/{id}` | 删除；存在 **pending/running** 关联计划或指向该库的规则时 **409 `DELETE_BLOCKED`**；done/failed/cancelled 计划不阻断（删除时解除其 library 引用、历史行保留） |
 
 ##### Organize Rules
 
@@ -348,10 +352,10 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 |--------|------|------|
 | GET | `/organize/plans` | 计划列表（分页；`status`（非法值 422）/`library_id` 过滤；created_at 倒序；列表项不含 payload，带 `rule_name`/`library_name`、`ops_summary {total,move,keep,movedir}` 与派生 `pending_reason: "unclassified" \| "unbound" \| null`——library 未定/缺 category → unclassified，目标库未绑定卷 → unbound，仅 pending 计划派生） |
 | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + audit_entries 时间线（同带 `pending_reason`） |
-| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；仅 pending/failed 可执行，其余状态 / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
+| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；pending/failed 及崩溃遗留 running 可执行，本进程执行中的 running → **409 `ALREADY_RUNNING`**，done/cancelled / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
 | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
 | POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：重渲染全部 op 的 dst 并复位 pending；非 pending/failed → 409；library 不存在 → 404；重渲染失败（如模板含 `{category}` 但未指定）→ 422 |
-| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 计划 → cancelled（记 audit）；done/running/cancelled → **409 `INVALID_STATE`** |
+| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划 → cancelled（记 audit）；本进程执行中的 running → **409 `ALREADY_RUNNING`**；done/cancelled → **409 `INVALID_STATE`**。可选 body `{delete_task, delete_data}`：`delete_task=true` 同时删除关联下载任务（移除下载器 torrent、任务行置 cancelled，保留磁盘数据，与 `DELETE /tasks/{id}?delete_data=false` 共用 `task_cleanup` 实现）；`delete_data=true` 蕴含删除任务并连同磁盘数据一起删除；清理失败不阻断取消，结果随响应 `task_cleaned` 返回（未请求删除时为 null） |
 | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 
 ### File Resources
@@ -362,7 +366,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/channels/{channel_id}/field-values` | Filter DSL 编辑器的自动补全数据源。Query 参数 `field`（必填，仅支持字符串字段与 `subtitle_langs`）、`q`（可选，忽略大小写的前缀匹配）、`limit`（默认 10，最大 50）。返回该频道下 top-N 出现频率最高的候选值数组。数值型字段被拒绝（422）。|
 | GET | `/resources/{id}` | 资源详情 |
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询）；链接为剧集时 `linked.entity` 额外携带 `seasons`（每季 `season_number`/`episode_count`），供集号修正 UI 从绝对集号前端预填季号 |
-| POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "exa"|"tmdb"|"wikipedia"|"bangumi"? }` → 返回候选列表 |
+| POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "tmdb"|"wikipedia"|"bangumi"|"jina"? }` → 返回候选列表 |
 | PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤；链接为电影时清除资源上残留的 `episode_confidence="ambiguous"`（置 null——电影无集号/季号问题；链接为剧集时保留 reconcile/季号判定的原有语义） |
 | PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "season": int?, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。未显式发送 `season` 且已知 absolute 集号、资源已链接剧集且该剧集有逐季集数数据时，服务端用 `locate_absolute_episode` 推导 season（episode 也未显式发送时一并推导）——显式值永远优先。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
 | PATCH | `/resources/{id}` | 人工修订解析字段（`ResourceParseCorrectionRequest`）：`{ "episode"?, "season"?, "absolute_episode"?, "episode_start"?, "episode_end"?, "is_batch"?, "batch_scope"?: "season"\|"multi_season"\|"franchise" }` —— 全可选，仅显式发送的字段被更新（`model_fields_set` 语义）。服务端强制合集不变量（与抓取期 pre-parser 对齐）：`is_batch=true` 强制 `episode=null` 且未显式发送 scope 时缺省 `batch_scope="season"`；`is_batch=false` 清空 `batch_scope`/`episode_start`/`episode_end`。显式发送 `episode`/`season`/`absolute_episode` 任一即置 `episode_confidence="manual"`；未发送集号字段但修订结果为 `is_batch=true` 且原为 `ambiguous` 时同样置 `manual`（合集无单集概念，标记合集即了结集号/季号问题）。**先 commit 再入队**对该频道全部 active Agent 的定向运行（`resource_ids=[该资源]`，绕过且不推进水位线，语义同 PATCH `/episode`）。旧 `PATCH /resources/{id}/episode` 保留。 |
@@ -373,7 +377,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 {
   "search_title": "Ascendance of a Bookworm",
   "content_type": "tv",
-  "data_source_type": "exa"
+  "data_source_type": "tmdb"
 }
 ```
 
@@ -384,7 +388,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
     {
       "title_cn": "...", "title_en": "...", "original_title": "...",
       "description": "...", "poster_url": "https://...", "year": 2024,
-      "external_id": "...", "external_source": "exa", "content_type": "tv"
+      "external_id": "...", "external_source": "tmdb", "content_type": "tv"
     }
   ]
 }

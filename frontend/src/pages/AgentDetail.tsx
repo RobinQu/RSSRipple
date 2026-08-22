@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
+import useAgentFilterFields from '../hooks/useAgentFilterFields';
 import useUrlTab from '../hooks/useUrlTab';
 import {
   Tabs,
@@ -74,8 +75,8 @@ import type {
   AgentWork,
   DownloadTask,
   FileResource,
+  FilterTestResponse,
   PendingDecision,
-  ResourceTestResult,
   RulesPreviewResponse,
 } from '../types';
 import { resourcesApi } from '../api/channels';
@@ -100,6 +101,9 @@ export default function AgentDetail() {
   const { message, modal } = App.useApp();
   const [agent, setAgent] = useState<Agent | null>(null);
   useDocumentTitle(agent?.name ?? t('agents.title'));
+  // Channel required-fields gate for the filter DSL editor (null =
+  // unrestricted; pick preferences are exempt and never receive this).
+  const allowedFilterFields = useAgentFilterFields(agent?.channel_id);
   const [tab, setTab] = useUrlTab('works', AGENT_DETAIL_TABS);
   const [loadingAgent, setLoadingAgent] = useState(true);
 
@@ -150,10 +154,7 @@ export default function AgentDetail() {
 
   // Filters
   const [filterConfig, setFilterConfig] = useState(agent?.filter_config ?? null);
-  const [filterTest, setFilterTest] = useState<{
-    results: ResourceTestResult[];
-    stats: { total: number; passed: number; failed: number };
-  } | null>(null);
+  const [filterTest, setFilterTest] = useState<FilterTestResponse | null>(null);
   const [testingFilters, setTestingFilters] = useState(false);
   const [savingFilter, setSavingFilter] = useState(false);
 
@@ -1226,32 +1227,32 @@ export default function AgentDetail() {
                       </Button>
                     </Space>
                   </div>
-                  <FilterBuilder value={filterConfig} onChange={setFilterConfig} />
+                  <FilterBuilder value={filterConfig} onChange={setFilterConfig} allowedFields={allowedFilterFields} />
                 </Card>
 
                 {filterTest && (
                   <Card title={t('agents.testResults')} size="small">
                     <Row gutter={16} style={{ marginBottom: 16 }}>
                       <Col xs={24} sm={8}>
-                        <Statistic title={t('agents.totalResources')} value={filterTest.stats.total} />
+                        <Statistic title={t('agents.totalResources')} value={filterTest.total} />
                       </Col>
                       <Col xs={24} sm={8}>
                         <Statistic
                           title={t('agents.passed')}
-                          value={filterTest.stats.passed}
+                          value={filterTest.passed}
                           valueStyle={{ color: 'var(--rr-success)' }}
                         />
                       </Col>
                       <Col xs={24} sm={8}>
                         <Statistic
                           title={t('agents.failed')}
-                          value={filterTest.stats.failed}
+                          value={filterTest.total - filterTest.passed}
                           valueStyle={{ color: 'var(--rr-error)' }}
                         />
                       </Col>
                     </Row>
                     <div style={{ maxHeight: 500, overflow: 'auto' }}>
-                      {filterTest.results.map((r) => (
+                      {filterTest.resources.map((r) => (
                         <div
                           key={r.resource_id}
                           style={{
@@ -1271,11 +1272,11 @@ export default function AgentDetail() {
                               <Tag color="error">FAIL</Tag>
                             )}
                             <Text strong ellipsis style={{ fontSize: 13 }}>
-                              {r.title}
+                              {r.title_raw}
                             </Text>
                           </Space>
                           <div>
-                            {r.conditions.map((c, i) => (
+                            {r.condition_results.map((c, i) => (
                               <Tag
                                 key={i}
                                 color={c.passed ? 'green' : 'red'}

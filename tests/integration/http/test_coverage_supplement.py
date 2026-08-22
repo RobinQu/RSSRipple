@@ -11,7 +11,7 @@ Targets integration-coverage gaps not exercised by the focused suites:
     (collection_service.link_movie_collection / fetch_tmdb_movie_collection)
   - API key lifecycle: create / list / authenticate / delete
     (app/api/v1/api_keys.py, app/services/auth_service.py)
-  - refresh-metadata with tmdb/jina/exa sources against the mock-LLM app with
+  - refresh-metadata with tmdb/jina sources against the mock-LLM app with
     fake source keys — the per-source search helpers run their
     request-building code and fail fast on the unreachable/401 external call
     (app/services/metadata_source_io.py)
@@ -509,7 +509,6 @@ def _fake_source_keys():
         json={
             "tmdb_api_key": "mock-tmdb-coverage",
             "jina_api_key": "mock-jina-coverage",
-            "exa_api_key": "mock-exa-coverage",
         },
     )
     assert r.status_code == 200, f"set fake keys failed: {r.text}"
@@ -517,13 +516,13 @@ def _fake_source_keys():
     _llm_api(
         "/api/v1/system-settings",
         method="put",
-        json={"tmdb_api_key": "", "jina_api_key": "", "exa_api_key": ""},
+        json={"tmdb_api_key": "", "jina_api_key": ""},
     )
 
 
 @pytest.mark.skipif(not LLM_APP, reason="RSSRIPPLE_LLM_URL not set (mock-LLM app not in stack)")
 class TestMetadataSourceRefresh:
-    """refresh-metadata with tmdb/jina/exa on app-llm. Fake keys make the
+    """refresh-metadata with tmdb/jina on app-llm. Fake keys make the
     per-source search helpers build their requests and fail fast; the mock
     LLM then finalizes deterministically."""
 
@@ -550,12 +549,6 @@ class TestMetadataSourceRefresh:
         """jina ReAct: search_jina tool errors (fake key) → found=False."""
         sid = ensure_series("覆盖率检索不到剧集", "Coverage Unfindable Series", api=_llm_api)
         data = self._refresh(sid, "jina")
-        assert data["filled"] == []
-
-    def test_refresh_exa_source_not_found(self, _fake_source_keys):
-        """exa ReAct: search_exa_agent tool errors (fake key) → found=False."""
-        sid = ensure_series("覆盖率检索不到剧集", "Coverage Unfindable Series", api=_llm_api)
-        data = self._refresh(sid, "exa")
         assert data["filled"] == []
 
     def test_refresh_tmdb_canned_match_fills_fields(self, _fake_source_keys):

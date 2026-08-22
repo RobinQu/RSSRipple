@@ -4,9 +4,16 @@ import json as _json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import ORMModel
+
+
+def _default_required_fields() -> list[str]:
+    """Baseline required-fields list for new channels (code-enforced tier)."""
+    from app.services.required_fields import normalize_required_fields
+
+    return normalize_required_fields([])
 
 
 class ChannelCreate(BaseModel):
@@ -19,6 +26,9 @@ class ChannelCreate(BaseModel):
     metadata_agent_enabled: bool = True
     metadata_source: str | None = None
     metadata_fallback_sources: list[str] | None = None
+    # Mandatory and add-only after creation (see channels API): defaults to
+    # the code-enforced baseline; explicit null is rejected by the type.
+    required_metadata_fields: list[str] = Field(default_factory=_default_required_fields)
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
     # "默认标记为 Anime" — immutable after creation (see channels API).
@@ -34,6 +44,11 @@ class ChannelCreate(BaseModel):
     def _validate_fallback_sources(cls, v: list[str] | None) -> list[str] | None:
         return _normalize_fallback_sources(v)
 
+    @field_validator("required_metadata_fields")
+    @classmethod
+    def _validate_required_fields(cls, v: list[str] | None) -> list[str] | None:
+        return _normalize_required_fields(v)
+
     @field_validator("auto_cleanup_unresolved_days")
     @classmethod
     def _clamp_days(cls, v: int) -> int:
@@ -48,6 +63,7 @@ class ChannelUpdate(BaseModel):
     metadata_agent_enabled: bool | None = None
     metadata_source: str | None = None
     metadata_fallback_sources: list[str] | None = None
+    required_metadata_fields: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool | None = None
     auto_cleanup_unresolved_days: int | None = None
     # Immutable after creation — the update endpoint 422s when the submitted
@@ -63,6 +79,11 @@ class ChannelUpdate(BaseModel):
     @classmethod
     def _validate_fallback_sources(cls, v: list[str] | None) -> list[str] | None:
         return _normalize_fallback_sources(v)
+
+    @field_validator("required_metadata_fields")
+    @classmethod
+    def _validate_required_fields(cls, v: list[str] | None) -> list[str] | None:
+        return _normalize_required_fields(v)
 
     @field_validator("auto_cleanup_unresolved_days")
     @classmethod
@@ -81,6 +102,7 @@ class ChannelResponse(ORMModel):
     metadata_agent_enabled: bool = True
     metadata_source: str | None = None
     metadata_fallback_sources: list[str] | None = None
+    required_metadata_fields: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
     default_is_anime: bool = False
@@ -136,6 +158,36 @@ def _normalize_fallback_sources(value: list[str] | None) -> list[str] | None:
         if v not in out:
             out.append(v)
     return out
+
+
+def _normalize_required_fields(value: list[str] | None) -> list[str] | None:
+    """Validate the channel's required work-metadata fields against the
+    catalog.
+
+    The list is mandatory and add-only after creation: explicit ``None`` is
+    rejected (there is no "unrestricted" state — the code-enforced baseline is
+    always required), unknown keys are rejected, duplicates drop, the locked
+    baseline is force-included, and the result is reordered into canonical
+    catalog order.
+    """
+    from app.services.required_fields import (
+        REQUIRED_FIELD_CATALOG,
+        normalize_required_fields,
+        validate_required_fields,
+    )
+
+    if value is None:
+        raise ValueError(
+            "required_metadata_fields cannot be cleared: the code-enforced "
+            f"baseline ({', '.join(sorted(normalize_required_fields([])))}) is always required"
+        )
+    errs = validate_required_fields(value)
+    if errs:
+        raise ValueError(
+            f"unsupported required_metadata_fields (catalog: {', '.join(REQUIRED_FIELD_CATALOG)}): "
+            + "; ".join(errs)
+        )
+    return normalize_required_fields(value)
 
 
 class ChannelListItem(ChannelResponse):

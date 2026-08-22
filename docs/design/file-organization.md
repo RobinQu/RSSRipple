@@ -21,7 +21,7 @@ vault-organizer 的独立部署形态在功能对等后归档（见"分期路线
 
 - **两阶段不合并**：规划（只读磁盘 + 计划落库，不动文件）与执行（前置门禁 → 幂等执行 → 后置校验）是两个持久化阶段。`auto_execute=true` 只是省掉人工点击——计划照常落库，随后经同一代码路径执行，规划与执行的持久化边界不消失。
 - **规划只依据快照**：`OrganizePlan.payload` 是创建时冻结的完整通知快照，是执行的唯一依据；规划/执行均不读活库 metadata。
-- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或 payload `files` 清单）；**绝不扫描共享下载根**——那里混放所有任务的文件。
+- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单过滤绝对路径与 `.`/`..` 分量）；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
 - **冲突绝不覆盖**：规划预检与执行前置门禁两道防线，目标已存在且 size 不符一律拒绝。
 - **清空目录只走 `os.rmdir` 自底向上**（只删空目录），**绝不 `rm -rf`**。
 - **合集缺集拒绝整理**：合集覆盖度校验不过即规划失败，绝不硬猜、绝不静默丢失（语义见下文"规划"）。
@@ -238,7 +238,7 @@ class OrganizeAuditEntry(Base):
 
 规划是纯函数：`build_plan(快照, 磁盘文件列表, 解析后的库根)`——**接口不变**，收的是 service 层已解析好的 `root_path`（volume.mount_path + root_subpath），planner 自身不感知卷模型。沿用 vault-organizer 的文件归类语义：主视频 = 最大视频文件，按模板渲染 move；字幕判定语言后同名随正片 move；其余文件 keep。安全不变量：
 
-- **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；两者皆无 → 规划失败。
+- **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）先回退 torrent 文件清单（`_resolve_manifest`：torrent 缓存 → torrent_url 拉取 → 下载器 RPC，过滤绝对路径与 `.`/`..` 分量；.torrent 解析的清单相对于种子根，多文件种子补上 `info/name` 根目录分量以匹配 `download_dir/<根目录>/<文件>` 落盘布局）逐项精确匹配，再退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；皆无 → 规划失败。
 - **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx / E09 / EP09 / 第09話 / 裸方括号 `[01]`（含 vN 修订号）→ 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」，缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。期望集的展开顺序：`episode_start/end` 优先 → `work.seasons` 逐季集数 → **本地文件清单推导**（已解析集同季时取 min..max 连续区间，中间缺集仍拒绝——torrent 文件清单本地可缓存，合集范围解析以实际内容为准）→ 皆无才视为无校验依据。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 按文件解析季号分组逐组校验（不回退 `resource.season`——该 scope 下恒为 NULL；期望集展开顺序同单季，显式依据与文件清单区间（≥2 集）皆无的季只记 warning 跳过校验而非整体拒绝，因多季包边界信息不全）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
 - **冲突预检**：move op 的 dst 已存在且 size 与源不符 → 规划失败（绝不覆盖）；size 相符视为已移动的重放，交执行器收敛。
 
@@ -281,7 +281,7 @@ class OrganizeAuditEntry(Base):
 - **复制**（`file_op="copy"`）：copy + size 校验（失败删不完整 dst 报 failed），源文件保留。
 - **后置校验**：全部文件 op 后复核每个 dst 存在且 size 一致；src 已消失仅对 move 校验（hardlink/copy 源文件本应保留）；任一不符 → failed（可修复后重执行，幂等）。
 - **movedir**：目录级移动，目标已存在 = 冲突违例，绝不覆盖；平铺在下载根的散文件不产生 movedir；仅 move 语义，hardlink/copy 计划不产 movedir。当前唯一产生场景：**合集（batch）+ move 计划且目标库配置了回收站目录**（`Library.recycle_subpath`，卷内相对路径，媒体库设置「其他设置」表单经文件夹选择器设置；NULL = 默认原地保留）——正片/字幕移走后，种子目录内的剩余文件（特典、附件等 keep 部分）随整个种子目录移入 ``<卷挂载点>/<recycle_subpath>/<种子目录名>``；无 keep 剩余时不产 op（空目录照常自底向上清理）。规划期冲突预检拒绝已存在的回收目标；执行期 movedir 在全部文件 op + 后置校验之后执行，源目录已空视为无需移动。
-- **空目录清理**：`os.walk(topdown=False)` 自底向上 `os.rmdir`（只删空目录，非空自然失败跳过），preserve 边界 = 经下载器卷绑定解析的下载根；**绝不 `rm -rf`**。hardlink/copy 计划恒跳过（源文件保留保种，目录本就不会空）。
+- **空目录清理**：`os.walk(topdown=False)` 自底向上 `os.rmdir`（只删空目录，非空自然失败跳过），preserve 边界 = 经下载器卷绑定解析的下载根；**绝不 `rm -rf`**。hardlink/copy 计划恒跳过（源文件保留保种，目录本就不会空）；torrent_name 为空（清单定位的平铺/单文件种子落在共享下载根）同样恒跳过——绝不以共享下载根为清理范围。
 - **崩溃恢复**：running 计划可重放（幂等收敛：已移动的视为完成、半完成 copy 删残留 src、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
 
 ## API（前缀 /api/v1）
@@ -320,7 +320,7 @@ class OrganizeAuditEntry(Base):
 | GET | `/libraries` | 库列表（含 volume 绑定状态、各库 pending 计划计数；`unbound=true` 过滤待绑定） |
 | GET | `/libraries/{id}` | 详情（含来源服务器、server_path、解析后的 root_path 展示） |
 | PUT | `/libraries/{id}` | 仅可更新 `subtitle_lang_map` 与 `volume_id`/`root_subpath`（待绑定就地修复；其余字段由扫描派生，提交 422） |
-| DELETE | `/libraries/{id}` | 删除未关联计划的行；存在关联计划 409 |
+| DELETE | `/libraries/{id}` | 删除；仅 **pending/running** 计划阻断（409）；done/failed/cancelled 计划不阻断——删除时解除其 library 引用（显式 UPDATE 置空，方言安全等价于 FK 的 ON DELETE SET NULL），历史计划行保留 |
 
 ### Organize Rules
 
@@ -339,10 +339,10 @@ class OrganizeAuditEntry(Base):
 |--------|------|------|
 | GET | `/organize/plans` | 计划列表（分页；`status` / `library_id` 过滤；created_at 倒序；列表项不含 payload，带 ops 摘要与 `pending_reason: "unclassified" \| "unbound" \| null` 派生字段） |
 | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + 关联 library/rule 信息 |
-| POST | `/organize/plans/{id}/execute` | 执行单个计划（幂等；done 短路、running 拒绝、待分类/待绑定拒绝）；异步后台执行，返回 202 + 当前状态 |
+| POST | `/organize/plans/{id}/execute` | 执行单个计划（幂等；done 短路、崩溃遗留 running 可重放、本进程执行中的 running 拒绝 409 `ALREADY_RUNNING`、待分类/待绑定拒绝）；异步后台执行，返回 202 + 当前状态 |
 | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
 | POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：改写计划并重渲染全部 op 的 dst；pending/failed 可改 |
-| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 计划（→ cancelled；done/running 拒绝 409） |
+| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划（→ cancelled；done 拒绝 409；本进程执行中的 running 拒绝 409 `ALREADY_RUNNING`）。可选 body `{delete_task, delete_data}` 附带删除关联下载任务（`delete_data=true` 蕴含删除任务并连同磁盘数据；复用 `task_cleanup` 实现，清理失败不阻断取消，结果随响应 `task_cleaned` 返回） |
 | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 
 ## 配置
@@ -357,7 +357,7 @@ class OrganizeAuditEntry(Base):
 - **`/media-servers`**：服务器列表（增删改、test 连通性、enabled 开关）+ 扫描按钮 + 库绑定表格（bindings 编辑：服务器路径前缀 → 卷 + 子路径；**待绑定 Library 醒目置前**，引导补绑定后重扫）。
 - **Downloader 表单**：原 path_map 输入改为「逻辑卷 Select + 子路径输入」（留空 = 两视角一致）。
 - **`/libraries`** 页面取消独立路由（库是扫描产物，在 `/media-servers` 内管理；`subtitle_lang_map` 在库详情编辑）。
-- **`/organize`** 不变：计划列表 status 过滤 + 「待分类/待绑定」维度（`pending_reason` 徽标）、详情 Drawer（源/目标逐文件清单 move/keep/movedir 分色 + payload 快照 JSON + audit 时间线）、操作（确认执行 / 勾选批量执行 / 待分类指定 / 取消 / failed 重试）。审计 Tab 分页展示 `organize_audit_entries`。
+- **`/organize`** 不变：计划列表 status 过滤 + 「待分类/待绑定」维度（`pending_reason` 徽标）、详情 Drawer（源/目标逐文件清单 move/keep/movedir 分色 + payload 快照 JSON + audit 时间线）、操作（确认执行 / 勾选批量执行 / 待分类指定 / 取消（可勾选同时删除下载任务、删除磁盘文件）/ failed 重试）。审计 Tab 分页展示 `organize_audit_entries`。
 - i18n：zh-CN / en-US 双语，文案键随路由命名空间（`volumes.*` / `mediaServers.*` / `organize.*`）。
 
 ## 部署（共享卷与逻辑卷）

@@ -44,7 +44,7 @@ fetch_channel_resources(channel, db)
   │     │     await agent.process(resource, channel, db)
   │     │     # Agent 内部完成：标题清洗 → episode/season 推断 → 选择唯一数据源搜索
   │     │     # 生产抓取使用频道主数据源（wikipedia/tmdb，默认 wikipedia）；
-  │     │     # 评测/手动搜索仍可选择 exa/tmdb/wikipedia/jina
+  │     │     # 评测/手动搜索仍可选择 tmdb/wikipedia/jina
   │     │     # 结果写入 resource.search_title, episode, season, series_id/movie_id
   │     │     # 并通过 MetadataCache(source="metadata_agent") 缓存
   │     ├─ f. fetch_and_link_metadata(resource, channel)  # 详见 Metadata 匹配流程
@@ -139,7 +139,7 @@ fetch_and_link_metadata(resource, channel, db)
   │
   ├─ Layer 4: 统一 MetadataAgent（仅当 channel.metadata_agent_enabled == True 时执行）
   │     调用 UnifiedMetadataAgent.process() — ReAct 循环
-  │     数据源：频道主数据源（wikipedia/tmdb/bangumi，默认 wikipedia；三主源未命中均可走有序 Exa 回退，仅补身份）；评测/手动搜索可显式选择 exa/tmdb/wikipedia/jina/bangumi
+  │     数据源：频道主数据源（wikipedia/tmdb/bangumi，默认 wikipedia；三主源未命中均可走有序 Exa 回退，仅补身份）；评测/手动搜索可显式选择 tmdb/wikipedia/jina/bangumi
   │     单次执行只允许调用所选数据源的工具，不做 TMDB→Exa→Wikipedia 级联或 fallback
   │     结果直接写入 resource.series_id/movie_id 并写 MetadataCache；
   │     若首选结果被 agent 标记为 work 级 ambiguous（`ambiguous: true`）→ 不链接，
@@ -263,26 +263,25 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 
 MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必须选择且只选择一个数据源，由 LLM 基于该数据源返回的证据做标题理解、集数/季数推断和最终结构化输出。
 
-**频道三数据源架构**：频道的 `metadata_source` 只允许 `wikipedia | tmdb | bangumi`（`SUPPORTED_CHANNEL_METADATA_SOURCES`，默认 `wikipedia`）；`exa`/`jina`/`local`/`combined` 作为频道源已废弃——频道解析（`resolve_metadata_source`/`normalize_channel_metadata_source`）把它们连同 None/未知值统一归一为 `wikipedia`，存量值由 `_apply_light_migrations` 的幂等 UPDATE 改写。exa/jina/local 的 ReAct 代码路径保留，仅手动搜索与评测可使用（走 `normalize_metadata_source_type`，不经频道解析）。
+**频道三数据源架构**：频道的 `metadata_source` 只允许 `wikipedia | tmdb | bangumi`（`SUPPORTED_CHANNEL_METADATA_SOURCES`，默认 `wikipedia`）；`exa`/`jina`/`local`/`combined` 作为频道源已废弃——频道解析（`resolve_metadata_source`/`normalize_channel_metadata_source`）把它们连同 None/未知值统一归一为 `wikipedia`，存量值由 `_apply_light_migrations` 的幂等 UPDATE 改写。jina/local 的 ReAct 代码路径保留，仅手动搜索与评测可使用（走 `normalize_metadata_source_type`，不经频道解析）；exa 的 ReAct 路径（付费 Agent API）已移除，`exa` 值一律归一为 `wikipedia`——Exa 仅以免费 MCP 形态作为下方有序回退存在。
 
-运行时支持的数据源（`SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local", "bangumi"}`）：
+运行时支持的数据源（`SUPPORTED_METADATA_SOURCES = {"tmdb", "wikipedia", "jina", "local", "bangumi"}`）：
 - `wikipedia`：Wikipedia Search，代码默认数据源（`DEFAULT_METADATA_SOURCE = "wikipedia"`）。仅使用 Wikipedia 搜索与页面工具；未命中时可触发下方 Exa 回退。
 - `tmdb`：TMDB Search。仅使用 TMDB API 的搜索/详情工具，适合结构化影视库匹配；未命中时同样可触发下方 Exa 回退（P4 起与 wikipedia 路径统一）。
 - `bangumi`：Bangumi Subject Search（限动画分类 type 2），search-then-judge 形态同 wikipedia（确定性 auto-link 优先，否则单次 judge，流程详见「Metadata 匹配流程」）；命中作品自动落 `is_anime=True`；未命中时同样走下方 Exa 回退。无独立启用开关——配置了 token（`BANGUMI_API_KEY` 或设置页）即启用。
-- `exa`：Exa Agent Search（旧默认，已废弃为频道源；手动搜索/评测保留）。通过 Exa Agent API 创建 run，传入结构化 `output_schema`，轮询完成后读取 `output.structured.candidates`。
 - `jina`：Jina Search + Reader（同上，废弃为频道源）。通过 `s.jina.ai` 搜索 + `r.jina.ai` Reader 抓取页面 markdown 作为证据。
 - `local`：仅本地 DB 匹配，不调用任何外部源（关闭 MetadataAgent 外部搜索时使用）。
 
-**有序 Exa 回退（三频道主源未命中时统一触发）**：主源判定返回 found=False 后（wikipedia 路径在 judge found=False 时、tmdb 路径（P4 起）在 ReAct finalize found=False 时、bangumi 路径在 auto-link 未中且 judge found=False 时；transient 失败如 agent error/超时**不**触发，避免用确定性回退 verdict 掩盖基础设施故障），`exa_fallback_judge` 用一次 Exa web 搜索 + 单次 LLM judge 在频道 `metadata_fallback_sources`（JSON 有序站点白名单；NULL=默认顺序 `bangumi → mal → anilist → tmdb → wikipedia → imdb → douban`，`[]`=禁用回退；`process_title_only` 无频道上下文，用默认顺序）限定的站点内补身份：候选 URL 按白名单硬过滤，靠前站点在证据呈现中优先（tiebreak）。回退只提供身份/链接——matched_entity 不得携带 `seasons`/`number_of_seasons`/`number_of_episodes`（LLM 输出也会被剥离），内容一律以主数据源为准。站点身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike、eiga 已移除），`EXA_API_KEY` 未配置时跳过回退。Exa 自身失败（网络/限流/凭证）记为 transient 不缓存；回退命中时 `search_method` 分别为 `search_then_exa_fallback`（wikipedia）/ `react_then_exa_fallback`（tmdb、bangumi 共用共享回退函数 `_maybe_exa_fallback`）。
+**有序 Exa 回退（三频道主源未命中时统一触发）**：主源判定返回 found=False 后（wikipedia 路径在 judge found=False 时、tmdb 路径（P4 起）在 ReAct finalize found=False 时、bangumi 路径在 auto-link 未中且 judge found=False 时；transient 失败如 agent error/超时**不**触发，避免用确定性回退 verdict 掩盖基础设施故障），`exa_fallback_judge` 用一次 Exa web 搜索 + 单次 LLM judge 在频道 `metadata_fallback_sources`（JSON 有序站点白名单；NULL=默认顺序 `bangumi → mal → anilist → tmdb → wikipedia → imdb → douban`，`[]`=禁用回退；`process_title_only` 无频道上下文，用默认顺序）限定的站点内补身份：候选 URL 按白名单硬过滤，靠前站点在证据呈现中优先（tiebreak）。回退只提供身份/链接——matched_entity 不得携带 `seasons`/`number_of_seasons`/`number_of_episodes`（LLM 输出也会被剥离），内容一律以主数据源为准。站点身份体系为 7 站注册表 `metadata_source_registry`（wikipedia/tmdb/bangumi/mal/anilist/imdb/douban；baidu_baike、eiga 已移除）。Exa 对接走**免费 Exa MCP**（`exa_mcp_client`，Streamable HTTP 调 `https://mcp.exa.ai/mcp` 的 `web_search_exa` 工具，免 API key、无计费，端点可用 `EXA_MCP_URL` 覆盖），`EXA_ENABLED=false` 时跳过回退。Exa 自身失败（网络/限流/协议错误）记为 transient 不缓存；回退命中时 `search_method` 分别为 `search_then_exa_fallback`（wikipedia）/ `react_then_exa_fallback`（tmdb、bangumi 共用共享回退函数 `_maybe_exa_fallback`）。
 
 数据源选择规则：
-- 一个数据源当且仅当"启用开关开启 **且** 凭证已配置"时才在 UI 中可选；`wikipedia` 无需凭证，仅看启用开关；`bangumi` 无独立启用开关，配置了 token 即视为启用。启用开关环境变量：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（默认 `true`）。频道表单只列出三数据源架构的 wikipedia/tmdb/bangumi；作品库元数据刷新仍可看到全部可用源。
+- 一个数据源当且仅当"启用开关开启 **且** 凭证已配置"时才在 UI 中可选；`wikipedia` 无需凭证，仅看启用开关；`bangumi` 无独立启用开关，配置了 token 即视为启用。启用开关环境变量：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（默认 `true`；`EXA_ENABLED` 只控制 Exa MCP 回退，exa 不再是可选数据源）。频道表单只列出三数据源架构的 wikipedia/tmdb/bangumi；作品库元数据刷新仍可看到全部可用源。
 - 作品库"刷新元数据"动作使用的默认数据源由运行时设置 `default_metadata_source`（`app_settings` 表）决定，需用户在 UI 主动选择一个可用数据源；未配置时刷新请求返回 400。频道级的 `metadata_source` 在频道表单中单独选择。
 
 兼容规则：
 - `combined` 仅作为旧评测数据集值保留；运行时归一化为默认 `wikipedia`，不得作为新数据集或新搜索任务的数据源类型。
 - 单次搜索必须保持"只使用一个数据源"的约束，不得跨数据源 fallback（三频道主源的有序 Exa 回退是唯一的、仅补身份的例外）。
-- eval 标注平台的新建 Dataset 必须人工选择 `exa` / `jina` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `exa-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
+- eval 标注平台的新建 Dataset 必须人工选择 `jina` / `tmdb` / `wikipedia`，数据集名称以前缀标明数据源（例如 `tmdb-eval-...`），并把 `data_source_type` 写入每条 entry、`resource_metadata.eval_data_source_type` 与 `agent_result.eval_data_source_type`。
 
 ### Wikipedia 匹配的 content_type 判定
 
@@ -362,15 +361,21 @@ process_resources(agent, resources, db)
   │     │     再按内容覆盖度去重（_batch_coverage_key）：电影包→movie_id；
   │     │     单季包→(series_id, season)（season 未知则覆盖度未知）；
   │     │     跨季包→(series_id, batch_seasons 季集合)（batch_seasons 由
-  │     │     torrent 内容检测持久化，未知则覆盖度未知）。覆盖度未知 →
-  │     │     直接 dispatch_download（旧行为）。覆盖度已知 → 先查同
+  │     │     torrent 内容检测持久化，未知则覆盖度未知）。覆盖度是 organize
+  │     │     覆盖度校验的**必填依据**，未知 → 不再直接派发：创建
+  │     │     PendingDecision（episode 置哨兵 -2 与冲突决策的 -1 区分，
+  │     │     reason="合集范围不确定，需要人工确认季号/集数范围: {title}"、
+  │     │     skip_llm=True，计数同 ambiguous 分支），人工经
+  │     │     PATCH /resources/{id} 补齐季号/集数范围后定向重跑即正常派发，
+  │     │     决策由运行末清理步自动了结（全部候选覆盖度键可确定时置
+  │     │     decided）。覆盖度已知 → 先查同
   │     │     agent 同作品 active 任务中是否有覆盖度完全相同的合集
   │     │     （Python 侧比对；剧集包受 enable_episode_dedup 门控、电影包
   │     │     与单集电影一致不门控），命中则 duplicates_skipped++；否则以
   │     │     ("batch", work_id, coverage) 进 candidates_by_key，与单集走
   │     │     同一冲突解决（ask → PendingDecision，episode 置哨兵 -1 与
-  │     │     无集号单集决策区分，reason 用合集文案；auto → LLM pick →
-  │     │     启发式评分）。覆盖度不同的合集（S1 包 vs S2 包、S1-S2 vs
+  │     │     无集号单集决策区分，reason 用合集文案；auto → 优选偏好 →
+  │     │     LLM pick → 启发式评分）。覆盖度不同的合集（S1 包 vs S2 包、S1-S2 vs
   │     │     S1-S3）互不冲突、各自派发；franchise 包作品 FK 全清走不到
   │     │     这里。已知限制：同一作品不同季集合的 multi_season 冲突会
   │     │     合并进同一条 PendingDecision（幂等键编不下季集合）。
@@ -378,14 +383,19 @@ process_resources(agent, resources, db)
   │     ├─ e. 去重检查（仅单集资源）:
   │     │     电影：按 movie_id 查询 active DownloadTask，存在则跳过；key=("movie", movie_id, None, None)
   │     │     TV 单集：dedup = work.enable_episode_dedup if work else True
-  │     │             dedup 且 episode 非空时按 (series_id, season, episode) 查询 active 任务
-  │     │             （season 为 None 时按 IS NULL 匹配，S1E3 与 S4E3 互不冲突），存在则跳过
+  │     │             dedup 且 episode 非空时按 (series_id, episode) 查询 active 任务并做
+  │     │             **季兼容比对**（_find_existing_episode_task：季号相等，或任一方
+  │     │             season=None 即视为同一槽位；两个都有编号且不同的季仍互不去重），
+  │     │             存在则跳过——防止同一集的两个发布变体因季归属差异（如链接先后
+  │     │             导致 S1 vs season=None）跨运行重复下载
   │     │             key=("series", series_id, season, episode)
   │     │
   │     └─ f. candidates_by_key[key].append(resource)；matched++；
   │           matched_resource_ids.append(resource.id)
   │
   ├─ 4. 候选聚合处理:
+  │     先做**季未知归并**：key=("series", sid, None, E5) 的候选组并入其有编号同集组
+  │     ("series", sid, S, E5)——季归属差异不再拆成两个单候选组各自直发。
   │     for key, candidates in candidates_by_key.items():
   │         if len(candidates) == 1:
   │             dispatch_download(agent, candidates[0])  # dispatched++
@@ -393,21 +403,26 @@ process_resources(agent, resources, db)
   │             if agent.conflict_resolution == "ask":
   │                 create_pending_decision(agent, key, candidates, db)
   │                 # upsert 同一 (agent, target, season, episode, pending) 行；合并 candidates；
-  │                 # llm_enabled 时调用 _generate_llm_pick 填充 llm_picked_resource_id
-  │                 # 与 llm_suggestion（用户可点 "AI 自动处理" 一键采纳）
+  │                 # 建议经 _suggest_pick 填充 llm_picked_resource_id 与
+  │                 # llm_suggestion（用户可点 "AI 自动处理" 一键采纳）：
+  │                 # 优选偏好唯一命中 → 确定性建议（reason 标注规则来源）；
+  │                 # 打平 → _generate_llm_pick
   │             else:  # "auto"
-  │                 picked_id, _ = await _generate_llm_pick(agent, candidates, key)
-  │                 # LLM 优先：llm_enabled 且配置 API key 时由 LLM 选择
-  │                 # （agent.llm_prompt 优先，否则内置默认 prompt）；
-  │                 # 未启用 / 调用失败 / 无有效选择时回退启发式 score_and_pick
-  │                 chosen = LLM 选中候选 or score_and_pick(candidates, agent, work)
+  │                 tier, _ = pick_by_preferences(candidates, agent.pick_preferences)
+  │                 # 优选偏好先行（只排序不过滤）：唯一胜者直接派发、零 LLM 调用；
+  │                 # 打平子集交 LLM（agent.llm_prompt 优先，否则内置默认 prompt）；
+  │                 # LLM 未启用 / 调用失败 / 无有效选择时回退启发式 score_and_pick
+  │                 chosen = tier 唯一 ? tier[0] : (LLM 选中候选 or score_and_pick(tier, agent, work))
   │                 # 启发式评分：分辨率高（2160p>1080p>720p）> 文件体积大 > 发布时间新
+  │                 #   > 字幕语言加分（zh-CN > zh-TW > 无，末位 tie-break）
   │                 dispatch_download(agent, chosen)
   │
-  ├─ 5. 清理过期集号/季号不确定决策（_resolve_corrected_ambiguous_decisions）:
-  │     遍历本 Agent 的 pending 决策，凡 reason 以 "集号不确定" 或 "季号不确定"
-  │     开头、且其候选资源已被用户修正（episode_confidence != "ambiguous"，
-  │     通常为 "manual"）的，标记为
+  ├─ 5. 清理过期人工修订决策（_resolve_corrected_ambiguous_decisions）:
+  │     遍历本 Agent 的 pending 决策，两类自动了结：① reason 以 "集号不确定"
+  │     或 "季号不确定" 开头、且其候选资源已被用户修正
+  │     （episode_confidence != "ambiguous"，通常为 "manual"）；② reason 以
+  │     "合集范围不确定" 开头（episode 哨兵 -2 的合集范围决策）、且全部候选
+  │     的覆盖度键（season / batch_seasons）已可确定。标记为
   │     "decided"——资源已在本次或上次运行中重新进入正常 filter→派发流程。
   │
   ├─ 6. Suggestions 聚合: 将未识别但标题有意义的资源按 search_title 模糊聚类，
@@ -420,6 +435,8 @@ process_resources(agent, resources, db)
 ```
 
 **待决策处理后的状态复位**：PendingDecision 经 confirm/skip/batch 端点处理（status → decided/skipped）后，若该 agent 已无其他 pending 决策且 `last_run_status == "pending_decisions"`，复位为 `"success"`（decisions.py 的 `_maybe_reset_agent_run_status`，同事务内完成）。历史 AgentRun 行不回写，由 `GET /agents/{id}/runs` 读时修正（见 api-endpoints.md）。
+
+**优选偏好层**（`pick_by_preferences`，P5）：`Agent.pick_preferences` 是有序 FieldCondition JSON 列表（复用 Filter DSL 的字段白名单与叶子求值 `evaluate_field_condition`，校验走 `validate_field_conditions`，保存时 422），在冲突解决中提供**确定性排序**：字典序语义——第一条规则把候选分命中/未命中两档、命中者优先，打平由下一条决胜；在当前档内全命中或全不命中的规则无区分度、跳过。**偏好只排序、绝不过滤候选**（无偏好/单候选/全员打平时原样返回）。唯一胜者直接入选（不调用 LLM，LLM 关闭或不可用时照样生效）；打平子集交 `_generate_llm_pick` 决胜，再回退启发式。三处接入：`auto` 路径直接派发；`ask` 模式经 `_suggest_pick` 生成建议（偏好命中时 reason 标注「命中优选偏好规则（确定性选择）」与 LLM 建议区分）；`POST /decisions/{id}/ai-pick` 同样偏好先行。`pick_preferences` 为空 = 行为与引入前完全一致。典型用法：`{"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"}` 确定性优先简体中文字幕版本。
 
 **LLM 候选选择器**（`_generate_llm_pick`）：`conflict_resolution="auto"` 多候选自动选择、`"ask"` 模式下的 LLM 建议、以及 `POST /decisions/{id}/ai-pick` 共用同一逻辑。返回 `(picked_resource_id, reason)`：使用 `agent.llm_prompt`（若非空）否则内置默认 prompt（metadata 字段最完整 > 清晰度最高 > 带字幕 > 发布时间最新），要求 LLM 返回 JSON `{"pick": <候选编号>, "reason": "<一句话理由>"}`，`_parse_llm_pick` 兼容 markdown 包裹与裸数字兜底。发给 LLM 的候选摘要包含 `title`（资源原始标题）与关联作品的 `year`（电影 `release_date` / 剧集 `start_date` 的年份）、`rating`（0-10 分），无关联作品或字段为空时为 `null`；prompt 中附带字段说明。LLM 未启用 / 无 API key / 调用失败 / 未给出有效选择时返回 `(None, None)`，`"auto"` 回退到纯启发式评分（分辨率 > 体积 > 发布时间）。结果缓存在 `PendingDecision.llm_picked_resource_id`，AI 自动处理优先复用缓存值。
 
@@ -444,7 +461,7 @@ process_resources(agent, resources, db)
   │
   ├─ 2. 前端 POST /resources/{id}/metadata/search
   │     body = { search_title, content_type, data_source_type? }
-  │     data_source_type 可选值: "exa"（默认）, "tmdb", "wikipedia"
+  │     data_source_type 可选值: "tmdb", "wikipedia", "bangumi", "jina"
   │     后端调用 MetadataAgent.process_title_only()，仅使用所选数据源 → 返回候选列表（不含本地落库）
   │
   ├─ 3. 用户选择一个候选并确认

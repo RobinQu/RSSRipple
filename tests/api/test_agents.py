@@ -102,6 +102,69 @@ class TestAgentsCRUD:
         assert res.status_code == 201
         fake.enqueue.assert_not_awaited()
 
+    async def test_create_agent_pick_preferences_roundtrip(self, client, channel_and_dl):
+        ch_id, dl_id = channel_and_dl
+        prefs = [
+            {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"},
+            {"field": "resolution", "operator": "eq", "value": "1080p"},
+        ]
+        res = await client.post("/api/v1/agents", json={
+            "name": "Prefs", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True, "pick_preferences": prefs,
+        })
+        assert res.status_code == 201
+        aid = res.json()["data"]["id"]
+        assert res.json()["data"]["pick_preferences"] == prefs
+
+        got = await client.get(f"/api/v1/agents/{aid}")
+        assert got.json()["data"]["pick_preferences"] == prefs
+
+        # Update to a single rule, then clear with explicit null.
+        put = await client.put(f"/api/v1/agents/{aid}", json={
+            "pick_preferences": [prefs[0]],
+        })
+        assert put.status_code == 200
+        assert put.json()["data"]["pick_preferences"] == [prefs[0]]
+        put = await client.put(f"/api/v1/agents/{aid}", json={
+            "pick_preferences": None,
+        })
+        assert put.status_code == 200
+        assert put.json()["data"]["pick_preferences"] is None
+
+    async def test_create_agent_invalid_pick_preferences_422(self, client, channel_and_dl):
+        ch_id, dl_id = channel_and_dl
+        base = {
+            "name": "BadPrefs", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+        }
+        # Unknown field
+        res = await client.post("/api/v1/agents", json={
+            **base, "pick_preferences": [
+                {"field": "nope", "operator": "eq", "value": "x"},
+            ],
+        })
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        # Operator not supported for the field type
+        res = await client.post("/api/v1/agents", json={
+            **base, "pick_preferences": [
+                {"field": "subtitle_langs", "operator": "regex", "value": "x"},
+            ],
+        })
+        assert res.status_code == 422
+        # Value-taking operator with empty value
+        res = await client.post("/api/v1/agents", json={
+            **base, "pick_preferences": [
+                {"field": "subtitle_group", "operator": "eq", "value": ""},
+            ],
+        })
+        assert res.status_code == 422
+        # Not a FieldCondition
+        res = await client.post("/api/v1/agents", json={
+            **base, "pick_preferences": [{"combinator": "and", "conditions": []}],
+        })
+        assert res.status_code == 422
+
     async def test_create_agent_persists_llm_prompt(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl
         res = await client.post("/api/v1/agents", json={
@@ -545,6 +608,93 @@ class TestAgentActions:
         aid = create.json()["data"]["id"]
         res = await client.get(f"/api/v1/agents/{aid}/run-status")
         assert res.status_code == 200
+
+    async def test_filter_gating_with_channel_required_fields(self, client, channel_and_dl):
+        """When the channel declares required metadata fields, agent filter
+        DSL is gated to resource-level fields + the declared work fields."""
+        ch_id, dl_id = channel_and_dl
+        # Declare rating only.
+        res = await client.put(
+            f"/api/v1/channels/{ch_id}", json={"required_metadata_fields": ["rating"]}
+        )
+        assert res.status_code == 200
+
+        def _agent_payload(filter_config):
+            return {
+                "name": "Gated", "channel_id": ch_id, "downloader_id": dl_id,
+                "scope_channel_wide": True, "filter_config": filter_config,
+            }
+
+        # Declared work field → allowed.
+        ok = await client.post("/api/v1/agents", json=_agent_payload(
+            {"combinator": "and", "conditions": [
+                {"field": "series.rating", "operator": "gte", "value": 8},
+            ]},
+        ))
+        assert ok.status_code == 201, ok.text
+
+        # Resource-level fields are always allowed.
+        ok2 = await client.post("/api/v1/agents", json=_agent_payload(
+            {"combinator": "and", "conditions": [
+                {"field": "resolution", "operator": "eq", "value": "1080p"},
+            ]},
+        ))
+        assert ok2.status_code == 201, ok2.text
+
+        # Undeclared work field → 422 (year/is_anime ride in with the locked
+        # baseline, so a genuinely opt-in pair like collection is used here).
+        bad = await client.post("/api/v1/agents", json=_agent_payload(
+            {"combinator": "and", "conditions": [
+                {"field": "series.collection", "operator": "contains", "value": "X"},
+            ]},
+        ))
+        assert bad.status_code == 422
+        assert "series.collection" in bad.json()["error"]["message"]
+
+        # Update path gates the same way.
+        aid = ok.json()["data"]["id"]
+        bad_put = await client.put(f"/api/v1/agents/{aid}", json={
+            "filter_config": {"combinator": "and", "conditions": [
+                {"field": "movie.genre", "operator": "contains", "value": "Drama"},
+            ]},
+        })
+        assert bad_put.status_code == 422
+        assert "movie.genre" in bad_put.json()["error"]["message"]
+
+        # pick_preferences are exempt from the gate.
+        ok_pref = await client.put(f"/api/v1/agents/{aid}", json={
+            "pick_preferences": [
+                {"field": "series.year", "operator": "gte", "value": 2020},
+            ],
+        })
+        assert ok_pref.status_code == 200, ok_pref.text
+
+    async def test_filter_gating_baseline_when_channel_undeclared(
+        self, client, channel_and_dl
+    ):
+        """A fresh channel carries the locked baseline (no "unrestricted"
+        state): resource-level fields stay allowed, undeclared work fields
+        are rejected."""
+        ch_id, dl_id = channel_and_dl
+        res = await client.post("/api/v1/agents", json={
+            "name": "Free", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+            "filter_config": {"combinator": "and", "conditions": [
+                {"field": "series.rating", "operator": "gte", "value": 8},
+            ]},
+        })
+        assert res.status_code == 422
+        assert "series.rating" in res.json()["error"]["message"]
+
+        # Resource-level fields remain allowed under the baseline gate.
+        ok = await client.post("/api/v1/agents", json={
+            "name": "Free2", "channel_id": ch_id, "downloader_id": dl_id,
+            "scope_channel_wide": True,
+            "filter_config": {"combinator": "and", "conditions": [
+                {"field": "resolution", "operator": "eq", "value": "1080p"},
+            ]},
+        })
+        assert ok.status_code == 201, ok.text
 
     async def test_test_filters(self, client, channel_and_dl):
         ch_id, dl_id = channel_and_dl

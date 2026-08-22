@@ -15,6 +15,12 @@ from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
+
+# Aliased: several endpoint functions do function-local ``from ... import
+# TVSeries/Movie``, which would shadow a same-named module-level import
+# (UnboundLocalError) inside those functions.
+from app.models.movie import Movie as _Movie
+from app.models.series import TVSeries as _TVSeries
 from app.schemas.common import paginated_response, success_response
 from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
@@ -148,8 +154,8 @@ async def list_resources(
         unknown_resources: list[FileResource] = []
 
         _load_opts = (
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         )
@@ -253,8 +259,8 @@ async def list_resources(
     offset = (page - 1) * page_size
     result = await db.execute(
         base_q.options(
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         )
@@ -363,8 +369,8 @@ async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
     resource = await db.get(
         FileResource, resource_id,
         options=[
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         ],
@@ -382,8 +388,8 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
     resource = await db.get(
         FileResource, resource_id,
         options=[
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
         ],
     )
@@ -492,8 +498,8 @@ async def link_metadata(
         select(FileResource)
         .where(FileResource.id == resource.id)
         .options(
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         )
@@ -608,8 +614,8 @@ async def correct_episode(
         select(FileResource)
         .where(FileResource.id == resource_id)
         .options(
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         )
@@ -781,8 +787,8 @@ async def correct_parse_fields(
         select(FileResource)
         .where(FileResource.id == resource_id)
         .options(
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
+            selectinload(FileResource.series).selectinload(_TVSeries.collection),
+            selectinload(FileResource.movie).selectinload(_Movie.collection),
             selectinload(FileResource.audio_work),
             selectinload(FileResource.collection),
         )

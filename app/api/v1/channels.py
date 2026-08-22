@@ -184,6 +184,45 @@ async def list_metadata_sources():
     })
 
 
+@router.get("/channels/required-field-catalog")
+async def list_required_field_catalog():
+    """Return the required-metadata-field catalog for the channel form dialog.
+
+    Each entry: ``{key, section, group, dsl_fields, lock, locked,
+    applies_to}``. The channel's ``required_metadata_fields`` stores a list of
+    these keys; ``dsl_fields`` are the Filter DSL fields the key covers for
+    agent filters (resource-level fields are always allowed). ``lock`` is the
+    code-enforced requirement scope (``always`` / a row shape such as
+    ``tv_single``); ``locked`` is true whenever a scope exists — locked keys
+    are always present in a channel's list and can never be removed (the list
+    itself is add-only after channel creation). ``applies_to`` lists the row
+    shapes the field is relevant for (null = every shape). Sections order the
+    dialog: work-type grouping first (base/tv/pack), then cross-cutting
+    release/work categories.
+    """
+    from app.services.required_fields import (
+        LOCKED_REQUIRED_FIELDS,
+        REQUIRED_FIELD_CATALOG,
+        REQUIRED_FIELD_SECTIONS,
+    )
+
+    return success_response({
+        "sections": list(REQUIRED_FIELD_SECTIONS),
+        "fields": [
+            {
+                "key": key,
+                "section": entry["section"],
+                "group": entry["group"],
+                "dsl_fields": entry["dsl_fields"],
+                "lock": entry["lock"],
+                "locked": key in LOCKED_REQUIRED_FIELDS,
+                "applies_to": list(entry["applies_to"]) if entry.get("applies_to") else None,
+            }
+            for key, entry in REQUIRED_FIELD_CATALOG.items()
+        ],
+    })
+
+
 @router.get("/channels/{channel_id}")
 async def get_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
     from sqlalchemy.orm import selectinload
@@ -253,6 +292,24 @@ async def update_channel(
                       "message": "default_is_anime cannot be changed after channel creation"},
             "meta": {},
         })
+    # required_metadata_fields is add-only after creation: an update may add
+    # new keys but never drop previously-saved ones (the locked baseline is
+    # always present and can never be cleared either).
+    if "required_metadata_fields" in update_data:
+        old_keys = set(channel.required_metadata_fields or [])
+        new_keys = set(update_data["required_metadata_fields"] or [])
+        removed = sorted(old_keys - new_keys)
+        if removed:
+            return JSONResponse(status_code=422, content={
+                "success": False,
+                "data": None,
+                "error": {"code": "VALIDATION_ERROR",
+                          "message": (
+                              "required_metadata_fields is add-only after channel creation; "
+                              f"cannot remove: {', '.join(removed)}"
+                          )},
+                "meta": {},
+            })
     for key, value in update_data.items():
         setattr(channel, key, value)
     await db.flush()
@@ -385,18 +442,23 @@ async def _stream_events(gen):
 
 @router.post("/channels/analyze-url-stream")
 async def analyze_url_stream(body: ValidateURLRequest):
-    try:
-        entries = await get_raw_entries(body.url, limit=5)
-    except Exception as e:
-        return JSONResponse(status_code=400, content={
-            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
-        })
-    if not entries:
-        return JSONResponse(status_code=400, content={
-            "success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found"}, "meta": {},
-        })
+    async def _gen():
+        # Flush headers immediately so the client sees a live connection
+        # while the (potentially slow) RSS fetch and LLM generation run.
+        yield {"type": "status", "message": "fetching feed"}
+        try:
+            entries = await get_raw_entries(body.url, limit=5)
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+            return
+        if not entries:
+            yield {"type": "error", "message": "No entries found"}
+            return
+        async for event in analyze_feed_stream(entries):
+            yield event
+
     return StreamingResponse(
-        _stream_events(analyze_feed_stream(entries)),
+        _stream_events(_gen()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
@@ -407,18 +469,25 @@ async def analyze_channel_stream(channel_id: str, db: AsyncSession = Depends(get
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
-    try:
-        entries = await get_raw_entries(channel.url, limit=5)
-    except Exception as e:
-        return JSONResponse(status_code=400, content={
-            "success": False, "data": None, "error": {"code": "FETCH_ERROR", "message": str(e)}, "meta": {},
-        })
-    if not entries:
-        return JSONResponse(status_code=400, content={
-            "success": False, "data": None, "error": {"code": "EMPTY_FEED", "message": "No entries found"}, "meta": {},
-        })
+
+    async def _gen():
+        # Flush headers immediately so the client sees a live connection
+        # while the (potentially slow) RSS fetch and LLM generation run.
+        yield {"type": "status", "message": "fetching feed"}
+        try:
+            entries = await get_raw_entries(channel.url, limit=5)
+        except Exception as e:
+            logger.error("analyze-stream feed fetch failed for %s: %s", channel.url, e)
+            yield {"type": "error", "message": str(e)}
+            return
+        if not entries:
+            yield {"type": "error", "message": "No entries found"}
+            return
+        async for event in analyze_feed_stream(entries):
+            yield event
+
     return StreamingResponse(
-        _stream_events(analyze_feed_stream(entries)),
+        _stream_events(_gen()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )

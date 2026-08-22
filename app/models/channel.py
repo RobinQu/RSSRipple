@@ -7,6 +7,12 @@ from sqlalchemy import JSON, Boolean, DateTime, Enum, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.services.required_fields import normalize_required_fields
+
+
+def _default_required_fields() -> list[str]:
+    """Baseline required-fields list for new channels (locked seven)."""
+    return normalize_required_fields([])
 
 
 class Channel(Base):
@@ -38,6 +44,15 @@ class Channel(Base):
     # names). None = default order; [] = fallback disabled. The fallback
     # supplies identity/links only - content follows the primary source.
     metadata_fallback_sources: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # Channel-declared "required" metadata fields (JSON list of catalog
+    # keys, see app/services/required_fields.py). Drives the resource-list
+    # display column and the agent filter-DSL gating. Mandatory and add-only
+    # after creation: defaults to the code-enforced baseline (locked seven);
+    # the startup light migration converges legacy NULL/partial rows to the
+    # same baseline. There is no "unrestricted" state anymore.
+    required_metadata_fields: Mapped[list[str] | None] = mapped_column(
+        JSON, nullable=True, default=lambda: _default_required_fields()
+    )
     # "默认标记为 Anime": works linked from this channel's successfully parsed
     # resources get is_anime=True. Immutable after creation (update API 422s
     # on change attempts).

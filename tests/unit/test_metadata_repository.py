@@ -186,7 +186,7 @@ async def test_invalidate_cache_for_external_id(db_session):
 async def test_cache_is_namespaced_by_source(db_session):
     await _set_cache("Same Title", "wikipedia", _meta(), db_session)
     # A different source must not serve the wikipedia verdict.
-    assert await _get_cache("Same Title", "exa", db_session) is None
+    assert await _get_cache("Same Title", "jina", db_session) is None
     assert await _get_cache("Same Title", "wikipedia", db_session) is not None
 
 

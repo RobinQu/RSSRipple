@@ -31,6 +31,8 @@ FieldCondition = {
 }
 ```
 
+FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一个有序 FieldCondition 列表，用于冲突解决中的确定性候选排序（只排序不过滤，见 business-logic.md「优选偏好层」）；校验共用同一套字段/操作符白名单（`validate_field_conditions`）。
+
 ### 求值语义
 
 - **BoolCondition**：
@@ -70,6 +72,7 @@ FieldCondition = {
 - **空值处理**：若字段值为 None/空：
   - 对于 `is_required` 语义由 DSL 外层决定——即空值时 `eq/contains/fuzzy/regex/gt/...` 判定为不通过；`ne` 判定为通过。
 - **非空值校验**：所有取值操作符（`eq/ne/contains/fuzzy/in/regex/gt/...`）的 `value` 在保存时（`validate_filter_config`，Agent 创建/更新接口）必须非空——空字符串、纯空白、null 一律返回 422。原因是 `eq ""` 这类条件对任何资源都不通过（正操作符遇空值失败，非空值又不等于 `""`），保存即静默过滤掉全部资源。校验只拦截保存，存量配置的求值语义不变。
+- **频道必填字段门控**：频道必填字段清单 `required_metadata_fields` 覆盖**全部 DSL 字段**（资源级字段以 DSL 字段名为目录键；作品字段按 `series.`/`movie.` 成对归入语义键 `rating`/`year`/`genre`/`is_anime`/`collection`；资源级 franchise 合集展示名走 `resource_collection` 键）。该清单下 Agent 的 `filter_config` 与各 work 的 `filter_overrides` 在保存时仅允许使用资源级字段（发布/集数/标题/作品类型分组，含资源级 `collection`）+ 已声明字段映射的作品字段（如 `rating` → `series.rating`/`movie.rating`），违规 422。清单**强制且创建后只增不删**：代码强制基线永不可清除——不存在"不限制"状态；基线＝基础必选七件套（`title_cn/title_en/search_title/content_type/is_batch/year/is_anime`，故 `series.year`/`movie.year`/`series.is_anime`/`movie.is_anime` 在所有频道默认放行）∪ 形态必填（TV→`season`、单集→`episode`、合集→`episode_start/end`、franchise 包→`resource_collection`；目录键带 `lock` 作用域与 `applies_to` 行形态适用性）；更新移除任何已保存键 422；存量 NULL/残缺行由启动轻迁移收敛为基线。`pick_preferences`（优选偏好）与 OrganizeRule 的 filter 不受此门控。权威目录：`app/services/required_fields.py`。
 - **合并规则**：AgentWork 的 `filter_overrides` 若存在，则与全局 `filter_config` 按 AND 包装：
   ```json
   { "combinator": "and", "conditions": [agent.filter_config, work.filter_overrides] }

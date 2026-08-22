@@ -24,8 +24,9 @@ def test_metadata_source_normalization_defaults_to_wikipedia():
     assert normalize_metadata_source_type("wikipedia") == "wikipedia"
     assert normalize_metadata_source_type("unknown") == "wikipedia"
     # Legacy ReAct sources still normalize through for manual search / eval.
-    assert normalize_metadata_source_type("exa") == "exa"
     assert normalize_metadata_source_type("local") == "local"
+    # Removed sources (exa) map to the default.
+    assert normalize_metadata_source_type("exa") == "wikipedia"
 
 
 def test_channel_metadata_source_resolution_is_two_source():
@@ -47,10 +48,6 @@ def test_tools_are_restricted_to_selected_source():
     assert _tool_names(agent, "tmdb") == {
         "search_tmdb",
         "get_tmdb_details",
-        "finalize",
-    }
-    assert _tool_names(agent, "exa") == {
-        "search_exa_agent",
         "finalize",
     }
     assert _tool_names(agent, "wikipedia") == {
@@ -834,7 +831,6 @@ async def test_process_routes_wikipedia_to_search_then_judge(db_session, sample_
 def test_cache_source_key_namespaces_by_source():
     from app.services.metadata_agent import _cache_source_key
     assert _cache_source_key("jina") == "metadata_agent:jina"
-    assert _cache_source_key("exa") == "metadata_agent:exa"
     assert _cache_source_key("local") == "metadata_agent:local"
     # Unset source resolves to the default (wikipedia), still its own namespace.
     assert _cache_source_key(None) == "metadata_agent:wikipedia"

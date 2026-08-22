@@ -1,7 +1,8 @@
 """Single-source metadata search helpers.
 
-TMDB and Exa Agent are exposed as independent data sources. Callers must choose
-one source explicitly; this module no longer performs layered fallback search.
+TMDB is exposed as an independent data source; Jina provides search + reader
+primitives for the ReAct agent. Callers must choose one source explicitly;
+this module no longer performs layered fallback search.
 
 All sources produce a uniform ``MetadataCandidate`` dict that drops into the
 existing ``create_or_update_*_from_external()`` functions unchanged.
@@ -10,7 +11,6 @@ existing ``create_or_update_*_from_external()`` functions unchanged.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 from functools import lru_cache
 from typing import Any, TypedDict
@@ -19,7 +19,7 @@ import httpx
 from httpx import HTTPStatusError, TimeoutException
 
 from app.services.anime_signals import is_anime_from_tmdb
-from app.services.genre_registry import GENRE_NAMES, TMDB_ID_TO_NAME
+from app.services.genre_registry import TMDB_ID_TO_NAME
 from app.services.runtime_config import runtime_config
 from app.services.url_tools import keep_k_per_hostname
 
@@ -42,7 +42,7 @@ class MetadataCandidate(TypedDict, total=False):
     genre: list[str]
     status: str | None
     external_id: str
-    external_source: str  # "tmdb" | "exa" | "jina" | "llm_search"
+    external_source: str  # "tmdb" | "jina" | "llm_search"
     number_of_episodes: int | None
     number_of_seasons: int | None
     start_date: str | None
@@ -365,237 +365,6 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Exa AI Agent source
-# ---------------------------------------------------------------------------
-
-_EXA_CANDIDATE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "content_type": {
-            "type": "string",
-            "enum": ["tv", "movie"],
-            "description": "Content type: 'tv' for TV series/anime, 'movie' for films",
-        },
-        "title_cn": {
-            "type": ["string", "null"],
-            "description": "Chinese title of the work",
-        },
-        "title_en": {
-            "type": ["string", "null"],
-            "description": "English title of the work",
-        },
-        "original_title": {
-            "type": ["string", "null"],
-            "description": "Original language title of the work",
-        },
-        "description": {
-            "type": ["string", "null"],
-            "description": "Brief plot summary or description",
-        },
-        "poster_url": {
-            "type": ["string", "null"],
-            "format": "uri",
-            "description": "Direct URL to a poster image (.png/.jpg), not a webpage",
-        },
-        "year": {
-            "type": ["integer", "null"],
-            "description": "Release year (e.g. 2024)",
-        },
-        "rating": {
-            "type": ["number", "null"],
-            "description": "Rating score (0-10 scale)",
-        },
-        "genre": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": (
-                "Genre tags. Pick ONLY from the closed TMDB genre set: "
-                + ", ".join(GENRE_NAMES)
-            ),
-        },
-        "status": {
-            "type": ["string", "null"],
-            "description": (
-                "For TV: 'Returning Series'/'Ended'/'Canceled' etc. "
-                "For movie: 'Released'/'Post Production' etc."
-            ),
-        },
-        "external_id": {
-            "type": ["string", "null"],
-            "description": "External identifier (e.g. TMDB ID, IMDB ID) if available",
-        },
-        "number_of_episodes": {
-            "type": ["integer", "null"],
-            "description": "Total number of episodes (TV only)",
-        },
-        "number_of_seasons": {
-            "type": ["integer", "null"],
-            "description": "Total number of seasons (TV only)",
-        },
-        "seasons": {
-            "type": ["array", "null"],
-            "description": (
-                "Per-season episode counts (TV only). Used to distinguish "
-                "titles that number episodes absolutely (e.g. 'S04 - 84') "
-                "from per-season numbering. Include one entry per aired "
-                "season with `episode_count` if known; skip specials "
-                "(season_number = 0). Omit or leave empty when unsure."
-            ),
-            "items": {
-                "type": "object",
-                "properties": {
-                    "season_number": {"type": "integer"},
-                    "episode_count": {"type": ["integer", "null"]},
-                    "name": {"type": ["string", "null"]},
-                },
-                "required": ["season_number"],
-            },
-        },
-        "start_date": {
-            "type": ["string", "null"],
-            "format": "date",
-            "description": "First air date (TV only, YYYY-MM-DD format)",
-        },
-        "end_date": {
-            "type": ["string", "null"],
-            "format": "date",
-            "description": "Last air date (TV only, YYYY-MM-DD format)",
-        },
-        "release_date": {
-            "type": ["string", "null"],
-            "format": "date",
-            "description": "Release date (movie, YYYY-MM-DD format)",
-        },
-        "runtime": {
-            "type": ["integer", "null"],
-            "description": "Runtime in minutes (movie)",
-        },
-    },
-    "required": ["content_type"],
-}
-
-_EXA_OUTPUT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "candidates": {
-            "type": "array",
-            "maxItems": 5,
-            "description": (
-                "Best matching TV/movie metadata candidates. "
-                "Return an empty array if no credible work matches."
-            ),
-            "items": _EXA_CANDIDATE_SCHEMA,
-        },
-        "reason": {
-            "type": ["string", "null"],
-            "description": "Short explanation of the match quality or why no candidates were found.",
-        },
-    },
-    "required": ["candidates"],
-}
-
-
-async def _search_exa(title: str) -> list[dict[str, Any]]:
-    """Search for metadata via Exa AI Agent API."""
-    if not runtime_config.exa_api_key:
-        logger.info("[metadata_agent][exa] skipped title=%r: EXA_API_KEY is not configured", title[:120])
-        return []
-
-    cached = _cache_get("exa", title)
-    if cached is not None:
-        logger.info("[metadata_agent][exa] cache hit title=%r candidates=%d", title[:120], len(cached))
-        return cached
-
-    try:
-        from exa_py import AsyncExa
-
-        query = (
-            f'Search for metadata about "{title}". '
-            "Return up to 5 credible candidate works that this RSS title could refer to. "
-            "Determine whether each candidate is a TV series/anime or a movie. "
-            "For each candidate, find Chinese and English titles, original title, a brief description, "
-            "a direct poster image URL (.png or .jpg, not a webpage), release year, rating (0-10 scale), "
-            "genre tags, status, and type-specific information "
-            "(number of episodes/seasons for TV, release date and runtime for movies). "
-            "Prefer authoritative sources such as TMDB, IMDb, Wikipedia, official sites, or major anime databases. "
-            "If there is no credible match, return candidates as an empty array."
-        )
-        logger.info(
-            "[metadata_agent][exa] create run title=%r effort=%s schema=candidates[]",
-            title[:120], runtime_config.exa_effort_level,
-        )
-        exa = AsyncExa(api_key=runtime_config.exa_api_key)
-        run = await exa.agent.runs.create(
-            query=query,
-            output_schema=_EXA_OUTPUT_SCHEMA,
-            effort=runtime_config.exa_effort_level,
-        )
-        logger.info(
-            "[metadata_agent][exa] run created id=%s status=%s",
-            getattr(run, "id", None),
-            getattr(run, "status", None),
-        )
-        polled = await exa.agent.runs.poll_until_finished(
-            run.id, poll_interval=4000, timeout_ms=300_000,
-        )
-        logger.info(
-            "[metadata_agent][exa] run finished id=%s status=%s stop_reason=%s cost=%s error=%s output=%s",
-            getattr(polled, "id", None),
-            getattr(polled, "status", None),
-            getattr(polled, "stop_reason", None),
-            _compact_obj(getattr(polled, "cost_dollars", None)),
-            _compact_obj(getattr(polled, "error", None)),
-            _compact_obj(getattr(polled, "output", None), max_len=2000),
-        )
-
-        structured = _extract_exa_structured(polled)
-        if getattr(polled, "status", None) == "completed" and structured:
-            raw_candidates = _extract_exa_candidates(structured)
-            logger.info(
-                "[metadata_agent][exa] structured extracted title=%r raw_candidates=%d structured=%s",
-                title[:120],
-                len(raw_candidates),
-                _compact_obj(structured, max_len=2000),
-            )
-            candidates: list[dict[str, Any]] = []
-            for idx, raw_candidate in enumerate(raw_candidates):
-                candidate_data = _normalize_exa_candidate(raw_candidate, title, idx)
-
-                poster = candidate_data.get("poster_url")
-                if poster:
-                    candidate_data["poster_url"] = await _validate_poster_url(poster)
-
-                if _validate_candidate(candidate_data):
-                    candidates.append(candidate_data)
-                    logger.info(
-                        "[metadata_agent][exa] candidate accepted title=%r index=%d candidate=%s",
-                        title[:120], idx, _compact_obj(candidate_data, max_len=1200),
-                    )
-                else:
-                    logger.warning(
-                        "[metadata_agent][exa] candidate rejected title=%r index=%d candidate=%s",
-                        title[:120], idx, _compact_obj(candidate_data, max_len=1200),
-                    )
-
-            _cache_set("exa", title, candidates)
-            logger.info("[metadata_agent][exa] returning title=%r candidates=%d", title[:120], len(candidates))
-            return candidates
-
-        # Non-completed or no structured output
-        logger.warning(
-            "[metadata_agent][exa] no usable structured output title=%r status=%s structured=%s",
-            title[:120], getattr(polled, "status", None), _compact_obj(structured, max_len=1200),
-        )
-        _cache_set("exa", title, [])
-        return []
-
-    except Exception as e:
-        logger.warning("[metadata_agent][exa] search failed title=%r: %s", title[:120], e, exc_info=True)
-        _cache_set("exa", title, [])
-        return []
-
-
-# ---------------------------------------------------------------------------
 # Jina Search + Reader source
 # ---------------------------------------------------------------------------
 
@@ -791,59 +560,6 @@ def _compact_obj(value: Any, max_len: int = 800) -> str:
     return text
 
 
-def _extract_exa_structured(run: Any) -> dict[str, Any] | list[Any] | None:
-    """Extract output.structured from either exa-py models or plain dicts."""
-    plain = _to_plain_obj(run)
-    if isinstance(plain, dict):
-        output = plain.get("output")
-        if isinstance(output, dict):
-            structured = output.get("structured")
-            if structured:
-                return structured
-
-    output = getattr(run, "output", None)
-    structured = getattr(output, "structured", None) if output is not None else None
-    if structured:
-        return _to_plain_obj(structured)
-    return None
-
-
-def _extract_exa_candidates(structured: dict[str, Any] | list[Any]) -> list[dict[str, Any]]:
-    """Normalize Exa structured output to a list of raw candidate dicts."""
-    if isinstance(structured, list):
-        return [c for c in structured if isinstance(c, dict)]
-    if not isinstance(structured, dict):
-        return []
-
-    candidates = structured.get("candidates")
-    if isinstance(candidates, list):
-        return [c for c in candidates if isinstance(c, dict)]
-
-    # Compatibility with the previous schema, where the structured object was a
-    # single candidate instead of {"candidates": [...]}.
-    if any(structured.get(k) for k in ("title_cn", "title_en", "original_title", "external_id")):
-        return [structured]
-    return []
-
-
-def _normalize_exa_candidate(raw: dict[str, Any], title: str, index: int) -> dict[str, Any]:
-    """Fill required compatibility fields for downstream metadata linking."""
-    candidate = dict(raw)
-    content_type = str(candidate.get("content_type") or "").strip().lower()
-    if content_type in {"tv_series", "series", "anime", "show"}:
-        content_type = "tv"
-    elif content_type in {"film"}:
-        content_type = "movie"
-    candidate["content_type"] = content_type if content_type in ("tv", "movie") else candidate.get("content_type")
-    candidate.setdefault("external_source", "exa")
-    if not candidate.get("external_id"):
-        digest = hashlib.md5(f"{title.lower()}:{index}".encode()).hexdigest()[:12]
-        candidate["external_id"] = f"exa:{digest}"
-    if candidate.get("genre") is None:
-        candidate["genre"] = []
-    return candidate
-
-
 def _validate_candidate(c: dict[str, Any]) -> bool:
     """Return True if the candidate has enough information to be useful."""
     has_title = bool(c.get("title_cn") or c.get("title_en") or c.get("original_title"))
@@ -907,7 +623,7 @@ async def _validate_poster_url(url: str | None, max_retries: int = 3) -> str | N
 
 async def search_metadata(
     title: str,
-    data_source_type: str = "exa",
+    data_source_type: str = "tmdb",
 ) -> list[dict[str, Any]]:
     """Search one selected metadata source.
 
@@ -917,9 +633,9 @@ async def search_metadata(
     if not title or not title.strip():
         return []
 
-    source = (data_source_type or "exa").strip().lower()
+    source = (data_source_type or "tmdb").strip().lower()
     if source == "combined":
-        source = "exa"
+        source = "tmdb"
 
     if source == "tmdb":
         try:
@@ -934,9 +650,6 @@ async def search_metadata(
 
         merged.sort(key=_sort_key, reverse=True)
         return merged
-
-    if source == "exa":
-        return await _search_exa(title)
 
     logger.warning("[metadata_agent] unsupported metadata_search_agent source=%s", source)
     return []

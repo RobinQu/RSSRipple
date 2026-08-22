@@ -10,12 +10,14 @@ import {
   Button,
   Typography,
   Divider,
+  Tooltip,
 } from 'antd';
 import {
   MinusCircleOutlined,
   PlusOutlined,
   DeleteOutlined,
   GroupOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import { channelsApi } from '../api/channels';
 import { GENRE_NAMES, genreSlug } from '../constants/genres';
@@ -151,7 +153,7 @@ function operatorsFor(field: FilterField): FilterOperator[] {
   }
 }
 
-function useFieldOptions(t: TFunction) {
+function useFieldOptions(t: TFunction, allowedFields?: FilterField[] | null) {
   // Semantic grouping (not type-based): the dropdown is organized by what the
   // field *means*, so users can find "文件大小" next to "容器" and "集数"
   // next to "是否合集" instead of hunting across String/Number/Bool buckets.
@@ -174,16 +176,22 @@ function useFieldOptions(t: TFunction) {
     'movie.rating', 'movie.year', 'movie.genre', 'movie.collection', 'movie.is_anime',
   ];
 
+  // Channel required-fields gate: when the channel declares a list, only
+  // those fields (plus resource-level ones) may be picked. null/undefined =
+  // unrestricted.
+  const gate = (fields: FilterField[]) =>
+    allowedFields == null ? fields : fields.filter((f) => allowedFields.includes(f));
+
   const toOption = (f: FilterField) => ({ value: f, label: t(`filter.${f}` as never, { defaultValue: f }) });
 
   const fieldOptions = [
-    { label: t('filter.groupRelease'), options: release_fields.map(toOption) },
-    { label: t('filter.groupEpisode'), options: episode_fields.map(toOption) },
-    { label: t('filter.groupTitle'), options: title_fields.map(toOption) },
-    { label: t('filter.groupWorkType'), options: work_type_fields.map(toOption) },
-    { label: t('filter.groupSeries'), options: series_fields.map(toOption) },
-    { label: t('filter.groupMovie'), options: movie_fields.map(toOption) },
-  ];
+    { label: t('filter.groupRelease'), options: gate(release_fields).map(toOption) },
+    { label: t('filter.groupEpisode'), options: gate(episode_fields).map(toOption) },
+    { label: t('filter.groupTitle'), options: gate(title_fields).map(toOption) },
+    { label: t('filter.groupWorkType'), options: gate(work_type_fields).map(toOption) },
+    { label: t('filter.groupSeries'), options: gate(series_fields).map(toOption) },
+    { label: t('filter.groupMovie'), options: gate(movie_fields).map(toOption) },
+  ].filter((g) => g.options.length > 0);
 
   const operatorLabel = (op: FilterOperator) => t(`filter.${op}`);
 
@@ -295,21 +303,23 @@ function AutocompleteSelect({
 // FieldConditionNode — the leaf editor
 // ---------------------------------------------------------------------------
 
-function FieldConditionNode({
+export function FieldConditionNode({
   value,
   onChange,
   onDelete,
   channelId,
+  allowedFields,
   nested = false,
 }: {
   value: FieldCondition;
   onChange: (v: FieldCondition) => void;
   onDelete: () => void;
   channelId?: string;
+  allowedFields?: FilterField[] | null;
   nested?: boolean;
 }) {
   const { t } = useTranslation();
-  const { fieldOptions, operatorLabel } = useFieldOptions(t);
+  const { fieldOptions, operatorLabel } = useFieldOptions(t, allowedFields);
   const fieldType = FIELD_TYPES[value.field];
 
   const handleFieldChange = (field: FilterField) => {
@@ -386,6 +396,13 @@ function FieldConditionNode({
         size="small"
         popupMatchSelectWidth={false}
       />
+      {/* Legacy-config warning: the condition references a field outside the
+          channel's required-fields allowlist — saving will be rejected (422). */}
+      {allowedFields != null && !allowedFields.includes(value.field) && (
+        <Tooltip title={t('filter.legacyFieldWarning', { field: value.field })}>
+          <WarningOutlined style={{ color: '#faad14', marginTop: 5, flexShrink: 0 }} />
+        </Tooltip>
+      )}
       <Select
         value={value.operator}
         onChange={handleOperatorChange}
@@ -542,6 +559,7 @@ function BoolConditionNode({
   isRoot = false,
   depth = 0,
   channelId,
+  allowedFields,
 }: {
   value: BoolCondition;
   onChange: (v: BoolCondition) => void;
@@ -549,6 +567,7 @@ function BoolConditionNode({
   isRoot?: boolean;
   depth?: number;
   channelId?: string;
+  allowedFields?: FilterField[] | null;
 }) {
   const { t } = useTranslation();
 
@@ -657,6 +676,7 @@ function BoolConditionNode({
                 onChange={(v) => updateCondition(idx, v)}
                 onDelete={() => removeCondition(idx)}
                 channelId={channelId}
+                allowedFields={allowedFields}
               />
             );
           }
@@ -669,6 +689,7 @@ function BoolConditionNode({
                 onChange={(v) => updateCondition(idx, v)}
                 onDelete={() => removeCondition(idx)}
                 channelId={channelId}
+                allowedFields={allowedFields}
               />
             );
           }
@@ -703,6 +724,9 @@ export interface FilterBuilderProps {
   compact?: boolean;
   /** Channel context — enables autocomplete of real values on eq/ne. */
   channelId?: string;
+  /** Channel required-fields gate — when non-null, only these fields are
+   * selectable (agent filters on a channel with required_metadata_fields). */
+  allowedFields?: FilterField[] | null;
 }
 
 export default function FilterBuilder({
@@ -710,6 +734,7 @@ export default function FilterBuilder({
   onChange,
   compact = false,
   channelId,
+  allowedFields,
 }: FilterBuilderProps) {
   const root = value ?? emptyBool();
 
@@ -722,7 +747,13 @@ export default function FilterBuilder({
 
   if (compact) {
     return (
-      <BoolConditionNode value={root} onChange={handleChange} isRoot channelId={channelId} />
+      <BoolConditionNode
+        value={root}
+        onChange={handleChange}
+        isRoot
+        channelId={channelId}
+        allowedFields={allowedFields}
+      />
     );
   }
 
@@ -732,7 +763,13 @@ export default function FilterBuilder({
       styles={{ body: { padding: 16 } }}
       style={{ background: 'transparent' }}
     >
-      <BoolConditionNode value={root} onChange={handleChange} isRoot channelId={channelId} />
+      <BoolConditionNode
+        value={root}
+        onChange={handleChange}
+        isRoot
+        channelId={channelId}
+        allowedFields={allowedFields}
+      />
     </Card>
   );
 }

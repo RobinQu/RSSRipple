@@ -1,4 +1,4 @@
-"""Unit tests for metadata_search_agent: TMDB, Exa sources."""
+"""Unit tests for metadata_search_agent: TMDB + Jina sources."""
 
 from __future__ import annotations
 
@@ -8,10 +8,7 @@ from app.services.metadata_search_agent import (
     _cache_get,
     _cache_key,
     _cache_set,
-    _extract_exa_candidates,
-    _extract_exa_structured,
     _fmt_date,
-    _normalize_exa_candidate,
     _parse_year,
     _tmdb_poster_url,
     _validate_candidate,
@@ -82,46 +79,6 @@ def test_tmdb_poster_url():
     assert _tmdb_poster_url("/abc.jpg", base) == "https://image.tmdb.org/t/p/w500/abc.jpg"
     assert _tmdb_poster_url(None) is None
     assert _tmdb_poster_url("") is None
-
-
-def test_extract_exa_candidates_from_candidates_array():
-    structured = {
-        "candidates": [
-            {"content_type": "tv", "title_en": "Breaking Bad"},
-            {"content_type": "movie", "title_en": "El Camino"},
-        ],
-        "reason": "two matches",
-    }
-    assert _extract_exa_candidates(structured) == structured["candidates"]
-
-
-def test_extract_exa_candidates_supports_legacy_single_candidate():
-    structured = {"content_type": "tv", "title_en": "Breaking Bad"}
-    assert _extract_exa_candidates(structured) == [structured]
-
-
-def test_extract_exa_structured_from_sdk_like_model():
-    class Output:
-        structured = {"candidates": [{"content_type": "tv", "title_en": "Breaking Bad"}]}
-
-    class Run:
-        output = Output()
-
-    assert _extract_exa_structured(Run()) == {
-        "candidates": [{"content_type": "tv", "title_en": "Breaking Bad"}]
-    }
-
-
-def test_normalize_exa_candidate_adds_external_fields_and_type_alias():
-    candidate = _normalize_exa_candidate(
-        {"content_type": "anime", "title_en": "Frieren", "genre": None},
-        "[Subs] Frieren - 01",
-        0,
-    )
-    assert candidate["content_type"] == "tv"
-    assert candidate["external_source"] == "exa"
-    assert candidate["external_id"].startswith("exa:")
-    assert candidate["genre"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -342,32 +299,8 @@ async def test_tmdb_no_api_key_returns_empty(monkeypatch):
     assert results == []
 
 
-# ---------------------------------------------------------------------------
-# Exa AI Agent source (mocked exa_py)
-# ---------------------------------------------------------------------------
-
-EXA_STRUCTURED_RESULT = {
-    "content_type": "tv",
-    "title_cn": "绝命毒师",
-    "title_en": "Breaking Bad",
-    "original_title": "Breaking Bad",
-    "description": "A high school chemistry teacher diagnosed with cancer...",
-    "poster_url": "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
-    "year": 2008,
-    "rating": 8.9,
-    "genre": ["Drama", "Crime"],
-    "status": "Ended",
-    "external_id": "tt0903747",
-    "number_of_episodes": 62,
-    "number_of_seasons": 5,
-    "start_date": "2008-01-20",
-    "end_date": "2013-09-29",
-    "release_date": None,
-    "runtime": None,
-}
-
 # NOTE: search_metadata() is now only a single-source compatibility dispatcher.
-# Exa/TMDB/Wikipedia orchestration lives in UnifiedMetadataAgent
+# TMDB/Wikipedia orchestration lives in UnifiedMetadataAgent
 # (app/services/metadata_agent.py). See tests/unit/test_metadata_agent.py for
 # source-restricted agent tests.
 

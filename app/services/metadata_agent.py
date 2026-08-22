@@ -44,7 +44,6 @@ from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_source_io import (
     _execute_get_tmdb_details,
     _execute_read_jina_url,
-    _execute_search_exa_agent,
     _execute_search_jina,
     _execute_search_tmdb,
     fetch_tmdb_episode_list,
@@ -183,23 +182,6 @@ async def get_wikipedia_page(title: str, lang: str = "en") -> str:
         JSON: {success, data: {title, page_id, url, summary, categories}}
     """
     result = await _execute_get_wikipedia_page(title, lang)
-    return json.dumps(result, ensure_ascii=False)
-
-
-@tool
-async def search_exa_agent(query: str) -> str:
-    """Search Exa Agent for structured web metadata about a work.
-
-    This tool is available only in Exa source mode.
-
-    Args:
-        query: Search query
-
-    Returns:
-        JSON: {"success": true, "data": [{content_type, title_cn, title_en,
-        original_title, description, external_id, external_source, ...}]}
-    """
-    result = await _execute_search_exa_agent(query)
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -448,7 +430,7 @@ class UnifiedMetadataAgent:
             return [search_wikipedia, get_wikipedia_page, finalize]
         if source == "jina":
             return [search_jina, read_jina_url, finalize]
-        return [search_exa_agent, finalize]
+        return [search_wikipedia, get_wikipedia_page, finalize]
 
     def _agent_for_source(self, data_source_type: str) -> Any:
         """Lazily build a ReAct graph whose tools are limited to one source."""
@@ -909,9 +891,6 @@ class UnifiedMetadataAgent:
             "tmdb": (
                 "Source mode: TMDB Search. Use TMDB metadata only."
             ),
-            "exa": (
-                "Source mode: Exa Agent Search. Use Exa Agent metadata only."
-            ),
             "wikipedia": (
                 "Source mode: Wikipedia Search. Use Wikipedia metadata only."
             ),
@@ -1154,8 +1133,6 @@ class UnifiedMetadataAgent:
                         methods_used.add("tmdb")
                     elif name == "get_tmdb_details":
                         methods_used.add("tmdb")
-                    elif name == "search_exa_agent":
-                        methods_used.add("exa")
                     elif name == "search_wikipedia":
                         methods_used.add("wikipedia")
                     elif name == "get_wikipedia_page":
@@ -1183,18 +1160,6 @@ class UnifiedMetadataAgent:
                         if isinstance(content, dict) and not content.get("success"):
                             source_errors.setdefault("tmdb", content.get("error", "details failed"))
                             search_error = search_error or f"TMDB details: {content.get('error', 'failed')}"
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                elif msg.name == "search_exa_agent":
-                    try:
-                        content = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
-                        if isinstance(content, dict):
-                            if not content.get("success"):
-                                source_errors.setdefault("exa", content.get("error", "no results"))
-                                search_error = search_error or f"Exa: {content.get('error', 'no results')}"
-                            elif not content.get("data"):
-                                source_errors.setdefault("exa", "no results")
-                                search_error = search_error or "Exa: no results"
                     except (json.JSONDecodeError, TypeError):
                         pass
                 elif msg.name in ("search_wikipedia", "get_wikipedia_page"):

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -46,6 +47,7 @@ from sqlalchemy.orm import selectinload
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
+from app.models.file_resource import FileResource
 from app.models.library import Library
 from app.models.organize_audit import OrganizeAuditEntry
 from app.models.organize_plan import OrganizePlan
@@ -80,6 +82,11 @@ _executor_lock = asyncio.Lock()
 # 本进程正在执行的计划 id：区分「真正执行中」与「崩溃遗留的 running」
 # （后者可重放，由执行器幂等状态表收敛）。
 _executing_plan_ids: set[str] = set()
+
+
+def is_plan_executing(plan_id: str) -> bool:
+    """该计划是否正在本进程内执行（区分崩溃遗留的 stale running）。"""
+    return plan_id in _executing_plan_ids
 
 
 class OrganizeError(Exception):
@@ -142,11 +149,102 @@ def _preset_template(payload: NotificationPayload) -> str:
 # ---------------------------------------------------------------- 磁盘文件收集
 
 
+async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | None:
+    """``payload.files`` 缺失时回退获取 torrent 文件清单。
+
+    清单用于按 ``download_dir/<清单路径>`` **精确匹配**磁盘文件（单文件
+    种子平铺在共享下载根、或快照生成时 RPC 不可用导致 files 缺失的场景），
+    从而把「绝不扫描共享下载根」细化为「只触碰 torrent 清单列出的文件」。
+    来源顺序：``resource.torrent_file`` 缓存 → ``torrent_url`` 拉取（成功
+    后回写缓存路径，随计划 commit 持久化）→ 下载器 RPC。全部不可用返回
+    None（调用方维持原报错）。
+    """
+    from app.services.torrent_inspect import (
+        fetch_torrent_file,
+        parse_torrent_files,
+        read_torrent_root_name,
+    )
+
+    def _from_torrent(path: str) -> list[dict] | None:
+        """解析 .torrent 清单；多文件种子补上 info/name 根目录分量——
+        parse_torrent_files 的路径相对于种子根，而下载客户端落盘为
+        ``download_dir/<info/name>/<文件>``（RPC 来源的清单已含根目录，
+        不需要这一步）。根名不安全（含路径分隔/. /..）时放弃补前缀。"""
+        entries = parse_torrent_files(path)
+        if not entries:
+            return None
+        root = (read_torrent_root_name(path) or "").strip()
+        if root and "/" not in root and "\\" not in root and root not in (".", ".."):
+            return [
+                {"name": f"{root}/{e['name']}", "size": e.get("size", 0)}
+                for e in entries
+            ]
+        return entries
+
+    task_id = payload.task.download_task_id if payload.task else None
+    if not task_id:
+        return None
+    task = await db.get(DownloadTask, task_id)
+    if task is None:
+        return None
+
+    files: list[dict] | None = None
+    if task.file_resource_id:
+        resource = await db.get(FileResource, task.file_resource_id)
+        if resource is not None:
+            path = resource.torrent_file
+            if path and Path(path).exists():
+                files = _from_torrent(path)
+            if files is None:
+                url = resource.torrent_url or ""
+                if url.startswith(("http://", "https://")):
+                    try:
+                        new_path = await fetch_torrent_file(url, resource.id)
+                    except Exception:  # noqa: BLE001 — best-effort
+                        new_path = None
+                    if new_path:
+                        resource.torrent_file = new_path
+                        files = _from_torrent(new_path)
+    if files is None and task.transmission_torrent_id and task.downloader_id:
+        downloader = await db.get(DownloaderInstance, task.downloader_id)
+        if downloader is not None:
+            from app.clients.downloader import get_downloader_client
+
+            try:
+                info = await get_downloader_client(downloader).get_torrent_files(
+                    task.transmission_torrent_id
+                )
+            except Exception:  # noqa: BLE001 — best-effort
+                info = None
+            if info and info.get("files"):
+                files = info["files"]
+    if not files:
+        return None
+
+    # 只保留安全的相对路径（清单会拼到下载根下做存在性检查）：剔除空名、
+    # 绝对路径与含 . / .. 分量的路径，避免清单越界匹配共享根外的文件。
+    out: list[dict] = []
+    for entry in files:
+        name = (entry or {}).get("name") or ""
+        if not name or Path(name).is_absolute() or (len(name) > 1 and name[1] == ":"):
+            continue
+        parts = [p for p in re.split(r"[/\\]+", name) if p]
+        if not parts or any(p in (".", "..") for p in parts):
+            continue
+        out.append({
+            "name": "/".join(parts),
+            "size": entry.get("size") or entry.get("length") or 0,
+        })
+    return out or None
+
+
 def _collect_files(
     payload: NotificationPayload, downloader: Any | None
 ) -> list[DiskFile]:
-    """定位磁盘文件（同步，线程中运行）。优先 payload.files 清单，缺失回退
-    只扫种子独立目录（download_dir/torrent_name）——绝不扫共享下载根。
+    """定位磁盘文件（同步，线程中运行）。优先 payload.files 清单（含
+    :func:`_resolve_manifest` 的 torrent 清单回退）逐项做存在性精确匹配，
+    缺失回退只扫种子独立目录（download_dir/torrent_name）——绝不扫共享
+    下载根。
 
     移植自 vault-organizer ``worker.collect_files``；返回路径均为本进程
     视角（已过下载器卷绑定解析），因此随后 build_plan 不再做翻译。
@@ -189,8 +287,8 @@ def _collect_files(
 
     if not scoped_dir:
         raise PlanError(
-            "无法定位下载内容：payload 无可用 files 且种子独立目录不存在"
-            f"（torrent_name={tname!r}，download_dir={download_dir}），"
+            "无法定位下载内容：文件清单缺失或在磁盘上均未命中，且种子独立目录"
+            f"不存在（torrent_name={tname!r}，download_dir={download_dir}），"
             "拒绝扫描共享下载根以免误伤其他任务，请人工介入"
         )
     files = [
@@ -206,14 +304,21 @@ def _collect_files(
 def _cleanup_paths(
     payload: NotificationPayload, downloader: Any | None
 ) -> tuple[str | None, str | None]:
-    """执行后空目录清理的 (范围, 保留边界)：种子独立目录与卷解析后的下载根。"""
+    """执行后空目录清理的 (范围, 保留边界)：种子独立目录与卷解析后的下载根。
+
+    torrent_name 为空（清单定位的平铺/单文件种子直接落在共享下载根）时
+    返回 (None, None) 跳过清理——绝不以共享下载根为清理范围（会误删其他
+    任务留下的空目录）。
+    """
     task = payload.task
     download_dir = (task.download_dir if task else None) or ""
     if not download_dir:
         return None, None
     base = resolve_downloader_path(downloader, download_dir)
     tname = (task.torrent_name if task else None) or ""
-    return (os.path.join(base, tname) if tname else base), base
+    if not tname:
+        return None, None
+    return os.path.join(base, tname), base
 
 
 async def _resolve_downloader(db, payload: NotificationPayload) -> Any | None:
@@ -362,6 +467,12 @@ async def _plan_one(
         return await _rebuild_plan(db, existing, notification, rules, libraries)
 
     payload = NotificationPayload.model_validate(notification.payload)
+    if not payload.files:
+        # 快照缺 files（生成时 RPC 不可用等）：回退 torrent 文件清单做
+        # 精确匹配，让平铺在共享下载根的单文件种子也能定位。
+        manifest = await _resolve_manifest(db, payload)
+        if manifest:
+            payload = payload.model_copy(update={"files": manifest})
     downloader = await _resolve_downloader(db, payload)
     try:
         result = await asyncio.to_thread(
@@ -446,6 +557,10 @@ async def _rebuild_plan(
     失败保留旧计划（下 tick 重试）。
     """
     payload = NotificationPayload.model_validate(notification.payload)
+    if not payload.files:
+        manifest = await _resolve_manifest(db, payload)
+        if manifest:
+            payload = payload.model_copy(update={"files": manifest})
     downloader = await _resolve_downloader(db, payload)
     category = plan.category
     if plan.library_id and plan.rule_id is None and plan.library_id in libraries:
@@ -803,6 +918,12 @@ async def classify_plan(
         if op.op_type in ("move", "keep")
     ]
     if not disk_files:
+        if not payload.files:
+            # 与规划/重建同一回退：torrent 清单精确匹配（平铺单文件种子、
+            # 快照 torrent_name 缺失的多文件种子根目录布局）。
+            manifest = await _resolve_manifest(db, payload)
+            if manifest:
+                payload = payload.model_copy(update={"files": manifest})
         downloader = await _resolve_downloader(db, payload)
         try:
             disk_files = await asyncio.to_thread(

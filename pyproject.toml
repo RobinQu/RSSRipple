@@ -22,7 +22,6 @@ dependencies = [
     "redis>=5.0",
     # Optional database drivers (auto-selected via DATABASE_URL scheme)
     "asyncpg>=0.30.0",
-    "exa-py>=2.15.0",
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
     "langchain-openai>=0.2.0",

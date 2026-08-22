@@ -246,7 +246,7 @@ a:hover {
 
 .resource-table-wrap {
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .resource-table {
@@ -254,6 +254,39 @@ a:hover {
   border-collapse: collapse;
   font-size: 13px;
   table-layout: fixed;
+}
+
+/* Fixed 作品/操作 columns: the middle required-field columns scroll
+   horizontally beneath them. */
+.resource-table .cell-sticky,
+.resource-table .cell-sticky-actions {
+  position: sticky;
+  background: var(--rr-surface);
+  z-index: 2;
+}
+
+.resource-table .cell-sticky-check {
+  left: 0;
+}
+
+.resource-table .cell-sticky-work {
+  left: 40px;
+  box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.18);
+}
+
+.resource-table .cell-sticky-actions {
+  right: 0;
+  box-shadow: -6px 0 8px -6px rgba(0, 0, 0, 0.18);
+}
+
+.resource-table thead .cell-sticky,
+.resource-table thead .cell-sticky-actions {
+  z-index: 3;
+}
+
+.resource-row:hover .cell-sticky,
+.resource-row:hover .cell-sticky-actions {
+  background: var(--rr-surface-elevated);
 }
 
 .resource-table th,
@@ -283,6 +316,13 @@ a:hover {
 @media (max-width: 760px) {
   .resource-table-wrap {
     overflow-x: visible;
+  }
+
+  /* Mobile rows stack vertically — disable the fixed columns. */
+  .resource-table .cell-sticky,
+  .resource-table .cell-sticky-actions {
+    position: static;
+    box-shadow: none;
   }
 
   .resource-table,

@@ -289,6 +289,26 @@ async def test_library_delete_blocked_by_plan(
     assert resp.json()["error"]["code"] == "DELETE_BLOCKED"
 
 
+async def test_library_delete_allowed_with_done_plan(
+    client, db_session, library, movie_seed
+):
+    """已执行（done）的计划不再阻止删除库：历史计划行保留、library 引用
+    被解除（SET NULL 语义），只有 pending/running 计划仍然阻断。"""
+    plan = await _make_plan(
+        db_session, movie_seed["notification"], library=library,
+        rule=None, status="done",
+    )
+    await db_session.commit()
+    resp = await client.delete(f"/api/v1/libraries/{library.id}")
+    assert resp.status_code == 200
+    assert resp.json()["data"] == {"deleted": True}
+    # 历史计划行保留，但引用被解除。
+    row = await db_session.get(OrganizePlan, plan.id)
+    await db_session.refresh(row)
+    assert row is not None
+    assert row.library_id is None
+
+
 async def test_library_list_pending_plan_count(
     client, db_session, library, movie_seed
 ):
@@ -808,7 +828,7 @@ async def test_plan_detail_includes_ops_payload_audit(
 async def test_execute_rejects_non_pending_failed(
     client, db_session, library, movie_seed
 ):
-    for status in ("done", "running", "cancelled"):
+    for status in ("done", "cancelled"):
         plan = await _seed_plan_with_op(
             db_session, movie_seed["notification"], library, status=status
         )
@@ -817,6 +837,29 @@ async def test_execute_rejects_non_pending_failed(
         assert resp.json()["error"]["code"] == "INVALID_STATE"
         await db_session.delete(plan)
         await db_session.commit()
+
+
+async def test_execute_allows_stale_running(
+    client, db_session, library, movie_seed, monkeypatch
+):
+    """崩溃遗留的 running（本进程未在执行）可重放；正在执行的拒绝。"""
+    plan = await _seed_plan_with_op(
+        db_session, movie_seed["notification"], library, status="running"
+    )
+    schedule = MagicMock()
+    monkeypatch.setattr(
+        "app.services.organize_service.schedule_auto_execute", schedule
+    )
+    resp = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
+    assert resp.status_code == 202
+    schedule.assert_called_once_with(plan.id)
+
+    monkeypatch.setattr(
+        "app.services.organize_service.is_plan_executing", lambda _id: True
+    )
+    resp = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "ALREADY_RUNNING"
 
 
 async def test_execute_rejects_uncategorized(
@@ -950,6 +993,96 @@ async def test_cancel_plan(client, db_session, library, movie_seed):
     assert resp.status_code == 409
     resp = await client.post(f"/api/v1/organize/plans/{_uuid()}/cancel")
     assert resp.status_code == 404
+
+
+async def test_cancel_stale_running_plan(
+    client, db_session, library, movie_seed, monkeypatch
+):
+    """崩溃遗留的 running 可取消；本进程正在执行的 running 拒绝。"""
+    plan = await _make_plan(db_session, movie_seed["notification"],
+                            library=library, status="running")
+    await db_session.commit()
+    resp = await client.post(f"/api/v1/organize/plans/{plan.id}/cancel")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "cancelled"
+
+    monkeypatch.setattr(
+        "app.services.organize_service.is_plan_executing", lambda _id: True
+    )
+    # notification_id 唯一：删掉上面的计划后复用同一通知
+    await db_session.delete(plan)
+    await db_session.commit()
+    plan2 = await _seed_plan_with_op(
+        db_session, movie_seed["notification"], library, status="running"
+    )
+    resp = await client.post(f"/api/v1/organize/plans/{plan2.id}/cancel")
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "ALREADY_RUNNING"
+
+
+async def test_cancel_plan_delete_task_and_data(
+    client, db_session, library, movie_seed, sample_downloader, mock_transmission
+):
+    """取消计划可附带删除下载任务；delete_data 蕴含删除任务并删磁盘数据。
+
+    任务清理与 ``DELETE /tasks/{id}`` 共用 task_cleanup 实现：移除下载器
+    torrent、任务行置 cancelled；清理结果随响应 task_cleaned 返回。
+    """
+    seed = movie_seed
+
+    async def new_plan(torrent_id):
+        task = DownloadTask(
+            id=_uuid(), agent_id=seed["agent"].id,
+            file_resource_id=seed["resource"].id,
+            downloader_id=sample_downloader.id, download_dir="/downloads/x",
+            transmission_torrent_id=torrent_id, status="completed",
+            completed_at=utcnow(),
+        )
+        db_session.add(task)
+        await db_session.flush()
+        notification = DownloadNotification(
+            id=_uuid(), agent_id=seed["agent"].id, download_task_id=task.id,
+            payload=seed["payload"],
+        )
+        db_session.add(notification)
+        await db_session.flush()
+        plan = await _make_plan(db_session, notification, library=library)
+        await db_session.commit()
+        return plan, task
+
+    # delete_task=True：移除 torrent、保留磁盘数据，任务置 cancelled。
+    plan, task = await new_plan(42)
+    resp = await client.post(
+        f"/api/v1/organize/plans/{plan.id}/cancel", json={"delete_task": True}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "cancelled"
+    assert resp.json()["data"]["task_cleaned"] is True
+    mock_transmission.remove_torrent.assert_awaited_once_with(42, delete_data=False)
+    await db_session.refresh(task)
+    assert task.status == "cancelled"
+
+    # delete_data=True 蕴含 delete_task：连同磁盘数据一起删除。
+    mock_transmission.remove_torrent.reset_mock()
+    plan2, task2 = await new_plan(43)
+    resp = await client.post(
+        f"/api/v1/organize/plans/{plan2.id}/cancel", json={"delete_data": True}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["data"]["task_cleaned"] is True
+    mock_transmission.remove_torrent.assert_awaited_once_with(43, delete_data=True)
+    await db_session.refresh(task2)
+    assert task2.status == "cancelled"
+
+    # 默认（无 body）：不动下载任务，task_cleaned 为 null。
+    mock_transmission.remove_torrent.reset_mock()
+    plan3, task3 = await new_plan(44)
+    resp = await client.post(f"/api/v1/organize/plans/{plan3.id}/cancel")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["task_cleaned"] is None
+    mock_transmission.remove_torrent.assert_not_awaited()
+    await db_session.refresh(task3)
+    assert task3.status == "completed"
 
 
 # ---------------------------------------------------------------------------

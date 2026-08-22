@@ -26,6 +26,7 @@ import LibrarySettingsDrawer from '../components/LibrarySettingsDrawer';
 import OrganizeOpPaths from '../components/OrganizeOpPaths';
 import OrganizePlanDrawer from '../components/OrganizePlanDrawer';
 import StatusBadge from '../components/StatusBadge';
+import { confirmCancelPlan } from '../components/cancelPlanConfirm';
 import { formatDate, timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
 import type {
@@ -149,12 +150,14 @@ export default function MediaLibrary() {
   }, [tab, fetchPlans, fetchAudit]);
 
   // ------------------------------------------------------------ Plans actions
+  // Stale `running` plans (left behind by a crash) are replayable/cancellable
+  // — the backend rejects only plans this process is actively executing.
   const isExecutable = (p: OrganizePlanListItem) =>
-    (p.status === 'pending' || p.status === 'failed') &&
+    (p.status === 'pending' || p.status === 'failed' || p.status === 'running') &&
     p.library_id !== null &&
     p.pending_reason !== 'unbound';
   const isCancellable = (p: OrganizePlanListItem) =>
-    p.status === 'pending' || p.status === 'failed';
+    p.status === 'pending' || p.status === 'failed' || p.status === 'running';
 
   const handleExecute = async (id: string) => {
     const r = await organizeApi.executePlan(id);
@@ -185,20 +188,12 @@ export default function MediaLibrary() {
   };
 
   const handleCancel = (record: OrganizePlanListItem) => {
-    modal.confirm({
-      title: t('organize.cancelConfirm'),
-      okText: t('common.confirm'),
-      okButtonProps: { danger: true },
-      cancelText: t('common.cancel'),
-      onOk: async () => {
-        const r = await organizeApi.cancelPlan(record.id);
-        if (r.success) {
-          message.success(t('organize.cancelled'));
-          fetchPlans();
-        } else {
-          message.error(r.error?.message || t('organize.cancelFailed'));
-        }
-      },
+    confirmCancelPlan({
+      modal,
+      message,
+      t,
+      planId: record.id,
+      onDone: fetchPlans,
     });
   };
 
@@ -358,7 +353,14 @@ export default function MediaLibrary() {
                 <div key={op.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 }}>
                   <Tag color={tag.color} style={{ margin: 0, flexShrink: 0 }}>{tag.label}</Tag>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <OrganizeOpPaths src={op.src} dst={op.dst} />
+                    <OrganizeOpPaths
+                      src={op.src}
+                      dst={op.dst}
+                      srcRelocated={
+                        record.status === 'done' &&
+                        (op.op_type === 'move' || op.op_type === 'movedir')
+                      }
+                    />
                   </div>
                 </div>
               );

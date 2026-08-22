@@ -3,7 +3,7 @@
 Mirrors :class:`Movie` so the upsert / FTS / matching helpers can be reused
 with minimal divergence. ``content_type`` discriminates the sub-kind
 (``asmr`` / ``music`` / ``drama_cd`` / ``radio`` / ``other``). These works are
-resolved via general-purpose search sources only (Wikipedia / Exa) - TMDB has
+resolved via general-purpose search sources only (Wikipedia) - TMDB has
 no coverage for them.
 """
 

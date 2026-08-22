@@ -33,7 +33,7 @@ class TVSeries(Base):
     status: Mapped[str | None] = mapped_column(String(100), nullable=True)
     number_of_episodes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     number_of_seasons: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Per-season episode counts as returned by TMDB/Exa
+    # Per-season episode counts as returned by TMDB/Wikipedia
     # ([{season_number, episode_count}, ...]). Drives cross-season episode
     # reconciliation for resources that link to this series without going
     # through the metadata agent (known-work short-circuit / fuzzy auto-link).

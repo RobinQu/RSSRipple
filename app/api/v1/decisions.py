@@ -58,7 +58,11 @@ async def _ai_pick_and_dispatch(
     the LLM now. Returns ``(ok, error)``.
     """
     from app.models.agent import Agent
-    from app.services.agent_service import _generate_llm_pick, dispatch_download
+    from app.services.agent_service import (
+        _generate_llm_pick,
+        dispatch_download,
+        pick_by_preferences,
+    )
 
     agent = await db.get(Agent, decision.agent_id)
     if not agent:
@@ -79,12 +83,19 @@ async def _ai_pick_and_dispatch(
         )).scalars().all()
         if not cands:
             return False, "No candidates to pick from"
-        picked_id, _reason = await _generate_llm_pick(
-            agent, list(cands),
-            ("series", decision.series_id, decision.season, decision.episode)
-            if decision.series_id
-            else ("movie", decision.movie_id, None, None),
-        )
+        # Deterministic preference rules first (rank-only): a unique winner
+        # needs no LLM call; a remaining tie goes to the LLM on the narrowed
+        # tier.
+        tier, _deciding = pick_by_preferences(list(cands), agent.pick_preferences)
+        if len(tier) == 1:
+            picked_id = tier[0].id
+        else:
+            picked_id, _reason = await _generate_llm_pick(
+                agent, tier,
+                ("series", decision.series_id, decision.season, decision.episode)
+                if decision.series_id
+                else ("movie", decision.movie_id, None, None),
+            )
         decision.llm_picked_resource_id = picked_id
         if not picked_id:
             return False, "AI 未能给出选择，请手动确认"

@@ -40,6 +40,7 @@ from app.services.agent_service import (
 )
 from app.services.filter_engine import (
     evaluate_filter_config,
+    validate_field_conditions,
     validate_filter_config,
 )
 
@@ -52,20 +53,53 @@ def _not_found(entity: str) -> dict:
             "meta": {}}
 
 
-def _validate_filters_response(filter_config, works) -> JSONResponse | None:
-    """Validate the global filter_config and every work's filter_overrides.
+_NO_GATE = object()  # sentinel: caller has no channel gate to apply
+
+
+def _validate_filters_response(
+    filter_config, works, pick_preferences=None, required_fields=_NO_GATE
+) -> JSONResponse | None:
+    """Validate the global filter_config, every work's filter_overrides, and
+    the agent's pick preferences (flat FieldCondition list).
 
     Returns a 422 JSONResponse on the first invalid payload, else None.
     ``works`` items may be pydantic objects (create) or plain dicts (update
-    via ``model_dump``).
+    via ``model_dump``). ``required_fields`` is the channel's
+    ``required_metadata_fields`` value: when it is a list (possibly empty),
+    filter fields are additionally gated to resource-level fields plus the
+    declared work fields; pick preferences are exempt by design. The default
+    sentinel means "no channel gate" (e.g. callers without channel context).
     """
+    from app.services.required_fields import (
+        allowed_agent_filter_fields,
+        validate_filter_against_allowed,
+    )
+
+    allowed = (
+        None
+        if required_fields is _NO_GATE
+        else allowed_agent_filter_fields(required_fields)
+    )
+
     errs: list[str] = []
     if filter_config is not None:
         errs.extend(validate_filter_config(filter_config))
+        if allowed is not None:
+            errs.extend(validate_filter_against_allowed(filter_config, allowed))
+    if pick_preferences is not None:
+        errs.extend(
+            f"pick_preferences: {e}"
+            for e in validate_field_conditions(pick_preferences)
+        )
     for i, w in enumerate(works or []):
         fo = w.get("filter_overrides") if isinstance(w, dict) else getattr(w, "filter_overrides", None)
         if fo is not None:
             errs.extend(f"works[{i}]: {e}" for e in validate_filter_config(fo))
+            if allowed is not None:
+                errs.extend(
+                    f"works[{i}]: {e}"
+                    for e in validate_filter_against_allowed(fo, allowed)
+                )
     if errs:
         return JSONResponse(status_code=422, content={
             "success": False, "data": None,
@@ -194,7 +228,10 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
         })
     # Validate filter_config and per-work filter_overrides
     works_data = body.works or []
-    filter_err = _validate_filters_response(body.filter_config, works_data)
+    filter_err = _validate_filters_response(
+        body.filter_config, works_data, body.pick_preferences,
+        required_fields=ch.required_metadata_fields,
+    )
     if filter_err is not None:
         return filter_err
     if not body.scope_channel_wide and len(works_data) > 10:
@@ -311,8 +348,20 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     new_works = data.pop("works", None)
     dispatch_resource_ids = data.pop("dispatch_resource_ids", None)
     # Validate only the payloads being changed (exclude_unset semantics):
-    # an untouched stored filter is not re-validated here.
-    filter_err = _validate_filters_response(data.get("filter_config"), new_works)
+    # an untouched stored filter is not re-validated here. The channel
+    # gate uses the effective channel (a channel switch in the same payload
+    # applies immediately). Scalar-column query on purpose: loading the
+    # Channel ORM here would pollute its ``agents`` backref when the response
+    # query later selectinloads Agent.channel, creating a serialization cycle.
+    required_fields = (await db.execute(
+        select(Channel.required_metadata_fields).where(
+            Channel.id == (data.get("channel_id") or agent.channel_id)
+        )
+    )).scalar_one_or_none()
+    filter_err = _validate_filters_response(
+        data.get("filter_config"), new_works, data.get("pick_preferences"),
+        required_fields=required_fields,
+    )
     if filter_err is not None:
         return filter_err
     if data.get("status") == "active" and data.get("downloader_id") is None and not agent.downloader_id:

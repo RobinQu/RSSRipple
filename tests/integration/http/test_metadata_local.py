@@ -661,7 +661,7 @@ class TestWorksSettings:
         # Empty body → 400
         r = _api("/api/v1/system-settings", method="put", json={})
         assert r.status_code == 400
-        # Invalid exa effort level → 400
+        # Removed/unknown key → empty payload → 400
         r = _api(
             "/api/v1/system-settings",
             method="put",

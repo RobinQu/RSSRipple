@@ -26,7 +26,8 @@ const statusStyleMap: Record<string, Pair> = {
   queued: INFO,
   error: ERROR,
   failed: ERROR,
-  cancelled: ERROR,
+  // 人工取消 / organize 执行后例行清理都不是失败，不给错误红。
+  cancelled: NEUTRAL,
   expired: NEUTRAL,
   skipped: NEUTRAL,
   seeding: INFO,

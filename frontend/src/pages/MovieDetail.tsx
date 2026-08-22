@@ -3,10 +3,11 @@ import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download, Pencil, ListTree } from 'lucide-react';
-import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Modal, Checkbox, Space } from 'antd';
+import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Modal, Checkbox, Space, Select } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
 import { worksApi } from '../api/works';
+import type { MetadataSourceOption } from '../api/channels';
 import type { Movie, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
@@ -30,6 +31,8 @@ export default function MovieDetail() {
   const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
   const [refreshOpen, setRefreshOpen] = useState(false);
   const [overrideManualEdits, setOverrideManualEdits] = useState(false);
+  const [refreshSource, setRefreshSource] = useState<string | null>(null);
+  const [refreshSources, setRefreshSources] = useState<MetadataSourceOption[]>([]);
 
   const loadMovie = useCallback(async () => {
     if (!id) return;
@@ -44,6 +47,15 @@ export default function MovieDetail() {
 
   const openRefreshDialog = () => {
     setOverrideManualEdits(false);
+    // Load the source catalog so the user can override the global default
+    // source for this one refresh (the API defaults to the works-page
+    // default source when none is passed).
+    worksApi.getMetadataConfig().then((r) => {
+      if (r.success && r.data) {
+        setRefreshSources(r.data.sources);
+        setRefreshSource((cur) => cur ?? r.data.default_source ?? null);
+      }
+    });
     setRefreshOpen(true);
   };
 
@@ -52,7 +64,7 @@ export default function MovieDetail() {
     setRefreshOpen(false);
     setRefreshing(true);
     try {
-      const r = await worksApi.refreshMetadata(id, 'movie', null, overrideManualEdits);
+      const r = await worksApi.refreshMetadata(id, 'movie', refreshSource, overrideManualEdits);
       if (r.success) {
         const filled = r.data.filled?.length ?? 0;
         message.success(
@@ -306,6 +318,23 @@ export default function MovieDetail() {
         onCancel={() => setRefreshOpen(false)}
       >
         <p>{t('works.refreshDesc')}</p>
+        <div style={{ marginBottom: 12 }}>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            {t('works.refreshSource')}
+          </Text>
+          <Select
+            style={{ width: '100%' }}
+            value={refreshSource}
+            onChange={setRefreshSource}
+            options={refreshSources.map((s) => ({
+              value: s.value,
+              label: s.available
+                ? t(`channels.sources.${s.value}`, { defaultValue: s.label })
+                : `${t(`channels.sources.${s.value}`, { defaultValue: s.label })} (${t('channels.sourceUnavailable')})`,
+              disabled: !s.available,
+            }))}
+          />
+        </div>
         <Checkbox
           checked={overrideManualEdits}
           onChange={(e) => setOverrideManualEdits(e.target.checked)}

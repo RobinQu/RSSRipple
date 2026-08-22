@@ -1,7 +1,7 @@
 """Tests for metadata_audio_resolver: AudioWork resolution via local match,
 Wikipedia/Exa search, and the title-stub fallback.
 
-External boundaries (wikipedia client, exa search, poster download) are mocked.
+External boundaries (wikipedia client, poster download) are mocked.
 """
 
 from types import SimpleNamespace
@@ -94,40 +94,6 @@ async def test_search_audio_wikipedia_falls_back_to_search_summary():
 
 
 # ---------------------------------------------------------------------------
-# _search_audio_exa
-# ---------------------------------------------------------------------------
-
-
-async def test_search_audio_exa_match():
-    exa = AsyncMock(return_value={
-        "success": True,
-        "data": [{
-            "title_cn": "音声作品",
-            "title_en": "Audio Work",
-            "external_id": "bangumi:1",
-            "external_source": "bangumi",
-            "description": "d",
-            "poster_url": "http://p",
-        }],
-    })
-    with patch(f"{_RESOLVER}._execute_search_exa_agent", exa):
-        out = await mar._search_audio_exa("音声作品")
-    assert out["title_cn"] == "音声作品"
-    assert out["external_id"] == "bangumi:1"
-    assert out["external_source"] == "bangumi"
-
-
-async def test_search_audio_exa_no_result():
-    with patch(f"{_RESOLVER}._execute_search_exa_agent", AsyncMock(return_value={"success": False})):
-        assert await mar._search_audio_exa("x") is None
-    with patch(
-        f"{_RESOLVER}._execute_search_exa_agent",
-        AsyncMock(return_value={"success": True, "data": []}),
-    ):
-        assert await mar._search_audio_exa("x") is None
-
-
-# ---------------------------------------------------------------------------
 # _resolve_audio_work
 # ---------------------------------------------------------------------------
 
@@ -214,27 +180,6 @@ async def test_resolve_audio_work_search_exception_still_stubs(db_session):
     assert meta.found is True
     assert meta.matched_entity["external_source"] == "stub"
     assert meta.content_type == "drama_cd"
-
-
-async def test_resolve_audio_work_exa_channel_resolves_to_wikipedia(db_session):
-    """Deprecated channel sources (exa) converge on wikipedia (Phase P1
-    two-source channel resolution); the audio path follows the same rule."""
-    matched = {"title_cn": "深夜音声作品", "external_id": "bangumi:1", "external_source": "bangumi"}
-    wiki = AsyncMock(return_value=matched)
-    exa = AsyncMock(return_value=None)
-    resource = _resource()
-    with (
-        patch(f"{_RESOLVER}._search_audio_wikipedia", wiki),
-        patch(f"{_RESOLVER}._search_audio_exa", exa),
-        patch(
-            "app.services.metadata_service.download_and_cache_poster",
-            new_callable=AsyncMock, return_value=None,
-        ),
-    ):
-        meta = await mar._resolve_audio_work(resource, _channel("exa"), db_session, "music", False)
-    wiki.assert_awaited_once()
-    exa.assert_not_called()
-    assert meta.matched_entity["external_source"] == "bangumi"
 
 
 async def test_resolve_audio_work_tmdb_channel_falls_back_to_wikipedia(db_session):

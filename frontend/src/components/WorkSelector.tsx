@@ -29,7 +29,7 @@ import {
   describeCondition,
   isFilterEmpty,
 } from './filterUtils';
-import type { AgentWork, AudioWork, BoolCondition, Movie, TVSeries } from '../types';
+import type { AgentWork, AudioWork, BoolCondition, FilterField, Movie, TVSeries } from '../types';
 import type { TFunction } from 'i18next';
 
 const { Text } = Typography;
@@ -52,6 +52,8 @@ interface WorkSelectorProps {
   /** Agent-level filter_config — shown read-only so users see the effective
    * filter = global AND work override. */
   globalFilter?: BoolCondition | null;
+  /** Channel required-fields gate for the per-work override FilterBuilder. */
+  allowedFields?: FilterField[] | null;
 }
 
 function resolvePoster(work: AgentWork): string | null {
@@ -80,6 +82,7 @@ export default function WorkSelector({
   suggestions = [],
   channelId,
   globalFilter,
+  allowedFields,
 }: WorkSelectorProps) {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -608,6 +611,7 @@ export default function WorkSelector({
                                   value={work.filter_overrides}
                                   compact
                                   channelId={channelId}
+                                  allowedFields={allowedFields}
                                   onChange={(v) =>
                                     updateWork(work.id, { filter_overrides: v })
                                   }

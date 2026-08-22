@@ -105,6 +105,23 @@ def validate_filter_config(config: Any) -> list[str]:
     return errors
 
 
+def validate_field_conditions(conditions: Any) -> list[str]:
+    """Validate a flat list of FieldCondition dicts (e.g. Agent pick
+    preferences). Return list of error messages; empty list means valid.
+    ``None`` is valid ("no preferences")."""
+    if conditions is None:
+        return []
+    if not isinstance(conditions, list):
+        return ["must be a list of FieldCondition"]
+    errors: list[str] = []
+    for i, cond in enumerate(conditions):
+        if not _is_field_condition(cond):
+            errors.append(f"$[{i}]: must be a FieldCondition (field/operator[/value])")
+            continue
+        _validate_node(cond, errors, f"$[{i}]")
+    return errors
+
+
 def _validate_node(node: Any, errors: list[str], path: str) -> None:
     if not isinstance(node, dict):
         errors.append(f"{path}: filter node must be a dict")

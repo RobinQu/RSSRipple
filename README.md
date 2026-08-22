@@ -28,7 +28,7 @@ RSSRipple is an RSS subscription downloader for TV / anime / movie releases. It 
 cp .env.example .env
 # at minimum set: LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 # optional metadata sources: TMDB_API_KEY / BANGUMI_API_KEY
-# legacy/env-only sources (manual search/eval): EXA_API_KEY / JINA_API_KEY
+# legacy/env-only sources (manual search/eval): JINA_API_KEY
 ```
 
 ### 2. Run with Docker Compose
@@ -68,10 +68,10 @@ RSSRipple needs an LLM and at least one metadata source. Get the keys you want, 
 | TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (apply for a v3 key) | `TMDB_API_KEY` | Optional — best for TV/movie ID matching |
 | Bangumi | [bgm.tv](https://bgm.tv/) (developer token) | `BANGUMI_API_KEY` | Optional — anime-only subject search; a token enables the source |
 | Wikipedia | — | — | No key (free `wikipedia` library) — the default channel source |
-| Exa Agent Search | [dashboard.exa.ai](https://dashboard.exa.ai/) | `EXA_API_KEY` | Optional — env-only; used for the ordered Exa fallback and manual search/eval (deprecated as a channel source) |
+| Exa (MCP) | [exa.ai](https://exa.ai/) — free public MCP endpoint | `EXA_MCP_URL` | Optional — free, no key; only used as the ordered Exa fallback when the primary source misses |
 | Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | Optional — env-only; manual search/eval only (deprecated as a channel source) |
 
-A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED` (exa/jina are env-only — their settings-page rows were removed). The `local` source needs no credentials — it matches against the local DB only.
+A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED` (`EXA_ENABLED` gates only the Exa MCP fallback; jina is env-only — its settings-page row was removed). The `local` source needs no credentials — it matches against the local DB only.
 
 ## Configuration
 
@@ -81,7 +81,7 @@ Common variables (full list in [docs/design/conventions.md](docs/design/conventi
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy database URL |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI-compatible LLM for feed analysis, metadata agent, suggestions |
-| `EXA_API_KEY` / `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | Metadata source credentials — configure the sources you want |
+| `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | Metadata source credentials — configure the sources you want |
 | `QUEUE_BACKEND` | `"memory"` (default) or `"redis"` (requires `REDIS_URL`) |
 | `POSTER_CACHE_DIR` | Poster image cache, served at `/posters` |
 

@@ -2,6 +2,7 @@ import type {
   BoolCondition,
   FieldCondition,
   FilterConfig,
+  FilterField,
   FilterOperator,
 } from '../types';
 import type { TFunction } from 'i18next';
@@ -135,4 +136,50 @@ export function describeFilter(
   return collectFieldConditions(config)
     .map((c) => describeCondition(c, t))
     .join('; ');
+}
+
+// ---------------------------------------------------------------------------
+// Channel required-metadata-fields → agent filter-DSL gating (mirrors
+// app/services/required_fields.py). The catalog covers every DSL field:
+// resource-level fields are catalog keys under their own name and are always
+// allowed in agent filters; work-namespaced fields unlock only when the
+// channel declares the paired key below.
+// ---------------------------------------------------------------------------
+
+/** Catalog key → the work-namespaced DSL fields it unlocks. Resource-level
+    catalog keys (title_cn, resolution, …) need no entry here — they map to
+    themselves and are always allowed. */
+export const REQUIRED_FIELD_DSL_MAP: Record<string, FilterField[]> = {
+  rating: ['series.rating', 'movie.rating'],
+  year: ['series.year', 'movie.year'],
+  genre: ['series.genre', 'movie.genre'],
+  is_anime: ['series.is_anime', 'movie.is_anime'],
+  collection: ['series.collection', 'movie.collection'],
+};
+
+// All resource-level fields (everything not work-namespaced). Keep in sync
+// with the field groups in FilterBuilder.
+const RESOURCE_LEVEL_FIELDS: FilterField[] = [
+  'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
+  'subtitle_type', 'subtitle_langs', 'container', 'file_size',
+  'episode', 'season', 'episode_start', 'episode_end', 'absolute_episode',
+  'is_batch', 'episode_confidence',
+  'title_cn', 'title_en', 'search_title',
+  'content_type', 'collection',
+];
+
+/**
+ * Fields an agent on this channel may use in filter DSL. Returns null when
+ * the channel has no declaration (unrestricted); otherwise resource-level
+ * fields plus the DSL fields mapped from the declared catalog keys.
+ */
+export function allowedAgentFilterFields(
+  requiredMetadataFields: string[] | null | undefined,
+): FilterField[] | null {
+  if (requiredMetadataFields == null) return null;
+  const allowed = new Set<FilterField>(RESOURCE_LEVEL_FIELDS);
+  for (const key of requiredMetadataFields) {
+    for (const f of REQUIRED_FIELD_DSL_MAP[key] ?? []) allowed.add(f);
+  }
+  return [...allowed];
 }

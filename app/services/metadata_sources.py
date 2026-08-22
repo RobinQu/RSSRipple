@@ -11,10 +11,12 @@ from typing import Any
 from app.services.runtime_config import runtime_config
 
 DEFAULT_METADATA_SOURCE = "wikipedia"
-# All runtime-supported sources. exa/jina/local are DEPRECATED as *channel*
+# All runtime-supported sources. jina/local are DEPRECATED as *channel*
 # sources but their ReAct code paths stay (manual search + eval may still use
-# them); only wikipedia/tmdb/bangumi are selectable on a channel.
-SUPPORTED_METADATA_SOURCES = {"tmdb", "exa", "wikipedia", "jina", "local", "bangumi"}
+# them); only wikipedia/tmdb/bangumi are selectable on a channel. Exa exists
+# only as the (free MCP) search fallback for the channel sources, never as a
+# selectable source.
+SUPPORTED_METADATA_SOURCES = {"tmdb", "wikipedia", "jina", "local", "bangumi"}
 # Sources selectable as a channel's primary metadata source.
 SUPPORTED_CHANNEL_METADATA_SOURCES = {"wikipedia", "tmdb", "bangumi"}
 
@@ -22,8 +24,6 @@ SUPPORTED_CHANNEL_METADATA_SOURCES = {"wikipedia", "tmdb", "bangumi"}
 # ``key`` is the credential attr on Settings; sources without a key
 # (wikipedia) are considered configured whenever their enable switch is on.
 _EXTERNAL_SOURCE_DEFS: tuple[dict[str, str], ...] = (
-    {"value": "exa", "label": "Exa Agent", "key": "exa_api_key",
-     "description": "Structured web-agent search; broad evidence coverage."},
     {"value": "jina", "label": "Jina Search + Reader", "key": "jina_api_key",
      "description": "Cheap web-native search with strong CJK coverage."},
     {"value": "wikipedia", "label": "Wikipedia", "key": "",
@@ -47,7 +47,6 @@ def is_metadata_source_configured(source: str) -> bool:
 def is_metadata_source_enabled(source: str) -> bool:
     """Whether the enable switch for *source* is on."""
     flag = {
-        "exa": runtime_config.exa_enabled,
         "jina": runtime_config.jina_enabled,
         "tmdb": runtime_config.tmdb_enabled,
         "wikipedia": runtime_config.wikipedia_enabled,
@@ -123,8 +122,9 @@ def normalize_metadata_source_type(value: str | None) -> str:
     default single source. ``local`` searches the in-app TVSeries/Movie library
     via FTS5 instead of calling an external API. New channel configurations
     should pass wikipedia/tmdb explicitly (see
-    :func:`normalize_channel_metadata_source`); exa/jina/local remain valid
-    here only for the legacy manual-search / eval paths.
+    :func:`normalize_channel_metadata_source`); jina/local remain valid
+    here only for the legacy manual-search / eval paths. Deprecated values
+    (exa etc.) map to the default.
     """
     source = (value or DEFAULT_METADATA_SOURCE).strip().lower()
     if source == "combined":

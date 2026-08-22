@@ -196,26 +196,6 @@ async def fetch_tmdb_episode_list(
     return episodes or None
 
 
-async def _execute_search_exa_agent(query: str) -> dict:
-    """Search via Exa Agent as an independent web metadata source."""
-    from app.services.metadata_search_agent import _search_exa
-
-    try:
-        logger.info("[metadata_agent][exa_tool] search_exa_agent query=%r", query[:200])
-        results = await _search_exa(query)
-        logger.info(
-            "[metadata_agent][exa_tool] search_exa_agent done query=%r candidates=%d",
-            query[:200], len(results),
-        )
-        return {"success": True, "data": results}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent] search_exa_agent failed for query=%s: %s",
-            query, e, exc_info=True,
-        )
-        return {"success": False, "data": [], "error": str(e)}
-
-
 async def _execute_search_jina(query: str) -> dict:
     """Search the web via Jina Search (s.jina.ai) — SERP hits with full content."""
     from app.services.metadata_search_agent import _search_jina

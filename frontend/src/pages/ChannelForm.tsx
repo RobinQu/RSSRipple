@@ -31,6 +31,7 @@ import {
 import { channelsApi } from '../api/channels';
 import type { MetadataSourceOption } from '../api/channels';
 import type { FieldMapping, MetadataSource, PreviewEntry } from '../types';
+import RequiredFieldsInput from '../components/RequiredFieldsInput';
 
 type Mode = 'create' | 'edit';
 type SidebarStatus = 'streaming' | 'done' | 'error' | 'idle';
@@ -87,6 +88,9 @@ export default function ChannelForm() {
 
   // Metadata source catalog (external data sources selectable per channel)
   const [metadataSources, setMetadataSources] = useState<MetadataSourceOption[]>([]);
+  // Saved required-fields snapshot (edit mode): drives the add-only picker
+  // policy — previously-saved keys can never be unchecked.
+  const [savedRequiredFields, setSavedRequiredFields] = useState<string[] | null>(null);
   const agentEnabled = Form.useWatch('metadata_agent_enabled', form);
   const cleanupEnabled = Form.useWatch('auto_cleanup_unresolved_enabled', form);
 
@@ -170,6 +174,9 @@ export default function ChannelForm() {
       channelsApi.get(id).then((r) => {
         if (r.success) {
           const ch = r.data;
+          // Saved required-fields snapshot drives the add-only picker policy:
+          // previously-saved keys can never be unchecked.
+          setSavedRequiredFields(ch.required_metadata_fields ?? null);
           form.setFieldsValue({
             name: ch.name,
             url: ch.url,
@@ -177,6 +184,7 @@ export default function ChannelForm() {
             metadata_agent_enabled: ch.metadata_agent_enabled ?? true,
             metadata_source: ch.metadata_source ?? null,
             metadata_fallback_sources: ch.metadata_fallback_sources ?? DEFAULT_FALLBACK_SOURCES,
+            required_metadata_fields: ch.required_metadata_fields ?? null,
             auto_cleanup_unresolved_enabled: ch.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: ch.auto_cleanup_unresolved_days ?? 21,
             default_is_anime: ch.default_is_anime ?? false,
@@ -228,6 +236,9 @@ export default function ChannelForm() {
                   setSidebarStatus('error');
                   setSidebarError(t('channels.noMapping'));
                 }
+              } else if (data.type === 'reset') {
+                // A retry attempt started — clear the previous partial text.
+                setStreamText('');
               } else if (data.type === 'error') {
                 setSidebarStatus('error');
                 setSidebarError(data.message || t('channels.analysisFailed'));
@@ -332,6 +343,7 @@ export default function ChannelForm() {
     metadata_agent_enabled?: boolean;
     metadata_source?: MetadataSource | null;
     metadata_fallback_sources?: string[];
+    required_metadata_fields?: string[] | null;
     auto_cleanup_unresolved_enabled?: boolean;
     auto_cleanup_unresolved_days?: number;
     default_is_anime?: boolean;
@@ -377,6 +389,9 @@ export default function ChannelForm() {
             metadata_agent_enabled: values.metadata_agent_enabled ?? true,
             metadata_source: values.metadata_agent_enabled ? (values.metadata_source ?? null) : null,
             metadata_fallback_sources: values.metadata_fallback_sources ?? [],
+            // Omitted when never configured → backend applies the locked
+            // baseline default.
+            required_metadata_fields: values.required_metadata_fields ?? undefined,
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
             default_is_anime: values.default_is_anime ?? false,
@@ -403,6 +418,9 @@ export default function ChannelForm() {
             metadata_agent_enabled: values.metadata_agent_enabled ?? true,
             metadata_source: values.metadata_agent_enabled ? (values.metadata_source ?? null) : null,
             metadata_fallback_sources: values.metadata_fallback_sources ?? [],
+            // Add-only policy: the form value always starts from the saved
+            // selection, so this can only add keys (or be omitted untouched).
+            required_metadata_fields: values.required_metadata_fields ?? undefined,
             auto_cleanup_unresolved_enabled: values.auto_cleanup_unresolved_enabled ?? false,
             auto_cleanup_unresolved_days: values.auto_cleanup_unresolved_days ?? 21,
           },
@@ -501,16 +519,21 @@ export default function ChannelForm() {
               <Input placeholder={t('channels.nameExample')} />
             </Form.Item>
 
-            <Form.Item
-              name="url"
-              label={t('channels.rssUrl')}
-              rules={[{ required: true, message: t('channels.enterRssUrl') }]}
-            >
+            {/* The name must live on the inner control: antd's Form.Item value
+                binding does not penetrate Space.Compact wrappers, which left
+                the edit form showing an empty URL. */}
+            <Form.Item label={t('channels.rssUrl')} required style={{ marginBottom: 16 }}>
               <Space.Compact style={{ width: '100%' }}>
-                <Input
-                  placeholder="https://mikanani.me/RSS/..."
-                  onChange={() => setUrlStatus('idle')}
-                />
+                <Form.Item
+                  name="url"
+                  rules={[{ required: true, message: t('channels.enterRssUrl') }]}
+                  noStyle
+                >
+                  <Input
+                    placeholder="https://mikanani.me/RSS/..."
+                    onChange={() => setUrlStatus('idle')}
+                  />
+                </Form.Item>
                 <Button onClick={validateUrl}>{t('channels.validate')}</Button>
               </Space.Compact>
             </Form.Item>
@@ -588,6 +611,16 @@ export default function ChannelForm() {
                     label: t(`channels.sources.${s}`, { defaultValue: s }),
                   }))}
                 />
+              </Form.Item>
+            )}
+
+            {agentEnabled && (
+              <Form.Item
+                name="required_metadata_fields"
+                label={t('channels.requiredFieldsLabel')}
+                tooltip={t('channels.requiredFieldsDesc')}
+              >
+                <RequiredFieldsInput saved={savedRequiredFields} />
               </Form.Item>
             )}
 

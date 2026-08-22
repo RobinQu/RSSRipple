@@ -54,6 +54,9 @@ class AgentCreate(BaseModel):
     scope_channel_wide: bool = False
     conflict_resolution: str = "auto"
     llm_prompt: str | None = None
+    # Ordered candidate-preference rules (FieldCondition list) — deterministic
+    # ranking layer ahead of the LLM pick in conflict resolution.
+    pick_preferences: list[dict] | None = None
     filter_config: dict | None = None
     status: str = "active"
     works: list[AgentWorkCreate] = []
@@ -85,6 +88,7 @@ class AgentUpdate(BaseModel):
     scope_channel_wide: bool | None = None
     conflict_resolution: str | None = None
     llm_prompt: str | None = None
+    pick_preferences: list[dict] | None = None
     filter_config: dict | None = None
     status: str | None = None
     works: list[AgentWorkCreate] | None = None
@@ -117,6 +121,7 @@ class AgentResponse(ORMModel):
     scope_channel_wide: bool
     conflict_resolution: str
     llm_prompt: str | None = None
+    pick_preferences: list[dict] | None = None
     filter_config: dict | None = None
     status: str
     last_run_at: datetime | None = None

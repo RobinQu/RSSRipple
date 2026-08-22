@@ -22,7 +22,12 @@ from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
-from app.services.filter_engine import evaluate_filter_config, loaded_relation, merge_filters
+from app.services.filter_engine import (
+    evaluate_field_condition,
+    evaluate_filter_config,
+    loaded_relation,
+    merge_filters,
+)
 from app.services.runtime_config import runtime_config
 from app.services.text_normalizer import partial_similarity_score
 from app.utils.download_paths import DownloadPathError, resolve_download_dir
@@ -489,7 +494,7 @@ async def create_pending_decision(
         if not skip_llm and (
             merged != (existing.candidates or []) or not existing.llm_picked_resource_id
         ):
-            picked_id, reason_txt = await _generate_llm_pick(agent, candidates, key)
+            picked_id, reason_txt = await _suggest_pick(agent, candidates, key)
             existing.llm_picked_resource_id = picked_id
             existing.llm_suggestion = reason_txt
         await db.flush()
@@ -498,7 +503,7 @@ async def create_pending_decision(
     if skip_llm:
         picked_id, reason_txt = None, None
     else:
-        picked_id, reason_txt = await _generate_llm_pick(agent, candidates, key)
+        picked_id, reason_txt = await _suggest_pick(agent, candidates, key)
 
     pd = PendingDecision(
         agent_id=agent.id,
@@ -523,14 +528,88 @@ def score_and_pick(
     work: Any,
     agent: Agent,
 ) -> FileResource:
-    """Heuristic ranking: resolution > file_size > published_at."""
+    """Heuristic ranking: resolution > file_size > published_at, with a
+    subtitle-language bonus as the final tie-break (zh-CN > zh-TW > other)
+    so otherwise-identical variants resolve towards 简体 when the preference
+    rules and the LLM could not discriminate."""
+    lang_bonus_map = {"zh-TW": 1, "zh-CN": 2}
+
+    def lang_bonus(r: FileResource) -> int:
+        langs = r.subtitle_langs or []
+        return max(
+            (lang_bonus_map[lang] for lang in langs if lang in lang_bonus_map),
+            default=0,
+        )
+
     def score(r: FileResource) -> tuple:
         return (
             _resolution_score(r.resolution),
             r.file_size or 0,
             r.published_at or datetime.min.replace(tzinfo=UTC),
+            lang_bonus(r),
         )
     return max(candidates, key=score)
+
+
+def pick_by_preferences(
+    candidates: list[FileResource],
+    preferences: list[dict] | None,
+) -> tuple[list[FileResource], dict | None]:
+    """Narrow ``candidates`` to the best tier under ordered preference rules.
+
+    Lexicographic ("ordered should") semantics: the first rule splits the pool
+    into match / no-match and the matching tier wins; later rules break
+    remaining ties within the winning tier. Rules that match everything or
+    nothing in the current tier cannot discriminate and are skipped.
+
+    Preferences only ever REORDER — they never filter candidates out of the
+    conflict set: with no preferences, a single candidate, or an all-way tie
+    the original list is returned unchanged.
+
+    Returns ``(tier, deciding_rule)`` — the rule that last narrowed the pool
+    (None when no rule discriminated). A malformed rule is skipped rather
+    than breaking dispatch.
+    """
+    best = list(candidates)
+    deciding: dict | None = None
+    if not preferences or len(best) <= 1:
+        return best, None
+    for pref in preferences:
+        if not isinstance(pref, dict):
+            continue
+        try:
+            winners = [c for c in best if evaluate_field_condition(pref, c)]
+        except Exception:  # noqa: BLE001 — a bad rule must never break dispatch
+            logger.debug("pick preference rule skipped: %s", pref)
+            continue
+        if 0 < len(winners) < len(best):
+            best = winners
+            deciding = pref
+            if len(best) == 1:
+                break
+    return best, deciding
+
+
+def _describe_preference(pref: dict) -> str:
+    field = pref.get("field", "?")
+    op = pref.get("operator", "?")
+    if op in ("is_empty", "is_not_empty"):
+        return f"{field} {op}"
+    return f"{field} {op} {pref.get('value')}"
+
+
+async def _suggest_pick(
+    agent: Agent,
+    candidates: list[FileResource],
+    key: tuple,
+) -> tuple[str | None, str | None]:
+    """Suggestion for ask-mode decisions: deterministic preference rules
+    first (the reason is labeled as rule-sourced, not LLM), the LLM breaks
+    any remaining tie on the narrowed tier."""
+    tier, deciding = pick_by_preferences(candidates, agent.pick_preferences)
+    if len(tier) == 1 and len(candidates) > 1 and deciding is not None:
+        return tier[0].id, f"命中优选偏好规则（确定性选择）：{_describe_preference(deciding)}"
+    return await _generate_llm_pick(agent, tier, key)
 
 
 async def _persist_suggestions(
@@ -570,6 +649,19 @@ async def _persist_suggestions(
 # UI renders only reason + candidates, so the sentinel is never displayed.
 _BATCH_EPISODE_SENTINEL = -1
 
+# PendingDecision.episode marker for "batch scope unknown" decisions: the
+# batch passed work-scope + filter but no automatic layer (title pre-parser /
+# torrent content analysis / LLM) could determine its content coverage —
+# season pack without a season number, or multi-season pack without
+# ``batch_seasons``. Coverage is mandatory input for the organize planner's
+# completeness check, so such a pack is held for manual correction (PATCH
+# /resources/{id} → targeted re-run) instead of being dispatched into a
+# download that could never be planned. Distinct from the conflict sentinel
+# above so the two decision kinds never merge on the idempotency key.
+_BATCH_SCOPE_UNKNOWN_SENTINEL = -2
+_BATCH_SCOPE_UNKNOWN_REASON = "合集范围不确定，需要人工确认季号/集数范围: {title}"
+_BATCH_SCOPE_UNKNOWN_PREFIX = "合集范围不确定"
+
 
 def _batch_coverage_key(resource: FileResource) -> tuple | None:
     """Content-coverage signature of a batch resource.
@@ -593,6 +685,43 @@ def _batch_coverage_key(resource: FileResource) -> tuple | None:
     if scope == "multi_season":
         seasons = tuple(sorted(resource.batch_seasons or []))
         return ("multi_season", seasons) if seasons else None
+    return None
+
+
+async def _find_existing_episode_task(
+    agent: Agent,
+    resource: FileResource,
+    db: AsyncSession,
+) -> DownloadTask | None:
+    """Existing active/completed task of this agent occupying the same
+    episode slot.
+
+    Slot identity is *season-compatible* rather than season-exact: a task
+    whose resource has no season number matches its numbered sibling of the
+    same episode (and vice versa). Strict season equality let the same
+    episode download twice when two release variants were attributed
+    different seasons across runs — e.g. one linked before the work's
+    seasons data was known (season=None) and another after reconciliation
+    (S1): each variant formed its own single-candidate group, both were
+    dispatched directly, and pick preferences never got a chance to engage.
+    """
+    stmt = (
+        select(DownloadTask)
+        .join(FileResource, DownloadTask.file_resource_id == FileResource.id)
+        .where(
+            DownloadTask.agent_id == agent.id,
+            DownloadTask.status.in_(
+                ["pending", "queued", "downloading", "paused", "completed"]
+            ),
+            FileResource.series_id == resource.series_id,
+            FileResource.episode == resource.episode,
+        )
+        .options(selectinload(DownloadTask.file_resource))
+    )
+    for task in (await db.execute(stmt)).scalars():
+        season = task.file_resource.season
+        if season is None or resource.season is None or season == resource.season:
+            return task
     return None
 
 
@@ -758,9 +887,12 @@ async def process_resources(
         # Batch (合集) resources dedup/conflict by *content coverage* (see
         # _batch_coverage_key): strictly identical coverage (same work + same
         # season / same season set) goes through the normal conflict
-        # resolution; different coverage never conflicts; unknown coverage
-        # keeps the legacy immediate-dispatch behavior. Franchise packs never
-        # reach here (work FKs are cleared → unrecognized bucket).
+        # resolution; different coverage never conflicts. Coverage is a
+        # **mandatory** field for downstream organize planning (覆盖度校验),
+        # so unknown coverage no longer dispatches: it routes to a
+        # PendingDecision for manual correction (same pattern as ambiguous
+        # episodes — PATCH /resources/{id} then a targeted re-run). Franchise
+        # packs never reach here (work FKs are cleared → unrecognized bucket).
         if getattr(resource, "is_batch", False):
             # Same-FileResource guard (crash recovery / re-run).
             existing_stmt = select(DownloadTask).where(
@@ -776,39 +908,62 @@ async def process_resources(
                 result.duplicates_skipped += 1
                 continue
             coverage = _batch_coverage_key(resource)
-            if coverage is not None:
-                # Cross-run dedup against active/completed tasks with the
-                # exact same coverage. Series packs honor the per-work
-                # enable_episode_dedup toggle (same as single episodes);
-                # movie packs dedup unconditionally (same as movie singles).
-                dedup_enabled = (
-                    True
-                    if resource.movie_id
-                    else (work.enable_episode_dedup if work else True)
-                )
-                if dedup_enabled and await _find_active_batch_duplicate(
-                    agent, resource, coverage, db
-                ):
-                    result.duplicates_skipped += 1
-                    continue
-                # Aggregate same-coverage versions for conflict resolution
-                # (ask → PendingDecision / auto → LLM pick → heuristic).
-                key = ("batch", resource.series_id or resource.movie_id, coverage)
-                candidates_by_key.setdefault(key, []).append(resource)
-                result.matched += 1
-                result.matched_resource_ids.append(resource.id)
+            if coverage is None:
+                # 合集范围（season 包的季号 / multi_season 的 batch_seasons）
+                # 是 organize 覆盖度校验的必填依据；三层自动解析（标题
+                # pre-parser → torrent 内容检测 → LLM）都补不齐时不能派发
+                # ——下载了也无法规划整理。落待决策项请人工修订（修订入口
+                # 会触发定向重跑，届时覆盖度键完整即正常派发并自动了结
+                # 该决策，见 _resolve_corrected_ambiguous_decisions）。
+                try:
+                    await create_pending_decision(
+                        agent,
+                        (
+                            "movie" if resource.movie_id else "series",
+                            resource.movie_id or resource.series_id,
+                            None,
+                            _BATCH_SCOPE_UNKNOWN_SENTINEL,
+                        ),
+                        [resource],
+                        db,
+                        reason_override=_BATCH_SCOPE_UNKNOWN_REASON,
+                        skip_llm=True,
+                    )
+                    if autocommit:
+                        await db.commit()
+                    result.pending_decisions += 1
+                    result.unrecognized += 1
+                    # Passed work-scope + filter, just couldn't auto-dispatch;
+                    # record it like the ambiguous branch does.
+                    result.matched += 1
+                    result.matched_resource_ids.append(resource.id)
+                except Exception as e:
+                    logger.exception(
+                        "Failed to create batch-scope decision for %s: %s",
+                        resource.id, e,
+                    )
+                    result.errors.append(str(e))
                 continue
-            # Unknown coverage: legacy immediate dispatch.
-            try:
-                await dispatch_download(agent, resource, db)
-                if autocommit:
-                    await db.commit()
-                result.dispatched += 1
-                result.matched += 1
-                result.matched_resource_ids.append(resource.id)
-            except Exception as e:
-                logger.exception("Failed to dispatch batch resource %s: %s", resource.id, e)
-                result.errors.append(str(e))
+            # Cross-run dedup against active/completed tasks with the
+            # exact same coverage. Series packs honor the per-work
+            # enable_episode_dedup toggle (same as single episodes);
+            # movie packs dedup unconditionally (same as movie singles).
+            dedup_enabled = (
+                True
+                if resource.movie_id
+                else (work.enable_episode_dedup if work else True)
+            )
+            if dedup_enabled and await _find_active_batch_duplicate(
+                agent, resource, coverage, db
+            ):
+                result.duplicates_skipped += 1
+                continue
+            # Aggregate same-coverage versions for conflict resolution
+            # (ask → PendingDecision / auto → LLM pick → heuristic).
+            key = ("batch", resource.series_id or resource.movie_id, coverage)
+            candidates_by_key.setdefault(key, []).append(resource)
+            result.matched += 1
+            result.matched_resource_ids.append(resource.id)
             continue
 
         # Dedup check
@@ -828,21 +983,7 @@ async def process_resources(
         else:
             dedup_enabled = work.enable_episode_dedup if work else True
             if dedup_enabled and resource.episode is not None:
-                stmt = select(DownloadTask).where(
-                    and_(
-                        DownloadTask.agent_id == agent.id,
-                        DownloadTask.status.in_(["pending", "queued", "downloading", "paused", "completed"]),
-                        DownloadTask.file_resource.has(
-                            series_id=resource.series_id,
-                            # ``season == None`` compiles to IS NULL, so
-                            # season-less resources only dedup against
-                            # season-less tasks (never against S1/S4).
-                            season=resource.season,
-                            episode=resource.episode,
-                        ),
-                    )
-                )
-                existing = (await db.execute(stmt)).scalars().first()
+                existing = await _find_existing_episode_task(agent, resource, db)
                 if existing:
                     result.duplicates_skipped += 1
                     continue
@@ -851,6 +992,29 @@ async def process_resources(
         candidates_by_key.setdefault(key, []).append(resource)
         result.matched += 1
         result.matched_resource_ids.append(resource.id)
+
+    # Season-unknown singles share the conflict slot of their numbered
+    # sibling: ("series", sid, None, E5) merges into ("series", sid, S, E5)
+    # so both release variants reach preference/LLM/heuristic resolution
+    # instead of dispatching as two independent single-candidate groups
+    # (which downloaded the same episode twice). When several numbered
+    # seasons exist for the same episode the first match wins — upstream,
+    # season-less tv resources are ambiguous-flagged and routed to
+    # PendingDecision, so this only fires for legacy/unattributed rows.
+    for key in [
+        k for k in candidates_by_key if k[0] == "series" and k[2] is None
+    ]:
+        _, sid, _season, ep = key
+        twin = next(
+            (
+                k
+                for k in candidates_by_key
+                if k[0] == "series" and k[1] == sid and k[3] == ep and k[2] is not None
+            ),
+            None,
+        )
+        if twin is not None:
+            candidates_by_key[twin].extend(candidates_by_key.pop(key))
 
     for key, cands in candidates_by_key.items():
         try:
@@ -868,14 +1032,19 @@ async def process_resources(
                         await create_pending_decision(agent, key, cands, db)
                     result.pending_decisions += 1
                 else:
-                    # "auto": try the LLM pick first (self-gated on
-                    # llm_enabled + API key, same as the ask path); fall back
-                    # to the heuristic scorer when the LLM is unavailable or
-                    # returns no valid pick.
-                    picked_id, _pick_reason = await _generate_llm_pick(agent, cands, key)
-                    chosen = next((c for c in cands if c.id == picked_id), None)
-                    if chosen is None:
-                        chosen = score_and_pick(cands, None, agent)
+                    # "auto": deterministic preference rules first — they only
+                    # rank, never filter. A unique winner dispatches without
+                    # any LLM call; a tied shortlist goes to the LLM pick
+                    # (self-gated on llm_enabled + API key); the heuristic
+                    # scorer stays the final fallback.
+                    tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
+                    if len(tier) == 1:
+                        chosen = tier[0]
+                    else:
+                        picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
+                        chosen = next((c for c in tier if c.id == picked_id), None)
+                        if chosen is None:
+                            chosen = score_and_pick(tier, None, agent)
                     await dispatch_download(agent, chosen, db)
                     result.dispatched += 1
             if autocommit:
@@ -898,8 +1067,14 @@ async def process_resources(
 
 
 async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession) -> None:
-    """Mark pending ambiguous-episode/season decisions as decided once their
-    candidate resource is no longer ambiguous (user ran correct_episode)."""
+    """Mark pending human-correction decisions as decided once their
+    candidates have been corrected.
+
+    Two families: ambiguous-episode/season decisions (candidate's
+    ``episode_confidence`` left "ambiguous", typically corrected to "manual"
+    via the PATCH endpoints) and batch-scope-unknown decisions (every
+    candidate's coverage key — season / season set — is now determinable,
+    i.e. the user filled in the batch fields)."""
     pd_rows = (await db.execute(
         select(PendingDecision).where(
             PendingDecision.agent_id == agent.id,
@@ -907,7 +1082,9 @@ async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession)
         )
     )).scalars().all()
     for pd in pd_rows:
-        if not (pd.reason or "").startswith(_AMBIGUOUS_REASON_PREFIXES):
+        reason = pd.reason or ""
+        is_batch_scope = reason.startswith(_BATCH_SCOPE_UNKNOWN_PREFIX)
+        if not is_batch_scope and not reason.startswith(_AMBIGUOUS_REASON_PREFIXES):
             continue
         cand_ids = list(pd.candidates or [])
         if not cand_ids:
@@ -916,10 +1093,19 @@ async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession)
         cand_rows = (await db.execute(
             select(FileResource).where(FileResource.id.in_(cand_ids))
         )).scalars().all()
+        if not cand_rows:
+            continue
+        if is_batch_scope:
+            # Resolve only when every candidate's content coverage is now
+            # determinable (season pack got a season number, multi-season
+            # pack got batch_seasons). The corrected resource re-enters the
+            # normal batch flow on this same run.
+            if all(_batch_coverage_key(c) is not None for c in cand_rows):
+                pd.status = "decided"
         # Resolve only when every candidate has been corrected away from
         # "ambiguous" (typically to "manual"). If any candidate is still
         # ambiguous the decision stays pending for the user to act on.
-        if cand_rows and all(
+        elif all(
             getattr(c, "episode_confidence", None) != "ambiguous" for c in cand_rows
         ):
             pd.status = "decided"

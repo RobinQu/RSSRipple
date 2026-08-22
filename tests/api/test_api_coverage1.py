@@ -1,6 +1,7 @@
 """Additional API coverage tests part 1: channels, agents."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -129,12 +130,29 @@ class TestChannelsMore:
             AsyncMock(side_effect=RuntimeError("x")),
         ):
             res = await client.post(f"/api/v1/channels/{sample_channel.id}/analyze-stream")
-        assert res.status_code == 400
+        # Stream contract: headers flush immediately (200 + status event),
+        # fetch failures surface as a terminal `error` event.
+        assert res.status_code == 200
+        assert "text/event-stream" in res.headers["content-type"]
+        events = [
+            json.loads(line[len("data: "):])
+            for line in res.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[0]["type"] == "status"
+        assert events[-1]["type"] == "error"
 
     async def test_analyze_stream_channel_empty(self, client, sample_channel):
         with patch("app.api.v1.channels.get_raw_entries", AsyncMock(return_value=[])):
             res = await client.post(f"/api/v1/channels/{sample_channel.id}/analyze-stream")
-        assert res.status_code == 400
+        assert res.status_code == 200
+        events = [
+            json.loads(line[len("data: "):])
+            for line in res.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[0]["type"] == "status"
+        assert events[-1] == {"type": "error", "message": "No entries found"}
 
     async def test_analyze_url_stream_fetch_error(self, client):
         with patch(
@@ -143,13 +161,26 @@ class TestChannelsMore:
         ):
             res = await client.post("/api/v1/channels/analyze-url-stream",
                                     json={"url": "https://x/rss"})
-        assert res.status_code == 400
+        assert res.status_code == 200
+        events = [
+            json.loads(line[len("data: "):])
+            for line in res.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[0]["type"] == "status"
+        assert events[-1]["type"] == "error"
 
     async def test_analyze_url_stream_empty(self, client):
         with patch("app.api.v1.channels.get_raw_entries", AsyncMock(return_value=[])):
             res = await client.post("/api/v1/channels/analyze-url-stream",
                                     json={"url": "https://x/rss"})
-        assert res.status_code == 400
+        assert res.status_code == 200
+        events = [
+            json.loads(line[len("data: "):])
+            for line in res.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        assert events[-1] == {"type": "error", "message": "No entries found"}
 
     async def test_preview_feed_fetch_error(self, client):
         with patch(

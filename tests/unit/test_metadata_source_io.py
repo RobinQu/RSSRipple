@@ -1,4 +1,4 @@
-"""Tests for metadata_source_io: the thin TMDB/Exa/Jina I/O wrappers.
+"""Tests for metadata_source_io: the thin TMDB/Jina I/O wrappers.
 
 All external boundaries (metadata_search_agent functions, httpx) are mocked.
 """
@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from app.services.metadata_source_io import (
     _execute_get_tmdb_details,
     _execute_read_jina_url,
-    _execute_search_exa_agent,
     _execute_search_jina,
     _execute_search_tmdb,
 )
@@ -140,19 +139,8 @@ async def test_get_tmdb_details_http_error():
 
 
 # ---------------------------------------------------------------------------
-# search_exa_agent / search_jina / read_jina_url
+# search_jina / read_jina_url
 # ---------------------------------------------------------------------------
-
-
-async def test_search_exa_agent_success_and_failure():
-    with patch(f"{_SEARCH_MOD}._search_exa", new_callable=AsyncMock, return_value=[{"title": "X"}]):
-        out = await _execute_search_exa_agent("q")
-    assert out == {"success": True, "data": [{"title": "X"}]}
-
-    with patch(f"{_SEARCH_MOD}._search_exa", new_callable=AsyncMock, side_effect=ValueError("bad key")):
-        out = await _execute_search_exa_agent("q")
-    assert out["success"] is False
-    assert "bad key" in out["error"]
 
 
 async def test_search_jina_success_and_failure():

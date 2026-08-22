@@ -27,6 +27,7 @@ from app.services.agent_service import (
     compute_rule_diff,
     create_pending_decision,
     dispatch_download,
+    pick_by_preferences,
     process_resources,
     resolve_torrent_payload,
     score_and_pick,
@@ -415,6 +416,84 @@ def test_score_and_pick_prefers_higher_resolution(channel, downloader):
     assert score_and_pick([r1, r2], None, agent).id == r2.id
 
 
+def test_score_and_pick_language_tiebreak(channel, downloader):
+    """When resolution/size/published are identical, the heuristic fallback
+    prefers 简体 (zh-CN) over 繁体 (zh-TW) over no Chinese track."""
+    base = dict(resolution="1080p", file_size=500)
+    r_tw = _make_resource(channel.id, subtitle_langs=["zh-TW", "ja"], **base)
+    r_cn = _make_resource(channel.id, subtitle_langs=["ja", "zh-CN"], **base)
+    agent = Agent(id=_uuid(), name="a", channel_id=channel.id,
+                  downloader_id=downloader.id, scope_channel_wide=True,
+                  conflict_resolution="auto")
+    assert score_and_pick([r_tw, r_cn], None, agent).id == r_cn.id
+
+
+# ---------------------------------------------------------------------------
+# pick_by_preferences
+# ---------------------------------------------------------------------------
+
+
+def test_pick_by_preferences_unique_winner(channel):
+    """Two same-episode releases differing only in subtitle language: a
+    zh-CN preference deterministically picks the GB release."""
+    big5 = _make_resource(channel.id, subtitle_langs=["zh-TW"])
+    gb = _make_resource(channel.id, subtitle_langs=["zh-CN"])
+    prefs = [{"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"}]
+    tier, deciding = pick_by_preferences([big5, gb], prefs)
+    assert [r.id for r in tier] == [gb.id]
+    assert deciding == prefs[0]
+
+
+def test_pick_by_preferences_rule_order_matters(channel):
+    """Lexicographic: the first discriminating rule wins; swapping rule
+    order swaps the winner."""
+    a = _make_resource(channel.id, resolution="2160p", subtitle_group="G1")
+    b = _make_resource(channel.id, resolution="1080p", subtitle_group="G2")
+    res_rule = {"field": "resolution", "operator": "eq", "value": "1080p"}
+    grp_rule = {"field": "subtitle_group", "operator": "eq", "value": "G1"}
+    tier, _ = pick_by_preferences([a, b], [res_rule, grp_rule])
+    assert [r.id for r in tier] == [b.id]
+    tier, _ = pick_by_preferences([a, b], [grp_rule, res_rule])
+    assert [r.id for r in tier] == [a.id]
+
+
+def test_pick_by_preferences_never_filters(channel):
+    """A rule matching nothing (or everything) cannot shrink the pool — it
+    is skipped as non-discriminating and the full list comes back."""
+    r1 = _make_resource(channel.id, subtitle_group="G1")
+    r2 = _make_resource(channel.id, subtitle_group="G2")
+    no_match = [{"field": "subtitle_group", "operator": "eq", "value": "GX"}]
+    tier, deciding = pick_by_preferences([r1, r2], no_match)
+    assert {r.id for r in tier} == {r1.id, r2.id}
+    assert deciding is None
+    # No preferences at all → identity.
+    tier, deciding = pick_by_preferences([r1, r2], None)
+    assert len(tier) == 2 and deciding is None
+    tier, deciding = pick_by_preferences([r1, r2], [])
+    assert len(tier) == 2 and deciding is None
+
+
+def test_pick_by_preferences_tie_returns_pool(channel):
+    r1 = _make_resource(channel.id, subtitle_langs=["zh-CN"], resolution="1080p")
+    r2 = _make_resource(channel.id, subtitle_langs=["zh-CN"], resolution="1080p")
+    prefs = [{"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"}]
+    tier, deciding = pick_by_preferences([r1, r2], prefs)
+    assert {r.id for r in tier} == {r1.id, r2.id}
+    assert deciding is None
+
+
+def test_pick_by_preferences_skips_malformed_rule(channel):
+    r1 = _make_resource(channel.id, subtitle_group="G1")
+    r2 = _make_resource(channel.id, subtitle_group="G2")
+    prefs = [
+        {"field": "no_such_field", "operator": "eq", "value": "x"},
+        {"field": "subtitle_group", "operator": "eq", "value": "G2"},
+    ]
+    tier, deciding = pick_by_preferences([r1, r2], prefs)
+    assert [r.id for r in tier] == [r2.id]
+    assert deciding == prefs[1]
+
+
 # ---------------------------------------------------------------------------
 # process_resources
 # ---------------------------------------------------------------------------
@@ -571,7 +650,7 @@ class TestProcessResources:
     async def test_episode_dedup_season_none_matches_null(
         self, db_session, channel, downloader, series
     ):
-        """Season-less resources only dedup against season-less tasks
+        """Season-less resources still dedup against season-less tasks
         (``season == None`` must compile to IS NULL, not = NULL)."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True
@@ -592,6 +671,37 @@ class TestProcessResources:
         db_session.add(r2)
         await db_session.flush()
         result = await process_resources(agent, [r2], db_session)
+        assert result.duplicates_skipped == 1
+        assert result.dispatched == 0
+
+    async def test_episode_dedup_matches_numbered_sibling_for_seasonless(
+        self, db_session, channel, downloader, series
+    ):
+        """Season-compatibility: a completed S1E3 task blocks a season-less
+        E3 variant of the same series. Regression for the same episode
+        downloading twice when release variants were attributed different
+        seasons across runs (S1 vs unknown)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True
+        )
+        r_s1 = _make_resource(channel.id, series_id=series.id,
+                              season=1, episode=3, guid=_uuid(),
+                              subtitle_langs=["zh-CN", "ja"])
+        db_session.add(r_s1)
+        await db_session.flush()
+        task = DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=r_s1.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        )
+        db_session.add(task)
+        await db_session.flush()
+        r_none = _make_resource(channel.id, series_id=series.id,
+                                season=None, episode=3, guid=_uuid(),
+                                subtitle_langs=["zh-TW", "ja"])
+        db_session.add(r_none)
+        await db_session.flush()
+        result = await process_resources(agent, [r_none], db_session)
         assert result.duplicates_skipped == 1
         assert result.dispatched == 0
 
@@ -673,6 +783,38 @@ class TestProcessResources:
         assert result.dispatched == 1
         assert result.pending_decisions == 0
 
+    async def test_conflict_merges_seasonless_variant_with_numbered(
+        self, db_session, channel, downloader, series
+    ):
+        """Same episode with mismatched season attribution (S1 vs unknown)
+        lands in ONE conflict group and the subtitle-language preference
+        picks 简体 — instead of two independent single-candidate groups
+        downloading both variants (regression for 攻壳 E05 简/繁 double
+        download)."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="auto",
+        )
+        agent.pick_preferences = [
+            {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"},
+        ]
+        await db_session.flush()
+        gb = _make_resource(channel.id, series_id=series.id,
+                            season=1, episode=5, guid=_uuid(),
+                            resolution="1080p", subtitle_langs=["zh-CN", "ja"])
+        big5 = _make_resource(channel.id, series_id=series.id,
+                              season=None, episode=5, guid=_uuid(),
+                              resolution="1080p", subtitle_langs=["zh-TW", "ja"])
+        db_session.add_all([gb, big5])
+        await db_session.flush()
+        result = await process_resources(agent, [gb, big5], db_session)
+        assert result.dispatched == 1
+        assert result.pending_decisions == 0
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+        )).scalars().one()
+        assert task.file_resource_id == gb.id
+
     async def test_conflict_auto_prefers_llm_pick(
         self, db_session, channel, downloader, series
     ):
@@ -731,6 +873,74 @@ class TestProcessResources:
             select(DownloadTask).where(DownloadTask.agent_id == agent.id)
         )).scalars().one()
         assert task.file_resource_id == r2.id
+
+    async def test_conflict_auto_preference_unique_winner_skips_llm(
+        self, db_session, channel, downloader, series
+    ):
+        """auto mode + pick preferences: a unique preference winner dispatches
+        deterministically without any LLM call."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="auto",
+        )
+        agent.pick_preferences = [
+            {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"},
+        ]
+        await db_session.flush()
+        big5 = _make_resource(channel.id, series_id=series.id, episode=5,
+                              guid=_uuid(), resolution="2160p",
+                              subtitle_langs=["zh-TW"])
+        gb = _make_resource(channel.id, series_id=series.id, episode=5,
+                            guid=_uuid(), resolution="1080p",
+                            subtitle_langs=["zh-CN"])
+        db_session.add_all([big5, gb])
+        await db_session.flush()
+        with patch(
+            "app.services.agent_service._generate_llm_pick",
+            new_callable=AsyncMock,
+        ) as llm_pick:
+            result = await process_resources(agent, [big5, gb], db_session)
+        assert result.dispatched == 1
+        llm_pick.assert_not_awaited()
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+        )).scalars().one()
+        # Preference beats the heuristic's 2160p bias.
+        assert task.file_resource_id == gb.id
+
+    async def test_conflict_auto_preference_tie_goes_to_llm(
+        self, db_session, channel, downloader, series
+    ):
+        """auto mode + pick preferences: a remaining tie is decided by the
+        LLM pick on the narrowed tier."""
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="auto",
+        )
+        agent.pick_preferences = [
+            {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"},
+        ]
+        await db_session.flush()
+        r1 = _make_resource(channel.id, series_id=series.id, episode=5,
+                            guid=_uuid(), subtitle_langs=["zh-CN"],
+                            resolution="1080p", file_size=100)
+        r2 = _make_resource(channel.id, series_id=series.id, episode=5,
+                            guid=_uuid(), subtitle_langs=["zh-CN"],
+                            resolution="2160p", file_size=200)
+        db_session.add_all([r1, r2])
+        await db_session.flush()
+        with patch(
+            "app.services.agent_service._generate_llm_pick",
+            new_callable=AsyncMock,
+            return_value=(r1.id, "smaller"),
+        ) as llm_pick:
+            result = await process_resources(agent, [r1, r2], db_session)
+        assert result.dispatched == 1
+        llm_pick.assert_awaited_once()
+        task = (await db_session.execute(
+            select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+        )).scalars().one()
+        assert task.file_resource_id == r1.id
 
     async def test_filter_by_work_rating(
         self, db_session, channel, downloader
@@ -1014,11 +1224,12 @@ class TestProcessResources:
         assert result.pending_decisions == 1
         assert result.dispatched == 1
 
-    async def test_batch_unknown_coverage_dispatches_immediately(
+    async def test_batch_unknown_coverage_creates_decision(
         self, db_session, channel, downloader, series
     ):
-        """Title-marked packs without season evidence (coverage unknown) keep
-        the legacy behavior: each dispatches immediately, no dedup."""
+        """Title-marked packs without season evidence (coverage unknown) are
+        no longer dispatched: coverage is mandatory for organize planning, so
+        they route to a PendingDecision for manual correction instead."""
         agent = await self._make_agent(
             db_session, channel, downloader,
             scope_channel_wide=True, conflict_resolution="ask",
@@ -1034,8 +1245,50 @@ class TestProcessResources:
         db_session.add_all([r1, r2])
         await db_session.flush()
         result = await process_resources(agent, [r1, r2], db_session)
-        assert result.dispatched == 2
-        assert result.pending_decisions == 0
+        assert result.dispatched == 0
+        # Two packs of the same work share the idempotency key → one merged
+        # decision with both candidates, episode sentinel -2.
+        assert result.pending_decisions == 2
+        pd = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalars().one()
+        assert pd.episode == -2
+        assert pd.reason.startswith("合集范围不确定")
+        assert sorted(pd.candidates) == sorted([r1.id, r2.id])
+
+        # 人工修订（PATCH 语义：补季号/集数范围）后定向重跑：覆盖度键完整
+        # → 正常冲突解决（同季两版本 ask → 1 条冲突决策），旧的"范围不确定"
+        # 决策自动了结。
+        r1.season = 1
+        r1.batch_scope = "season"
+        r1.episode_start, r1.episode_end = 1, 12
+        r2.season = 1
+        r2.batch_scope = "season"
+        r2.episode_start, r2.episode_end = 1, 12
+        await db_session.flush()
+        result2 = await process_resources(agent, [r1, r2], db_session)
+        assert result2.pending_decisions == 1
+        await db_session.refresh(pd)
+        assert pd.status == "decided"
+
+    async def test_batch_multi_season_without_seasons_creates_decision(
+        self, db_session, channel, downloader, series
+    ):
+        """multi_season scope without batch_seasons: coverage unknown → held
+        for manual correction, not dispatched."""
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        r = _make_resource(
+            channel.id, series_id=series.id, episode=None, season=None,
+            is_batch=True, batch_scope="multi_season", batch_seasons=None,
+            guid=_uuid(),
+        )
+        db_session.add(r)
+        await db_session.flush()
+        result = await process_resources(agent, [r], db_session)
+        assert result.dispatched == 0
+        assert result.pending_decisions == 1
 
     async def test_batch_cross_run_same_coverage_skipped(
         self, db_session, channel, downloader, series

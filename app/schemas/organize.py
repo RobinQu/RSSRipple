@@ -217,3 +217,15 @@ class OrganizeExecuteBatchRequest(BaseModel):
 class OrganizeClassifyRequest(BaseModel):
     library_id: str
     category: str | None = None
+
+
+class OrganizeCancelRequest(BaseModel):
+    """取消计划的可选附带动作。
+
+    ``delete_task``：同时删除关联下载任务（任务行置 cancelled、移除下载器
+    torrent，保留磁盘数据）。``delete_data`` 蕴含 ``delete_task``——连同
+    磁盘上的已下载数据一起删除。
+    """
+
+    delete_task: bool = False
+    delete_data: bool = False

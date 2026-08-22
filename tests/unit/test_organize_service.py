@@ -885,3 +885,139 @@ def _mkfile(path: Path, size: int) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"x" * size)
     return path
+
+
+# ---------------------------------------------------------------- torrent 清单定位
+
+
+def _write_torrent(path: Path, files: list[tuple[str, int]], root: str = "root") -> Path:
+    """造一个最小 .torrent（多文件清单；单文件用 info/name 形式）。"""
+    import bencodepy
+
+    if len(files) == 1:
+        name, size = files[0]
+        info = {
+            b"name": name.encode(), b"length": size,
+            b"piece length": 16384, b"pieces": b"x" * 20,
+        }
+    else:
+        info = {
+            b"name": root.encode(),
+            b"files": [
+                {b"length": size, b"path": [p.encode() for p in name.split("/")]}
+                for name, size in files
+            ],
+            b"piece length": 16384, b"pieces": b"x" * 20,
+        }
+    path.write_bytes(bencodepy.encode({b"info": info}))
+    return path
+
+
+async def test_plan_locates_flat_single_file_via_torrent_manifest(
+    db_session, tmp_path
+):
+    """payload 无 files、torrent_name 为空（平铺在共享下载根的单文件种子）：
+    回退 resource.torrent_file 的 torrent 清单做存在性精确匹配，照常出计划，
+    且只触碰清单列出的文件。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Hamnet.2025.1080p.mkv", 300)
+    _mkfile(dl_dir / "other-task.mkv", 100)  # 共享根里的其他任务文件
+    lib = await _make_library(db_session, tmp_path / "lib", name="Movies", kind="movie")
+    await _make_rule(db_session, lib.id, "{title} ({year})/{title} ({year}){ext}")
+    notification = await _seed(db_session, _movie_payload(str(dl_dir)))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = str(
+        _write_torrent(tmp_path / "r.torrent", [("Hamnet.2025.1080p.mkv", 300)])
+    )
+    await db_session.commit()
+
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+    [plan] = await _plans(db_session)
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert len(ops) == 1
+    assert ops[0].op_type == "move"
+    assert ops[0].src == str(dl_dir / "Hamnet.2025.1080p.mkv")
+    # 共享根里的其他文件绝不出现在计划里
+    assert "other-task.mkv" not in ops[0].src
+
+
+async def test_manifest_fallback_prepends_torrent_root(db_session, tmp_path):
+    """多文件 .torrent：清单回退补上 info/name 根目录分量，命中
+    ``download_dir/<根目录>/<文件>`` 的落盘布局（快照 torrent_name 缺失时
+    独立目录扫描不可用，只能靠清单精确匹配）。"""
+    dl_dir = tmp_path / "downloads"
+    root = "Group.Show.S01E04.1080p"
+    _mkfile(dl_dir / root / "ep04.mkv", 300)
+    _mkfile(dl_dir / root / "ep04.ass", 10)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(db_session, _series_payload(str(dl_dir)))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = str(
+        _write_torrent(
+            tmp_path / "r.torrent",
+            [("ep04.mkv", 300), ("ep04.ass", 10)],
+            root=root,
+        )
+    )
+    await db_session.commit()
+
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+    [plan] = await _plans(db_session)
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    srcs = {op.src for op in ops}
+    assert str(dl_dir / root / "ep04.mkv") in srcs
+
+
+async def test_manifest_fallback_filters_unsafe_paths(db_session, tmp_path):
+    """torrent 清单里的绝对路径 / .. 分量被过滤，不会越界匹配共享根外的文件。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    dl_dir = tmp_path / "downloads"
+    outside = _mkfile(tmp_path / "outside.mkv", 100)
+    notification = await _seed(db_session, _movie_payload(str(dl_dir)))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = str(
+        _write_torrent(
+            tmp_path / "r.torrent",
+            [("../outside.mkv", 100), ("/etc/passwd", 1)],
+        )
+    )
+    await db_session.commit()
+
+    payload = NotificationPayload.model_validate(notification.payload)
+    manifest = await _resolve_manifest(db_session, payload)
+    # "../outside.mkv" 被过滤；"/etc/passwd" 经根目录前缀化为
+    # "root/etc/passwd"（下载根内的相对路径，越界语义已消除）。
+    names = [e["name"] for e in (manifest or [])]
+    assert "../outside.mkv" not in names
+    assert "/etc/passwd" not in names
+    assert all(not Path(n).is_absolute() and ".." not in n.split("/") for n in names)
+    assert outside.exists()  # 未被动到（只是存在性检查，但路径必须未入选）
+
+
+def test_cleanup_paths_skips_shared_root_without_torrent_name():
+    """torrent_name 为空（平铺种子）：空目录清理整体跳过，绝不以共享下载根
+    为清理范围。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _cleanup_paths
+
+    payload = NotificationPayload.model_validate(_movie_payload("/downloads"))
+    assert _cleanup_paths(payload, None) == (None, None)

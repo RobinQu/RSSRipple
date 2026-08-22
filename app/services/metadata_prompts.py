@@ -148,7 +148,6 @@ Wikidata / MyAnimeList / AniList URLs in the results.
 
 ## SOURCE MODE
 - TMDB mode: use search_tmdb and get_tmdb_details only.
-- Exa mode: use search_exa_agent only.
 - Wikipedia mode: use search_wikipedia and get_wikipedia_page only.
 - Jina mode: use search_jina and read_jina_url only. Cap at 3 tool calls before
   finalize. When evidence comes from a TMDB/IMDb page reached via Jina, emit
@@ -182,7 +181,7 @@ Always output valid JSON matching:
   "container": "string|null",
   "matched_entity": {
     "external_id": "tmdb:XXXXX",
-    "external_source": "tmdb",  # tmdb|exa|wikipedia|jina — canonical ID source
+    "external_source": "tmdb",  # tmdb|wikipedia|jina — canonical ID source
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "poster_url": "...",
     "rating": float, "genre": ["<from the ## genre list below>", ...],
@@ -198,7 +197,7 @@ Always output valid JSON matching:
   } | null,
   "ambiguous": true/false,
   "ambiguous_candidates": [],
-  "data_sources_used": ["tmdb"|"exa"|"wikipedia"|"jina"],
+  "data_sources_used": ["tmdb"|"wikipedia"|"jina"],
   "confidence": 0.0-1.0,
   "reason": "explanation"
 }

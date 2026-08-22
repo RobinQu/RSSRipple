@@ -50,16 +50,12 @@ _SETTING_DEFS: dict[str, tuple[str, str, bool]] = {
     "tmdb_api_key": ("tmdb_api_key", _KIND_STR, True),
     "bangumi_api_key": ("bangumi_api_key", _KIND_STR, True),
     "jina_api_key": ("jina_api_key", _KIND_STR, True),
-    "exa_api_key": ("exa_api_key", _KIND_STR, True),
-    "exa_effort_level": ("exa_effort_level", _KIND_STR, False),
+    "exa_mcp_url": ("exa_mcp_url", _KIND_STR, False),
     "exa_enabled": ("exa_enabled", _KIND_BOOL, False),
     "jina_enabled": ("jina_enabled", _KIND_BOOL, False),
     "tmdb_enabled": ("tmdb_enabled", _KIND_BOOL, False),
     "wikipedia_enabled": ("wikipedia_enabled", _KIND_BOOL, False),
 }
-
-# Allowed values for the Exa agent effort level.
-EXA_EFFORT_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 
 # All recognized setting keys (exported for the API layer + tests).
 RUNTIME_SETTING_KEYS: tuple[str, ...] = tuple(_SETTING_DEFS.keys())
@@ -136,12 +132,8 @@ class _RuntimeConfig:
         return self._str("jina_api_key")
 
     @property
-    def exa_api_key(self) -> str:
-        return self._str("exa_api_key")
-
-    @property
-    def exa_effort_level(self) -> str:
-        return self._str("exa_effort_level") or "low"
+    def exa_mcp_url(self) -> str:
+        return self._str("exa_mcp_url") or "https://mcp.exa.ai/mcp"
 
     @property
     def exa_enabled(self) -> bool:

@@ -538,17 +538,24 @@ async def _stream_openrouter(messages: list[dict]) -> AsyncGenerator[dict, None]
     JSON is parsed from ``content`` when available, falling back to
     ``reasoning`` only if the model left ``content`` empty.
 
+    Deltas are forwarded to the client **live** as they arrive — buffering
+    them until parse success left the SSE connection silent for the entire
+    generation, which looked like a dead stream. On a retryable failure a
+    ``reset`` event is emitted first so the client can clear the partial
+    text before the next attempt appends fresh deltas.
+
     Retries up to 3 times on transient failures (network errors, empty
-    responses, JSON parse errors). Deltas are buffered until a successful
-    parse so the client only sees a clean stream.
+    responses, JSON parse errors).
     """
     from openrouter import OpenRouter
 
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            # Signal the client to clear the previous attempt's partial text.
+            yield {"type": "reset"}
         content_buf = ""
         reasoning_buf = ""
-        pending_deltas: list[dict] = []
 
         try:
             async with OpenRouter(api_key=runtime_config.llm_api_key) as client:
@@ -569,10 +576,10 @@ async def _stream_openrouter(messages: list[dict]) -> AsyncGenerator[dict, None]
                     )
                     if c:
                         content_buf += c
-                        pending_deltas.append({"type": "delta", "content": c})
+                        yield {"type": "delta", "content": c}
                     elif r:
                         reasoning_buf += r
-                        pending_deltas.append({"type": "delta", "content": r})
+                        yield {"type": "delta", "content": r}
         except Exception as e:
             err = str(e).lower()
             if "per-day" in err or "per_day" in err:
@@ -608,9 +615,6 @@ async def _stream_openrouter(messages: list[dict]) -> AsyncGenerator[dict, None]
             yield {"type": "error", "message": "LLM returned invalid JSON"}
             return
 
-        # Success — emit buffered deltas, then done
-        for delta_event in pending_deltas:
-            yield delta_event
         validated_mapping = _validate_mapping(raw_mapping)
         confidence = _calc_confidence(validated_mapping)
         yield {"type": "done", "field_mapping": validated_mapping, "confidence": confidence}
@@ -624,16 +628,23 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
     ``reasoning`` deltas are accumulated separately; the final JSON is parsed
     from ``content`` when available, falling back to ``reasoning`` otherwise.
 
+    Deltas are forwarded to the client **live** as they arrive — buffering
+    them until parse success left the SSE connection silent for the entire
+    generation. On a retryable failure a ``reset`` event is emitted first so
+    the client can clear the partial text before the next attempt appends
+    fresh deltas.
+
     Retries up to 3 times on transient failures (network errors, empty
     responses, JSON parse errors) — mirroring ``_stream_openrouter`` so a
-    flaky gateway doesn't surface a hard error to the caller. Deltas are
-    buffered until a successful parse so the client only sees a clean stream.
+    flaky gateway doesn't surface a hard error to the caller.
     """
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            # Signal the client to clear the previous attempt's partial text.
+            yield {"type": "reset"}
         content_buf = ""
         reasoning_buf = ""
-        pending_deltas: list[dict] = []
 
         try:
             client = AsyncOpenAI(
@@ -663,10 +674,10 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
                 )
                 if c:
                     content_buf += c
-                    pending_deltas.append({"type": "delta", "content": c})
+                    yield {"type": "delta", "content": c}
                 elif r:
                     reasoning_buf += r
-                    pending_deltas.append({"type": "delta", "content": r})
+                    yield {"type": "delta", "content": r}
         except Exception as e:
             if attempt < max_attempts:
                 logger.warning(
@@ -702,9 +713,6 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
             yield {"type": "error", "message": "LLM returned invalid JSON"}
             return
 
-        # Success — emit buffered deltas, then done
-        for delta_event in pending_deltas:
-            yield delta_event
         validated_mapping = _validate_mapping(raw_mapping)
         confidence = _calc_confidence(validated_mapping)
         yield {"type": "done", "field_mapping": validated_mapping, "confidence": confidence}

@@ -250,6 +250,29 @@ def parse_torrent_files(path: str) -> list[dict] | None:
 # Analysis
 # ---------------------------------------------------------------------------
 
+def read_torrent_root_name(path: str) -> str | None:
+    """Return a multi-file torrent's ``info/name`` root directory name.
+
+    Returns None for single-file torrents (``info/name`` IS the file, already
+    returned verbatim by :func:`parse_torrent_files`) and on any read/decode
+    failure. Used by the organize manifest fallback: ``parse_torrent_files``
+    keeps paths relative to the torrent root, but on disk the download client
+    materializes them under ``download_dir/<info/name>/`` — the root component
+    is needed to locate the files.
+    """
+    try:
+        decoded = bencodepy.decode(Path(path).read_bytes())
+    except Exception:
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    info = decoded.get(b"info")
+    if not isinstance(info, dict) or not isinstance(info.get(b"files"), list):
+        return None
+    name = info.get(b"name.utf-8") or info.get(b"name")
+    return _decode_text(name) if name is not None else None
+
+
 def _is_main_video(entry: dict) -> bool:
     """True when the entry looks like a main feature video file."""
     name = entry.get("name") or ""

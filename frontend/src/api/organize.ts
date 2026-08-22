@@ -49,8 +49,11 @@ export const organizeApi = {
     ),
   classifyPlan: (id: string, body: { library_id: string; category?: string | null }) =>
     api.post<OrganizePlanListItem>(`/organize/plans/${id}/classify`, body),
-  cancelPlan: (id: string) =>
-    api.post<{ id: string; status: string }>(`/organize/plans/${id}/cancel`),
+  cancelPlan: (id: string, opts?: { delete_task?: boolean; delete_data?: boolean }) =>
+    api.post<{ id: string; status: string; task_cleaned: boolean | null }>(
+      `/organize/plans/${id}/cancel`,
+      opts,
+    ),
 
   // Audit
   listAudit: (page = 1, pageSize = 20, planId?: string) => {

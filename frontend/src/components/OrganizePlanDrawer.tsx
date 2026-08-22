@@ -15,6 +15,7 @@ import {
 import { organizeApi } from '../api/organize';
 import StatusBadge from './StatusBadge';
 import OrganizeOpPaths from './OrganizeOpPaths';
+import { confirmCancelPlan } from './cancelPlanConfirm';
 import { formatBytes, formatDate, timeAgo } from '../utils/format';
 import type { Library, OrganizePlanDetail } from '../types';
 
@@ -101,7 +102,14 @@ export default function OrganizePlanDrawer({
     }, 6000);
   }, [fetchDetail, onChanged]);
 
-  const actionable = detail?.status === 'pending' || detail?.status === 'failed';
+  // Stale `running` plans (crash leftovers) are replayable/cancellable too —
+  // the backend guards against plans this process is actively executing.
+  const actionable =
+    detail?.status === 'pending' ||
+    detail?.status === 'failed' ||
+    detail?.status === 'running';
+  // classify 端点仍只接受 pending/failed（running 需先重放或取消）。
+  const classifiable = detail?.status === 'pending' || detail?.status === 'failed';
 
   const handleExecute = async () => {
     if (!detail) return;
@@ -120,20 +128,14 @@ export default function OrganizePlanDrawer({
 
   const handleCancel = () => {
     if (!detail) return;
-    modal.confirm({
-      title: t('organize.cancelConfirm'),
-      okText: t('common.confirm'),
-      okButtonProps: { danger: true },
-      cancelText: t('common.cancel'),
-      onOk: async () => {
-        const r = await organizeApi.cancelPlan(detail.id);
-        if (r.success) {
-          message.success(t('organize.cancelled'));
-          fetchDetail();
-          onChanged();
-        } else {
-          message.error(r.error?.message || t('organize.cancelFailed'));
-        }
+    confirmCancelPlan({
+      modal,
+      message,
+      t,
+      planId: detail.id,
+      onDone: () => {
+        fetchDetail();
+        onChanged();
       },
     });
   };
@@ -236,7 +238,7 @@ export default function OrganizePlanDrawer({
             </Space>
           )}
 
-          {actionable && (
+          {classifiable && (
             <div>
               <Text strong>{t('organize.classify')}</Text>
               <Space size={8} style={{ display: 'flex', marginTop: 8, flexWrap: 'wrap' }}>
@@ -278,7 +280,14 @@ export default function OrganizePlanDrawer({
                     <Text type="secondary" style={{ fontSize: 12 }}>{formatBytes(op.size)}</Text>
                     {opStatusBadge(op.status, t)}
                   </Space>
-                  <OrganizeOpPaths src={op.src} dst={op.dst} />
+                  <OrganizeOpPaths
+                    src={op.src}
+                    dst={op.dst}
+                    srcRelocated={
+                      detail.status === 'done' &&
+                      (op.op_type === 'move' || op.op_type === 'movedir')
+                    }
+                  />
                   {op.error_message && (
                     <Text type="danger" style={{ fontSize: 12 }}>{op.error_message}</Text>
                   )}

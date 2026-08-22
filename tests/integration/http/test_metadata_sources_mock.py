@@ -38,15 +38,14 @@ def _fake_source_keys():
     r = _api(
         "/api/v1/system-settings",
         method="put",
-        json={"tmdb_api_key": "mock-tmdb", "jina_api_key": "mock-jina",
-              "exa_api_key": "mock-exa"},
+        json={"tmdb_api_key": "mock-tmdb", "jina_api_key": "mock-jina"},
     )
     assert r.status_code == 200, f"set fake keys failed: {r.text}"
     yield
     _api(
         "/api/v1/system-settings",
         method="put",
-        json={"tmdb_api_key": "", "jina_api_key": "", "exa_api_key": ""},
+        json={"tmdb_api_key": "", "jina_api_key": ""},
     )
 
 

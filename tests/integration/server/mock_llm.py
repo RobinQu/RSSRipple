@@ -178,7 +178,7 @@ def _route_tool_calls(messages: list, tools: list) -> tuple[str | None, list | N
         return None, [_tool_call("finalize", _finalize_result(messages))], "tool_calls"
 
     # First step: call whichever search tool the source bound.
-    for candidate in ("search_exa_agent", "search_wikipedia", "search_tmdb", "search_jina"):
+    for candidate in ("search_wikipedia", "search_tmdb", "search_jina"):
         if candidate in tool_names:
             return None, [_tool_call(candidate, {"query": "mock search query"})], "tool_calls"
     # No recognizable search tool → finalize immediately.
