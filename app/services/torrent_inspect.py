@@ -64,6 +64,20 @@ _EXTRAS_DIRS = {
 
 
 @dataclass
+class WorkCluster:
+    """One top-level work cluster of a multi-work torrent.
+
+    ``title`` is the normalized cluster title (see ``_cluster_title``);
+    ``files`` holds the relative paths of the main video files under that
+    top-level directory. Root-level files (no directory component) never
+    form a cluster.
+    """
+
+    title: str
+    files: list[str] = field(default_factory=list)
+
+
+@dataclass
 class TorrentReport:
     """Result of :func:`analyze_torrent_files`.
 
@@ -90,6 +104,15 @@ class TorrentReport:
     ``SxxEyy`` / season-directory markers); files without a season marker do
     not contribute. ``unparsed_ratio`` is the share of main video files whose
     episode number could not be extracted (0.0 when there are none).
+
+    ``season_ranges`` carries per-season episode runs for explicitly marked
+    seasons ([{season, episode_start, episode_end}, ...], sorted by season) —
+    computed for free from the same (season, episode) parses that drive the
+    scope verdict, no LLM needed.
+
+    ``clusters`` lists every work cluster with its member file paths (sorted
+    alphabetically), giving the LLM refinement and the edit wizard a stable
+    grouping anchor.
     """
 
     scope: str  # "single" | "season" | "multi_season" | "franchise" | "unknown"
@@ -98,6 +121,12 @@ class TorrentReport:
     episode_end: int | None = None
     seasons: list[int] = field(default_factory=list)
     work_titles: list[str] = field(default_factory=list)
+    season_ranges: list[dict] = field(default_factory=list)
+    clusters: list[WorkCluster] = field(default_factory=list)
+    # Per-main-video-file parse results in listing order:
+    # [{"path", "size", "season", "episode"}]. Drives deterministic file
+    # assignment write-backs without re-parsing the torrent.
+    file_parses: list[dict] = field(default_factory=list)
     video_file_count: int = 0
     unparsed_ratio: float = 0.0
 
@@ -318,6 +347,50 @@ def _cluster_title(dirname: str) -> str | None:
     return t
 
 
+def _season_ranges_from_parsed(
+    parsed: list[tuple[dict, int | None, int | None]],
+) -> list[dict]:
+    """Per-season episode runs from (file, season, episode) parses.
+
+    Only explicitly-marked seasons contribute; a single-file season yields
+    start == end. Sorted by season number.
+    """
+    by_season: dict[int, list[int]] = {}
+    for _, season, episode in parsed:
+        if season is None or episode is None:
+            continue
+        by_season.setdefault(season, []).append(episode)
+    return [
+        {
+            "season": season,
+            "episode_start": min(eps),
+            "episode_end": max(eps),
+        }
+        for season, eps in sorted(by_season.items())
+    ]
+
+
+def _clusters_from_parsed(
+    parsed: list[tuple[dict, int | None, int | None]],
+) -> list[WorkCluster]:
+    """Group main video files by their top-level directory's cluster title.
+
+    Mirrors the franchise clustering rule: root-level files (no directory
+    component) and non-credible titles (pure tech tags) never form clusters.
+    """
+    clusters: dict[str, WorkCluster] = {}
+    for f, _, _ in parsed:
+        components = [c for c in re.split(r"[/\\]+", f["name"]) if c]
+        if len(components) < 2:
+            continue
+        title = _cluster_title(components[0])
+        if title is None:
+            continue
+        cluster = clusters.setdefault(title.casefold(), WorkCluster(title=title))
+        cluster.files.append(f["name"])
+    return [clusters[k] for k in sorted(clusters)]
+
+
 def analyze_torrent_files(files: list[dict]) -> TorrentReport:
     """Classify a torrent file listing into a :class:`TorrentReport`.
 
@@ -343,11 +416,26 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
             unparsed += 1
     unparsed_ratio = unparsed / len(videos)
 
+    file_parses = [
+        {
+            "path": f["name"],
+            "size": f.get("size"),
+            "season": season,
+            "episode": episode,
+        }
+        for f, season, episode in parsed
+    ]
+    season_ranges = _season_ranges_from_parsed(parsed)
+    clusters = _clusters_from_parsed(parsed)
+
     base = TorrentReport(
         scope="unknown",
         is_batch=False,
         video_file_count=len(videos),
         unparsed_ratio=unparsed_ratio,
+        season_ranges=season_ranges,
+        clusters=clusters,
+        file_parses=file_parses,
     )
 
     if len(videos) <= 1:
@@ -356,18 +444,10 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
 
     # Franchise clustering: group by top-level directory's normalized title.
     # Root-level files (no directory component) never form a cluster.
-    clusters: dict[str, str] = {}  # casefold key -> display title
-    for f, _, _ in parsed:
-        components = [c for c in re.split(r"[/\\]+", f["name"]) if c]
-        if len(components) < 2:
-            continue
-        title = _cluster_title(components[0])
-        if title is not None:
-            clusters.setdefault(title.casefold(), title)
     if len(clusters) >= 2:
         base.scope = "franchise"
         base.is_batch = True
-        base.work_titles = sorted(clusters.values())
+        base.work_titles = sorted(c.title for c in clusters)
         base.seasons = sorted({s for _, s, _ in parsed if s is not None})
         return base
 
@@ -423,12 +503,19 @@ async def maybe_inspect_torrent(
       ``episode=None``, ``season=None``, ``episode_start/end=None``,
       ``batch_seasons`` from the report.
     - ``franchise``: ``is_batch=True``, ``batch_scope="franchise"``,
-      ``episode=None``, ``batch_seasons`` from the report, then
-      ``franchise_service.link_franchise_pack``
-      resolves the member works and links ``collection_id`` (failures are
-      isolated — the batch verdict above is kept regardless).
+      ``episode=None``, ``batch_seasons`` from the report. When the LLM
+      refinement proves a pure-movie pack (scope upgraded to ``"movies"``)
+      the member movies are bound directly and NO WorkCollection is created;
+      otherwise ``franchise_service.link_franchise_pack`` resolves the member
+      works and links ``collection_id`` (failures are isolated — the batch
+      verdict above is kept regardless).
     - ``single`` / ``unknown``: no reclassification — only the cache path
       is kept (an existing ``is_batch=True`` verdict is never downgraded).
+
+    Every batch outcome additionally gets the enrichment pass: deterministic
+    ``ResourceFileAssignment`` rows (path → cluster hint / season / episode,
+    source=auto) plus recomputed ``season_ranges``, followed by the gated LLM
+    refinement when the deterministic layer cannot finish the job.
 
     The function does NOT commit: it runs inside the caller's session
     (``fetch_service._process_resource_metadata``), whose own commit after
@@ -440,14 +527,21 @@ async def maybe_inspect_torrent(
     """
     if resource.is_batch:
         # 已判定合集且信息完整（scope 已细分；season scope 时集数范围齐全）
-        # 不重跑；标题正则判出的合集（scope NULL）或缺集数范围的 season
-        # 包仍用 torrent 文件清单补齐。
+        # 且文件级映射已写入 → 不重跑；标题正则判出的合集（scope NULL）、
+        # 缺集数范围的 season 包、或尚无 assignments 的合集仍用 torrent
+        # 文件清单补齐。
         scoped = resource.batch_scope is not None
         has_range = (
             resource.episode_start is not None and resource.episode_end is not None
         )
-        if scoped and (resource.batch_scope != "season" or has_range):
-            return False
+        verdict_complete = scoped and (resource.batch_scope != "season" or has_range)
+        if verdict_complete:
+            try:
+                await db.refresh(resource, ["file_assignments"])
+            except Exception:  # noqa: BLE001 — pending row or load hiccup
+                return False
+            if resource.file_assignments:
+                return False
     url = resource.torrent_url or ""
     if not (url.startswith("http://") or url.startswith("https://")):
         return False
@@ -489,9 +583,39 @@ async def maybe_inspect_torrent(
             resource.batch_scope = "franchise"
             resource.episode = None
             resource.batch_seasons = report.seasons or None
-            # Member-work linking + collection attach. Isolated from the
-            # verdict above: a linking failure must not lose the batch
-            # classification (nor turn this call into a False return).
+
+        # Enrichment pass for every batch outcome (new verdicts and complete
+        # legacy verdicts that never got file-level mappings): deterministic
+        # placements first, then the gated LLM refinement, which may bind
+        # movie works directly.
+        llm_bound_movies = False
+        if resource.is_batch and hasattr(resource, "file_assignments"):
+            from app.services import batch_content_analysis as bca
+
+            try:
+                await db.refresh(resource, ["file_assignments"])
+            except Exception:  # noqa: BLE001 — pending row edge
+                pass
+            bca.apply_auto_assignments(resource, report)
+            resource.season_ranges = bca.compute_season_ranges(resource)
+
+            if bca.llm_refinement_needed(report, resource.batch_scope):
+                try:
+                    llm_bound_movies = await bca.refine_batch_content(
+                        db, resource, report, channel
+                    )
+                except Exception as e:  # noqa: BLE001 — refinement degrades silently
+                    logger.warning(
+                        "[torrent] LLM refinement failed for %s: %s", resource.id, e
+                    )
+                if llm_bound_movies:
+                    resource.season_ranges = bca.compute_season_ranges(resource)
+
+            # Member-work linking + collection attach — only for packs that
+            # are NOT a pure-movie bundle (movie packs link per-file movie
+            # rows instead of a collection). Isolated from the verdict above:
+            # a linking failure must not lose the batch classification.
+        if resource.is_batch and resource.batch_scope == "franchise" and not llm_bound_movies:
             try:
                 from app.services.franchise_service import link_franchise_pack
 

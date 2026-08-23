@@ -115,6 +115,104 @@ export function orderedRequiredKeys(keys: string[]): string[] {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Per-channel column configuration (persisted in localStorage)
+// ---------------------------------------------------------------------------
+
+/** Every catalog key is a configurable column (作品/操作 are fixed table
+ * columns outside this pool). Mirrors app/services/required_fields.py. */
+export const COLUMN_POOL: readonly string[] = CATALOG_ORDER;
+
+export interface ChannelColumnConfig {
+  /** Full ordered key list — the display order of all known columns. */
+  order: string[];
+  /** Explicitly hidden keys; everything else in ``order`` shows. */
+  hidden: string[];
+}
+
+function columnStorageKey(channelId: string): string {
+  return `rssripple:channel-columns:${channelId}`;
+}
+
+/** Default ordering: declared required fields first (work-type applicability
+ * ranking), remaining pool keys appended in canonical catalog order. */
+export function defaultColumnOrder(declared: string[]): string[] {
+  const ranked = orderedRequiredKeys(declared);
+  const out = [...ranked];
+  for (const k of COLUMN_POOL) if (!out.includes(k)) out.push(k);
+  return out;
+}
+
+/**
+ * Effective (order, hidden) state, merging a saved config with the current
+ * catalog pool: stale keys drop, keys added to the catalog later append to
+ * the end and follow the declared-required default visibility. Without a
+ * saved config the defaults apply — declared required fields are visible
+ * (minus those surfaced by the work column), everything else hidden.
+ */
+export function effectiveColumnState(
+  cfg: ChannelColumnConfig | null,
+  declared: string[],
+): { order: string[]; hidden: Set<string> } {
+  if (!cfg) {
+    const hidden = new Set(
+      COLUMN_POOL.filter((k) => !(declared.includes(k) && !HIDDEN_COLUMN_KEYS.has(k))),
+    );
+    return { order: defaultColumnOrder(declared), hidden };
+  }
+  const known = new Set(COLUMN_POOL);
+  const order = cfg.order.filter((k) => known.has(k));
+  for (const k of COLUMN_POOL) if (!order.includes(k)) order.push(k);
+  const hidden = new Set(cfg.hidden.filter((k) => known.has(k)));
+  return { order, hidden };
+}
+
+/** Ordered visible column keys for the resource tables. */
+export function resolveVisibleColumns(
+  cfg: ChannelColumnConfig | null,
+  declared: string[],
+): string[] {
+  const { order, hidden } = effectiveColumnState(cfg, declared);
+  return order.filter((k) => !hidden.has(k));
+}
+
+/** Load a channel's saved column config; null = never customized. */
+export function loadColumnConfig(channelId: string): ChannelColumnConfig | null {
+  try {
+    const raw = localStorage.getItem(columnStorageKey(channelId));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      Array.isArray((parsed as ChannelColumnConfig).order) &&
+      Array.isArray((parsed as ChannelColumnConfig).hidden) &&
+      (parsed as ChannelColumnConfig).order.every((k) => typeof k === 'string') &&
+      (parsed as ChannelColumnConfig).hidden.every((k) => typeof k === 'string')
+    ) {
+      const cfg = parsed as ChannelColumnConfig;
+      return { order: [...cfg.order], hidden: [...cfg.hidden] };
+    }
+  } catch {
+    // Corrupted JSON or storage unavailable — fall back to defaults.
+  }
+  return null;
+}
+
+/** Persist (or clear with null) a channel's column config. Failures
+ * (private mode etc.) degrade silently to session-only state. */
+export function saveColumnConfig(
+  channelId: string,
+  config: ChannelColumnConfig | null,
+): void {
+  try {
+    if (config) localStorage.setItem(columnStorageKey(channelId), JSON.stringify(config));
+    else localStorage.removeItem(columnStorageKey(channelId));
+  } catch {
+    // ignore
+  }
+}
+
 /** Column width hints (px) so the fixed layout distributes sensibly. */
 export function requiredFieldWidth(key: string): number {
   switch (key) {

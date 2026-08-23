@@ -5,7 +5,8 @@ import type { FileResource } from '../types';
  *
  * - season       → 合集 / Batch
  * - multi_season → 跨季合集 / Multi-season pack
- * - franchise    → 作品集合集 / Franchise pack
+ * - movies       → 电影合集 / Movie pack (LLM-refined pure-movie bundle)
+ * - franchise    → 混合合集 / Mixed multi-work pack
  *
  * Legacy rows (``is_batch`` set before scope sub-classification existed) have
  * ``batch_scope === null`` and fall back to the generic 合集 tag.
@@ -19,6 +20,8 @@ export function batchScopeLabel(
       return t('channels.batchMultiSeason');
     case 'franchise':
       return t('channels.batchFranchise');
+    case 'movies':
+      return t('channels.batchMovies');
     case 'season':
     default:
       return t('channels.batch');

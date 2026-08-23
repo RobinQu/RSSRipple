@@ -43,13 +43,18 @@ import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import FilterSummaryModal from '../components/FilterSummaryModal';
+import ColumnSettings from '../components/ColumnSettings';
 import { timeAgo, formatBytes } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import {
   fieldApplicable,
+  loadColumnConfig,
   orderedRequiredKeys,
   requiredFieldWidth,
+  resolveVisibleColumns,
   resourceShape,
+  saveColumnConfig,
+  type ChannelColumnConfig,
 } from '../utils/requiredFields';
 import type {
   ChannelDetail as ChannelDetailData,
@@ -245,9 +250,10 @@ function ResourceRowActions({ r }: { r: FileResource }) {
       )}
       {correctOpen && (
         <ResourceCorrectionModal
-          resource={r}
+          resourceId={r.id}
           open
           onClose={() => setCorrectOpen(false)}
+          onSaved={() => setCorrectOpen(false)}
         />
       )}
     </>
@@ -550,12 +556,27 @@ export default function ChannelDetail() {
   const parsedViewTotal = parsedView === 'flat' ? flatTotal : parsedTotal;
   const parsedTotalPages = Math.ceil(parsedViewTotal / PAGE_SIZE);
   const unparsedTotalPages = Math.ceil(unparsedTotal / PAGE_SIZE);
-  // Channel-declared required work-metadata fields: rendered as individual
-  // columns between the fixed 作品/操作 columns, ordered by work-type
-  // applicability grouping then semantic category.
-  const requiredColumns = useMemo(
+  // Column configuration: the channel's declared required fields seed the
+  // defaults; per-channel show/hide + order customizations persist in
+  // localStorage (作品/操作 are fixed columns outside this pool).
+  const [columnCfg, setColumnCfg] = useState<ChannelColumnConfig | null>(null);
+  const declaredRequired = useMemo(
     () => orderedRequiredKeys(channel?.required_metadata_fields ?? []),
     [channel?.required_metadata_fields],
+  );
+  useEffect(() => {
+    setColumnCfg(id ? loadColumnConfig(id) : null);
+  }, [id]);
+  const requiredColumns = useMemo(
+    () => resolveVisibleColumns(columnCfg, declaredRequired),
+    [columnCfg, declaredRequired],
+  );
+  const handleColumnsChange = useCallback(
+    (next: ChannelColumnConfig | null) => {
+      setColumnCfg(next);
+      if (id) saveColumnConfig(id, next);
+    },
+    [id],
   );
 
   if (channelLoading) {
@@ -683,7 +704,12 @@ export default function ChannelDetail() {
             ),
             children: (
               <>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                  <ColumnSettings
+                    config={columnCfg}
+                    declared={declaredRequired}
+                    onChange={handleColumnsChange}
+                  />
                   <Segmented
                     size="small"
                     value={parsedView}

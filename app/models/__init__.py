@@ -27,6 +27,8 @@ from app.models.organize_plan import OrganizePlan
 from app.models.organize_plan_op import OrganizePlanOp
 from app.models.organize_rule import OrganizeRule
 from app.models.pending_decision import PendingDecision
+from app.models.resource_file_assignment import ResourceFileAssignment
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.storage_volume import StorageVolume
 from app.models.webhook_delivery import WebhookDelivery
@@ -51,6 +53,8 @@ __all__ = [
     "DownloadTask",
     "DownloadNotification",
     "PendingDecision",
+    "ResourceWorkLink",
+    "ResourceFileAssignment",
     "MetadataCache",
     "GroundTruthEntry",
     "EvalJob",

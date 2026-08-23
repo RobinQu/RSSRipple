@@ -1,5 +1,6 @@
 """FileResource API routes."""
 
+import logging
 from collections import Counter
 from pathlib import Path
 
@@ -20,14 +21,17 @@ from app.models.file_resource import FileResource
 # TVSeries/Movie``, which would shadow a same-named module-level import
 # (UnboundLocalError) inside those functions.
 from app.models.movie import Movie as _Movie
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries as _TVSeries
 from app.schemas.common import paginated_response, success_response
 from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
+    FileResourceDetailResponse,
     FileResourceResponse,
     MetadataLinkRequest,
     MetadataSearchRequest,
     MetadataSearchResult,
+    ResourceAssociationUpdateRequest,
     ResourceFilesResponse,
     ResourceParseCorrectionRequest,
 )
@@ -40,6 +44,21 @@ from app.services.task_queue import task_queue
 from app.services.torrent_inspect import fetch_torrent_file, parse_torrent_files
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+# Eager-load set for single-resource responses that serialize the batch
+# enrichment tables (FileResourceDetailResponse). List endpoints keep using
+# the lean FileResourceResponse and must NOT validate against this model.
+_DETAIL_LOAD_OPTIONS = [
+    selectinload(FileResource.series).selectinload(_TVSeries.collection),
+    selectinload(FileResource.movie).selectinload(_Movie.collection),
+    selectinload(FileResource.audio_work),
+    selectinload(FileResource.collection),
+    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
+    selectinload(FileResource.file_assignments),
+]
 
 
 @router.get("/channels/{channel_id}/resources")
@@ -367,20 +386,14 @@ async def list_channel_field_values(
 @router.get("/resources/{resource_id}")
 async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
     resource = await db.get(
-        FileResource, resource_id,
-        options=[
-            selectinload(FileResource.series).selectinload(_TVSeries.collection),
-            selectinload(FileResource.movie).selectinload(_Movie.collection),
-            selectinload(FileResource.audio_work),
-            selectinload(FileResource.collection),
-        ],
+        FileResource, resource_id, options=_DETAIL_LOAD_OPTIONS
     )
     if not resource:
         return JSONResponse(
             status_code=404,
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
-    return success_response(FileResourceResponse.model_validate(resource).model_dump())
+    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
 
 
 @router.get("/resources/{resource_id}/metadata")
@@ -497,14 +510,9 @@ async def link_metadata(
     resource = (await db.execute(
         select(FileResource)
         .where(FileResource.id == resource.id)
-        .options(
-            selectinload(FileResource.series).selectinload(_TVSeries.collection),
-            selectinload(FileResource.movie).selectinload(_Movie.collection),
-            selectinload(FileResource.audio_work),
-            selectinload(FileResource.collection),
-        )
+        .options(*_DETAIL_LOAD_OPTIONS)
     )).scalar_one()
-    return success_response(FileResourceResponse.model_validate(resource).model_dump())
+    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
 
 
 @router.patch("/resources/{resource_id}/episode")
@@ -613,14 +621,75 @@ async def correct_episode(
     resource = (await db.execute(
         select(FileResource)
         .where(FileResource.id == resource_id)
-        .options(
-            selectinload(FileResource.series).selectinload(_TVSeries.collection),
-            selectinload(FileResource.movie).selectinload(_Movie.collection),
-            selectinload(FileResource.audio_work),
-            selectinload(FileResource.collection),
-        )
+        .options(*_DETAIL_LOAD_OPTIONS)
     )).scalar_one()
-    return success_response(FileResourceResponse.model_validate(resource).model_dump())
+    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
+
+
+async def _resolve_resource_files(
+    db: AsyncSession, resource: FileResource
+) -> tuple[list[dict], str]:
+    """Resolve a resource's torrent file listing (shared by the files GET
+    endpoint and the analyze-batch suggestions).
+
+    Resolution order (first hit wins, recorded in ``source``):
+    torrent_cache → torrent_fetch → downloader RPC → notification snapshot.
+    Returns ``([], "none")`` when nothing is available. May commit (the live
+    fetch persists the cache path).
+    """
+    # 1. Local .torrent cache.
+    cached = resource.torrent_file
+    if cached and Path(cached).exists():
+        files = parse_torrent_files(cached)
+        if files is not None:
+            return files, "torrent_cache"
+
+    # 2. Live fetch of an http(s) direct link (persist the cache path).
+    url = resource.torrent_url or ""
+    if url.startswith(("http://", "https://")):
+        path = await fetch_torrent_file(url, resource.id)
+        if path:
+            resource.torrent_file = path
+            await db.commit()
+            files = parse_torrent_files(path)
+            if files is not None:
+                return files, "torrent_fetch"
+
+    # 3. Latest download task → downloader RPC (best-effort, failures silent).
+    task = (await db.execute(
+        select(DownloadTask)
+        .where(DownloadTask.file_resource_id == resource.id)
+        .order_by(DownloadTask.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if task is not None and task.transmission_torrent_id is not None and task.downloader_id:
+        downloader = await db.get(DownloaderInstance, task.downloader_id)
+        if downloader is not None:
+            from app.clients.downloader import get_downloader_client
+
+            try:
+                torrent_info = await get_downloader_client(
+                    downloader
+                ).get_torrent_files(task.transmission_torrent_id)
+            except Exception:  # noqa: BLE001 — best-effort
+                torrent_info = None
+            if torrent_info and torrent_info.get("files"):
+                return torrent_info["files"], "downloader"
+
+    # 4. Frozen download-notification snapshot.
+    notification = (await db.execute(
+        select(DownloadNotification)
+        .join(DownloadTask, DownloadNotification.download_task_id == DownloadTask.id)
+        .where(DownloadTask.file_resource_id == resource.id)
+        .order_by(DownloadNotification.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if notification is not None:
+        files = (notification.payload or {}).get("files")
+        if files:
+            return files, "notification"
+
+    return [], "none"
 
 
 @router.get("/resources/{resource_id}/files")
@@ -644,64 +713,123 @@ async def get_resource_files(resource_id: str, db: AsyncSession = Depends(get_db
                      "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
 
-    def _respond(files: list[dict], source: str):
-        return success_response(
-            ResourceFilesResponse(files=files, source=source).model_dump()
+    files, source = await _resolve_resource_files(db, resource)
+    return success_response(
+        ResourceFilesResponse(files=files, source=source).model_dump()
+    )
+
+
+@router.put("/resources/{resource_id}/associations")
+async def update_resource_associations(
+    resource_id: str,
+    body: ResourceAssociationUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply the edit wizard's full desired state atomically.
+
+    Validates every invariant (works existence, non-batch single-work cap,
+    batch-scope derivation, placement membership / season / episode-run
+    overlap), applies works + collection + assignments + generic fields in
+    one transaction, then re-runs the channel's active agents as a targeted
+    run (commit-first, watermark untouched — same convention as PATCH).
+    Overlap violations return 422; continuity gaps are returned as warnings.
+    """
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
 
-    # 1. Local .torrent cache.
-    cached = resource.torrent_file
-    if cached and Path(cached).exists():
-        files = parse_torrent_files(cached)
-        if files is not None:
-            return _respond(files, "torrent_cache")
+    from app.services.resource_association import (
+        AssociationValidationError,
+        apply_association_update,
+    )
 
-    # 2. Live fetch of an http(s) direct link (persist the cache path).
-    url = resource.torrent_url or ""
-    if url.startswith(("http://", "https://")):
-        path = await fetch_torrent_file(url, resource.id)
-        if path:
-            resource.torrent_file = path
-            await db.commit()
-            files = parse_torrent_files(path)
-            if files is not None:
-                return _respond(files, "torrent_fetch")
+    try:
+        result = await apply_association_update(db, resource, body)
+    except AssociationValidationError as e:
+        await db.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "data": None,
+                     "error": {"code": "VALIDATION_ERROR", "message": e.message}},
+        )
+    except Exception as e:  # noqa: BLE001 — unexpected failure
+        await db.rollback()
+        logger.exception("[associations] apply failed for %s", resource_id)
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "data": None,
+                     "error": {"code": "INTERNAL_SERVER_ERROR", "message": str(e)}},
+        )
 
-    # 3. Latest download task → downloader RPC (best-effort, failures silent).
-    task = (await db.execute(
-        select(DownloadTask)
-        .where(DownloadTask.file_resource_id == resource.id)
-        .order_by(DownloadTask.created_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-    if task is not None and task.transmission_torrent_id is not None and task.downloader_id:
-        downloader = await db.get(DownloaderInstance, task.downloader_id)
-        if downloader is not None:
-            from app.clients.downloader import get_downloader_client
+    channel_id = resource.channel_id
+    await db.commit()
 
-            try:
-                torrent_info = await get_downloader_client(
-                    downloader
-                ).get_torrent_files(task.transmission_torrent_id)
-            except Exception:  # noqa: BLE001 — best-effort
-                torrent_info = None
-            if torrent_info and torrent_info.get("files"):
-                return _respond(torrent_info["files"], "downloader")
+    channel = await db.get(Channel, channel_id, options=[
+        selectinload(Channel.agents),
+    ])
+    if channel:
+        for agent in channel.agents:
+            if agent.status == "active":
+                try:
+                    await task_queue.enqueue(
+                        "run_agent",
+                        f"agent:{agent.id}",
+                        {"agent_id": agent.id, "resource_ids": [resource_id]},
+                    )
+                except Exception:
+                    pass
 
-    # 4. Frozen download-notification snapshot.
-    notification = (await db.execute(
-        select(DownloadNotification)
-        .join(DownloadTask, DownloadNotification.download_task_id == DownloadTask.id)
-        .where(DownloadTask.file_resource_id == resource.id)
-        .order_by(DownloadNotification.created_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-    if notification is not None:
-        files = (notification.payload or {}).get("files")
-        if files:
-            return _respond(files, "notification")
+    resource = (await db.execute(
+        select(FileResource)
+        .where(FileResource.id == resource_id)
+        .options(*_DETAIL_LOAD_OPTIONS)
+    )).scalar_one()
+    payload = FileResourceDetailResponse.model_validate(resource).model_dump()
+    payload["warnings"] = result.warnings
+    return success_response(payload)
 
-    return _respond([], "none")
+
+@router.post("/resources/{resource_id}/analyze-batch")
+async def analyze_resource_batch(
+    resource_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """LLM suggestions for the wizard's file-mapping step (non-persistent).
+
+    Re-runs the batch content analysis over the current listing and returns
+    title-keyed work suggestions with per-file placements. Nothing is written;
+    binding titles to concrete works happens client-side against the step-1
+    association set.
+    """
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+        )
+
+    files, source = await _resolve_resource_files(db, resource)
+    if not files:
+        return success_response({"suggestion": None, "listing_source": source})
+
+    from app.services.batch_content_analysis import suggest_batch_content
+
+    channel = await db.get(Channel, resource.channel_id)
+    try:
+        suggestion = await suggest_batch_content(db, resource, channel, files=files)
+    except Exception as e:  # noqa: BLE001 — best-effort analysis
+        logger.warning("[analyze-batch] failed for %s: %s", resource_id, e)
+        suggestion = None
+
+    return success_response({
+        "suggestion": suggestion,
+        "listing_source": source,
+    })
 
 
 @router.patch("/resources/{resource_id}")
@@ -741,6 +869,17 @@ async def correct_parse_fields(
         resource.is_batch = body.is_batch
     if "batch_scope" in sent:
         resource.batch_scope = body.batch_scope
+
+    # Generic media-descriptor corrections (wizard step 3). Applied like the
+    # parse fields (explicitly-sent keys only) but they never touch
+    # episode_confidence — a mis-parsed resolution says nothing about the
+    # episode number.
+    for _field in (
+        "resolution", "subtitle_group", "source", "video_codec",
+        "audio_codec", "subtitle_type", "container", "subtitle_langs",
+    ):
+        if _field in sent:
+            setattr(resource, _field, getattr(body, _field))
 
     # Batch invariants (aligned with the fetch-service pre-parser).
     if resource.is_batch:
@@ -786,11 +925,6 @@ async def correct_parse_fields(
     resource = (await db.execute(
         select(FileResource)
         .where(FileResource.id == resource_id)
-        .options(
-            selectinload(FileResource.series).selectinload(_TVSeries.collection),
-            selectinload(FileResource.movie).selectinload(_Movie.collection),
-            selectinload(FileResource.audio_work),
-            selectinload(FileResource.collection),
-        )
+        .options(*_DETAIL_LOAD_OPTIONS)
     )).scalar_one()
-    return success_response(FileResourceResponse.model_validate(resource).model_dump())
+    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())

@@ -58,6 +58,11 @@ class FileResource(Base):
     # content-coverage dedup of batch resources in the agent runner.
     # NULL = coverage unknown (title-only packs) → no cross-version dedup.
     batch_seasons: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    # Per-season episode ranges of a batch resource
+    # ([{season, episode_start, episode_end}, ...]) from the torrent content
+    # analysis / the edit wizard. Recomputed from file assignments whenever
+    # those change; kept denormalized for cheap dedup/organize reads.
+    season_ranges: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # ── Cross-season episode reconciliation ──
     # RSS titles sometimes number episodes absolutely across all seasons
     # (e.g. ``S04 - 84`` where 84 = cumulative count across seasons 1-4)
@@ -144,6 +149,21 @@ class FileResource(Base):
     movie = relationship("Movie", back_populates="file_resources")
     audio_work = relationship("AudioWork", back_populates="file_resources")
     collection = relationship("WorkCollection")
+    # Multi-work associations (batch packs) and per-file work/season/episode
+    # mappings. Single-work resources keep using the legacy series_id /
+    # movie_id columns; these tables carry the batch enrichment detail.
+    work_links = relationship(
+        "ResourceWorkLink",
+        back_populates="resource",
+        cascade="all, delete-orphan",
+        order_by="ResourceWorkLink.created_at.asc()",
+    )
+    file_assignments = relationship(
+        "ResourceFileAssignment",
+        back_populates="resource",
+        cascade="all, delete-orphan",
+        order_by="ResourceFileAssignment.file_path.asc()",
+    )
     # delete-orphan is required: without it the ORM nullifies
     # download_tasks.file_resource_id when a resource is deleted (e.g. via
     # channel cascade), which violates the NOT NULL constraint.

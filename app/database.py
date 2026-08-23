@@ -443,6 +443,11 @@ async def _apply_light_migrations(conn) -> None:
         # list): deterministic ranking layer ahead of the LLM pick in
         # conflict resolution (ranks only, never filters).
         ("agents", "pick_preferences", "TEXT" if is_turso else "JSONB"),
+        # Per-season episode ranges of a batch resource
+        # ([{season, episode_start, episode_end}, ...]) from the torrent
+        # content analysis / the edit wizard. Recomputed from file
+        # assignments whenever those change.
+        ("file_resources", "season_ranges", "TEXT" if is_turso else "JSONB"),
     ]
 
     for table, column, ddl in additions:
@@ -993,3 +998,24 @@ async def _apply_light_migrations(conn) -> None:
                     "[migrate] converted global PLEX_URL/PLEX_TOKEN into a "
                     "media_server_instances row"
                 )
+
+    # ── batch_scope 'movies' 枚举扩展：存量改写 ──────────────────────────
+    # franchise 原本同时覆盖「纯电影包」与「TV+Movie 混合包」。引入
+    # 'movies' scope 后，把 collection 挂载成员全部为 movie 的存量
+    # franchise 行一次性改写为 'movies'；无法离线重析文件清单的行保持
+    # franchise（长期兼容的合法值），由后续向导保存或重新解析自然收敛。
+    # 幂等：只触碰仍为 franchise 的行。
+    async with _best_effort(conn, "batch_scope movies rewrite"):
+        res = await conn.execute(text(
+            "UPDATE file_resources SET batch_scope = 'movies' "
+            "WHERE batch_scope = 'franchise' AND collection_id IS NOT NULL "
+            "AND NOT EXISTS ("
+            "  SELECT 1 FROM tv_series s WHERE s.collection_id = file_resources.collection_id"
+            ") AND EXISTS ("
+            "  SELECT 1 FROM movies m WHERE m.collection_id = file_resources.collection_id)"
+        ))
+        if getattr(res, "rowcount", 0):
+            logger.info(
+                "[migrate] rewrote %d movie-only franchise rows to batch_scope='movies'",
+                res.rowcount,
+            )

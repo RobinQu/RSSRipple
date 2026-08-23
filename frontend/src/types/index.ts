@@ -102,7 +102,7 @@ export interface FileResource {
   // Torrent content detection (P1): batch scope sub-classification
   // (null = single-episode resource or a legacy pre-scope batch row) and the
   // franchise-pack collection link.
-  batch_scope: 'season' | 'multi_season' | 'franchise' | null;
+  batch_scope: BatchScope | null;
   collection_id: string | null;
   collection_name: string | null;
   episode_start: number | null;
@@ -129,6 +129,18 @@ export interface FileResource {
   movie?: ResourceWorkRef | null;
   metadata_matched_at: string | null;
   created_at: string;
+  // Seasons covered by a multi_season/franchise pack (from torrent content
+  // analysis); drives strict content-coverage dedup server-side.
+  batch_seasons?: number[] | null;
+  // Per-season episode runs ([{season, episode_start, episode_end}]).
+  season_ranges?: SeasonRange[] | null;
+}
+
+// Detail payload (GET /resources/{id} and association mutations) carrying
+// the batch enrichment tables. List payloads stay lean.
+export interface FileResourceDetail extends FileResource {
+  work_links: ResourceWorkLinkItem[];
+  file_assignments: ResourceFileAssignmentItem[];
 }
 
 export interface GroupedResource {
@@ -162,7 +174,8 @@ export interface ResourceFilesResponse {
 }
 
 // PATCH /resources/{id} — manual correction of the parsed episode/batch
-// fields. Every key is optional; only explicitly sent keys are updated.
+// fields plus generic media descriptors. Every key is optional; only
+// explicitly sent keys are updated.
 export interface ResourceCorrectionBody {
   episode?: number | null;
   season?: number | null;
@@ -170,7 +183,127 @@ export interface ResourceCorrectionBody {
   episode_start?: number | null;
   episode_end?: number | null;
   is_batch?: boolean;
-  batch_scope?: 'season' | 'multi_season' | 'franchise' | null;
+  batch_scope?: BatchScope | null;
+  resolution?: string | null;
+  subtitle_group?: string | null;
+  source?: string | null;
+  video_codec?: string | null;
+  audio_codec?: string | null;
+  subtitle_type?: string | null;
+  container?: string | null;
+  subtitle_langs?: string[] | null;
+}
+
+export type BatchScope = 'season' | 'multi_season' | 'franchise' | 'movies';
+
+export type WorkRefType = 'series' | 'movie';
+
+// resource_work_links row — one work association of a batch resource.
+export interface ResourceWorkLinkItem {
+  id: string;
+  series_id: string | null;
+  movie_id: string | null;
+  source: 'auto' | 'llm' | 'manual';
+  work_title: string | null;
+  poster_url: string | null;
+}
+
+// resource_file_assignments row — per-file work/season/episode mapping.
+export interface ResourceFileAssignmentItem {
+  id: string;
+  file_path: string;
+  file_size: number | null;
+  series_id: string | null;
+  movie_id: string | null;
+  work_title_hint: string | null;
+  season: number | null;
+  episode_start: number | null;
+  episode_end: number | null;
+  source: 'auto' | 'llm' | 'manual';
+  work_title: string | null;
+}
+
+export interface SeasonRange {
+  season: number;
+  episode_start: number | null;
+  episode_end: number | null;
+}
+
+// PUT /resources/{id}/associations — the edit wizard's full desired state.
+export interface AssociationWorkRef {
+  work_type: WorkRefType;
+  work_id: string;
+}
+
+export interface AssociationFileAssignmentInput {
+  file_path: string;
+  work_type: WorkRefType;
+  work_id: string;
+  file_size?: number | null;
+  season?: number | null;
+  episode_start?: number | null;
+  episode_end?: number | null;
+}
+
+export interface AssociationUpdatePayload {
+  is_batch: boolean;
+  works: AssociationWorkRef[];
+  collection_id?: string | null;
+  assignments: AssociationFileAssignmentInput[];
+  season?: number | null;
+  episode?: number | null;
+  absolute_episode?: number | null;
+  fields?: Partial<
+    Pick<
+      FileResource,
+      | 'resolution'
+      | 'subtitle_group'
+      | 'source'
+      | 'video_codec'
+      | 'audio_codec'
+      | 'subtitle_type'
+      | 'container'
+      | 'subtitle_langs'
+    >
+  >;
+}
+
+export type BatchSuggestionScope = 'movies' | 'mixed' | 'franchise';
+
+export interface BatchSuggestionWork {
+  title: string;
+  content_type: 'tv' | 'movie';
+  files: {
+    path: string;
+    season: number | null;
+    episode_start: number | null;
+    episode_end: number | null;
+  }[];
+}
+
+// Deterministic layer of the analyze-batch response — always present, no
+// LLM required. Per-file parses drive the wizard's prefill; clusters carry
+// the top-level directory grouping.
+export interface BatchSuggestionDeterministic {
+  scope_hint: string;
+  seasons: number[];
+  season_ranges: SeasonRange[];
+  files: {
+    path: string;
+    size: number | null;
+    season: number | null;
+    episode: number | null;
+  }[];
+  clusters: { title: string; files: string[] }[];
+}
+
+// POST /resources/{id}/analyze-batch — non-persistent suggestions for the
+// wizard's file-mapping step. ``deterministic`` is always populated from the
+// listing; ``works`` is the optional LLM refinement (title-keyed, bound to
+// step-1 works client-side).
+export interface BatchSuggestion {
+  deterministic: BatchSuggestionDeterministic;
+  works: BatchSuggestionWork[];
 }
 
 // TV Series

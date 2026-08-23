@@ -12,27 +12,22 @@ import {
   App,
   Tooltip,
   Descriptions,
-  Popover,
-  InputNumber,
-  Form,
-  Select,
-  Switch,
   theme,
 } from 'antd';
-import { Copy, Pencil, Download } from 'lucide-react';
+import { Copy, Download, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { resourcesApi } from '../api/channels';
-import { seriesApi } from '../api/series';
-import { moviesApi } from '../api/movies';
 import { formatBytes, formatDate } from '../utils/format';
 import { batchScopeLabel } from '../utils/batch';
-import MetadataCorrectionModal from './MetadataCorrectionModal';
+import ResourceCorrectionModal from './ResourceCorrectionModal';
 import CreateTaskModal from './CreateTaskModal';
 import { ResourceFilesView } from './ResourceFilesDrawer';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
-import type { FileResource, Movie, ResourceCorrectionBody, TVSeries } from '../types';
-
-type Work = TVSeries | Movie;
+import type {
+  FileResource,
+  ResourceFileItem,
+  TVSeries,
+} from '../types';
 
 const { Text, Paragraph } = Typography;
 
@@ -46,8 +41,6 @@ interface LinkedMeta {
   rating?: number | null;
   description?: string | null;
 }
-
-type SeasonCount = { season_number: number; episode_count: number };
 
 /** Build the display extras for a linked work entity (series or movie):
  * premier year, alternate titles distinct from the display title, genres,
@@ -76,25 +69,7 @@ function workMetaExtras(entity: {
   };
 }
 
-/** Client-side mirror of the backend ``locate_absolute_episode``
- * (app/services/metadata_episode_reconcile.py): walk seasons ascending,
- * subtract each ``episode_count`` until the absolute number lands in a
- * season. The last season gets a tolerance of 2 for still-airing shows
- * whose metadata lags behind. Returns null when out of range — the
- * server-side ambiguous marking handles that case. */
-function locateAbsoluteSeason(absolute: number, seasons: SeasonCount[] | null): number | null {
-  if (!seasons || absolute < 1) return null;
-  const ordered = seasons
-    .filter((s) => s.season_number >= 1 && s.episode_count >= 1)
-    .sort((a, b) => a.season_number - b.season_number);
-  let remaining = absolute;
-  for (const s of ordered) {
-    if (remaining <= s.episode_count) return s.season_number;
-    remaining -= s.episode_count;
-  }
-  if (ordered.length > 0 && remaining <= 2) return ordered[ordered.length - 1].season_number;
-  return null;
-}interface ResourceDetailDrawerProps {
+interface ResourceDetailDrawerProps {
   resource: FileResource | null;
   onClose: () => void;
   onCorrected?: () => void;
@@ -119,6 +94,15 @@ function PosterBlock({ url }: { url: string | null | undefined }) {
   );
 }
 
+function episodeRangeLabel(
+  start: number | null,
+  end: number | null,
+): string | null {
+  if (start == null) return null;
+  if (end != null && end !== start) return `E${start}-${end}`;
+  return `E${start}`;
+}
+
 export default function ResourceDetailDrawer({
   resource,
   onClose,
@@ -129,34 +113,22 @@ export default function ResourceDetailDrawer({
   const { token } = theme.useToken();
   const [meta, setMeta] = useState<LinkedMeta | null>(null);
   const [metaLoading, setMetaLoading] = useState(false);
-  const [correctionOpen, setCorrectionOpen] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [resourceData, setResourceData] = useState<FileResource | null>(null);
-  // Inline parsed-fields editing (view/edit toggle inside the section).
-  const [parseForm] = Form.useForm();
-  const [parseEditing, setParseEditing] = useState(false);
-  const [parseSaving, setParseSaving] = useState(false);
-  const [editWork, setEditWork] = useState<Work | null>(null);
-  const isBatchWatch = Form.useWatch('is_batch', parseForm) ?? false;
-  const [episodeEditOpen, setEpisodeEditOpen] = useState(false);
-  const [seasonDraft, setSeasonDraft] = useState<number | null>(null);
-  const [episodeDraft, setEpisodeDraft] = useState<number | null>(null);
-  const [absoluteDraft, setAbsoluteDraft] = useState<number | null>(null);
-  const [savingEpisode, setSavingEpisode] = useState(false);
-  // Per-season episode counts of the linked series (from the resource
-  // metadata endpoint), used to prefill season from an absolute episode.
-  const [seriesSeasons, setSeriesSeasons] = useState<SeasonCount[] | null>(null);
-  // Once the user types a season themselves we stop auto-prefilling it.
-  const [seasonTouched, setSeasonTouched] = useState(false);
+  // Torrent listing snapshot for the batch work↔file mapping display.
+  const [filesList, setFilesList] = useState<ResourceFileItem[]>([]);
+  const [parseEditOpen, setParseEditOpen] = useState(false);
 
   const loadMeta = useCallback(async (rid: string) => {
     setMetaLoading(true);
     try {
-      const [metaRes, resRes] = await Promise.all([
+      const [metaRes, resRes, filesRes] = await Promise.all([
         resourcesApi.getMetadata(rid),
         resourcesApi.get(rid),
+        resourcesApi.getFiles(rid),
       ]);
       if (resRes.success) setResourceData(resRes.data);
+      if (filesRes.success) setFilesList(filesRes.data.files);
       if (metaRes.success && metaRes.data) {
         const d = metaRes.data;
         if (d.linked?.type === 'series') {
@@ -169,7 +141,6 @@ export default function ResourceDetailDrawer({
             poster_url: series.poster_url,
             ...workMetaExtras(series, title),
           });
-          setSeriesSeasons(series.seasons ?? null);
         } else if (d.linked?.type === 'movie') {
           const movie = d.linked.entity;
           const title =
@@ -180,7 +151,6 @@ export default function ResourceDetailDrawer({
             poster_url: movie.poster_url,
             ...workMetaExtras(movie, title),
           });
-          setSeriesSeasons(null);
         } else if (d.series_id && d.series) {
           const title =
             d.series.original_title || d.series.title_cn || d.series.title_en || t('resource.unknownSeries');
@@ -190,8 +160,6 @@ export default function ResourceDetailDrawer({
             poster_url: d.series.poster_url,
             ...workMetaExtras(d.series, title),
           });
-          // The summary payload carries no per-season counts — no prefill.
-          setSeriesSeasons(null);
         } else if (d.movie_id && d.movie) {
           const title =
             d.movie.original_title || d.movie.title_cn || d.movie.title_en || t('resource.unknownMovie');
@@ -201,10 +169,8 @@ export default function ResourceDetailDrawer({
             poster_url: d.movie.poster_url,
             ...workMetaExtras(d.movie, title),
           });
-          setSeriesSeasons(null);
         } else {
           setMeta(null);
-          setSeriesSeasons(null);
         }
       }
     } finally {
@@ -216,12 +182,12 @@ export default function ResourceDetailDrawer({
     if (!resource) {
       setMeta(null);
       setResourceData(null);
-      setSeriesSeasons(null);
-      setParseEditing(false);
+      setFilesList([]);
+      setParseEditOpen(false);
       return;
     }
     setResourceData(resource);
-    setParseEditing(false);
+    setParseEditOpen(false);
     loadMeta(resource.id);
   }, [resource, loadMeta]);
 
@@ -232,165 +198,39 @@ export default function ResourceDetailDrawer({
     );
   };
 
-  const openEpisodeEditor = () => {
-    if (!resourceData && !resource) return;
-    const src = resourceData || resource;
-    setSeasonDraft(src?.season ?? null);
-    setEpisodeDraft(src?.episode ?? null);
-    setAbsoluteDraft(src?.absolute_episode ?? null);
-    setSeasonTouched(false);
-    setEpisodeEditOpen(true);
-  };
-
-  const saveEpisode = async () => {
-    const rid = (resourceData || resource)?.id;
-    if (!rid) return;
-    setSavingEpisode(true);
-    const res = await resourcesApi.correctEpisode(rid, {
-      episode: episodeDraft,
-      // Only send season/absolute_episode when the user actually typed one;
-      // the backend preserves the prior value when we omit it, per PATCH
-      // semantics.
-      ...(seasonDraft != null ? { season: seasonDraft } : {}),
-      ...(absoluteDraft != null ? { absolute_episode: absoluteDraft } : {}),
-    });
-    setSavingEpisode(false);
-    if (res.success) {
-      setResourceData(res.data);
-      setEpisodeEditOpen(false);
-      message.success(t('resource.episodeSaved'));
-      onCorrected?.();
-    } else {
-      message.error(res.error?.message || t('resource.episodeSaveFailed'));
-    }
+  const copyResourceId = (id: string) => {
+    navigator.clipboard.writeText(id).then(
+      () => message.success(t('resource.idCopied')),
+      () => message.error(t('resource.copyFailed')),
+    );
   };
 
   const r = resourceData || resource;
   const open = resource !== null;
 
-  const workKind: 'series' | 'movie' | null = r?.series_id
-    ? 'series'
-    : r?.movie_id
-      ? 'movie'
-      : null;
-
-  // Enter inline edit mode: prefill the form from the resource and pull the
-  // full linked-work row (the resource payload doesn't carry content_type).
-  const enterParseEdit = () => {
-    if (!r) return;
-    parseForm.setFieldsValue({
-      season: r.season ?? null,
-      episode: r.episode ?? null,
-      absolute_episode: r.absolute_episode ?? null,
-      episode_start: r.episode_start ?? null,
-      episode_end: r.episode_end ?? null,
-      is_batch: r.is_batch,
-      batch_scope: r.batch_scope ?? null,
-      is_anime: null,
-      content_type: null,
-    });
-    setEditWork(null);
-    setParseEditing(true);
-    const workId = r.series_id || r.movie_id;
-    if (!workId) return;
-    const load = r.series_id ? seriesApi.get : moviesApi.get;
-    load(workId).then((res) => {
-      if (res.success) {
-        setEditWork(res.data as Work);
-        parseForm.setFieldsValue({
-          is_anime: (res.data as Work).is_anime ?? null,
-          content_type: (res.data as Work).content_type ?? null,
-        });
-      }
-    });
-  };
-
-  const handleBatchToggle = (checked: boolean) => {
-    // Batch resources have no single episode number; single-episode resources
-    // have no batch scope/range. Clear the mutually exclusive group.
-    if (checked) {
-      parseForm.setFieldsValue({ episode: null, absolute_episode: null });
-    } else {
-      parseForm.setFieldsValue({ batch_scope: null, episode_start: null, episode_end: null });
-    }
-  };
-
-  // Same save semantics as ResourceCorrectionModal: PUT the linked work first
-  // (changed fields only), then PATCH the resource (changed fields only).
-  const submitParseEdit = async () => {
-    if (!r) return;
-    const values = await parseForm.validateFields();
-    setParseSaving(true);
-    try {
-      let changed = false;
-      if (editWork && workKind) {
-        const workPayload: Record<string, unknown> = {};
-        const nextAnime = values.is_anime ?? null;
-        if (nextAnime !== (editWork.is_anime ?? null)) workPayload.is_anime = nextAnime;
-        const nextType = values.content_type ?? null;
-        if (nextType !== (editWork.content_type ?? null)) workPayload.content_type = nextType;
-        if (Object.keys(workPayload).length > 0) {
-          const res =
-            workKind === 'series'
-              ? await seriesApi.update(editWork.id, workPayload)
-              : await moviesApi.update(editWork.id, workPayload);
-          if (!res.success) {
-            message.error(res.error?.message || t('resource.correctSaveFailed'));
-            return;
-          }
-          changed = true;
-        }
-      }
-
-      const payload: ResourceCorrectionBody = {};
-      const numField = (
-        key: 'season' | 'episode' | 'absolute_episode' | 'episode_start' | 'episode_end',
-      ) => {
-        const next = (values[key] ?? null) as number | null;
-        if (next !== (r[key] ?? null)) payload[key] = next;
-      };
-      numField('season');
-      numField('episode');
-      numField('absolute_episode');
-      numField('episode_start');
-      numField('episode_end');
-      if (values.is_batch !== r.is_batch) payload.is_batch = values.is_batch;
-      const nextScope = (values.batch_scope ?? null) as ResourceCorrectionBody['batch_scope'];
-      if (nextScope !== (r.batch_scope ?? null)) payload.batch_scope = nextScope;
-
-      let updated = r;
-      if (Object.keys(payload).length > 0) {
-        const res = await resourcesApi.correctParseFields(r.id, payload);
-        if (!res.success) {
-          message.error(res.error?.message || t('resource.correctSaveFailed'));
-          return;
-        }
-        updated = res.data;
-        changed = true;
-      }
-
-      setParseEditing(false);
-      if (changed) {
-        message.success(t('resource.correctSaved'));
-        setResourceData(updated);
-        loadMeta(r.id);
-        onCorrected?.();
-      }
-    } finally {
-      setParseSaving(false);
-    }
-  };
-
   const dash = t('format.dash');
   const parsedItems: Array<{ key: string; label: string; children: React.ReactNode }> = r
     ? [
+        {
+          key: 'resource_id',
+          label: t('resource.resourceId'),
+          children: (
+            <Space size={4} style={{ maxWidth: '100%' }}>
+              <Text copyable={false} ellipsis style={{ maxWidth: 250, fontFamily: 'monospace', fontSize: 11 }}>
+                {r.id}
+              </Text>
+              <Button type="text" size="small" aria-label={t('resource.copyResourceId')} icon={<Copy size={12} />} onClick={() => copyResourceId(r.id)} />
+            </Space>
+          ),
+        },
         { key: 'subtitle_group', label: t('resource.subtitleGroup'), children: r.subtitle_group || dash },
         {
           key: 'is_batch',
           label: t('resource.isBatch'),
-          children: r.is_batch ? t('common.yes') : t('common.no'),
+          children: r.is_batch
+            ? `${t('common.yes')}${r.batch_scope ? ` · ${batchScopeLabel(t, r)}` : ''}`
+            : t('common.no'),
         },
-        { key: 'season', label: t('resource.seasonLabel'), children: r.season ?? dash },
         {
           key: 'episode',
           label: t('resource.episode'),
@@ -399,7 +239,7 @@ export default function ResourceDetailDrawer({
               <span>
                 {r.is_batch
                   ? (r.episode_start != null && r.episode_end != null
-                      ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end} · ${batchScopeLabel(t, r)}`
+                      ? `${r.season != null ? `S${r.season} · ` : ''}E${r.episode_start}-${r.episode_end}`
                       : `${r.season != null ? `S${r.season} · ` : ''}${batchScopeLabel(t, r)}`)
                   : (r.episode != null
                       ? (r.season != null ? `S${r.season}E${r.episode}` : t('resource.episodeFormat', { n: r.episode }))
@@ -407,92 +247,6 @@ export default function ResourceDetailDrawer({
               </span>
               {r.batch_scope === 'franchise' && r.collection_id && r.collection_name && (
                 <Link to={`/collections/${r.collection_id}`}>{r.collection_name}</Link>
-              )}
-              {/* Only expose the manual editor for single-episode TV rows.
-                  Batches don't have a single episode number to correct, and
-                  movies don't carry episode metadata. */}
-              {!r.is_batch && r.movie_id == null && (
-                <Popover
-                  open={episodeEditOpen}
-                  onOpenChange={(vis) => {
-                    if (vis) openEpisodeEditor();
-                    else setEpisodeEditOpen(false);
-                  }}
-                  trigger="click"
-                  placement="bottomLeft"
-                  destroyOnHidden
-                  title={t('resource.episodeCorrectionTitle')}
-                  content={
-                    <div style={{ minWidth: 240 }}>
-                      <div style={{ marginBottom: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                          {t('resource.seasonLabel')}
-                        </Text>
-                        <InputNumber
-                          value={seasonDraft}
-                          onChange={(v) => {
-                            setSeasonTouched(true);
-                            setSeasonDraft(typeof v === 'number' ? v : null);
-                          }}
-                          size="small"
-                          min={0}
-                          style={{ width: '100%' }}
-                        />
-                      </div>
-                      <div style={{ marginBottom: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                          {t('resource.episodePerSeasonLabel')}
-                        </Text>
-                        <InputNumber
-                          value={episodeDraft}
-                          onChange={(v) => setEpisodeDraft(typeof v === 'number' ? v : null)}
-                          size="small"
-                          min={0}
-                          style={{ width: '100%' }}
-                        />
-                      </div>
-                      <div style={{ marginBottom: 12 }}>
-                        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                          {t('resource.absoluteEpisodePlaceholder')}
-                        </Text>
-                        <InputNumber
-                          value={absoluteDraft}
-                          onChange={(v) => {
-                            const abs = typeof v === 'number' ? v : null;
-                            setAbsoluteDraft(abs);
-                            // Prefill the season from the linked series'
-                            // per-season counts (same arithmetic as the
-                            // backend locate_absolute_episode) while the
-                            // user hasn't typed a season themselves. Out of
-                            // range → leave it empty; the server marks it.
-                            if (abs != null && !seasonTouched) {
-                              const derived = locateAbsoluteSeason(abs, seriesSeasons);
-                              if (derived != null) setSeasonDraft(derived);
-                            }
-                          }}
-                          size="small"
-                          min={0}
-                          style={{ width: '100%' }}
-                        />
-                      </div>
-                      <Space size={4} style={{ justifyContent: 'flex-end', width: '100%' }}>
-                        <Button size="small" onClick={() => setEpisodeEditOpen(false)}>
-                          {t('common.cancel')}
-                        </Button>
-                        <Button
-                          size="small"
-                          type="primary"
-                          loading={savingEpisode}
-                          onClick={saveEpisode}
-                        >
-                          {t('common.save')}
-                        </Button>
-                      </Space>
-                    </div>
-                  }
-                >
-                  <Button type="text" size="small" icon={<Pencil size={12} />} />
-                </Popover>
               )}
             </Space>
           ),
@@ -502,21 +256,24 @@ export default function ResourceDetailDrawer({
           label: t('resource.absoluteEpisode'),
           children: r.absolute_episode ?? dash,
         },
-        {
-          key: 'episode_start',
-          label: t('resource.episodeStart'),
-          children: r.episode_start ?? dash,
-        },
-        {
-          key: 'episode_end',
-          label: t('resource.episodeEnd'),
-          children: r.episode_end ?? dash,
-        },
-        {
-          key: 'batch_scope',
-          label: t('resource.batchScope'),
-          children: r.batch_scope ? batchScopeLabel(t, r) : dash,
-        },
+        ...(r.season_ranges && r.season_ranges.length > 0
+          ? [{
+              key: 'season_ranges',
+              label: t('resource.seasonRanges'),
+              children: (
+                <Space size={4} wrap>
+                  {r.season_ranges.map((sr) => (
+                    <Tag key={sr.season} style={{ fontSize: 11 }}>
+                      S{sr.season}
+                      {sr.episode_start != null
+                        ? ` · E${sr.episode_start}${sr.episode_end != null && sr.episode_end !== sr.episode_start ? `-${sr.episode_end}` : ''}`
+                        : ''}
+                    </Tag>
+                  ))}
+                </Space>
+              ),
+            }]
+          : []),
         // Confidence — only render when the reconciliation pipeline had
         // something to say. Keeps the drawer clean for the vast majority of
         // resources that don't need this metadata.
@@ -595,6 +352,60 @@ export default function ResourceDetailDrawer({
       ]
     : [];
 
+  // Work ↔ file mapping groups (batch resources only). The detail payload
+  // (GET /resources/{id}) carries the assignment rows on top of the base
+  // resource shape.
+  const detailRow = r as (FileResource & {
+    file_assignments?: Array<{
+      file_path: string;
+      file_size: number | null;
+      series_id: string | null;
+      movie_id: string | null;
+      season: number | null;
+      episode_start: number | null;
+      episode_end: number | null;
+      work_title: string | null;
+    }>;
+  }) | null;
+  const assignments = detailRow?.file_assignments ?? [];
+  const assignedPaths = new Set(assignments.map((a) => a.file_path));
+  const unassigned = filesList.filter((f) => !assignedPaths.has(f.name));
+  const showWorkLinks = !!r?.is_batch && assignments.length > 0;
+
+  interface MappingGroup {
+    key: string;
+    label: string;
+    color: string;
+    seasons: Map<number | null, typeof assignments>;
+    total: number;
+  }
+
+  const mappingGroups: MappingGroup[] = [];
+  if (showWorkLinks) {
+    const byKey = new Map<string, MappingGroup>();
+    for (const a of assignments) {
+      const wt = a.series_id ? 'series' : 'movie';
+      const wid = (a.series_id || a.movie_id)!;
+      const key = `${wt}:${wid}`;
+      let group = byKey.get(key);
+      if (!group) {
+        group = {
+          key,
+          label: a.work_title || wid,
+          color: wt === 'series' ? 'blue' : 'green',
+          seasons: new Map(),
+          total: 0,
+        };
+        byKey.set(key, group);
+      }
+      const rows = group.seasons.get(a.season) ?? [];
+      rows.push(a);
+      group.seasons.set(a.season, rows);
+      group.total += 1;
+    }
+    mappingGroups.push(...byKey.values());
+  }
+
   return (
     <>
       <Drawer
@@ -612,10 +423,10 @@ export default function ResourceDetailDrawer({
         styles={{ body: { padding: 20 } }}
         footer={
           <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button
-              icon={<Download size={14} />}
-              onClick={() => setCreateTaskOpen(true)}
-            >
+            <Button icon={<Pencil size={14} />} onClick={() => setParseEditOpen(true)}>
+              {t('resource.editFooter')}
+            </Button>
+            <Button icon={<Download size={14} />} onClick={() => setCreateTaskOpen(true)}>
               {t('tasks.createTask')}
             </Button>
           </Space>
@@ -650,31 +461,14 @@ export default function ResourceDetailDrawer({
                 >
                   <PosterBlock url={meta.poster_url} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        gap: 8,
-                      }}
-                    >
-                      <Space size={6} style={{ marginBottom: 6 }} wrap>
-                        <Text strong>{meta.title}</Text>
-                        <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
-                          {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
-                        </Tag>
-                        {meta.year != null && <Tag>{meta.year}</Tag>}
-                        {meta.rating != null && <Tag color="gold">★ {meta.rating}</Tag>}
-                      </Space>
-                      <Tooltip title={t('resource.correctMatch')}>
-                        <Button
-                          size="small"
-                          type="text"
-                          icon={<Pencil size={14} />}
-                          onClick={() => setCorrectionOpen(true)}
-                        />
-                      </Tooltip>
-                    </div>
+                    <Space size={6} style={{ marginBottom: 6 }} wrap>
+                      <Text strong>{meta.title}</Text>
+                      <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
+                        {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
+                      </Tag>
+                      {meta.year != null && <Tag>{meta.year}</Tag>}
+                      {meta.rating != null && <Tag color="gold">★ {meta.rating}</Tag>}
+                    </Space>
                     {(meta.secondary_titles?.length ?? 0) > 0 && (
                       <div
                         style={{
@@ -722,128 +516,98 @@ export default function ResourceDetailDrawer({
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {t('resource.noMetadata')}
                   </Text>
-                  <div style={{ marginTop: 8 }}>
-                    <Button
-                      size="small"
-                      icon={<Pencil size={12} />}
-                      onClick={() => setCorrectionOpen(true)}
-                    >
-                      {t('resource.manualFix')}
-                    </Button>
-                  </div>
                 </div>
               )}
             </div>
 
             <Divider style={{ margin: '16px 0', borderColor: token.colorBorder }} />
 
-            {/* Parsed details — view mode (Descriptions) / inline edit mode (Form) */}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 10,
-              }}
-            >
-              <Text strong style={{ fontSize: 13 }}>
-                {t('resource.parsedFields')}
-              </Text>
-              {!parseEditing && (
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<Pencil size={14} />}
-                  onClick={enterParseEdit}
-                >
-                  {t('common.edit')}
-                </Button>
-              )}
-            </div>
-            {parseEditing ? (
-              <Form form={parseForm} layout="vertical" size="small">
-                <Form.Item name="is_batch" label={t('resource.isBatch')} valuePropName="checked">
-                  <Switch onChange={handleBatchToggle} />
-                </Form.Item>
-                <Form.Item name="season" label={t('resource.seasonLabel')}>
-                  <InputNumber min={0} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="episode" label={t('resource.episodePerSeasonLabel')}>
-                  <InputNumber min={0} disabled={isBatchWatch} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="absolute_episode" label={t('resource.absoluteEpisodePlaceholder')}>
-                  <InputNumber min={0} disabled={isBatchWatch} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="episode_start" label={t('resource.episodeStart')}>
-                  <InputNumber min={0} disabled={!isBatchWatch} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="episode_end" label={t('resource.episodeEnd')}>
-                  <InputNumber min={0} disabled={!isBatchWatch} style={{ width: '100%' }} />
-                </Form.Item>
-                <Form.Item name="batch_scope" label={t('resource.batchScope')}>
-                  <Select
-                    allowClear
-                    disabled={!isBatchWatch}
-                    options={[
-                      { value: 'season', label: t('channels.batch') },
-                      { value: 'multi_season', label: t('channels.batchMultiSeason') },
-                      { value: 'franchise', label: t('channels.batchFranchise') },
-                    ]}
-                  />
-                </Form.Item>
+            {/* Parsed fields — read-only; editing lives in the wizard behind
+                the footer 编辑 button. */}
+            <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
+              {t('resource.parsedFields')}
+            </Text>
+            <Descriptions
+              column={1}
+              size="small"
+              labelStyle={{ color: token.colorTextTertiary, width: 100, padding: '4px 8px' }}
+              contentStyle={{ color: token.colorTextSecondary, padding: '4px 8px' }}
+              style={{ fontSize: 12 }}
+              items={parsedItems}
+            />
 
-                {workKind && (
-                  <>
-                    <Divider style={{ margin: '8px 0 12px' }} />
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-                      {t('resource.linkedWork')}
-                    </div>
-                    <Form.Item name="is_anime" label={t('works.animeStatus')}>
-                      <Select
-                        allowClear
-                        placeholder={t('common.unknown')}
-                        options={[
-                          { value: true, label: t('works.anime') },
-                          { value: false, label: t('works.liveAction') },
-                        ]}
-                      />
-                    </Form.Item>
-                    <Form.Item name="content_type" label={t('resource.contentType')}>
-                      <Select
-                        allowClear
-                        placeholder={t('common.unknown')}
-                        options={[
-                          { value: 'tv', label: t('works.tv') },
-                          { value: 'movie', label: t('works.movie') },
-                        ]}
-                      />
-                    </Form.Item>
-                  </>
-                )}
-
-                <Space size={8} style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <Button size="small" onClick={() => setParseEditing(false)}>
-                    {t('common.cancel')}
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    loading={parseSaving}
-                    onClick={submitParseEdit}
+            {/* Batch work ↔ file mapping (read-only) */}
+            {showWorkLinks && (
+              <>
+                <Divider style={{ margin: '16px 0', borderColor: token.colorBorder }} />
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>
+                  {t('resource.workLinksTitle')}
+                </Text>
+                {mappingGroups.map((g) => (
+                  <div
+                    key={g.key}
+                    style={{
+                      border: '1px solid var(--rr-border-soft)',
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                      marginBottom: 8,
+                    }}
                   >
-                    {t('common.save')}
-                  </Button>
-                </Space>
-              </Form>
-            ) : (
-              <Descriptions
-                column={1}
-                size="small"
-                labelStyle={{ color: token.colorTextTertiary, width: 100, padding: '4px 8px' }}
-                contentStyle={{ color: token.colorTextSecondary, padding: '4px 8px' }}
-                style={{ fontSize: 12 }}
-                items={parsedItems}
-              />
+                    <Space size={6}>
+                      <Tag color={g.color}>
+                        {g.key.startsWith('series:') ? t('works.tv') : t('works.movie')}
+                      </Tag>
+                      <Text strong style={{ fontSize: 12 }}>{g.label}</Text>
+                      <Text type="secondary" style={{ fontSize: 11 }}>{g.total}</Text>
+                    </Space>
+                    {[...g.seasons.entries()]
+                      .sort((x, y) => (x[0] ?? 9999) - (y[0] ?? 9999))
+                      .map(([season, rows]) => (
+                        <div key={season ?? 'na'} style={{ marginTop: 6 }}>
+                          {season != null && (
+                            <Tag style={{ fontSize: 11 }}>{`${t('resource.seasonLabel')} ${season}`}</Tag>
+                          )}
+                          {rows.map((row) => {
+                            const range = episodeRangeLabel(row.episode_start, row.episode_end);
+                            return (
+                              <div
+                                key={row.file_path}
+                                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0' }}
+                              >
+                                <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere' }}>
+                                  {row.file_path}
+                                </span>
+                                {range && <Tag style={{ fontSize: 11, margin: 0 }}>{range}</Tag>}
+                                {row.file_size != null && (
+                                  <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                                    {formatBytes(row.file_size)}
+                                  </Text>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                  </div>
+                ))}
+                {unassigned.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <Tag>{`${t('resource.unassignedFiles')}（${unassigned.length}）`}</Tag>
+                    <div style={{ marginTop: 4 }}>
+                      {unassigned.slice(0, 20).map((f) => (
+                        <div key={f.name} style={{ fontSize: 12, color: token.colorTextSecondary, overflowWrap: 'anywhere' }}>
+                          {f.name}
+                        </div>
+                      ))}
+                      {unassigned.length > 20 && (
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          …{unassigned.length - 20}
+                        </Text>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
             <Divider style={{ margin: '16px 0', borderColor: token.colorBorder }} />
@@ -858,12 +622,13 @@ export default function ResourceDetailDrawer({
       </Drawer>
 
       {r && (
-        <MetadataCorrectionModal
+        <ResourceCorrectionModal
           resourceId={r.id}
-          open={correctionOpen}
-          onClose={() => setCorrectionOpen(false)}
-          onCorrected={() => {
-            setCorrectionOpen(false);
+          open={parseEditOpen}
+          onClose={() => setParseEditOpen(false)}
+          onSaved={(updated) => {
+            setParseEditOpen(false);
+            setResourceData(updated);
             loadMeta(r.id);
             onCorrected?.();
           }}

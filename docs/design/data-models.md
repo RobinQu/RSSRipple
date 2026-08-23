@@ -92,9 +92,12 @@ class FileResource(Base):
     # 合集（多集打包）标识 —— 由 pre-parser、torrent 内容检测与 MetadataAgent 联合判定
     is_batch: bool                       # 该资源是否为多集合集，默认 False
     batch_scope: str | None              # 合集细分：NULL=非合集；"season"=单季包；
-                                         # "multi_season"=跨季包；"franchise"=多作品大 IP 包
+                                         # "multi_season"=跨季包；"franchise"=多作品混合包；
+                                         # "movies"=纯电影包（LLM 精判产出）
     batch_seasons: list[int] | None      # multi_season/franchise 包覆盖的季集合（torrent 内容
                                          # 检测持久化）；驱动合集内容覆盖度去重；NULL=覆盖度未知
+    season_ranges: list[dict] | None     # 逐季集数范围 [{season, episode_start, episode_end}]；
+                                         # 由 torrent 内容分析 / 向导保存时按 assignments 重算
     episode_start: int | None            # 合集起始集，尽力而为（标题里可能没有）
     episode_end: int | None              # 合集结束集，尽力而为（标题里可能没有）
     # 跨季集号 reconciliation
@@ -110,6 +113,33 @@ class FileResource(Base):
     updated_at: datetime
 ```
 
+### 合集富化表（资源↔作品多关联 / 文件级映射）
+
+单作品资源继续使用上面的互斥 FK；合集资源的"多作品关联"与"文件↔作品映射"落在两张新表（`Base.metadata.create_all` 自动建表，无存量迁移）：
+
+```
+resource_work_links                    # 资源↔作品 多关联（合集场景 N 个作品）
+    id: str                            # UUID pk
+    resource_id → FileResource         # CASCADE
+    series_id → TVSeries | None        # 与 movie_id 行级互斥（CheckConstraint）
+    movie_id  → Movie | None
+    source: str                        # "auto"|"llm"|"manual" —— provenance；自动层永不覆盖 manual
+    created_at
+
+resource_file_assignments              # 文件级映射：torrent 清单条目 → 作品/季/集
+    id: str                            # UUID pk
+    resource_id → FileResource         # CASCADE
+    file_path: str                     # 清单相对路径，Unique(resource_id, file_path)
+    file_size: int | None              # 冗余快照
+    series_id/movie_id: str|None       # 双空=未指派（确定性层先于作品链接运行）
+    work_title_hint: str | None        # 绑定具体作品前的簇标题提示（目录聚类/LLM 建议）
+    season / episode_start / episode_end: int|None   # TV 专属；单集文件 start==end
+    source: str                        # 同上；manual 永不被自动覆盖
+    created_at / updated_at
+```
+
+序列化：`GET/PATCH/PUT` 单资源端点返回 `FileResourceDetailResponse`（在基础 schema 上附 `work_links[]` + `file_assignments[]`，需 `_DETAIL_LOAD_OPTIONS` selectinload）；列表端点保持精简基础 schema。
+
 资源的 FK 互斥规则：
 - 若为剧集资源，`series_id` 非空，`movie_id` 必须为空；具体集数统一使用 `episode` 字段。
 - 若为电影资源，`movie_id` 非空，`series_id` 必须为空。
@@ -120,7 +150,8 @@ class FileResource(Base):
 
 1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。**整碟包规则**：标题含显式季标记（`S0x`/`Season N`/`Nst|nd|rd|th Season`/`第N季` 含中文数字）且解析不出任何集号且含整碟 token（`BD`/`BDRip`/`BDMV`/`BDRemux`/`Blu-ray`/`BD-BOX`，词边界）→ 判合集（`葬送的芙莉莲 第二季 (BD ...)` 形态）。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）并设 `batch_scope="season"`（标题层默认单季包，torrent 分析可修正）。
 2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end，并把覆盖季集合持久化到 `batch_seasons`）/`franchise`（≥2 作品簇，同写 `batch_seasons`，触发 `franchise_service.link_franchise_pack` 创建/复用 `franchise_pack` 来源的 WorkCollection、逐个匹配成员作品并挂 `collection_id`、资源改挂 collection）/`unknown`（不改判）。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）为保留优化项，未实现。
-3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise 不被降级），LLM 未输出时默认 `"season"`。
+   **富化 pass（合集判定后的每个批次结果）**：① 确定性写回——按 `file_parses` upsert `resource_file_assignments`（source=auto，簇目录名作 `work_title_hint`），并重算 `season_ranges`；② LLM 精判（`app/services/batch_content_analysis.py`，**门控**：scope=franchise，或 is_batch 且未解析集号占比 ≥0.5 且视频数 ≥2 且配置了 LLM key；season/multi_season 包不烧 LLM）——区分纯电影包与混合包、把电影簇经频道源 `process_title_only` → Movie 落库并绑定 links+assignments（source=llm），纯电影包把 scope 升级为 `"movies"` 并跳过 WorkCollection 创建（电影包按文件关联到具体 Movie，不建作品集）；TV 簇仅刷新 hint，具体绑定留给向导人工完成。失败/无 key 静默降级为确定性结果。存量 franchise 行的轻迁移仅改写「collection 成员全为 movie」→ `movies`。
+3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise|movies，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise/movies 不被降级），LLM 未输出时默认 `"season"`。
 
 合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`(series_id, season)`；跨季包→`(series_id, batch_seasons)`。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision，episode 哨兵 -1；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的 active 任务判重跳过；覆盖度不同（S1 包 vs S2 包）的合集不去重、各自派发。**覆盖度未知（season 包无季号、multi_season 无 batch_seasons）不再派发**——覆盖度是 organize 覆盖度校验的必填依据，落 PendingDecision（episode 哨兵 -2，reason 前缀「合集范围不确定」）待人工修订补齐后定向重跑。franchise 包作品 FK 全清，不进入派发。
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-BATCH_SCOPE_VALUES = ("season", "multi_season", "franchise")
+BATCH_SCOPE_VALUES = ("season", "multi_season", "franchise", "movies")
 
 
 def _parse_batch_scope(value: object) -> str | None:

@@ -1,11 +1,14 @@
 import { api } from './client';
 import type {
   APIResponse,
+  AssociationUpdatePayload,
+  BatchSuggestion,
   Channel,
   ChannelDetail,
   ChannelStatus,
   FieldMapping,
   FileResource,
+  FileResourceDetail,
   FilterSuggestionResponse,
   GroupedResource,
   MetadataSearchResult,
@@ -214,4 +217,20 @@ export const resourcesApi = {
   getFiles: (id: string) => api.get<ResourceFilesResponse>(`/resources/${id}/files`),
   correctParseFields: (id: string, body: ResourceCorrectionBody) =>
     api.patch<FileResource>(`/resources/${id}`, body),
+  // Edit wizard write path: full association state (works set, collection,
+  // per-file placements) + optional generic fields in one transaction.
+  updateAssociations: (
+    id: string,
+    body: AssociationUpdatePayload,
+  ) =>
+    api.put<FileResourceDetail & { warnings?: string[] }>(
+      `/resources/${id}/associations`,
+      body,
+    ),
+  // Non-persistent LLM suggestions for the file-mapping step.
+  analyzeBatch: (id: string) =>
+    api.post<{ suggestion: BatchSuggestion | null; listing_source: string }>(
+      `/resources/${id}/analyze-batch`,
+      {},
+    ),
 };

@@ -608,3 +608,94 @@ async def test_inspect_reuses_existing_cache(tmp_path, monkeypatch):
     assert r.is_batch is True
     assert r.batch_scope == "season"
     assert r.torrent_file == str(cached)
+
+
+# ---------------------------------------------------------------------------
+# Frieren BD-box regression: "S01 + S02" pack whose listing uses season
+# directories with bare-number filenames ("Frieren S01/01 [VOSTFR].mkv").
+# ---------------------------------------------------------------------------
+
+
+def _frieren_listing() -> list[dict]:
+    mb = 500 * 1024 * 1024
+    files = [
+        {"name": f"Frieren S01/{ep:02d} [VOSTFR] [BDRip 1080p].mkv", "size": mb}
+        for ep in range(1, 29)
+    ]
+    files += [
+        {"name": f"Frieren S02/{ep:02d} [VOSTFR] [BDRip 1080p].mkv", "size": mb}
+        for ep in range(1, 13)
+    ]
+    return files
+
+
+def test_frieren_bd_pack_multi_season_with_ranges():
+    report = ti.analyze_torrent_files(_frieren_listing())
+    assert report.scope == "multi_season"
+    assert report.is_batch is True
+    assert report.seasons == [1, 2]
+    # Per-season ranges come free from the same parses — no LLM needed.
+    assert {"season": 1, "episode_start": 1, "episode_end": 28} in report.season_ranges
+    assert {"season": 2, "episode_start": 1, "episode_end": 12} in report.season_ranges
+    # Both season dirs normalize to ONE work cluster (same title).
+    assert len(report.clusters) == 1
+    assert len(report.file_parses) == 40
+    sample = report.file_parses[0]
+    assert sample["season"] == 1 and sample["episode"] == 1
+
+
+def test_extract_path_season_from_dir_and_bare_number_filename():
+    from app.services.resource_parser import extract_season_episode_from_path
+
+    assert extract_season_episode_from_path(
+        "Frieren S01/01 [VOSTFR] [BDRip 1080p].mkv"
+    ) == (1, 1)
+    assert extract_season_episode_from_path("Frieren S02/12.mkv") == (2, 12)
+    # Tech numbers deeper in the name never become episodes.
+    assert extract_season_episode_from_path("BDRip 1080p.mkv") == (None, None)
+    assert extract_season_episode_from_path("Movie 2001.mkv") == (None, None)
+
+
+def test_normalize_fields_subtitle_group_and_bare_resolution_fallbacks():
+    from app.services.resource_parser import normalize_parsed_fields
+
+    out = normalize_parsed_fields(
+        "[Xspitfire911] 葬送的芙莉莲/Sousou No Frieren S01 + S02 BDRIP 1080p X265 10bit VOSTFR",
+        {},
+    )
+    assert out["subtitle_group"] == "Xspitfire911"
+    assert out["resolution"] == "1080p"
+    assert out["source"] == "BDRip" or out["source"] == "BDRIP"
+    # Tech values preserve the casing found in the title ("X265").
+    assert (out["video_codec"] or "").lower() == "x265"
+    # Pure-number leading brackets are years, not groups.
+    year_out = normalize_parsed_fields("[2020] Some Movie.mkv", {})
+    assert year_out.get("subtitle_group") != "2020"
+
+
+def test_apply_auto_assignments_and_season_ranges():
+    from types import SimpleNamespace
+
+    import app.services.batch_content_analysis as bca
+
+    class FakeCollection(list):
+        pass
+
+    resource = SimpleNamespace(
+        id="r1", file_assignments=FakeCollection(), season_ranges=None,
+        batch_scope=None,
+    )
+    report = ti.analyze_torrent_files(_frieren_listing())
+    bca.apply_auto_assignments(resource, report)
+
+    assignments = list(resource.file_assignments)
+    assert len(assignments) == 40
+    first = assignments[0]
+    assert first.file_path.startswith("Frieren S01/")
+    assert first.season == 1 and first.episode_start == 1
+    assert first.source == "auto"
+    assert first.work_title_hint == "Frieren"
+
+    ranges = bca.compute_season_ranges(resource)
+    assert {"season": 1, "episode_start": 1, "episode_end": 28} in ranges
+    assert {"season": 2, "episode_start": 1, "episode_end": 12} in ranges

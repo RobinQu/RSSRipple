@@ -57,6 +57,11 @@ class FileResourceResponse(BaseModel):
     # franchise-pack collection link.
     batch_scope: str | None = None
     collection_id: str | None = None
+    # Seasons covered by a multi_season/franchise pack (JSON int list).
+    batch_seasons: list[int] | None = None
+    # Per-season episode ranges of a batch resource
+    # ([{season, episode_start, episode_end}, ...]).
+    season_ranges: list[dict] | None = None
     series: Any | None = None
     movie: Any | None = None
     audio_work: Any | None = None
@@ -79,6 +84,82 @@ class FileResourceResponse(BaseModel):
         if self.collection is not None:
             self.collection_name = self.collection.title_cn or self.collection.title_en
         return self
+
+
+class ResourceWorkLinkItem(BaseModel):
+    """One work association of a (batch) resource.
+
+    ``work_title`` is resolved server-side from the excluded ``series`` /
+    ``movie`` inputs — callers must selectinload both relationships.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    series_id: str | None = None
+    movie_id: str | None = None
+    source: str = "auto"
+    series: Any | None = Field(default=None, exclude=True)
+    movie: Any | None = Field(default=None, exclude=True)
+    work_title: str | None = None
+    poster_url: str | None = None
+
+    @model_validator(mode="after")
+    def _fill_work_display(self) -> "ResourceWorkLinkItem":
+        entity = (
+            self.series if self.series_id
+            else self.movie if self.movie_id
+            else None
+        )
+        if entity is not None:
+            self.work_title = (
+                entity.original_title or entity.title_cn or entity.title_en
+            )
+            self.poster_url = entity.poster_url
+        return self
+
+
+class ResourceFileAssignmentItem(BaseModel):
+    """Per-file mapping of a batch resource: torrent file → work/season/run."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    file_path: str
+    file_size: int | None = None
+    series_id: str | None = None
+    movie_id: str | None = None
+    work_title_hint: str | None = None
+    season: int | None = None
+    episode_start: int | None = None
+    episode_end: int | None = None
+    source: str = "auto"
+    series: Any | None = Field(default=None, exclude=True)
+    movie: Any | None = Field(default=None, exclude=True)
+    work_title: str | None = None
+
+    @model_validator(mode="after")
+    def _fill_work_title(self) -> "ResourceFileAssignmentItem":
+        entity = (
+            self.series if self.series_id
+            else self.movie if self.movie_id
+            else None
+        )
+        if entity is not None:
+            self.work_title = (
+                entity.original_title or entity.title_cn or entity.title_en
+            )
+        return self
+
+
+class FileResourceDetailResponse(FileResourceResponse):
+    """Detail payload (GET / PATCH / PUT on a single resource) that carries
+    the batch enrichment tables. List endpoints use the lean base schema —
+    these relationships must be selectinloaded before validating this model
+    or lazy access under the async session raises MissingGreenlet."""
+
+    work_links: list[ResourceWorkLinkItem] = []
+    file_assignments: list[ResourceFileAssignmentItem] = []
 
 
 class GroupedResource(BaseModel):
@@ -164,7 +245,77 @@ class ResourceParseCorrectionRequest(BaseModel):
     episode_start: int | None = None
     episode_end: int | None = None
     is_batch: bool | None = None
-    batch_scope: Literal["season", "multi_season", "franchise"] | None = None
+    batch_scope: Literal["season", "multi_season", "franchise", "movies"] | None = None
+    # Generic media-descriptor corrections (wizard step 3). Only explicitly
+    # sent keys are applied; these never touch ``episode_confidence``.
+    resolution: str | None = None
+    subtitle_group: str | None = None
+    source: str | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    subtitle_type: str | None = None
+    container: str | None = None
+    subtitle_langs: list[str] | None = None
+
+
+class AssociationWorkRef(BaseModel):
+    """One work of a resource's association set (PUT /resources/{id}/associations)."""
+
+    work_type: Literal["series", "movie"]
+    work_id: str
+
+
+class AssociationFileAssignment(BaseModel):
+    """One file→work placement inside the association update payload."""
+
+    file_path: str
+    work_type: Literal["series", "movie"]
+    work_id: str
+    file_size: int | None = None
+    season: int | None = None
+    episode_start: int | None = None
+    episode_end: int | None = None
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "AssociationFileAssignment":
+        if (
+            self.episode_start is not None
+            and self.episode_end is not None
+            and self.episode_start > self.episode_end
+        ):
+            raise ValueError("episode_start must be <= episode_end")
+        return self
+
+
+class ResourceAssociationUpdateRequest(BaseModel):
+    """Payload for PUT /resources/{id}/associations — the edit wizard's full
+    desired state, replacing the resource's association set atomically.
+
+    Invariants enforced server-side (see resources.apply_association_update):
+
+    - ``is_batch=False``: at most one work — written to the legacy mutually
+      exclusive FK; links / assignments / collection are cleared.
+    - ``is_batch=True`` with exactly one TV work: that work also lands in the
+      legacy FK so the agent dedup coverage key keeps working.
+    - ``is_batch=True`` with 2+ works or any movie pack: legacy work FKs are
+      cleared and only the link table carries associations.
+    - ``batch_scope`` may be omitted — it is derived from the works set:
+      all-movie → "movies"; mixed tv+movie or multi-tv → "franchise";
+      single tv → "season" when a season is known else "multi_season".
+    - Every assignment's (work_type, work_id) must appear in ``works``.
+    """
+
+    is_batch: bool
+    works: list[AssociationWorkRef] = []
+    collection_id: str | None = None
+    assignments: list[AssociationFileAssignment] = []
+    # Single-episode fields for the non-batch branch (applied only when
+    # ``is_batch=False`` and explicitly sent; marks episode_confidence manual).
+    season: int | None = None
+    episode: int | None = None
+    absolute_episode: int | None = None
+    # Generic media-descriptor corrections applied in the same transaction.
+    fields: dict[str, Any] | None = None
 
 
 class ResourceFileEntry(BaseModel):

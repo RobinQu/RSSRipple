@@ -507,6 +507,8 @@ _EPISODE_TAIL_RE = re.compile(r"\s*-\s*\d+\b.*$")
 _TRAILING_TECH_RE = re.compile(r"\s*[\[【(（].*$")
 
 _RESOLUTION_WXH_RE = re.compile(r"\b(\d{3,4})\s*[x×]\s*(\d{3,4})\b", re.IGNORECASE)
+# Bare "1080p" / "1080P" form (the WXH regex only covers 1920x1080 shapes).
+_RESOLUTION_BARE_P_RE = re.compile(r"\b(360|480|540|720|1080|1440|2160)\s*[pP]\b")
 _RESOLUTION_BY_HEIGHT = {
     360: "360p", 480: "480p", 540: "540p", 720: "720p",
     1080: "1080p", 1440: "1440p", 2160: "2160p",
@@ -616,6 +618,14 @@ def extract_episode_fallback(title_raw: str) -> tuple[int | None, int | None]:
 _PATH_SPLIT_RE = re.compile(r"[/\\]+")
 _DASH_EPISODE_RE = re.compile(r"\s-\s(\d{1,3})(?:v\d+)?(?=[\s.\[\(（【]|$)")
 _KANJI_EPISODE_RE = re.compile(r"第\s*(\d{1,3})\s*[话話集]")
+# Bare leading number in the FILENAME ("BD-folder convention": "S01/01 Title.mkv").
+# Anchored at the name start so stray tech numbers deeper in the name
+# ("... BDRip 1080p.mkv") never match; the trailing guard rejects resolution
+# tokens ("1080p") and longer digit runs (dates).
+_FILENAME_LEADING_EP_RE = re.compile(
+    r"^(?:\s*\[[^\]]*\])*\s*(?:EP|E)?(\d{1,3})(?:v\d+)?(?=\s|\.|\[|$)",
+    re.IGNORECASE,
+)
 
 
 def _season_marker(text: str) -> int | None:
@@ -639,8 +649,10 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
     ANY component — directory or filename. Episode numbers are only trusted
     from the filename component: directory names frequently carry batch
     ranges (``01-12``) that would otherwise be misread as episode 12.
-    ``SxxEyy`` is recognized anywhere and yields both values. Either side of
-    the returned pair may be None; both are None when nothing matches.
+    ``SxxEyy`` is recognized anywhere and yields both values. The filename
+    episode forms cover ``[NN]``, ``- NN``, ``第N话`` and the BD-folder bare
+    leading number (``S01/01 Title.mkv``). Either side of the returned pair
+    may be None; both are None when nothing matches.
     """
     if not path:
         return None, None
@@ -671,6 +683,12 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
             episode = int(m.group(1))
     if episode is None:
         m = _KANJI_EPISODE_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
+    if episode is None:
+        # BD-folder convention: the season lives on the directory and the
+        # filename is a bare number ("Frieren S01/01 [VOSTFR] ....mkv").
+        m = _FILENAME_LEADING_EP_RE.match(filename)
         if m:
             episode = int(m.group(1))
     return season, episode
@@ -738,6 +756,10 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
         m = _RESOLUTION_WXH_RE.search(title_raw)
         if m:
             out["resolution"] = _RESOLUTION_BY_HEIGHT.get(int(m.group(2)))
+        else:
+            m = _RESOLUTION_BARE_P_RE.search(title_raw)
+            if m:
+                out["resolution"] = f"{m.group(1)}p"
     if not out.get("source"):
         m = _SOURCE_TOKEN_RE.search(title_raw)
         if m:
@@ -754,6 +776,17 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
         m = _CONTAINER_RE.search(title_raw)
         if m:
             out["container"] = m.group(1)
+
+    # Fansub group fallback: a leading "[Group]" bracket is the near-universal
+    # release convention, but the per-channel regexes only cover it when the
+    # channel author mapped subtitle_group explicitly.
+    if not out.get("subtitle_group"):
+        m = re.match(r"^\s*\[([^\]]+)\]", title_raw)
+        if m:
+            candidate = m.group(1).strip()
+            # Pure-number brackets are years/tags, not group names.
+            if candidate and not candidate.isdigit():
+                out["subtitle_group"] = candidate
 
     # Episode/season fallbacks (bracket "[03]", SxxExx, "Season 3", 第N季) —
     # the per-channel episode regexes typically only cover the "- NN" form.

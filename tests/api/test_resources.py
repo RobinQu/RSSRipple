@@ -800,3 +800,459 @@ class TestParseCorrection:
     async def test_404(self, client):
         res = await client.patch("/api/v1/resources/nope", json={"episode": 5})
         assert res.status_code == 404
+
+
+class TestParseCorrectionGenericFields:
+    """PATCH /resources/{id} also accepts generic media-descriptor fields
+    (wizard step 3); they never touch episode_confidence."""
+
+    async def test_generic_fields_applied(self, client, sample_channel, db_session_factory):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"resolution": "720p", "subtitle_langs": ["zh-CN"], "source": "WEB-DL"},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["resolution"] == "720p"
+        assert body["subtitle_langs"] == ["zh-CN"]
+        assert body["source"] == "WEB-DL"
+
+    async def test_generic_fields_do_not_mark_manual(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, episode_confidence="raw",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"resolution": "720p"},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["episode_confidence"] == "raw"
+
+
+class TestResourceAssociations:
+    """PUT /resources/{id}/associations — the edit wizard's write path."""
+
+    async def _make_series(self, db_session_factory, title="剧"):
+        from app.models.series import TVSeries
+
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn=title, title_en="Show", content_type="tv"))
+            await s.commit()
+        return sid
+
+    async def _make_movie(self, db_session_factory, title="影"):
+        from app.models.movie import Movie
+
+        mid = _uuid()
+        async with db_session_factory() as s:
+            s.add(Movie(id=mid, title_cn=title, title_en="Movie", content_type="movie"))
+            await s.commit()
+        return mid
+
+    async def test_non_batch_single_work_writes_fk_and_clears_enrichment(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.work_collection import WorkCollection
+
+        sid = await self._make_series(db_session_factory)
+        coll_id = _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(
+                id=coll_id, title_cn="作品集", external_source="franchise_pack",
+            ))
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            is_batch=True, batch_scope="franchise", collection_id=coll_id,
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": [{"work_type": "series", "work_id": sid}]},
+        )
+        assert res.status_code == 200, res.text[:500]
+        body = res.json()["data"]
+        assert body["is_batch"] is False
+        assert body["batch_scope"] is None
+        assert body["series_id"] == sid
+        assert body["collection_id"] is None
+        assert body["work_links"] == []
+        assert body["file_assignments"] == []
+
+    async def test_non_batch_two_works_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        mid = await self._make_movie(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": [
+                {"work_type": "series", "work_id": sid},
+                {"work_type": "movie", "work_id": mid},
+            ]},
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_unknown_work_rejected(self, client, sample_channel, db_session_factory):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": [
+                {"work_type": "series", "work_id": "missing"},
+            ]},
+        )
+        assert res.status_code == 422
+
+    async def test_single_tv_season_pack_derives_season_and_mirrors_fk(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id, season=None)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [
+                    {
+                        "file_path": f"Show.S01E0{n}.mkv",
+                        "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": n, "episode_end": n,
+                    }
+                    for n in (1, 2, 3)
+                ],
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        body = res.json()["data"]
+        assert body["is_batch"] is True
+        assert body["batch_scope"] == "season"
+        # Single work mirrors into the legacy FK (dedup coverage key reads it).
+        assert body["series_id"] == sid
+        assert len(body["work_links"]) == 1
+        assert body["work_links"][0]["series_id"] == sid
+        assert len(body["file_assignments"]) == 3
+        assert all(a["season"] == 1 for a in body["file_assignments"])
+        assert body["season_ranges"] == [{"season": 1, "episode_start": 1, "episode_end": 3}]
+
+    async def test_multi_season_evidence_derives_multi_season(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [
+                    {
+                        "file_path": "S01E01.mkv",
+                        "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": 1, "episode_end": 1,
+                    },
+                    {
+                        "file_path": "S02E01.mkv",
+                        "work_type": "series", "work_id": sid,
+                        "season": 2, "episode_start": 1, "episode_end": 1,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["batch_scope"] == "multi_season"
+        assert body["batch_seasons"] == [1, 2]
+        assert len(body["season_ranges"]) == 2
+
+    async def test_mixed_works_derive_franchise_and_clear_fks(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        mid = await self._make_movie(db_session_factory)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, series_id=sid,
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [
+                    {"work_type": "series", "work_id": sid},
+                    {"work_type": "movie", "work_id": mid},
+                ],
+                "assignments": [
+                    {
+                        "file_path": "TV/S01E01.mkv",
+                        "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": 1, "episode_end": 1,
+                    },
+                    {
+                        "file_path": "Movie.mkv",
+                        "work_type": "movie", "work_id": mid,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["batch_scope"] == "franchise"
+        assert body["series_id"] is None
+        assert body["movie_id"] is None
+        assert {link["source"] for link in body["work_links"]} == {"manual"}
+
+    async def test_all_movies_derive_movies_scope(
+        self, client, sample_channel, db_session_factory,
+    ):
+        m1 = await self._make_movie(db_session_factory, title="影1")
+        m2 = await self._make_movie(db_session_factory, title="影2")
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [
+                    {"work_type": "movie", "work_id": m1},
+                    {"work_type": "movie", "work_id": m2},
+                ],
+                "assignments": [
+                    {"file_path": "A.mkv", "work_type": "movie", "work_id": m1},
+                    {"file_path": "B.mkv", "work_type": "movie", "work_id": m2},
+                ],
+            },
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["batch_scope"] == "movies"
+
+    async def test_overlap_rejected_with_422(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [
+                    {
+                        "file_path": "A.mkv", "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": 1, "episode_end": 5,
+                    },
+                    {
+                        "file_path": "B.mkv", "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": 5, "episode_end": 8,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 422
+        assert "重叠" in res.json()["error"]["message"]
+
+    async def test_gap_returns_warning_not_error(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [
+                    {
+                        "file_path": "A.mkv", "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": 1, "episode_end": 2,
+                    },
+                    {
+                        "file_path": "B.mkv", "work_type": "series", "work_id": sid,
+                        "season": 1, "episode_start": 5, "episode_end": 6,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert any("断档" in w for w in body["warnings"])
+
+    async def test_tv_assignment_without_season_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [
+                    {"file_path": "A.mkv", "work_type": "series", "work_id": sid},
+                ],
+            },
+        )
+        assert res.status_code == 422
+        assert "季" in res.json()["error"]["message"]
+
+    async def test_assignment_outside_works_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        other = await self._make_series(db_session_factory, title="别的")
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "works": [{"work_type": "series", "work_id": sid}],
+                "assignments": [
+                    {
+                        "file_path": "A.mkv", "work_type": "series", "work_id": other,
+                        "season": 1, "episode_start": 1, "episode_end": 1,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 422
+
+    async def test_unknown_collection_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": "missing-coll",
+            },
+        )
+        assert res.status_code == 422
+
+    async def test_fields_applied_in_same_call(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": False,
+                "fields": {"resolution": "2160p", "container": "mkv"},
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["resolution"] == "2160p"
+        assert body["container"] == "mkv"
+
+
+class TestAnalyzeBatch:
+    """POST /resources/{id}/analyze-batch — non-persistent LLM suggestions."""
+
+    async def test_no_listing_returns_null_suggestion(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.post(f"/api/v1/resources/{rid}/analyze-batch")
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["suggestion"] is None
+        assert body["listing_source"] == "none"
+
+    async def test_suggestion_returned_without_persistence(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+
+        async with db_session_factory() as s:
+            from app.models.file_resource import FileResource
+
+            row = await s.get(FileResource, rid)
+            cache = row.torrent_file  # None — patch the resolver instead
+        assert cache is None
+
+        async def fake_resolve(db, resource):
+            return (
+                [
+                    {"name": "作品A TV/作品A S01E01.mkv", "size": 500 * 1024 * 1024},
+                    {"name": "作品B 剧场版/电影.mkv", "size": 4 * 1024 * 1024 * 1024},
+                ],
+                "torrent_cache",
+            )
+
+        monkeypatch.setattr(
+            "app.api.v1.resources._resolve_resource_files", fake_resolve,
+        )
+        monkeypatch.setattr(
+            "app.services.batch_content_analysis.analyze_listing",
+            AsyncMock(return_value={
+                "scope": "mixed",
+                "works": [
+                    {
+                        "title": "作品A",
+                        "content_type": "tv",
+                        "files": [{
+                            "path": "作品A TV/作品A S01E01.mkv",
+                            "season": 1, "episode_start": 1, "episode_end": 1,
+                        }],
+                    },
+                    {
+                        "title": "作品B 剧场版",
+                        "content_type": "movie",
+                        "files": [{"path": "作品B 剧场版/电影.mkv"}],
+                    },
+                ],
+            }),
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/analyze-batch")
+        assert res.status_code == 200, res.text[:500]
+        data = res.json()["data"]
+        sug = data["suggestion"]
+        assert sug is not None
+        # Deterministic layer always present (no LLM needed).
+        det = sug["deterministic"]
+        assert len(det["files"]) == 2
+        assert det["files"][0]["season"] == 1 and det["files"][0]["episode"] == 1
+        assert data["listing_source"] == "torrent_cache"
+        # LLM works block rides along when the analyzer produced one.
+        assert len(sug["works"]) == 2
+        # Nothing persisted.
+        async with db_session_factory() as s:
+            from app.models.resource_file_assignment import ResourceFileAssignment
+
+            rows = (await s.execute(
+                __import__("sqlalchemy").select(ResourceFileAssignment)
+                .where(ResourceFileAssignment.resource_id == rid)
+            )).scalars().all()
+        assert rows == []
+
+    async def test_404(self, client):
+        res = await client.post("/api/v1/resources/nope/analyze-batch")
+        assert res.status_code == 404
+
+
+class TestAssociationAudioPreservation:
+    """A media-fields-only save (works=[]) must not unlink an AudioWork."""
+
+    async def test_empty_works_preserves_audio_link(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.audio_work import AudioWork
+
+        aid = _uuid()
+        async with db_session_factory() as s:
+            s.add(AudioWork(id=aid, title_cn="ASMR"))
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, audio_work_id=aid,
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": [], "fields": {"resolution": "1080p"}},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["audio_work_id"] == aid
+        assert body["resolution"] == "1080p"

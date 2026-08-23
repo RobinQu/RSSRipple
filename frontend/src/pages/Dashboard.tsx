@@ -1083,7 +1083,7 @@ export default function Dashboard() {
       />
 
       <ResourceCorrectionModal
-        resource={correctionResource}
+        resourceId={correctionResource?.id ?? null}
         open={!!correctionResource}
         onClose={() => setCorrectionResource(null)}
         onSaved={() => {
