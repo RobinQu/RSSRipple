@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import useUrlTab from '../hooks/useUrlTab';
-import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye, ListTree } from 'lucide-react';
+import { Bot, AlertTriangle, CheckCircle, Download, Rss, Check, Play, XCircle, Eye, ListTree, PencilLine } from 'lucide-react';
 import {
   Typography,
   Row,
@@ -626,7 +626,12 @@ export default function Dashboard() {
                               >
                                 {t('resource.files')}
                               </Button>
-                              <Button type="link" size="small" onClick={() => setCorrectionResource(r)}>
+                              <Button
+                                type="link"
+                                size="small"
+                                icon={<PencilLine size={14} />}
+                                onClick={() => setCorrectionResource(r)}
+                              >
                                 {t('resource.fullCorrection')}
                               </Button>
                             </div>
