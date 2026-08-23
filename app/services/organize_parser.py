@@ -13,7 +13,16 @@ from enum import StrEnum
 from pathlib import Path
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".wmv", ".mov", ".flv", ".webm"}
-SUBTITLE_EXTS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
+SUBTITLE_EXTS = {
+    ".srt", ".smi", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup",
+}
+# Blu-ray remux/transcode releases often ship lossless or compatibility audio
+# tracks beside the main MKV.  Plex does not attach sidecar audio to a movie,
+# but the organizer still needs to recognise and preserve those source assets.
+AUDIO_EXTS = {
+    ".aac", ".ac3", ".dts", ".dtshd", ".eac3", ".ec3", ".flac", ".m4a",
+    ".mka", ".mp3", ".ogg", ".opus", ".thd", ".truehd", ".wav",
+}
 
 
 class FileKind(StrEnum):
@@ -30,6 +39,11 @@ def classify(name: str) -> FileKind:
     if ext in SUBTITLE_EXTS:
         return FileKind.SUBTITLE
     return FileKind.OTHER
+
+
+def is_audio(name: str) -> bool:
+    """Return whether *name* is a commonly distributed sidecar audio track."""
+    return Path(name).suffix.lower() in AUDIO_EXTS
 
 
 _SXXEXX = re.compile(r"[Ss](\d{1,2})[Ee](\d{1,4})")
@@ -99,7 +113,22 @@ _LANG_TOKENS: dict[str, str] = {
     "ja": "ja",
     "日": "ja",
     "eng": "en",
+    "english": "en",
     "en": "en",
+    "fre": "fr",
+    "fra": "fr",
+    "french": "fr",
+    "fr": "fr",
+    "ger": "de",
+    "deu": "de",
+    "german": "de",
+    "de": "de",
+    "ita": "it",
+    "italian": "it",
+    "it": "it",
+    "spa": "es",
+    "spanish": "es",
+    "es": "es",
 }
 
 
@@ -113,3 +142,20 @@ def detect_subtitle_lang(name: str) -> str | None:
         elif token in stem:
             return _LANG_TOKENS[token]
     return None
+
+
+def detect_subtitle_flags(name: str) -> tuple[str, ...]:
+    """Return Plex-supported subtitle flags present in a sidecar filename."""
+    tokens = {
+        token.casefold()
+        for token in re.split(r"[^a-zA-Z0-9]+", Path(name).stem)
+        if token
+    }
+    flags: list[str] = []
+    if "forced" in tokens or "force" in tokens:
+        flags.append("forced")
+    if "sdh" in tokens:
+        flags.append("sdh")
+    elif "cc" in tokens:
+        flags.append("cc")
+    return tuple(flags)

@@ -554,48 +554,67 @@ a:hover {
 
 /* Responsive: stack everything vertically on smaller screens */
 .pending-resource-confirmation {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(520px, 1.4fr);
+  padding: 2px 0;
+}
+
+.pending-resource-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 16px;
-  align-items: stretch;
-  padding: 12px;
-  border: 1px solid var(--rr-border-soft);
-  border-radius: 8px;
-  background: var(--rr-surface-elevated);
 }
 
 .pending-resource-summary {
   min-width: 0;
-  padding: 4px 0;
+  flex: 1;
+}
+
+.pending-resource-work-line,
+.pending-resource-meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.pending-resource-meta {
+  margin-top: 3px;
+  color: var(--rr-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pending-resource-tags {
+  margin-top: 6px;
+  color: var(--rr-text-muted);
+  font-size: 11px;
 }
 
 .pending-resource-inspect {
   display: flex;
+  flex: 0 0 auto;
   gap: 4px;
-  margin-top: 8px;
-}
-
-.pending-resource-inspect .ant-btn:first-child {
-  padding-left: 0;
 }
 
 .pending-resource-quick-form {
-  padding: 10px 12px;
-  border-left: 3px solid var(--rr-primary);
-  border-radius: 6px;
-  background: var(--rr-primary-soft);
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rr-border-soft);
 }
 
 .pending-resource-quick-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-bottom: 8px;
+  flex: 0 0 auto;
+  padding-bottom: 5px;
 }
 
 .pending-resource-fields {
   display: flex;
+  flex: 1;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -619,8 +638,18 @@ a:hover {
 }
 
 @media (max-width: 1000px) {
-  .pending-resource-confirmation {
-    grid-template-columns: 1fr;
+  .pending-resource-header,
+  .pending-resource-quick-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pending-resource-inspect {
+    align-self: flex-start;
+  }
+
+  .pending-resource-fields {
+    justify-content: flex-start;
   }
 }
 

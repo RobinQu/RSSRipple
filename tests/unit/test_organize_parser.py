@@ -5,7 +5,9 @@ from __future__ import annotations
 from app.services.organize_parser import (
     FileKind,
     classify,
+    detect_subtitle_flags,
     detect_subtitle_lang,
+    is_audio,
     parse_episode,
     parse_season_from_path,
 )
@@ -19,6 +21,13 @@ class TestClassify:
     def test_subtitle(self):
         assert classify("Show.S01E04.chs.ass") == FileKind.SUBTITLE
         assert classify("movie.srt") == FileKind.SUBTITLE
+        assert classify("movie.PGS.sup") == FileKind.SUBTITLE
+        assert classify("movie.idx") == FileKind.SUBTITLE
+
+    def test_audio_sidecar(self):
+        assert is_audio("track.truehd")
+        assert is_audio("commentary.MKA")
+        assert not is_audio("movie.mkv")
 
     def test_other(self):
         assert classify("info.nfo") == FileKind.OTHER
@@ -79,6 +88,10 @@ class TestDetectSubtitleLang:
         assert detect_subtitle_lang("Show.S01E04.繁體.srt") == "zh-TW"
         assert detect_subtitle_lang("Show.S01E04.jpn.srt") == "ja"
         assert detect_subtitle_lang("Show.S01E04.eng.srt") == "en"
+        assert detect_subtitle_lang("Movie UHD BluRay French Forced.sup") == "fr"
+        assert detect_subtitle_lang("Movie UHD BluRay German Forced.sup") == "de"
+        assert detect_subtitle_lang("Movie UHD BluRay Italian Forced.sup") == "it"
+        assert detect_subtitle_lang("Movie UHD BluRay Spanish Forced.sup") == "es"
 
     def test_word_boundary(self):
         # "en" 是 "Title" 的一部分，不应命中
@@ -86,3 +99,10 @@ class TestDetectSubtitleLang:
 
     def test_unknown(self):
         assert detect_subtitle_lang("Show.S01E04.srt") is None
+
+
+class TestDetectSubtitleFlags:
+    def test_plex_flags(self):
+        assert detect_subtitle_flags("movie.eng.forced.sup") == ("forced",)
+        assert detect_subtitle_flags("movie.en.SDH.srt") == ("sdh",)
+        assert detect_subtitle_flags("movie.en.cc.ass") == ("cc",)

@@ -635,6 +635,27 @@ class TestFranchiseBatch:
 
 
 class TestMovie:
+    def test_bluray_sidecars_are_preserved_for_plex_movie(self):
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        files = [
+            DiskFile("/d/disc/movie.mkv", 8000, "disc/movie.mkv"),
+            DiskFile("/d/disc/subs/track.eng.forced.sup", 20, "disc/subs/track.eng.forced.sup"),
+            DiskFile("/d/disc/subs/track.jpn.idx", 2, "disc/subs/track.jpn.idx"),
+            DiskFile("/d/disc/subs/track.jpn.sub", 30, "disc/subs/track.jpn.sub"),
+            DiskFile("/d/disc/audio/commentary.dts", 500, "disc/audio/commentary.dts"),
+            DiskFile("/d/disc/audio/original.truehd", 1000, "disc/audio/original.truehd"),
+        ]
+        result = build_plan(HAMNET_PAYLOAD, files, [rule], [lib])
+        by_src = {op.src: op for op in result.ops}
+        base = "/data/movies/Horror/哈姆奈特 (2025)/哈姆奈特 (2025)"
+        assert by_src["/d/disc/subs/track.eng.forced.sup"].dst == f"{base}.en.forced.sup"
+        assert by_src["/d/disc/subs/track.jpn.idx"].dst == f"{base}.ja.idx"
+        assert by_src["/d/disc/subs/track.jpn.sub"].dst == f"{base}.ja.sub"
+        movie_dir = "/data/movies/Horror/哈姆奈特 (2025)/Audio Tracks"
+        assert by_src["/d/disc/audio/commentary.dts"].dst == f"{movie_dir}/disc/audio/commentary.dts"
+        assert by_src["/d/disc/audio/original.truehd"].dst == f"{movie_dir}/disc/audio/original.truehd"
+
     def test_category_dir_from_rule(self):
         lib = _library("lib-movies", "/data/movies", kind="movie")
         rule = _rule(

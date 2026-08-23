@@ -570,7 +570,7 @@ startup:
                             # 年份守卫约束，外部 id 相等不受）
 ```
 
-任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
+任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须在 `BLPOP` 前取得并发槽位，未获得执行能力的 job 保留在 Redis 持久 backlog 中，禁止无界预取到进程内等待（否则慢 metadata job 会隐藏/饿死周期任务且重启丢失预取项）；`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
 
 ### 下载状态同步
 

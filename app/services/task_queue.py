@@ -36,6 +36,15 @@ _ACTIVE_PFX = "rssripple:active:"
 _TICK_PFX = "rssripple:tick:"
 _JOB_PFX = "rssripple:job:"
 
+# Operational reconciliation ticks must not sit behind a large backlog of
+# slow metadata/LLM work. They are short, idempotent jobs whose freshness is
+# user-visible (download progress, completion, notifications, connectivity).
+_PRIORITY_JOB_TYPES = {
+    "sync_progress",
+    "download_notifications",
+    "check_downloaders",
+}
+
 
 # ---------------------------------------------------------------------------
 # Status constants
@@ -280,6 +289,11 @@ class RedisQueue(BaseQueue):
         self._ttl = ttl
         self._sem: asyncio.Semaphore | None = None
         self._worker: asyncio.Task | None = None
+        # Strong references to in-flight jobs. More importantly, the worker
+        # acquires a slot *before* BLPOP so Redis remains the durable backlog;
+        # jobs must never be prefetched into unbounded local tasks while all
+        # execution slots are occupied by slow handlers.
+        self._run_tasks: set[asyncio.Task] = set()
 
     async def start(self, consume: bool = True) -> None:
         if self._redis is None:
@@ -300,6 +314,11 @@ class RedisQueue(BaseQueue):
                 await self._worker
             except asyncio.CancelledError:
                 pass
+        for task in self._run_tasks:
+            task.cancel()
+        if self._run_tasks:
+            await asyncio.gather(*self._run_tasks, return_exceptions=True)
+        self._run_tasks.clear()
         if self._redis is not None:
             await self._redis.aclose()
         logger.info("RedisQueue stopped")
@@ -337,7 +356,10 @@ class RedisQueue(BaseQueue):
         await self._redis.expire(redis_key, self._ttl)
 
         msg = json.dumps({"job_id": job_id, "job_type": job_type, "key": key, "payload": payload})
-        await self._redis.rpush(_QUEUE_LIST, msg)
+        if job_type in _PRIORITY_JOB_TYPES:
+            await self._redis.lpush(_QUEUE_LIST, msg)
+        else:
+            await self._redis.rpush(_QUEUE_LIST, msg)
         logger.info("Enqueued %s/%s (job=%s) → Redis", job_type, key[:16], job_id)
         return self._deserialize(job_hash)
 
@@ -358,15 +380,32 @@ class RedisQueue(BaseQueue):
 
     async def _worker_loop(self) -> None:
         while True:
+            slot_acquired = False
             try:
+                # Reserve execution capacity before removing a durable job
+                # from Redis. The old order BLPOP'ed the entire backlog and
+                # created local tasks waiting on the semaphore, starving
+                # periodic sync jobs and losing prefetched jobs on restart.
+                await self._sem.acquire()
+                slot_acquired = True
                 item = await self._redis.blpop(_QUEUE_LIST, timeout=1)
                 if item is None:
+                    self._sem.release()
+                    slot_acquired = False
                     continue
                 _, raw = item
-                asyncio.create_task(self._run(json.loads(raw)))
+                task = asyncio.create_task(self._run(json.loads(raw)))
+                self._run_tasks.add(task)
+                task.add_done_callback(self._run_tasks.discard)
+                # _run owns the reserved slot from here.
+                slot_acquired = False
             except asyncio.CancelledError:
+                if slot_acquired:
+                    self._sem.release()
                 break
             except Exception as exc:
+                if slot_acquired:
+                    self._sem.release()
                 logger.error("RedisQueue worker error: %s", exc)
 
     async def _run(self, msg: dict) -> None:
@@ -376,21 +415,21 @@ class RedisQueue(BaseQueue):
         redis_key = f"{_JOB_PFX}{key}"
         active_key = f"{_ACTIVE_PFX}{key}"
 
-        handler = self._handlers.get(job_type)
-        if handler is None:
-            logger.warning("No handler for job_type=%s — failing job", job_type)
-            async with self._redis.pipeline(transaction=True) as pipe:
-                pipe.hset(redis_key, mapping={
-                    "status": JobStatus.FAILED,
-                    "error": f"No handler registered for job_type={job_type!r}",
-                    "finished_at": utcnow().isoformat(),
-                })
-                pipe.delete(active_key)
-                pipe.expire(redis_key, self._ttl)
-                await pipe.execute()
-            return
+        try:
+            handler = self._handlers.get(job_type)
+            if handler is None:
+                logger.warning("No handler for job_type=%s — failing job", job_type)
+                async with self._redis.pipeline(transaction=True) as pipe:
+                    pipe.hset(redis_key, mapping={
+                        "status": JobStatus.FAILED,
+                        "error": f"No handler registered for job_type={job_type!r}",
+                        "finished_at": utcnow().isoformat(),
+                    })
+                    pipe.delete(active_key)
+                    pipe.expire(redis_key, self._ttl)
+                    await pipe.execute()
+                return
 
-        async with self._sem:
             await self._redis.hset(redis_key, mapping={
                 "status": JobStatus.RUNNING,
                 "started_at": utcnow().isoformat(),
@@ -406,6 +445,12 @@ class RedisQueue(BaseQueue):
                 finish_status = JobStatus.DONE
                 finish_extra = {"result": json.dumps(result) if result is not None else ""}
                 logger.info("Done %s/%s", job_type, key[:16])
+            except asyncio.CancelledError:
+                # stop() cancels in-flight tasks before closing Redis. Record
+                # a terminal state and release the active key so the job can
+                # be safely enqueued again after restart.
+                finish_extra = {"error": "worker shutting down"}
+                logger.info("Cancelled %s/%s during worker shutdown", job_type, key[:16])
             except Exception as exc:
                 finish_extra = {"error": str(exc)}
                 logger.error("Failed %s/%s: %s", job_type, key[:16], exc)
@@ -422,6 +467,8 @@ class RedisQueue(BaseQueue):
                 pipe.delete(active_key)
                 pipe.expire(redis_key, self._ttl)
                 await pipe.execute()
+        finally:
+            self._sem.release()
 
     @staticmethod
     def _deserialize(raw: dict) -> dict:

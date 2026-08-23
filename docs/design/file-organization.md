@@ -237,12 +237,12 @@ class OrganizeAuditEntry(Base):
 - **内置 Plex 兼容预设**（创建规则时可一键填入）：
   - TV：`{title}/Season {season:02d}/{title} - {episode_code}[ - {episode_title}]{ext}`
   - 电影：`{category}/{title} ({year})/{title} ({year}){ext}`
-  - 字幕：正片同主名 + `.{lang}{ext}`，`lang` 经 `library.subtitle_lang_map`（BCP-47 → 语言后缀；未命中查主标签，仍不中取主标签本身）；同集同语言多份字幕第 2 份起追加序号。
+  - 字幕：正片同主名 + `.{lang}[.forced|.sdh|.cc]{ext}`，`lang` 经 `library.subtitle_lang_map`（BCP-47 → Plex 后缀；未命中查主标签，仍不中取主标签本身）；支持 Plex 官方列明的 SRT/SMI/SSA/ASS 以及尽力兼容的 VTT/VobSub (`.idx`+`.sub`)/PGS (`.sup`)，同语言同标记多份字幕第 2 份起追加序号，VobSub 配对文件共享序号。
 - 配套预览 API `POST /organize-rules/preview`（见"API"），与 `/agents/rules-preview` 同构：保存前 dry-run 渲染逐文件 src→dst。
 
 ### 规划（planner 语义）
 
-规划是纯函数：`build_plan(快照, 磁盘文件列表, 解析后的库根)`——**接口不变**，收的是 service 层已解析好的 `root_path`（volume.mount_path + root_subpath），planner 自身不感知卷模型。沿用 vault-organizer 的文件归类语义：主视频 = 最大视频文件，按模板渲染 move；字幕判定语言后同名随正片 move；其余文件 keep。安全不变量：
+规划是纯函数：`build_plan(快照, 磁盘文件列表, 解析后的库根)`——**接口不变**，收的是 service 层已解析好的 `root_path`（volume.mount_path + root_subpath），planner 自身不感知卷模型。沿用 vault-organizer 的文件归类语义：主视频 = 最大视频文件，按模板渲染 move；字幕判定语言与 forced/SDH/CC 标记后同名随正片 move；电影 Blu-ray 转录常见的外置音轨（MKA/AC3/EAC3/DTS/DTSHD/TrueHD/FLAC/AAC/OPUS/WAV 等）因 Plex 无外置电影音轨挂载约定，按原相对路径完整保存至电影目录 `Audio Tracks/` 供后续 remux，避免误识别与数据丢失；其余文件 keep。安全不变量：
 
 - **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）先回退 torrent 文件清单（`_resolve_manifest`：torrent 缓存 → torrent_url 拉取 → 下载器 RPC，过滤绝对路径与 `.`/`..` 分量；.torrent 解析的清单相对于种子根，多文件种子补上 `info/name` 根目录分量以匹配 `download_dir/<根目录>/<文件>` 落盘布局）逐项精确匹配，再退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；皆无 → 规划失败。
 - **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx / E09 / EP09 / 第09話 / 裸方括号 `[01]`（含 vN 修订号）→ 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」，缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。期望集的展开顺序：`episode_start/end` 优先 → `work.seasons` 逐季集数 → **本地文件清单推导**（已解析集同季时取 min..max 连续区间，中间缺集仍拒绝——torrent 文件清单本地可缓存，合集范围解析以实际内容为准）→ 皆无才视为无校验依据。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 按文件解析季号分组逐组校验（不回退 `resource.season`——该 scope 下恒为 NULL；期望集展开顺序同单季，显式依据与文件清单区间（≥2 集）皆无的季只记 warning 跳过校验而非整体拒绝，因多季包边界信息不全）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。

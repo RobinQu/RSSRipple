@@ -407,6 +407,67 @@ class TestRedisQueue:
         final = await _wait_done(queue, "rk5")
         assert final["status"] == JobStatus.DONE
 
+    async def test_backlog_stays_in_redis_until_execution_slot_is_free(self, redis_client):
+        """Slow handlers must not prefetch the durable Redis backlog."""
+        queue = RedisQueue(redis_client=redis_client, max_concurrent=1)
+        gate = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow(payload):
+            started.set()
+            await gate.wait()
+
+        queue.register("slow", slow)
+        await queue.start()
+        try:
+            await queue.enqueue("slow", "first", {})
+            await queue.enqueue("slow", "second", {})
+            await asyncio.wait_for(started.wait(), timeout=1)
+            await asyncio.sleep(0.05)
+
+            assert await redis_client.llen("rssripple:jobs") == 1
+            assert (await queue.status("second"))["status"] == JobStatus.QUEUED
+
+            gate.set()
+            assert (await _wait_done(queue, "first"))["status"] == JobStatus.DONE
+            assert (await _wait_done(queue, "second"))["status"] == JobStatus.DONE
+        finally:
+            gate.set()
+            await queue.stop()
+
+    async def test_operational_sync_runs_ahead_of_normal_backlog(self, redis_client):
+        queue = RedisQueue(redis_client=redis_client, max_concurrent=1)
+        gate = asyncio.Event()
+        first_started = asyncio.Event()
+        order: list[str] = []
+
+        async def normal(payload):
+            order.append(payload["name"])
+            if payload["name"] == "first":
+                first_started.set()
+                await gate.wait()
+
+        async def sync(payload):
+            order.append("sync")
+
+        queue.register("normal", normal)
+        queue.register("sync_progress", sync)
+        await queue.start()
+        try:
+            await queue.enqueue("normal", "first-priority-test", {"name": "first"})
+            await asyncio.wait_for(first_started.wait(), timeout=1)
+            await queue.enqueue("normal", "second-priority-test", {"name": "second"})
+            await queue.enqueue("sync_progress", "sync-priority-test", {})
+            gate.set()
+
+            await _wait_done(queue, "first-priority-test")
+            await _wait_done(queue, "sync-priority-test")
+            await _wait_done(queue, "second-priority-test")
+            assert order == ["first", "sync", "second"]
+        finally:
+            gate.set()
+            await queue.stop()
+
     async def test_job_metadata_preserved(self, queue):
         async def handler(payload):
             return payload

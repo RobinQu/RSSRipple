@@ -578,8 +578,10 @@ export default function Dashboard() {
                         key={r.id}
                         style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="pending-resource-confirmation">
+                          <div className="pending-resource-header">
+                            <div className="pending-resource-summary">
+                              <div className="pending-resource-work-line">
                             {r.series_id || r.movie_id ? (
                               <Link to={r.series_id ? `/series/${r.series_id}` : `/movies/${r.movie_id}`}>
                                 <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
@@ -587,7 +589,11 @@ export default function Dashboard() {
                             ) : (
                               <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
                             )}
-                            <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
+                                <Tag color="orange" bordered={false} style={{ margin: 0 }}>
+                                  {t('channels.episodeAmbiguousTag')}
+                                </Tag>
+                              </div>
+                              <div className="pending-resource-meta">
                               {item.channel_name && (
                                 <>
                                   <Link to={`/channels/${r.channel_id}`}>
@@ -597,26 +603,24 @@ export default function Dashboard() {
                                 </>
                               )}
                               {timeAgo(r.created_at)}
-                            </div>
-                            <div style={{ fontSize: 12, color: 'var(--rr-warning)', marginTop: 4 }}>
-                              {t('agents.ambiguousHint')}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="pending-resource-confirmation">
-                          <div className="pending-resource-summary">
-                            <Text ellipsis style={{ fontSize: 13 }}>
-                              {r.title_cn || r.title_raw}
-                            </Text>
-                            {renderRawTitle(r)}
-                            <Space size={6} style={{ fontSize: 11, color: 'var(--rr-text-muted)', marginTop: 2 }} wrap>
+                                {r.title_raw && (
+                                  <>
+                                    {' · '}
+                                    <Text type="secondary" ellipsis={{ tooltip: r.title_raw }} style={{ maxWidth: 520, fontSize: 12 }}>
+                                      {r.title_raw}
+                                    </Text>
+                                  </>
+                                )}
+                              </div>
+                              <Space size={6} className="pending-resource-tags" wrap>
                               {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                               {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                               {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
                               {r.season != null && <span>S{r.season}</span>}
                               {r.episode != null && <span>EP{r.episode}</span>}
                               {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
-                            </Space>
+                              </Space>
+                            </div>
                             <div className="pending-resource-inspect">
                               <Button
                                 type="link"
@@ -639,7 +643,6 @@ export default function Dashboard() {
                           <div className="pending-resource-quick-form">
                             <div className="pending-resource-quick-heading">
                               <Text strong style={{ fontSize: 13 }}>{t('resource.quickEpisodeTitle')}</Text>
-                              <Text type="secondary" style={{ fontSize: 12 }}>{t('resource.quickEpisodeHint')}</Text>
                             </div>
                             <div className="pending-resource-fields">
                               <label>

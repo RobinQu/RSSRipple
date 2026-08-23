@@ -38,13 +38,16 @@ from app.services.filter_engine import evaluate_filter_config
 from app.services.organize_parser import (
     FileKind,
     classify,
+    detect_subtitle_flags,
     detect_subtitle_lang,
+    is_audio,
     parse_season_from_path,
 )
 from app.services.organize_template import (
     TemplateRenderError,
     map_subtitle_lang,
     render_template,
+    sanitize_component,
 )
 from app.services.torrent_inspect import extract_season_episode_from_path
 
@@ -590,7 +593,10 @@ def _subtitle_ops(
     """
     resource = payload.resource
     ops: list[PlanOp] = []
-    lang_count: dict[tuple[str, str], int] = {}
+    # Files sharing a source stem (notably VobSub .idx/.sub pairs) must receive
+    # the same ordinal so they remain a usable pair after renaming.
+    group_number: dict[tuple[str, str, tuple[str, ...], str], int] = {}
+    group_count: dict[tuple[str, str, tuple[str, ...]], int] = {}
     for f in subtitles:
         target = stem_for(f)
         if target is None:
@@ -602,11 +608,19 @@ def _subtitle_ops(
             langs = list(resource.subtitle_langs or []) if resource else []
             lang = langs[0] if len(langs) == 1 else "und"
         mapped = map_subtitle_lang(lang, library.subtitle_lang_map)
-        key = (main_stem_path, mapped)
-        lang_count[key] = lang_count.get(key, 0) + 1
+        flags = detect_subtitle_flags(os.path.basename(f.path))
+        key = (main_stem_path, mapped, flags)
+        source_stem = os.path.splitext(f.rel)[0].casefold()
+        group_key = (*key, source_stem)
+        if group_key not in group_number:
+            group_count[key] = group_count.get(key, 0) + 1
+            group_number[group_key] = group_count[key]
+        number = group_number[group_key]
         suffix = f".{mapped}"
-        if lang_count[key] > 1:
-            suffix += f".{lang_count[key]}"
+        if flags:
+            suffix += "." + ".".join(flags)
+        if number > 1:
+            suffix += f".{number}"
         ops.append(
             PlanOp(
                 op_type="move",
@@ -906,6 +920,8 @@ def _plan_movie(
     category: str | None,
 ) -> list[PlanOp]:
     videos, subtitles, others = _split(disk_files)
+    audio_tracks = [f for f in others if is_audio(os.path.basename(f.path))]
+    others = [f for f in others if not is_audio(os.path.basename(f.path))]
     if not videos:
         raise PlanError("下载目录中未找到视频文件")
     if payload.file_associations is not None:
@@ -925,5 +941,28 @@ def _plan_movie(
         payload, subtitles, library, template, category,
         lambda f: (0, 0, stem),
     )
+    # Plex has no documented sidecar-audio naming convention for movies. Keep
+    # the tracks losslessly in a clearly scoped child directory of the movie;
+    # users can remux them later, while Plex ignores rather than misidentifies
+    # them. Preserve relative subdirectories to avoid basename collisions.
+    movie_dir = os.path.dirname(stem)
+    for f in audio_tracks:
+        raw_parts = [part for part in f.rel.replace("\\", "/").split("/") if part]
+        if any(part in (".", "..") for part in raw_parts):
+            raise PlanError(f"外置音轨包含不安全的相对路径：{f.rel}")
+        try:
+            rel_parts = [sanitize_component(part) for part in raw_parts]
+        except ValueError as exc:
+            raise PlanError(f"外置音轨路径无效：{f.rel}") from exc
+        audio_rel = os.path.join(*rel_parts) if rel_parts else sanitize_component(
+            os.path.basename(f.path)
+        )
+        ops.append(PlanOp(
+            op_type="move",
+            src=f.path,
+            dst=os.path.join(movie_dir, "Audio Tracks", audio_rel),
+            size=f.size,
+            reason="Plex 不直接挂载外置音轨，保留供后续 remux",
+        ))
     ops += [_keep(f, "非媒体文件，原地保留") for f in others]
     return ops
