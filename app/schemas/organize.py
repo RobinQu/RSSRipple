@@ -205,6 +205,7 @@ class OrganizeAuditOut(ORMModel):
 
 
 class OrganizePlanDetail(OrganizePlanListItem):
+    resource_id: str | None = None
     payload: dict[str, Any]
     ops: list[OrganizePlanOpOut] = []
     audit_entries: list[OrganizeAuditOut] = []

@@ -161,6 +161,44 @@ def test_build_payload_without_torrent_info():
     assert payload["task"]["torrent_name"] is None
 
 
+def test_build_payload_freezes_complete_file_associations():
+    assignment = SimpleNamespace(
+        file_path="Frieren.S01E05.mkv", file_size=100,
+        series_id="series-1", movie_id=None, season=1,
+        episode_start=5, episode_end=5, source="manual",
+    )
+    payload = build_payload(
+        "notif-assignment", None,
+        SimpleNamespace(id="t", download_dir="/d"),
+        _resource_ns(id="resource-1", series=_series_ns(), file_assignments=[assignment]),
+        {"name": "Frieren", "files": [{"name": "Frieren.S01E05.mkv", "size": 100}]},
+    )
+    assert payload["resource"]["id"] == "resource-1"
+    assert payload["file_associations"]["status"] == "complete"
+    assert payload["file_associations"]["items"][0]["source"] == "manual"
+
+
+def test_build_payload_freezes_all_linked_work_metadata():
+    first = _series_ns()
+    second = _series_ns()
+    second.id = "series-2"
+    second.title_cn = "第二部作品"
+    resource = _resource_ns(
+        id="resource-multi", series=None, movie=None,
+        file_assignments=[],
+        work_links=[
+            SimpleNamespace(series=first, movie=None),
+            SimpleNamespace(series=second, movie=None),
+        ],
+    )
+    payload = build_payload(
+        "notif-multi", None, SimpleNamespace(id="t", download_dir="/d"),
+        resource, {"name": "pack", "files": []},
+    )
+    assert set(payload["works"]) == {"series:series-1", "series:series-2"}
+    assert payload["works"]["series:series-2"]["title_cn"] == "第二部作品"
+
+
 def test_backoff_delay_grows_and_caps(monkeypatch):
     monkeypatch.setattr(settings, "notify_retry_base_seconds", 30)
     assert backoff_delay(1).total_seconds() == 60

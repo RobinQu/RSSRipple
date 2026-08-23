@@ -543,7 +543,8 @@ async def maybe_inspect_torrent(
             if resource.file_assignments:
                 return False
     url = resource.torrent_url or ""
-    if not (url.startswith("http://") or url.startswith("https://")):
+    cached_path = resource.torrent_file
+    if not (cached_path and Path(cached_path).exists()) and not url.startswith(("http://", "https://")):
         return False
 
     try:
@@ -584,12 +585,11 @@ async def maybe_inspect_torrent(
             resource.episode = None
             resource.batch_seasons = report.seasons or None
 
-        # Enrichment pass for every batch outcome (new verdicts and complete
-        # legacy verdicts that never got file-level mappings): deterministic
-        # placements first, then the gated LLM refinement, which may bind
-        # movie works directly.
+        # Enrichment pass for every resource type: all main video files get a
+        # durable assignment row. Batch-only LLM refinement may subsequently
+        # bind ambiguous multi-work rows.
         llm_bound_movies = False
-        if resource.is_batch and hasattr(resource, "file_assignments"):
+        if hasattr(resource, "file_assignments"):
             from app.services import batch_content_analysis as bca
 
             try:
@@ -599,7 +599,7 @@ async def maybe_inspect_torrent(
             bca.apply_auto_assignments(resource, report)
             resource.season_ranges = bca.compute_season_ranges(resource)
 
-            if bca.llm_refinement_needed(report, resource.batch_scope):
+            if resource.is_batch and bca.llm_refinement_needed(report, resource.batch_scope):
                 try:
                     llm_bound_movies = await bca.refine_batch_content(
                         db, resource, report, channel

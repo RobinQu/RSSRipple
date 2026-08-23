@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.common import ORMModel
 from app.schemas.genre import GenreName
@@ -121,6 +121,7 @@ class NotificationTaskPayload(BaseModel):
 
 
 class NotificationResourcePayload(BaseModel):
+    id: str | None = None
     title_raw: str | None = None
     season: int | None = None
     episode: int | None = None
@@ -139,6 +140,23 @@ class NotificationResourcePayload(BaseModel):
     title_year: int | None = None
 
 
+class NotificationFileAssociation(BaseModel):
+    file_path: str
+    file_size: int | None = None
+    work_type: Literal["series", "movie"]
+    work_id: str
+    season: int | None = None
+    episode_start: int | None = None
+    episode_end: int | None = None
+    source: Literal["auto", "llm", "manual"] | None = None
+
+
+class NotificationFileAssociations(BaseModel):
+    version: int = 1
+    status: Literal["complete", "partial", "unavailable"]
+    items: list[NotificationFileAssociation] = Field(default_factory=list)
+
+
 class NotificationPayload(BaseModel):
     """Frozen download.completed snapshot (docs/design/notifications.md).
 
@@ -154,7 +172,11 @@ class NotificationPayload(BaseModel):
     task: NotificationTaskPayload | None = None
     resource: NotificationResourcePayload | None = None
     work: NotificationWorkPayload | None = None
+    works: dict[str, NotificationWorkPayload] = Field(default_factory=dict)
     files: list[dict[str, Any]] | None = None
+    # Absent/None means a legacy snapshot and is the only case where the
+    # organizer may run deterministic filename analysis as a fallback.
+    file_associations: NotificationFileAssociations | None = None
 
 
 class NotificationDetail(NotificationListItem):

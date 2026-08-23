@@ -346,7 +346,7 @@ const PAGE_SIZE = 30;
 export default function ChannelDetail() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const navigate = useNavigate();
 
   const [channel, setChannel] = useState<ChannelDetailData | null>(null);
@@ -505,17 +505,33 @@ export default function ChannelDetail() {
     };
   }, [isFetching, id, reloadActiveTab, loadChannel]);
 
-  const handleFetch = async () => {
+  const triggerFetch = async (force: boolean) => {
     if (!id || isFetching) return;
     setFetchStatus('queued');
-    // force=true: a manual fetch also re-runs the channel's unresolved
-    // (not_found/transient) resources, bypassing the retry cooldown, instead
-    // of only fetching new entries.
-    const r = await channelsApi.fetch(id, true);
+    const r = await channelsApi.fetch(id, force);
     if (!r.success) {
       setFetchStatus(null);
       message.error(r.error?.message || t('channels.fetchTriggerFailed'));
     }
+  };
+
+  const handleFetch = () => {
+    if (!id || isFetching) return;
+    let refetchAll = false;
+    modal.confirm({
+      title: t('channels.fetchConfirmTitle'),
+      content: (
+        <Space direction="vertical" size={12}>
+          <Text>{t('channels.fetchConfirmContent')}</Text>
+          <Checkbox onChange={(e) => { refetchAll = e.target.checked; }}>
+            {t('channels.refetchAllMetadata')}
+          </Checkbox>
+        </Space>
+      ),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: () => triggerFetch(refetchAll),
+    });
   };
 
   const toggleAllInList = (resources: FileResource[], checked: boolean) => {
@@ -862,7 +878,7 @@ export default function ChannelDetail() {
                                       </div>
                                       <WorkInfoIcon work={work} isSeries={!!r.series_id} />
                                     </div>
-                                    {(r.series_id || r.movie_id || r.is_batch) && (
+                                    {(r.series_id || r.movie_id || r.is_batch || r.has_download_task) && (
                                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
                                         {r.series_id && (
                                           <Tag
@@ -880,6 +896,11 @@ export default function ChannelDetail() {
                                             style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
                                           >
                                             {t('dashboard.movie')}
+                                          </Tag>
+                                        )}
+                                        {r.has_download_task && (
+                                          <Tag color="cyan" style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}>
+                                            {t('channels.tagDownloaded')}
                                           </Tag>
                                         )}
                                         {/* Batch flag lives here instead of its own column */}

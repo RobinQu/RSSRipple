@@ -137,8 +137,11 @@ export default function Dashboard() {
     }
   };
 
-  const handleCorrectEpisode = async (cid: string) => {
-    const draft = episodeDrafts[cid];
+  const handleCorrectEpisode = async (cid: string, displayedDraft?: EpisodeDraft) => {
+    // The inputs render resource values before the user edits anything.  In
+    // that case no entry exists in episodeDrafts yet, so submit the values the
+    // form actually displays instead of silently returning.
+    const draft = episodeDrafts[cid] ?? displayedDraft;
     if (!draft || draft.episode == null) return;
     setSavingEpisodeCid(cid);
     const r = await resourcesApi.correctEpisode(cid, {
@@ -517,7 +520,7 @@ export default function Dashboard() {
                               size="small"
                               loading={savingEpisodeCid === r.id}
                               disabled={draft.episode == null}
-                              onClick={() => handleCorrectEpisode(r.id)}
+                              onClick={() => handleCorrectEpisode(r.id, draft)}
                             >
                               {t('agents.correctEpisode')}
                             </Button>
@@ -600,8 +603,8 @@ export default function Dashboard() {
                             </div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--rr-border-soft)', background: 'var(--rr-surface-elevated)', gap: 12 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="pending-resource-confirmation">
+                          <div className="pending-resource-summary">
                             <Text ellipsis style={{ fontSize: 13 }}>
                               {r.title_cn || r.title_raw}
                             </Text>
@@ -614,53 +617,64 @@ export default function Dashboard() {
                               {r.episode != null && <span>EP{r.episode}</span>}
                               {r.file_size != null && <span>{formatBytes(r.file_size)}</span>}
                             </Space>
-                          </div>
-                          <Space size={6} align="center" wrap>
-                            <Tooltip title={t('resource.files')}>
+                            <div className="pending-resource-inspect">
                               <Button
-                                type="text"
+                                type="link"
                                 size="small"
                                 icon={<ListTree size={14} />}
                                 onClick={() => setFilesResourceId(r.id)}
-                              />
-                            </Tooltip>
-                            <Button size="small" onClick={() => setCorrectionResource(r)}>
-                              {t('resource.correct')}
-                            </Button>
-                            <InputNumber
-                              size="small"
-                              min={0}
-                              value={draft.season}
-                              placeholder={t('resource.seasonLabel')}
-                              onChange={(v) => patchDraft({ season: typeof v === 'number' ? v : null })}
-                              style={{ width: 72 }}
-                            />
-                            <InputNumber
-                              size="small"
-                              min={1}
-                              value={draft.episode}
-                              placeholder={t('agents.correctEpisodePlaceholder')}
-                              onChange={(v) => patchDraft({ episode: typeof v === 'number' ? v : null })}
-                              style={{ width: 72 }}
-                            />
-                            <InputNumber
-                              size="small"
-                              min={0}
-                              value={draft.absolute_episode}
-                              placeholder={t('resource.absoluteEpisodePlaceholder')}
-                              onChange={(v) => patchDraft({ absolute_episode: typeof v === 'number' ? v : null })}
-                              style={{ width: 130 }}
-                            />
-                            <Button
-                              type="primary"
-                              size="small"
-                              loading={savingEpisodeCid === r.id}
-                              disabled={draft.episode == null}
-                              onClick={() => handleCorrectEpisode(r.id)}
-                            >
-                              {t('agents.correctEpisode')}
-                            </Button>
-                          </Space>
+                              >
+                                {t('resource.files')}
+                              </Button>
+                              <Button type="link" size="small" onClick={() => setCorrectionResource(r)}>
+                                {t('resource.fullCorrection')}
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="pending-resource-quick-form">
+                            <div className="pending-resource-quick-heading">
+                              <Text strong style={{ fontSize: 13 }}>{t('resource.quickEpisodeTitle')}</Text>
+                              <Text type="secondary" style={{ fontSize: 12 }}>{t('resource.quickEpisodeHint')}</Text>
+                            </div>
+                            <div className="pending-resource-fields">
+                              <label>
+                                <span>{t('resource.seasonLabel')}</span>
+                                <InputNumber
+                                  size="small"
+                                  min={0}
+                                  value={draft.season}
+                                  onChange={(v) => patchDraft({ season: typeof v === 'number' ? v : null })}
+                                />
+                              </label>
+                              <label>
+                                <span>{t('resource.episodePerSeasonLabel')}</span>
+                                <InputNumber
+                                  size="small"
+                                  min={1}
+                                  value={draft.episode}
+                                  onChange={(v) => patchDraft({ episode: typeof v === 'number' ? v : null })}
+                                />
+                              </label>
+                              <label>
+                                <span>{t('resource.absoluteEpisodeShort')}</span>
+                                <InputNumber
+                                  size="small"
+                                  min={0}
+                                  value={draft.absolute_episode}
+                                  onChange={(v) => patchDraft({ absolute_episode: typeof v === 'number' ? v : null })}
+                                />
+                              </label>
+                              <Button
+                                type="primary"
+                                size="small"
+                                loading={savingEpisodeCid === r.id}
+                                disabled={draft.episode == null}
+                                onClick={() => handleCorrectEpisode(r.id, draft)}
+                              >
+                                {t('resource.confirmEpisode')}
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </List.Item>
                     );

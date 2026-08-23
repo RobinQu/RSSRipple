@@ -125,6 +125,12 @@ class TestMemoryQueue:
         await queue.start()
         assert await queue.status("never_enqueued") is None
 
+    async def test_update_progress_is_visible_before_completion(self, queue):
+        await queue.enqueue("slow", "progress-memory", {})
+        await queue.update_progress("progress-memory", {"message": "working", "output": "abc"})
+        state = await queue.status("progress-memory")
+        assert state["result"] == {"message": "working", "output": "abc"}
+
     async def test_run_tasks_survive_gc(self, queue):
         """Regression: the dispatcher's fire-and-forget create_task held no
         strong reference, so a run task could be garbage-collected mid-flight —
@@ -340,6 +346,13 @@ class TestRedisQueue:
     async def test_status_before_enqueue(self, queue):
         await queue.start()
         assert await queue.status("never") is None
+
+    async def test_update_progress_is_shared_in_redis(self, queue):
+        await queue.start(consume=False)
+        await queue.enqueue("slow", "progress-redis", {})
+        await queue.update_progress("progress-redis", {"message": "working", "output": "abc"})
+        state = await queue.status("progress-redis")
+        assert state["result"] == {"message": "working", "output": "abc"}
 
     async def test_consume_false_enqueues_without_consuming(self, queue, redis_client):
         """start(consume=False) (web role): the job lands in the Redis list

@@ -191,18 +191,69 @@ export default function ResourceDetailDrawer({
     loadMeta(resource.id);
   }, [resource, loadMeta]);
 
-  const copyTorrent = (url: string) => {
-    navigator.clipboard.writeText(url).then(
-      () => message.success(t('resource.magnetCopied')),
-      () => message.error(t('resource.copyFailed')),
-    );
+  const writeClipboard = (value: string): Promise<boolean> => {
+    // Clipboard.writeText is restricted to secure contexts. Do not attempt it
+    // on HTTP: waiting for its rejection can consume the transient user
+    // activation required by the legacy copy command.
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      return navigator.clipboard.writeText(value).then(
+        () => true,
+        () => false,
+      );
+    }
+
+    const textarea = document.createElement('textarea');
+    const previouslyFocused = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    let copyEventHandled = false;
+    const handleCopy = (event: ClipboardEvent) => {
+      if (!event.clipboardData) return;
+      event.clipboardData.setData('text/plain', value);
+      event.preventDefault();
+      copyEventHandled = true;
+    };
+
+    textarea.value = value;
+    textarea.readOnly = true;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.addEventListener('copy', handleCopy);
+    textarea.focus();
+    textarea.select();
+
+    let commandSucceeded: boolean;
+    try {
+      commandSucceeded = document.execCommand('copy');
+    } catch {
+      commandSucceeded = false;
+    } finally {
+      textarea.removeEventListener('copy', handleCopy);
+      textarea.remove();
+      previouslyFocused?.focus();
+    }
+
+    // execCommand may return true without changing the clipboard. Requiring
+    // the copy event confirms that this page actually supplied the payload.
+    return Promise.resolve(commandSucceeded && copyEventHandled);
   };
 
-  const copyResourceId = (id: string) => {
-    navigator.clipboard.writeText(id).then(
-      () => message.success(t('resource.idCopied')),
-      () => message.error(t('resource.copyFailed')),
-    );
+  const copyTorrent = async (url: string) => {
+    if (await writeClipboard(url)) {
+      message.success(t('resource.magnetCopied'));
+    } else {
+      message.error(t('resource.copyFailed'));
+    }
+  };
+
+  const copyResourceId = async (id: string) => {
+    if (await writeClipboard(id)) {
+      message.success(t('resource.idCopied'));
+    } else {
+      message.error(t('resource.copyFailed'));
+    }
   };
 
   const r = resourceData || resource;
@@ -219,7 +270,7 @@ export default function ResourceDetailDrawer({
               <Text copyable={false} ellipsis style={{ maxWidth: 250, fontFamily: 'monospace', fontSize: 11 }}>
                 {r.id}
               </Text>
-              <Button type="text" size="small" aria-label={t('resource.copyResourceId')} icon={<Copy size={12} />} onClick={() => copyResourceId(r.id)} />
+              <Button type="text" size="small" aria-label={t('resource.copyResourceId')} icon={<Copy size={12} />} onClick={() => void copyResourceId(r.id)} />
             </Space>
           ),
         },
@@ -342,7 +393,7 @@ export default function ResourceDetailDrawer({
                 type="text"
                 size="small"
                 icon={<Copy size={12} />}
-                onClick={() => copyTorrent(r.torrent_url)}
+                onClick={() => void copyTorrent(r.torrent_url)}
               />
             </Space>
           ) : (
@@ -450,19 +501,21 @@ export default function ResourceDetailDrawer({
                 </div>
               ) : meta ? (
                 <div
+                  className="resource-metadata-card"
                   style={{
                     display: 'flex',
                     gap: 12,
                     padding: 12,
-                    border: `1px solid ${token.colorSuccessBorder}`,
+                    color: 'var(--rr-text)',
+                    border: '1px solid var(--rr-success-border)',
                     borderRadius: 8,
-                    background: token.colorSuccessBg,
+                    background: 'var(--rr-success-soft)',
                   }}
                 >
                   <PosterBlock url={meta.poster_url} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <Space size={6} style={{ marginBottom: 6 }} wrap>
-                      <Text strong>{meta.title}</Text>
+                      <Text strong style={{ color: 'var(--rr-text)' }}>{meta.title}</Text>
                       <Tag color={meta.type === 'series' ? 'blue' : 'green'}>
                         {meta.type === 'series' ? t('resource.series') : t('resource.movie')}
                       </Tag>
@@ -473,7 +526,7 @@ export default function ResourceDetailDrawer({
                       <div
                         style={{
                           fontSize: 12,
-                          color: token.colorTextSecondary,
+                          color: 'var(--rr-text-secondary)',
                           marginBottom: 6,
                           wordBreak: 'break-all',
                         }}
@@ -490,8 +543,7 @@ export default function ResourceDetailDrawer({
                     )}
                     {meta.description && (
                       <Paragraph
-                        type="secondary"
-                        style={{ fontSize: 12, marginBottom: 0 }}
+                        style={{ color: 'var(--rr-text-secondary)', fontSize: 12, marginBottom: 0 }}
                         ellipsis={{ rows: 3 }}
                       >
                         {meta.description}

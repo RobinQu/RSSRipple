@@ -35,6 +35,7 @@ from app.models.movie import Movie
 from app.models.organize_audit import OrganizeAuditEntry
 from app.models.organize_plan import OrganizePlan
 from app.models.organize_rule import OrganizeRule
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.storage_volume import StorageVolume
 from app.schemas.common import paginated_response, success_response
@@ -458,6 +459,16 @@ async def _load_preview_payload(
                 selectinload(FileResource.movie).selectinload(Movie.collection),
                 # 资源级合集（franchise 包）：预览快照与触发链路同构。
                 selectinload(FileResource.collection),
+                selectinload(FileResource.file_assignments),
+                selectinload(FileResource.work_links)
+                .selectinload(ResourceWorkLink.series)
+                .selectinload(TVSeries.episodes),
+                selectinload(FileResource.work_links)
+                .selectinload(ResourceWorkLink.series)
+                .selectinload(TVSeries.collection),
+                selectinload(FileResource.work_links)
+                .selectinload(ResourceWorkLink.movie)
+                .selectinload(Movie.collection),
             )
         )
     ).scalar_one_or_none()
@@ -655,8 +666,15 @@ async def get_plan(plan_id: str, db: AsyncSession = Depends(get_db)):
     plan = await _get_plan_or_404(db, plan_id)
     if isinstance(plan, JSONResponse):
         return plan
+    resource_id = (plan.payload.get("resource") or {}).get("id")
+    if resource_id is None:
+        notification = await db.get(DownloadNotification, plan.notification_id)
+        if notification is not None:
+            task = await db.get(DownloadTask, notification.download_task_id)
+            resource_id = task.file_resource_id if task is not None else None
     detail = OrganizePlanDetail(
         **_plan_list_item(plan),
+        resource_id=resource_id,
         payload=plan.payload,
         ops=[OrganizePlanOpOut.model_validate(op) for op in plan.ops],
         audit_entries=[

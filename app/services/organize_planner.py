@@ -39,7 +39,6 @@ from app.services.organize_parser import (
     FileKind,
     classify,
     detect_subtitle_lang,
-    parse_episode,
     parse_season_from_path,
 )
 from app.services.organize_template import (
@@ -47,6 +46,7 @@ from app.services.organize_template import (
     map_subtitle_lang,
     render_template,
 )
+from app.services.torrent_inspect import extract_season_episode_from_path
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,28 @@ class PlanError(Exception):
     （replan_open_plans）时自动重建（vault-organizer webhook 500 重投
     语义在内置语境的等价物）。
     """
+
+
+def _normalized_rel(path: str) -> str:
+    return "/".join(part for part in path.replace("\\", "/").split("/") if part)
+
+
+def _association_for(payload: NotificationPayload, rel: str) -> Any | None:
+    associations = payload.file_associations
+    if associations is None:
+        return None
+    wanted = _normalized_rel(rel)
+    exact = [a for a in associations.items if _normalized_rel(a.file_path) == wanted]
+    if len(exact) == 1:
+        return exact[0]
+    # Downloader manifests differ on whether the torrent root directory is
+    # included. A unique suffix match preserves identity without guessing.
+    suffix = [
+        a for a in associations.items
+        if wanted.endswith("/" + _normalized_rel(a.file_path))
+        or _normalized_rel(a.file_path).endswith("/" + wanted)
+    ]
+    return suffix[0] if len(suffix) == 1 else None
 
 
 @dataclass
@@ -210,6 +232,7 @@ def _template_context(
     *,
     season: int | None,
     episode: int | None,
+    episode_end: int | None,
     ext: str,
     category: str | None,
     lang: str | None = None,
@@ -233,6 +256,12 @@ def _template_context(
         "year": year,
         "season": season,
         "episode": episode,
+        "episode_code": (
+            f"s{season:02d}e{episode:02d}"
+            + (f"-e{episode_end:02d}" if episode_end is not None and episode_end != episode else "")
+            if season is not None and episode is not None
+            else None
+        ),
         "episode_title": episode_title,
         "category": category,
         "collection": work.collection if work else None,
@@ -282,12 +311,24 @@ def build_plan(
         payload = NotificationPayload.model_validate(payload)
     work = payload.work
     resource = payload.resource
-
     library_map = (
         dict(libraries)
         if isinstance(libraries, Mapping)
         else {lib.id: lib for lib in libraries}
     )
+
+    associations = payload.file_associations
+    if associations is not None and associations.status != "complete":
+        raise PlanError(
+            f"文件关联状态为 {associations.status}，请先在计划详情中补全关联"
+        )
+    if associations is not None:
+        work_ids = {item.work_id for item in associations.items}
+        if len(work_ids) > 1:
+            return _plan_same_target_multi_work(
+                payload, disk_files, rules, library_map,
+                category=category, source_dir=source_dir,
+            )
 
     # franchise 合集包（跨作品的系列包，经 collection_id 直挂
     # WorkCollection、四作品 FK 全空）：v1 暂不自动整理——成员作品的命名/
@@ -324,6 +365,15 @@ def build_plan(
         return OrganizePlanResult(rule=matched, library=library, category=category)
 
     template = matched.path_template
+    if "{category}" in template and category is None and work is not None:
+        # Metadata genre is already a canonical classification.  Preserve its
+        # ordered preference and use the first non-empty tag instead of
+        # manufacturing a needless manual-classification plan.
+        genres = getattr(work, "genre", None) or []
+        category = next(
+            (str(value).strip() for value in genres if str(value).strip()),
+            None,
+        )
     if "{category}" in template and category is None:
         return OrganizePlanResult(
             rule=matched, library=library, category=None, needs_category=True
@@ -368,6 +418,125 @@ def build_plan(
     _check_conflicts(ops)
     return OrganizePlanResult(
         ops=ops, rule=matched, library=library, category=category
+    )
+
+
+def _plan_same_target_multi_work(
+    payload: NotificationPayload,
+    disk_files: list[DiskFile],
+    rules: Iterable[Any],
+    libraries: Mapping[str, Any],
+    *,
+    category: str | None,
+    source_dir: str | None,
+) -> OrganizePlanResult:
+    """Plan a multi-work resource when every work resolves to one target.
+
+    Each work is planned through the normal single-work ``build_plan`` path;
+    merging is allowed only when rule, library, file-op and category agree.
+    This deliberately preserves the current one-target OrganizePlan model.
+    """
+    rule_list = list(rules)
+    associations = payload.file_associations
+    assert associations is not None and associations.status == "complete"
+    groups: dict[str, list[Any]] = {}
+    for item in associations.items:
+        groups.setdefault(f"{item.work_type}:{item.work_id}", []).append(item)
+
+    group_files: dict[str, list[DiskFile]] = {key: [] for key in groups}
+    leftovers: list[DiskFile] = []
+    for disk_file in disk_files:
+        if classify(os.path.basename(disk_file.path)) == FileKind.VIDEO:
+            item = _association_for(payload, disk_file.rel)
+            key = f"{item.work_type}:{item.work_id}" if item is not None else None
+            if key in group_files:
+                group_files[key].append(disk_file)
+            else:
+                leftovers.append(disk_file)
+            continue
+        if classify(os.path.basename(disk_file.path)) == FileKind.SUBTITLE:
+            season, episode = extract_season_episode_from_path(disk_file.rel)
+            candidates = [
+                key for key, items in groups.items()
+                if episode is not None and any(
+                    item.episode_start is not None
+                    and item.episode_start <= episode <= (item.episode_end or item.episode_start)
+                    and (season is None or item.season == season)
+                    for item in items
+                )
+            ]
+            if len(candidates) == 1:
+                group_files[candidates[0]].append(disk_file)
+            else:
+                leftovers.append(disk_file)
+            continue
+        leftovers.append(disk_file)
+
+    merged_ops: list[PlanOp] = []
+    common: OrganizePlanResult | None = None
+    for key in sorted(groups):
+        work = payload.works.get(key)
+        if work is None:
+            raise PlanError(f"多作品快照缺少作品元数据：{key}")
+        items = groups[key]
+        seasons = sorted({item.season for item in items if item.season is not None})
+        starts = [item.episode_start for item in items if item.episode_start is not None]
+        ends = [
+            item.episode_end if item.episode_end is not None else item.episode_start
+            for item in items if item.episode_start is not None
+        ]
+        is_series = work.type == "series"
+        is_batch = is_series and len(items) > 1
+        child_resource = payload.resource.model_copy(update={
+            "is_batch": is_batch,
+            "batch_scope": (
+                "multi_season" if is_batch and len(seasons) > 1
+                else "season" if is_batch else None
+            ),
+            "season": seasons[0] if len(seasons) == 1 else None,
+            "episode": starts[0] if not is_batch and starts else None,
+            "episode_start": min(starts) if is_batch and starts else None,
+            "episode_end": max(ends) if is_batch and ends else None,
+        })
+        child = payload.model_copy(update={
+            "work": work,
+            "resource": child_resource,
+            "file_associations": associations.model_copy(update={"items": items}),
+        })
+        result = build_plan(
+            child, group_files[key], rule_list, libraries,
+            category=category, source_dir=None,
+        )
+        if result.rule is None or result.library is None:
+            raise PlanError(f"作品 {key} 未命中可执行的整理规则/媒体库")
+        if common is None:
+            common = result
+        elif (
+            result.rule.id != common.rule.id
+            or result.library.id != common.library.id
+            or getattr(result.rule, "file_op", None) != getattr(common.rule, "file_op", None)
+            or result.category != common.category
+        ):
+            raise PlanError("多作品分组命中了不同规则、媒体库、文件操作或类别，无法合并为单一计划")
+        merged_ops.extend(result.ops)
+
+    assert common is not None
+    merged_ops.extend(_keep(item, "未能唯一归属到作品，原地保留") for item in leftovers)
+    _check_conflicts(merged_ops)
+    recycle_path = getattr(common.library, "recycle_path", None)
+    if (
+        getattr(common.rule, "file_op", None) == "move"
+        and source_dir and recycle_path
+        and any(op.op_type == "keep" for op in merged_ops)
+    ):
+        merged_ops.append(PlanOp(
+            op_type="movedir", src=source_dir,
+            dst=os.path.join(recycle_path, os.path.basename(source_dir.rstrip("/"))),
+            size=0, reason="多作品合集剩余文件移入回收站",
+        ))
+    return OrganizePlanResult(
+        ops=merged_ops, rule=common.rule, library=common.library,
+        category=common.category,
     )
 
 
@@ -458,6 +627,7 @@ def _render_main(
     *,
     season: int | None,
     episode: int | None,
+    episode_end: int | None = None,
 ) -> tuple[str, str]:
     """渲染正片目标路径，返回 (完整 dst, 去掉扩展名的主名路径)。"""
     ext = _ext_of(f.path)
@@ -465,7 +635,8 @@ def _render_main(
         library.root_path,
         template,
         _template_context(
-            payload, season=season, episode=episode, ext=ext, category=category
+            payload, season=season, episode=episode, episode_end=episode_end,
+            ext=ext, category=category
         ),
     )
     stem = dst[: -len(ext)] if ext and dst.endswith(ext) else os.path.splitext(dst)[0]
@@ -483,9 +654,27 @@ def _plan_single(
     category: str | None,
 ) -> list[PlanOp]:
     resource = payload.resource
-    if resource is None or resource.season is None:
+    association = next(
+        (
+            found
+            for f in disk_files
+            if classify(os.path.basename(f.path)) == FileKind.VIDEO
+            for found in [_association_for(payload, f.rel)]
+            if found is not None
+        ),
+        None,
+    )
+    if payload.file_associations is not None and association is None:
+        raise PlanError("权威文件关联中没有单集主视频映射")
+    season = association.season if association is not None else (resource.season if resource else None)
+    episode = (
+        association.episode_start
+        if association is not None
+        else (resource.episode if resource else None)
+    )
+    if resource is None or season is None:
         raise PlanError("缺少季号，无法规划单集")
-    if resource.episode is None:
+    if episode is None:
         raise PlanError("缺少集号，无法规划单集")
 
     videos, subtitles, others = _split(disk_files)
@@ -496,13 +685,14 @@ def _plan_single(
 
     dst, stem = _render_main(
         payload, library, template, category, main,
-        season=resource.season, episode=resource.episode,
+        season=season, episode=episode,
+        episode_end=association.episode_end if association is not None else episode,
     )
     ops = [PlanOp(op_type="move", src=main.path, dst=dst, size=main.size)]
     ops += [_keep(f, "非主视频，原地保留") for f in extra_videos]
     ops += _subtitle_ops(
         payload, subtitles, library, template, category,
-        lambda f: (resource.season, resource.episode, stem),
+        lambda f: (season, episode, stem),
     )
     ops += [_keep(f, "非媒体文件，原地保留") for f in others]
     return ops
@@ -536,17 +726,39 @@ def _plan_batch(
     # 逐文件解析 (season, episode)：文件名 SxxExx → 目录分量 → resource.season
     # 回退链（多季包无 resource.season 回退，见上）；解析不出的视频按特典 keep。
     episodes: dict[tuple[int, int], DiskFile] = {}
+    episode_ends: dict[tuple[int, int], int] = {}
+    covered_episodes: dict[tuple[int, int], DiskFile] = {}
     ops: list[PlanOp] = []
     for f in videos:
-        parsed_season, episode = parse_episode(os.path.basename(f.path))
-        season = resolve_season(f, parsed_season)
+        association = _association_for(payload, f.rel)
+        if association is not None:
+            season = association.season
+            episode = association.episode_start
+            episode_end = association.episode_end or episode
+        else:
+            if payload.file_associations is not None:
+                ops.append(_keep(f, "文件不在权威关联清单中，原地保留"))
+                continue
+            # Legacy snapshots only: reuse the channel scanner's canonical
+            # deterministic parser instead of maintaining organizer regexes.
+            parsed_season, episode = extract_season_episode_from_path(f.rel)
+            season = resolve_season(f, parsed_season)
+            episode_end = episode
         if season is None or episode is None:
             ops.append(_keep(f, "无法解析集号，按特典原地保留"))
             continue
         key = (season, episode)
-        if key in episodes:
-            raise PlanError(f"合集内出现重复集号 s{season:02d}e{episode:02d}，拒绝硬猜")
+        run_keys = {(season, value) for value in range(episode, episode_end + 1)}
+        overlap = sorted(run_keys & covered_episodes.keys())
+        if overlap:
+            dup_season, dup_episode = overlap[0]
+            raise PlanError(
+                f"合集内出现重复集号 s{dup_season:02d}e{dup_episode:02d}，拒绝硬猜"
+            )
         episodes[key] = f
+        episode_ends[key] = episode_end
+        for covered_key in run_keys:
+            covered_episodes[covered_key] = f
 
     # 覆盖度校验：期望集由 episode_start/end 或 work.seasons 展开，
     # 「期望集 ⊆ 已解析集」；缺集 → 规划失败，绝不硬猜。两者皆无时回退到
@@ -554,7 +766,7 @@ def _plan_batch(
     # 连续区间（中间缺集仍拒绝）；无法推导才视为无校验依据。
     # 多季包按季分组逐组校验（见 _check_multi_season_coverage）。
     if multi_season:
-        _check_multi_season_coverage(resource, work, episodes)
+        _check_multi_season_coverage(resource, work, covered_episodes)
     else:
         expected: set[tuple[int, int]]
         if (
@@ -574,14 +786,14 @@ def _plan_batch(
                 for e in range(1, s["episode_count"] + 1)
             }
         else:
-            derived = _derive_expected_from_files(episodes)
+            derived = _derive_expected_from_files(covered_episodes)
             if derived is None:
                 raise PlanError(
                     "合集缺少集数范围与逐季数据，文件清单亦无法推导，"
                     "无法校验覆盖度"
                 )
             expected = derived
-        missing = sorted(expected - episodes.keys())
+        missing = sorted(expected - covered_episodes.keys())
         if missing:
             desc = ", ".join(f"s{s:02d}e{e:02d}" for s, e in missing[:5])
             raise PlanError(f"合集覆盖度不足，缺 {len(missing)} 集（{desc}），拒绝整理")
@@ -589,13 +801,14 @@ def _plan_batch(
     stems: dict[tuple[int, int], str] = {}
     for (season, episode), f in sorted(episodes.items()):
         dst, stem = _render_main(
-            payload, library, template, category, f, season=season, episode=episode
+            payload, library, template, category, f, season=season, episode=episode,
+            episode_end=episode_ends[(season, episode)],
         )
         stems[(season, episode)] = stem
         ops.append(PlanOp(op_type="move", src=f.path, dst=dst, size=f.size))
 
     def subtitle_target(f: DiskFile) -> tuple[int, int, str] | None:
-        parsed_season, episode = parse_episode(os.path.basename(f.path))
+        parsed_season, episode = extract_season_episode_from_path(f.rel)
         season = resolve_season(f, parsed_season)
         if season is None or episode is None or (season, episode) not in episodes:
             return None
@@ -695,6 +908,11 @@ def _plan_movie(
     videos, subtitles, others = _split(disk_files)
     if not videos:
         raise PlanError("下载目录中未找到视频文件")
+    if payload.file_associations is not None:
+        assigned = [f for f in videos if _association_for(payload, f.rel) is not None]
+        if not assigned:
+            raise PlanError("权威文件关联中没有电影主文件")
+        videos = assigned
     videos.sort(key=lambda f: f.size, reverse=True)
     main, extra_videos = videos[0], videos[1:]
 

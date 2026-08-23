@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.rss_parser import (
@@ -219,6 +219,13 @@ async def _process_resource_metadata(
                             await fetch_and_link_metadata(task_db, resource, channel)
                         except Exception as e:
                             logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+                    # Torrent inspection precedes metadata matching, so its
+                    # deterministic rows may still be work-less.  Once this
+                    # pass has linked exactly one work, bind those rows now.
+                    from app.services.batch_content_analysis import (
+                        bind_single_work_assignments,
+                    )
+                    await bind_single_work_assignments(task_db, resource)
                     # Commit inside the lock: the next same-work task's lookup
                     # must see this task's series/movie row.
                     await task_db.commit()
@@ -252,42 +259,50 @@ async def _backfill_unmatched_resources(
     semaphore: asyncio.Semaphore,
     *,
     force: bool = False,
+    exclude_ids: set[str] | None = None,
 ) -> int:
-    """Re-run metadata for unmatched resources of a channel.
+    """Re-run metadata for existing resources of a channel.
 
     Returns the number of resources re-processed. By default bounded by
     ``MAX_BACKFILL_PER_FETCH`` and gated by ``_is_retry_eligible`` (the
     not_found/transient cooldowns) so automatic fetches don't hammer stale
-    failures. With ``force=True`` (manual fetch) the cooldown is bypassed -
-    every unmatched resource is reprocessed up to ``MAX_BACKFILL_SCAN`` - so
-    the user can retry unresolved items on demand instead of waiting out
-    ``NOT_FOUND_RETRY_DAYS``. Runs concurrently under ``semaphore`` (shared
-    with the new-resource phase so one fetch cycle bounds total in-flight
-    metadata work).
+    failures. With ``force=True`` (the explicit manual re-fetch option), every
+    existing resource in the channel is reprocessed without a scan cap. This
+    refreshes metadata from the live source and reruns torrent-file enrichment
+    for linked and unlinked, batch and non-batch resources alike. Runs
+    concurrently under ``semaphore`` (shared with the new-resource phase so
+    one fetch cycle bounds total in-flight metadata work).
     """
     now = utcnow()
-    result = await db.execute(
+    criteria = and_(
+        FileResource.channel_id == channel.id,
+        FileResource.series_id.is_(None),
+        FileResource.movie_id.is_(None),
+    )
+    if force:
+        criteria = FileResource.channel_id == channel.id
+    if exclude_ids:
+        criteria = and_(criteria, FileResource.id.not_in(exclude_ids))
+    query = (
         select(FileResource)
-        .where(
-            FileResource.channel_id == channel.id,
-            FileResource.series_id.is_(None),
-            FileResource.movie_id.is_(None),
-        )
+        .where(criteria)
         .order_by(
             FileResource.last_metadata_attempt_at.asc().nullsfirst(),
             FileResource.created_at.asc(),
         )
-        .limit(MAX_BACKFILL_SCAN)
     )
+    if not force:
+        query = query.limit(MAX_BACKFILL_SCAN)
+    result = await db.execute(query)
     candidates = result.scalars().all()
 
     # Decide eligibility from the snapshot loaded above, then process the
     # eligible set concurrently. Per-task sessions update each resource
     # independently; the next fetch re-queries fresh state.
-    cap = MAX_BACKFILL_SCAN if force else MAX_BACKFILL_PER_FETCH
+    cap = None if force else MAX_BACKFILL_PER_FETCH
     eligible_ids: list[str] = []
     for resource in candidates:
-        if len(eligible_ids) >= cap:
+        if cap is not None and len(eligible_ids) >= cap:
             break
         if force or _is_retry_eligible(resource, now):
             eligible_ids.append(resource.id)
@@ -632,7 +647,16 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
     # that later improves would never get a second chance.
     backfilled_count = 0
     try:
-        backfilled_count = await _backfill_unmatched_resources(channel, db, semaphore, force=force)
+        backfilled_count = await _backfill_unmatched_resources(
+            channel,
+            db,
+            semaphore,
+            force=force,
+            # New entries already completed the same metadata/torrent pass in
+            # Phase B. A force re-fetch covers all pre-existing rows without
+            # paying for every newly-seen entry twice in the same job.
+            exclude_ids=set(new_resource_ids),
+        )
     except Exception as e:
         logger.warning("[fetch:%s] backfill phase failed: %s", channel.id, e)
 

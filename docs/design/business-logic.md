@@ -632,5 +632,15 @@ sync_download_progress():
 
 Mock downloader 面向本地开发和自动化测试；生产环境应使用 `transmission` 类型。
 
----
+### Torrent 文件关联的抓取期收敛与遗留回填
 
+- 文件清单确定性解析以 `torrent_inspect.analyze_torrent_files` 为唯一实现：频道抓取、下载完成后的 Magnet 补齐及 organize 历史快照回退均复用它；不得在 planner 内维护另一套季集正则。所有主视频作品形态（单集 TV、单部电影、season/multi_season/franchise/movies）均建立 assignment，LLM 仍只处理确定性层无法完成的合集歧义。
+
+- 新资源先缓存并确定性解析 torrent 清单，metadata 作品链接完成后执行第二次无猜测绑定：资源恰好链接一个 series/movie 时，把仍为 `source=auto` 且未绑定作品的 assignment 全部挂到该作品，并补 `resource_work_links(source=auto)`；manual/llm 行不覆盖，多作品包不进入此分支。
+- 频道详情页「手动抓取」先弹窗确认，默认不勾选「重新抓取所有条目的 metadata」并发送 `force=false`；勾选后发送 `force=true`。`force=true` 无扫描条数上限地重跑该频道全部既有资源，跳过 MetadataCache 与本地已知作品短路，重新查询 metadata 源以补齐作品缺失字段（包括由 `start_date`/`release_date` 派生的必选年份），并对所有作品形态重新执行 torrent 文件关联富化；有本地 torrent 缓存时即使原 URL 是 magnet 也可复用。普通抓取仍只对未匹配资源按冷却与限额回填，避免周期任务反复全表扫描。
+- 内容 LLM 对普通单集文件输出互斥的 `season + episode`；仅当一个物理视频文件实际包含连续多集（例如文件名明确为 E01-E02）时才输出 `season + episode_start + episode_end`，torrent 是整季合集本身不构成单文件范围的理由。服务层校验真实路径后将单集规范化为 assignment 的闭区间 `episode_start == episode_end` 落库，保持现有数据模型兼容。
+- 向导文件 LLM 分析使用 `MetadataCache(source=batch_file_analysis:v4)` 持久缓存，key 为资源 ID、搜索标题、文件路径/大小清单及逻辑版本的 SHA-256 指纹，任一输入变化自然失效；主动重新解析用 `force=true` 覆盖缓存。缓存未命中时 web 以 `batch-analysis:<fingerprint>` 为 key 入队 `analyze_batch_files`，由 worker 完成确定性解析、LLM 调用和缓存写入；队列 result 字段承载中间状态与最多 50k 字符的累计输出，SSE 只轮询并增量转发。Redis `SET NX` active-key 在多 web/多 worker 间原子去重，关闭任一窗口不取消任务；MemoryQueue 保持 APP_ROLE=all 单进程兼容。
+- 向导 LLM 输入包含服务端生成的候选作品清单：`candidate_key=series|movie:<UUID>`、work_type/work_id 与 title_cn/title_en/original_title/canonical_name 全部非空别名；输出必须复用 exact candidate_key。后端只接受输入集合内的 key，并由 key 对应候选还原作品类型/ID，拒绝模型生成或篡改的 UUID；前端优先按 candidate_key 绑定，标题归一化仅作旧结果兼容回退。最终 `season_ranges` 合并经路径与候选 ID 双重校验的 LLM 单集结果。
+- 特别篇文件统一映射到媒体库规范的 Season 0：文件名明确的 `SPxx` / `Special xx` / `OVA xx` / `OAD xx` 直接解析为 `S00Exx`；发布顺序式小数标签（`11.5`、`22.5`）不存入整数 episode 字段，而在作品关联后与 Episode 表的 Season 0 行按顺序一一校准。若作品源尚无 Season 0 数据但清单中存在明确 `.5` 插播标签，则按标签顺序映射为 `S00E01..N`；已有 Season 0 数据但数量不一致时保持未解析，禁止错配。单作品自动绑定和向导 SSE 确定性结果复用同一规则。
+
+---

@@ -8,7 +8,7 @@ movedir 表示目录级移动）。每条 op 独立记录状态，单条失败�
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -33,7 +33,7 @@ class OrganizePlanOp(Base):
     src: Mapped[str] = mapped_column(String(2048), nullable=False)
     dst: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     # 字节数。
-    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # pending | done | failed | skipped。
     status: Mapped[str] = mapped_column(
         String(16), default="pending", nullable=False

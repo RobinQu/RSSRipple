@@ -40,6 +40,7 @@ PLACEHOLDERS = frozenset(
         "year",
         "season",
         "episode",
+        "episode_code",
         "episode_title",
         "category",
         "collection",
@@ -56,7 +57,7 @@ _INT_FORMAT_SPEC = re.compile(r"^(0?[1-9]\d*)?d$")
 
 # 内置 Plex 兼容预设（与 docs/design/file-organization.md 一致）。
 PRESET_TV = (
-    "{title}/Season {season:02d}/{title} - s{season:02d}e{episode:02d}"
+    "{title}/Season {season:02d}/{title} - {episode_code}"
     "[ - {episode_title}]{ext}"
 )
 PRESET_MOVIE = "{category}/{title} ({year})/{title} ({year}){ext}"
@@ -64,7 +65,7 @@ PRESET_MOVIE = "{category}/{title} ({year})/{title} ({year}){ext}"
 # （BCP-47 → Plex 后缀；未命中查主标签，仍不中取主标签本身）。同集同语言
 # 多份字幕第 2 份起由规划器在 lang 后追加序号。
 PRESET_SUBTITLE = (
-    "{title}/Season {season:02d}/{title} - s{season:02d}e{episode:02d}"
+    "{title}/Season {season:02d}/{title} - {episode_code}"
     "[ - {episode_title}].{lang}{ext}"
 )
 

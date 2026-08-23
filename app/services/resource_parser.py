@@ -538,6 +538,11 @@ _CONTAINER_RE = re.compile(r"\b(MP4|MKV|AVI)\b", re.IGNORECASE)
 # ``vN`` suffix is tolerated and dropped: the version is not part of the
 # episode number and (for now) does not participate in dedup either.
 _SXXEXX_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})(?:v\d+)?\b", re.IGNORECASE)
+_SPECIAL_EPISODE_RE = re.compile(
+    r"(?:^|[\s._\-\[(])(?:SP|SPECIAL|OVA|OAD)\s*[-_. ]?\s*(\d{1,3})"
+    r"(?=[\s._\-\])]|$)",
+    re.IGNORECASE,
+)
 _BRACKET_EPISODE_RE = re.compile(r"\[(\d{1,3})(?:v\d+)?\]", re.IGNORECASE)
 _FB_SEASON_SUFFIX_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.IGNORECASE)
 _FB_SEASON_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+Season\b", re.IGNORECASE)
@@ -626,6 +631,7 @@ _FILENAME_LEADING_EP_RE = re.compile(
     r"^(?:\s*\[[^\]]*\])*\s*(?:EP|E)?(\d{1,3})(?:v\d+)?(?=\s|\.|\[|$)",
     re.IGNORECASE,
 )
+_SEMICOLON_EP_RE = re.compile(r"\s(\d{1,3})(?:v\d+)?\s*;", re.IGNORECASE)
 
 
 def _season_marker(text: str) -> int | None:
@@ -673,6 +679,15 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
             season = _season_marker(comp)
 
     filename = components[-1]
+    # Explicit special numbering is already a media-library canonical index,
+    # so it is safe to map directly to Plex's Specials season.
+    special = _SPECIAL_EPISODE_RE.search(filename)
+    if special:
+        return 0, int(special.group(1))
+    if episode is None:
+        m = _SEMICOLON_EP_RE.search(filename)
+        if m:
+            episode = int(m.group(1))
     if episode is None:
         m = _BRACKET_EPISODE_RE.search(filename)
         if m:

@@ -142,6 +142,8 @@ pending --(2xx / mock)--> done
 单一投递路径：scheduler 每分钟 `_process_download_notifications` tick ——
 
 1. **入队（enqueue）**：为 completed 且无通知的任务**停种（best-effort `pause_torrent`）+ 补建通知**（`download_task_id` 唯一约束 + SAVEPOINT 竞争回读，幂等）。**仅当其 Agent 至少有一个启用 webhook、或存在任一启用的 OrganizeRule 时才补建**——内置 organize 也是通知快照的消费者（常开，存在启用规则即激活），需要通知驱动变更计划；两者皆无的 Agent 不生成通知，避免堆积无用记录（手动"重新生成"不受此限）。无 webhook 仅 organize 的通知不产生任何 delivery（聚合展示状态恒为 pending，随保留期正常清理）。
+
+通知快照新增版本化 `file_associations={version,status,items}`：`complete` 表示逐主视频作品/季/集映射完整，消费者必须直接信任；`partial`/`unavailable` 禁止隐式猜测；字段完全不存在才代表历史快照，可走统一确定性分析回退。`works` 以 `series|movie:<UUID>` 为键冻结所有关联作品的完整命名/分类/季集元数据，旧的单数 `work` 保留兼容单作品消费者。生成通知前若抓取期未建立关联（典型为 magnet），使用下载器返回的同一 `files` 清单运行频道扫描同款确定性分析并持久化。人工修改关联后入队资源级刷新任务，重建对应通知以及 pending/failed organize 计划，done/running/cancelled 不变。
 2. **fan-out（`ensure_deliveries`）**：为"通知 × 其 Agent 每个启用 webhook"补建缺失的 `pending` delivery（`next_attempt_at=now`）。幂等（`(notification_id, webhook_id)` 唯一约束 + SAVEPOINT 吸收竞争）；新注册/重新启用的 webhook 在下一次运行（或注册时立即，见下）收到全部积压。
 3. **投递（`deliver_due_deliveries`）**：捞取全部到期 `pending` delivery（每 tick 上限 50 条，`created_at` 升序），并发投递（`Semaphore(10)` 上限）。
 

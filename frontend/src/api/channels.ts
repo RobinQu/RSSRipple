@@ -233,4 +233,9 @@ export const resourcesApi = {
       `/resources/${id}/analyze-batch`,
       {},
     ),
+  analyzeBatchStream: (id: string, force = false): Promise<Response> =>
+    fetch(`/api/v1/resources/${id}/analyze-batch-stream?force=${force}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }),
 };

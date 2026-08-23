@@ -149,9 +149,9 @@ class FileResource(Base):
     movie = relationship("Movie", back_populates="file_resources")
     audio_work = relationship("AudioWork", back_populates="file_resources")
     collection = relationship("WorkCollection")
-    # Multi-work associations (batch packs) and per-file work/season/episode
-    # mappings. Single-work resources keep using the legacy series_id /
-    # movie_id columns; these tables carry the batch enrichment detail.
+    # Multi-work associations and per-main-file work/season/episode mappings.
+    # Assignments cover single TV/movie releases as well as batch packs so
+    # notification/organize never needs a second file-identity model.
     work_links = relationship(
         "ResourceWorkLink",
         back_populates="resource",

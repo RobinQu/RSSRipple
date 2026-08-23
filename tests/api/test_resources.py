@@ -46,6 +46,41 @@ class TestResourceList:
         groups = res.json()["data"]["groups"]
         assert any(g["type"] == "unknown" for g in groups)
 
+    async def test_list_marks_resources_with_any_download_task(
+        self, client, sample_channel, sample_downloader, db_session_factory
+    ):
+        from app.models.download_task import DownloadTask
+
+        with_task = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="task-created"
+        )
+        without_task = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="no-task"
+        )
+        async with db_session_factory() as session:
+            session.add(DownloadTask(
+                id=_uuid(), agent_id=None, file_resource_id=with_task,
+                downloader_id=sample_downloader.id, download_dir="/d",
+                status="pending",
+            ))
+            await session.commit()
+
+        for suffix in ("", "?grouped=true"):
+            response = await client.get(
+                f"/api/v1/channels/{sample_channel.id}/resources{suffix}"
+            )
+            assert response.status_code == 200
+            payload = response.json()["data"]
+            items = payload["groups"] if isinstance(payload, dict) else payload
+            resources = [
+                resource
+                for item in items
+                for resource in (item.get("resources", []) if isinstance(item, dict) else [])
+            ] if suffix else items
+            by_id = {resource["id"]: resource for resource in resources}
+            assert by_id[with_task]["has_download_task"] is True
+            assert by_id[without_task]["has_download_task"] is False
+
     async def test_get_resource(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="Rget")
         res = await client.get(f"/api/v1/resources/{rid}")

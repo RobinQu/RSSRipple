@@ -20,7 +20,12 @@ vault-organizer 的独立部署形态在功能对等后归档（见"分期路线
 ```
 
 - **两阶段不合并**：规划（只读磁盘 + 计划落库，不动文件）与执行（前置门禁 → 幂等执行 → 后置校验）是两个持久化阶段。`auto_execute=true` 只是省掉人工点击——计划照常落库，随后经同一代码路径执行，规划与执行的持久化边界不消失。
-- **规划只依据快照**：`OrganizePlan.payload` 是创建时冻结的完整通知快照，是执行的唯一依据；规划/执行均不读活库 metadata。
+- **规划只依据快照**：`OrganizePlan.payload` 是创建时冻结的完整通知快照，是执行的唯一依据；规划/执行均不读活库 metadata。新版快照的 `file_associations.status=complete` 是逐文件作品/季集的权威输入，planner 不再解析或覆盖；`partial/unavailable` 明确拒绝并引导在计划详情补全；只有完全没有该字段的历史快照才调用频道扫描共用的确定性解析器。单文件多集使用 Plex 兼容 `{episode_code}`（如 `s01e01-e02`）。
+- **多作品短期支持**：按 `work_id` 将权威 assignments 分组，每组使用快照 `works` 中自己的作品元数据完整调用普通单作品 planner；仅当所有分组命中同一个 rule、Library、`file_op` 与 category 时，把 ops 合并进现有单一 OrganizePlan。字幕只在季集号能唯一归属某一作品时随该组整理，否则 keep；未关联文件同样 keep。任一目标不一致必须落明确 failed 计划，禁止选择其中一个目标吞并其余文件。
+
+### TODO：跨目标多作品分组子计划（长期方案）
+
+当前 `OrganizePlan` 的 `rule_id/library_id/category` 是计划级字段，因此短期方案刻意不支持同一下载包跨媒体库或使用不同 file_op。长期改造必须新增 `OrganizePlanGroup`（父计划 1:N，分组持有 `work_type/work_id/rule_id/library_id/category/file_op/status`，现有 ops 改挂 group），并完成：父状态聚合；分组级分类/执行/重试；按卷独立磁盘空间门禁；多个 MediaServer Section 刷新；所有分组终态成功后才清理下载任务/源目录；取消、审计和 regenerate 的分组幂等重建；旧单组计划迁移。该 TODO 未完成前，跨目标多作品计划必须保持 failed，不得自动降级。
 - **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单过滤绝对路径与 `.`/`..` 分量）；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
 - **冲突绝不覆盖**：规划预检与执行前置门禁两道防线，目标已存在且 size 不符一律拒绝。
 - **清空目录只走 `os.rmdir` 自底向上**（只删空目录），**绝不 `rm -rf`**。
@@ -193,7 +198,7 @@ class OrganizePlanOp(Base):
     op_type: str                         # "move" | "keep" | "movedir"
     src: str                             # 源路径（本进程视角绝对路径，经下载器卷绑定解析）
     dst: str | None                      # 目标路径（keep 为 null）
-    size: int                            # 规划时记录的源文件大小（幂等状态表依据）
+    size: int (BIGINT)                   # 规划时记录的源文件大小（字节；支持 >2 GiB 媒体，幂等状态表依据）
     status: str                          # "pending" | "done" | "kept" | "failed"
     error_message: str | None
 
@@ -207,7 +212,7 @@ class OrganizeAuditEntry(Base):
     created_at: datetime                 # 只读展示与排障，不参与任何整理决策/幂等
 ```
 
-- 「待分类」对应 vault-organizer 的 `__UNCATEGORIZED__` 流程：无规则匹配 → `library_id=null` 的 pending 计划；规则命中但模板含 `{category}` 而无法确定类别 → `category=null`。**禁止落库根**：待分类计划必须人工在界面指定 library（和/或 category）后重渲染 op 目标才可执行。
+- 「待分类」对应 vault-organizer 的 `__UNCATEGORIZED__` 流程：无规则匹配 → `library_id=null` 的 pending 计划；规则命中且模板含 `{category}` 时优先采用通知冻结作品 `genre` 的第一个非空 canonical 标签，作品没有 genre 才置 `category=null` 待人工选择。**禁止落库根**：待分类计划必须人工在界面指定 library（和/或 category）后重渲染 op 目标才可执行；详情 Drawer 初始化人工分类表单时回填已有 library 与 genre 建议，避免视觉有值但提交按钮因内部 state 为空而禁用。
 - 「待绑定」与待分类并列：规则命中的 Library `volume_id=NULL` → 计划照常落 pending（含已解析的 ops 草稿或仅快照），执行门禁拒绝，补绑定（建 binding + 重扫/就地解析）后解除、可正常执行。
 
 ## 规则与命名模板
@@ -220,6 +225,7 @@ class OrganizeAuditEntry(Base):
 | `{title_en}` / `{title_cn}` / `{original_title}` | `work.title_en` / `title_cn` / `original_title` |
 | `{year}` | `work.year`（电影）/ `resource.title_year` 回退 |
 | `{season}` / `{episode}` | `resource.season` / `episode`；支持格式说明符 `{season:02d}` |
+| `{episode_code}` | Plex 季集标识：单集 `s01e01`，单文件多集 `s01e01-e02` |
 | `{episode_title}` | `work.episodes` 按 (season, episode) 查得分集标题，缺失渲染为空段 |
 | `{category}` | `plan.category`（电影类别目录；为空时计划落待分类，见上） |
 | `{collection}` | `work.collection`（合集显示名） |
@@ -229,7 +235,7 @@ class OrganizeAuditEntry(Base):
 - **保存时校验**：非法占位符 / 非法格式说明符 → 422；模板渲染结果含绝对路径、`..` 段 → 422。
 - **运行时缺数据**（如 TV 模板缺 `season`）→ 规划失败（落 failed 计划行，见"触发链路"）。
 - **内置 Plex 兼容预设**（创建规则时可一键填入）：
-  - TV：`{title}/Season {season:02d}/{title} - s{season:02d}e{episode:02d}[ - {episode_title}]{ext}`
+  - TV：`{title}/Season {season:02d}/{title} - {episode_code}[ - {episode_title}]{ext}`
   - 电影：`{category}/{title} ({year})/{title} ({year}){ext}`
   - 字幕：正片同主名 + `.{lang}{ext}`，`lang` 经 `library.subtitle_lang_map`（BCP-47 → 语言后缀；未命中查主标签，仍不中取主标签本身）；同集同语言多份字幕第 2 份起追加序号。
 - 配套预览 API `POST /organize-rules/preview`（见"API"），与 `/agents/rules-preview` 同构：保存前 dry-run 渲染逐文件 src→dst。

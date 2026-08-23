@@ -1,21 +1,24 @@
 """FileResource API routes."""
 
+import hashlib
+import json
 import logging
 from collections import Counter
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.database import get_db
+from app.database import async_session_factory, get_db
 from app.models.channel import Channel
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
+from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
 
 # Aliased: several endpoint functions do function-local ``from ... import
 # TVSeries/Movie``, which would shadow a same-named module-level import
@@ -46,6 +49,63 @@ from app.services.torrent_inspect import fetch_torrent_file, parse_torrent_files
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
+_BATCH_ANALYSIS_SOURCE = "batch_file_analysis:v4"
+
+
+async def _resource_ids_with_tasks(
+    db: AsyncSession, resources: list[FileResource]
+) -> set[str]:
+    """Return resources that have ever had a download task, in one query."""
+    resource_ids = [resource.id for resource in resources]
+    if not resource_ids:
+        return set()
+    return set((await db.scalars(
+        select(DownloadTask.file_resource_id)
+        .where(DownloadTask.file_resource_id.in_(resource_ids))
+        .distinct()
+    )).all())
+
+
+def _serialize_list_resource(
+    resource: FileResource, task_resource_ids: set[str]
+) -> dict:
+    payload = FileResourceResponse.model_validate(resource)
+    return payload.model_copy(
+        update={"has_download_task": resource.id in task_resource_ids}
+    ).model_dump()
+
+
+def _batch_analysis_fingerprint(resource: FileResource, files: list[dict]) -> str:
+    payload = {
+        "version": 4,
+        "resource_id": resource.id,
+        "title": resource.search_title or resource.title_cn or resource.title_raw,
+        "files": [(item.get("name"), item.get("size")) for item in files],
+    }
+    raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+async def _store_batch_analysis(key: str, payload: dict) -> None:
+    async with async_session_factory() as session:
+        row = (await session.execute(select(MetadataCache).where(
+            MetadataCache.title == key,
+            MetadataCache.source == _BATCH_ANALYSIS_SOURCE,
+        ))).scalar_one_or_none()
+        if row is None:
+            row = MetadataCache(
+                title=key,
+                source=_BATCH_ANALYSIS_SOURCE,
+                content_type="batch_analysis",
+                metadata_json=payload,
+                generation=METADATA_CACHE_GENERATION,
+            )
+            session.add(row)
+        else:
+            row.metadata_json = payload
+            row.generation = METADATA_CACHE_GENERATION
+        await session.commit()
 
 # Eager-load set for single-resource responses that serialize the batch
 # enrichment tables (FileResourceDetailResponse). List endpoints keep using
@@ -214,6 +274,17 @@ async def list_resources(
                 .order_by(FileResource.published_at.desc())
             )).scalars().all())
 
+        page_resources = [
+            resource
+            for buckets in (
+                resource_by_series.values(), resource_by_movie.values(),
+                resource_by_audio.values(), [unknown_resources],
+            )
+            for resources in buckets
+            for resource in resources
+        ]
+        task_resource_ids = await _resource_ids_with_tasks(db, page_resources)
+
         def _iso(ts) -> str | None:
             return ts.isoformat() if ts is not None else None
 
@@ -230,7 +301,7 @@ async def list_resources(
                     "title": (s.original_title or s.title_cn or s.title_en or tid) if s else tid,
                     "poster_url": s.poster_url if s else None,
                     "last_update": _iso(last_ts),
-                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
+                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in items],
                 })
             elif typ == "movie":
                 items = resource_by_movie.get(tid, [])
@@ -243,7 +314,7 @@ async def list_resources(
                     "title": (m.original_title or m.title_cn or m.title_en or tid) if m else tid,
                     "poster_url": m.poster_url if m else None,
                     "last_update": _iso(last_ts),
-                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
+                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in items],
                 })
             elif typ == "audio":
                 items = resource_by_audio.get(tid, [])
@@ -256,7 +327,7 @@ async def list_resources(
                     "title": (a.original_title or a.title_cn or a.title_en or tid) if a else tid,
                     "poster_url": a.poster_url if a else None,
                     "last_update": _iso(last_ts),
-                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in items],
+                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in items],
                 })
             else:  # unknown
                 out.append({
@@ -265,7 +336,7 @@ async def list_resources(
                     "title": "未识别",
                     "poster_url": None,
                     "last_update": _iso(last_ts),
-                    "resources": [FileResourceResponse.model_validate(r).model_dump() for r in unknown_resources],
+                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in unknown_resources],
                 })
 
         return success_response(
@@ -287,8 +358,9 @@ async def list_resources(
         .offset(offset).limit(page_size)
     )
     resources = result.scalars().all()
+    task_resource_ids = await _resource_ids_with_tasks(db, resources)
     return paginated_response(
-        [FileResourceResponse.model_validate(r).model_dump() for r in resources],
+        [_serialize_list_resource(r, task_resource_ids) for r in resources],
         total=total, page=page, page_size=page_size,
     )
 
@@ -768,6 +840,15 @@ async def update_resource_associations(
     channel_id = resource.channel_id
     await db.commit()
 
+    try:
+        await task_queue.enqueue(
+            "refresh_resource_organize",
+            f"resource-organize:{resource_id}",
+            {"resource_id": resource_id},
+        )
+    except Exception:
+        logger.exception("[associations] failed to enqueue organize refresh for %s", resource_id)
+
     channel = await db.get(Channel, channel_id, options=[
         selectinload(Channel.agents),
     ])
@@ -830,6 +911,88 @@ async def analyze_resource_batch(
         "suggestion": suggestion,
         "listing_source": source,
     })
+
+
+@router.post("/resources/{resource_id}/analyze-batch-stream")
+async def analyze_resource_batch_stream(
+    resource_id: str,
+    force: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream or join one cached batch analysis for the wizard."""
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+        )
+    files, source = await _resolve_resource_files(db, resource)
+    fingerprint = _batch_analysis_fingerprint(resource, files)
+
+    cached = None
+    if not force:
+        cached = (await db.execute(select(MetadataCache).where(
+            MetadataCache.title == fingerprint,
+            MetadataCache.source == _BATCH_ANALYSIS_SOURCE,
+            MetadataCache.generation == METADATA_CACHE_GENERATION,
+        ))).scalar_one_or_none()
+
+    def emit(kind: str, **payload):
+        return f"data: {json.dumps({'type': kind, **payload}, ensure_ascii=False)}\n\n"
+
+    if cached is not None:
+        async def cached_events():
+            yield emit("status", message="已复用文件解析缓存")
+            yield emit("result", **cached.metadata_json)
+        return StreamingResponse(cached_events(), media_type="text/event-stream")
+
+    from app.services import task_queue as task_queue_module
+    from app.services.task_queue import JobStatus
+
+    queue = task_queue_module.task_queue
+    job_key = f"batch-analysis:{fingerprint}"
+    existing = await queue.status(job_key)
+    if force or existing is None or existing.get("status") not in (
+        JobStatus.QUEUED, JobStatus.RUNNING,
+    ):
+        await queue.enqueue("analyze_batch_files", job_key, {
+            "resource_id": resource_id,
+            "fingerprint": fingerprint,
+            "job_key": job_key,
+        })
+
+    async def events():
+        import asyncio
+
+        last_message = None
+        last_output = ""
+        while True:
+            state = await queue.status(job_key)
+            if state is None:
+                yield emit("warning", message="解析任务状态已失效")
+                return
+            result = state.get("result") or {}
+            message = result.get("message")
+            output = result.get("output") or ""
+            if message and message != last_message:
+                yield emit("status", message=message)
+                last_message = message
+            if output.startswith(last_output) and len(output) > len(last_output):
+                yield emit("delta", content=output[len(last_output):])
+            elif output != last_output and output:
+                yield emit("delta", content=output)
+            last_output = output
+            status = state.get("status")
+            if status == JobStatus.DONE:
+                yield emit("result", **result)
+                return
+            if status == JobStatus.FAILED:
+                yield emit("warning", message=state.get("error") or "解析失败")
+                return
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @router.patch("/resources/{resource_id}")

@@ -276,15 +276,18 @@ class TestAgentsCRUD:
         db_session.add_all([r13, r15, r_batch, r_active])
         await db_session.flush()
 
-        def _task(rid, status):
+        def _task(rid, status, completed=False):
             return DownloadTask(
                 id=_uuid(), agent_id=None, file_resource_id=rid,
                 downloader_id=dl_id, download_dir="/d", status=status,
+                completed_at=datetime.now(UTC) if completed else None,
             )
 
         db_session.add_all([
-            _task(r13.id, "completed"),
-            _task(r15.id, "completed"),
+            _task(r13.id, "completed", completed=True),
+            # Organize(move) changes a completed task to cancelled but keeps
+            # completed_at; it must continue contributing library progress.
+            _task(r15.id, "cancelled", completed=True),
             _task(r_active.id, "downloading"),
         ])
         await db_session.commit()

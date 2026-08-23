@@ -98,6 +98,10 @@ class BaseQueue(ABC):
         with the same key can be enqueued. Implementations must be idempotent.
         """
 
+    @abstractmethod
+    async def update_progress(self, key: str, result: dict) -> None:
+        """Replace a queued/running job's intermediate result payload."""
+
     async def throttle(self, key: str, ttl: int) -> bool:
         """Cross-process tick throttle: True if the caller may proceed.
 
@@ -201,6 +205,11 @@ class MemoryQueue(BaseQueue):
 
     async def clear(self, key: str) -> None:
         self._jobs_by_key.pop(key, None)
+
+    async def update_progress(self, key: str, result: dict) -> None:
+        job = self._jobs_by_key.get(key)
+        if job is not None and job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+            job.result = result
 
     async def _dispatch_loop(self) -> None:
         while True:
@@ -340,6 +349,12 @@ class RedisQueue(BaseQueue):
         redis_key = f"{_JOB_PFX}{key}"
         active_key = f"{_ACTIVE_PFX}{key}"
         await self._redis.delete(redis_key, active_key)
+
+    async def update_progress(self, key: str, result: dict) -> None:
+        redis_key = f"{_JOB_PFX}{key}"
+        if await self._redis.exists(redis_key):
+            await self._redis.hset(redis_key, "result", json.dumps(result))
+            await self._redis.expire(redis_key, self._ttl)
 
     async def _worker_loop(self) -> None:
         while True:

@@ -893,9 +893,18 @@ async def classify_plan(
         raise OrganizeError(f"计划不存在：{plan_id}")
     if plan.status not in ("pending", "failed"):
         raise OrganizeError(f"计划 {plan_id} 当前状态（{plan.status}）不可分类")
-    library = await db.get(
-        Library, library_id, options=[selectinload(Library.volume)]
-    )
+    # The API may already have put this Library in the identity map through
+    # ``plan.library`` without loading ``volume``. ``Session.get(options=...)``
+    # then returns that instance unchanged and resolve_library_root triggers
+    # forbidden async lazy IO (MissingGreenlet). An explicit SELECT always
+    # executes the selectin loader for the existing identity too.
+    library = (
+        await db.execute(
+            select(Library)
+            .where(Library.id == library_id)
+            .options(selectinload(Library.volume))
+        )
+    ).scalar_one_or_none()
     if library is None:
         raise OrganizeError(f"目标库不存在：{library_id}")
 
@@ -958,12 +967,12 @@ async def classify_plan(
             )
         )
     plan.library_id = library.id
-    plan.category = category
+    plan.category = result.category
     plan.status = "pending"
     plan.error_message = None
     _audit(
         db, plan.id, "classify",
-        {"library_id": library.id, "category": category, "ops": len(result.ops)},
+        {"library_id": library.id, "category": result.category, "ops": len(result.ops)},
     )
     await db.commit()
     return plan

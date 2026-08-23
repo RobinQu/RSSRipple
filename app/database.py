@@ -318,6 +318,14 @@ async def _apply_light_migrations(conn) -> None:
     is_turso = is_turso_url(settings.database_url)
     is_postgres = "postgresql" in settings.database_url
 
+    if is_postgres:
+        # Media files commonly exceed PostgreSQL INTEGER's 2 GiB ceiling.
+        # Turso INTEGER is already a signed 64-bit value.
+        async with _best_effort(conn, "organize plan op size bigint"):
+            await conn.execute(text(
+                "ALTER TABLE organize_plan_ops ALTER COLUMN size TYPE BIGINT"
+            ))
+
     # Column additions: (table, column_name, ddl_type_and_default)
     additions: list[tuple[str, str, str]] = [
         ("file_resources", "is_batch",

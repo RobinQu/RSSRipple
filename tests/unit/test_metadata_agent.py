@@ -731,11 +731,9 @@ async def test_process_resolves_asmr_to_audio_work(monkeypatch, db_session, samp
     assert aw.content_type == "asmr"
 
 
-async def test_process_short_circuit_fires_on_force_refresh(db_session, sample_channel):
-    """force_refresh bypasses the *cache* but the S1 title match is live, so a
-    resource matching a known series still short-circuits (no LLM). This is
-    what lets the backfill (which uses force_refresh) link resources that now
-    match a known work without re-running the agent."""
+async def test_process_force_refresh_bypasses_known_work_short_circuit(db_session, sample_channel):
+    """An explicit re-fetch queries the source even for a known local work so
+    missing work-level metadata such as its release year can be repaired."""
     import uuid
 
     from app.models.file_resource import FileResource
@@ -753,10 +751,19 @@ async def test_process_short_circuit_fires_on_force_refresh(db_session, sample_c
 
     agent = UnifiedMetadataAgent()
     agent._get_cache = AsyncMock(return_value=None)
-    agent._run_react = AsyncMock()  # must NOT be called - S1 short-circuits
+    agent._find_known_work = AsyncMock(return_value=("tv", series.id))
+    agent._run_search_then_judge = AsyncMock(return_value=(
+        {
+            "found": False,
+            "clean_title": "黄泉使者",
+            "content_type": "tv",
+            "reason": "not found",
+        },
+        {"method": None, "data_sources_used": [], "source_errors": {}, "error": None},
+    ))
     await agent.process(resource, sample_channel, db_session, force_refresh=True)
-    agent._run_react.assert_not_called()
-    assert resource.series_id == series.id  # S1 linked it even under force_refresh
+    agent._find_known_work.assert_not_called()
+    agent._run_search_then_judge.assert_called_once()
 
 
 async def test_process_short_circuit_matches_season_suffixed_title(db_session, sample_channel):

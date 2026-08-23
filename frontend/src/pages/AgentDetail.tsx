@@ -438,8 +438,10 @@ export default function AgentDetail() {
     }
   };
 
-  const handleCorrectEpisode = async (cid: string) => {
-    const draft = episodeDrafts[cid];
+  const handleCorrectEpisode = async (cid: string, displayedDraft?: EpisodeDraft) => {
+    // A prefilled form has no local draft until the first edit.  Fall back to
+    // the displayed values so confirming them still performs the correction.
+    const draft = episodeDrafts[cid] ?? displayedDraft;
     if (!draft || draft.episode == null) return;
     setSavingEpisodeCid(cid);
     const r = await resourcesApi.correctEpisode(cid, {
@@ -1120,7 +1122,7 @@ export default function AgentDetail() {
                                         size="small"
                                         loading={savingEpisodeCid === cid}
                                         disabled={draft.episode == null}
-                                        onClick={() => handleCorrectEpisode(cid)}
+                                        onClick={() => handleCorrectEpisode(cid, draft)}
                                       >
                                         {t('agents.correctEpisode')}
                                       </Button>

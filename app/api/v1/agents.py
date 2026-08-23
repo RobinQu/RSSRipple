@@ -318,7 +318,9 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
                 FileResource.series_id.in_(series_ids),
                 FileResource.is_batch.is_(False),
                 FileResource.episode.isnot(None),
-                DownloadTask.status == "completed",
+                # Organization with ``move`` changes the status to cancelled;
+                # completed_at remains the durable completion evidence.
+                DownloadTask.completed_at.isnot(None),
             )
         )).all()
         latest: dict[str, tuple[int, int]] = {}

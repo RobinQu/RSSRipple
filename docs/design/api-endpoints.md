@@ -77,7 +77,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/channels/{id}` | 频道详情（含最近 20 条 FileResource 预览） |
 | PUT | `/channels/{id}` | 更新频道（含 field_mapping/metadata_agent_enabled 等所有字段，一次性保存；`required_metadata_fields` 只增不删，见下） |
 | DELETE | `/channels/{id}` | 删除频道（级联删除其 file_resources、agents、tasks、mappings） |
-| POST | `/channels/{id}/fetch` | 手动触发抓取（入队，返回 task_id） |
+| POST | `/channels/{id}/fetch?force=false` | 手动触发抓取（入队，返回 task_id）；`force=false` 只抓新条目并按常规冷却回填未匹配资源，`force=true` 无上限重跑频道全部既有条目，绕过 metadata 缓存/本地作品短路并重做 torrent 文件关联富化 |
 | GET | `/channels/{id}/fetch-status` | 轮询抓取任务状态（running/success/failed + 进度信息） |
 | POST | `/channels/{id}/analyze` | 非流式 LLM 分析 RSS，返回 field_mapping（阻塞等待直到完成或超时） |
 | POST | `/channels/{id}/analyze-stream` | SSE 流式 LLM 分析（`status/delta/reset/done/error` 事件；连接建立即冲刷响应头，RSS 抓取与 LLM 生成的 delta 实时下发，重试前发 `reset` 通知前端清空半程文本） |
@@ -87,6 +87,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
 
 频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为 Exa 回退的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
+
+频道资源列表响应额外返回 `has_download_task`：只要该资源曾创建过任意 `DownloadTask`（下载 Agent 或手动、任意当前状态）即为 true，供频道页标记“已下载”。
 
 `required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选七件套**（`title_cn/title_en/search_title/content_type/is_batch/year/is_anime`，全形态适用）∪ **形态必填**（TV 单集→`season`+`episode`；TV 合集→`season`+`episode_start`+`episode_end`；多作品合集→`resource_collection`）；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR（消息列出被移除的键），仅允许在其上新增。存量 NULL/残缺行由启动轻迁移收敛为基线。
 
@@ -118,7 +120,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 |--------|------|------|
 | GET | `/agents` | Agent 列表（分页） |
 | POST | `/agents` | 创建 Agent，body 含 `filter_config`、`works`（AgentWork 列表，最多 10 个）、可选 `llm_prompt`、可选 `pick_preferences`（优选偏好：有序 FieldCondition 列表，确定性排序层，422 校验同 Filter DSL 叶子规则）、可选 `dispatch_resource_ids`（规则预览回填提交） |
-| GET | `/agents/{id}` | Agent 详情（含 works、统计信息；TV 类型 works 附带 `latest_completed_season/episode`——该剧集全库范围内最新已完成下载的季/集号，无完成记录或为电影时为 null） |
+| GET | `/agents/{id}` | Agent 详情（含 works、统计信息；TV 类型 works 附带 `latest_completed_season/episode`——按非空 `completed_at` 识别该剧集全库范围内最新已完成下载的季/集号，因此整理后转为 cancelled 的历史任务仍计入；无完成记录或为电影时为 null） |
 | PUT | `/agents/{id}` | 更新 Agent（整体替换，含 works 列表） |
 | DELETE | `/agents/{id}` | 删除 Agent（级联删除其 works、pending_decisions、runs；tasks 标记 cancelled） |
 | POST | `/agents/{id}/run` | 手动触发处理（入队处理该 Agent 频道下未处理资源）。可选 body `{"scan_since": "<ISO 8601>" \| null}`：指定本次运行的扫描起始时间（按资源入库时间，必须为过去时间，否则 422）；显式 `null` = 不限制（全量历史）；不带 body = 普通增量运行 |
@@ -371,8 +373,11 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "season": int?, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。未显式发送 `season` 且已知 absolute 集号、资源已链接剧集且该剧集有逐季集数数据时，服务端用 `locate_absolute_episode` 推导 season（episode 也未显式发送时一并推导）——显式值永远优先。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
 | PATCH | `/resources/{id}` | 人工修订解析字段（`ResourceParseCorrectionRequest`）：`{ "episode"?, "season"?, "absolute_episode"?, "episode_start"?, "episode_end"?, "is_batch"?, "batch_scope"?: "season"\|"multi_season"\|"franchise"\|"movies", 通用字段?: resolution/subtitle_group/source/video_codec/audio_codec/subtitle_type/container/subtitle_langs }` —— 全可选，仅显式发送的字段被更新（`model_fields_set` 语义）。服务端强制合集不变量（与抓取期 pre-parser 对齐）：`is_batch=true` 强制 `episode=null` 且未显式发送 scope 时缺省 `batch_scope="season"`；`is_batch=false` 清空 `batch_scope`/`episode_start`/`episode_end`。显式发送 `episode`/`season`/`absolute_episode` 任一即置 `episode_confidence="manual"`；未发送集号字段但修订结果为 `is_batch=true` 且原为 `ambiguous` 时同样置 `manual`（合集无单集概念，标记合集即了结集号/季号问题）；**通用媒体描述字段不触碰 `episode_confidence`**。**先 commit 再入队**对该频道全部 active Agent 的定向运行（语义同 PATCH `/episode`）。旧 `PATCH /resources/{id}/episode` 保留。 |
 | PUT | `/resources/{id}/associations` | 编辑向导统一提交（`ResourceAssociationUpdateRequest`）：`{ "is_batch": bool, "works": [{work_type, work_id}], "collection_id"?, "assignments": [{file_path, work_type, work_id, file_size?, season?, episode_start?, episode_end?}], "season"?/"episode"?/"absolute_episode"?(仅非合集分支), "fields"?: 通用字段 }` → 原子应用全部不变量：非合集至多一个作品（写入互斥 FK，清空 links/assignments/collection）；合集恰一作品时镜像到 FK（保 dedup coverage key），多作品清 FK 仅留 links；`batch_scope` 自动推导（全 movie→movies；tv+movie 或多 tv→franchise；单 tv→season/multi_season 按季证据）；assignments 必须引用 works 集合、TV 文件必须带季、同 (work, season) 集号区间**重叠→422**、断档→200+warnings；`season_ranges` 按 assignments 重算；diff-preserving 替换（未变化的行保留 auto/llm provenance，改动/新增行标 manual）。works 为空的非合集提交保留现有挂载（含音频链接）——纯通用字段保存不清关联。先 commit 再定向 Agent 重跑；响应为 Detail schema + `warnings[]` |
-| GET | `/resources/{id}/analyze-batch` | 向导第二步重析（**不落库**）：按 files 端点同一解析链取清单 → 返回 `{ "suggestion": { "deterministic": {scope_hint, seasons, season_ranges, files:[{path,size,season,episode}], clusters:[{title,files}]}, "works": [{title, content_type, files:[...]}] }, "listing_source" }`。**deterministic 层始终返回**（纯路径解析，无需 LLM），驱动向导文件行的季/集预填；`works` 为可选 LLM 精判（标题为键，前端在第一步所选作品内归一化匹配绑定）；无清单时 `suggestion=null` |
+| POST | `/resources/{id}/analyze-batch` | 向导第二步重析（**不落库**）：按 files 端点同一解析链取清单 → 返回 `{ "suggestion": { "deterministic": {scope_hint, seasons, season_ranges, files:[{path,size,season,episode}], clusters:[{title,files}]}, "works": [{candidate_key,title,content_type,files:[...]}] }, "listing_source" }`。**deterministic 层始终返回**（纯路径解析无需 LLM，并支持 `Title 01;` archive 格式）；`works` 的 candidate_key 只能来自服务端候选作品集合，后端校验后返回，标题仅作兼容提示；无清单时 `suggestion=null` |
+| POST | `/resources/{id}/analyze-batch-stream?force=false` | 上述重析的 SSE 交互端点；web 按资源/标题/torrent 清单/解析版本指纹读取持久缓存，未命中则以 `batch-analysis:<fingerprint>` 幂等键提交 `analyze_batch_files` 后台任务，并轮询队列的共享进度状态转发 `status` / LLM `delta` / `warning` / `result`。`force=true` 仅供用户主动「重新解析」在旧任务结束后以同 key 重新入队并覆盖旧缓存；Redis Queue 的 active-key 原子去重保证多 web/多窗口只执行一次，SSE 断开不取消 worker 任务。 |
 | GET | `/resources/{id}/files` | 资源 torrent 文件清单（`ResourceFilesResponse`）：`{ "files": [{"name", "size"}], "source" }`，`source` 记录清单来源（首个命中即返回）：`torrent_cache`（本地缓存 .torrent 经 bencode 解析）→ `torrent_fetch`（http(s) `torrent_url` 现场下载，缓存路径写回 `torrent_file`）→ `downloader`（最新 DownloadTask 的下载器 RPC `get_torrent_files`，失败静默）→ `notification`（最新完成通知冻结快照 `payload.files`）→ `none`（全部不可用，返回空 `files`）。404 遵循统一错误结构。 |
+
+`PUT /resources/{id}/associations` 成功提交后额外入队 `refresh_resource_organize`：对该资源已有 completed 任务原地刷新通知快照，并重建 pending/failed 变更计划。`GET /organize/plans/{id}` 返回 `resource_id`，供详情 Drawer 复用文件资源向导的「文件关联」步骤直接修订；非开放状态只读。
 
 `POST /resources/{id}/metadata/search` 请求体示例：
 ```json
@@ -447,4 +452,3 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（collection_id 置空） |
 
 ---
-

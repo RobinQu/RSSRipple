@@ -212,6 +212,110 @@ class TestSingleEpisode:
 
 
 class TestBatch:
+    @staticmethod
+    def _multi_work_payload(second_is_anime=True):
+        first = {**GITS_PAYLOAD["work"], "series_id": "s-1", "title_cn": "作品甲"}
+        second = {
+            **GITS_PAYLOAD["work"], "series_id": "s-2", "title_cn": "作品乙",
+            "is_anime": second_is_anime,
+        }
+        items = [
+            {
+                "file_path": "A/ep.mkv", "file_size": 300,
+                "work_type": "series", "work_id": "s-1", "season": 1,
+                "episode_start": 1, "episode_end": 1, "source": "manual",
+            },
+            {
+                "file_path": "B/ep.mkv", "file_size": 300,
+                "work_type": "series", "work_id": "s-2", "season": 1,
+                "episode_start": 2, "episode_end": 2, "source": "manual",
+            },
+        ]
+        return {
+            **_batch_payload(),
+            "work": {"type": None},
+            "works": {"series:s-1": first, "series:s-2": second},
+            "resource": {
+                **_batch_payload()["resource"], "season": None,
+                "episode_start": None, "episode_end": None,
+                "batch_scope": "franchise",
+            },
+            "file_associations": {
+                "version": 1, "status": "complete", "items": items,
+            },
+        }
+
+    def test_multi_work_same_target_merges_into_one_plan(self):
+        payload = self._multi_work_payload()
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        destinations = {op.dst for op in result.ops if op.op_type == "move"}
+        assert any("作品甲" in path for path in destinations)
+        assert any("作品乙" in path for path in destinations)
+        assert result.rule is rule
+
+    def test_multi_work_different_targets_is_rejected(self):
+        payload = self._multi_work_payload(second_is_anime=False)
+        anime = _library("anime", "/anime")
+        live = _library("live", "/live")
+        rules = [
+            _rule("anime", 1, anime.id, PRESET_TV, {
+                "field": "series.is_anime", "operator": "eq", "value": True,
+            }),
+            _rule("live", 2, live.id, PRESET_TV, {
+                "field": "series.is_anime", "operator": "eq", "value": False,
+            }),
+        ]
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+        ]
+        with pytest.raises(PlanError, match="不同规则、媒体库"):
+            build_plan(payload, files, rules, [anime, live])
+
+    def test_authoritative_association_overrides_filename_parse(self):
+        payload = _batch_payload()
+        payload["file_associations"] = {
+            "version": 1,
+            "status": "complete",
+            "items": [
+                {
+                    "file_path": f"opaque-{episode}.mkv",
+                    "file_size": 300,
+                    "work_type": "series",
+                    "work_id": payload["work"]["series_id"],
+                    "season": 1,
+                    "episode_start": episode,
+                    "episode_end": episode,
+                    "source": "manual",
+                }
+                for episode in (1, 2, 3)
+            ],
+        }
+        files = [
+            DiskFile(f"/d/opaque-{episode}.mkv", 300, f"opaque-{episode}.mkv")
+            for episode in (1, 2, 3)
+        ]
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        assert len([op for op in result.ops if op.op_type == "move"]) == 3
+
+    def test_non_complete_associations_never_fall_back_to_filename(self):
+        payload = _batch_payload()
+        payload["file_associations"] = {
+            "version": 1, "status": "partial", "items": [],
+        }
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="请先在计划详情中补全关联"):
+            build_plan(payload, _batch_files(), [rule], [lib])
+
     def test_per_file_dst(self):
         lib = _library("lib-anime", "/data/tv_anime")
         rule = _rule("anime", 10, lib.id, PRESET_TV)
@@ -546,13 +650,23 @@ class TestMovie:
         (op,) = result.ops
         assert op.dst == "/data/movies/Horror/哈姆奈特 (2025)/哈姆奈特 (2025).mkv"
 
-    def test_template_with_category_placeholder_unresolved(self):
+    def test_template_with_category_placeholder_uses_first_genre(self):
         lib = _library("lib-movies", "/data/movies", kind="movie")
         rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
         files = [DiskFile("/d/movie.mkv", 8000, "movie.mkv")]
         result = build_plan(HAMNET_PAYLOAD, files, [rule], [lib])
-        assert result.needs_category
+        assert not result.needs_category
         assert result.rule is rule
+        assert result.category == "Horror"
+        assert result.ops[0].dst.startswith("/data/movies/Horror/")
+
+    def test_template_with_category_placeholder_unresolved_without_genre(self):
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        files = [DiskFile("/d/movie.mkv", 8000, "movie.mkv")]
+        payload = {**HAMNET_PAYLOAD, "work": {**HAMNET_PAYLOAD["work"], "genre": []}}
+        result = build_plan(payload, files, [rule], [lib])
+        assert result.needs_category
         assert result.ops == []
 
     def test_template_with_category_placeholder_resolved(self):

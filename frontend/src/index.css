@@ -553,6 +553,77 @@ a:hover {
 }
 
 /* Responsive: stack everything vertically on smaller screens */
+.pending-resource-confirmation {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(520px, 1.4fr);
+  gap: 16px;
+  align-items: stretch;
+  padding: 12px;
+  border: 1px solid var(--rr-border-soft);
+  border-radius: 8px;
+  background: var(--rr-surface-elevated);
+}
+
+.pending-resource-summary {
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.pending-resource-inspect {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.pending-resource-inspect .ant-btn:first-child {
+  padding-left: 0;
+}
+
+.pending-resource-quick-form {
+  padding: 10px 12px;
+  border-left: 3px solid var(--rr-primary);
+  border-radius: 6px;
+  background: var(--rr-primary-soft);
+}
+
+.pending-resource-quick-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 8px;
+}
+
+.pending-resource-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pending-resource-fields label {
+  display: flex;
+  flex: 1 1 92px;
+  min-width: 82px;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--rr-text-muted);
+  font-size: 11px;
+}
+
+.pending-resource-fields label:nth-child(3) {
+  flex-basis: 128px;
+}
+
+.pending-resource-fields .ant-input-number {
+  width: 100%;
+}
+
+@media (max-width: 1000px) {
+  .pending-resource-confirmation {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1200px) {
   .channel-form-layout {
     flex-direction: column;

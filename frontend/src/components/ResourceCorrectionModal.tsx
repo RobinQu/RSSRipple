@@ -8,6 +8,7 @@ interface ResourceCorrectionModalProps {
   open: boolean;
   onClose: () => void;
   onSaved?: (updated: FileResource) => void;
+  initialStep?: number;
 }
 
 /** Thin modal host for the unified five-step edit wizard. All actions live inside
@@ -17,6 +18,7 @@ export default function ResourceCorrectionModal({
   open,
   onClose,
   onSaved,
+  initialStep = 0,
 }: ResourceCorrectionModalProps) {
   const { t } = useTranslation();
   const screens = Grid.useBreakpoint();
@@ -43,6 +45,7 @@ export default function ResourceCorrectionModal({
       {resourceId !== null && (
         <ResourceEditWizard
           resourceId={resourceId}
+          initialStep={initialStep}
           onDone={(updated) => {
             if (updated) onSaved?.(updated);
             onClose();

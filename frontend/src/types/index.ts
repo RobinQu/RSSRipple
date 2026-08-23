@@ -129,6 +129,8 @@ export interface FileResource {
   movie?: ResourceWorkRef | null;
   metadata_matched_at: string | null;
   created_at: string;
+  // Any task ever created for this resource, regardless of origin/status.
+  has_download_task: boolean;
   // Seasons covered by a multi_season/franchise pack (from torrent content
   // analysis); drives strict content-coverage dedup server-side.
   batch_seasons?: number[] | null;
@@ -271,6 +273,7 @@ export interface AssociationUpdatePayload {
 export type BatchSuggestionScope = 'movies' | 'mixed' | 'franchise';
 
 export interface BatchSuggestionWork {
+  candidate_key?: string | null;
   title: string;
   content_type: 'tv' | 'movie';
   files: {
@@ -299,8 +302,8 @@ export interface BatchSuggestionDeterministic {
 
 // POST /resources/{id}/analyze-batch — non-persistent suggestions for the
 // wizard's file-mapping step. ``deterministic`` is always populated from the
-// listing; ``works`` is the optional LLM refinement (title-keyed, bound to
-// step-1 works client-side).
+// listing; ``works`` is the optional LLM refinement. Candidate-keyed results
+// bind by server-issued work identity; title matching is legacy fallback.
 export interface BatchSuggestion {
   deterministic: BatchSuggestionDeterministic;
   works: BatchSuggestionWork[];
@@ -1309,6 +1312,7 @@ export interface OrganizeAuditEntry {
 }
 
 export interface OrganizePlanDetail extends OrganizePlanListItem {
+  resource_id: string | null;
   /** Frozen notification snapshot (shape: app/schemas/notification.py). */
   payload: Record<string, unknown>;
   ops: OrganizePlanOp[];

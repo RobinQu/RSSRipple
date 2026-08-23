@@ -35,6 +35,7 @@ from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.webhook_delivery import WebhookDelivery
 from app.services.genre_registry import normalize_genres
@@ -55,6 +56,34 @@ def backoff_delay(attempt_count: int) -> timedelta:
     return timedelta(seconds=min(seconds, MAX_BACKOFF_SECONDS))
 
 
+def _series_payload(series: TVSeries) -> dict:
+    return {
+        "type": "series", "series_id": series.id,
+        "title_en": series.title_en, "title_cn": series.title_cn,
+        "original_title": series.original_title,
+        "year": series.start_date.year if series.start_date else None,
+        "content_type": series.content_type, "is_anime": series.is_anime,
+        "collection": series.collection.display_name if series.collection else None,
+        "genre": normalize_genres(series.genre), "seasons": series.seasons,
+        "episodes": [
+            {"season": ep.season, "episode": ep.episode, "title": ep.title}
+            for ep in series.episodes
+        ],
+    }
+
+
+def _movie_payload(movie: Movie) -> dict:
+    return {
+        "type": "movie", "movie_id": movie.id,
+        "title_en": movie.title_en, "title_cn": movie.title_cn,
+        "original_title": movie.original_title,
+        "year": movie.release_date.year if movie.release_date else None,
+        "content_type": movie.content_type, "is_anime": movie.is_anime,
+        "collection": movie.collection.display_name if movie.collection else None,
+        "genre": normalize_genres(movie.genre), "seasons": None, "episodes": None,
+    }
+
+
 def build_payload(
     notification_id: str,
     agent: Agent | None,
@@ -66,46 +95,58 @@ def build_payload(
     creation time. Later metadata changes do not affect this notification."""
     work: dict = {"type": None}
     if resource is not None and resource.series is not None:
-        series: TVSeries = resource.series
-        work = {
-            "type": "series",
-            "series_id": series.id,
-            "title_en": series.title_en,
-            "title_cn": series.title_cn,
-            "original_title": series.original_title,
-            "year": series.start_date.year if series.start_date else None,
-            "content_type": series.content_type,
-            "is_anime": series.is_anime,
-            "collection": (
-                series.collection.display_name if series.collection else None
-            ),
-            # Normalized at snapshot time so the payload always carries the
-            # closed TMDB set even for pre-unification rows.
-            "genre": normalize_genres(series.genre),
-            "seasons": series.seasons,
-            "episodes": [
-                {"season": ep.season, "episode": ep.episode, "title": ep.title}
-                for ep in series.episodes
-            ],
-        }
+        work = _series_payload(resource.series)
     elif resource is not None and resource.movie is not None:
-        movie: Movie = resource.movie
-        work = {
-            "type": "movie",
-            "movie_id": movie.id,
-            "title_en": movie.title_en,
-            "title_cn": movie.title_cn,
-            "original_title": movie.original_title,
-            "year": movie.release_date.year if movie.release_date else None,
-            "content_type": movie.content_type,
-            "is_anime": movie.is_anime,
-            "collection": (
-                movie.collection.display_name if movie.collection else None
-            ),
-            "genre": normalize_genres(movie.genre),
-            "seasons": None,
-            "episodes": None,
-        }
+        work = _movie_payload(resource.movie)
+
+    works: dict[str, dict] = {}
+    if resource is not None:
+        if resource.series is not None:
+            works[f"series:{resource.series.id}"] = _series_payload(resource.series)
+        if resource.movie is not None:
+            works[f"movie:{resource.movie.id}"] = _movie_payload(resource.movie)
+        for link in list(getattr(resource, "work_links", []) or []):
+            if link.series is not None:
+                works[f"series:{link.series.id}"] = _series_payload(link.series)
+            elif link.movie is not None:
+                works[f"movie:{link.movie.id}"] = _movie_payload(link.movie)
+
+    assignment_rows = list(getattr(resource, "file_assignments", []) or []) if resource else []
+    association_items = []
+    for row in assignment_rows:
+        work_type = "series" if row.series_id else "movie" if row.movie_id else None
+        work_id = row.series_id or row.movie_id
+        if work_type is None or work_id is None:
+            continue
+        association_items.append({
+            "file_path": row.file_path,
+            "file_size": row.file_size,
+            "work_type": work_type,
+            "work_id": work_id,
+            "season": row.season,
+            "episode_start": row.episode_start,
+            "episode_end": row.episode_end,
+            "source": row.source,
+        })
+    if assignment_rows:
+        expected_paths: set[str] = set()
+        if torrent_info is not None and torrent_info.get("files"):
+            from app.services.torrent_inspect import analyze_torrent_files
+
+            expected_paths = {
+                row["path"] for row in analyze_torrent_files(
+                    torrent_info["files"]
+                ).file_parses
+            }
+        bound_paths = {item["file_path"] for item in association_items}
+        association_status = (
+            "complete"
+            if len(association_items) == len(assignment_rows)
+            and (not expected_paths or expected_paths <= bound_paths)
+            else "partial"
+        )
+    else:
+        association_status = "unavailable"
 
     payload = {
         "notification_id": notification_id,
@@ -116,6 +157,7 @@ def build_payload(
             "torrent_name": (torrent_info or {}).get("name"),
         },
         "resource": {
+            "id": getattr(resource, "id", None) if resource else None,
             "title_raw": resource.title_raw if resource else None,
             "season": resource.season if resource else None,
             "episode": resource.episode if resource else None,
@@ -138,6 +180,12 @@ def build_payload(
             "title_year": resource.title_year if resource else None,
         },
         "work": work,
+        "works": works,
+        "file_associations": {
+            "version": 1,
+            "status": association_status,
+            "items": association_items,
+        },
     }
     if torrent_info is not None:
         payload["files"] = torrent_info.get("files")
@@ -154,6 +202,17 @@ async def _load_resource(db, file_resource_id: str) -> FileResource | None:
             selectinload(FileResource.movie).selectinload(Movie.collection),
             # 资源级合集（franchise 包）进快照供 organize 规则 DSL 求值。
             selectinload(FileResource.collection),
+            selectinload(FileResource.file_assignments),
+            selectinload(FileResource.work_links),
+            selectinload(FileResource.work_links)
+            .selectinload(ResourceWorkLink.series)
+            .selectinload(TVSeries.episodes),
+            selectinload(FileResource.work_links)
+            .selectinload(ResourceWorkLink.series)
+            .selectinload(TVSeries.collection),
+            selectinload(FileResource.work_links)
+            .selectinload(ResourceWorkLink.movie)
+            .selectinload(Movie.collection),
         )
     )
     return (await db.execute(stmt)).scalar_one_or_none()
@@ -210,6 +269,20 @@ async def _build_snapshot(
                     "[notify] file listing for torrent %s unavailable: %s",
                     task.transmission_torrent_id, e,
                 )
+    if resource is not None and torrent_info is not None:
+        files = torrent_info.get("files") or []
+        if files:
+            from app.services.batch_content_analysis import (
+                apply_auto_assignments,
+                bind_single_work_assignments,
+            )
+            from app.services.torrent_inspect import analyze_torrent_files
+
+            report = analyze_torrent_files(files)
+            apply_auto_assignments(resource, report)
+            await db.flush()
+            await bind_single_work_assignments(db, resource)
+
     return (
         build_payload(notification_id, agent, task, resource, torrent_info),
         torrent_info is not None,
@@ -508,6 +581,55 @@ async def regenerate_notifications(
         except Exception as e:
             logger.warning("[notify] organize replan after regenerate failed: %s", e)
     return stats
+
+
+async def regenerate_resource_notifications(db, resource_id: str) -> dict:
+    """Refresh frozen snapshots and open organize plans for one resource.
+
+    Used after manual file-association edits. Existing snapshot files are a
+    safe fallback when downloader RPC is unavailable: only metadata and
+    associations are refreshed, while the established manifest is retained.
+    """
+    tasks = (await db.execute(
+        select(DownloadTask).where(
+            DownloadTask.file_resource_id == resource_id,
+            DownloadTask.status == "completed",
+        )
+    )).scalars().all()
+    touched: list[DownloadNotification] = []
+    for task in tasks:
+        notification = (await db.execute(
+            select(DownloadNotification)
+            .where(DownloadNotification.download_task_id == task.id)
+            .options(selectinload(DownloadNotification.deliveries))
+        )).scalar_one_or_none()
+        if notification is None:
+            continue
+        payload, has_snapshot = await _build_snapshot(db, task, notification.id)
+        if not has_snapshot:
+            old = notification.payload or {}
+            old_files = old.get("files")
+            if not old_files:
+                continue
+            resource = await _load_resource(db, resource_id)
+            payload = build_payload(
+                notification.id,
+                await db.get(Agent, task.agent_id) if task.agent_id else None,
+                task,
+                resource,
+                {
+                    "name": (old.get("task") or {}).get("torrent_name"),
+                    "files": old_files,
+                },
+            )
+        notification.payload = payload
+        touched.append(notification)
+    await db.commit()
+    if touched:
+        from app.services.organize_service import plan_for_notifications
+
+        await plan_for_notifications(db, touched)
+    return {"regenerated": len(touched)}
 
 
 async def reset_deliveries_for_retry(

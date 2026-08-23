@@ -318,6 +318,136 @@ async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
+# Interactive batch-file analysis
+# ---------------------------------------------------------------------------
+
+async def _handle_analyze_batch_files(payload: dict) -> dict:
+    """Resolve a torrent listing and run its file/work LLM analysis."""
+    from app.api.v1.resources import _resolve_resource_files, _store_batch_analysis
+    from app.models.file_resource import FileResource
+    from app.services import task_queue as task_queue_module
+    from app.services.batch_content_analysis import (
+        _valid_paths,
+        analyze_listing_stream,
+        build_candidate_works,
+        resolve_fractional_specials,
+    )
+    from app.services.torrent_inspect import analyze_torrent_files
+
+    await _refresh_runtime_config()
+    resource_id: str = payload["resource_id"]
+    fingerprint: str = payload["fingerprint"]
+    job_key: str = payload["job_key"]
+    output = ""
+
+    async def progress(message: str, **extra) -> None:
+        await task_queue_module.task_queue.update_progress(job_key, {
+            "message": message, "output": output, **extra,
+        })
+
+    async with committed_session() as session:
+        resource = await session.get(FileResource, resource_id)
+        if resource is None:
+            raise RuntimeError(f"Resource {resource_id} not found")
+        files, source = await _resolve_resource_files(session, resource)
+        candidate_works = await build_candidate_works(session, resource)
+        await progress("正在解析 torrent 文件清单")
+        if not files:
+            result = {"suggestion": None, "listing_source": source}
+            await _store_batch_analysis(fingerprint, result)
+            return result
+
+        report = analyze_torrent_files(files)
+        if resource.series_id and resource.season is not None:
+            for parsed in report.file_parses:
+                if parsed["season"] is None and parsed["episode"] is not None:
+                    parsed["season"] = resource.season
+        if resource.series_id:
+            overrides = await resolve_fractional_specials(
+                session, resource.series_id, [item["name"] for item in files],
+            )
+            for parsed in report.file_parses:
+                special_episode = overrides.get(parsed["path"])
+                if special_episode is not None:
+                    parsed["season"] = 0
+                    parsed["episode"] = special_episode
+
+        grouped_episodes: dict[int, list[int]] = {}
+        for parsed in report.file_parses:
+            if parsed["season"] is not None and parsed["episode"] is not None:
+                grouped_episodes.setdefault(parsed["season"], []).append(parsed["episode"])
+        season_ranges = [
+            {"season": season, "episode_start": min(episodes), "episode_end": max(episodes)}
+            for season, episodes in sorted(grouped_episodes.items())
+        ]
+
+        deterministic = {
+            "scope_hint": report.scope,
+            "seasons": sorted({
+                fp["season"] for fp in report.file_parses if fp["season"] is not None
+            }),
+            "season_ranges": season_ranges,
+            "files": report.file_parses,
+            "clusters": [
+                {"title": cluster.title, "files": list(cluster.files)}
+                for cluster in report.clusters
+            ],
+        }
+        await progress(
+            f"已完成确定性解析：{len(report.file_parses)} 个媒体文件",
+            deterministic=deterministic,
+        )
+        listing = [{"name": fp["path"], "size": fp.get("size")} for fp in report.file_parses]
+        llm_works = []
+        if listing:
+            await progress("正在请求 LLM 分析作品归属", deterministic=deterministic)
+            title = resource.search_title or resource.title_cn or resource.title_raw
+            async for kind, value in analyze_listing_stream(
+                title, listing, [cluster.title for cluster in report.clusters],
+                candidate_works,
+            ):
+                if kind == "delta":
+                    output = f"{output}{value}"[-50_000:]
+                    await progress("正在请求 LLM 分析作品归属", deterministic=deterministic)
+                elif kind == "result" and value:
+                    llm_works = _valid_paths(
+                        value, {fp["path"] for fp in report.file_parses}, candidate_works,
+                    )
+
+        # Merge validated LLM season/episode placements back into the
+        # deterministic view. This preserves one canonical file list for the
+        # wizard and makes season_ranges reflect the complete analysis.
+        parsed_by_path = {fp["path"]: fp for fp in deterministic["files"]}
+        for work in llm_works:
+            for placement in work["files"]:
+                parsed = parsed_by_path.get(placement["path"])
+                if parsed is None:
+                    continue
+                if parsed["season"] is None and placement["season"] is not None:
+                    parsed["season"] = placement["season"]
+                if parsed["episode"] is None:
+                    start, end = placement["episode_start"], placement["episode_end"]
+                    if start is not None and start == end:
+                        parsed["episode"] = start
+        merged: dict[int, list[int]] = {}
+        for parsed in deterministic["files"]:
+            if parsed["season"] is not None and parsed["episode"] is not None:
+                merged.setdefault(parsed["season"], []).append(parsed["episode"])
+        deterministic["seasons"] = sorted(merged)
+        deterministic["season_ranges"] = [
+            {"season": season, "episode_start": min(episodes), "episode_end": max(episodes)}
+            for season, episodes in sorted(merged.items())
+        ]
+
+        result = {
+            "suggestion": {"deterministic": deterministic, "works": llm_works},
+            "listing_source": source,
+        }
+        await _store_batch_analysis(fingerprint, result)
+        return {**result, "output": output}
+
+
+# ---------------------------------------------------------------------------
 # Periodic scheduler jobs (enqueued by the scheduler's thin wrappers, executed
 # here by the queue consumer)
 # ---------------------------------------------------------------------------
@@ -378,6 +508,14 @@ async def _handle_download_notifications(payload: dict) -> dict:
     return {"status": "done"}
 
 
+async def _handle_refresh_resource_organize(payload: dict) -> dict:
+    from app.services.notify_service import regenerate_resource_notifications
+
+    await _refresh_runtime_config()
+    async with committed_session() as session:
+        return await regenerate_resource_notifications(session, payload["resource_id"])
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -393,6 +531,7 @@ def register_all_handlers(queue) -> None:
     queue.register("run_agent", _handle_run_agent)
     queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
     queue.register("backfill_metadata", _handle_backfill_metadata)
+    queue.register("analyze_batch_files", _handle_analyze_batch_files)
     queue.register("sync_progress", _handle_sync_progress)
     queue.register("daily_cleanup", _handle_daily_cleanup)
     queue.register("daily_dedup", _handle_daily_dedup)
@@ -400,3 +539,4 @@ def register_all_handlers(queue) -> None:
     queue.register("fts_drain", _handle_fts_drain)
     queue.register("fts_reconcile", _handle_fts_reconcile)
     queue.register("download_notifications", _handle_download_notifications)
+    queue.register("refresh_resource_organize", _handle_refresh_resource_organize)

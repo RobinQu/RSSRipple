@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import {
   App,
   Button,
@@ -15,6 +16,7 @@ import {
 import { organizeApi } from '../api/organize';
 import StatusBadge from './StatusBadge';
 import OrganizeOpPaths from './OrganizeOpPaths';
+import ResourceCorrectionModal from './ResourceCorrectionModal';
 import { confirmCancelPlan } from './cancelPlanConfirm';
 import { formatBytes, formatDate, timeAgo } from '../utils/format';
 import type { Library, OrganizePlanDetail } from '../types';
@@ -23,15 +25,23 @@ const { Text } = Typography;
 
 // The frozen notification snapshot is loosely typed (extra keys allowed);
 // pull the display fields out defensively.
-function payloadWorkTitle(payload: Record<string, unknown>): string | null {
+function payloadWorkLinks(payload: Record<string, unknown>) {
   const work = payload.work as Record<string, unknown> | undefined;
-  if (!work) return null;
-  return (
-    (work.title_cn as string) ||
-    (work.title_en as string) ||
-    (work.original_title as string) ||
-    null
-  );
+  const works = payload.works as Record<string, Record<string, unknown>> | undefined;
+  const source = works && Object.keys(works).length > 0
+    ? Object.entries(works)
+    : work ? [['legacy', work] as const] : [];
+  return source.flatMap(([key, item]) => {
+    const title = (item.title_cn || item.title_en || item.original_title) as string | undefined;
+    const seriesId = item.series_id as string | undefined;
+    const movieId = item.movie_id as string | undefined;
+    if (!title) return [];
+    return [{
+      key,
+      title,
+      href: seriesId ? `/series/${seriesId}` : movieId ? `/movies/${movieId}` : null,
+    }];
+  });
 }
 
 function payloadResourceTitle(payload: Record<string, unknown>): string | null {
@@ -73,6 +83,7 @@ export default function OrganizePlanDrawer({
   const [acting, setActing] = useState(false);
   const [classifyLibraryId, setClassifyLibraryId] = useState<string | undefined>();
   const [classifyCategory, setClassifyCategory] = useState('');
+  const [associationEditorOpen, setAssociationEditorOpen] = useState(false);
 
   const fetchDetail = useCallback(async () => {
     if (!planId) return;
@@ -88,6 +99,13 @@ export default function OrganizePlanDrawer({
     setClassifyCategory('');
     fetchDetail();
   }, [fetchDetail]);
+
+  useEffect(() => {
+    if (!detail) return;
+    setClassifyLibraryId(detail.library_id ?? undefined);
+    const work = detail.payload.work as { genre?: string[] | null } | undefined;
+    setClassifyCategory(detail.category ?? work?.genre?.[0] ?? '');
+  }, [detail]);
 
   // Execution runs in the background (202): re-poll shortly after triggering
   // so the drawer/list converge to the final status without a manual refresh.
@@ -158,6 +176,7 @@ export default function OrganizePlanDrawer({
   };
 
   const filesCount = detail ? payloadFilesCount(detail.payload) : null;
+  const workLinks = detail ? payloadWorkLinks(detail.payload) : [];
 
   return (
     <Drawer
@@ -166,6 +185,28 @@ export default function OrganizePlanDrawer({
       width={760}
       title={t('organize.detail')}
       loading={loading && !detail}
+      footer={actionable && detail ? (
+        <Space size={8} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button danger onClick={handleCancel} disabled={acting}>
+            {t('organize.cancelAssociation')}
+          </Button>
+          <Button
+            type="primary"
+            onClick={handleExecute}
+            loading={acting}
+            disabled={detail.library_id === null || detail.pending_reason === 'unbound'}
+            title={
+              detail.library_id === null
+                ? t('organize.executeNeedsClassify')
+                : detail.pending_reason === 'unbound'
+                  ? t('organize.executeNeedsBinding')
+                  : undefined
+            }
+          >
+            {t('organize.execute')}
+          </Button>
+        </Space>
+      ) : null}
     >
       {detail && (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -205,7 +246,15 @@ export default function OrganizePlanDrawer({
 
           <Descriptions size="small" column={1} bordered title={t('organize.payload')}>
             <Descriptions.Item label={t('organize.work')}>
-              {payloadWorkTitle(detail.payload) ?? t('common.unknown')}
+              {workLinks.length > 0 ? (
+                <Space size={[8, 4]} wrap>
+                  {workLinks.map((item) => (
+                    item.href
+                      ? <Link key={item.key} to={item.href}>{item.title}</Link>
+                      : <Text key={item.key}>{item.title}</Text>
+                  ))}
+                </Space>
+              ) : t('common.unknown')}
             </Descriptions.Item>
             <Descriptions.Item label={t('organize.resource')}>
               {payloadResourceTitle(detail.payload) ?? t('format.dash')}
@@ -215,27 +264,10 @@ export default function OrganizePlanDrawer({
             </Descriptions.Item>
           </Descriptions>
 
-          {actionable && (
-            <Space size={8} wrap>
-              <Button
-                type="primary"
-                onClick={handleExecute}
-                loading={acting}
-                disabled={detail.library_id === null || detail.pending_reason === 'unbound'}
-                title={
-                  detail.library_id === null
-                    ? t('organize.executeNeedsClassify')
-                    : detail.pending_reason === 'unbound'
-                      ? t('organize.executeNeedsBinding')
-                      : undefined
-                }
-              >
-                {t('organize.execute')}
-              </Button>
-              <Button danger onClick={handleCancel}>
-                {t('organize.cancelPlan')}
-              </Button>
-            </Space>
+          {classifiable && detail.resource_id && (
+            <Button onClick={() => setAssociationEditorOpen(true)}>
+              {t('organize.editFileAssociations')}
+            </Button>
           )}
 
           {classifiable && (
@@ -322,6 +354,17 @@ export default function OrganizePlanDrawer({
           </div>
         </Space>
       )}
+      <ResourceCorrectionModal
+        resourceId={detail?.resource_id ?? null}
+        open={associationEditorOpen}
+        initialStep={1}
+        onClose={() => setAssociationEditorOpen(false)}
+        onSaved={() => {
+          message.success(t('organize.associationsRefreshQueued'));
+          setAssociationEditorOpen(false);
+          refreshLater();
+        }}
+      />
     </Drawer>
   );
 }

@@ -108,6 +108,9 @@
     "llmSearch": "LLM 搜索",
     "localMatch": "本地匹配",
     "fetchNow": "手动抓取",
+    "fetchConfirmTitle": "确认手动抓取",
+    "fetchConfirmContent": "默认仅抓取新条目。勾选重新抓取后，将跳过缓存，重新查询该频道全部既有条目的 metadata，并重新分析可用的 torrent 文件关联。",
+    "refetchAllMetadata": "重新抓取所有条目的 metadata",
     "fetchTriggerFailed": "抓取触发失败",
     "fetching": "抓取中...",
     "notFound": "频道未找到",
@@ -257,6 +260,7 @@
     "requiredFieldLock_tv_batch": "合集剧集必填",
     "requiredFieldLock_franchise": "多作品合集必填",
     "tagBatch": "合集",
+    "tagDownloaded": "已下载",
     "requiredFieldGroup_title": "标题信息",
     "requiredFieldGroup_episode": "集数信息",
     "requiredFieldGroup_release": "发布信息",
@@ -701,6 +705,11 @@
     "filesEmpty": "暂无文件清单",
     "filesLoadFailed": "加载文件清单失败",
     "correct": "修订",
+    "fullCorrection": "完整修订",
+    "quickEpisodeTitle": "快速确认单集信息",
+    "quickEpisodeHint": "仅修正季集信息；作品关联、合集或媒体字段请使用完整修订。",
+    "absoluteEpisodeShort": "绝对集号（可选）",
+    "confirmEpisode": "确认季集",
     "correctTitle": "修订解析字段",
     "isBatch": "合集",
     "batchScope": "合集范围",
@@ -780,7 +789,9 @@
     "allMappedHint": "所有文件都已映射",
     "resourceId": "资源 ID",
     "copyResourceId": "复制资源 ID",
-    "idCopied": "资源 ID 已复制"
+    "idCopied": "资源 ID 已复制",
+    "analysisPreparing": "正在准备文件解析",
+    "analysisWaiting": "等待 LLM 输出…"
   },
   "metadata": {
     "correctTitle": "修正元数据",
@@ -1376,6 +1387,7 @@
     "executeFailed": "执行失败",
     "batchSubmitted": "已提交 {count} 个计划执行",
     "cancelPlan": "取消计划",
+    "cancelAssociation": "取消关联",
     "cancelConfirm": "确认取消该计划？",
     "cancelDeleteTask": "同时删除下载任务（保留磁盘文件）",
     "cancelDeleteData": "同时删除磁盘上的已下载文件（不可恢复）",
@@ -1386,6 +1398,8 @@
     "classified": "分类已保存，目标路径已重渲染",
     "classifyFailed": "分类失败",
     "selectLibrary": "选择媒体库",
-    "audit": "审计时间线"
+    "audit": "审计时间线",
+    "editFileAssociations": "编辑文件关联",
+    "associationsRefreshQueued": "文件关联已保存，正在后台刷新变更计划"
   }
 }

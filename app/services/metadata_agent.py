@@ -645,13 +645,11 @@ class UnifiedMetadataAgent:
         # keyed by raw_title; this index IS the cross-title cache) - the
         # resource is marked matched so the backfill won't revisit it.
         #
-        # Fires even on force_refresh: force_refresh bypasses the *cache* (a
-        # possibly-stale result), but the title index is live/current, so a
-        # matching resource is linked correctly without an LLM call. This lets
-        # the backfill (which uses force_refresh) short-circuit resources that
-        # now match a known work (e.g. after a title cleanup) instead of
-        # re-running the full agent for each.
-        known = await self._find_known_work(resource, db)
+        # A user-requested force refresh must also bypass this live title
+        # index. Otherwise an already-linked work with missing metadata (for
+        # example start_date/release_date, which supplies the required year)
+        # would be relinked locally without ever querying the metadata source.
+        known = None if force_refresh else await self._find_known_work(resource, db)
         if known is not None:
             work_type, work_id = known
             if work_type == "movie":

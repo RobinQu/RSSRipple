@@ -135,6 +135,9 @@ def test_parse_no_info_dict_returns_none(tmp_path):
     ("作品X/第2季/作品X 第03話.mkv", (2, 3)),
     ("Movie.2024.1080p.WEB-DL.mkv", (None, None)),
     ("Show S01E12v2.mkv", (1, 12)),
+    ("Show SP03.mkv", (0, 3)),
+    ("Show OVA 02.mkv", (0, 2)),
+    ("Hyouka. TV (2012) 22; BD_1080P.mkv", (None, 22)),
     # Batch range in the directory must NOT be read as episode 12.
     ("Show S01 01-12/Show S01E07.mkv", (1, 7)),
 ])
@@ -656,6 +659,67 @@ def test_extract_path_season_from_dir_and_bare_number_filename():
     assert extract_season_episode_from_path("Movie 2001.mkv") == (None, None)
 
 
+async def test_post_metadata_pass_binds_auto_assignments_to_single_series(
+    db_session, sample_channel,
+):
+    """Torrent rows are created before metadata; the post-link pass closes it."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+    from app.services.batch_content_analysis import bind_single_work_assignments
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="葬送的芙莉莲")
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+        title_raw="Frieren S01+S02", torrent_url="https://x/f.torrent",
+        is_batch=True, batch_scope="multi_season", series_id=series.id,
+    )
+    assignment = ResourceFileAssignment(
+        resource_id=resource.id, file_path="S01/Frieren.S01E01.mkv",
+        season=1, episode_start=1, episode_end=1, source="auto",
+    )
+    db_session.add_all([series, resource, assignment])
+    await db_session.commit()
+
+    assert await bind_single_work_assignments(db_session, resource) == 1
+    await db_session.commit()
+    await db_session.refresh(assignment)
+    assert assignment.series_id == series.id
+    assert assignment.movie_id is None
+
+
+async def test_fractional_release_episode_maps_to_specials_season(
+    db_session, sample_channel,
+):
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+    from app.services.batch_content_analysis import bind_single_work_assignments
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="冰菓")
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+        title_raw="冰菓 TV+OVA", torrent_url="https://x/hyouka.torrent",
+        is_batch=True, batch_scope="season", series_id=series.id,
+    )
+    assignment = ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="TV 2012/Hyouka. TV (2012) 11.5; BD_1080P.mkv",
+        source="auto",
+    )
+    db_session.add_all([series, resource, assignment])
+    await db_session.commit()
+
+    assert await bind_single_work_assignments(db_session, resource) == 1
+    await db_session.commit()
+    await db_session.refresh(assignment)
+    assert (assignment.season, assignment.episode_start, assignment.episode_end) == (0, 1, 1)
+
+
 def test_normalize_fields_subtitle_group_and_bare_resolution_fallbacks():
     from app.services.resource_parser import normalize_parsed_fields
 
@@ -699,3 +763,51 @@ def test_apply_auto_assignments_and_season_ranges():
     ranges = bca.compute_season_ranges(resource)
     assert {"season": 1, "episode_start": 1, "episode_end": 28} in ranges
     assert {"season": 2, "episode_start": 1, "episode_end": 12} in ranges
+
+
+def test_llm_single_episode_and_multi_episode_range_are_normalized():
+    import app.services.batch_content_analysis as bca
+
+    data = {
+        "works": [{
+            "title": "Frieren",
+            "content_type": "tv",
+            "files": [
+                {"path": "S01E01.mkv", "season": 1, "episode": 1,
+                 "episode_start": None, "episode_end": None},
+                {"path": "S01E02-E03.mkv", "season": 1, "episode": None,
+                 "episode_start": 2, "episode_end": 3},
+                {"path": "broken.mkv", "season": 1, "episode": None,
+                 "episode_start": 4, "episode_end": None},
+            ],
+        }],
+    }
+
+    works = bca._valid_paths(
+        data, {"S01E01.mkv", "S01E02-E03.mkv", "broken.mkv"},
+    )
+    files = works[0]["files"]
+    assert (files[0]["episode_start"], files[0]["episode_end"]) == (1, 1)
+    assert (files[1]["episode_start"], files[1]["episode_end"]) == (2, 3)
+    assert (files[2]["episode_start"], files[2]["episode_end"]) == (None, None)
+
+
+def test_llm_candidate_key_is_server_validated():
+    import app.services.batch_content_analysis as bca
+
+    candidates = [{
+        "candidate_key": "series:known", "work_type": "series", "work_id": "known",
+        "titles": ["〈古典部〉シリーズ", "Hyouka"],
+    }]
+    valid = bca._valid_paths({"works": [{
+        "candidate_key": "series:known", "title": "Hyouka", "content_type": "tv",
+        "files": [{"path": "01.mkv", "season": 1, "episode": 1}],
+    }]}, {"01.mkv"}, candidates)
+    assert valid[0]["candidate_key"] == "series:known"
+    assert valid[0]["content_type"] == "tv"
+
+    invented = bca._valid_paths({"works": [{
+        "candidate_key": "series:invented", "title": "Hyouka", "content_type": "tv",
+        "files": [{"path": "01.mkv", "season": 1, "episode": 1}],
+    }]}, {"01.mkv"}, candidates)
+    assert invented == []

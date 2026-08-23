@@ -109,6 +109,9 @@
     "llmSearch": "LLM Search",
     "localMatch": "Local Match",
     "fetchNow": "Fetch Now",
+    "fetchConfirmTitle": "Confirm manual fetch",
+    "fetchConfirmContent": "By default, only new items are fetched. Enable re-fetching to bypass the cache, query metadata again for every existing item in this channel, and rebuild available torrent file associations.",
+    "refetchAllMetadata": "Re-fetch metadata for every item",
     "fetchTriggerFailed": "Fetch trigger failed",
     "fetching": "Fetching...",
     "notFound": "Channel not found",
@@ -257,6 +260,7 @@
     "requiredFieldLock_tv_batch": "Required for batch packs",
     "requiredFieldLock_franchise": "Required for multi-work packs",
     "tagBatch": "Batch",
+    "tagDownloaded": "Downloaded",
     "requiredFieldGroup_title": "Title",
     "requiredFieldGroup_episode": "Episode",
     "requiredFieldGroup_release": "Release",
@@ -701,6 +705,11 @@
     "filesEmpty": "No file list",
     "filesLoadFailed": "Failed to load the file list",
     "correct": "Correct",
+    "fullCorrection": "Full edit",
+    "quickEpisodeTitle": "Quick episode confirmation",
+    "quickEpisodeHint": "Only updates season and episode data. Use Full edit for works, batches, or media fields.",
+    "absoluteEpisodeShort": "Absolute (optional)",
+    "confirmEpisode": "Confirm episode",
     "correctTitle": "Correct Parsed Fields",
     "isBatch": "Batch",
     "batchScope": "Batch scope",
@@ -780,7 +789,9 @@
     "allMappedHint": "All files are mapped",
     "resourceId": "Resource ID",
     "copyResourceId": "Copy resource ID",
-    "idCopied": "Resource ID copied"
+    "idCopied": "Resource ID copied",
+    "analysisPreparing": "Preparing file analysis",
+    "analysisWaiting": "Waiting for LLM output…"
   },
   "metadata": {
     "correctTitle": "Correct Metadata",
@@ -1377,6 +1388,7 @@
     "executeFailed": "Execution failed",
     "batchSubmitted": "Submitted {count} plans for execution",
     "cancelPlan": "Cancel",
+    "cancelAssociation": "Cancel association",
     "cancelConfirm": "Cancel this plan?",
     "cancelDeleteTask": "Also delete the download task (keep files on disk)",
     "cancelDeleteData": "Also delete downloaded files on disk (unrecoverable)",
@@ -1387,6 +1399,8 @@
     "classified": "Classification saved; destinations re-rendered",
     "classifyFailed": "Failed to classify plan",
     "selectLibrary": "Select a library",
-    "audit": "Audit Timeline"
+    "audit": "Audit Timeline",
+    "editFileAssociations": "Edit file associations",
+    "associationsRefreshQueued": "File associations saved; the plan is refreshing in the background"
   }
 }

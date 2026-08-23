@@ -71,6 +71,9 @@ class FileResourceResponse(BaseModel):
     # ``collection_id`` is non-null.
     collection: Any | None = Field(default=None, exclude=True)
     collection_name: str | None = None
+    # True once any DownloadTask has ever been created for this resource,
+    # regardless of task origin or current status.
+    has_download_task: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -335,4 +338,3 @@ class ResourceFilesResponse(BaseModel):
     source: Literal[
         "torrent_cache", "torrent_fetch", "downloader", "notification", "none"
     ] = "none"
-

@@ -33,8 +33,11 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
+from app.models.episode import Episode
+from app.models.movie import Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
+from app.models.series import TVSeries
 from app.services.runtime_config import runtime_config
 from app.services.torrent_inspect import TorrentReport
 
@@ -87,9 +90,10 @@ def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> Non
     - previous ``auto`` rows whose path vanished from the listing are removed
       (``manual`` / ``llm`` rows are kept).
 
-    No-op for non-batch reports.
+    Applies to every report with main-video parses. Single TV/movie releases
+    need the same durable file identity as batches for downstream organize.
     """
-    if not report.is_batch:
+    if not report.file_parses:
         return
 
     hint_by_path: dict[str, str] = {}
@@ -159,11 +163,12 @@ Return ONLY a JSON object with this exact shape:
   "scope": "<see below>",
   "works": [
     {
+      "candidate_key": "<exact supplied candidate_key, or null>",
       "title": "<clean work title, no release tags>",
       "content_type": "<tv | movie>",
       "files": [
         {"path": "<exact path from the listing>", "season": <int|null>, \
-"episode_start": <int|null>, "episode_end": <int|null>}
+"episode": <int|null>, "episode_start": <int|null>, "episode_end": <int|null>}
       ]
     }
   ]
@@ -175,11 +180,18 @@ Rules:
 distinct TV series bundled together).
 - Every video file path you output MUST be copied EXACTLY from the listing and \
 appear exactly once across all works' files.
+- When candidate works are supplied, reuse their exact candidate_key whenever \
+the file belongs to one of them. Never invent or alter a candidate_key; title \
+is only a display hint and candidate_key is the identity.
 - Ignore sample/trailer/extra files that were excluded from the listing.
 - For tv files, set season whenever it is determinable from the file name or \
 its directory; use null only when truly unknown.
-- Set episode_start/episode_end from episode markers in the file name; a plain \
-single episode has start == end.
+- For an ordinary file containing exactly one TV episode, set "episode" and \
+leave episode_start/episode_end null. This is the normal case.
+- Use episode_start and episode_end only when one physical video file really \
+contains a consecutive multi-episode range (for example E01-E02 burned into \
+one file); then leave episode null. Never use a range merely because the \
+torrent itself is a season pack.
 - Clean titles: drop bracketed release tags, resolution/codec tokens, subtitle \
 group names, season/episode markers."""
 
@@ -207,7 +219,8 @@ def _parse_llm_json(text: str) -> dict[str, Any]:
 
 
 async def analyze_listing(
-    resource_title: str, files: list[dict], anchor_titles: list[str]
+    resource_title: str, files: list[dict], anchor_titles: list[str],
+    candidate_works: list[dict] | None = None,
 ) -> dict[str, Any] | None:
     """One LLM call classifying the listing. Returns None on any failure.
 
@@ -225,10 +238,15 @@ async def analyze_listing(
             "\nDeterministic top-level clusters detected by path analysis "
             "(hints, verify them):\n" + "\n".join(f"- {t}" for t in anchor_titles)
         )
+    candidates = (
+        "\nCandidate works (reuse exact candidate_key):\n"
+        + json.dumps(candidate_works, ensure_ascii=False)
+        if candidate_works else ""
+    )
     user = (
         f"Release title: {resource_title}\n\n"
         f"File listing ({min(len(files), _MAX_LISTING_ENTRIES)} entries):\n"
-        f"{_build_listing_text(files)}{anchors}"
+        f"{_build_listing_text(files)}{anchors}{candidates}"
     )
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -260,14 +278,224 @@ async def analyze_listing(
     return data
 
 
-def _valid_paths(data: dict[str, Any], known: set[str]) -> list[dict]:
+async def analyze_listing_stream(
+    resource_title: str, files: list[dict], anchor_titles: list[str],
+    candidate_works: list[dict] | None = None,
+):
+    """Stream the optional LLM's raw output, then yield its parsed result.
+
+    Events are ``("delta", text)``, ``("result", dict|None)`` and
+    ``("error", message)``.  The caller already owns the deterministic
+    report, so every LLM failure is a visible, non-fatal degradation.
+    """
+    if not runtime_config.llm_api_key:
+        yield "result", None
+        return
+    anchors = ""
+    if anchor_titles:
+        anchors = (
+            "\nDeterministic top-level clusters detected by path analysis "
+            "(hints, verify them):\n" + "\n".join(f"- {t}" for t in anchor_titles)
+        )
+    candidates = (
+        "\nCandidate works (reuse exact candidate_key):\n"
+        + json.dumps(candidate_works, ensure_ascii=False)
+        if candidate_works else ""
+    )
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": (
+            f"Release title: {resource_title}\n\n"
+            f"File listing ({min(len(files), _MAX_LISTING_ENTRIES)} entries):\n"
+            f"{_build_listing_text(files)}{anchors}{candidates}"
+        )},
+    ]
+    raw_parts: list[str] = []
+    try:
+        import httpx as _httpx
+        from openai import AsyncOpenAI as _AsyncOpenAI
+
+        client = _AsyncOpenAI(
+            api_key=runtime_config.llm_api_key,
+            base_url=runtime_config.llm_base_url,
+            timeout=_httpx.Timeout(60.0, connect=5.0),
+        )
+        stream = await client.chat.completions.create(
+            model=runtime_config.llm_model,
+            messages=messages,
+            temperature=0.1,
+            stream=True,
+            extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                raw_parts.append(delta)
+                yield "delta", delta
+        data = _parse_llm_json("".join(raw_parts))
+        if not isinstance(data, dict) or not isinstance(data.get("works"), list):
+            raise ValueError("LLM output does not contain a works list")
+        yield "result", data
+    except Exception as e:  # noqa: BLE001 — deterministic result remains valid
+        logger.warning("[batch] streaming LLM analysis failed: %s", e)
+        yield "error", str(e)
+        yield "result", None
+
+
+async def bind_single_work_assignments(db: AsyncSession, resource: FileResource) -> int:
+    """Bind deterministic batch rows after metadata linked one concrete work.
+
+    Torrent inspection intentionally runs before metadata matching.  This
+    second pass closes that ordering gap without guessing: it only acts when
+    the resource FK identifies exactly one series or movie, and never
+    overwrites manual/LLM provenance.
+    """
+    work_type = "series" if resource.series_id else "movie" if resource.movie_id else None
+    work_id = resource.series_id or resource.movie_id
+    if work_type is None or work_id is None:
+        return 0
+    try:
+        await db.refresh(resource, ["file_assignments"])
+    except Exception:  # noqa: BLE001
+        return 0
+    special_overrides = (
+        await resolve_fractional_specials(
+            db, work_id, [row.file_path for row in resource.file_assignments],
+        )
+        if work_type == "series"
+        else {}
+    )
+    changed = 0
+    special_changed = False
+    for row in resource.file_assignments:
+        if row.source != "auto" or row.series_id or row.movie_id:
+            continue
+        row.series_id = work_id if work_type == "series" else None
+        row.movie_id = work_id if work_type == "movie" else None
+        if work_type == "series" and row.season is None and resource.season is not None:
+            row.season = resource.season
+        if row.file_path in special_overrides:
+            row.season = 0
+            row.episode_start = special_overrides[row.file_path]
+            row.episode_end = special_overrides[row.file_path]
+            special_changed = True
+        changed += 1
+    if special_changed:
+        resource.season_ranges = compute_season_ranges(resource)
+    if changed:
+        links = (await db.execute(
+            select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+        )).scalars().all()
+        found = any(
+            (work_type == "series" and link.series_id == work_id)
+            or (work_type == "movie" and link.movie_id == work_id)
+            for link in links
+        )
+        if not found:
+            db.add(ResourceWorkLink(
+                resource_id=resource.id,
+                series_id=work_id if work_type == "series" else None,
+                movie_id=work_id if work_type == "movie" else None,
+                source="auto",
+            ))
+    return changed
+
+
+_FRACTIONAL_SPECIAL_RE = re.compile(
+    r"(?:^|[\s._\-])(\d{1,3})\.5(?=[;\s._\-\[(]|$)", re.IGNORECASE,
+)
+
+
+async def resolve_fractional_specials(
+    db: AsyncSession,
+    series_id: str,
+    paths: list[str],
+) -> dict[str, int]:
+    """Resolve release-style ``11.5`` labels against canonical Season 0 rows.
+
+    A decimal label is not itself a Plex episode number.  We only map when the
+    linked work supplies exactly as many Season 0 episodes as the listing has
+    fractional video labels; ordering then gives a deterministic bijection.
+    Ambiguous cardinalities return no mapping rather than guessing.
+    """
+    candidates: list[tuple[int, str]] = []
+    for path in paths:
+        match = _FRACTIONAL_SPECIAL_RE.search(path.rsplit("/", 1)[-1])
+        if match:
+            candidates.append((int(match.group(1)), path))
+    if not candidates:
+        return {}
+    specials = (await db.execute(
+        select(Episode).where(Episode.series_id == series_id, Episode.season == 0)
+        .order_by(Episode.episode.asc())
+    )).scalars().all()
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    if len(specials) == len(candidates):
+        return {path: special.episode for (_, path), special in zip(candidates, specials)}
+    # Release-order decimals (11.5, 22.5, …) explicitly mean interstitial
+    # specials.  When the metadata source has no Season 0 rows, preserve their
+    # order and assign the canonical Specials sequence S00E01..N.
+    if not specials:
+        return {path: index for index, (_, path) in enumerate(candidates, start=1)}
+    return {}
+
+
+async def build_candidate_works(db: AsyncSession, resource: FileResource) -> list[dict]:
+    """Build server-owned candidate identities with all useful title aliases."""
+    refs: set[tuple[str, str]] = set()
+    if resource.series_id:
+        refs.add(("series", resource.series_id))
+    if resource.movie_id:
+        refs.add(("movie", resource.movie_id))
+    links = (await db.execute(select(ResourceWorkLink).where(
+        ResourceWorkLink.resource_id == resource.id,
+    ))).scalars().all()
+    for link in links:
+        if link.series_id:
+            refs.add(("series", link.series_id))
+        elif link.movie_id:
+            refs.add(("movie", link.movie_id))
+
+    candidates = []
+    for work_type, work_id in sorted(refs):
+        model = TVSeries if work_type == "series" else Movie
+        work = await db.get(model, work_id)
+        if work is None:
+            continue
+        titles = []
+        for value in (work.title_cn, work.title_en, work.original_title, work.canonical_name):
+            if value and value not in titles:
+                titles.append(value)
+        candidates.append({
+            "candidate_key": f"{work_type}:{work_id}",
+            "work_type": work_type,
+            "work_id": work_id,
+            "titles": titles,
+        })
+    return candidates
+
+
+def _valid_paths(
+    data: dict[str, Any], known: set[str], candidate_works: list[dict] | None = None,
+) -> list[dict]:
     """Clamp the LLM reply against the actual listing (drop hallucinations)."""
     out: list[dict] = []
+    candidates = {
+        candidate["candidate_key"]: candidate for candidate in (candidate_works or [])
+    }
     for w in data.get("works", []):
         if not isinstance(w, dict):
             continue
+        candidate_key = w.get("candidate_key")
+        candidate = candidates.get(candidate_key)
         title = str(w.get("title") or "").strip()
         ctype = w.get("content_type")
+        if candidate is not None:
+            ctype = "tv" if candidate["work_type"] == "series" else "movie"
+            title = title or next(iter(candidate["titles"]), candidate["work_id"])
+        elif candidate_key is not None and candidates:
+            # A model-generated or altered ID is never accepted.
+            continue
         if not title or ctype not in ("tv", "movie"):
             continue
         files: list[dict] = []
@@ -277,16 +505,38 @@ def _valid_paths(data: dict[str, Any], known: set[str]) -> list[dict]:
             path = f.get("path")
             if path not in known:
                 continue
+            episode = f.get("episode") if isinstance(f.get("episode"), int) else None
+            episode_start = (
+                f.get("episode_start") if isinstance(f.get("episode_start"), int) else None
+            )
+            episode_end = (
+                f.get("episode_end") if isinstance(f.get("episode_end"), int) else None
+            )
+            # Persistence uses a normalized inclusive range. Keep the LLM
+            # contract unambiguous while remaining schema-compatible.
+            if episode is not None:
+                episode_start = episode
+                episode_end = episode
+            elif (
+                episode_start is None
+                or episode_end is None
+                or episode_start > episode_end
+            ):
+                episode_start = None
+                episode_end = None
             files.append({
                 "path": path,
                 "season": f.get("season") if isinstance(f.get("season"), int) else None,
-                "episode_start": f.get("episode_start")
-                if isinstance(f.get("episode_start"), int) else None,
-                "episode_end": f.get("episode_end")
-                if isinstance(f.get("episode_end"), int) else None,
+                "episode_start": episode_start,
+                "episode_end": episode_end,
             })
         if files:
-            out.append({"title": title, "content_type": ctype, "files": files})
+            out.append({
+                "candidate_key": candidate_key if candidate is not None else None,
+                "title": title,
+                "content_type": ctype,
+                "files": files,
+            })
     return out
 
 
@@ -360,6 +610,12 @@ def _apply_hint(resource: FileResource, work: dict) -> None:
         if row.series_id or row.movie_id:
             continue
         row.work_title_hint = work["title"]
+        if f.get("season") is not None:
+            row.season = f["season"]
+        if f.get("episode_start") is not None:
+            row.episode_start = f["episode_start"]
+        if f.get("episode_end") is not None:
+            row.episode_end = f["episode_end"]
 
 
 async def _resolve_movie(

@@ -787,6 +787,51 @@ async def test_backfill_force_bypasses_cooldown(db_session, channel, fake_queue)
     assert await fs._backfill_unmatched_resources(channel, db_session, sem, force=True) == 1
 
 
+async def test_backfill_force_reprocesses_all_linked_resource_shapes(
+    db_session, channel, fake_queue
+):
+    """Explicit re-fetch includes linked non-batch resources so missing work
+    metadata and file assignments can be repaired."""
+    import asyncio
+
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
+    series = TVSeries(id=_uuid(), title_cn="Series without year")
+    movie = Movie(id=_uuid(), title_cn="Movie without year")
+    db_session.add_all([series, movie])
+    resources = [
+        FileResource(
+            id=_uuid(), channel_id=channel.id, guid="linked-series",
+            title_raw="Series - 01", torrent_url="magnet:?xt=urn:btih:series",
+            series_id=series.id, is_batch=False,
+        ),
+        FileResource(
+            id=_uuid(), channel_id=channel.id, guid="linked-movie",
+            title_raw="Movie", torrent_url="magnet:?xt=urn:btih:movie",
+            movie_id=movie.id, is_batch=False,
+        ),
+    ]
+    db_session.add_all(resources)
+    await db_session.commit()
+
+    sem = asyncio.Semaphore(4)
+    with patch(
+        "app.services.fetch_service._process_resource_metadata",
+        new_callable=AsyncMock,
+    ) as process:
+        count = await fs._backfill_unmatched_resources(
+            channel, db_session, sem, force=True
+        )
+
+    assert count == 2
+    assert {call.args[0] for call in process.await_args_list} == {
+        resources[0].id,
+        resources[1].id,
+    }
+    assert all(call.kwargs["force_refresh"] is True for call in process.await_args_list)
+
+
 # ---------------------------------------------------------------------------
 # Standalone global metadata backfill (scheduler-driven, cross-channel)
 # ---------------------------------------------------------------------------

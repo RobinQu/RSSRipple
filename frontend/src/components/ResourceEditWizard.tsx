@@ -91,6 +91,7 @@ type ChangesShape = {
 
 interface ResourceEditWizardProps {
   resourceId: string;
+  initialStep?: number;
   /** Called once a save settles: updated resource on success, null when
    * nothing changed / closed without applicable changes. */
   onDone: (updated: FileResource | null) => void;
@@ -106,6 +107,7 @@ interface ResourceEditWizardProps {
  * ⑤ confirmation review before the single PUT save. */
 export default function ResourceEditWizard({
   resourceId,
+  initialStep = 0,
   onDone,
 }: ResourceEditWizardProps) {
   const { t } = useTranslation();
@@ -149,6 +151,8 @@ export default function ResourceEditWizard({
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState('');
+  const [analysisOutput, setAnalysisOutput] = useState('');
   const [suggestion, setSuggestion] = useState<BatchSuggestion | null>(null);
   const worksDirtyRef = useRef(false);
 
@@ -180,7 +184,7 @@ export default function ResourceEditWizard({
     setSuggestion(null);
     setCheckedFiles([]);
     setSelectedWorkKey(null);
-    setStep(0);
+    setStep(initialStep);
     worksDirtyRef.current = false;
     (async () => {
       const res = await resourcesApi.get(resourceId);
@@ -261,7 +265,7 @@ export default function ResourceEditWizard({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceId]);
+  }, [resourceId, initialStep]);
 
   const loadMediaOptions = async () => {
     if (!detail) return;
@@ -496,83 +500,85 @@ export default function ResourceEditWizard({
     };
   }, []);
 
-  const analyze = async () => {
+  const applyAnalysisSuggestion = (sug: BatchSuggestion) => {
+    setSuggestion(sug);
+    const soleSeries = works.length === 1 && works[0].work_type === 'series'
+      ? works[0]
+      : null;
+    let applied = 0;
+    const next = { ...placements };
+    if (soleSeries) {
+      for (const f of sug.deterministic.files) {
+        if (next[f.path] || f.season == null) continue;
+        next[f.path] = {
+          workType: 'series', workId: soleSeries.work_id,
+          season: f.season, epStart: f.episode, epEnd: f.episode,
+        };
+        applied += 1;
+      }
+    }
+    for (const w of sug.works) {
+      const target = works.find((knownWork) => (
+        w.candidate_key === workKeyOf(knownWork.work_type, knownWork.work_id)
+      )) ?? works.find((knownWork) => {
+        const known = normTitle(workTitles[workKeyOf(knownWork.work_type, knownWork.work_id)]);
+        const want = normTitle(w.title);
+        return known === want || (!!known && (known.includes(want) || want.includes(known)));
+      });
+      if (!target) continue;
+      for (const f of w.files) {
+        next[f.path] = {
+          workType: target.work_type, workId: target.work_id,
+          season: f.season, epStart: f.episode_start, epEnd: f.episode_end,
+        };
+        applied += 1;
+      }
+    }
+    setPlacements(next);
+    return applied;
+  };
+
+  const analyze = async (force = false) => {
     setAnalyzing(true);
+    setAnalysisStatus(t('resource.analysisPreparing'));
+    setAnalysisOutput('');
     try {
-      const res = await resourcesApi.analyzeBatch(resourceId);
-      if (!res.success) {
-        message.error(res.error?.message || t('resource.reanalyzeFailed'));
-        return;
+      const response = await resourcesApi.analyzeBatchStream(resourceId, force);
+      if (!response.ok || !response.body) throw new Error(response.statusText);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalSuggestion: BatchSuggestion | null = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        buffer += decoder.decode(value, { stream: !done });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() ?? '';
+        for (const frame of frames) {
+          const line = frame.split('\n').find((part) => part.startsWith('data: '));
+          if (!line) continue;
+          const event = JSON.parse(line.slice(6)) as {
+            type: string; message?: string; content?: string; suggestion?: BatchSuggestion | null;
+          };
+          if (event.message) setAnalysisStatus(event.message);
+          if (event.content) {
+            setAnalysisOutput((prev) => `${prev}${event.content}`.slice(-50000));
+          }
+          if (event.type === 'result') finalSuggestion = event.suggestion ?? null;
+        }
+        if (done) break;
       }
-      const sug: BatchSuggestion | null = res.data.suggestion;
-      setSuggestion(sug);
-      if (!sug) {
+      if (!finalSuggestion) {
         message.info(t('resource.noListingHint'));
-        return;
-      }
-      const parsedCount =
-        sug.deterministic.files.filter((f) => f.episode != null).length;
-      let llmApplied = 0;
-      // The deterministic parser is authoritative for S/E. With one linked
-      // TV work there is no work ambiguity, so immediately turn every parsed
-      // file into an editable placement even when the optional LLM is down.
-      const soleSeries = works.length === 1 && works[0].work_type === 'series'
-        ? works[0]
-        : null;
-      if (soleSeries) {
-        setPlacements((prev) => {
-          const next = { ...prev };
-          for (const f of sug.deterministic.files) {
-            if (next[f.path] || f.season == null) continue;
-            next[f.path] = {
-              workType: 'series',
-              workId: soleSeries.work_id,
-              season: f.season,
-              epStart: f.episode,
-              epEnd: f.episode,
-            };
-          }
-          return next;
-        });
-      }
-      if (sug.works.length > 0) {
-        setPlacements((prev) => {
-          const next = { ...prev };
-          for (const w of sug.works) {
-            const target = works.find((k) => {
-              const known = normTitle(
-                workTitles[workKeyOf(k.work_type, k.work_id)],
-              );
-              const want = normTitle(w.title);
-              return (
-                known === want ||
-                (!!known && (known.includes(want) || want.includes(known)))
-              );
-            });
-            if (!target) continue;
-            for (const f of w.files) {
-              next[f.path] = {
-                workType: target.work_type,
-                workId: target.work_id,
-                season: f.season,
-                epStart: f.episode_start,
-                epEnd: f.episode_end,
-              };
-              llmApplied += 1;
-            }
-          }
-          return next;
-        });
-      }
-      if (llmApplied > 0) {
-        message.success(
-          `${t('resource.analyzeDone', { count: parsedCount })} · ${t('resource.suggestionApplied', { count: llmApplied })}`,
-        );
       } else {
-        message.success(t('resource.analyzeDone', { count: parsedCount }));
+        const applied = applyAnalysisSuggestion(finalSuggestion);
+        const parsed = finalSuggestion.deterministic.files.filter((f) => f.episode != null).length;
+        message.success(applied > 0
+          ? `${t('resource.analyzeDone', { count: parsed })} · ${t('resource.suggestionApplied', { count: applied })}`
+          : t('resource.analyzeDone', { count: parsed }));
       }
-    } catch {
-      message.error(t('resource.reanalyzeFailed'));
+    } catch (error) {
+      message.error(error instanceof Error && error.message ? error.message : t('resource.reanalyzeFailed'));
     } finally {
       setAnalyzing(false);
     }
@@ -589,6 +595,7 @@ export default function ResourceEditWizard({
     if (
       next === 1 &&
       !suggestion &&
+      Object.keys(placements).length === 0 &&
       isBatch &&
       files.length > 0 &&
       !audioLinked
@@ -830,10 +837,27 @@ export default function ResourceEditWizard({
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div
+        style={{
+          flexShrink: 0,
+          margin: '0 4px 8px',
+          padding: '8px 10px',
+          border: '1px solid var(--rr-border-soft)',
+          borderRadius: 6,
+          background: 'var(--rr-surface-card)',
+        }}
+      >
+        <Text ellipsis={{ tooltip: detail.title_raw }} style={{ display: 'block' }}>
+          {detail.title_raw}
+        </Text>
+        <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: 11 }}>
+          {t('resource.resourceId')}：{detail.id}
+        </Text>
+      </div>
       <div style={{ flexShrink: 0, padding: '8px 4px 16px' }}>
         <Steps size="small" responsive current={step} items={stepsItems} />
       </div>
-      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '4px 4px 12px' }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: step === 1 ? 'hidden' : 'auto', padding: '4px 4px 12px' }}>
 
       {/* Step 0 — works association */}
       <div style={panelStyle(step === 0)}>
@@ -887,7 +911,7 @@ export default function ResourceEditWizard({
       </div>
 
       {/* Step 1 — file mapping (left: works, right: files) */}
-      <div style={panelStyle(step === 1)}>
+      <div style={{ ...panelStyle(step === 1), height: '100%', minHeight: 0 }}>
         {audioLinked ? (
           <Alert type="info" showIcon message={t('resource.audioLinkHint')} />
         ) : !isBatch ? (
@@ -912,8 +936,16 @@ export default function ResourceEditWizard({
           </>
         ) : files.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('resource.noListingHint')} />
+        ) : analyzing ? (
+          <div style={{ minHeight: 420, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 24 }}>
+            <Spin size="large" />
+            <Text strong style={{ textAlign: 'center', marginTop: 16 }}>{analysisStatus}</Text>
+            <pre style={{ marginTop: 16, maxHeight: 360, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', padding: 16, borderRadius: 8, background: 'var(--rr-surface-card)', fontSize: 12 }}>
+              {analysisOutput || t('resource.analysisWaiting')}
+            </pre>
+          </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(300px, 38%) minmax(0, 1fr)', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(300px, 38%) minmax(0, 1fr)', gap: 12, height: '100%', minHeight: 0, overflow: compact ? 'auto' : 'hidden' }}>
             {/* Left: works */}
             <div style={{ border: '1px solid var(--rr-border-soft)', borderRadius: 8, padding: 8 }}>
               <Text strong style={{ fontSize: 12 }}>{t('resource.stepWorkType')}</Text>
@@ -1006,13 +1038,13 @@ export default function ResourceEditWizard({
 
             {/* Right: unassigned candidate files only — assigned files live
                 under the selected work on the left. */}
-            <div style={{ border: '1px solid var(--rr-border-soft)', borderRadius: 8, padding: 8, minWidth: 0 }}>
+            <div style={{ border: '1px solid var(--rr-border-soft)', borderRadius: 8, padding: 8, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                 <Button
                   size="small"
                   icon={<RefreshCw size={12} />}
                   loading={analyzing}
-                  onClick={() => void analyze()}
+                  onClick={() => void analyze(true)}
                 >
                   {t('resource.reanalyze')}
                 </Button>
@@ -1051,7 +1083,7 @@ export default function ResourceEditWizard({
                 <Text type="secondary" style={{ fontSize: 11, width: 64, flexShrink: 0, textAlign: 'right' }}>{t('resource.fileColSize')}</Text>
               </div>
               <div
-                style={{ maxHeight: compact ? 360 : 520, overflowY: 'auto', userSelect: 'none', touchAction: 'none' }}
+                style={{ flex: compact ? undefined : 1, minHeight: 0, maxHeight: compact ? 360 : undefined, overflowY: 'auto', userSelect: 'none', touchAction: 'none' }}
                 onPointerMove={extendTouchSelect}
               >
                 {poolFiles.length === 0 ? (
@@ -1217,9 +1249,9 @@ export default function ResourceEditWizard({
       </div>
 
       <Space size={8} style={{ display: 'flex', justifyContent: 'flex-end', flexShrink: 0, padding: '12px 4px 4px', borderTop: '1px solid var(--rr-border-soft)' }}>
-        {step > 0 && <Button onClick={() => setStep((s) => s - 1)}>{t('resource.prevStep')}</Button>}
+        {step > 0 && <Button disabled={analyzing} onClick={() => setStep((s) => s - 1)}>{t('resource.prevStep')}</Button>}
         {step < 4 && (
-          <Button type="primary" onClick={() => maybeAutoAnalyze(step + 1)}>
+          <Button type="primary" disabled={analyzing} onClick={() => maybeAutoAnalyze(step + 1)}>
             {t('resource.nextStep')}
           </Button>
         )}
@@ -1295,11 +1327,13 @@ function ReviewRows({ changes }: { changes: ChangesShape }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <ReviewSection title={t('resource.confirmScope')}>
-        <Text style={{ fontSize: 12 }}>
-          {changes.scopeFrom} → {changes.scopeTo}
-        </Text>
-      </ReviewSection>
+      {changes.scopeFrom !== changes.scopeTo && (
+        <ReviewSection title={t('resource.confirmScope')}>
+          <Text style={{ fontSize: 12 }}>
+            {changes.scopeFrom} → {changes.scopeTo}
+          </Text>
+        </ReviewSection>
+      )}
 
       {(changes.worksAdded.length > 0 || changes.worksRemoved.length > 0) && (
         <ReviewSection title={t('resource.confirmWorks')}>
@@ -1328,7 +1362,7 @@ function ReviewRows({ changes }: { changes: ChangesShape }) {
 
       {changes.mappingChanged.length > 0 && (
         <ReviewSection title={`${t('resource.confirmMappings')}（${changes.mappingChanged.length}）`}>
-          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+          <div>
             {changes.mappingChanged.map((m) => (
               <div key={m.path} style={{ fontSize: 12, padding: '2px 0', overflowWrap: 'anywhere' }}>
                 <Text type="secondary">{m.path}</Text>

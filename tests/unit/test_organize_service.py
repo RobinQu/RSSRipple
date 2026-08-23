@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
@@ -222,6 +223,10 @@ async def test_plan_created_from_notification(db_session, tmp_path):
     dl_dir = tmp_path / "downloads"
     _mkfile(dl_dir / "ep04.mkv", 300)
     lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
     await _make_rule(db_session, lib.id, TV_TEMPLATE)
     payload = _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
     notification = await _seed(db_session, payload)
@@ -329,7 +334,7 @@ async def test_no_matching_rule_creates_uncategorized_plan(db_session, tmp_path)
     assert plan.status == "pending"
 
 
-async def test_needs_category_plan(db_session, tmp_path):
+async def test_plan_uses_first_genre_as_category(db_session, tmp_path):
     dl_dir = tmp_path / "downloads"
     _mkfile(dl_dir / "hamnet.mkv", 500)
     lib = await _make_library(db_session, tmp_path / "movies", name="Movies", kind="movie")
@@ -341,7 +346,8 @@ async def test_needs_category_plan(db_session, tmp_path):
     assert stats["planned"] == 1
     [plan] = await _plans(db_session)
     assert plan.rule_id == rule.id and plan.library_id == lib.id
-    assert plan.category is None  # 待人工指定类别
+    assert plan.category == "Horror"
+    assert len(plan.ops) > 0
 
 
 async def test_auto_execute_scheduled(db_session, tmp_path, monkeypatch):
@@ -612,7 +618,37 @@ async def test_classify_uncategorized_then_execute(db_session, tmp_path):
     assert "classify" in actions
 
 
-async def test_classify_requires_category_for_template(db_session, tmp_path):
+async def test_classify_loads_volume_when_library_is_already_in_identity_map(
+    db_session, tmp_path,
+):
+    """Regression for PostgreSQL MissingGreenlet from plan.library → db.get.
+
+    The API detail loader places Library in the identity map without its
+    volume; classify must explicitly execute the eager loader before resolving
+    the library root.
+    """
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    await db_session.execute(
+        select(OrganizePlan)
+        .where(OrganizePlan.id == plan.id)
+        .options(selectinload(OrganizePlan.library))
+    )
+    classified = await classify_plan(db_session, plan.id, lib.id)
+    assert classified.library_id == lib.id
+
+
+async def test_classify_without_explicit_category_uses_genre(db_session, tmp_path):
     dl_dir = tmp_path / "downloads"
     _mkfile(dl_dir / "hamnet.mkv", 500)
     lib = await _make_library(db_session, tmp_path / "movies", name="Movies", kind="movie")
@@ -622,8 +658,8 @@ async def test_classify_requires_category_for_template(db_session, tmp_path):
     )
     await plan_for_notifications(db_session, [notification])
     [plan] = await _plans(db_session)
-    with pytest.raises(OrganizeError, match="类别"):
-        await classify_plan(db_session, plan.id, lib.id, category=None)
+    plan = await classify_plan(db_session, plan.id, lib.id, category=None)
+    assert plan.category == "Horror"
 
 
 # ---------------------------------------------------------------- 执行
