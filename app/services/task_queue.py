@@ -17,6 +17,7 @@ key can be active at a time; a second enqueue() for the same key returns None.
 import asyncio
 import json
 import logging
+import socket
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -35,6 +36,12 @@ _QUEUE_LIST = "rssripple:jobs"
 _ACTIVE_PFX = "rssripple:active:"
 _TICK_PFX = "rssripple:tick:"
 _JOB_PFX = "rssripple:job:"
+_PROCESSING_PFX = "rssripple:processing:"
+_CONSUMER_PFX = "rssripple:consumer:"
+_RECOVERY_LOCK = "rssripple:recovery-lock"
+
+CONSUMER_LEASE_SECONDS = 15
+CONSUMER_HEARTBEAT_SECONDS = 5
 
 # Operational reconciliation ticks must not sit behind a large backlog of
 # slow metadata/LLM work. They are short, idempotent jobs whose freshness is
@@ -289,8 +296,12 @@ class RedisQueue(BaseQueue):
         self._ttl = ttl
         self._sem: asyncio.Semaphore | None = None
         self._worker: asyncio.Task | None = None
+        self._heartbeat: asyncio.Task | None = None
+        self._consumer_id = f"{socket.gethostname()}:{uuid.uuid4().hex}"
+        self._processing_key = f"{_PROCESSING_PFX}{self._consumer_id}"
+        self._consumer_key = f"{_CONSUMER_PFX}{self._consumer_id}"
         # Strong references to in-flight jobs. More importantly, the worker
-        # acquires a slot *before* BLPOP so Redis remains the durable backlog;
+        # acquires a slot before claiming work so Redis remains the durable backlog;
         # jobs must never be prefetched into unbounded local tasks while all
         # execution slots are occupied by slow handlers.
         self._run_tasks: set[asyncio.Task] = set()
@@ -301,6 +312,15 @@ class RedisQueue(BaseQueue):
             self._redis = aioredis.from_url(self._redis_url, decode_responses=True)
         self._sem = asyncio.Semaphore(self._max_concurrent)
         if consume:
+            await self._redis.set(
+                self._consumer_key, "1", ex=CONSUMER_LEASE_SECONDS,
+            )
+            await self._recover_orphaned_jobs(reconcile_legacy=True)
+            # fakeredis serialises concurrent commands on one in-memory
+            # socket and can deadlock a polling worker against a heartbeat.
+            # Startup recovery remains covered there; real Redis runs leases.
+            if not type(self._redis).__module__.startswith("fakeredis"):
+                self._heartbeat = asyncio.create_task(self._heartbeat_loop())
             self._worker = asyncio.create_task(self._worker_loop())
         logger.info(
             "RedisQueue started (url=%s, max_concurrent=%d, consume=%s)",
@@ -308,6 +328,12 @@ class RedisQueue(BaseQueue):
         )
 
     async def stop(self) -> None:
+        if self._heartbeat:
+            self._heartbeat.cancel()
+            try:
+                await self._heartbeat
+            except asyncio.CancelledError:
+                pass
         if self._worker:
             self._worker.cancel()
             try:
@@ -319,6 +345,8 @@ class RedisQueue(BaseQueue):
         if self._run_tasks:
             await asyncio.gather(*self._run_tasks, return_exceptions=True)
         self._run_tasks.clear()
+        if self._redis is not None:
+            await self._redis.delete(self._consumer_key)
         if self._redis is not None:
             await self._redis.aclose()
         logger.info("RedisQueue stopped")
@@ -352,14 +380,16 @@ class RedisQueue(BaseQueue):
             "finished_at": "",
         }
         redis_key = f"{_JOB_PFX}{key}"
-        await self._redis.hset(redis_key, mapping=job_hash)
-        await self._redis.expire(redis_key, self._ttl)
-
         msg = json.dumps({"job_id": job_id, "job_type": job_type, "key": key, "payload": payload})
-        if job_type in _PRIORITY_JOB_TYPES:
-            await self._redis.lpush(_QUEUE_LIST, msg)
-        else:
-            await self._redis.rpush(_QUEUE_LIST, msg)
+        job_hash["message"] = msg
+        async with self._redis.pipeline(transaction=True) as pipe:
+            pipe.hset(redis_key, mapping=job_hash)
+            pipe.expire(redis_key, self._ttl)
+            if job_type in _PRIORITY_JOB_TYPES:
+                pipe.lpush(_QUEUE_LIST, msg)
+            else:
+                pipe.rpush(_QUEUE_LIST, msg)
+            await pipe.execute()
         logger.info("Enqueued %s/%s (job=%s) → Redis", job_type, key[:16], job_id)
         return self._deserialize(job_hash)
 
@@ -388,13 +418,19 @@ class RedisQueue(BaseQueue):
                 # periodic sync jobs and losing prefetched jobs on restart.
                 await self._sem.acquire()
                 slot_acquired = True
-                item = await self._redis.blpop(_QUEUE_LIST, timeout=1)
-                if item is None:
+                # LMOVE is the reliable-queue claim: the descriptor changes
+                # lists atomically. Polling also keeps fakeredis and older
+                # Redis-compatible services from blocking the event loop on
+                # an empty BLMOVE.
+                raw = await self._redis.lmove(
+                    _QUEUE_LIST, self._processing_key, "LEFT", "RIGHT",
+                )
+                if raw is None:
                     self._sem.release()
                     slot_acquired = False
+                    await asyncio.sleep(0.1)
                     continue
-                _, raw = item
-                task = asyncio.create_task(self._run(json.loads(raw)))
+                task = asyncio.create_task(self._run(json.loads(raw), raw))
                 self._run_tasks.add(task)
                 task.add_done_callback(self._run_tasks.discard)
                 # _run owns the reserved slot from here.
@@ -408,7 +444,103 @@ class RedisQueue(BaseQueue):
                     self._sem.release()
                 logger.error("RedisQueue worker error: %s", exc)
 
-    async def _run(self, msg: dict) -> None:
+    async def _heartbeat_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(CONSUMER_HEARTBEAT_SECONDS)
+                await self._redis.set(
+                    self._consumer_key, "1", ex=CONSUMER_LEASE_SECONDS,
+                )
+                await self._recover_orphaned_jobs()
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("RedisQueue heartbeat failed: %s", exc)
+
+    async def _recover_orphaned_jobs(self, *, reconcile_legacy: bool = False) -> None:
+        """Return jobs owned by dead consumers to the durable backlog.
+
+        The short recovery lock makes this safe when several workers start at
+        once. A processing list is touched only after its consumer lease has
+        expired, so work executing in another healthy process is never stolen.
+        """
+        acquired = await self._redis.set(_RECOVERY_LOCK, self._consumer_id, nx=True, ex=30)
+        if not acquired:
+            return
+        try:
+            processing_job_ids: set[str] = set()
+            async for processing_key in self._redis.scan_iter(f"{_PROCESSING_PFX}*"):
+                consumer_id = processing_key.removeprefix(_PROCESSING_PFX)
+                messages = await self._redis.lrange(processing_key, 0, -1)
+                for raw in messages:
+                    try:
+                        msg = json.loads(raw)
+                        processing_job_ids.add(msg["job_id"])
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        await self._redis.lrem(processing_key, 1, raw)
+                        continue
+                if await self._redis.exists(f"{_CONSUMER_PFX}{consumer_id}"):
+                    continue
+                recovered = 0
+                for raw in messages:
+                    try:
+                        msg = json.loads(raw)
+                        state = await self._redis.hgetall(f"{_JOB_PFX}{msg['key']}")
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        continue
+                    if (state.get("job_id") == msg.get("job_id") and
+                            state.get("status") in (JobStatus.QUEUED, JobStatus.RUNNING)):
+                        async with self._redis.pipeline(transaction=True) as pipe:
+                            pipe.hset(f"{_JOB_PFX}{msg['key']}", mapping={
+                                "status": JobStatus.QUEUED,
+                                "started_at": "",
+                                "finished_at": "",
+                                "error": "",
+                            })
+                            if msg.get("job_type") in _PRIORITY_JOB_TYPES:
+                                pipe.lpush(_QUEUE_LIST, raw)
+                            else:
+                                pipe.rpush(_QUEUE_LIST, raw)
+                            pipe.lrem(processing_key, 1, raw)
+                            await pipe.execute()
+                        recovered += 1
+                    else:
+                        await self._redis.lrem(processing_key, 1, raw)
+                if not await self._redis.llen(processing_key):
+                    await self._redis.delete(processing_key)
+                if recovered:
+                    logger.warning("Recovered %d jobs from dead consumer %s", recovered, consumer_id)
+
+            if not reconcile_legacy:
+                return
+
+            # Upgrade safety: old queue versions removed a job from Redis
+            # before executing it, so their running hashes have no recoverable
+            # descriptor. Release those locks instead of preserving a zombie.
+            async for job_key in self._redis.scan_iter(f"{_JOB_PFX}*"):
+                state = await self._redis.hgetall(job_key)
+                if (state.get("status") == JobStatus.RUNNING and
+                        not state.get("message") and
+                        state.get("job_id") not in processing_job_ids):
+                    key = state.get("key", "")
+                    async with self._redis.pipeline(transaction=True) as pipe:
+                        pipe.hset(job_key, mapping={
+                            "status": JobStatus.FAILED,
+                            "error": "worker interrupted before durable recovery was available",
+                            "finished_at": utcnow().isoformat(),
+                        })
+                        if key:
+                            pipe.delete(f"{_ACTIVE_PFX}{key}")
+                        await pipe.execute()
+        finally:
+            # Do not turn task cancellation into another Redis round trip;
+            # the lock has a short TTL and cancellation must remain prompt.
+            current = asyncio.current_task()
+            if not current or not current.cancelling():
+                if await self._redis.get(_RECOVERY_LOCK) == self._consumer_id:
+                    await self._redis.delete(_RECOVERY_LOCK)
+
+    async def _run(self, msg: dict, raw: str) -> None:
         job_type: str = msg["job_type"]
         key: str = msg["key"]
         payload: dict = msg["payload"]
@@ -426,6 +558,7 @@ class RedisQueue(BaseQueue):
                         "finished_at": utcnow().isoformat(),
                     })
                     pipe.delete(active_key)
+                    pipe.lrem(self._processing_key, 1, raw)
                     pipe.expire(redis_key, self._ttl)
                     await pipe.execute()
                 return
@@ -440,17 +573,18 @@ class RedisQueue(BaseQueue):
             # separates setting the terminal status from releasing the dedup key.
             finish_status = JobStatus.FAILED
             finish_extra: dict = {}
+            requeue = False
             try:
                 result = await handler(payload)
                 finish_status = JobStatus.DONE
                 finish_extra = {"result": json.dumps(result) if result is not None else ""}
                 logger.info("Done %s/%s", job_type, key[:16])
             except asyncio.CancelledError:
-                # stop() cancels in-flight tasks before closing Redis. Record
-                # a terminal state and release the active key so the job can
-                # be safely enqueued again after restart.
-                finish_extra = {"error": "worker shutting down"}
-                logger.info("Cancelled %s/%s during worker shutdown", job_type, key[:16])
+                # Graceful deploy/restart: put the durable descriptor back on
+                # the queue and retain the active-key lock. Abrupt termination
+                # is handled by consumer-lease recovery instead.
+                requeue = True
+                logger.info("Requeueing %s/%s during worker shutdown", job_type, key[:16])
             except Exception as exc:
                 finish_extra = {"error": str(exc)}
                 logger.error("Failed %s/%s: %s", job_type, key[:16], exc)
@@ -459,12 +593,27 @@ class RedisQueue(BaseQueue):
             # This prevents a window where status=DONE is visible but the active
             # key still blocks a re-enqueue.
             async with self._redis.pipeline(transaction=True) as pipe:
-                pipe.hset(redis_key, mapping={
-                    "status": finish_status,
-                    "finished_at": utcnow().isoformat(),
-                    **finish_extra,
-                })
-                pipe.delete(active_key)
+                if requeue:
+                    pipe.hset(redis_key, mapping={
+                        "status": JobStatus.QUEUED,
+                        "started_at": "",
+                        "finished_at": "",
+                        "error": "",
+                    })
+                    if job_type in _PRIORITY_JOB_TYPES:
+                        pipe.lpush(_QUEUE_LIST, raw)
+                    else:
+                        pipe.rpush(_QUEUE_LIST, raw)
+                    pipe.lrem(self._processing_key, 1, raw)
+                    pipe.expire(active_key, self._ttl)
+                else:
+                    pipe.hset(redis_key, mapping={
+                        "status": finish_status,
+                        "finished_at": utcnow().isoformat(),
+                        **finish_extra,
+                    })
+                    pipe.delete(active_key)
+                    pipe.lrem(self._processing_key, 1, raw)
                 pipe.expire(redis_key, self._ttl)
                 await pipe.execute()
         finally:

@@ -11,6 +11,7 @@ Tests are grouped by backend and cover:
 """
 
 import asyncio
+import json
 
 import fakeredis
 import pytest
@@ -433,6 +434,71 @@ class TestRedisQueue:
             assert (await _wait_done(queue, "second"))["status"] == JobStatus.DONE
         finally:
             gate.set()
+            await queue.stop()
+
+    async def test_recovers_job_from_dead_consumer(self, redis_client):
+        """A descriptor claimed by a crashed worker is executed after restart."""
+        msg = json.dumps({
+            "job_id": "crashed1", "job_type": "echo", "key": "recover-me",
+            "payload": {"value": 42},
+        })
+        await redis_client.hset("rssripple:job:recover-me", mapping={
+            "job_id": "crashed1", "job_type": "echo", "key": "recover-me",
+            "status": JobStatus.RUNNING, "result": "", "error": "",
+            "queued_at": "2026-01-01T00:00:00", "started_at": "2026-01-01T00:00:01",
+            "finished_at": "", "message": msg,
+        })
+        await redis_client.set("rssripple:active:recover-me", "crashed1")
+        await redis_client.rpush("rssripple:processing:dead-worker", msg)
+
+        queue = RedisQueue(redis_client=redis_client)
+        queue.register("echo", lambda payload: asyncio.sleep(0, result=payload))
+        await queue.start()
+        try:
+            state = await _wait_done(queue, "recover-me")
+            assert state["status"] == JobStatus.DONE
+            assert state["result"] == {"value": 42}
+            assert await redis_client.llen("rssripple:processing:dead-worker") == 0
+        finally:
+            await queue.stop()
+
+    async def test_does_not_steal_job_from_live_consumer(self, redis_client):
+        msg = json.dumps({
+            "job_id": "live1", "job_type": "echo", "key": "still-running",
+            "payload": {},
+        })
+        await redis_client.hset("rssripple:job:still-running", mapping={
+            "job_id": "live1", "job_type": "echo", "key": "still-running",
+            "status": JobStatus.RUNNING, "message": msg,
+        })
+        await redis_client.rpush("rssripple:processing:healthy-worker", msg)
+        await redis_client.set("rssripple:consumer:healthy-worker", "1", ex=60)
+
+        queue = RedisQueue(redis_client=redis_client)
+        await queue.start()
+        try:
+            await asyncio.sleep(0.05)
+            assert await redis_client.llen("rssripple:processing:healthy-worker") == 1
+            assert await redis_client.llen("rssripple:jobs") == 0
+            assert (await queue.status("still-running"))["status"] == JobStatus.RUNNING
+        finally:
+            await queue.stop()
+
+    async def test_releases_unrecoverable_legacy_running_lock(self, redis_client):
+        await redis_client.hset("rssripple:job:legacy-zombie", mapping={
+            "job_id": "old1", "job_type": "fetch_channel", "key": "legacy-zombie",
+            "status": JobStatus.RUNNING,
+        })
+        await redis_client.set("rssripple:active:legacy-zombie", "old1")
+
+        queue = RedisQueue(redis_client=redis_client)
+        await queue.start()
+        try:
+            state = await queue.status("legacy-zombie")
+            assert state["status"] == JobStatus.FAILED
+            assert "durable recovery" in state["error"]
+            assert not await redis_client.exists("rssripple:active:legacy-zombie")
+        finally:
             await queue.stop()
 
     async def test_operational_sync_runs_ahead_of_normal_backlog(self, redis_client):

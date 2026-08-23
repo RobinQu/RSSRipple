@@ -1,5 +1,5 @@
 """Unit tests for ``_apply_light_migrations`` channel metadata-source
-convergence (Phase P1 two-source architecture)."""
+convergence."""
 
 from sqlalchemy import select, text
 
@@ -24,6 +24,7 @@ async def test_metadata_source_convergence_rewrites_legacy_values(db_engine, db_
         _channel("combined", "combined"),
         _channel("wiki", "wikipedia"),
         _channel("tmdb", "tmdb"),
+        _channel("bangumi", "bangumi"),
         _channel("unset", None),
     ])
     await db_session.commit()
@@ -41,6 +42,7 @@ async def test_metadata_source_convergence_rewrites_legacy_values(db_engine, db_
     assert by_name["combined"] == "wikipedia"
     assert by_name["wiki"] == "wikipedia"
     assert by_name["tmdb"] == "tmdb"
+    assert by_name["bangumi"] == "bangumi"
     assert by_name["unset"] is None
 
 

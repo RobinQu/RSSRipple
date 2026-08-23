@@ -527,17 +527,17 @@ async def _apply_light_migrations(conn) -> None:
                     copied,
                 )
 
-    # ── channels.metadata_source two-source convergence ──────────────────
-    # Channel metadata sources are now restricted to wikipedia/tmdb (Phase
-    # P1). Values set before the convergence (exa/jina/local/combined) would
-    # no longer pass API validation; rewrite them to the new default once.
+    # ── channels.metadata_source convergence ───────────────────────────
+    # Channel metadata sources are restricted to wikipedia/tmdb/bangumi.
+    # Values set before the convergence (exa/jina/local/combined) no longer
+    # pass API validation; rewrite them to the default.
     # Idempotent: only touches non-conforming values. NULL stays NULL (it
     # resolves to the default at runtime).
     async with _best_effort(conn, "channels.metadata_source convergence"):
         await conn.execute(text(
             "UPDATE channels SET metadata_source = 'wikipedia' "
             "WHERE metadata_source IS NOT NULL "
-            "AND metadata_source NOT IN ('wikipedia', 'tmdb')"
+            "AND metadata_source NOT IN ('wikipedia', 'tmdb', 'bangumi')"
         ))
 
     # ── channels.required_metadata_fields baseline convergence ───────────

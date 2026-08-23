@@ -263,7 +263,7 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 
 MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必须选择且只选择一个数据源，由 LLM 基于该数据源返回的证据做标题理解、集数/季数推断和最终结构化输出。
 
-**频道三数据源架构**：频道的 `metadata_source` 只允许 `wikipedia | tmdb | bangumi`（`SUPPORTED_CHANNEL_METADATA_SOURCES`，默认 `wikipedia`）；`exa`/`jina`/`local`/`combined` 作为频道源已废弃——频道解析（`resolve_metadata_source`/`normalize_channel_metadata_source`）把它们连同 None/未知值统一归一为 `wikipedia`，存量值由 `_apply_light_migrations` 的幂等 UPDATE 改写。jina/local 的 ReAct 代码路径保留，仅手动搜索与评测可使用（走 `normalize_metadata_source_type`，不经频道解析）；exa 的 ReAct 路径（付费 Agent API）已移除，`exa` 值一律归一为 `wikipedia`——Exa 仅以免费 MCP 形态作为下方有序回退存在。
+**频道三数据源架构**：频道的 `metadata_source` 只允许 `wikipedia | tmdb | bangumi`（`SUPPORTED_CHANNEL_METADATA_SOURCES`，默认 `wikipedia`）；`exa`/`jina`/`local`/`combined` 作为频道源已废弃——频道解析（`resolve_metadata_source`/`normalize_channel_metadata_source`）把它们连同 None/未知值统一归一为 `wikipedia`，存量废弃值由 `_apply_light_migrations` 的幂等 UPDATE 改写，三个合法值均必须保持不变。jina/local 的 ReAct 代码路径保留，仅手动搜索与评测可使用（走 `normalize_metadata_source_type`，不经频道解析）；exa 的 ReAct 路径（付费 Agent API）已移除，`exa` 值一律归一为 `wikipedia`——Exa 仅以免费 MCP 形态作为下方有序回退存在。
 
 运行时支持的数据源（`SUPPORTED_METADATA_SOURCES = {"tmdb", "wikipedia", "jina", "local", "bangumi"}`）：
 - `wikipedia`：Wikipedia Search，代码默认数据源（`DEFAULT_METADATA_SOURCE = "wikipedia"`）。仅使用 Wikipedia 搜索与页面工具；未命中时可触发下方 Exa 回退。
@@ -570,7 +570,7 @@ startup:
                             # 年份守卫约束，外部 id 相等不受）
 ```
 
-任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须在 `BLPOP` 前取得并发槽位，未获得执行能力的 job 保留在 Redis 持久 backlog 中，禁止无界预取到进程内等待（否则慢 metadata job 会隐藏/饿死周期任务且重启丢失预取项）；`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
+任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须先取得并发槽位，再以原子 `LMOVE` 把 job 从持久 backlog 移至该 consumer 的 processing 列表，禁止无界预取到进程内等待；consumer 以短 TTL 租约持续心跳，正常完成才从 processing 确认删除。worker 优雅退出时未完成 job 原样重新入队；进程崩溃时描述符仍留在 processing，其他 worker 在租约过期后通过全局恢复锁幂等重新入队，状态回退为 queued 且保留 active-key 去重锁，禁止产生永久 running 僵尸或窃取仍存活 consumer 的任务。旧版本遗留、没有可恢复描述符的 running 状态在升级启动时标记 failed 并释放 active 锁。`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
 
 ### 下载状态同步
 
