@@ -24,6 +24,8 @@ TV_CONTEXT = {
     "year": 2026,
     "season": 1,
     "episode": 4,
+    # Plex 兼容集码（planner 由 season/episode 合成，见 _template_context）。
+    "episode_code": "s01e04",
     "episode_title": "机器人回旋曲",
     "category": None,
     "collection": "攻壳机动队（系列）",

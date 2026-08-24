@@ -308,12 +308,14 @@ def generate_mikanani_batch_feed(
     """Mikanani-style feed containing a batch (合集) release plus one single
     episode of the same work (葬送的芙莉莲).
 
-    The batch title matches ``detect_batch``'s ``01~28 合集`` pattern so the
-    pre-parser flags it ``is_batch`` with episode_start/end set — used to
+    The batch title carries a season marker (``S01``) plus the ``01~28 合集``
+    range so the pre-parser flags it ``is_batch`` with episode_start/end AND a
+    known season — coverage-determinate, hence dispatchable (season-less
+    packs are coverage-unknown and land in PendingDecision instead). Used to
     exercise the batch-dispatch branch of the agent pipeline.
     """
     titles = [
-        "[VCB-Studio] 葬送的芙莉莲 - 01~28 合集 [BDRip 1080p HEVC-10bit FLAC][简繁内封字幕]",
+        "[VCB-Studio] 葬送的芙莉莲 S01 - 01~28 合集 [BDRip 1080p HEVC-10bit FLAC][简繁内封字幕]",
         "[VCB-Studio] 葬送的芙莉莲 / Frieren: Beyond Journey's End - 29 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]",
     ]
     now = datetime.now(UTC)

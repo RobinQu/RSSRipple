@@ -145,6 +145,9 @@ def _genre_channel():
             "field_mapping": RICH_FIELD_MAPPING,
             "fetch_interval": 3600,
             "metadata_agent_enabled": False,
+            # filter_config 保存门禁：作品字段（series./movie.genre）仅在
+            # 频道声明对应语义键后放行。
+            "required_metadata_fields": ["genre"],
         },
     )
     if r.status_code != 201:

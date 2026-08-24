@@ -249,9 +249,11 @@ async def test_tick_full_chain_single_episode(
     _mkfile(torrent_dir / "ep04.chs.srt", 40)
     rpc_mocks.get_files.return_value = {
         "name": "Show.S01",
+        # 真实清单形状：TransmissionWrapper.get_torrent_files 归一化为
+        # {"name","size"}；analyze_torrent_files 只把 ≥50MB 条目视为主视频。
         "files": [
-            {"name": "ep04.mkv", "length": 300},
-            {"name": "ep04.chs.srt", "length": 40},
+            {"name": "ep04.mkv", "size": 300 * 1024 * 1024},
+            {"name": "ep04.chs.srt", "size": 40},
         ],
     }
     lib = await _library(
@@ -350,7 +352,7 @@ async def test_tick_hardlink_rule_keeps_src_and_task(
     src = _mkfile(torrent_dir / "ep04.mkv", 300)
     rpc_mocks.get_files.return_value = {
         "name": "Show.S01",
-        "files": [{"name": "ep04.mkv", "length": 300}],
+        "files": [{"name": "ep04.mkv", "size": 300 * 1024 * 1024}],
     }
     lib = await _library(db_session, shared_volume.media / "tv")
     await _rule(db_session, lib.id, TV_TEMPLATE, file_op="hardlink")
@@ -410,7 +412,7 @@ async def test_tick_auto_execute_moves_files(
     _mkfile(torrent_dir / "ep04.mkv", 300)
     rpc_mocks.get_files.return_value = {
         "name": "Show.S01",
-        "files": [{"name": "ep04.mkv", "length": 300}],
+        "files": [{"name": "ep04.mkv", "size": 300 * 1024 * 1024}],
     }
     lib = await _library(db_session, shared_volume.media / "tv")
     await _rule(db_session, lib.id, TV_TEMPLATE, auto_execute=True)
@@ -475,7 +477,15 @@ async def test_batch_season_full_chain(
         _mkfile(torrent_dir / name, size)
     rpc_mocks.get_files.return_value = {
         "name": "Show.S01",
-        "files": [{"name": n, "length": s} for n, s in disk_files.items()],
+        # 真实清单形状（{"name","size"}）；≥50MB 才视为主视频，"Making of"
+        # 保持小体积 → 非主视频 → 无关联行 → 特典 keep。
+        "files": [
+            {"name": "Show.S01E01.mkv", "size": 200 * 1024 * 1024},
+            {"name": "Show.S01E02.mkv", "size": 210 * 1024 * 1024},
+            {"name": "Show.S01E03.mkv", "size": 220 * 1024 * 1024},
+            {"name": "Show.S01E01.chs.srt", "size": 30},
+            {"name": "Making of.mkv", "size": 50},
+        ],
     }
     lib = await _library(db_session, shared_volume.media / "tv")
     await _rule(
@@ -538,8 +548,15 @@ async def test_batch_season_full_chain(
 async def test_movie_category_classify_then_execute(
     db_session, shared_volume, rpc_mocks
 ):
+    # 无 genre 的电影：genre 优先自动分类无从生效 → {category} 未定，
+    # 走「待人工指定类别」流程（带 genre 的自动分类由 planner 单测覆盖）。
+    unclassified_movie = Movie(
+        id=_uuid(), title_cn="哈姆奈特", title_en="Hamnet",
+        original_title="Hamnet", content_type="movie", is_anime=False,
+        genre=[], release_date=date(2025, 12, 1),
+    )
     chain = await _seed_chain(
-        db_session, work=_movie(),
+        db_session, work=unclassified_movie,
         resource_kw=dict(season=None, episode=None, is_batch=False,
                          resolution="1080p", container="mkv",
                          title_year=2025),
@@ -553,15 +570,16 @@ async def test_movie_category_classify_then_execute(
     )
     rpc_mocks.get_files.return_value = {
         "name": "Hamnet.2025.1080p.mkv",
-        "files": [{"name": "Hamnet.2025.1080p.mkv", "length": 500}],
+        "files": [{"name": "Hamnet.2025.1080p.mkv", "size": 500 * 1024 * 1024}],
     }
     lib = await _library(
         db_session, shared_volume.media / "movies", name="Movies", kind="movie"
     )
     rule = await _rule(
         db_session, lib.id, MOVIE_TEMPLATE,
-        filter={"field": "movie.genre", "operator": "contains",
-                "value": "Horror"},
+        # 规则命中不依赖 genre（作品无 genre）：类别未定完全来自
+        # {category} 占位符缺值，走人工分类流程。
+        filter={"field": "content_type", "operator": "eq", "value": "movie"},
     )
 
     notification, _ = await create_notification_for_task(db_session, chain.task)
@@ -614,7 +632,7 @@ async def test_uncategorized_classify_then_execute(
     _mkfile(torrent_dir / "ep04.mkv", 300)
     rpc_mocks.get_files.return_value = {
         "name": "Show.S01",
-        "files": [{"name": "ep04.mkv", "length": 300}],
+        "files": [{"name": "ep04.mkv", "size": 300 * 1024 * 1024}],
     }
     lib = await _library(db_session, shared_volume.media / "tv")
     # is_anime=True 的作品不匹配该规则 → 待分类
@@ -665,7 +683,7 @@ async def test_no_volume_binding_is_identity(
     _mkfile(torrent_dir / "ep04.mkv", 300)
     rpc_mocks.get_files.return_value = {
         "name": "Show.S01",
-        "files": [{"name": "ep04.mkv", "length": 300}],
+        "files": [{"name": "ep04.mkv", "size": 300 * 1024 * 1024}],
     }
     lib = await _library(db_session, shared_volume.media / "tv")
     await _rule(db_session, lib.id, TV_TEMPLATE)

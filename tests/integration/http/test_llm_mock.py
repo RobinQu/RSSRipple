@@ -386,7 +386,7 @@ class TestMetadataAgentMock:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 
     def test_manual_search_via_agent(self):
-        """POST /resources/{id}/metadata/search (exa) runs the mock ReAct loop."""
+        """POST /resources/{id}/metadata/search (jina) runs the mock ReAct loop."""
         # Channel with the agent disabled — we only need a resource id.
         r = _api(
             "/api/v1/channels",
@@ -416,7 +416,7 @@ class TestMetadataAgentMock:
                 json={
                     "search_title": "黄泉使者",
                     "content_type": "tv",
-                    "data_source_type": "exa",
+                    "data_source_type": "jina",
                 },
             )
             assert r.status_code == 200, f"search failed: {r.text}"
@@ -431,7 +431,7 @@ class TestMetadataAgentMock:
                 json={
                     "search_title": "完全不存在的作品",
                     "content_type": "tv",
-                    "data_source_type": "exa",
+                    "data_source_type": "jina",
                 },
             )
             assert r.status_code == 200

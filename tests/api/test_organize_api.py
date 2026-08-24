@@ -29,6 +29,7 @@ from app.models.organize_audit import OrganizeAuditEntry
 from app.models.organize_plan import OrganizePlan
 from app.models.organize_plan_op import OrganizePlanOp
 from app.models.organize_rule import OrganizeRule
+from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.storage_volume import StorageVolume
 from app.utils.time import utcnow
 
@@ -589,10 +590,21 @@ async def test_preview_by_resource_id(
     async with db_session_factory() as s:
         task = await s.get(DownloadTask, movie_seed["task"].id)
         task.transmission_torrent_id = 7
+        # 预览按通知生成链路现构快照：真实链路在通知创建时已落 auto 关联行
+        # （apply_auto_assignments + bind_single_work_assignments），快照
+        # file_associations.status=complete 才可规划；这里补种等价关联行。
+        s.add(ResourceFileAssignment(
+            resource_id=movie_seed["resource"].id,
+            file_path="Test.Movie.2020.1080p.mkv",
+            file_size=100,
+            movie_id=movie_seed["movie"].id,
+            source="auto",
+        ))
         await s.commit()
     get_files = AsyncMock(return_value={
         "name": "Test.Movie.2020.1080p.mkv",
-        "files": [{"name": "Test.Movie.2020.1080p.mkv", "length": 100}],
+        # 真实清单形状（{"name","size"}），主视频 ≥50MB 才进权威关联校验。
+        "files": [{"name": "Test.Movie.2020.1080p.mkv", "size": 300 * 1024 * 1024}],
     })
     monkeypatch.setattr(
         "app.clients.transmission.TransmissionWrapper.get_torrent_files",
