@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Library, Search, Settings2, RefreshCw, CheckCircle } from 'lucide-react';
+import { Library, Search, RefreshCw, CheckCircle } from 'lucide-react';
 import {
   Typography,
   Input,
@@ -13,13 +13,14 @@ import {
   Button,
   Space,
   Checkbox,
+  Select,
   App,
 } from 'antd';
 import { worksApi } from '../api/works';
 import type { RefreshItem } from '../api/works';
+import type { MetadataSourceOption } from '../api/channels';
 import { genreSlug } from '../constants/genres';
 import type { Work } from '../types';
-import MetadataConfigModal from '../components/MetadataConfigModal';
 import CollectionsPanel from '../components/CollectionsPanel';
 import Pagination from '../components/Pagination';
 
@@ -57,9 +58,9 @@ export default function WorksPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRefreshing, setBatchRefreshing] = useState(false);
-
-  // Configurator modal
-  const [configOpen, setConfigOpen] = useState(false);
+  // Batch refresh names its source explicitly (no global default anymore).
+  const [batchSource, setBatchSource] = useState<string | null>(null);
+  const [sourceOptions, setSourceOptions] = useState<MetadataSourceOption[]>([]);
 
   const topRef = useRef<HTMLDivElement | null>(null);
 
@@ -142,10 +143,10 @@ export default function WorksPage() {
   }, [selected, works]);
 
   const handleBatchRefresh = async () => {
-    if (selectedItems.length === 0) return;
+    if (selectedItems.length === 0 || !batchSource) return;
     setBatchRefreshing(true);
     try {
-      const r = await worksApi.batchRefreshMetadata(selectedItems);
+      const r = await worksApi.batchRefreshMetadata(selectedItems, batchSource);
       if (r.success) {
         message.success(t('works.batchRefreshStarted', { n: r.data.count }));
         setSelectMode(false);
@@ -157,6 +158,18 @@ export default function WorksPage() {
       }
     } finally {
       setBatchRefreshing(false);
+    }
+  };
+
+  const toggleSelectMode = () => {
+    const next = !selectMode;
+    setSelectMode(next);
+    setSelected(new Set());
+    if (next && sourceOptions.length === 0) {
+      // Load the source catalog once for the batch-refresh picker.
+      worksApi.getMetadataConfig().then((r) => {
+        if (r.success && r.data) setSourceOptions(r.data.sources ?? []);
+      });
     }
   };
 
@@ -210,16 +223,10 @@ export default function WorksPage() {
                 style={{ width: 220 }}
                 allowClear
               />
-              <Button icon={<Settings2 size={14} />} onClick={() => setConfigOpen(true)}>
-                {t('works.configButton')}
-              </Button>
               <Button
                 type={selectMode ? 'primary' : 'default'}
                 icon={<CheckCircle size={14} />}
-                onClick={() => {
-                  setSelectMode((v) => !v);
-                  setSelected(new Set());
-                }}
+                onClick={toggleSelectMode}
               >
                 {t('works.select')}
               </Button>
@@ -238,12 +245,26 @@ export default function WorksPage() {
             </Button>
           </Space>
           <Space>
+            <Select
+              size="small"
+              style={{ minWidth: 140 }}
+              placeholder={t('works.refreshSource')}
+              value={batchSource}
+              onChange={(v) => setBatchSource(v)}
+              options={sourceOptions.map((s) => ({
+                value: s.value,
+                label: s.available
+                  ? t(`channels.sources.${s.value}`, { defaultValue: s.label })
+                  : `${t(`channels.sources.${s.value}`, { defaultValue: s.label })} (${t('channels.sourceUnavailable')})`,
+                disabled: !s.available,
+              }))}
+            />
             <Button
               size="small"
               type="primary"
               icon={<RefreshCw size={13} />}
               loading={batchRefreshing}
-              disabled={selectedItems.length === 0}
+              disabled={selectedItems.length === 0 || !batchSource}
               onClick={handleBatchRefresh}
             >
               {t('works.batchRefresh')}
@@ -400,8 +421,6 @@ export default function WorksPage() {
           </div>
         </>
       )}
-
-      <MetadataConfigModal open={configOpen} onClose={() => setConfigOpen(false)} />
     </div>
   );
 }

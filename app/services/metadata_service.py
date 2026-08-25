@@ -1417,6 +1417,77 @@ async def refresh_work_metadata(
 
 
 # ---------------------------------------------------------------------------
+# Channel-scoped refresh work selection
+# ---------------------------------------------------------------------------
+
+# The fillable-field predicates mirror ``refresh_work_metadata``'s fill list
+# (plus the poster/external-id fills): a work matching NONE of them has
+# nothing the pipeline could write and is skipped by the periodic
+# channel-refresh gate. This is a *selection* filter only — the refresh
+# pipeline itself is shared with the manual actions.
+_SERIES_HAS_GAP = or_(
+    TVSeries.title_cn.is_(None), TVSeries.title_cn == "",
+    TVSeries.title_en.is_(None), TVSeries.title_en == "",
+    TVSeries.original_title.is_(None), TVSeries.original_title == "",
+    TVSeries.description.is_(None), TVSeries.description == "",
+    TVSeries.rating.is_(None),
+    TVSeries.status.is_(None), TVSeries.status == "",
+    TVSeries.genre.is_(None),
+    TVSeries.poster_url.is_(None), TVSeries.poster_url == "",
+    TVSeries.number_of_episodes.is_(None),
+    TVSeries.number_of_seasons.is_(None),
+    TVSeries.start_date.is_(None),
+    TVSeries.end_date.is_(None),
+    TVSeries.external_id.is_(None), TVSeries.external_id == "",
+    TVSeries.external_source.is_(None), TVSeries.external_source == "",
+)
+_MOVIE_HAS_GAP = or_(
+    Movie.title_cn.is_(None), Movie.title_cn == "",
+    Movie.title_en.is_(None), Movie.title_en == "",
+    Movie.original_title.is_(None), Movie.original_title == "",
+    Movie.description.is_(None), Movie.description == "",
+    Movie.rating.is_(None),
+    Movie.status.is_(None), Movie.status == "",
+    Movie.genre.is_(None),
+    Movie.poster_url.is_(None), Movie.poster_url == "",
+    Movie.release_date.is_(None),
+    Movie.runtime.is_(None),
+    Movie.external_id.is_(None), Movie.external_id == "",
+    Movie.external_source.is_(None), Movie.external_source == "",
+)
+
+
+async def select_channel_works_for_refresh(
+    db: AsyncSession, channel_id: str, full_scope: bool = False
+) -> list[dict]:
+    """Works linked to a channel's resources, for the periodic refresh.
+
+    Returns ``[{id, content_type}, ...]``. With ``full_scope=False`` (the
+    default gate) only works carrying at least one fillable empty field are
+    returned; ``full_scope=True`` returns every linked work.
+    """
+    from app.models.file_resource import FileResource
+
+    async def _ids(model, fk_attr, gap_clause):
+        stmt = (
+            select(getattr(model, "id"))
+            .join(FileResource, getattr(FileResource, fk_attr) == model.id)
+            .where(FileResource.channel_id == channel_id)
+            .distinct()
+        )
+        if not full_scope:
+            stmt = stmt.where(gap_clause)
+        return (await db.execute(stmt)).scalars().all()
+
+    series_ids = await _ids(TVSeries, "series_id", _SERIES_HAS_GAP)
+    movie_ids = await _ids(Movie, "movie_id", _MOVIE_HAS_GAP)
+    return (
+        [{"id": sid, "content_type": "tv"} for sid in series_ids]
+        + [{"id": mid, "content_type": "movie"} for mid in movie_ids]
+    )
+
+
+# ---------------------------------------------------------------------------
 # Layer-3 auto-link guards
 # ---------------------------------------------------------------------------
 

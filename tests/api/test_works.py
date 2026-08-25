@@ -16,42 +16,33 @@ def _uuid() -> str:
 
 
 class TestWorksMetadataConfig:
-    async def test_get_config_initial(self, client):
+    async def test_get_config_returns_catalog(self, client):
+        """The config endpoint is now a source catalog only: there is no
+        global default source and no global auto-refresh toggle."""
         res = await client.get("/api/v1/works/metadata-config")
         assert res.status_code == 200
         data = res.json()["data"]
         assert "sources" in data
-        assert data["default_source"] is None
-        assert data["auto_refresh_enabled"] is False
-        assert data["auto_refresh_interval_minutes"] == 1440
-
-    async def test_put_then_get_config(self, client):
-        res = await client.put(
-            "/api/v1/works/metadata-config",
-            json={
-                "default_source": "wikipedia",
-                "auto_refresh_enabled": True,
-                "auto_refresh_interval_minutes": 60,
-            },
-        )
-        assert res.status_code == 200
-        assert res.json()["data"]["default_source"] == "wikipedia"
-        got = await client.get("/api/v1/works/metadata-config")
-        data = got.json()["data"]
-        assert data["default_source"] == "wikipedia"
-        assert data["auto_refresh_enabled"] is True
-        assert data["auto_refresh_interval_minutes"] == 60
-
-    async def test_put_rejects_invalid_source(self, client):
-        res = await client.put("/api/v1/works/metadata-config", json={"default_source": "bogus"})
-        assert res.status_code == 422
-
-    async def test_put_rejects_empty_source(self, client):
-        res = await client.put("/api/v1/works/metadata-config", json={"default_source": None})
-        assert res.status_code == 422
+        assert set(data.keys()) == {"sources"}
 
 
 class TestWorksRefreshMetadata:
+    async def test_refresh_requires_source(self, client, sample_series):
+        """No source → 422 (source is a required field; there is no global
+        default to fall back to)."""
+        res = await client.post(
+            "/api/v1/works/refresh-metadata",
+            json={"id": sample_series.id, "content_type": "tv"},
+        )
+        assert res.status_code == 422
+
+    async def test_batch_refresh_requires_source(self, client, sample_series):
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={"items": [{"id": sample_series.id, "content_type": "tv"}]},
+        )
+        assert res.status_code == 422
+
     async def test_refresh_single_fills_missing(self, client, sample_series):
         candidate = {
             "content_type": "tv",
@@ -150,20 +141,6 @@ class TestWorksRefreshMetadata:
         assert got2.json()["data"]["rating"] == 9.0
         assert got2.json()["data"]["description"] == "A test series."
 
-    async def test_refresh_uses_configured_default_source(self, client, sample_series):
-        """When no source is passed, the configured default is used."""
-        await client.put("/api/v1/works/metadata-config", json={"default_source": "wikipedia"})
-        with patch(
-            "app.services.metadata_service.search_metadata_via_llm",
-            AsyncMock(return_value=[]),
-        ) as mocked:
-            await client.post(
-                "/api/v1/works/refresh-metadata",
-                json={"id": sample_series.id, "content_type": "tv"},
-            )
-        # search_metadata_via_llm(title, source) — source should be wikipedia.
-        assert mocked.call_args.args[1] == "wikipedia"
-
     async def test_batch_refresh_enqueues_job(self, client, sample_series, monkeypatch):
         from app.services import task_queue as tq_mod
 
@@ -190,7 +167,7 @@ class TestWorksRefreshMetadata:
     async def test_batch_refresh_empty(self, client):
         res = await client.post(
             "/api/v1/works/batch-refresh-metadata",
-            json={"items": []},
+            json={"items": [], "source": "wikipedia"},
         )
         assert res.status_code == 200
         assert res.json()["data"]["count"] == 0

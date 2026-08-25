@@ -39,6 +39,18 @@ class Channel(Base):
     default_is_anime: bool               # 「默认标记为 Anime」：NOT NULL DEFAULT FALSE（轻迁移加列）；
                                          # 创建后不可改（PUT 提交不同值 422）；开启后该频道资源链接到的
                                          # 作品 is_anime 先置 True（详见 business-logic.md「is_anime 分层判定」）
+    metadata_refresh_enabled: bool       # 频道级「定期刷新作品元数据」开关：NOT NULL DEFAULT FALSE
+                                         # （轻迁移加列；原全局自动刷新已废除，存量行收敛为关闭）。
+                                         # 开启后调度器按 metadata_refresh_interval_minutes 周期入队
+                                         # refresh_channel_works，用本频道自身 metadata_source 补全
+                                         # 本频道关联作品的空缺字段；只填空字段、绝不覆盖人工编辑
+                                         # （override_manual_edits 恒 False）
+    metadata_refresh_interval_minutes: int | None  # 刷新间隔（分钟），NULL = 默认 1440；
+                                         # clamp 30..10080（schemas + 调度两侧）
+    metadata_refresh_full_scope: bool    # 「刷新全量作品」：NOT NULL DEFAULT FALSE。False = 仅刷新
+                                         # 确有待填空字段的作品（缺失门控，选集谓词与
+                                         # refresh_work_metadata 的 fill 清单一致）；True = 每次刷
+                                         # 全部关联作品
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
     last_fetch_error: str | None         # 上次抓取错误信息

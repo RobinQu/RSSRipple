@@ -675,38 +675,20 @@ class TestWorksSettings:
         assert r.json()["data"]["settings"]["llm_model"]["value"] != "integration-test-model"
 
     def test_works_metadata_config(self):
+        """The config endpoint is a source catalog only (no global default)."""
         r = _api("/api/v1/works/metadata-config")
         assert r.status_code == 200
         data = r.json()["data"]
-        assert "sources" in data and "default_source" in data
+        assert "sources" in data
+        assert "default_source" not in data
 
-        # Wikipedia needs no key → available, accepted
+        # PUT no longer exists → 405
         r = _api(
             "/api/v1/works/metadata-config",
             method="put",
-            json={
-                "default_source": "wikipedia",
-                "auto_refresh_enabled": False,
-                "auto_refresh_interval_minutes": 60,
-            },
+            json={"default_source": "wikipedia"},
         )
-        assert r.status_code == 200, f"put failed: {r.text}"
-        assert r.json()["data"]["default_source"] == "wikipedia"
-
-        # Unavailable source (local is valid but not selectable) → 400
-        r = _api(
-            "/api/v1/works/metadata-config",
-            method="put",
-            json={"default_source": "local"},
-        )
-        assert r.status_code == 400
-        # Unknown source → 422 (schema validation)
-        r = _api(
-            "/api/v1/works/metadata-config",
-            method="put",
-            json={"default_source": "bogus"},
-        )
-        assert r.status_code == 422
+        assert r.status_code == 405
 
     def test_refresh_metadata_local_source(self):
         """refresh-metadata with source=local exercises the local agent path."""

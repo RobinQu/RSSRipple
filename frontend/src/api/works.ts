@@ -3,9 +3,6 @@ import type { MetadataSourceOption } from './channels';
 import type { Work } from '../types';
 
 export interface MetadataConfigResponse {
-  default_source: string | null;
-  auto_refresh_enabled: boolean;
-  auto_refresh_interval_minutes: number;
   sources: MetadataSourceOption[];
 }
 
@@ -44,31 +41,22 @@ export const worksApi = {
     return api.get<Work[]>(`/works?${qs.toString()}`);
   },
   getMetadataConfig: () => api.get<MetadataConfigResponse>('/works/metadata-config'),
-  setMetadataConfig: (
-    default_source: string,
-    auto_refresh_enabled: boolean,
-    auto_refresh_interval_minutes: number,
-  ) =>
-    api.put<MetadataConfigResponse>('/works/metadata-config', {
-      default_source,
-      auto_refresh_enabled,
-      auto_refresh_interval_minutes,
-    }),
+  // Source is required: there is no global default source anymore.
   refreshMetadata: (
     id: string,
     content_type: RefreshItem['content_type'],
-    source?: string | null,
+    source: string,
     overrideManualEdits?: boolean,
   ) =>
     api.post<RefreshResult>('/works/refresh-metadata', {
       id,
       content_type,
-      source: source ?? null,
+      source,
       override_manual_edits: overrideManualEdits ?? false,
     }),
-  batchRefreshMetadata: (items: RefreshItem[], source?: string | null) =>
+  batchRefreshMetadata: (items: RefreshItem[], source: string) =>
     api.post<BatchRefreshResponse>('/works/batch-refresh-metadata', {
       items,
-      source: source ?? null,
+      source,
     }),
 };

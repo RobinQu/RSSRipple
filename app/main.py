@@ -97,7 +97,6 @@ async def lifespan(app: FastAPI):  # pragma: no cover
     from app.services.scheduler import (
         init_scheduler,
         setup_channel_jobs,
-        setup_metadata_refresh_job,
         shutdown_scheduler,
     )
     if not is_web_only:
@@ -124,10 +123,6 @@ async def lifespan(app: FastAPI):  # pragma: no cover
 
     # The web role never consumes: jobs it enqueues are executed by a worker.
     await queue.start(consume=not is_web_only)
-    if not is_web_only:
-        async with async_session_factory() as sess:
-            await setup_metadata_refresh_job(sess)
-            await sess.commit()
     try:
         yield
     finally:

@@ -276,7 +276,8 @@ MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必
 
 数据源选择规则：
 - 一个数据源当且仅当"启用开关开启 **且** 凭证已配置"时才在 UI 中可选；`wikipedia` 无需凭证，仅看启用开关；`bangumi` 无独立启用开关，配置了 token 即视为启用。启用开关环境变量：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（默认 `true`；`EXA_ENABLED` 只控制 Exa MCP 回退，exa 不再是可选数据源）。频道表单只列出三数据源架构的 wikipedia/tmdb/bangumi；作品库元数据刷新仍可看到全部可用源。
-- 作品库"刷新元数据"动作使用的默认数据源由运行时设置 `default_metadata_source`（`app_settings` 表）决定，需用户在 UI 主动选择一个可用数据源；未配置时刷新请求返回 400。频道级的 `metadata_source` 在频道表单中单独选择。
+- 作品库"刷新元数据"动作（单个/批量）**必须显式指定数据源**（`source` 必填；无全局默认源，缺省请求 422/400）；`GET /works/metadata-config` 仅返回可用源目录供选择器使用。频道级的 `metadata_source` 在频道表单中单独选择。
+- **频道级定期刷新（原全局自动刷新已废除）**：Channel 新增 `metadata_refresh_enabled` / `metadata_refresh_interval_minutes`（NULL=默认 1440）/ `metadata_refresh_full_scope` 三列。开启后调度器按间隔入队 `refresh_channel_works`（stable key `channel-refresh:<id>`），handler 只做参数派生——source = 频道自身 `metadata_source`、`override_manual_edits=False`——作品选集经 `select_channel_works_for_refresh`（默认缺失门控：只选确有待填空字段的作品，谓词与 `refresh_work_metadata` 的 fill 清单一致；`full_scope=True` 跳过门控刷全部关联作品），随后复用与手动刷新完全相同的 `refresh_work_metadata → search_metadata_via_llm → process_title_only` 单一管线执行。存量频道开关一律收敛为关闭（轻迁移）。
 
 兼容规则：
 - `combined` 仅作为旧评测数据集值保留；运行时归一化为默认 `wikipedia`，不得作为新数据集或新搜索任务的数据源类型。
@@ -506,10 +507,13 @@ startup:
   │             next_run_time=datetime.utcnow() + 5,  # 启动 5s 后首次执行
   │             replace_existing=True,
   │         )
+  │         # 频道级定期作品元数据刷新（可选，默认关）：同 pattern 注册
+  │         # id=f"channel-refresh:{ch.id}"、IntervalTrigger(minutes=间隔 or 1440)，
+  │         # enqueue "refresh_channel_works"（stable key 同 id，active-key 去重防重叠）
   │
   ├─ 2. Channel CRUD 时动态调整:
-  │     创建/更新 → active? add_job/reschedule_job : remove_job
-  │     删除/paused → remove_job
+  │     创建/更新 → active? add_job/reschedule_job（fetch 与 channel-refresh 两 job）: remove_job
+  │     删除/paused → remove_job（两 job 一并移除）
   │
   ├─ 3. 全局每分钟任务:
   │     enqueue "sync_progress"（key=job:sync_progress）

@@ -71,6 +71,23 @@ class Channel(Base):
     auto_cleanup_unresolved_days: Mapped[int] = mapped_column(
         Integer, default=21, nullable=False, server_default="21"
     )
+    # ── Periodic work-metadata refresh (per-channel) ──
+    # When enabled, a scheduler job periodically re-runs the shared
+    # ``refresh_work_metadata`` pipeline (missing-fields-only fill, manual
+    # edits never overridden) for the works linked to this channel's
+    # resources, using this channel's own ``metadata_source``. NULL interval
+    # → DEFAULT_METADATA_REFRESH_INTERVAL_MINUTES.
+    metadata_refresh_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
+    metadata_refresh_interval_minutes: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    # Skip the missing-fields gate: refresh ALL linked works each run instead
+    # of only those with fillable empty fields.
+    metadata_refresh_full_scope: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="0"
+    )
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_fetch_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_fetch_error: Mapped[str | None] = mapped_column(String(2048), nullable=True)

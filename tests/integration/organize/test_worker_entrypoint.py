@@ -162,9 +162,6 @@ def wired_worker(tmp_path, monkeypatch):
     async def fake_setup_channel_jobs(sess):
         calls.append("setup_channel_jobs")
 
-    async def fake_setup_metadata_refresh(sess):
-        calls.append("setup_metadata_refresh")
-
     async def fake_shutdown_scheduler():
         calls.append("shutdown_scheduler")
 
@@ -185,10 +182,6 @@ def wired_worker(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "app.services.scheduler.setup_channel_jobs", fake_setup_channel_jobs
-    )
-    monkeypatch.setattr(
-        "app.services.scheduler.setup_metadata_refresh_job",
-        fake_setup_metadata_refresh,
     )
     monkeypatch.setattr(
         "app.services.scheduler.shutdown_scheduler", fake_shutdown_scheduler
@@ -220,7 +213,7 @@ async def test_run_full_wiring_and_graceful_shutdown(wired_worker):
     assert stub.queue.started and stub.queue.stopped
     for step in (
         "create_tables", "load_runtime_config", "init_scheduler",
-        "setup_channel_jobs", "setup_metadata_refresh", "shutdown_scheduler",
+        "setup_channel_jobs", "shutdown_scheduler",
     ):
         assert step in stub.calls
 

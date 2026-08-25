@@ -31,6 +31,10 @@ class ChannelCreate(BaseModel):
     required_metadata_fields: list[str] = Field(default_factory=_default_required_fields)
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
+    # Periodic work-metadata refresh (per-channel; off by default).
+    metadata_refresh_enabled: bool = False
+    metadata_refresh_interval_minutes: int | None = None
+    metadata_refresh_full_scope: bool = False
     # "默认标记为 Anime" — immutable after creation (see channels API).
     default_is_anime: bool = False
 
@@ -54,6 +58,11 @@ class ChannelCreate(BaseModel):
     def _clamp_days(cls, v: int) -> int:
         return _clamp_cleanup_days(v)
 
+    @field_validator("metadata_refresh_interval_minutes")
+    @classmethod
+    def _clamp_refresh_interval(cls, v: int | None) -> int | None:
+        return None if v is None else _clamp_refresh_interval_minutes(v)
+
 
 class ChannelUpdate(BaseModel):
     name: str | None = None
@@ -66,6 +75,10 @@ class ChannelUpdate(BaseModel):
     required_metadata_fields: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool | None = None
     auto_cleanup_unresolved_days: int | None = None
+    # Periodic work-metadata refresh (per-channel; off by default).
+    metadata_refresh_enabled: bool | None = None
+    metadata_refresh_interval_minutes: int | None = None
+    metadata_refresh_full_scope: bool | None = None
     # Immutable after creation — the update endpoint 422s when the submitted
     # value differs from the stored one.
     default_is_anime: bool | None = None
@@ -90,6 +103,11 @@ class ChannelUpdate(BaseModel):
     def _clamp_days(cls, v: int | None) -> int | None:
         return None if v is None else _clamp_cleanup_days(v)
 
+    @field_validator("metadata_refresh_interval_minutes")
+    @classmethod
+    def _clamp_refresh_interval(cls, v: int | None) -> int | None:
+        return None if v is None else _clamp_refresh_interval_minutes(v)
+
 
 class ChannelResponse(ORMModel):
     id: str
@@ -105,6 +123,9 @@ class ChannelResponse(ORMModel):
     required_metadata_fields: list[str] | None = None
     auto_cleanup_unresolved_enabled: bool = False
     auto_cleanup_unresolved_days: int = 21
+    metadata_refresh_enabled: bool = False
+    metadata_refresh_interval_minutes: int | None = None
+    metadata_refresh_full_scope: bool = False
     default_is_anime: bool = False
     last_fetched_at: datetime | None = None
     last_fetch_status: str | None = None
@@ -120,6 +141,18 @@ def _clamp_cleanup_days(v: int) -> int:
     if v > 365:
         return 365
     return v
+
+
+def _clamp_refresh_interval_minutes(v: int | None) -> int | None:
+    """Clamp the periodic works-refresh interval to the supported window."""
+    if v is None:
+        return None
+    from app.services.settings_service import (
+        MAX_METADATA_REFRESH_INTERVAL_MINUTES,
+        MIN_METADATA_REFRESH_INTERVAL_MINUTES,
+    )
+
+    return max(MIN_METADATA_REFRESH_INTERVAL_MINUTES, min(v, MAX_METADATA_REFRESH_INTERVAL_MINUTES))
 
 
 def _normalize_source(value: str | None) -> str | None:

@@ -30,6 +30,12 @@ export interface Channel {
   required_metadata_fields?: string[] | null;
   auto_cleanup_unresolved_enabled: boolean;
   auto_cleanup_unresolved_days: number;
+  // Periodic work-metadata refresh (per-channel; off by default). Refreshes
+  // the works linked to this channel's resources via the channel's own
+  // metadata source; only fills empty fields and never overrides manual edits.
+  metadata_refresh_enabled: boolean;
+  metadata_refresh_interval_minutes: number | null;
+  metadata_refresh_full_scope: boolean;
   // Default is_anime flag for works matched from this channel; immutable after creation.
   default_is_anime: boolean;
   last_fetched_at: string | null;

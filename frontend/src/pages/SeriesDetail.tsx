@@ -61,20 +61,22 @@ export default function SeriesDetail() {
 
   const openRefreshDialog = () => {
     setOverrideManualEdits(false);
-    // Load the source catalog so the user can override the global default
-    // source for this one refresh (the API defaults to the works-page
-    // default source when none is passed).
+    // Load the source catalog: the refresh names its source explicitly
+    // (there is no global default source anymore).
     worksApi.getMetadataConfig().then((r) => {
       if (r.success && r.data) {
         setRefreshSources(r.data.sources);
-        setRefreshSource((cur) => cur ?? r.data.default_source ?? null);
+        const available = (r.data.sources ?? []).filter((s) => s.available);
+        setRefreshSource((cur) =>
+          cur && available.some((s) => s.value === cur) ? cur : (available[0]?.value ?? null),
+        );
       }
     });
     setRefreshOpen(true);
   };
 
   const handleRefreshMetadata = async () => {
-    if (!id) return;
+    if (!id || !refreshSource) return;
     setRefreshOpen(false);
     setRefreshing(true);
     try {
@@ -342,6 +344,7 @@ export default function SeriesDetail() {
         title={t('works.refreshMetadata')}
         okText={t('common.confirm')}
         cancelText={t('common.cancel')}
+        okButtonProps={{ disabled: !refreshSource }}
         onOk={handleRefreshMetadata}
         onCancel={() => setRefreshOpen(false)}
       >

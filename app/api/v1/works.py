@@ -4,7 +4,7 @@
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -20,53 +20,28 @@ from app.services.metadata_agent import (
     is_metadata_source_available,
 )
 from app.services.metadata_service import refresh_work_metadata
-from app.services.settings_service import (
-    DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-    MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-    MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-    SETTING_DEFAULT_METADATA_SOURCE,
-    SETTING_METADATA_AUTO_REFRESH_ENABLED,
-    SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-    get_bool_setting,
-    get_int_setting,
-    get_setting,
-    resolve_default_metadata_source,
-    set_setting,
-)
 
 router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# Metadata refresh config + actions
+# Metadata refresh catalog + actions
+#
+# There is no global default source anymore: every manual refresh names its
+# source explicitly and the per-channel periodic refresh uses the channel's
+# own ``metadata_source``. All of them share the single
+# ``refresh_work_metadata`` pipeline underneath.
 # ---------------------------------------------------------------------------
 
 
-class MetadataConfigUpdate(BaseModel):
-    default_source: str
-    auto_refresh_enabled: bool = False
-    auto_refresh_interval_minutes: int = DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES
-
-    @field_validator("default_source")
-    @classmethod
-    def _validate_source(cls, v: str) -> str:
-        if v is None:
-            raise ValueError("metadata source is required")
-        v = v.strip().lower()
-        if not v:
-            raise ValueError("metadata source is required")
-        if v not in SUPPORTED_METADATA_SOURCES:
-            raise ValueError(f"unsupported metadata_source: {v!r}")
-        return v
-
-    @field_validator("auto_refresh_interval_minutes")
-    @classmethod
-    def _validate_interval(cls, v: int) -> int:
-        if v < MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES:
-            return MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES
-        if v > MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES:
-            return MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES
-        return v
+def _resolve_explicit_source(source: str | None) -> str:
+    """Validate a caller-supplied metadata source name."""
+    v = (source or "").strip().lower()
+    if not v:
+        raise HTTPException(status_code=400, detail="metadata source is required")
+    if v not in SUPPORTED_METADATA_SOURCES or not is_metadata_source_available(v):
+        raise HTTPException(status_code=400, detail="metadata source is not available")
+    return v
 
 
 class RefreshItem(BaseModel):
@@ -75,7 +50,9 @@ class RefreshItem(BaseModel):
 
 
 class RefreshMetadataRequest(RefreshItem):
-    source: str | None = None
+    # Required: there is no global default source anymore — the refresh
+    # dialog's picker always names one explicitly.
+    source: str
     # Explicit opt-in to overwrite fields the user edited manually through the
     # work detail edit form. Defaults to False: automatic scans never clobber
     # manual edits unless the user ticks "覆盖所有人工编辑字段" in the dialog.
@@ -84,58 +61,13 @@ class RefreshMetadataRequest(RefreshItem):
 
 class BatchRefreshMetadataRequest(BaseModel):
     items: list[RefreshItem]
-    source: str | None = None
+    source: str
 
 
 @router.get("/works/metadata-config")
 async def get_metadata_config(db: AsyncSession = Depends(get_db)):
-    """Return the default metadata search source + the source catalog."""
-    default_source = await get_setting(db, SETTING_DEFAULT_METADATA_SOURCE)
-    auto_refresh_enabled = await get_bool_setting(
-        db, SETTING_METADATA_AUTO_REFRESH_ENABLED, False
-    )
-    auto_refresh_interval_minutes = await get_int_setting(
-        db,
-        SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-        DEFAULT_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-        MIN_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-        MAX_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-    )
+    """Return the external metadata source catalog (for refresh pickers)."""
     return success_response({
-        "default_source": default_source,
-        "auto_refresh_enabled": auto_refresh_enabled,
-        "auto_refresh_interval_minutes": auto_refresh_interval_minutes,
-        "sources": get_metadata_source_catalog(),
-    })
-
-
-@router.put("/works/metadata-config")
-async def put_metadata_config(
-    body: MetadataConfigUpdate, db: AsyncSession = Depends(get_db)
-):
-    """Set the default metadata search source used by the refresh actions."""
-    if not is_metadata_source_available(body.default_source):
-        raise HTTPException(status_code=400, detail="metadata source is not available")
-    await set_setting(db, SETTING_DEFAULT_METADATA_SOURCE, body.default_source)
-    await set_setting(
-        db, SETTING_METADATA_AUTO_REFRESH_ENABLED, "true" if body.auto_refresh_enabled else "false"
-    )
-    await set_setting(
-        db,
-        SETTING_METADATA_AUTO_REFRESH_INTERVAL_MINUTES,
-        str(body.auto_refresh_interval_minutes),
-    )
-    await db.commit()
-    try:
-        from app.services.scheduler import reschedule_metadata_refresh_job
-
-        await reschedule_metadata_refresh_job(db)
-    except RuntimeError:
-        pass
-    return success_response({
-        "default_source": body.default_source,
-        "auto_refresh_enabled": body.auto_refresh_enabled,
-        "auto_refresh_interval_minutes": body.auto_refresh_interval_minutes,
         "sources": get_metadata_source_catalog(),
     })
 
@@ -144,11 +76,8 @@ async def put_metadata_config(
 async def refresh_single_metadata(
     body: RefreshMetadataRequest, db: AsyncSession = Depends(get_db)
 ):
-    """Refresh a single work's missing metadata fields from the selected source."""
-    try:
-        source = await resolve_default_metadata_source(db, body.source)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    """Refresh a single work's missing metadata fields from the given source."""
+    source = _resolve_explicit_source(body.source)
     result = await refresh_work_metadata(
         db, body.id, body.content_type, source, override_manual_edits=body.override_manual_edits
     )
@@ -166,10 +95,7 @@ async def batch_refresh_metadata(
     """
     if not body.items:
         return success_response({"job": None, "count": 0, "source": None})
-    try:
-        source = await resolve_default_metadata_source(db, body.source)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+    source = _resolve_explicit_source(body.source)
     from app.services.task_queue import task_queue
 
     job = await task_queue.enqueue(

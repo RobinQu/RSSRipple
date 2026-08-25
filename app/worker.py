@@ -80,7 +80,6 @@ async def _run() -> None:  # pragma: no cover - process wiring
     from app.services.scheduler import (
         init_scheduler,
         setup_channel_jobs,
-        setup_metadata_refresh_job,
         shutdown_scheduler,
     )
 
@@ -102,10 +101,6 @@ async def _run() -> None:  # pragma: no cover - process wiring
     _tq_mod.task_queue = queue
     register_all_handlers(queue)
     await queue.start()
-
-    async with async_session_factory() as sess:
-        await setup_metadata_refresh_job(sess)
-        await sess.commit()
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()

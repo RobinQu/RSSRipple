@@ -241,36 +241,36 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 # Metadata refresh / backfill
 # ---------------------------------------------------------------------------
 
-# Per-work ceiling for the background metadata-refresh job. A single hung
+# Per-work ceiling for the background metadata-refresh jobs. A single hung
 # external search (Jina/LLM call that never returns) must not stall the whole
 # batch - and with it the shared task queue.
 _REFRESH_WORK_TIMEOUT = 120  # seconds
 
 
-async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no cover
-    """Background job: refresh metadata for a batch of works sequentially.
+async def _refresh_works_batch(
+    items: list[dict], source: str, override_manual_edits: bool = False
+) -> list[dict]:
+    """Shared per-work refresh loop for every metadata-refresh caller.
 
-    Each work is bounded by ``_REFRESH_WORK_TIMEOUT`` so a single hung external
-    search cannot stall the whole batch - and the shared task queue - forever.
+    The manual batch endpoint and the per-channel periodic refresh both run
+    through here — there is exactly one refresh execution path underneath:
+    ``refresh_work_metadata`` (which funnels into ``process_title_only`` with
+    ``source`` as the only branch parameter). One short transaction per work;
+    a single hung external search cannot stall the whole batch.
     """
     from app.services.metadata_service import refresh_work_metadata
 
-    await _refresh_runtime_config()
-    items: list[dict] = payload.get("items", []) or []
-    source: str | None = payload.get("source")
     results: list[dict] = []
-    # One short transaction per work. A single transaction wrapping the whole
-    # batch would hold the SQLite write lock across every external metadata
-    # search (up to ``_REFRESH_WORK_TIMEOUT`` each), stalling foreground writes
-    # for minutes. (refresh_work_metadata also commits internally; the wrapper
-    # gives per-work lock-retry semantics instead of retrying the whole batch.)
     for item in items:
         work_id = item.get("id")
         content_type = item.get("content_type")
         try:
             async with committed_session() as session:
                 r = await asyncio.wait_for(
-                    refresh_work_metadata(session, work_id, content_type, source),
+                    refresh_work_metadata(
+                        session, work_id, content_type, source,
+                        override_manual_edits=override_manual_edits,
+                    ),
                     timeout=_REFRESH_WORK_TIMEOUT,
                 )
             results.append({"id": work_id, "content_type": content_type, **r})
@@ -289,6 +289,62 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no c
             results.append(
                 {"id": work_id, "content_type": content_type, "found": False, "error": str(e)}
             )
+    return results
+
+
+async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no cover
+    """Background job (manual batch refresh): refresh a batch of works."""
+    await _refresh_runtime_config()
+    items: list[dict] = payload.get("items", []) or []
+    source = str(payload.get("source") or "")
+    if not source:
+        return {"status": "error", "processed": 0,
+                "results": [{"error": "source is required"}]}
+    results = await _refresh_works_batch(items, source)
+    return {"status": "done", "processed": len(results), "results": results}
+
+
+async def _handle_refresh_channel_works(payload: dict) -> dict:  # pragma: no cover
+    """Background job: periodic work-metadata refresh scoped to one channel.
+
+    Parameter derivation only — the fetch itself is the shared
+    ``refresh_work_metadata`` pipeline:
+
+    * ``source`` ← the channel's own ``metadata_source`` (resolved);
+    * ``override_manual_edits`` is always False (manual edits are protected);
+    * work selection ← works linked via the channel's FileResources, gated to
+      those with fillable empty fields unless the channel opted into full
+      scope (``metadata_refresh_full_scope``).
+    """
+    from app.models.channel import Channel
+    from app.services.metadata_service import select_channel_works_for_refresh
+    from app.services.metadata_sources import resolve_metadata_source
+
+    await _refresh_runtime_config()
+    channel_id = payload.get("channel_id")
+    async with committed_session() as session:
+        channel = await session.get(Channel, channel_id)
+        if channel is None:
+            logger.warning("[channel_refresh] channel %s not found", channel_id)
+            return {"status": "done", "processed": 0, "results": []}
+        if channel.status == "inactive":
+            logger.info("[channel_refresh] channel %s inactive; skipping", channel_id)
+            return {"status": "done", "processed": 0, "results": []}
+        source = resolve_metadata_source(channel.metadata_source)
+        items = await select_channel_works_for_refresh(
+            session, channel_id,
+            full_scope=bool(channel.metadata_refresh_full_scope),
+        )
+
+    logger.info(
+        "[channel_refresh] channel %s source=%s scope=%s works=%d",
+        channel_id, source,
+        "full" if channel.metadata_refresh_full_scope else "gapped",
+        len(items),
+    )
+    results = await _refresh_works_batch(
+        items, source, override_manual_edits=False
+    )
     return {"status": "done", "processed": len(results), "results": results}
 
 
@@ -530,6 +586,7 @@ def register_all_handlers(queue) -> None:
     queue.register("fetch_channel", _handle_fetch_channel)
     queue.register("run_agent", _handle_run_agent)
     queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
+    queue.register("refresh_channel_works", _handle_refresh_channel_works)
     queue.register("backfill_metadata", _handle_backfill_metadata)
     queue.register("analyze_batch_files", _handle_analyze_batch_files)
     queue.register("sync_progress", _handle_sync_progress)

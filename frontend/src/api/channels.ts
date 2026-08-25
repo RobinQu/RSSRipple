@@ -51,6 +51,10 @@ export interface ChannelCreate {
   required_metadata_fields?: string[] | null;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
+  // Periodic work-metadata refresh (per-channel; off by default).
+  metadata_refresh_enabled?: boolean;
+  metadata_refresh_interval_minutes?: number | null;
+  metadata_refresh_full_scope?: boolean;
   // Immutable after channel creation (server returns 422 on change attempts).
   default_is_anime?: boolean;
 }
@@ -67,6 +71,10 @@ export interface ChannelUpdate {
   required_metadata_fields?: string[] | null;
   auto_cleanup_unresolved_enabled?: boolean;
   auto_cleanup_unresolved_days?: number;
+  // Periodic work-metadata refresh (per-channel).
+  metadata_refresh_enabled?: boolean;
+  metadata_refresh_interval_minutes?: number | null;
+  metadata_refresh_full_scope?: boolean;
 }
 
 // GET /channels/required-field-catalog — the selectable required metadata

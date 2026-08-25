@@ -241,13 +241,17 @@ async def create_tables() -> None:
         elif "postgresql" in settings.database_url:
             # Multiple distributed app replicas can start at the same time.
             # PostgreSQL enum DDL is not race-free under concurrent create_all().
-            await conn.execute(text("SELECT pg_advisory_lock(72057594037927937)"))
-            try:
-                await conn.run_sync(Base.metadata.create_all)
-                await _apply_light_migrations(conn)
-                await _ensure_pg_trgm_indexes(conn)
-            finally:
-                await conn.execute(text("SELECT pg_advisory_unlock(72057594037927937)"))
+            #
+            # Transaction-scoped advisory lock: released automatically at
+            # COMMIT/ROLLBACK of this engine.begin() block. A plain
+            # pg_advisory_lock + explicit unlock would (a) mask any inner
+            # failure behind InFailedSQLTransactionError when the unlock ran
+            # on an aborted transaction, and (b) strand a session-level lock
+            # on the pooled connection after a rollback.
+            await conn.execute(text("SELECT pg_advisory_xact_lock(72057594037927937)"))
+            await conn.run_sync(Base.metadata.create_all)
+            await _apply_light_migrations(conn)
+            await _ensure_pg_trgm_indexes(conn)
             return
 
         await conn.run_sync(Base.metadata.create_all)
@@ -294,15 +298,35 @@ async def _best_effort(conn, label: str) -> AsyncIterator[None]:
     """Run a tolerated-failure migration step inside a SAVEPOINT.
 
     On PostgreSQL a failed statement aborts the surrounding transaction:
-    without a savepoint, one skipped step would make every later step (and
-    the final ``pg_advisory_unlock`` in ``create_tables``) fail with
-    ``InFailedSQLTransactionError`` and kill application startup.
+    without a savepoint, one skipped step would make every later step fail
+    with ``InFailedSQLTransactionError`` and kill application startup.
+
+    The savepoint is started *before* the body runs so that failures during
+    savepoint creation surface as plain log lines instead of the cryptic
+    ``RuntimeError: generator didn't yield`` (which is how
+    ``@asynccontextmanager`` reports an exception raised before ``yield``).
+    If the savepoint itself cannot be created the step runs unprotected —
+    it will fail loudly if the transaction really is unusable.
     """
     try:
-        async with conn.begin_nested():
+        savepoint = await conn.begin_nested().start()
+    except Exception as e:
+        logger.warning("[migrate] %s: savepoint unavailable (%s), running unprotected", label, e)
+        savepoint = None
+        try:
             yield
+        except Exception as e2:
+            logger.warning("[migrate] %s skipped: %s", label, e2)
+        return
+    try:
+        yield
     except Exception as e:
         logger.warning("[migrate] %s skipped: %s", label, e)
+        with contextlib.suppress(Exception):
+            await savepoint.rollback()
+    else:
+        with contextlib.suppress(Exception):
+            await savepoint.commit()
 
 
 async def _apply_light_migrations(conn) -> None:
@@ -456,6 +480,14 @@ async def _apply_light_migrations(conn) -> None:
         # content analysis / the edit wizard. Recomputed from file
         # assignments whenever those change.
         ("file_resources", "season_ranges", "TEXT" if is_turso else "JSONB"),
+        # Per-channel periodic work-metadata refresh (off by default; legacy
+        # rows converge to disabled — the old global auto-refresh toggle is
+        # gone). NULL interval → DEFAULT_METADATA_REFRESH_INTERVAL_MINUTES.
+        ("channels", "metadata_refresh_enabled",
+         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("channels", "metadata_refresh_interval_minutes", "INTEGER"),
+        ("channels", "metadata_refresh_full_scope",
+         "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
     ]
 
     for table, column, ddl in additions:
@@ -540,6 +572,19 @@ async def _apply_light_migrations(conn) -> None:
             "AND metadata_source NOT IN ('wikipedia', 'tmdb', 'bangumi')"
         ))
 
+    # ── global works-metadata auto-refresh settings removal ────────────
+    # The periodic works refresh moved to a per-channel opt-in
+    # (channels.metadata_refresh_*). The legacy global toggle/interval and
+    # the default-source fallback are gone; drop their stored rows so stale
+    # values cannot resurrect the behavior.
+    async with _best_effort(conn, "global metadata auto-refresh settings cleanup"):
+        await conn.execute(text(
+            "DELETE FROM app_settings WHERE key IN "
+            "('metadata_auto_refresh_enabled', "
+            "'metadata_auto_refresh_interval_minutes', "
+            "'default_metadata_source')"
+        ))
+
     # ── channels.required_metadata_fields baseline convergence ───────────
     # The required-fields list is mandatory and add-only after creation:
     # every channel must carry at least the code-enforced baseline (base
@@ -600,12 +645,18 @@ async def _apply_light_migrations(conn) -> None:
     # ``downloader_instances.type`` to just ``'transmission'``. We now allow
     # ``'mock'`` as well (and the column has been widened to a plain String
     # in the ORM). Turso databases use a plain VARCHAR + CHECK from the start.
+    # Databases created after the widening never had the enum at all, so
+    # probe pg_type first instead of relying on the tolerated failure.
     async with _best_effort(conn, "downloader_type widening"):
         if is_postgres:
-            # Idempotent: succeeds silently if the value is already there.
-            await conn.execute(text(
-                "ALTER TYPE downloader_type ADD VALUE IF NOT EXISTS 'mock'"
-            ))
+            has_enum = (await conn.execute(text(
+                "SELECT 1 FROM pg_type WHERE typname = 'downloader_type'"
+            ))).scalar()
+            if has_enum:
+                # Idempotent: succeeds silently if the value is already there.
+                await conn.execute(text(
+                    "ALTER TYPE downloader_type ADD VALUE IF NOT EXISTS 'mock'"
+                ))
 
     # ── download_tasks.agent_id → nullable + ON DELETE SET NULL ────────────
     # Older PostgreSQL DBs created the column as ``NOT NULL`` with
@@ -619,8 +670,10 @@ async def _apply_light_migrations(conn) -> None:
             ))
             # Best-effort: drop the old CASCADE FK if it exists, then re-add
             # SET NULL. Names come from create_all so may differ across
-            # environments — swallow errors.
-            try:
+            # environments. Each failure MUST be contained in its own
+            # savepoint: swallowing an error without one aborts the whole
+            # surrounding transaction and every later migration step with it.
+            async with _best_effort(conn, "download_tasks.agent_id fk swap"):
                 await conn.execute(text(
                     "ALTER TABLE download_tasks DROP CONSTRAINT IF EXISTS download_tasks_agent_id_fkey"
                 ))
@@ -629,8 +682,6 @@ async def _apply_light_migrations(conn) -> None:
                     "ADD CONSTRAINT download_tasks_agent_id_fkey "
                     "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL"
                 ))
-            except Exception:
-                pass
 
     # ── agents.last_consumed_at backfill ─────────────────────────────────
     # Existing agents get their watermark set to the channel's current max

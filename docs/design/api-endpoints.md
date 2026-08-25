@@ -408,7 +408,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null）与 `is_anime`（可空布尔三态，见下），音频条目无合集恒为 null） |
-| POST | `/works/refresh-metadata` | 刷新单个作品元数据：body `{id, content_type: "tv"\|"movie", source?, override_manual_edits?}` → 用现有标题对所选源重新搜索并补全缺失字段；`override_manual_edits`（默认 false）勾选「覆盖所有人工编辑字段」时才覆盖 `manually_edited_fields` 中的字段（见 data-models.md「人工编辑保护」） |
+| POST | `/works/refresh-metadata` | 刷新单个作品元数据：body `{id, content_type: "tv"\|"movie", source, override_manual_edits?}` → `source` **必填**（无全局默认源；缺失 422、不可用源 400），用现有标题对所选源重新搜索并补全缺失字段；`override_manual_edits`（默认 false）勾选「覆盖所有人工编辑字段」时才覆盖 `manually_edited_fields` 中的字段（见 data-models.md「人工编辑保护」）。频道级定期刷新复用同一管线（source=频道自身 metadata_source，恒不覆盖人工编辑，详见 business-logic.md「数据源选择规则」）；`GET /works/metadata-config` 仅返回 `{sources}` 目录（原 PUT 已删除）；批量端点 `/works/batch-refresh-metadata` 同样 `source` 必填 |
 
 ### TVSeries
 
