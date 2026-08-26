@@ -174,7 +174,7 @@ def _normalize_source(value: str | None) -> str | None:
 
 
 def _normalize_fallback_sources(value: list[str] | None) -> list[str] | None:
-    """Validate the ordered Exa-fallback whitelist against the site registry.
+    """Validate the ordered web-search fallback whitelist against the site registry.
 
     None = use the default order; [] = fallback disabled. Unknown site names
     are rejected.

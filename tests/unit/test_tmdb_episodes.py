@@ -1,7 +1,7 @@
-"""P4 tests: TMDB exa-fallback wiring, fetch_tmdb_episode_list, tmdb
+"""P4 tests: TMDB web-fallback wiring, fetch_tmdb_episode_list, tmdb
 episode_list -> Episode upsert, and backfill selection logic.
 
-No network: httpx / exa_fallback_judge / the LLM model are mocked.
+No network: httpx / web_fallback_judge / the LLM model are mocked.
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ async def test_attach_tmdb_episode_list_empty_fetch_leaves_entity(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Agent wiring: TMDB ReAct found=False -> exa fallback
+# Agent wiring: TMDB ReAct found=False -> web fallback
 # ---------------------------------------------------------------------------
 
 
@@ -231,15 +231,15 @@ def _react_not_found():
 _FB_FOUND = (
     {"found": True, "content_type": "tv",
      "matched_entity": {"external_id": "bangumi:9", "external_source": "bangumi"}},
-    {"method": "search_then_exa_fallback", "data_sources_used": ["exa"],
+    {"method": "search_then_web_fallback", "data_sources_used": ["wigolo"],
      "source_errors": {}, "error": None},
 )
 
 
-async def test_tmdb_not_found_invokes_exa_fallback_with_channel_whitelist(monkeypatch):
+async def test_tmdb_not_found_invokes_web_fallback_with_channel_whitelist(monkeypatch):
     monkeypatch.setattr(ma, "fetch_tmdb_episode_list", AsyncMock(return_value=None))
     fb = AsyncMock(return_value=_FB_FOUND)
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
     agent._run_react.return_value = _react_not_found()
     channel = SimpleNamespace(
@@ -253,15 +253,15 @@ async def test_tmdb_not_found_invokes_exa_fallback_with_channel_whitelist(monkey
     assert fb.await_args.kwargs["resource"] is resource
     assert meta.found is True
     assert meta.matched_entity["external_id"] == "bangumi:9"
-    assert meta.search_method == "react_then_exa_fallback"
-    assert set(meta.data_sources_used) == {"tmdb", "exa"}
+    assert meta.search_method == "react_then_web_fallback"
+    assert set(meta.data_sources_used) == {"tmdb", "wigolo"}
 
 
-async def test_tmdb_found_skips_exa_fallback(monkeypatch):
+async def test_tmdb_found_skips_web_fallback(monkeypatch):
     fetch = AsyncMock(return_value=[{"season": 1, "episode": 1, "title": "甲", "air_date": None}])
     monkeypatch.setattr(ma, "fetch_tmdb_episode_list", fetch)
     fb = AsyncMock(return_value=_FB_FOUND)
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
     agent._run_react.return_value = (
         {"found": True, "clean_title": "Show", "content_type": "tv",
@@ -281,7 +281,7 @@ async def test_tmdb_found_skips_exa_fallback(monkeypatch):
 
 async def test_tmdb_transient_react_outcome_skips_fallback(monkeypatch):
     fb = AsyncMock(return_value=_FB_FOUND)
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
     agent._run_react.return_value = (
         {"found": False, "clean_title": "", "content_type": "tv",
@@ -299,8 +299,8 @@ async def test_tmdb_transient_react_outcome_skips_fallback(monkeypatch):
 
 
 async def test_tmdb_fallback_disabled_keeps_react_not_found(monkeypatch):
-    fb = AsyncMock(return_value=None)  # exa disabled / empty whitelist
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    fb = AsyncMock(return_value=None)  # fallback disabled / empty whitelist
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
     agent._run_react.return_value = _react_not_found()
     channel = SimpleNamespace(id="ch", metadata_source="tmdb", name="c", metadata_fallback_sources=[])
@@ -312,15 +312,15 @@ async def test_tmdb_fallback_disabled_keeps_react_not_found(monkeypatch):
     assert meta.search_method == "tmdb"  # original search_info untouched
 
 
-async def test_tmdb_fallback_exa_failure_is_transient(monkeypatch):
+async def test_tmdb_fallback_failure_is_transient(monkeypatch):
     fb = AsyncMock(return_value=(
         {"found": False, "clean_title": "Show", "content_type": "tv",
-         "reason": "exa search failed: RuntimeError: 429"},
-        {"method": "search_then_exa_fallback", "data_sources_used": ["exa"],
-         "source_errors": {"exa": "exa search failed: RuntimeError: 429"},
-         "error": "exa search failed: RuntimeError: 429"},
+         "reason": "web search failed: RuntimeError: 429"},
+        {"method": "search_then_web_fallback", "data_sources_used": ["wigolo"],
+         "source_errors": {"wigolo": "web search failed: RuntimeError: 429"},
+         "error": "web search failed: RuntimeError: 429"},
     ))
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
     agent._run_react.return_value = _react_not_found()
     channel = SimpleNamespace(id="ch", metadata_source="tmdb", name="c", metadata_fallback_sources=None)
@@ -333,7 +333,7 @@ async def test_tmdb_fallback_exa_failure_is_transient(monkeypatch):
 async def test_tmdb_title_only_uses_default_fallback_order(monkeypatch):
     monkeypatch.setattr(ma, "fetch_tmdb_episode_list", AsyncMock(return_value=None))
     fb = AsyncMock(return_value=_FB_FOUND)
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     with patch.dict("app.services.runtime_config._overrides", {"llm_api_key": "k"}):
         agent = ma.UnifiedMetadataAgent()
         agent._run_react = AsyncMock(return_value=_react_not_found())
@@ -347,7 +347,7 @@ async def test_tmdb_title_only_uses_default_fallback_order(monkeypatch):
 
 async def test_non_tmdb_sources_do_not_use_fallback(monkeypatch):
     fb = AsyncMock(return_value=_FB_FOUND)
-    monkeypatch.setattr(ma, "exa_fallback_judge", fb)
+    monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
     agent._run_react.return_value = _react_not_found()
     channel = SimpleNamespace(id="ch", metadata_source="jina", name="c", metadata_fallback_sources=None)

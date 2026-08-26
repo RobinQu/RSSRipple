@@ -16,8 +16,9 @@ class TestSystemSettings:
         # All recognized keys are present.
         for key in (
             "llm_api_key", "llm_model", "llm_base_url", "llm_enable_thinking",
-            "tmdb_api_key", "bangumi_api_key", "jina_api_key", "exa_mcp_url",
-            "exa_enabled", "jina_enabled", "tmdb_enabled", "wikipedia_enabled",
+            "tmdb_api_key", "bangumi_api_key", "jina_api_key",
+            "wigolo_base_url", "wigolo_api_token", "web_fallback_enabled",
+            "jina_enabled", "tmdb_enabled", "wikipedia_enabled",
         ):
             assert key in data["settings"], key
 
@@ -63,13 +64,13 @@ class TestSystemSettings:
     async def test_put_bool_switch(self, client):
         res = await client.put(
             "/api/v1/system-settings",
-            json={"exa_enabled": False, "wikipedia_enabled": False},
+            json={"web_fallback_enabled": False, "wikipedia_enabled": False},
         )
         assert res.status_code == 200
         body = res.json()["data"]
-        assert body["settings"]["exa_enabled"]["value"] is False
+        assert body["settings"]["web_fallback_enabled"]["value"] is False
         assert body["settings"]["wikipedia_enabled"]["value"] is False
-        assert runtime_config.exa_enabled is False
+        assert runtime_config.web_fallback_enabled is False
         assert runtime_config.wikipedia_enabled is False
 
     async def test_put_rejects_empty_payload(self, client):

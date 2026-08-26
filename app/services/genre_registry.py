@@ -1,7 +1,7 @@
 """Authoritative genre registry — the single source of truth for work genres.
 
 The canonical taxonomy is the TMDB closed genre set (movie 19 + TV 16, union
-27 — 8 shared). All metadata paths (TMDB direct, LLM judge/ReAct output, Exa fallback,
+27 — 8 shared). All metadata paths (TMDB direct, LLM judge/ReAct output, web fallback,
 manual PATCH) must land on this closed set: producers emit raw values and
 ``normalize_genres`` clamps them to canonical English TMDB names at every
 exit point (LLM result assembly, metadata write-back, backfill).

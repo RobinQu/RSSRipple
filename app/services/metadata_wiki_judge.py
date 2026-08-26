@@ -18,10 +18,10 @@ import logging
 import re
 from typing import Any
 
-from app.services.metadata_exa_fallback import exa_fallback_judge
 from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT
 from app.services.metadata_source_registry import parse_wikipedia_id
 from app.services.metadata_sources import normalize_metadata_source_type
+from app.services.metadata_web_fallback import web_fallback_judge
 from app.services.metadata_wiki_classify import (
     _classify_wikipedia_page,
     _infer_content_type_from_categories,
@@ -176,7 +176,7 @@ async def run_search_then_judge(
     *,
     react_runner,
     msg_builder,
-    exa_searcher=None,
+    web_searcher=None,
     fallback_sources: list[str] | None = None,
 ) -> tuple[dict, dict]:
     """Search-first + single-LLM-judge path (S3) for the wikipedia source.
@@ -186,12 +186,12 @@ async def run_search_then_judge(
     ~4-5 LLM calls of ReAct to 1. Falls back to ``_run_react`` when there
     is no usable query, the judge call fails, or its JSON is unparseable.
 
-    When the wikipedia judge returns found=False, an optional Exa web-search
-    fallback runs before the ReAct second opinion, filtered to the channel's
-    ordered whitelist (``fallback_sources``; None = default order, [] =
-    fallback disabled). Exa can close wikipedia's coverage gap (no page /
-    misclassified novel page / bad translated title) by finding pages on the
-    whitelisted identity sites (bangumi/MAL/AniList/TMDB/...).
+    When the wikipedia judge returns found=False, an optional web-search
+    fallback (wigolo) runs before the ReAct second opinion, filtered to the
+    channel's ordered whitelist (``fallback_sources``; None = default order,
+    [] = fallback disabled). The fallback can close wikipedia's coverage gap
+    (no page / misclassified novel page / bad translated title) by finding
+    pages on the whitelisted identity sites (bangumi/MAL/AniList/TMDB/...).
     """
     source = normalize_metadata_source_type(data_source_type)
     queries = _candidate_queries(raw_title, resource)
@@ -410,55 +410,56 @@ async def run_search_then_judge(
     # spend the extra ReAct run to verify; clear not-founds (no evidence at
     # all) are accepted as-is. Found=True results keep the fast 1-call path.
     if not finalize_dict.get("found"):
-        exa_result = await exa_fallback_judge(
-            model, raw_title, resource=resource, exa_searcher=exa_searcher,
+        web_result = await web_fallback_judge(
+            model, raw_title, resource=resource, web_searcher=web_searcher,
             fallback_sources=fallback_sources,
         )
-        if exa_result is not None:
-            exa_finalize, exa_info = exa_result
-            source_errors.update(exa_info.get("source_errors", {}))
-            dsu = ["wikipedia", "exa"]
-            if exa_info.get("error"):
-                # Exa itself failed (network/rate/API) - transient. Do not run
-                # ReAct; wikipedia already failed, and ReAct uses the same
-                # wikipedia tools. Returning with the transient marker prevents
-                # _classify_failure from caching this as not_found.
+        if web_result is not None:
+            web_finalize, web_info = web_result
+            source_errors.update(web_info.get("source_errors", {}))
+            dsu = ["wikipedia", "wigolo"]
+            if web_info.get("error"):
+                # The fallback search itself failed (network/rate/API) -
+                # transient. Do not run ReAct; wikipedia already failed, and
+                # ReAct uses the same wikipedia tools. Returning with the
+                # transient marker prevents _classify_failure from caching
+                # this as not_found.
                 logger.warning(
-                    "[metadata_agent] wikipedia found=False and Exa failed for %r (%s); "
-                    "treating as transient",
-                    raw_title[:80], exa_info["error"],
+                    "[metadata_agent] wikipedia found=False and web fallback failed "
+                    "for %r (%s); treating as transient",
+                    raw_title[:80], web_info["error"],
                 )
                 return (
                     {
                         "found": False,
                         "clean_title": raw_title,
                         "content_type": finalize_dict.get("content_type", "tv"),
-                        "reason": exa_info["error"],
+                        "reason": web_info["error"],
                     },
                     {
-                        "method": "search_then_exa_fallback",
+                        "method": "search_then_web_fallback",
                         "data_sources_used": dsu,
                         "source_errors": source_errors,
-                        "error": exa_info["error"],
+                        "error": web_info["error"],
                     },
                 )
-            # Exa produced a definitive answer (found True or False). Return it
-            # directly; skip the ReAct second opinion since Exa searched the
-            # broader web and is the cheaper/broader fallback.
+            # The fallback produced a definitive answer (found True or False).
+            # Return it directly; skip the ReAct second opinion since it
+            # searched the broader web and is the cheaper/broader fallback.
             logger.info(
-                "[metadata_agent] wikipedia found=False, Exa fallback %s for %r",
-                "found" if exa_finalize.get("found") else "not_found",
+                "[metadata_agent] wikipedia found=False, web fallback %s for %r",
+                "found" if web_finalize.get("found") else "not_found",
                 raw_title[:80],
             )
-            exa_finalize.setdefault("clean_title", raw_title)
-            exa_finalize.setdefault("content_type", "tv")
-            return exa_finalize, {
-                "method": "search_then_exa_fallback",
+            web_finalize.setdefault("clean_title", raw_title)
+            web_finalize.setdefault("content_type", "tv")
+            return web_finalize, {
+                "method": "search_then_web_fallback",
                 "data_sources_used": dsu,
                 "source_errors": source_errors,
                 "error": None,
             }
-        # Exa not configured/disabled - fall through to the original ReAct logic.
+        # Fallback not configured/disabled - fall through to the original ReAct logic.
 
     if not finalize_dict.get("found") and evidence:
         logger.info(

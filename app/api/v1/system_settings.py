@@ -38,7 +38,7 @@ _GROUPS: list[dict[str, Any]] = [
         "keys": [
             "tmdb_api_key", "tmdb_enabled",
             "jina_api_key", "jina_enabled",
-            "exa_mcp_url", "exa_enabled",
+            "wigolo_base_url", "wigolo_api_token", "web_fallback_enabled",
             "wikipedia_enabled",
         ],
     },
@@ -94,8 +94,9 @@ class SystemSettingsUpdate(BaseModel):
     llm_enable_thinking: bool | None = None
     tmdb_api_key: str | None = None
     jina_api_key: str | None = None
-    exa_mcp_url: str | None = None
-    exa_enabled: bool | None = None
+    wigolo_base_url: str | None = None
+    wigolo_api_token: str | None = None
+    web_fallback_enabled: bool | None = None
     jina_enabled: bool | None = None
     tmdb_enabled: bool | None = None
     wikipedia_enabled: bool | None = None

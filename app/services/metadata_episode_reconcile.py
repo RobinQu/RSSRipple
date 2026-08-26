@@ -2,14 +2,15 @@
 
 Pure leaf module - no DB, no LLM. Extracted verbatim from metadata_agent.py
 (Phase 0 leaf extraction): convert absolute-across-seasons episode numbers
-to per-season numbers using the season/episode_count map from TMDB/Exa.
+to per-season numbers using the season/episode_count map from TMDB or the
+primary source.
 """
 from __future__ import annotations
 
 # Some RSS titles number episodes absolutely across all seasons (S04 - 84,
 # where 84 = cumulative episode count across seasons 1-4) rather than
 # per-season. We detect this by checking the raw episode against the
-# season's episode_count from TMDB/Exa metadata and converting when the
+# season's episode_count from TMDB/web-fallback metadata and converting when the
 # arithmetic works out. Values outside the tolerance envelope are flagged
 # ``ambiguous`` and routed to AgentSuggestion for manual review.
 
@@ -21,7 +22,7 @@ _RECONCILE_TOLERANCE = 2
 def _seasons_map_from(entity: dict | None) -> dict[int, int]:
     """Extract ``{season_number: episode_count}`` from a matched_entity dict.
 
-    Both TMDB (native ``seasons``) and the Exa Agent schema (which mirrors
+    Both TMDB (native ``seasons``) and the judge schema (which mirrors
     it) return a list of season dicts. Season 0 = specials and is ignored.
     Returns an empty dict when there's no usable data.
     """

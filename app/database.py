@@ -378,7 +378,7 @@ async def _apply_light_migrations(conn) -> None:
         # legacy exa/jina/local values are converged by the UPDATE below).
         # NULL → fall back to the default source at runtime.
         ("channels", "metadata_source", "VARCHAR(32)"),
-        # Ordered Exa-fallback site whitelist for the channel (JSON list of
+        # Ordered web-search fallback site whitelist for the channel (JSON list of
         # registry source names). NULL → default order; [] → fallback disabled.
         ("channels", "metadata_fallback_sources", "TEXT" if is_turso else "JSONB"),
         # Channel-declared required work-metadata fields (JSON list of catalog
@@ -576,13 +576,16 @@ async def _apply_light_migrations(conn) -> None:
     # The periodic works refresh moved to a per-channel opt-in
     # (channels.metadata_refresh_*). The legacy global toggle/interval and
     # the default-source fallback are gone; drop their stored rows so stale
-    # values cannot resurrect the behavior.
+    # values cannot resurrect the behavior. The Exa MCP fallback endpoint /
+    # switch rows are equally dead since the fallback moved to wigolo
+    # (wigolo_base_url / wigolo_api_token / web_fallback_enabled).
     async with _best_effort(conn, "global metadata auto-refresh settings cleanup"):
         await conn.execute(text(
             "DELETE FROM app_settings WHERE key IN "
             "('metadata_auto_refresh_enabled', "
             "'metadata_auto_refresh_interval_minutes', "
-            "'default_metadata_source')"
+            "'default_metadata_source', "
+            "'exa_mcp_url', 'exa_enabled')"
         ))
 
     # ── channels.required_metadata_fields baseline convergence ───────────

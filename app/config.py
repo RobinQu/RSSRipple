@@ -34,18 +34,21 @@ class Settings(BaseSettings):
     # CJK/JA/EN coverage. Empty string disables the jina source at runtime.
     jina_api_key: str = ""
 
-    # Exa MCP (free web-search fallback for the wikipedia/tmdb/bangumi
-    # primary sources). Uses the public Exa MCP endpoint — no API key, no
-    # billing. Env var: EXA_MCP_URL.
-    exa_mcp_url: str = "https://mcp.exa.ai/mcp"
+    # Wigolo web-search fallback (self-hosted agent search engine, one daemon
+    # serves REST + MCP). Used when the wikipedia/tmdb/bangumi primary sources
+    # miss: the fallback searches the identity-site whitelist on the daemon.
+    # Env vars: WIGOLO_BASE_URL, WIGOLO_API_TOKEN (required for non-loopback
+    # binds).
+    wigolo_base_url: str = "http://flash-aio:3333"
+    wigolo_api_token: str = ""
 
     # Metadata source enable switches. A source is offered as a candidate in the
     # channel form only when its switch is on AND its credentials are configured
     # (wikipedia needs no API key). Turning a switch off hides an otherwise
-    # configured source without clearing its key. ``exa_enabled`` gates only
-    # the Exa MCP search fallback. Env vars: EXA_ENABLED,
-    # JINA_ENABLED, TMDB_ENABLED, WIKIPEDIA_ENABLED.
-    exa_enabled: bool = True
+    # configured source without clearing its key. ``web_fallback_enabled``
+    # gates only the wigolo web-search fallback. Env vars:
+    # WEB_FALLBACK_ENABLED, JINA_ENABLED, TMDB_ENABLED, WIKIPEDIA_ENABLED.
+    web_fallback_enabled: bool = True
     jina_enabled: bool = True
     tmdb_enabled: bool = True
     wikipedia_enabled: bool = True

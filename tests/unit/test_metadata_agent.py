@@ -361,6 +361,20 @@ def test_classify_failure_transient_markers():
     assert _classify_failure(_meta(found=False, search_error="Request timed out.")) == "transient"
 
 
+def test_classify_failure_web_fallback_errors_are_transient():
+    """wigolo fallback failures (and legacy exa markers from cached reasons)
+    are infra failures, never a definitive not_found."""
+    for reason in (
+        "web search failed: WigoloSearchError: wigolo HTTP 502",
+        "web search failed: ConnectError: All connection attempts failed",
+        "web fallback judge returned unparseable JSON",
+        # legacy markers still match (rows cached before the engine swap)
+        "exa search failed: ExaMcpError: MCP HTTP 429",
+        "exa judge returned unparseable JSON",
+    ):
+        assert _classify_failure(_meta(found=False, reason=reason)) == "transient", reason
+
+
 def test_classify_failure_http_source_errors_are_transient():
     """Billing/rate/auth/server errors from the external source are infra
     failures, not a definitive 'no match' - they must retry and must not be
@@ -1287,21 +1301,21 @@ async def test_search_then_judge_skips_autolink_for_non_work_page(monkeypatch):
 
     from app.services import runtime_config as rc_module
 
-    monkeypatch.setattr(rc_module, "_overrides", {"exa_enabled": "false"})
+    monkeypatch.setattr(rc_module, "_overrides", {"web_fallback_enabled": "false"})
 
     resource = SimpleNamespace(
         title_cn=None, title_en=None, search_title="幪面超人",
         title="幪面超人 - 42", episode=42, season=1,
     )
     finalize, info = await agent._run_search_then_judge(
-        "幪面超人 - 42", "wikipedia", resource, exa_searcher=None,
+        "幪面超人 - 42", "wikipedia", resource, web_searcher=None,
     )
 
     # Had B1 not skipped, auto-link would have returned method
     # "search_then_autolink" with found=True and a matched_entity.
     assert info["method"] != "search_then_autolink"
     assert finalize.get("found") is False
-    # Exa disabled in this test: judge found=False with evidence falls through
+    # Fallback disabled in this test: judge found=False with evidence falls through
     # to the original ReAct second-opinion path.
     assert react_spy.await_count == 1
 
@@ -1626,7 +1640,7 @@ async def test_search_then_judge_autolink_fills_cross_language_titles(monkeypatc
         title="Daemons of the Shadow Realm - 16", episode=16, season=1,
     )
     finalize, info = await agent._run_search_then_judge(
-        "Daemons of the Shadow Realm - 16", "wikipedia", resource, exa_searcher=None,
+        "Daemons of the Shadow Realm - 16", "wikipedia", resource, web_searcher=None,
     )
 
     assert info["method"] == "search_then_autolink"

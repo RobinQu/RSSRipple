@@ -1,5 +1,5 @@
 """Tests for metadata_wiki_judge: JSON extraction, cross-language titles,
-and the search-then-judge orchestration (auto-link, judge, Exa fallback,
+and the search-then-judge orchestration (auto-link, judge, web fallback,
 ReAct fallback). Wikipedia HTTP and the LLM are mocked.
 """
 
@@ -124,12 +124,12 @@ async def test_disambiguation_page_skips_auto_link_and_uses_judge():
         page_return={"data": {"disambiguation": True, "summary": "may refer to"}},
     )
     model = _model({"found": False, "content_type": "tv"})
-    with search_p, page_p, patch(f"{_JUDGE}.exa_fallback_judge", AsyncMock(return_value=None)):
+    with search_p, page_p, patch(f"{_JUDGE}.web_fallback_judge", AsyncMock(return_value=None)):
         finalize, info = await wj.run_search_then_judge(
             model, "無職転生", react_runner=rr, msg_builder=mb
         )
     model.ainvoke.assert_awaited_once()  # judge ran instead of auto-link
-    # found=False with evidence and no Exa -> ReAct second opinion
+    # found=False with evidence and no fallback -> ReAct second opinion
     assert finalize == {"found": False, "via": "react"}
     rr.assert_awaited_once()
 
@@ -225,47 +225,47 @@ async def test_judge_unparseable_json_falls_back_to_react():
     assert finalize == {"found": False, "via": "react"}
 
 
-async def test_judge_not_found_with_exa_transient_error():
+async def test_judge_not_found_with_web_fallback_transient_error():
     rr, mb = _runner()
     search_p, page_p, _, _ = _wiki_patches(
         search_return={"success": True, "data": [{"title": "Zzz Qqq", "page_id": 1}]},
         page_return={"data": {}},
     )
-    exa = AsyncMock(return_value=(
-        {"found": False, "reason": "exa search failed: RuntimeError: net"},
-        {"method": "search_then_exa_fallback", "source_errors": {"exa": "net"}, "error": "net"},
+    fb = AsyncMock(return_value=(
+        {"found": False, "reason": "web search failed: RuntimeError: net"},
+        {"method": "search_then_web_fallback", "source_errors": {"wigolo": "net"}, "error": "net"},
     ))
     model = _model({"found": False, "content_type": "tv"})
-    with search_p, page_p, patch(f"{_JUDGE}.exa_fallback_judge", exa):
+    with search_p, page_p, patch(f"{_JUDGE}.web_fallback_judge", fb):
         finalize, info = await wj.run_search_then_judge(
             model, "abcd show", react_runner=rr, msg_builder=mb
         )
     assert finalize["found"] is False
     assert finalize["reason"] == "net"
     assert info["error"] == "net"
-    assert info["data_sources_used"] == ["wikipedia", "exa"]
+    assert info["data_sources_used"] == ["wikipedia", "wigolo"]
     rr.assert_not_called()  # transient: no ReAct second opinion
 
 
-async def test_judge_not_found_with_exa_definitive_answer():
+async def test_judge_not_found_with_web_fallback_definitive_answer():
     rr, mb = _runner()
     search_p, page_p, _, _ = _wiki_patches(
         search_return={"success": True, "data": [{"title": "Zzz Qqq", "page_id": 1}]},
         page_return={"data": {}},
     )
-    exa = AsyncMock(return_value=(
+    fb = AsyncMock(return_value=(
         {"found": True, "matched_entity": {"external_id": "bangumi:1"}},
-        {"method": "search_then_exa_fallback", "source_errors": {}, "error": None},
+        {"method": "search_then_web_fallback", "source_errors": {}, "error": None},
     ))
     model = _model({"found": False, "content_type": "tv"})
-    with search_p, page_p, patch(f"{_JUDGE}.exa_fallback_judge", exa):
+    with search_p, page_p, patch(f"{_JUDGE}.web_fallback_judge", fb):
         finalize, info = await wj.run_search_then_judge(
             model, "abcd show", react_runner=rr, msg_builder=mb
         )
     assert finalize["found"] is True
     assert finalize["clean_title"] == "abcd show"  # setdefault
     assert finalize["content_type"] == "tv"
-    assert info["method"] == "search_then_exa_fallback"
+    assert info["method"] == "search_then_web_fallback"
     assert info["error"] is None
     rr.assert_not_called()
 
@@ -277,7 +277,7 @@ async def test_judge_not_found_without_evidence_is_accepted():
         search_side_effect=RuntimeError("http 503"),
     )
     model = _model({"found": False, "content_type": "tv"})
-    with search_p, page_p, patch(f"{_JUDGE}.exa_fallback_judge", AsyncMock(return_value=None)):
+    with search_p, page_p, patch(f"{_JUDGE}.web_fallback_judge", AsyncMock(return_value=None)):
         finalize, info = await wj.run_search_then_judge(
             model, "abcd show", react_runner=rr, msg_builder=mb
         )
@@ -293,7 +293,7 @@ async def test_search_unsuccessful_response_records_source_error():
         search_return={"success": False, "error": "bad response"},
     )
     model = _model({"found": False, "content_type": "tv"})
-    with search_p, page_p, patch(f"{_JUDGE}.exa_fallback_judge", AsyncMock(return_value=None)):
+    with search_p, page_p, patch(f"{_JUDGE}.web_fallback_judge", AsyncMock(return_value=None)):
         _, info = await wj.run_search_then_judge(
             model, "abcd show", react_runner=rr, msg_builder=mb
         )

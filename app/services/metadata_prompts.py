@@ -2,8 +2,8 @@
 
 Pure leaf module - no DB, no LLM, no LangGraph. Extracted verbatim from
 metadata_agent.py (Phase 0 leaf extraction): the ReAct system prompt that
-drives TMDB/Exa/Jina resolution, and the single-LLM-judge system prompt used
-by the Wikipedia search-first path.
+drives TMDB/Jina resolution, and the single-LLM-judge system prompts used
+by the Wikipedia search-first path and the web-search fallback.
 """
 from __future__ import annotations
 
@@ -285,13 +285,14 @@ Rules:
 """ + genre_prompt_block()
 
 
-_EXA_JUDGE_SYSTEM_PROMPT = """You are a metadata judge for anime/TV/movie RSS entries.
+_WEB_FALLBACK_JUDGE_SYSTEM_PROMPT = """You are a metadata judge for anime/TV/movie RSS entries.
 
 You are given an RSS entry title (plus optional pre-parsed hints) and a set of
-web search results already gathered for you from Exa. Each result has a title,
-URL, source domain, a canonical external id when one could be parsed from the
-URL, and a short text snippet. Pick the SINGLE best-matching work (TV series or
-movie), or confirm no match, and return ONLY a JSON object matching this schema:
+web search results already gathered for you from a web search engine. Each
+result has a title, URL, source domain, a canonical external id when one could
+be parsed from the URL, and a short text snippet. Pick the SINGLE best-matching
+work (TV series or movie), or confirm no match, and return ONLY a JSON object
+matching this schema:
 
 {
   "found": true|false,

@@ -5,6 +5,7 @@ Pure leaf module - no DB, no LLM. Extracted verbatim from metadata_agent.py
 fragment so the Wikipedia search targets the work name, and emit up to 6
 (query, lang) candidate searches (zh/en/ja) for the single-LLM-judge path.
 """
+
 from __future__ import annotations
 
 import re
@@ -22,9 +23,10 @@ _QUERY_QUALITY_TAIL_RE = re.compile(
     flags=re.IGNORECASE,
 )
 _QUERY_EPISODE_MARKER_RE = re.compile(
-    r"\s*[\[【]\s*\d{1,3}\s*(?:v\d+)?\s*[\]】]"   # [01] / [01v2]
+    r"\s*[\[【]\s*\d{1,3}\s*(?:v\d+)?\s*[\]】]"  # [01] / [01v2]
     r"|\s*第\s*\d{1,3}\s*[话話集]"
     r"|\s*EP\s*\d{1,3}\b"
+    r"|\s*S\d{1,2}E\d{1,3}\b"  # S03E06 combined token
     r"|\s*[#＃]\s*\d{1,3}\b",
     flags=re.IGNORECASE,
 )
@@ -42,7 +44,7 @@ _QUERY_ROMAN_TAIL_RE = re.compile(r"\s*[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*$")
 # ("二十世纪电气目录 Nijusseiki Denki Mokuroku" -> "二十世纪电气目录").
 _QUERY_SEASON_EP_SPLIT_RE = re.compile(
     r"\s*[-－]\s*\d"
-    r"|\s+S\d{1,2}\b"
+    r"|\s+S\d{1,2}(?:E\d{1,3})?\b"
     r"|第[一二三四五六七八九十百零千两\d]+\s*[季期话話集]"
     r"|\d{1,2}\s*[季期]"
     r"|Season\s*\d+"

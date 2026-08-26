@@ -10,7 +10,7 @@ Each entry declares:
   * ``label`` — display name for UI links;
   * ``canonical_id_form`` — human-readable documentation of the id shape;
   * a URL → (source, id) extractor (host suffix + path regex), used by the
-    Exa fallback to pin a stable identity onto an LLM-chosen web page;
+    web-search fallback to pin a stable identity onto an LLM-chosen page;
   * a display link template (TMDB is content-type aware: /tv/ vs /movie/).
 
 Provides:
@@ -24,13 +24,42 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
-# Registry order is also the default Exa-fallback whitelist order: anime-
-# centric DBs first, then general DBs, then identity-only databases.
-DEFAULT_EXA_FALLBACK_SOURCES: list[str] = [
+# Registry order is also the default web-search fallback whitelist order:
+# anime-centric DBs first, then general DBs, then identity-only databases.
+DEFAULT_FALLBACK_SOURCES: list[str] = [
     "bangumi", "mal", "anilist", "tmdb", "wikipedia", "imdb", "douban",
 ]
+
+# Registry site -> search-engine domain filters for the wigolo fallback's
+# ``include_domains`` push-down. Subdomain matches count (bangumi.tv covers
+# its mirrors' hosts; wikipedia.org covers every language edition; douban.com
+# covers movie.douban.com).
+SITE_DOMAINS: dict[str, list[str]] = {
+    "wikipedia": ["wikipedia.org"],
+    "tmdb": ["themoviedb.org"],
+    "bangumi": ["bangumi.tv", "bgm.tv"],
+    "mal": ["myanimelist.net"],
+    "anilist": ["anilist.co"],
+    "imdb": ["imdb.com"],
+    "douban": ["douban.com"],
+}
+
+
+def domains_for_sources(sources: list[str] | None = None) -> list[str]:
+    """Search-engine domain allowlist for the given registry sites.
+
+    ``None``/empty means the default whitelist order. Unknown site names are
+    skipped (they have no domain mapping); duplicates are dropped.
+    """
+    names = sources if sources else DEFAULT_FALLBACK_SOURCES
+    out: list[str] = []
+    for name in names:
+        for dom in SITE_DOMAINS.get(name, []):
+            if dom not in out:
+                out.append(dom)
+    return out
 
 
 @dataclass(frozen=True)
@@ -278,10 +307,13 @@ def canonicalize_external_id(
 def source_and_id_from_url(url: str) -> tuple[str, str] | None:
     """Map an authoritative media-DB URL to (source, "source:id").
 
-    Returns None for unrecognised pages; callers (e.g. the Exa fallback)
-    decide what the no-identity marker should be.
+    Returns None for unrecognised pages; callers (e.g. the web-search
+    fallback) decide what the no-identity marker should be. Percent-encoded
+    URLs are decoded first — search engines (notably keyword engines like
+    wigolo's bing/ddg pool) frequently return encoded wiki slugs, and the
+    extracted ``external_id`` must converge with its decoded form.
     """
-    parsed = urlparse(url)
+    parsed = urlparse(unquote(url or ""))
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
     for spec in _SOURCE_SPECS:
@@ -431,12 +463,14 @@ def build_source_links(
 
 
 __all__ = [
-    "DEFAULT_EXA_FALLBACK_SOURCES",
+    "DEFAULT_FALLBACK_SOURCES",
     "REGISTRY",
     "REGISTRY_SOURCES",
+    "SITE_DOMAINS",
     "SourceSpec",
     "build_source_links",
     "canonicalize_external_id",
+    "domains_for_sources",
     "parse_wikipedia_id",
     "qualify_wikipedia_id",
     "source_and_id_from_url",

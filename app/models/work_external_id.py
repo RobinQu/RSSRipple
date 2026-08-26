@@ -2,7 +2,7 @@
 
 A work (TVSeries/Movie) can carry MANY external identities discovered over
 time: the wikipedia pageid it was created from, langlink pageids of the same
-page in other language wikis, a tmdb/bangumi/... id found later by the Exa
+page in other language wikis, a tmdb/bangumi/... id found later by the web
 fallback, etc. This table maps any known ``(source, external_id)`` pair back
 to the work, making cross-source / cross-language upsert convergence
 deterministic instead of title-luck.

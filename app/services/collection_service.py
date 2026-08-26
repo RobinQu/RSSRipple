@@ -4,7 +4,7 @@ Collection linking is deliberately DETERMINISTIC (no LLM): when a Movie's
 ``external_id`` is in canonical ``tmdb:<digits>`` form, fetch TMDB movie
 details directly and read ``belongs_to_collection`` ({id, name, poster_path}).
 The LLM ``matched_entity`` path can't be used — Layers 1-3, the known-work
-short-circuit and cache hits all bypass TMDB details, and exa mode has no
+short-circuit and cache hits all bypass TMDB details, and bangumi mode has no
 TMDB tools at all.
 
 The external identity is ``external_source="tmdb_collection"`` + the raw

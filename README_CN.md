@@ -68,10 +68,10 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api)（申请 v3 key） | `TMDB_API_KEY` | 可选 — 影视 ID 匹配最佳 |
 | Bangumi | [bgm.tv](https://bgm.tv/)（开发者 token） | `BANGUMI_API_KEY` | 可选 — 仅动画分类条目搜索；配置 token 即启用 |
 | Wikipedia | — | — | 无需 key（免费 `wikipedia` 库）— 默认频道源 |
-| Exa（MCP） | [exa.ai](https://exa.ai/) — 免费公共 MCP 端点 | `EXA_MCP_URL` | 可选 — 免费无需 key；仅用作主源未命中时的有序 Exa 回退 |
+| Wigolo | 自托管搜索守护进程（[wigolo](https://github.com/KnockOutEZ/wigolo)） | `WIGOLO_BASE_URL` / `WIGOLO_API_TOKEN` | 可选 — 仅用作主源未命中时的有序网络搜索回退 |
 | Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | 可选 — 仅环境变量；仅手动搜索/评测（已废弃为频道源） |
 
-一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（`EXA_ENABLED` 只控制 Exa MCP 回退；jina 仅环境变量，设置页密钥行已移除）。`local` 源无需凭证 — 仅本地 DB 匹配。
+一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`WEB_FALLBACK_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（`WEB_FALLBACK_ENABLED` 只控制 wigolo 网络搜索回退；jina 仅环境变量，设置页密钥行已移除）。`local` 源无需凭证 — 仅本地 DB 匹配。
 
 ## 配置
 
@@ -132,7 +132,7 @@ docker compose start app
 | 数据库 | 默认 PostgreSQL；Turso（嵌入式，MVCC 并发写）见 `docker-compose.standalone.yml` |
 | 队列 / 调度 | MemoryQueue 或 RedisQueue、APScheduler |
 | RSS | feedparser |
-| 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Wikipedia / TMDB / Bangumi（+ 有序 Exa 回退） |
+| 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Wikipedia / TMDB / Bangumi（+ 有序 wigolo 网络搜索回退） |
 | 下载 | Transmission RPC |
 | 前端 | React、TypeScript、Vite、Ant Design |
 | 包管理 | uv、npm |

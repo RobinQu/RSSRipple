@@ -32,7 +32,7 @@ def _cache_source_key(data_source_type: str | None) -> str:
 
     The cache is keyed by ``(title, source)`` where ``source`` carries both the
     cache type and the data source, e.g. ``"metadata_agent:jina"``. This keeps
-    results from one source (e.g. Exa) from being returned for a channel
+    results from one source (e.g. wigolo) from being returned for a channel
     configured with another (e.g. Jina) - switching a channel's source no
     longer serves stale results from the old source.
     """

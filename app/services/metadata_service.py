@@ -771,7 +771,7 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
 
     Lookup order (P3):
       1. Identity-bag reverse lookup — any id ever bagged for the work
-         (langlink pageids, Exa-fallback ids, ...) converges deterministically.
+         (langlink pageids, web-fallback ids, ...) converges deterministically.
       2. Legacy ``external_id`` column lookup (canonical + raw shapes) — kept
          for rows written before canonicalization/the bag existed.
       3. Exact case-sensitive match on ``title_cn`` / ``title_en`` /

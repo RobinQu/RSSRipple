@@ -36,9 +36,11 @@ _TRANSIENT_MARKERS: tuple[str, ...] = (
     # returns success=True with an empty data list (or "Page not found"), so
     # this marker only appears on retryable failures.
     "wikipedia request failed",
-    # Exa web-search fallback failures (network, rate limit, API key/usage,
-    # unparseable judge JSON). These are not definitive "no match" outcomes -
-    # retry later when the service is healthy.
+    # Web-search fallback failures (wigolo network/rate-limit/tool errors,
+    # unparseable judge JSON; legacy "exa search failed"/"exa judge" markers
+    # cover cached reasons from before the engine swap). These are not
+    # definitive "no match" outcomes - retry later when the service is healthy.
+    "web search failed", "web fallback judge",
     "exa search failed", "exa judge",
 )
 

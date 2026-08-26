@@ -86,7 +86,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
 
-频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为 Exa 回退的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
+频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为网络搜索回退（wigolo）的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
 
 频道资源列表响应额外返回 `has_download_task`：只要该资源曾创建过任意 `DownloadTask`（下载 Agent 或手动、任意当前状态）即为 true，供频道页标记“已下载”。
 

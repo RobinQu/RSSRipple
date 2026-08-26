@@ -40,7 +40,7 @@ class Channel(Base):
     # Two-source architecture (Phase P1): "wikipedia" or "tmdb"; None falls
     # back to the default source (wikipedia) at runtime.
     metadata_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # Ordered Exa-fallback site whitelist (JSON list of registry source
+    # Ordered web-search fallback site whitelist (JSON list of registry source
     # names). None = default order; [] = fallback disabled. The fallback
     # supplies identity/links only - content follows the primary source.
     metadata_fallback_sources: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

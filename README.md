@@ -68,10 +68,10 @@ RSSRipple needs an LLM and at least one metadata source. Get the keys you want, 
 | TMDB | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) (apply for a v3 key) | `TMDB_API_KEY` | Optional — best for TV/movie ID matching |
 | Bangumi | [bgm.tv](https://bgm.tv/) (developer token) | `BANGUMI_API_KEY` | Optional — anime-only subject search; a token enables the source |
 | Wikipedia | — | — | No key (free `wikipedia` library) — the default channel source |
-| Exa (MCP) | [exa.ai](https://exa.ai/) — free public MCP endpoint | `EXA_MCP_URL` | Optional — free, no key; only used as the ordered Exa fallback when the primary source misses |
+| Wigolo | self-hosted search daemon ([wigolo](https://github.com/KnockOutEZ/wigolo)) | `WIGOLO_BASE_URL` / `WIGOLO_API_TOKEN` | Optional — used as the ordered web-search fallback when the primary source misses |
 | Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | Optional — env-only; manual search/eval only (deprecated as a channel source) |
 
-A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `EXA_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED` (`EXA_ENABLED` gates only the Exa MCP fallback; jina is env-only — its settings-page row was removed). The `local` source needs no credentials — it matches against the local DB only.
+A metadata source appears in the UI only when enabled **and** its key is set. Toggle visibility with `WEB_FALLBACK_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED` (`WEB_FALLBACK_ENABLED` gates only the wigolo web-search fallback; jina is env-only — its settings-page row was removed). The `local` source needs no credentials — it matches against the local DB only.
 
 ## Configuration
 
@@ -132,7 +132,7 @@ Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTR
 | Database | PostgreSQL by default; Turso (embedded, MVCC concurrent writes) via `docker-compose.standalone.yml` |
 | Queue / Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
-| Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Wikipedia / TMDB / Bangumi (+ ordered Exa fallback) |
+| Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Wikipedia / TMDB / Bangumi (+ ordered wigolo web-search fallback) |
 | Download | Transmission RPC |
 | Frontend | React, TypeScript, Vite, Ant Design |
 | Package manager | uv, npm |

@@ -10,7 +10,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 |---|---|
 | Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 (async), APScheduler, pyturso |
 | Frontend | React 18, TypeScript, Vite, Ant Design 5, react-router v6 |
-| External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), TMDB API, Wikipedia REST, Bangumi API, Exa Search（有序回退补身份）、feedparser |
+| External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), TMDB API, Wikipedia REST, Bangumi API, Wigolo（自托管搜索，有序回退补身份）、feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |
 
 数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。分布式部署（PostgreSQL + Redis 队列）下进程按 `APP_ROLE` 拆分：`web` 只服务 HTTP 并入队，`worker`（入口 `python -m app.worker`）运行调度器与队列消费、无 HTTP；默认 `docker-compose.yml` 为 1 web + 3 worker，单机/standalone 保持 `all`（单进程全功能）。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
@@ -207,7 +207,7 @@ MetadataAgent 数据源约束：
 
 ## 8. 关键设计决策
 
-1. **单数据源 metadata 搜索**：MetadataAgent 不执行 TMDB→Exa→Wikipedia 多级调用或跨源 fallback。频道源为三数据源架构：`wikipedia`（默认）| `tmdb` | `bangumi`；`exa`/`jina`/`local` 已废弃为频道源（仅手动搜索/评测保留其 ReAct 路径，设置页密钥已移除、仅环境变量）。主源未命中时可走频道配置的有序 Exa 回退（`metadata_fallback_sources` 站点白名单，仅补身份/链接，内容以主源为准）。`combined` 仅作为旧评测数据兼容值，运行时映射到默认 `wikipedia`。详见 `docs/design/business-logic.md`。
+1. **单数据源 metadata 搜索**：MetadataAgent 不执行跨数据源多级调用或 fallback。频道源为三数据源架构：`wikipedia`（默认）| `tmdb` | `bangumi`；`exa`/`jina`/`local` 已废弃为频道源（仅手动搜索/评测保留其 ReAct 路径，设置页密钥已移除、仅环境变量）。主源未命中时可走频道配置的有序网络搜索回退（wigolo，`metadata_fallback_sources` 站点白名单 + 域名下推，仅补身份/链接，内容以主源为准）。`combined` 仅作为旧评测数据兼容值，运行时映射到默认 `wikipedia`。详见 `docs/design/business-logic.md`。
 2. **Agent 直接订阅作品**：废弃 WatchEntry 模糊匹配，直接从 metadata 库选取作品订阅（最多 10 个），匹配更准确。未匹配的资源进入 suggestions，一键添加。
 3. **树形 DSL 过滤器**：废弃扁平 ResourceFilter，用 bool/combinator 树支持 AND/OR/嵌套，参考 ES Query DSL 设计。
 4. **职责分离**：Channel 负责"解析 + metadata 识别"；Agent 负责"订阅 + 过滤 + 推送"。metadata_agent_enabled 配在 Channel 上。

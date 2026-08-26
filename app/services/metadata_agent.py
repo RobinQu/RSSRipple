@@ -5,7 +5,7 @@ with a single LangGraph ReAct agent that:
 
 1. Cleans the raw RSS title
 2. Infers episode, season, and other resource fields
-3. Searches exactly one selected metadata source: TMDB, Exa Agent, or Wikipedia
+3. Searches exactly one selected metadata source: TMDB, Bangumi, or Wikipedia
 4. Uses the LLM to interpret that source's evidence
 5. Returns a complete ``ResourceMetadata`` result
 
@@ -36,7 +36,6 @@ from app.services.metadata_episode_reconcile import (
     reconcile_episode,
     verified_season_count,
 )
-from app.services.metadata_exa_fallback import exa_fallback_judge
 from app.services.metadata_failure import _classify_failure, _record_metadata_attempt
 from app.services.metadata_prompts import _SYSTEM_PROMPT
 from app.services.metadata_repository import _cache_source_key
@@ -57,6 +56,7 @@ from app.services.metadata_sources import (
     resolve_metadata_source,
 )
 from app.services.metadata_title_index import WorkTitleIndex, _normalize_title
+from app.services.metadata_web_fallback import web_fallback_judge
 from app.services.metadata_wiki_classify import (
     _classify_wikipedia_page,
     _validate_matched_entity_kind,
@@ -284,7 +284,7 @@ def _apply_verified_season_default(meta: ResourceMetadata) -> None:
 def _clamp_finalize_genre(finalize_dict: dict) -> None:
     """Clamp any producer-emitted genres to the closed TMDB set.
 
-    LLM paths (ReAct finalize, wiki/exa judge) are steered toward the
+    LLM paths (ReAct finalize, wiki/web-fallback judge) are steered toward the
     canonical set by the injected genre prompt block; this is the
     deterministic exit gate applied at the unified finalize-consumption
     point — unknown values are dropped and an empty result becomes None
@@ -341,7 +341,7 @@ async def _attach_tmdb_episode_list(finalize_dict: dict) -> None:
     the existing P2 consumption path (``create_or_update_series_from_external``
     → ``upsert_episodes``) exactly like the wikipedia attach. Single-source
     rule: only fires for a found TV result whose matched entity carries a tmdb
-    id plus a seasons list (Exa-fallback entities are identity-only and have
+    id plus a seasons list (web-fallback entities are identity-only and have
     their seasons stripped, so they never reach the fetch). Best-effort: any
     failure leaves the entity untouched.
     """
@@ -621,7 +621,7 @@ class UnifiedMetadataAgent:
             return None
 
         # Resolve the channel's data source up front so the cache lookup is
-        # source-scoped (a Jina channel must not hit a stale Exa cache entry).
+        # source-scoped (a Jina channel must not hit a stale wikipedia cache entry).
         data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
 
         # 0. Cache check — skipped on force_refresh. Legacy cache rows that
@@ -723,7 +723,7 @@ class UnifiedMetadataAgent:
         # 0d. AudioWork detection: a title with strong audio-only markers
         # (ASMR / FLAC / soundtrack / drama CD / radio) is not a TV/movie work.
         # Resolve it into an AudioWork entity via a general-purpose source
-        # (Wikipedia / Exa; TMDB falls back to Wikipedia) with a title-stub
+        # (Wikipedia / wigolo fallback; TMDB falls back to Wikipedia) with a title-stub
         # fallback, so these resources stop cycling as non_work/not_found.
         # Runs AFTER the TV/movie short-circuit so an OP/ED theme whose title
         # already matches a known series still links to that series.
@@ -767,17 +767,17 @@ class UnifiedMetadataAgent:
             finalize_dict, search_info = await run_bangumi_search_then_judge(
                 self._model, raw_title, resource=resource,
             )
-            # Same ordered Exa fallback as the other sources (identity only).
-            finalize_dict, search_info = await self._maybe_exa_fallback(
+            # Same ordered web-search fallback as the other sources (identity only).
+            finalize_dict, search_info = await self._maybe_web_fallback(
                 finalize_dict, search_info, raw_title, resource=resource,
                 fallback_sources=getattr(channel, "metadata_fallback_sources", None),
             )
         else:
             finalize_dict, search_info = await self._run_react(message, data_source_type)
             if normalize_metadata_source_type(data_source_type) == "tmdb":
-                # P4: same ordered Exa fallback as the wikipedia path, then the
+                # P4: same ordered web-search fallback as the wikipedia path, then the
                 # symmetric per-episode fill for tmdb-primary TV works.
-                finalize_dict, search_info = await self._maybe_exa_fallback(
+                finalize_dict, search_info = await self._maybe_web_fallback(
                     finalize_dict, search_info, raw_title, resource=resource,
                     fallback_sources=getattr(channel, "metadata_fallback_sources", None),
                 )
@@ -851,7 +851,7 @@ class UnifiedMetadataAgent:
             finalize_dict, search_info = await run_bangumi_search_then_judge(
                 self._model, raw_title,
             )
-            finalize_dict, search_info = await self._maybe_exa_fallback(
+            finalize_dict, search_info = await self._maybe_web_fallback(
                 finalize_dict, search_info, raw_title,
             )
         else:
@@ -859,7 +859,7 @@ class UnifiedMetadataAgent:
             if source == "tmdb":
                 # P4: same fallback as the wikipedia path (default order here,
                 # parity with _run_search_then_judge's title-only call).
-                finalize_dict, search_info = await self._maybe_exa_fallback(
+                finalize_dict, search_info = await self._maybe_web_fallback(
                     finalize_dict, search_info, raw_title,
                 )
                 await _attach_tmdb_episode_list(finalize_dict)
@@ -996,7 +996,7 @@ class UnifiedMetadataAgent:
         data_source_type: str | None = None,
         resource: Any | None = None,
         *,
-        exa_searcher=None,
+        web_searcher=None,
         fallback_sources: list[str] | None = None,
     ) -> tuple[dict, dict]:
         """Search-first + single-LLM-judge path (S3) for the wikipedia source.
@@ -1011,11 +1011,11 @@ class UnifiedMetadataAgent:
             resource,
             react_runner=self._run_react,
             msg_builder=self._build_title_only_message,
-            exa_searcher=exa_searcher,
+            web_searcher=web_searcher,
             fallback_sources=fallback_sources,
         )
 
-    async def _maybe_exa_fallback(
+    async def _maybe_web_fallback(
         self,
         finalize_dict: dict,
         search_info: dict,
@@ -1024,17 +1024,17 @@ class UnifiedMetadataAgent:
         *,
         fallback_sources: list[str] | None = None,
     ) -> tuple[dict, dict]:
-        """P4: shared Exa web-search fallback after a TMDB ReAct miss.
+        """P4: shared web-search fallback (wigolo) after a TMDB ReAct miss.
 
         Mirrors the wikipedia path's trigger (``run_search_then_judge`` fires
         the same fallback on found=False): a TMDB coverage gap (work not on
-        TMDB, or a mis-titled entry) is closed by an Exa search over the
+        TMDB, or a mis-titled entry) is closed by a web search over the
         channel's ordered identity-site whitelist (None = default order, [] =
         disabled). The fallback supplies identity/links only - content fields
-        are stripped inside ``exa_fallback_judge`` so seasons/episodes always
+        are stripped inside ``web_fallback_judge`` so seasons/episodes always
         follow the primary source. A transient ReAct outcome (agent error,
         timeout) is NOT rerouted: masking an infra failure with a definitive
-        Exa verdict would cache a wrong not_found.
+        fallback verdict would cache a wrong not_found.
         """
         if finalize_dict.get("found"):
             return finalize_dict, search_info
@@ -1043,11 +1043,11 @@ class UnifiedMetadataAgent:
         })
         if _classify_failure(probe) == "transient":
             return finalize_dict, search_info
-        fb = await exa_fallback_judge(
+        fb = await web_fallback_judge(
             self._model, raw_title, resource=resource,
             fallback_sources=fallback_sources,
         )
-        if fb is None:  # Exa disabled/unconfigured or empty whitelist
+        if fb is None:  # fallback disabled/unconfigured or empty whitelist
             return finalize_dict, search_info
         fb_finalize, fb_info = fb
         search_info["source_errors"] = {
@@ -1058,14 +1058,14 @@ class UnifiedMetadataAgent:
             set(search_info.get("data_sources_used") or [])
             | set(fb_info.get("data_sources_used") or [])
         )
-        search_info["method"] = "react_then_exa_fallback"
+        search_info["method"] = "react_then_web_fallback"
         if fb_info.get("error"):
-            # Exa itself failed (network/rate/API) - transient. Keep the
-            # transient marker on search_info so _classify_failure does not
-            # cache this as a definitive not_found.
+            # The search itself failed (network/rate/API) - transient. Keep
+            # the transient marker on search_info so _classify_failure does
+            # not cache this as a definitive not_found.
             search_info["error"] = fb_info["error"]
             logger.warning(
-                "[metadata_agent] tmdb found=False and Exa failed for %r (%s); "
+                "[metadata_agent] tmdb found=False and web fallback failed for %r (%s); "
                 "treating as transient",
                 raw_title[:80], fb_info["error"],
             )
@@ -1079,7 +1079,7 @@ class UnifiedMetadataAgent:
                 search_info,
             )
         logger.info(
-            "[metadata_agent] tmdb found=False, Exa fallback %s for %r",
+            "[metadata_agent] tmdb found=False, web fallback %s for %r",
             "found" if fb_finalize.get("found") else "not_found",
             raw_title[:80],
         )

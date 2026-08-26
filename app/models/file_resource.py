@@ -67,7 +67,7 @@ class FileResource(Base):
     # RSS titles sometimes number episodes absolutely across all seasons
     # (e.g. ``S04 - 84`` where 84 = cumulative count across seasons 1-4)
     # rather than per-season. When the MetadataAgent recognizes this via
-    # TMDB/Exa ``seasons: [{season_number, episode_count}]`` evidence, it
+    # TMDB/web-fallback ``seasons: [{season_number, episode_count}]`` evidence, it
     # rewrites ``episode`` to the per-season number and preserves the
     # original in ``absolute_episode`` for audit.
     # ``episode_confidence`` records where the value came from:
@@ -108,7 +108,7 @@ class FileResource(Base):
         String(36), ForeignKey("movies.id", ondelete="SET NULL"), nullable=True
     )
     # Non-TV/non-movie work (ASMR / music / drama CD / radio). Resolved via
-    # general-purpose sources (Wikipedia / Exa) only.
+    # general-purpose sources (Wikipedia / web fallback) only.
     audio_work_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("audio_works.id", ondelete="SET NULL"), nullable=True
     )
