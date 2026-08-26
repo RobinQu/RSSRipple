@@ -207,10 +207,10 @@
     "metadataRefreshFullScope": "Refresh all linked works",
     "metadataRefreshFullScopeDesc": "Skip the missing-fields gate: refresh every work linked to this channel, not only those with fillable gaps",
     "sourceUnavailable": "unavailable",
-    "metadataFallbackLabel": "Exa Fallback Site Whitelist",
-    "metadataFallbackDesc": "When the primary source finds no match, Exa searches these sites in order for identity info (identity/links only — content still follows the primary source)",
+    "metadataFallbackLabel": "Web Fallback Site Whitelist",
+    "metadataFallbackDesc": "When the primary source finds no match, the built-in web search (wigolo) searches these sites in order for identity info (identity/links only — content still follows the primary source)",
     "metadataFallbackPlaceholder": "Select fallback sites (selection order wins)",
-    "metadataFallbackHelper": "Earlier entries win; clear all to disable the Exa fallback",
+    "metadataFallbackHelper": "Earlier entries win; clear all to disable the web fallback",
     "sources": {
       "jina": "Jina Search + Reader",
       "wikipedia": "Wikipedia",
@@ -300,7 +300,10 @@
     "requiredField_genre": "Genre",
     "requiredField_is_anime": "Anime flag",
     "requiredField_collection": "Collection",
-    "batchMovies": "Movie pack"
+    "batchMovies": "Movie pack",
+    "tabBasic": "Basic Info",
+    "tabMetadata": "Metadata Search",
+    "tabSchedule": "Scheduled Jobs"
   },
   "agents": {
     "title": "Download Agents",

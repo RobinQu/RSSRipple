@@ -206,10 +206,10 @@
     "metadataRefreshFullScope": "刷新全量作品",
     "metadataRefreshFullScopeDesc": "跳过「缺失字段门控」：每次刷新本频道全部关联作品，而不仅是有空字段可补的作品",
     "sourceUnavailable": "不可用",
-    "metadataFallbackLabel": "Exa 回退站点白名单",
-    "metadataFallbackDesc": "主数据源未命中时，用 Exa 在这些站点上按顺序搜索身份信息（仅提供身份/链接，内容仍以主数据源为准）",
+    "metadataFallbackLabel": "网络搜索回退站点白名单",
+    "metadataFallbackDesc": "主数据源未命中时，用内置网络搜索（wigolo）在这些站点上按顺序搜索身份信息（仅提供身份/链接，内容仍以主数据源为准）",
     "metadataFallbackPlaceholder": "选择回退站点（按选择顺序优先）",
-    "metadataFallbackHelper": "按顺序优先；清空则禁用 Exa 回退",
+    "metadataFallbackHelper": "按顺序优先；清空则禁用网络搜索回退",
     "sources": {
       "jina": "Jina Search + Reader",
       "wikipedia": "Wikipedia",
@@ -300,7 +300,10 @@
     "requiredField_genre": "分类/题材",
     "requiredField_is_anime": "动漫判定",
     "requiredField_collection": "作品集",
-    "batchMovies": "电影合集"
+    "batchMovies": "电影合集",
+    "tabBasic": "基本信息",
+    "tabMetadata": "Metadata 搜索",
+    "tabSchedule": "定期任务"
   },
   "agents": {
     "title": "下载代理",

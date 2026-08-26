@@ -490,6 +490,20 @@ a:hover {
   max-width: 640px;
 }
 
+/* Tabs 2/3 render without the right column — let the form use the full width. */
+.channel-form-main.full {
+  max-width: none;
+}
+
+/* Red dot on a tab label whose fields failed validation on the last submit. */
+.tab-error-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rr-error);
+  display: inline-block;
+}
+
 /* Right column: sticky horizontal container holding AI Analysis + Feed Preview */
 .channel-form-right {
   display: flex;
