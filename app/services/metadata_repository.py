@@ -27,17 +27,56 @@ from app.utils.time import utcnow
 logger = logging.getLogger(__name__)
 
 
+async def _series_has_episode_evidence(db: AsyncSession, series_id: str) -> bool:
+    """Whether a cross-table owner has evidence that it really is episodic."""
+    from sqlalchemy import func, select
+
+    from app.models.episode import Episode
+    from app.models.file_resource import FileResource
+
+    episode_rows = int((await db.execute(
+        select(func.count()).select_from(Episode).where(Episode.series_id == series_id)
+    )).scalar_one() or 0)
+    if episode_rows:
+        return True
+    resource_rows = int((await db.execute(
+        select(func.count()).select_from(FileResource).where(
+            FileResource.series_id == series_id,
+            FileResource.is_batch.is_(False),
+            FileResource.episode.is_not(None),
+        )
+    )).scalar_one() or 0)
+    return bool(resource_rows)
+
+
 def _cache_source_key(data_source_type: str | None) -> str:
     """Cache namespace for one metadata source.
 
     The cache is keyed by ``(title, source)`` where ``source`` carries both the
-    cache type and the data source, e.g. ``"metadata_agent:jina"``. This keeps
+    cache type and the data source, e.g. ``"metadata_agent:tmdb"``. This keeps
     results from one source (e.g. wigolo) from being returned for a channel
     configured with another (e.g. Jina) - switching a channel's source no
     longer serves stale results from the old source.
     """
     ns = normalize_metadata_source_type(data_source_type)
     return f"metadata_agent:{ns}"
+
+
+def _fill_subtitle_group(meta: ResourceMetadata, resource: Any) -> None:
+    """Fill a missing release group from parsed metadata without overwriting it.
+
+    Release-title extraction remains useful even when the work lookup itself
+    returns ``found=false``.  Existing non-empty values win because they may
+    come from a channel mapping or a manual correction.
+    """
+    current = getattr(resource, "subtitle_group", None)
+    candidate = meta.subtitle_group
+    if (
+        not (isinstance(current, str) and current.strip())
+        and isinstance(candidate, str)
+        and candidate.strip()
+    ):
+        resource.subtitle_group = candidate.strip()
 
 
 async def _apply_to_resource(
@@ -47,7 +86,14 @@ async def _apply_to_resource(
     db: AsyncSession,
 ) -> None:
     """Write metadata results back to the FileResource and DB."""
-    resource.search_title = meta.clean_title
+    # A failed source lookup is not title-parsing evidence.  In particular,
+    # web-fallback misses can echo the whole release title (group / episode /
+    # codec decorations included) as ``clean_title``.  Overwriting the
+    # parser-derived search title with that value makes every later retry
+    # strictly worse and also prevents sibling-title reuse.  Only a confirmed
+    # match may refine the persisted search title.
+    if meta.found and meta.clean_title:
+        resource.search_title = meta.clean_title
 
     if meta.found and meta.content_type == "tv":
         if meta.episode is not None:
@@ -76,9 +122,24 @@ async def _apply_to_resource(
         resource.title_cn = resource.title_cn or meta.title_cn
     if meta.title_en:
         resource.title_en = resource.title_en or meta.title_en
-    # LLM output overrides pre-parser only when it actually returned
-    # something. ``[]`` is treated as "LLM saw no marker either", still
-    # useful signal — keep it.
+    _fill_subtitle_group(meta, resource)
+    # All release-description fields are part of the metadata result.  The
+    # old write-back only persisted subtitle languages, leaving resolution,
+    # source, codecs, subtitle type and container permanently empty even when
+    # the title/LLM had already resolved them.  Non-empty parser values remain
+    # authoritative for subtitle_group; every other non-null result is safe to
+    # write back (including an explicit empty subtitle-language list).
+    for field_name in (
+        "resolution",
+        "source",
+        "video_codec",
+        "audio_codec",
+        "subtitle_type",
+        "container",
+    ):
+        value = getattr(meta, field_name, None)
+        if value is not None and (not isinstance(value, str) or value.strip()):
+            setattr(resource, field_name, value)
     if meta.subtitle_langs is not None:
         resource.subtitle_langs = list(meta.subtitle_langs)
 
@@ -92,6 +153,19 @@ async def _apply_to_resource(
 
     # Link to TVSeries / Movie / AudioWork
     if meta.found and meta.matched_entity:
+        # Franchise resources are collection-owned.  Torrent enrichment may
+        # already have created the parent collection before this ordinary
+        # metadata pass runs; never let a title-level single-work match write
+        # a flat FK back onto the resource and undo that invariant.
+        from app.services.franchise_service import (
+            enforce_franchise_resource_invariant,
+            is_franchise_resource,
+        )
+        if is_franchise_resource(resource):
+            enforce_franchise_resource_invariant(resource)
+            resource.metadata_matched_at = utcnow()
+            return
+
         from app.services.metadata_service import (
             create_or_update_audio_work_from_external,
             create_or_update_movie_from_external,
@@ -130,17 +204,39 @@ async def _apply_to_resource(
             # as a TVSeries (an earlier tv classification, or a manual
             # correction). Creating a second row in the movies table would
             # split one work across tables - flip the dispatch instead.
-            if await find_series_by_external_id(db, meta.matched_entity) is not None:
-                logger.warning(
-                    "[metadata] movie verdict for %r but a series already owns "
-                    "external_id=%r; linking the series instead",
-                    (meta.matched_entity.get("title_cn") or meta.matched_entity.get("title_en") or "")[:60],
-                    meta.matched_entity.get("external_id"),
-                )
-                series = await create_or_update_series_from_external(db, meta.matched_entity)
-                resource.series_id = series.id
-                resource.movie_id = None
-                resource.audio_work_id = None
+            existing_series = await find_series_by_external_id(db, meta.matched_entity)
+            if existing_series is not None:
+                # A legacy row may itself prove that it was filed in the wrong
+                # table (TVSeries.content_type="movie").  The old guard kept
+                # that corruption forever and made required-field validation
+                # ask a film for season/episode.  Repair it online when there
+                # is no episodic evidence; otherwise retain the conservative
+                # creator-wins behaviour for a genuinely conflicting verdict.
+                if (
+                    getattr(existing_series, "content_type", None) == "movie"
+                    and not await _series_has_episode_evidence(db, existing_series.id)
+                ):
+                    movie = await create_or_update_movie_from_external(
+                        db, meta.matched_entity
+                    )
+                    from app.services.metadata_dedup import rehome_series_as_movie
+                    await rehome_series_as_movie(db, existing_series, movie)
+                    resource.movie_id = movie.id
+                    resource.series_id = None
+                    resource.audio_work_id = None
+                    from app.services.collection_service import link_movie_collection
+                    await link_movie_collection(db, movie)
+                else:
+                    logger.warning(
+                        "[metadata] movie verdict for %r but a series already owns "
+                        "external_id=%r; linking the series instead",
+                        (meta.matched_entity.get("title_cn") or meta.matched_entity.get("title_en") or "")[:60],
+                        meta.matched_entity.get("external_id"),
+                    )
+                    series = await create_or_update_series_from_external(db, meta.matched_entity)
+                    resource.series_id = series.id
+                    resource.movie_id = None
+                    resource.audio_work_id = None
             else:
                 movie = await create_or_update_movie_from_external(db, meta.matched_entity)
                 resource.movie_id = movie.id
@@ -187,7 +283,7 @@ async def _apply_to_resource(
         # Season-uncertain marking. Runs AFTER both reconciliations above:
         # reconcile may legitimately derive a season from absolute_episode,
         # and only a resource whose season is STILL None afterwards is routed
-        # to a human ("季号不确定" PendingDecision downstream). Batch
+        # to a human ("季号不确定" Channel confirmation downstream). Batch
         # resources are excluded — a 合集 intentionally bypasses per-episode
         # flow and doesn't need a verified single season number to dispatch.
         if (

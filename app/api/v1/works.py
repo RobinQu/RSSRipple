@@ -1,10 +1,11 @@
 """Unified Metadata Repository API — poster wall for both TVSeries and Movie."""
 
 
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,12 +15,7 @@ from app.models.audio_work import AudioWork
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.schemas.common import paginated_response, success_response
-from app.services.metadata_agent import (
-    SUPPORTED_METADATA_SOURCES,
-    get_metadata_source_catalog,
-    is_metadata_source_available,
-)
-from app.services.metadata_service import refresh_work_metadata
+from app.services.metadata_sources import SUPPORTED_METADATA_SOURCES, is_metadata_source_available
 
 router = APIRouter()
 
@@ -46,42 +42,29 @@ def _resolve_explicit_source(source: str | None) -> str:
 
 class RefreshItem(BaseModel):
     id: str
-    content_type: str  # "tv" | "movie"
-
-
-class RefreshMetadataRequest(RefreshItem):
-    # Required: there is no global default source anymore — the refresh
-    # dialog's picker always names one explicitly.
-    source: str
-    # Explicit opt-in to overwrite fields the user edited manually through the
-    # work detail edit form. Defaults to False: automatic scans never clobber
-    # manual edits unless the user ticks "覆盖所有人工编辑字段" in the dialog.
-    override_manual_edits: bool = False
+    content_type: Literal["tv", "movie"]
 
 
 class BatchRefreshMetadataRequest(BaseModel):
     items: list[RefreshItem]
     source: str
+    trusted_sites: list[str] | None = None
 
+    @field_validator("trusted_sites")
+    @classmethod
+    def _validate_trusted_sites(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        from app.services.metadata_source_registry import REGISTRY_SOURCES
 
-@router.get("/works/metadata-config")
-async def get_metadata_config(db: AsyncSession = Depends(get_db)):
-    """Return the external metadata source catalog (for refresh pickers)."""
-    return success_response({
-        "sources": get_metadata_source_catalog(),
-    })
-
-
-@router.post("/works/refresh-metadata")
-async def refresh_single_metadata(
-    body: RefreshMetadataRequest, db: AsyncSession = Depends(get_db)
-):
-    """Refresh a single work's missing metadata fields from the given source."""
-    source = _resolve_explicit_source(body.source)
-    result = await refresh_work_metadata(
-        db, body.id, body.content_type, source, override_manual_edits=body.override_manual_edits
-    )
-    return success_response(result)
+        result: list[str] = []
+        for raw in value:
+            site = str(raw).strip().lower()
+            if site not in REGISTRY_SOURCES:
+                raise ValueError(f"unsupported trusted site: {raw!r}")
+            if site not in result:
+                result.append(site)
+        return result
 
 
 @router.post("/works/batch-refresh-metadata")
@@ -104,9 +87,14 @@ async def batch_refresh_metadata(
         {
             "items": [item.model_dump() for item in body.items],
             "source": source,
+            "trusted_sites": body.trusted_sites,
+            "strategy": "sync_non_manual",
         },
     )
-    return success_response({"job": job, "count": len(body.items), "source": source})
+    return success_response({
+        "job": job, "count": len(body.items), "source": source,
+        "trusted_sites": body.trusted_sites,
+    })
 
 
 

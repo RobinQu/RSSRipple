@@ -88,7 +88,9 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     # write lock across LLM calls / Transmission RPCs stalls every foreground
     # write request until the retry middleware gives up.
     async with committed_session() as session:
-        agent = await session.get(Agent, agent_id)
+        agent = await session.get(
+            Agent, agent_id, options=[selectinload(Agent.channel)]
+        )
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
 
@@ -167,7 +169,9 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     # every unit is idempotent (task dedup / decision upsert), so a re-run
     # after a lock error just skips already-committed work.
     async with committed_session() as session:
-        agent = await session.get(Agent, agent_id)
+        agent = await session.get(
+            Agent, agent_id, options=[selectinload(Agent.channel)]
+        )
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
         run = await session.get(AgentRun, run_id)
@@ -193,7 +197,15 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 .order_by(FileResource.created_at.asc())
             )
             resources = list(result.scalars().all())
-        run_result = await process_resources(agent, resources, session, autocommit=True)
+        run_result = await process_resources(
+            agent,
+            resources,
+            session,
+            autocommit=True,
+            required_metadata_fields=(
+                agent.channel.required_metadata_fields if agent.channel else None
+            ),
+        )
 
         if advance_to is not None:
             agent.last_consumed_at = advance_to
@@ -242,13 +254,14 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 # Per-work ceiling for the background metadata-refresh jobs. A single hung
-# external search (Jina/LLM call that never returns) must not stall the whole
+# external search call that never returns must not stall the whole
 # batch - and with it the shared task queue.
 _REFRESH_WORK_TIMEOUT = 120  # seconds
 
 
 async def _refresh_works_batch(
-    items: list[dict], source: str, override_manual_edits: bool = False
+    items: list[dict], source: str, override_manual_edits: bool = False,
+    trusted_sites: list[str] | None = None, strategy: str = "fill_missing",
 ) -> list[dict]:
     """Shared per-work refresh loop for every metadata-refresh caller.
 
@@ -258,7 +271,10 @@ async def _refresh_works_batch(
     ``source`` as the only branch parameter). One short transaction per work;
     a single hung external search cannot stall the whole batch.
     """
-    from app.services.metadata_service import refresh_work_metadata
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+    from app.schemas.metadata_search import MetadataSearchRequest
+    from app.services.metadata_search import apply_work_metadata, search_metadata_candidates
 
     results: list[dict] = []
     for item in items:
@@ -266,13 +282,30 @@ async def _refresh_works_batch(
         content_type = item.get("content_type")
         try:
             async with committed_session() as session:
-                r = await asyncio.wait_for(
-                    refresh_work_metadata(
-                        session, work_id, content_type, source,
-                        override_manual_edits=override_manual_edits,
-                    ),
-                    timeout=_REFRESH_WORK_TIMEOUT,
-                )
+                work = await session.get(Movie if content_type == "movie" else TVSeries, work_id)
+                query = next((value for value in (
+                    getattr(work, "title_en", None), getattr(work, "title_cn", None),
+                    getattr(work, "original_title", None),
+                ) if value), None) if work else None
+                if not query:
+                    r = {"found": False, "applied": [], "message": "work/title not found"}
+                else:
+                    candidates = await asyncio.wait_for(
+                        search_metadata_candidates(session, MetadataSearchRequest(
+                            query=query, content_type=content_type, mode="online",
+                            source=source, trusted_sites=trusted_sites,
+                        )), timeout=_REFRESH_WORK_TIMEOUT,
+                    )
+                    candidate = next((c for c in candidates if c.selectable and not c.metadata.get("ambiguous")), None)
+                    if candidate is None:
+                        r = {"found": False, "applied": [], "message": "no deterministic candidate"}
+                    else:
+                        applied = await apply_work_metadata(
+                            session, work_id, content_type, candidate,
+                            override_manual_edits=override_manual_edits,
+                            only_missing=strategy == "fill_missing",
+                        )
+                        r = {"found": True, **applied}
             results.append({"id": work_id, "content_type": content_type, **r})
         except TimeoutError:
             logger.warning(
@@ -300,7 +333,10 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no c
     if not source:
         return {"status": "error", "processed": 0,
                 "results": [{"error": "source is required"}]}
-    results = await _refresh_works_batch(items, source)
+    results = await _refresh_works_batch(
+        items, source, trusted_sites=payload.get("trusted_sites"),
+        strategy=payload.get("strategy") or "sync_non_manual",
+    )
     return {"status": "done", "processed": len(results), "results": results}
 
 
@@ -343,7 +379,9 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:  # pragma: no co
         len(items),
     )
     results = await _refresh_works_batch(
-        items, source, override_manual_edits=False
+        items, source, override_manual_edits=False,
+        trusted_sites=channel.metadata_fallback_sources,
+        strategy="sync_non_manual" if channel.metadata_refresh_full_scope else "fill_missing",
     )
     return {"status": "done", "processed": len(results), "results": results}
 
@@ -364,8 +402,48 @@ async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
 
     await _refresh_runtime_config()
     async with committed_session() as session:
-        reconciled = await reconcile_stale_raw_episodes(session)
+        reconciled_ids = await reconcile_stale_raw_episodes(
+            session, return_resource_ids=True
+        )
+        if reconciled_ids:
+            from sqlalchemy import select
+
+            from app.models.agent import Agent
+            from app.models.file_resource import FileResource
+            from app.services.task_queue import task_queue
+
+            rows = (await session.execute(
+                select(FileResource.id, FileResource.channel_id).where(
+                    FileResource.id.in_(reconciled_ids)
+                )
+            )).all()
+            ids_by_channel: dict[str, list[str]] = {}
+            for resource_id, channel_id in rows:
+                ids_by_channel.setdefault(channel_id, []).append(resource_id)
+            agents = (await session.execute(
+                select(Agent).where(
+                    Agent.channel_id.in_(ids_by_channel),
+                    Agent.status == "active",
+                )
+            )).scalars().all()
+            for agent in agents:
+                try:
+                    await task_queue.enqueue(
+                        "run_agent",
+                        f"agent:{agent.id}",
+                        {
+                            "agent_id": agent.id,
+                            "resource_ids": ids_by_channel.get(agent.channel_id, []),
+                        },
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[backfill_metadata] failed to enqueue targeted agent %s: %s",
+                        agent.id,
+                        exc,
+                    )
         processed = await backfill_unmatched_resources_global(session)
+    reconciled = len(reconciled_ids)
     logger.info(
         "[backfill_metadata] processed %d resources, reconciled %d stale episodes",
         processed, reconciled,

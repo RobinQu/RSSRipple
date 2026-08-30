@@ -19,13 +19,12 @@
   - `APP_ROLE`：进程角色，`all`（默认，单进程全功能）/ `web`（只 HTTP + 入队）/ `worker`（调度器 + 队列消费，无 HTTP，入口 `python -m app.worker`）。分布式默认栈 `docker-compose.yml` 为 1 web + 3 worker；standalone 与本地开发保持默认 `all`。
   - `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`：OpenAI 兼容 LLM，用于 feed 分析、统一 MetadataAgent、PendingDecision 建议。
   - `WIGOLO_BASE_URL`（默认 `http://flash-aio:3333`）/ `WIGOLO_API_TOKEN`：自托管 wigolo 搜索守护进程——主源未命中时有序网络搜索回退的唯一对接；非回环绑定的 daemon 需配置 Bearer token。
-  - `JINA_API_KEY`：Jina Search + Reader 数据源（**仅环境变量**，设置页已移除；频道源已废弃，仅手动搜索/评测保留）。
   - `TMDB_API_KEY`：TMDB 数据源（可选）。
   - `BANGUMI_API_KEY`：Bangumi 数据源与 is_anime 第一层验证（可选；token 即启用，无独立开关，亦可在设置页覆盖配置）。
   - `BANGUMI_API_BASE`：Bangumi API 基础地址（默认 `https://api.bgm.tv/v0`）；可指向自建镜像或集成测试的 mock 服务。
-  - `WEB_FALLBACK_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：各数据源启用开关，默认 `true`；设为 `false` 可在不清除凭证的情况下禁用该源。注意 jina 的设置页密钥行已移除（仅环境变量），其开关仅影响手动搜索/评测路径是否可用；`WEB_FALLBACK_ENABLED` 只控制 wigolo 网络搜索回退。
+  - `WEB_FALLBACK_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：来源启用开关；`WEB_FALLBACK_ENABLED` 只控制受可信站点约束的 Wigolo 网络搜索回退。
   - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
-  - `TORRENT_CACHE_DIR`：通道 A 下载缓存的 .torrent 文件目录（默认 `./data/torrents`，文件名 `<resource_id>.torrent`；`FileResource.torrent_file` 记路径，任务创建时本地推送字节）。
+  - `TORRENT_CACHE_DIR`：通道 A 下载缓存的 .torrent 文件目录（默认 `./data/torrents`，文件名 `<resource_id>.torrent`；写盘前必须完成 bencode/info 清单校验，已有缓存读取前同样校验，HTML/损坏等无效缓存会删除并允许重新获取；`FileResource.torrent_file` 记有效路径，任务创建时本地推送字节）。
   - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
   - `TRANSMISSION_TIMEOUT`：Transmission RPC 超时。
   - `MAX_RETRY_COUNT`：失败下载最大重试次数（默认 `3`）。
@@ -45,4 +44,3 @@
 - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。
 
 ---
-

@@ -34,12 +34,86 @@ from app.models.episode import Episode
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
+from app.models.resource_file_assignment import ResourceFileAssignment
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.external_ids import merge_external_id_bags
 from app.services.metadata_service import canonicalize_external_id
 from app.services.text_normalizer import normalize_title
 
 logger = logging.getLogger(__name__)
+
+
+async def rehome_series_as_movie(
+    db: AsyncSession, series: TVSeries, movie: Movie
+) -> None:
+    """Move all references from a proven misfiled TVSeries into a Movie.
+
+    This is the targeted online counterpart of :func:`merge_cross_type_duplicates`.
+    Eligibility (the source row says ``content_type='movie'`` and has no
+    episode evidence) is deliberately checked by the caller, while this
+    function owns the canonical reference migration and identity-bag merge.
+    """
+    # Multi-work links have a per-target uniqueness constraint.  Collapse a
+    # pre-existing movie link instead of converting the series row into a
+    # duplicate (manual provenance wins when either side is manual).
+    links = (await db.execute(
+        select(ResourceWorkLink).where(ResourceWorkLink.series_id == series.id)
+    )).scalars().all()
+    for link in links:
+        existing = (await db.execute(
+            select(ResourceWorkLink).where(
+                ResourceWorkLink.resource_id == link.resource_id,
+                ResourceWorkLink.movie_id == movie.id,
+            )
+        )).scalars().first()
+        if existing is not None:
+            if link.source == "manual":
+                existing.source = "manual"
+            await db.delete(link)
+        else:
+            link.series_id = None
+            link.movie_id = movie.id
+
+    await db.execute(
+        update(ResourceFileAssignment)
+        .where(ResourceFileAssignment.series_id == series.id)
+        .values(
+            series_id=None,
+            movie_id=movie.id,
+            season=None,
+            episode_start=None,
+            episode_end=None,
+        )
+    )
+    await db.execute(
+        update(FileResource)
+        .where(FileResource.series_id == series.id)
+        .values(series_id=None, movie_id=movie.id, episode_confidence=None)
+    )
+    await db.execute(
+        update(AgentWork)
+        .where(AgentWork.series_id == series.id)
+        .values(series_id=None, movie_id=movie.id, content_type="movie")
+    )
+    await db.execute(
+        update(ChannelRawTitleMapping)
+        .where(ChannelRawTitleMapping.series_id == series.id)
+        .values(series_id=None, movie_id=movie.id, content_type="movie")
+    )
+    await db.execute(
+        update(PendingDecision)
+        .where(PendingDecision.series_id == series.id)
+        .values(series_id=None, movie_id=movie.id)
+    )
+    await merge_external_id_bags(db, movie, [series])
+    await db.flush()
+    await db.delete(series)
+    await db.flush()
+    logger.warning(
+        "[metadata] repaired misfiled TVSeries %s (%r) as Movie %s",
+        series.id, series.title_cn or series.title_en, movie.id,
+    )
 
 
 @dataclass

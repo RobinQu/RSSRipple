@@ -4,22 +4,28 @@ import type { FileResource } from '../types';
 // Channel required-field column helpers — shared by the channel resource
 // tables (flat + grouped views). Columns come from the channel's configured
 // required_metadata_fields; per-row rendering filters by the resource's shape
-// so type-irrelevant fields never show a misleading "—" (e.g. batch episode
-// ranges on movies).
+// so type-irrelevant fields never show a misleading "—" (e.g. flat episode
+// ranges on cross-season batches or movies).
 // ---------------------------------------------------------------------------
 
 /** Row shape drives field applicability. */
-export type RowShape = 'tv_single' | 'tv_batch' | 'franchise' | 'movie' | 'unknown';
+export type RowShape = 'tv_single' | 'tv_season_batch' | 'tv_multi_season' | 'franchise' | 'movie' | 'audio' | 'unknown';
 
-const WORK_SHAPES: RowShape[] = ['tv_single', 'tv_batch', 'movie'];
-const TV_SHAPES: RowShape[] = ['tv_single', 'tv_batch'];
+const WORK_SHAPES: RowShape[] = ['tv_single', 'tv_season_batch', 'tv_multi_season', 'movie'];
+const TV_SHAPES: RowShape[] = ['tv_single', 'tv_season_batch', 'tv_multi_season'];
 
 /** Derive the row's shape from which work/collection FKs it carries. */
 export function resourceShape(r: FileResource): RowShape {
+  if (r.audio_work_id) return 'audio';
   if (r.collection_id && !r.series_id && !r.movie_id && !r.audio_work_id) {
     return 'franchise';
   }
-  if (r.series_id) return r.is_batch ? 'tv_batch' : 'tv_single';
+  if (r.series_id) {
+    if (!r.is_batch) return 'tv_single';
+    if (r.batch_scope === 'multi_season') return 'tv_multi_season';
+    if (r.batch_scope === 'season') return 'tv_season_batch';
+    return 'unknown';
+  }
   if (r.movie_id) return 'movie';
   return 'unknown';
 }
@@ -30,19 +36,21 @@ export function resourceShape(r: FileResource): RowShape {
  * WORK_SHAPES restriction; episode machinery is TV-only.
  */
 const APPLICABILITY: Record<string, RowShape[] | undefined> = {
-  // 基础必选（全形态适用；year/is_anime 需链接作品）
+  // 基础字段（全形态适用；year/is_anime 需链接作品）
   title_cn: undefined,
   title_en: undefined,
   search_title: undefined,
-  content_type: undefined,
+  // A franchise collection may mix TV/movie/OVA and deliberately has no flat
+  // work FK, so it has no single content_type value.
+  content_type: ['tv_single', 'tv_season_batch', 'tv_multi_season', 'movie', 'audio'],
   is_batch: undefined,
   year: WORK_SHAPES,
   is_anime: WORK_SHAPES,
   // TV 集数字段：按单集/合集区分
-  season: TV_SHAPES,
+  season: ['tv_single', 'tv_season_batch'],
   episode: ['tv_single'],
-  episode_start: ['tv_batch'],
-  episode_end: ['tv_batch'],
+  episode_start: ['tv_season_batch'],
+  episode_end: ['tv_season_batch'],
   absolute_episode: TV_SHAPES,
   episode_confidence: TV_SHAPES,
   // 多作品合集（franchise 包）专属

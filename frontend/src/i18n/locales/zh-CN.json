@@ -88,7 +88,15 @@
     "pendingPlans": "文件操作变更确认",
     "pendingConfirmations": "文件资源元数据确认",
     "pendingItems": "待办事项",
-    "noPendingHint": "暂无待办事项"
+    "noPendingHint": "暂无待办事项",
+    "missingFields": "缺少必选字段：{fields}",
+    "confirmationKinds": {
+      "metadata_unlinked": "作品未识别",
+      "required_fields_missing": "必选字段缺失",
+      "season_ambiguous": "季号不确定",
+      "episode_ambiguous": "集号不确定",
+      "batch_coverage_unknown": "合集范围不确定"
+    }
   },
   "channels": {
     "title": "频道",
@@ -211,7 +219,6 @@
     "metadataFallbackPlaceholder": "选择回退站点（按选择顺序优先）",
     "metadataFallbackHelper": "按顺序优先；清空则禁用网络搜索回退",
     "sources": {
-      "jina": "Jina Search + Reader",
       "wikipedia": "Wikipedia",
       "tmdb": "TMDB",
       "local": "本地库",
@@ -255,7 +262,7 @@
     "requiredFieldsSavedHint": "已保存：仅可新增，不可移除",
     "requiredFieldsLockedTag": "系统必选",
     "requiredFieldsSavedTag": "已保存",
-    "requiredFieldSection_base": "基础必选（全部形态）",
+    "requiredFieldSection_base": "基础字段（全部形态）",
     "requiredFieldSection_tv": "剧集作品（TV）",
     "requiredFieldSection_pack": "多作品合集",
     "requiredFieldSection_release": "发布信息",

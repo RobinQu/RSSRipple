@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from app.models.audio_work import AudioWork
 from app.models.movie import Movie
@@ -15,26 +15,14 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
-class TestWorksMetadataConfig:
-    async def test_get_config_returns_catalog(self, client):
-        """The config endpoint is now a source catalog only: there is no
-        global default source and no global auto-refresh toggle."""
-        res = await client.get("/api/v1/works/metadata-config")
-        assert res.status_code == 200
-        data = res.json()["data"]
-        assert "sources" in data
-        assert set(data.keys()) == {"sources"}
-
-
-class TestWorksRefreshMetadata:
+class TestRemovedWorksMetadataEndpoints:
     async def test_refresh_requires_source(self, client, sample_series):
-        """No source → 422 (source is a required field; there is no global
-        default to fall back to)."""
+        """The blind-refresh endpoint was replaced by search/preview/apply."""
         res = await client.post(
             "/api/v1/works/refresh-metadata",
             json={"id": sample_series.id, "content_type": "tv"},
         )
-        assert res.status_code == 422
+        assert res.status_code == 404
 
     async def test_batch_refresh_requires_source(self, client, sample_series):
         res = await client.post(
@@ -42,104 +30,6 @@ class TestWorksRefreshMetadata:
             json={"items": [{"id": sample_series.id, "content_type": "tv"}]},
         )
         assert res.status_code == 422
-
-    async def test_refresh_single_fills_missing(self, client, sample_series):
-        candidate = {
-            "content_type": "tv",
-            "title_cn": "测试剧集",
-            "title_en": "Test Series",
-            "poster_url": "https://example.com/p.jpg",
-            "rating": 9.0,
-            "description": "A test series.",
-        }
-        with patch(
-            "app.services.metadata_service.search_metadata_via_llm",
-            AsyncMock(return_value=[candidate]),
-        ), patch(
-            "app.services.metadata_service.download_and_cache_poster",
-            AsyncMock(return_value="/posters/cached.jpg"),
-        ):
-            res = await client.post(
-                "/api/v1/works/refresh-metadata",
-                json={"id": sample_series.id, "content_type": "tv", "source": "wikipedia"},
-            )
-        assert res.status_code == 200
-        data = res.json()["data"]
-        assert data["found"] is True
-        assert "poster_url" in data["filled"]
-        assert "rating" in data["filled"]
-        # The persisted series now has the cached poster.
-        got = await client.get(f"/api/v1/series/{sample_series.id}")
-        assert got.json()["data"]["poster_url"] == "/posters/cached.jpg"
-        assert got.json()["data"]["rating"] == 9.0
-
-    async def test_refresh_single_not_found(self, client):
-        with patch(
-            "app.services.metadata_service.search_metadata_via_llm",
-            AsyncMock(return_value=[]),
-        ):
-            res = await client.post(
-                "/api/v1/works/refresh-metadata",
-                json={"id": "nope", "content_type": "tv", "source": "wikipedia"},
-            )
-        assert res.status_code == 200
-        assert res.json()["data"]["found"] is False
-
-    async def test_refresh_skips_manual_edits_unless_overridden(self, client, sample_series):
-        """Manual edits are kept by default; override_manual_edits fills them."""
-        candidate = {
-            "content_type": "tv",
-            "title_cn": "测试剧集",
-            "title_en": "Test Series",
-            "rating": 9.0,
-            "description": "A test series.",
-        }
-        # Explicitly clearing the fields marks them manually-edited and empties
-        # them, so a default refresh would otherwise re-fill them.
-        await client.put(
-            f"/api/v1/series/{sample_series.id}",
-            json={"rating": None, "description": None},
-        )
-        with patch(
-            "app.services.metadata_service.search_metadata_via_llm",
-            AsyncMock(return_value=[candidate]),
-        ), patch(
-            "app.services.metadata_service.download_and_cache_poster",
-            AsyncMock(return_value=None),
-        ):
-            res = await client.post(
-                "/api/v1/works/refresh-metadata",
-                json={"id": sample_series.id, "content_type": "tv", "source": "wikipedia"},
-            )
-        assert res.status_code == 200
-        filled = res.json()["data"]["filled"]
-        assert "rating" not in filled and "description" not in filled
-        got = await client.get(f"/api/v1/series/{sample_series.id}")
-        assert got.json()["data"]["rating"] is None
-        assert got.json()["data"]["description"] is None
-
-        with patch(
-            "app.services.metadata_service.search_metadata_via_llm",
-            AsyncMock(return_value=[candidate]),
-        ), patch(
-            "app.services.metadata_service.download_and_cache_poster",
-            AsyncMock(return_value=None),
-        ):
-            res2 = await client.post(
-                "/api/v1/works/refresh-metadata",
-                json={
-                    "id": sample_series.id,
-                    "content_type": "tv",
-                    "source": "wikipedia",
-                    "override_manual_edits": True,
-                },
-            )
-        assert res2.status_code == 200
-        filled2 = res2.json()["data"]["filled"]
-        assert "rating" in filled2 and "description" in filled2
-        got2 = await client.get(f"/api/v1/series/{sample_series.id}")
-        assert got2.json()["data"]["rating"] == 9.0
-        assert got2.json()["data"]["description"] == "A test series."
 
     async def test_batch_refresh_enqueues_job(self, client, sample_series, monkeypatch):
         from app.services import task_queue as tq_mod

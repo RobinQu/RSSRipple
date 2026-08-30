@@ -1,8 +1,4 @@
-"""Batch runner for the MetadataAgent.
-
-Runs ``UnifiedMetadataAgent.process_title_only()`` against a list of
-raw titles with concurrency control.
-"""
+"""Batch runner for the same canonical metadata-search service used by the app."""
 
 from __future__ import annotations
 
@@ -81,23 +77,49 @@ async def _process_single(
     title: dict[str, str],
     semaphore: asyncio.Semaphore,
 ) -> AgentRunResult:
-    """Run the agent for a single title under a semaphore."""
+    """Search one title through the public metadata contract under a semaphore."""
     title_id = title["id"]
     raw_title = title["raw_title"]
     source_feed = title.get("source_feed", "unknown")
-    data_source_type = title.get("data_source_type") or "exa"
+    data_source_type = title.get("data_source_type") or "wikipedia"
 
     async with semaphore:
         start = time.monotonic()
         try:
-            from app.services.metadata_agent import get_agent
+            from app.database import async_session_factory
+            from app.schemas.metadata_search import MetadataSearchRequest
+            from app.services.metadata_search import search_metadata_candidates
 
             logger.info(
                 "[eval][agent] start title_id=%s source=%s feed=%s raw_title=%r",
                 title_id, data_source_type, source_feed, raw_title[:240],
             )
-            agent = get_agent()
-            result = await agent.process_title_only(raw_title, data_source_type)
+            expected = title.get("resource_metadata") or {}
+            content_type = expected.get("content_type")
+            if content_type not in ("tv", "movie"):
+                content_type = "tv"
+            async with async_session_factory() as session:
+                candidates = await search_metadata_candidates(
+                    session,
+                    MetadataSearchRequest(
+                        query=raw_title,
+                        content_type=content_type,
+                        mode="online",
+                        source=data_source_type,
+                        trusted_sites=title.get("trusted_sites"),
+                    ),
+                )
+            selected = next((c for c in candidates if c.selectable), None)
+            result = {
+                "found": selected is not None,
+                "clean_title": raw_title,
+                "content_type": content_type,
+                "matched_entity": selected.metadata if selected else None,
+                "ambiguous": False,
+                "ambiguous_candidates": [],
+                "data_sources_used": [data_source_type],
+                "search_method": selected.match_path if selected else None,
+            }
 
             latency_ms = (time.monotonic() - start) * 1000
             meta_dict = _resource_metadata_to_dict(result)
@@ -162,7 +184,7 @@ async def run_agent_on_titles(
         "[eval][agent] batch start total=%d max_concurrency=%d sources=%s",
         len(titles),
         max_concurrency,
-        sorted({str(t.get("data_source_type") or "exa") for t in titles}),
+        sorted({str(t.get("data_source_type") or "wikipedia") for t in titles}),
     )
     semaphore = asyncio.Semaphore(max_concurrency)
 

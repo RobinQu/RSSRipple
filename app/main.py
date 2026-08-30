@@ -239,6 +239,7 @@ from app.api.v1 import (  # noqa: E402
     decisions,
     downloaders,
     media_servers,
+    metadata,
     movies,
     notifications,
     organize,
@@ -262,6 +263,7 @@ app.include_router(resources.router, prefix="/api/v1", tags=["resources"])
 app.include_router(series.router, prefix="/api/v1", tags=["series"])
 app.include_router(movies.router, prefix="/api/v1", tags=["movies"])
 app.include_router(audio_works.router, prefix="/api/v1", tags=["audio-works"])
+app.include_router(metadata.router, prefix="/api/v1", tags=["metadata"])
 app.include_router(works.router, prefix="/api/v1", tags=["works"])
 app.include_router(collections.router, prefix="/api/v1", tags=["collections"])
 app.include_router(system_settings.router, prefix="/api/v1", tags=["settings"])

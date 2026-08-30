@@ -162,9 +162,11 @@ async def test_run_bangumi_autolink_builds_entity():
     assert me["number_of_episodes"] == 28
     assert len(me["episode_list"]) == 28
     assert me["episode_list"][0] == {"season": 1, "episode": 1, "title": "第1话"}
-    # A Bangumi subject is ONE season — never claim work-level season counts.
+    # A Bangumi subject is one season and therefore provides match-scoped
+    # evidence without claiming a work-level total season count.
     assert "seasons" not in me
     assert "number_of_seasons" not in me
+    assert me["single_season_entry"] is True
 
 
 async def test_run_bangumi_movie_platform_maps_to_movie():
@@ -180,6 +182,7 @@ async def test_run_bangumi_movie_platform_maps_to_movie():
         )
     assert finalize["content_type"] == "movie"
     assert finalize["matched_entity"]["episode_list"] is None
+    assert "single_season_entry" not in finalize["matched_entity"]
 
 
 async def test_run_bangumi_not_configured_is_transient():

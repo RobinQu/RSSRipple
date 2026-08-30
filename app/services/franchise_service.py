@@ -13,19 +13,20 @@ When ``maybe_inspect_torrent`` classifies a torrent as ``batch_scope ==
    existing ``create_or_update_series_from_external`` /
    ``create_or_update_movie_from_external`` path, so identity-bag /
    canonical-id / title convergence and idempotency come for free.
-2. With at least one resolved member, a ``WorkCollection`` is fetched or
-   created (get-or-create key: ``external_source="franchise_pack"`` +
+2. A ``WorkCollection`` is fetched or created immediately from the clean pack
+   title (get-or-create key: ``external_source="franchise_pack"`` +
    normalized title equality — these collections carry no external id, so
-   ``external_id`` stays NULL and the title is the identity). Member works
-   are attached via ``collection_id``; a work already belonging to another
-   collection is never stolen (one work, at most one collection).
+   ``external_id`` stays NULL and the title is the identity).  Child-member
+   resolution is best-effort enrichment and never gates the parent
+   collection. Member works are attached via ``collection_id``; a work
+   already belonging to another collection is never stolen.
 3. The resource itself links to the collection (``resource.collection_id``)
    and the FK-exclusivity invariant is enforced — ``series_id`` /
    ``movie_id`` / ``audio_work_id`` are all cleared.
 
-When every member fails to resolve, the resource keeps only the batch
-verdict (``is_batch`` / ``batch_scope``) that ``maybe_inspect_torrent``
-already wrote; no collection is created.
+When every member fails to resolve, the resource still links to the parent
+collection and satisfies the franchise-shape invariant; a later pass may
+enrich its members.
 
 The function does NOT commit: like ``maybe_inspect_torrent`` it runs inside
 ``fetch_service._process_resource_metadata``'s task session, whose own
@@ -67,6 +68,34 @@ _TITLE_KEYS = ("title_cn", "title_en", "original_title")
 # Pack-title cleanup, mirroring the cluster-title normalization in
 # torrent_inspect: bracketed release tags are decoration, not the work name.
 _BRACKET_BLOCK_RE = re.compile(r"[\[【\(（][^\]】\)）]*[\]】\)）]")
+
+
+def is_franchise_resource(resource: FileResource) -> bool:
+    """Whether the resource uses collection-owned franchise semantics."""
+    return bool(
+        getattr(resource, "is_batch", False)
+        and getattr(resource, "batch_scope", None) == "franchise"
+    )
+
+
+def enforce_franchise_resource_invariant(resource: FileResource) -> bool:
+    """Clear flat work FKs from a franchise-shaped resource.
+
+    Returns whether anything changed.  This is intentionally reusable at the
+    end of the whole metadata pipeline because cache/title-index shortcuts do
+    not pass through the repository's normal write-back branch.
+    """
+    if not is_franchise_resource(resource):
+        return False
+    changed = bool(
+        getattr(resource, "series_id", None)
+        or getattr(resource, "movie_id", None)
+        or getattr(resource, "audio_work_id", None)
+    )
+    resource.series_id = None
+    resource.movie_id = None
+    resource.audio_work_id = None
+    return changed
 
 
 def _pack_title(resource: FileResource) -> str:
@@ -157,13 +186,23 @@ async def link_franchise_pack(
 ) -> None:
     """Link a franchise-pack resource to a WorkCollection of member works.
 
-    See the module docstring for the full contract. No-ops with a warning
-    when no member resolves — the caller's batch classification
-    (``is_batch`` / ``batch_scope="franchise"``) is left untouched either
-    way.
+    See the module docstring for the full contract.  The parent collection is
+    deterministic from the release title and is linked before any network
+    member lookup, so a timeout or an unhelpful ``TV/OVA/Film`` directory name
+    cannot create a spurious metadata confirmation.
     """
+    collection = await _get_or_create_franchise_collection(db, _pack_title(resource))
+    resource.collection_id = collection.id
+    # FK-exclusivity invariant: a collection-linked franchise resource carries
+    # no flat per-work FK, even if an earlier partial pass left one behind.
+    enforce_franchise_resource_invariant(resource)
+
     if not report.work_titles:
-        logger.warning("[franchise] resource %s: report has no work_titles", resource.id)
+        logger.warning(
+            "[franchise] resource %s: linked parent collection %r but report "
+            "has no member titles",
+            resource.id, collection.title_cn,
+        )
         return
 
     # Local import at call time so tests can patch
@@ -188,12 +227,11 @@ async def link_franchise_pack(
     if not works:
         logger.warning(
             "[franchise] resource %s: all %d members failed to resolve; "
-            "keeping batch verdict only",
-            resource.id, len(report.work_titles),
+            "keeping parent collection %r",
+            resource.id, len(report.work_titles), collection.title_cn,
         )
         return
 
-    collection = await _get_or_create_franchise_collection(db, _pack_title(resource))
     for work in works:
         if work.collection_id and work.collection_id != collection.id:
             logger.warning(
@@ -204,12 +242,6 @@ async def link_franchise_pack(
             continue
         work.collection_id = collection.id
 
-    resource.collection_id = collection.id
-    # FK-exclusivity invariant: a collection-linked resource carries no
-    # per-work FK.
-    resource.series_id = None
-    resource.movie_id = None
-    resource.audio_work_id = None
     logger.info(
         "[franchise] resource %s linked to collection %r (%d/%d members resolved)",
         resource.id, collection.title_cn, len(works), len(report.work_titles),

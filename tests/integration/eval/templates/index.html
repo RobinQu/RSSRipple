@@ -287,9 +287,8 @@
   <div class="stat stat-draft"><span class="stat-val" id="statDraft">0</span><span class="stat-label">Draft</span></div>
   <div class="stat stat-skipped"><span class="stat-val" id="statSkipped">0</span><span class="stat-label">Skipped</span></div>
   <div class="stat stat-tmdb"><span class="stat-val" id="statTmdbTotal">0</span><span class="stat-label">TMDB</span><span class="stat-val" id="statTmdbFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
-  <div class="stat stat-exa"><span class="stat-val" id="statExaTotal">0</span><span class="stat-label">Exa</span><span class="stat-val" id="statExaFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
+  <div class="stat stat-bangumi"><span class="stat-val" id="statBangumiTotal">0</span><span class="stat-label">Bangumi</span><span class="stat-val" id="statBangumiFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
   <div class="stat stat-wiki"><span class="stat-val" id="statWikiTotal">0</span><span class="stat-label">Wiki</span><span class="stat-val" id="statWikiFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
-  <div class="stat stat-jina"><span class="stat-val" id="statJinaTotal">0</span><span class="stat-label">Jina</span><span class="stat-val" id="statJinaFail" style="color:var(--danger);font-size:12px;margin-left:4px;">0</span></div>
 </div>
 
 <!-- ═══════════════ Main Content ═══════════════ -->
@@ -303,9 +302,8 @@
   <button class="btn btn-primary" id="btnAcceptAllHigh" disabled>✓ Accept All High Confidence (&gt;0.9)</button>
   <span class="hint">Bulk-accepts all pending items where agent confidence &gt; 0.9</span>
   <button class="btn btn-primary" id="btnSelectTmdbFailed" disabled style="font-size:11px;background:var(--danger);">☐ TMDB Failed</button>
-  <button class="btn btn-primary" id="btnSelectExaFailed" disabled style="font-size:11px;background:var(--danger);">☐ Exa Failed</button>
+  <button class="btn btn-primary" id="btnSelectBangumiFailed" disabled style="font-size:11px;background:var(--danger);">☐ Bangumi Failed</button>
   <button class="btn btn-primary" id="btnSelectWikiFailed" disabled style="font-size:11px;background:var(--danger);">☐ Wiki Failed</button>
-  <button class="btn btn-primary" id="btnSelectJinaFailed" disabled style="font-size:11px;background:var(--danger);">☐ Jina Failed</button>
 </div>
 
 <!-- ═══════════════ New Dataset Modal ═══════════════ -->
@@ -315,10 +313,9 @@
     <div class="form-group">
       <label>Metadata Search Method</label>
       <select id="newDatasetSourceType">
-        <option value="exa" selected>Exo Agent Search</option>
+        <option value="wikipedia" selected>Wikipedia Search</option>
         <option value="tmdb">TMDB Search</option>
-        <option value="wikipedia">Wikipedia Search</option>
-        <option value="jina">Jina Search + Reader</option>
+        <option value="bangumi">Bangumi Search</option>
       </select>
     </div>
     <div class="modal-actions">
@@ -402,7 +399,7 @@ let editingId = null;       // current modal target
 let processingStatus = {}; // title_id → "processing"
 let selectedIds = new Set(); // currently selected card IDs
 let currentDatasetName = null; // selected dataset that auto-save writes to
-let currentDatasetSourceType = 'exa'; // default metadata search method for datasets
+let currentDatasetSourceType = 'wikipedia'; // default metadata search method for datasets
 let isSwitchingDataset = false;
 
 // ──────────────────────────────────────────────
@@ -482,7 +479,7 @@ async function apiGetDataset(name) {
 
 function currentDataSourceType() {
   const selectedOpt = $('#datasetSelect') ? $('#datasetSelect').options[$('#datasetSelect').selectedIndex] : null;
-  return (selectedOpt && selectedOpt.dataset.sourceType) || currentDatasetSourceType || 'exa';
+  return (selectedOpt && selectedOpt.dataset.sourceType) || currentDatasetSourceType || 'wikipedia';
 }
 
 function rememberCurrentDataset(name) {
@@ -706,7 +703,7 @@ async function loadDatasetByName(name) {
   if (!name || !titles.length) return;
   try {
     const dataset = await apiGetDataset(name);
-    currentDatasetSourceType = dataset.data_source_type || 'exa';
+    currentDatasetSourceType = dataset.data_source_type || 'wikipedia';
     const loadedMap = {};
     for (const e of dataset.entries) {
       loadedMap[e.id] = e;
@@ -775,7 +772,7 @@ $('#datasetSelect').addEventListener('change', async function() {
 });
 
 $('#btnNewDataset').addEventListener('click', async () => {
-  $('#newDatasetSourceType').value = 'exa';
+  $('#newDatasetSourceType').value = 'wikipedia';
   $('#newDatasetModal').classList.add('active');
 });
 
@@ -796,7 +793,7 @@ $('#btnCreateDataset').addEventListener('click', async () => {
   const now = new Date();
   const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
   const rnd = Math.random().toString(36).slice(2, 6);
-  const sourceType = $('#newDatasetSourceType').value || 'exa';
+  const sourceType = $('#newDatasetSourceType').value || 'wikipedia';
   currentDatasetSourceType = sourceType;
   const newName = `${sourceType}-eval-${ts}-${rnd}`;
   try {
@@ -827,7 +824,7 @@ $('#btnDeleteDataset').addEventListener('click', async () => {
       const now = new Date();
       const ts = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
       const rnd = Math.random().toString(36).slice(2, 6);
-      const sourceType = currentDataSourceType() || 'exa';
+      const sourceType = currentDataSourceType() || 'wikipedia';
       const newName = `${sourceType}-eval-${ts}-${rnd}`;
       await apiSaveDataset(newName, buildEntries(), sourceType);
       await refreshDatasetList(newName);
@@ -1063,14 +1060,11 @@ $('#btnAcceptAllHigh').addEventListener('click', () => {
 $('#btnSelectTmdbFailed').addEventListener('click', () => {
   selectFailedTitles('tmdb');
 });
-$('#btnSelectExaFailed').addEventListener('click', () => {
-  selectFailedTitles('exa');
+$('#btnSelectBangumiFailed').addEventListener('click', () => {
+  selectFailedTitles('bangumi');
 });
 $('#btnSelectWikiFailed').addEventListener('click', () => {
   selectFailedTitles('wikipedia');
-});
-$('#btnSelectJinaFailed').addEventListener('click', () => {
-  selectFailedTitles('jina');
 });
 
 function selectFailedTitles(method) {
@@ -1096,8 +1090,7 @@ function sourceMethods(meta) {
 
 function methodLabel(method) {
   if (method === 'wikipedia') return 'Wiki';
-  if (method === 'exa') return 'Exa';
-  if (method === 'jina') return 'Jina';
+  if (method === 'bangumi') return 'Bangumi';
   return method.toUpperCase();
 }
 
@@ -1215,26 +1208,21 @@ function render() {
     const res = agentResults[t.id];
     return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('tmdb') && hasSourceError(res.resource_metadata, 'tmdb');
   });
-  $('#btnSelectExaFailed').disabled = !titles.some(t => {
+  $('#btnSelectBangumiFailed').disabled = !titles.some(t => {
     const res = agentResults[t.id];
-    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('exa') && hasSourceError(res.resource_metadata, 'exa');
+    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('bangumi') && hasSourceError(res.resource_metadata, 'bangumi');
   });
   $('#btnSelectWikiFailed').disabled = !titles.some(t => {
     const res = agentResults[t.id];
     return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('wikipedia') && hasSourceError(res.resource_metadata, 'wikipedia');
-  });
-  $('#btnSelectJinaFailed').disabled = !titles.some(t => {
-    const res = agentResults[t.id];
-    return res && !res.error && res.resource_metadata && sourceMethods(res.resource_metadata).includes('jina') && hasSourceError(res.resource_metadata, 'jina');
   });
 }
 
 function computeSearchStats() {
   const stats = {
     tmdb: { total: 0, fail: 0 },
-    exa: { total: 0, fail: 0 },
+    bangumi: { total: 0, fail: 0 },
     wikipedia: { total: 0, fail: 0 },
-    jina: { total: 0, fail: 0 },
   };
   for (const t of titles) {
     const res = agentResults[t.id];
@@ -1248,12 +1236,10 @@ function computeSearchStats() {
   }
   $('#statTmdbTotal').textContent = stats.tmdb.total;
   $('#statTmdbFail').textContent = stats.tmdb.fail > 0 ? '(' + stats.tmdb.fail + ' fail)' : '';
-  $('#statExaTotal').textContent = stats.exa.total;
-  $('#statExaFail').textContent = stats.exa.fail > 0 ? '(' + stats.exa.fail + ' fail)' : '';
+  $('#statBangumiTotal').textContent = stats.bangumi.total;
+  $('#statBangumiFail').textContent = stats.bangumi.fail > 0 ? '(' + stats.bangumi.fail + ' fail)' : '';
   $('#statWikiTotal').textContent = stats.wikipedia.total;
   $('#statWikiFail').textContent = stats.wikipedia.fail > 0 ? '(' + stats.wikipedia.fail + ' fail)' : '';
-  $('#statJinaTotal').textContent = stats.jina.total;
-  $('#statJinaFail').textContent = stats.jina.fail > 0 ? '(' + stats.jina.fail + ' fail)' : '';
 }
 
 function updateStats() {

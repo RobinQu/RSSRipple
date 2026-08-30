@@ -204,6 +204,30 @@ class TestSingleEpisode:
         with pytest.raises(PlanError, match="集号"):
             build_plan(payload, [DiskFile("/d/a.mkv", 1, "a.mkv")], [rule], [lib])
 
+    def test_file_association_missing_season_falls_back_to_resource(self):
+        payload = {
+            **GITS_PAYLOAD,
+            "file_associations": {
+                "version": 1,
+                "status": "complete",
+                "items": [{
+                    "file_path": "ep04.mkv",
+                    "work_type": "series",
+                    "work_id": "s-1",
+                    "season": None,
+                    "episode_start": 4,
+                    "episode_end": 4,
+                    "source": "auto",
+                }],
+            },
+        }
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            payload, [DiskFile("/d/ep04.mkv", 1, "ep04.mkv")], [rule], [lib]
+        )
+        assert result.ops[0].dst.endswith("s01e04 - 机器人回旋曲.mkv")
+
     def test_no_videos_fails(self):
         lib = _library()
         rule = _rule("tv", 10, lib.id, PRESET_TV)

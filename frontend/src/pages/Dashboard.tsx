@@ -32,6 +32,7 @@ import OrganizePlanDrawer from '../components/OrganizePlanDrawer';
 import StatusBadge from '../components/StatusBadge';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
+import SeasonInput from '../components/SeasonInput';
 import {
   collectFieldConditions,
   describeCondition,
@@ -66,6 +67,7 @@ const GROUP_TYPE_TAG: Record<string, { color: string; labelKey: string }> = {
   untracked: { color: 'orange', labelKey: 'dashboard.untracked' },
 };
 const UNKNOWN_GROUP_TAG = { color: 'default', labelKey: 'dashboard.unidentified' };
+const TODO_PAGE_SIZE = 10;
 
 export default function Dashboard() {
   const { t } = useTranslation();
@@ -73,6 +75,9 @@ export default function Dashboard() {
   const { message, modal } = App.useApp();
   const { token } = theme.useToken();
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [decisionPage, setDecisionPage] = useState(1);
+  const [confirmationPage, setConfirmationPage] = useState(1);
+  const [planPage, setPlanPage] = useState(1);
   const [topAgents, setTopAgents] = useState<AgentListItem[]>([]);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,12 +99,32 @@ export default function Dashboard() {
 
   const fetchData = useCallback(async () => {
     const [res, agentsRes, libRes] = await Promise.all([
-      dashboardApi.get(),
+      dashboardApi.get({
+        decisionPage,
+        confirmationPage,
+        planPage,
+        pageSize: TODO_PAGE_SIZE,
+      }),
       agentsApi.list(1, 100),
       organizeApi.listLibraries(),
     ]);
     if (res.success) {
       setDashboard(res.data);
+      const decisionLastPage = Math.max(
+        1,
+        Math.ceil(res.data.pending_decisions_total / TODO_PAGE_SIZE),
+      );
+      const confirmationLastPage = Math.max(
+        1,
+        Math.ceil(res.data.pending_confirmations_total / TODO_PAGE_SIZE),
+      );
+      const planLastPage = Math.max(
+        1,
+        Math.ceil(res.data.pending_plans_total / TODO_PAGE_SIZE),
+      );
+      if (decisionPage > decisionLastPage) setDecisionPage(decisionLastPage);
+      if (confirmationPage > confirmationLastPage) setConfirmationPage(confirmationLastPage);
+      if (planPage > planLastPage) setPlanPage(planLastPage);
     }
     if (agentsRes.success) {
       // Top 4 active agents, busiest first.
@@ -111,7 +136,7 @@ export default function Dashboard() {
     }
     if (libRes.success) setLibraries(libRes.data);
     setLoading(false);
-  }, []);
+  }, [confirmationPage, decisionPage, planPage]);
 
   usePolling(fetchData, 10000);
 
@@ -270,13 +295,13 @@ export default function Dashboard() {
   // Combined pending todo count (agent decisions + resource confirmations +
   // organize plans) shown as a single headline metric.
   const pendingCount =
-    dashboard.pending_decisions.length +
-    dashboard.pending_confirmations.length +
-    dashboard.pending_plans.length;
+    dashboard.pending_decisions_total +
+    dashboard.pending_confirmations_total +
+    dashboard.pending_plans_total;
   const firstPendingTab =
-    dashboard.pending_decisions.length > 0
+    dashboard.pending_decisions_total > 0
       ? 'decisions'
-      : dashboard.pending_confirmations.length > 0
+      : dashboard.pending_confirmations_total > 0
         ? 'confirmations'
         : 'plans';
 
@@ -373,10 +398,17 @@ export default function Dashboard() {
           items={[
             {
               key: 'decisions',
-              label: `${t('dashboard.pendingDecisions')} (${dashboard.pending_decisions.length})`,
+              label: `${t('dashboard.pendingDecisions')} (${dashboard.pending_decisions_total})`,
               children: (
           <List
             dataSource={dashboard.pending_decisions}
+            pagination={dashboard.pending_decisions_total > TODO_PAGE_SIZE ? {
+              current: decisionPage,
+              pageSize: TODO_PAGE_SIZE,
+              total: dashboard.pending_decisions_total,
+              showSizeChanger: false,
+              onChange: setDecisionPage,
+            } : false}
             renderItem={(d) => (
               <List.Item
                 key={d.id}
@@ -491,12 +523,11 @@ export default function Dashboard() {
                                 onClick={() => setFilesResourceId(r.id)}
                               />
                             </Tooltip>
-                            <InputNumber
+                            <SeasonInput
                               size="small"
-                              min={0}
                               value={draft.season}
                               placeholder={t('resource.seasonLabel')}
-                              onChange={(v) => patchDraft({ season: typeof v === 'number' ? v : null })}
+                              onChange={(v) => patchDraft({ season: v })}
                               style={{ width: 72 }}
                             />
                             <InputNumber
@@ -556,12 +587,21 @@ export default function Dashboard() {
             },
             {
               key: 'confirmations',
-              label: `${t('dashboard.pendingConfirmations')} (${dashboard.pending_confirmations.length})`,
+              label: `${t('dashboard.pendingConfirmations')} (${dashboard.pending_confirmations_total})`,
               children: (
                 <List
                   dataSource={dashboard.pending_confirmations}
+                  pagination={dashboard.pending_confirmations_total > TODO_PAGE_SIZE ? {
+                    current: confirmationPage,
+                    pageSize: TODO_PAGE_SIZE,
+                    total: dashboard.pending_confirmations_total,
+                    showSizeChanger: false,
+                    onChange: setConfirmationPage,
+                  } : false}
                   renderItem={(item) => {
                     const r = item.resource;
+                    const episodeConfirmation = item.kinds.includes('season_ambiguous')
+                      || item.kinds.includes('episode_ambiguous');
                     const base = {
                       season: r.season ?? null,
                       episode: r.episode ?? null,
@@ -613,6 +653,16 @@ export default function Dashboard() {
                                 )}
                               </div>
                               <Space size={6} className="pending-resource-tags" wrap>
+                              {item.kinds.map((kind) => (
+                                <Tag color="orange" key={kind} style={{ margin: 0 }}>
+                                  {t(`dashboard.confirmationKinds.${kind}`)}
+                                </Tag>
+                              ))}
+                              {item.missing_fields.length > 0 && (
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  {t('dashboard.missingFields', { fields: item.missing_fields.join(', ') })}
+                                </Text>
+                              )}
                               {r.subtitle_group && <Tag style={{ margin: 0 }}>{r.subtitle_group}</Tag>}
                               {r.resolution && <Tag style={{ margin: 0 }}>{r.resolution}</Tag>}
                               {r.video_codec && <Tag style={{ margin: 0 }}>{r.video_codec}</Tag>}
@@ -640,6 +690,7 @@ export default function Dashboard() {
                               </Button>
                             </div>
                           </div>
+                          {episodeConfirmation && (
                           <div className="pending-resource-quick-form">
                             <div className="pending-resource-quick-heading">
                               <Text strong style={{ fontSize: 13 }}>{t('resource.quickEpisodeTitle')}</Text>
@@ -647,11 +698,10 @@ export default function Dashboard() {
                             <div className="pending-resource-fields">
                               <label>
                                 <span>{t('resource.seasonLabel')}</span>
-                                <InputNumber
+                                <SeasonInput
                                   size="small"
-                                  min={0}
                                   value={draft.season}
-                                  onChange={(v) => patchDraft({ season: typeof v === 'number' ? v : null })}
+                                  onChange={(v) => patchDraft({ season: v })}
                                 />
                               </label>
                               <label>
@@ -683,6 +733,7 @@ export default function Dashboard() {
                               </Button>
                             </div>
                           </div>
+                          )}
                         </div>
                       </List.Item>
                     );
@@ -692,10 +743,17 @@ export default function Dashboard() {
             },
             {
               key: 'plans',
-              label: `${t('dashboard.pendingPlans')} (${dashboard.pending_plans.length})`,
+              label: `${t('dashboard.pendingPlans')} (${dashboard.pending_plans_total})`,
               children: (
                 <List
                   dataSource={dashboard.pending_plans}
+                  pagination={dashboard.pending_plans_total > TODO_PAGE_SIZE ? {
+                    current: planPage,
+                    pageSize: TODO_PAGE_SIZE,
+                    total: dashboard.pending_plans_total,
+                    showSizeChanger: false,
+                    onChange: setPlanPage,
+                  } : false}
                   renderItem={(p) => {
               const preview = p.ops_preview ?? [];
               const extra = p.ops_summary.total - preview.length;

@@ -75,7 +75,7 @@ class FileResource(Base):
     #                    evidence available).
     #   "reconciled"   – converted from absolute → per-season by the agent.
     #   "ambiguous"    – agent has evidence but couldn't converge; resource
-    #                    is routed to AgentSuggestion for manual review.
+    #                    is routed to Channel resource confirmation.
     #   "manual"       – user corrected via ``PATCH /resources/{id}/episode``.
     #   None           – legacy row created before this column existed.
     absolute_episode: Mapped[int | None] = mapped_column(Integer, nullable=True)

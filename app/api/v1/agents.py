@@ -155,7 +155,17 @@ async def _apply_backfill(
             )
         )).scalars().all()
         if rows:
-            await process_resources(agent, list(rows), db)
+            required_fields = (await db.execute(
+                select(Channel.required_metadata_fields).where(
+                    Channel.id == agent.channel_id
+                )
+            )).scalar_one_or_none()
+            await process_resources(
+                agent,
+                list(rows),
+                db,
+                required_metadata_fields=required_fields,
+            )
     # Advance watermark to the channel's current max created_at (or now if the
     # channel is empty) so the next delta run doesn't re-scan old resources.
     max_created = (await db.execute(

@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.clients.rss_parser import (
     _entry_to_dict,
@@ -16,6 +17,7 @@ from app.clients.rss_parser import (
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.services.metadata_service import extract_search_title, fetch_and_link_metadata
+from app.services.resource_confirmation import inspect_resource_confirmation
 from app.services.resource_parser import normalize_parsed_fields, parse_entry, strip_season_from_title
 from app.services.text_normalizer import normalize_title
 from app.utils.time import utcnow
@@ -41,6 +43,11 @@ TRANSIENT_BACKOFF_MAX_HOURS = 24
 # work but finalized found=false); a shorter TTL gives those another chance
 # sooner without hammering genuinely-nonexistent works too hard.
 NOT_FOUND_RETRY_DAYS = 7
+# Linked resources with an incomplete Channel contract are retried on a
+# slower cadence.  They have already succeeded at work matching, so they must
+# not be treated as ordinary unmatched rows (or re-run on every five-minute
+# scheduler tick).
+LINKED_ENRICHMENT_RETRY_HOURS = 6
 
 # Standalone global backfill (runs independent of fetch_channel so metadata
 # repair is not starved by slow feed fetches). Bounded per run; the scheduler
@@ -130,6 +137,27 @@ def _is_retry_eligible(resource: FileResource, now) -> bool:
     return True
 
 
+def _is_linked_enrichment_eligible(resource: FileResource, now) -> bool:
+    """Whether a linked resource still has Channel metadata to enrich."""
+    if not (
+        getattr(resource, "series_id", None)
+        or getattr(resource, "movie_id", None)
+        or getattr(resource, "audio_work_id", None)
+        or getattr(resource, "collection_id", None)
+    ):
+        return False
+    channel = getattr(resource, "channel", None)
+    if channel is None:
+        return False
+    confirmation = inspect_resource_confirmation(
+        resource, getattr(channel, "required_metadata_fields", None)
+    )
+    if not confirmation.required:
+        return False
+    last = getattr(resource, "last_metadata_attempt_at", None)
+    return last is None or now - last >= timedelta(hours=LINKED_ENRICHMENT_RETRY_HOURS)
+
+
 async def reset_channel_metadata_for_source_change(
     db: AsyncSession, channel_id: str
 ) -> int:
@@ -137,7 +165,7 @@ async def reset_channel_metadata_for_source_change(
     reprocesses them immediately.
 
     Called when a channel's ``metadata_source`` changes: a not_found recorded
-    under the old source (e.g. jina) should not block a resource for the full
+    under an old source should not block a resource for the full
     ``NOT_FOUND_RETRY_DAYS`` cooldown now that the channel uses a different
     source (e.g. wikipedia). Clearing ``metadata_failure_type`` /
     ``last_metadata_attempt_at`` / ``metadata_attempts`` makes the resource
@@ -149,6 +177,7 @@ async def reset_channel_metadata_for_source_change(
             FileResource.channel_id == channel_id,
             FileResource.series_id.is_(None),
             FileResource.movie_id.is_(None),
+            FileResource.audio_work_id.is_(None),
             FileResource.metadata_failure_type.in_(("not_found", "transient")),
         )
     )
@@ -188,7 +217,12 @@ async def _process_resource_metadata(
     async with semaphore:
         async with async_session_factory() as task_db:
             try:
-                resource = await task_db.get(FileResource, resource_id)
+                result = await task_db.execute(
+                    select(FileResource)
+                    .options(selectinload(FileResource.file_assignments))
+                    .where(FileResource.id == resource_id)
+                )
+                resource = result.scalar_one_or_none()
                 channel = await task_db.get(Channel, channel_id)
                 if resource is None or channel is None:
                     return
@@ -219,6 +253,40 @@ async def _process_resource_metadata(
                             await fetch_and_link_metadata(task_db, resource, channel)
                         except Exception as e:
                             logger.warning("Metadata linking failed for %s: %s", resource_id, e)
+                    # Final shape guard shared by every metadata route. Cache
+                    # hits and known-work title shortcuts bypass the repository
+                    # write-back branch and may otherwise restore a flat FK
+                    # after torrent inspection linked a franchise collection.
+                    from app.services.franchise_service import (
+                        enforce_franchise_resource_invariant,
+                    )
+                    if enforce_franchise_resource_invariant(resource):
+                        logger.info(
+                            "[metadata-task] cleared flat work FK restored on "
+                            "franchise resource %s",
+                            resource.id,
+                        )
+                    # Every metadata path converges here.  Run the DB-backed
+                    # sibling-history policy after linking as a final safety
+                    # net, including cached and force-refresh agent paths.
+                    if resource.series_id and not resource.is_batch:
+                        from app.models.series import TVSeries
+                        from app.services.episode_history import (
+                            apply_episode_history_reconcile,
+                            apply_season_history_default,
+                        )
+                        from app.services.metadata_episode_reconcile import (
+                            seasons_map_from_list,
+                        )
+
+                        series_row = await task_db.get(TVSeries, resource.series_id)
+                        if series_row is not None:
+                            await apply_episode_history_reconcile(
+                                task_db,
+                                resource,
+                                seasons_map=seasons_map_from_list(series_row.seasons),
+                            )
+                            await apply_season_history_default(task_db, resource)
                     # Torrent inspection precedes metadata matching, so its
                     # deterministic rows may still be work-less.  Once this
                     # pass has linked exactly one work, bind those rows now.
@@ -274,11 +342,7 @@ async def _backfill_unmatched_resources(
     one fetch cycle bounds total in-flight metadata work).
     """
     now = utcnow()
-    criteria = and_(
-        FileResource.channel_id == channel.id,
-        FileResource.series_id.is_(None),
-        FileResource.movie_id.is_(None),
-    )
+    criteria = FileResource.channel_id == channel.id
     if force:
         criteria = FileResource.channel_id == channel.id
     if exclude_ids:
@@ -286,6 +350,13 @@ async def _backfill_unmatched_resources(
     query = (
         select(FileResource)
         .where(criteria)
+        .options(
+            selectinload(FileResource.channel),
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
         .order_by(
             FileResource.last_metadata_attempt_at.asc().nullsfirst(),
             FileResource.created_at.asc(),
@@ -304,7 +375,15 @@ async def _backfill_unmatched_resources(
     for resource in candidates:
         if cap is not None and len(eligible_ids) >= cap:
             break
-        if force or _is_retry_eligible(resource, now):
+        unlinked = not (
+            resource.series_id
+            or resource.movie_id
+            or resource.audio_work_id
+            or resource.collection_id
+        )
+        if force or (
+            unlinked and _is_retry_eligible(resource, now)
+        ) or _is_linked_enrichment_eligible(resource, now):
             eligible_ids.append(resource.id)
 
     if eligible_ids:
@@ -327,17 +406,30 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
     transient/not_found cooldowns prevent the two from double-processing the
     same resource within a backoff window.
 
-    Only channels with ``metadata_agent_enabled`` are considered. Returns the
-    number of resources re-processed.
+    Unmatched resources still require an enabled metadata agent. Linked
+    resources with an incomplete Channel contract are also considered so
+    torrent enrichment and release-field write-back can finish without
+    requiring a manual re-fetch.
     """
     now = utcnow()
     result = await db.execute(
         select(FileResource)
         .join(Channel, FileResource.channel_id == Channel.id)
+        .options(
+            selectinload(FileResource.channel),
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
         .where(
-            Channel.metadata_agent_enabled.is_(True),
-            FileResource.series_id.is_(None),
-            FileResource.movie_id.is_(None),
+            or_(
+                Channel.metadata_agent_enabled.is_(True),
+                FileResource.series_id.isnot(None),
+                FileResource.movie_id.isnot(None),
+                FileResource.audio_work_id.isnot(None),
+                FileResource.collection_id.isnot(None),
+            ),
         )
         .order_by(
             FileResource.last_metadata_attempt_at.asc().nullsfirst(),
@@ -357,7 +449,18 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
     for resource in candidates:
         if len(eligible) >= limit:
             break
-        if _is_retry_eligible(resource, now):
+        unlinked = not (
+            resource.series_id
+            or resource.movie_id
+            or resource.audio_work_id
+            or resource.collection_id
+        )
+        if (
+            unlinked
+            and resource.channel
+            and resource.channel.metadata_agent_enabled
+            and _is_retry_eligible(resource, now)
+        ) or _is_linked_enrichment_eligible(resource, now):
             eligible.append((resource.id, resource.channel_id))
 
     if eligible:
@@ -371,9 +474,10 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
     return len(eligible)
 
 
-async def reconcile_stale_raw_episodes(db: AsyncSession, limit: int = 500) -> int:
-    """Re-run absolute→per-season episode reconciliation for linked resources
-    whose first reconcile ran before the series' per-season data existed.
+async def reconcile_stale_raw_episodes(
+    db: AsyncSession, limit: int = 500, *, return_resource_ids: bool = False
+) -> int | list[str]:
+    """Re-run history/arithmetic reconciliation for linked resources.
 
     A resource linked while its series had no usable ``seasons`` data keeps
     ``episode_confidence NULL/"raw"`` with a possibly-absolute episode number
@@ -382,12 +486,14 @@ async def reconcile_stale_raw_episodes(db: AsyncSession, limit: int = 500) -> in
     converts the stale numbers via the shared
     :func:`apply_episode_reconcile` — same semantics as every link path.
 
-    Only resources whose episode exceeds the linked season's count
-    (+tolerance) can actually change; the rest are skipped without writes.
-    Ordered by episode DESC so large (likely-absolute) numbers are seen
-    first. Returns the number of resources converted/flagged.
+    Manual rows are immutable.  History-backed reconciliation may also repair
+    ``ambiguous`` rows and previously-clamped ``reconciled`` rows.  The legacy
+    arithmetic pass remains limited to raw/NULL values whose episode exceeds
+    the linked season count.  Returns the changed count by default; callers
+    that need to enqueue targeted agent runs may request the resource ids.
     """
     from app.models.series import TVSeries
+    from app.services.episode_history import apply_episode_history_reconcile
     from app.services.metadata_episode_reconcile import (
         _RECONCILE_TOLERANCE,
         apply_episode_reconcile,
@@ -401,18 +507,14 @@ async def reconcile_stale_raw_episodes(db: AsyncSession, limit: int = 500) -> in
                 FileResource.series_id.isnot(None),
                 FileResource.is_batch.is_(False),
                 FileResource.episode.isnot(None),
-                FileResource.season.isnot(None),
-                or_(
-                    FileResource.episode_confidence.is_(None),
-                    FileResource.episode_confidence == "raw",
-                ),
+                FileResource.episode_confidence.is_distinct_from("manual"),
             )
             .order_by(FileResource.episode.desc())
             .limit(limit)
         )
     ).scalars().all()
     if not resources:
-        return 0
+        return [] if return_resource_ids else 0
     series_rows = (
         await db.execute(
             select(TVSeries).where(
@@ -421,17 +523,53 @@ async def reconcile_stale_raw_episodes(db: AsyncSession, limit: int = 500) -> in
         )
     ).scalars().all()
     maps = {s.id: seasons_map_from_list(s.seasons) for s in series_rows}
-    changed = 0
+    history_ranges: dict[tuple[str, str], tuple[int, int]] = {}
+    for resource in resources:
+        absolute = resource.absolute_episode or resource.episode
+        key = (resource.series_id, resource.channel_id)
+        lower, upper = history_ranges.get(key, (absolute, absolute))
+        history_ranges[key] = (min(lower, max(1, absolute - 2)), max(upper, absolute))
+    history_scope = or_(*(
+        and_(
+            FileResource.series_id == series_id,
+            FileResource.channel_id == channel_id,
+            FileResource.absolute_episode >= lower,
+            FileResource.absolute_episode < upper,
+        )
+        for (series_id, channel_id), (lower, upper) in history_ranges.items()
+    ))
+    history_rows = (
+        await db.execute(
+            select(FileResource)
+            .where(
+                history_scope,
+                FileResource.is_batch.is_(False),
+                FileResource.absolute_episode.isnot(None),
+                FileResource.season.isnot(None),
+                FileResource.episode.isnot(None),
+                FileResource.episode_confidence.in_(["manual", "reconciled"]),
+            )
+            .order_by(FileResource.absolute_episode.desc(), FileResource.created_at.desc())
+        )
+    ).scalars().all()
+    changed_ids: list[str] = []
     for r in resources:
         smap = maps.get(r.series_id) or {}
+        if await apply_episode_history_reconcile(
+            db, r, seasons_map=smap, history_rows=history_rows
+        ):
+            changed_ids.append(r.id)
+            continue
+        if r.episode_confidence not in (None, "raw"):
+            continue
         season_count = smap.get(r.season)
         if season_count is None or r.episode <= season_count + _RECONCILE_TOLERANCE:
             continue  # no basis, or already looks per-season (nothing to do)
         if apply_episode_reconcile(r, smap):
-            changed += 1
-    if changed:
+            changed_ids.append(r.id)
+    if changed_ids:
         await db.commit()
-    return changed
+    return changed_ids if return_resource_ids else len(changed_ids)
 
 
 
@@ -603,7 +741,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         # Commit the new resource immediately so the SQLite write lock is
         # released *before* the metadata ReAct loop below. agent.process runs
         # many LLM + external search calls (tens of messages per resource when
-        # a source misbehaves, e.g. jina 402s) and can take minutes; holding a
+        # a source misbehaves and can take minutes; holding a
         # write transaction open across that blocks every other writer -
         # including channel edits, which surface as "database is locked" /
         # requests that never return. The metadata result is persisted by a

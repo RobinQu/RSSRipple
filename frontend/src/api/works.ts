@@ -1,27 +1,9 @@
 import { api } from './client';
-import type { MetadataSourceOption } from './channels';
-import type { Work } from '../types';
-
-export interface MetadataConfigResponse {
-  sources: MetadataSourceOption[];
-}
-
-export interface RefreshResult {
-  found: boolean;
-  filled: string[];
-  source: string | null;
-  message?: string;
-  candidate?: {
-    title_cn: string | null;
-    title_en: string | null;
-    external_id: string | null;
-    external_source: string | null;
-  };
-}
+import type { MetadataSource, Work } from '../types';
 
 export interface RefreshItem {
   id: string;
-  content_type: 'tv' | 'movie' | 'asmr' | 'music' | 'drama_cd' | 'radio' | 'other';
+  content_type: 'tv' | 'movie';
 }
 
 export interface BatchRefreshResponse {
@@ -40,23 +22,10 @@ export const worksApi = {
     if (content_type) qs.set('content_type', content_type);
     return api.get<Work[]>(`/works?${qs.toString()}`);
   },
-  getMetadataConfig: () => api.get<MetadataConfigResponse>('/works/metadata-config'),
-  // Source is required: there is no global default source anymore.
-  refreshMetadata: (
-    id: string,
-    content_type: RefreshItem['content_type'],
-    source: string,
-    overrideManualEdits?: boolean,
-  ) =>
-    api.post<RefreshResult>('/works/refresh-metadata', {
-      id,
-      content_type,
-      source,
-      override_manual_edits: overrideManualEdits ?? false,
-    }),
-  batchRefreshMetadata: (items: RefreshItem[], source: string) =>
+  batchRefreshMetadata: (items: RefreshItem[], source: MetadataSource, trustedSites: string[]) =>
     api.post<BatchRefreshResponse>('/works/batch-refresh-metadata', {
       items,
       source,
+      trusted_sites: trustedSites,
     }),
 };

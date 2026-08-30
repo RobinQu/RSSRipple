@@ -3,7 +3,7 @@
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,9 +20,30 @@ from app.schemas.pending_decision import (
     DecisionActionResponse,
     PendingDecisionResponse,
 )
+from app.services.resource_confirmation import LEGACY_CONFIRMATION_REASON_PREFIXES
 from app.utils.time import utcnow
 
 router = APIRouter()
+
+def _choice_decision_filter():
+    """SQL predicate excluding legacy resource-metadata confirmation rows."""
+    return not_(
+        or_(
+            *(
+                PendingDecision.reason.startswith(prefix)
+                for prefix in LEGACY_CONFIRMATION_REASON_PREFIXES
+            )
+        )
+    )
+
+
+def _is_choice_decision(decision: PendingDecision) -> bool:
+    return (
+        len(decision.candidates or []) >= 2
+        and not (decision.reason or "").startswith(
+            LEGACY_CONFIRMATION_REASON_PREFIXES
+        )
+    )
 
 
 async def _maybe_reset_agent_run_status(db: AsyncSession, agent_id: str) -> None:
@@ -43,6 +64,7 @@ async def _maybe_reset_agent_run_status(db: AsyncSession, agent_id: str) -> None
         select(func.count()).select_from(PendingDecision).where(
             PendingDecision.agent_id == agent_id,
             PendingDecision.status == "pending",
+            _choice_decision_filter(),
         )
     )).scalar_one()
     if remaining == 0:
@@ -119,19 +141,22 @@ async def list_decisions(
     status: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    offset = (page - 1) * page_size
-    base_q = select(PendingDecision).where(PendingDecision.agent_id == agent_id)
+    base_q = select(PendingDecision).where(
+        PendingDecision.agent_id == agent_id,
+        _choice_decision_filter(),
+    )
     if status:
         base_q = base_q.where(PendingDecision.status == status)
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = total_q.scalar_one()
+    offset = (page - 1) * page_size
     result = await db.execute(
         base_q.options(
             selectinload(PendingDecision.series),
             selectinload(PendingDecision.movie),
         ).order_by(PendingDecision.created_at.desc()).offset(offset).limit(page_size)
     )
-    decisions = result.scalars().all()
+    decisions = [d for d in result.scalars().all() if _is_choice_decision(d)]
     out = []
     for d in decisions:
         data = PendingDecisionResponse.model_validate(d).model_dump()
@@ -168,6 +193,19 @@ async def confirm_decision(
                 "success": False,
                 "data": None,
                 "error": {"code": "NOT_FOUND", "message": "Decision not found"},
+                "meta": {},
+            },
+        )
+    if not _is_choice_decision(decision):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "INVALID_STATE",
+                    "message": "Agent decisions require at least two eligible candidates",
+                },
                 "meta": {},
             },
         )
@@ -221,6 +259,19 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
                 "meta": {},
             },
         )
+    if not _is_choice_decision(decision):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "INVALID_STATE",
+                    "message": "Agent decisions require at least two eligible candidates",
+                },
+                "meta": {},
+            },
+        )
     decision.status = "skipped"
     decision.decided_at = utcnow()
     await db.flush()
@@ -261,6 +312,19 @@ async def ai_pick_decision(decision_id: str, db: AsyncSession = Depends(get_db))
                 "meta": {},
             },
         )
+    if not _is_choice_decision(decision):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "data": None,
+                "error": {
+                    "code": "INVALID_STATE",
+                    "message": "Agent decisions require at least two eligible candidates",
+                },
+                "meta": {},
+            },
+        )
     ok, err = await _ai_pick_and_dispatch(decision, db)
     if not ok:
         await db.rollback()
@@ -297,13 +361,15 @@ async def batch_decisions(
                 "meta": {},
             },
         )
-    rows = (await db.execute(
+    queried_rows = (await db.execute(
         select(PendingDecision).where(
             PendingDecision.agent_id == agent_id,
             PendingDecision.id.in_(body.decision_ids),
             PendingDecision.status == "pending",
+            _choice_decision_filter(),
         )
     )).scalars().all()
+    rows = [row for row in queried_rows if _is_choice_decision(row)]
 
     resp = BatchDecisionResponse()
     for dec in rows:

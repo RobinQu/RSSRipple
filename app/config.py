@@ -29,11 +29,6 @@ class Settings(BaseSettings):
     # tests (mock server) can point the client elsewhere. Env var:
     # BANGUMI_API_BASE.
     bangumi_api_base: str = "https://api.bgm.tv/v0"
-    # Jina Search + Reader API: https://jina.ai/api-dashboard/
-    # Used by the "jina" metadata source — cheap web-native search with strong
-    # CJK/JA/EN coverage. Empty string disables the jina source at runtime.
-    jina_api_key: str = ""
-
     # Wigolo web-search fallback (self-hosted agent search engine, one daemon
     # serves REST + MCP). Used when the wikipedia/tmdb/bangumi primary sources
     # miss: the fallback searches the identity-site whitelist on the daemon.
@@ -47,9 +42,8 @@ class Settings(BaseSettings):
     # (wikipedia needs no API key). Turning a switch off hides an otherwise
     # configured source without clearing its key. ``web_fallback_enabled``
     # gates only the wigolo web-search fallback. Env vars:
-    # WEB_FALLBACK_ENABLED, JINA_ENABLED, TMDB_ENABLED, WIKIPEDIA_ENABLED.
+    # WEB_FALLBACK_ENABLED, TMDB_ENABLED, WIKIPEDIA_ENABLED.
     web_fallback_enabled: bool = True
-    jina_enabled: bool = True
     tmdb_enabled: bool = True
     wikipedia_enabled: bool = True
 

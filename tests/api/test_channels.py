@@ -158,7 +158,7 @@ class TestChannelsCRUD:
         assert year["lock"] == "always"
         locked_keys = {f["key"] for f in data["fields"] if f["locked"]}
         assert locked_keys == {
-            "title_cn", "title_en", "search_title",
+            "title_cn", "search_title",
             "content_type", "is_batch", "year", "is_anime",
             "season", "episode", "episode_start", "episode_end",
             "resource_collection",

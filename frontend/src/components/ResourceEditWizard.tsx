@@ -24,16 +24,20 @@ import { Plus, RefreshCw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { collectionsApi } from '../api/collections';
 import { moviesApi } from '../api/movies';
+import { metadataApi } from '../api/metadata';
 import { channelsApi, resourcesApi } from '../api/channels';
 import { seriesApi } from '../api/series';
 import { formatBytes } from '../utils/format';
+import { DEFAULT_FALLBACK_SOURCES } from './channel-form/constants';
+import SeasonInput from './SeasonInput';
 import type {
   AssociationUpdatePayload,
   AssociationWorkRef,
   BatchSuggestion,
   FileResource,
   FileResourceDetail,
-  MetadataSearchResult,
+  MetadataCandidate,
+  MetadataSource,
   ResourceFileItem,
   WorkRefType,
 } from '../types';
@@ -56,6 +60,11 @@ type MediaFieldKey =
   | 'audio_codec'
   | 'subtitle_type'
   | 'container';
+
+type DirectMetadataFieldKey = 'title_cn' | 'title_en' | 'search_title';
+const DIRECT_METADATA_FIELD_KEYS: DirectMetadataFieldKey[] = [
+  'title_cn', 'title_en', 'search_title',
+];
 
 const MEDIA_TEXT_KEYS: MediaFieldKey[] = [
   'resolution',
@@ -86,7 +95,7 @@ type ChangesShape = {
   mappingChanged: { path: string; label: string }[];
   collectionChanged: { from: string; to: string } | null;
   singleEpChanges: { key: string; from: string; to: string }[];
-  mediaChanges: { key: MediaFieldKey | 'subtitle_langs'; from: string; to: string }[];
+  mediaChanges: { key: MediaFieldKey | DirectMetadataFieldKey | 'subtitle_langs'; from: string; to: string }[];
 };
 
 interface ResourceEditWizardProps {
@@ -148,6 +157,11 @@ export default function ResourceEditWizard({
     Partial<Record<MediaFieldKey, string[]>>
   >({});
   const [subtitleLangs, setSubtitleLangs] = useState<string[]>([]);
+  const [directMetadata, setDirectMetadata] = useState<Record<DirectMetadataFieldKey, string>>({
+    title_cn: '', title_en: '', search_title: '',
+  });
+  const [channelMetadataSource, setChannelMetadataSource] = useState<MetadataSource>('wikipedia');
+  const [channelFallbackSources, setChannelFallbackSources] = useState<string[]>(DEFAULT_FALLBACK_SOURCES);
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -249,7 +263,19 @@ export default function ResourceEditWizard({
         container: d.container || '',
       });
       setSubtitleLangs([...(d.subtitle_langs ?? [])]);
+      setDirectMetadata({
+        title_cn: d.title_cn || '',
+        title_en: d.title_en || '',
+        search_title: d.search_title || '',
+      });
       setLoading(false);
+      const channelRes = await channelsApi.get(d.channel_id);
+      if (!cancelled && channelRes.success) {
+        setChannelMetadataSource(channelRes.data.metadata_source || 'wikipedia');
+        setChannelFallbackSources(
+          channelRes.data.metadata_fallback_sources ?? DEFAULT_FALLBACK_SOURCES,
+        );
+      }
       const filesRes = await resourcesApi.getFiles(resourceId);
       if (!cancelled && filesRes.success) {
         setFiles(filesRes.data.files);
@@ -636,6 +662,10 @@ export default function ResourceEditWizard({
       const cur = media[k].trim() || null;
       if (cur !== (detail[k] || null)) fields[k] = cur;
     }
+    for (const k of DIRECT_METADATA_FIELD_KEYS) {
+      const cur = directMetadata[k].trim() || null;
+      if (cur !== (detail[k] || null)) fields[k] = cur;
+    }
     const origLangs = JSON.stringify([...(detail.subtitle_langs ?? [])].sort());
     if (JSON.stringify([...subtitleLangs].sort()) !== origLangs) {
       fields.subtitle_langs = subtitleLangs;
@@ -689,9 +719,20 @@ export default function ResourceEditWizard({
       }
     }
 
-    const mediaChanges: { key: MediaFieldKey | 'subtitle_langs'; from: string; to: string }[] = [];
+    const mediaChanges: { key: MediaFieldKey | DirectMetadataFieldKey | 'subtitle_langs'; from: string; to: string }[] = [];
     for (const k of MEDIA_TEXT_KEYS) {
       const cur = media[k].trim() || null;
+      const prev = detail[k] || null;
+      if (cur !== prev) {
+        mediaChanges.push({
+          key: k,
+          from: prev || t('common.off'),
+          to: cur || t('common.off'),
+        });
+      }
+    }
+    for (const k of DIRECT_METADATA_FIELD_KEYS) {
+      const cur = directMetadata[k].trim() || null;
       const prev = detail[k] || null;
       if (cur !== prev) {
         mediaChanges.push({
@@ -919,7 +960,7 @@ export default function ResourceEditWizard({
             {(!works.length || works[0]?.work_type === 'series') ? (
               <>
                 <LabeledRow label={t('resource.seasonLabel')}>
-                  <InputNumber min={0} value={epSeason} onChange={(v) => setEpSeason(typeof v === 'number' ? v : null)} style={{ width: '100%' }} />
+                  <SeasonInput value={epSeason} onChange={setEpSeason} style={{ width: '100%' }} />
                 </LabeledRow>
                 <LabeledRow label={t('resource.episodePerSeasonLabel')}>
                   <InputNumber min={0} value={epEpisode} onChange={(v) => setEpEpisode(typeof v === 'number' ? v : null)} style={{ width: '100%' }} />
@@ -1014,7 +1055,7 @@ export default function ResourceEditWizard({
                                 <Text ellipsis title={path} style={{ fontSize: 11, flex: 1, minWidth: 0 }}>
                                   {path.split('/').pop()}
                                 </Text>
-                                <InputNumber size="small" min={0} value={p.season} onChange={(v) => setPlacementField(path, { season: typeof v === 'number' ? v : null })} style={{ width: 52 }} controls={false} />
+                                <SeasonInput size="small" value={p.season} onChange={(v) => setPlacementField(path, { season: v })} style={{ width: 52 }} />
                                 <InputNumber size="small" min={0} value={p.epStart} onChange={(v) => setPlacementField(path, { epStart: typeof v === 'number' ? v : null })} style={{ width: 52 }} controls={false} />
                                 <InputNumber size="small" min={0} value={p.epEnd} onChange={(v) => setPlacementField(path, { epEnd: typeof v === 'number' ? v : null })} style={{ width: 52 }} controls={false} />
                                 <Button size="small" type="text" icon={<X size={11} />} onClick={() => unassignPaths([path])} />
@@ -1049,11 +1090,10 @@ export default function ResourceEditWizard({
                   {t('resource.reanalyze')}
                 </Button>
                 <Divider type="vertical" />
-                <InputNumber
+                <SeasonInput
                   size="small"
-                  min={0}
                   value={joinSeason}
-                  onChange={(v) => setJoinSeason(typeof v === 'number' ? v : null)}
+                  onChange={setJoinSeason}
                   addonBefore={t('resource.seasonLabel')}
                   style={{ width: 130 }}
                 />
@@ -1201,6 +1241,22 @@ export default function ResourceEditWizard({
 
       {/* Step 3 — generic media fields */}
       <div style={panelStyle(step === 3)}>
+        {DIRECT_METADATA_FIELD_KEYS.filter((k) =>
+          (detail.missing_fields ?? []).includes(k),
+        ).map((k) => (
+          <div key={k} style={{ marginBottom: 12 }}>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+              {t(`filters.${k}`)}
+            </Text>
+            <Input
+              value={directMetadata[k]}
+              onChange={(event) => setDirectMetadata((prev) => ({
+                ...prev, [k]: event.target.value,
+              }))}
+              status={directMetadata[k].trim() ? undefined : 'error'}
+            />
+          </div>
+        ))}
         <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : '1fr 1fr', gap: 12 }}>
           {MEDIA_TEXT_KEYS.map((k) => (
             <div key={k}>
@@ -1264,8 +1320,9 @@ export default function ResourceEditWizard({
 
       <WorkPickerModal
         open={pickerOpen}
-        resourceId={resourceId}
         existingKeys={new Set(works.map((w) => workKeyOf(w.work_type, w.work_id)))}
+        defaultMetadataSource={channelMetadataSource}
+        defaultFallbackSources={channelFallbackSources}
         onClose={() => setPickerOpen(false)}
         onPick={(ref, title) => {
           addWork(ref, title);
@@ -1414,6 +1471,9 @@ function ReviewSection({ title, children }: { title: string; children: React.Rea
 
 function mediaLabelKey(k: MediaFieldKey | string): string {
   switch (k) {
+    case 'title_cn': return 'titleCn';
+    case 'title_en': return 'titleEn';
+    case 'search_title': return 'searchTitle';
     case 'resolution': return 'resolution';
     case 'source': return 'source';
     case 'video_codec': return 'videoCodec';
@@ -1427,14 +1487,16 @@ function mediaLabelKey(k: MediaFieldKey | string): string {
 
 function WorkPickerModal({
   open,
-  resourceId,
   existingKeys,
+  defaultMetadataSource,
+  defaultFallbackSources,
   onClose,
   onPick,
 }: {
   open: boolean;
-  resourceId: string;
   existingKeys: Set<string>;
+  defaultMetadataSource: MetadataSource;
+  defaultFallbackSources: string[];
   onClose: () => void;
   onPick: (ref: AssociationWorkRef, title: string) => void;
 }) {
@@ -1443,11 +1505,18 @@ function WorkPickerModal({
   const [mode, setMode] = useState<'library' | 'online'>('library');
   const [kind, setKind] = useState<'tv' | 'movie'>('tv');
   const [metaType, setMetaType] = useState<'tv' | 'movie'>('tv');
+  const [metadataSource, setMetadataSource] = useState<MetadataSource>(defaultMetadataSource);
+  const [fallbackSources, setFallbackSources] = useState<string[]>(defaultFallbackSources);
   const [q, setQ] = useState('');
   const [searching, setSearching] = useState(false);
-  const [linking, setLinking] = useState(false);
   const [libResults, setLibResults] = useState<{ id: string; title: string; year: string | null }[]>([]);
-  const [metaResults, setMetaResults] = useState<MetadataSearchResult[]>([]);
+  const [metaResults, setMetaResults] = useState<MetadataCandidate[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    setMetadataSource(defaultMetadataSource);
+    setFallbackSources(defaultFallbackSources);
+  }, [open, defaultMetadataSource, defaultFallbackSources]);
 
   const searchLibrary = async (query?: string) => {
     setSearching(true);
@@ -1478,37 +1547,32 @@ function WorkPickerModal({
     }
     setSearching(true);
     try {
-      const res = await resourcesApi.searchMetadata(resourceId, {
-        search_title: q.trim(),
+      const res = await metadataApi.search({
+        query: q.trim(),
         content_type: metaType,
+        mode: 'online',
+        source: metadataSource,
+        trusted_sites: fallbackSources,
       });
-      setMetaResults(res.success ? res.data.results : []);
+      setMetaResults(res.success ? res.data.candidates : []);
       if (!res.success) message.error(res.error?.message || t('metadata.searchFailed'));
     } finally {
       setSearching(false);
     }
   };
 
-  const pickOnline = async (r: MetadataSearchResult) => {
-    setLinking(true);
-    try {
-      const res = await resourcesApi.linkMetadata(resourceId, {
-        selected_result: { ...r, content_type: metaType },
-      });
-      if (!res.success) {
-        message.error(res.error?.message || t('metadata.linkFailed'));
-        return;
-      }
-      const updated = res.data;
-      const wid = updated.series_id || updated.movie_id;
-      if (!wid) return;
-      onPick(
-        { work_type: updated.series_id ? 'series' : 'movie', work_id: wid },
-        r.title_cn || r.original_title || r.title_en || wid,
-      );
-    } finally {
-      setLinking(false);
-    }
+  const pickOnline = async (r: MetadataCandidate) => {
+    if (!r.selectable) return;
+    const clientKey = `candidate:${crypto.randomUUID()}`;
+    onPick(
+      {
+        work_type: metaType === 'tv' ? 'series' : 'movie',
+        work_id: clientKey,
+        client_key: clientKey,
+        candidate: r,
+      },
+      r.title_cn || r.original_title || r.title_en || r.external_id || clientKey,
+    );
   };
 
   return (
@@ -1518,7 +1582,7 @@ function WorkPickerModal({
       footer={null}
       onCancel={onClose}
       destroyOnHidden
-      width={560}
+      width={760}
     >
       <Segmented
         block
@@ -1577,6 +1641,26 @@ function WorkPickerModal({
         </>
       ) : (
         <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(280px, 2fr)', gap: 10, marginBottom: 10 }}>
+            <Select
+              value={metadataSource}
+              onChange={(value) => setMetadataSource(value as MetadataSource)}
+              options={(['wikipedia', 'tmdb', 'bangumi'] as MetadataSource[]).map((value) => ({
+                value,
+                label: t(`channels.sources.${value}`),
+              }))}
+            />
+            <Select
+              mode="multiple"
+              value={fallbackSources}
+              onChange={setFallbackSources}
+              placeholder={t('channels.metadataFallbackPlaceholder')}
+              options={DEFAULT_FALLBACK_SOURCES.map((value) => ({
+                value,
+                label: t(`channels.sources.${value}`),
+              }))}
+            />
+          </div>
           <Space.Compact style={{ width: '100%', marginBottom: 10 }}>
             <Input
               value={q}
@@ -1607,7 +1691,7 @@ function WorkPickerModal({
                   <Text style={{ fontSize: 13 }}>{r.title_cn || r.original_title || r.title_en}</Text>
                   {r.year && <Text type="secondary" style={{ fontSize: 12 }}>{r.year}</Text>}
                 </Space>
-                <Button size="small" type="primary" loading={linking} onClick={() => void pickOnline(r)}>
+                <Button size="small" type="primary" disabled={!r.selectable} onClick={() => void pickOnline(r)}>
                   {t('metadata.confirmSelection')}
                 </Button>
               </div>

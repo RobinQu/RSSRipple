@@ -4,7 +4,7 @@ Stores cached results keyed by ``(title, source)`` where ``source`` namespaces
 the cache by both type and data source:
 
 - ``"metadata_agent:<source>"`` - Full metadata agent result for one external
-  source (e.g. ``"metadata_agent:jina"``, ``"metadata_agent:wikipedia"``), including
+  source (e.g. ``"metadata_agent:tmdb"``, ``"metadata_agent:wikipedia"``), including
   clean_title, content_type, inferred episode/season, matched entity, and
   confidence. Namespacing by source keeps one source's results from being
   served for a channel configured with a different source.
@@ -40,7 +40,7 @@ from app.database import Base
 #   4 — genre prompt becomes best-effort: the judge/ReAct instruction now
 #       requires inferring at least one genre from the synopsis when the
 #       source lists none, so genre-less verdicts should not reappear.
-METADATA_CACHE_GENERATION = 4
+METADATA_CACHE_GENERATION = 5
 
 
 class MetadataCache(Base):

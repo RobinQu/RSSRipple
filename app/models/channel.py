@@ -11,7 +11,7 @@ from app.services.required_fields import normalize_required_fields
 
 
 def _default_required_fields() -> list[str]:
-    """Baseline required-fields list for new channels (locked seven)."""
+    """Baseline required-fields list for new channels (locked six plus shape fields)."""
     return normalize_required_fields([])
 
 
@@ -47,7 +47,7 @@ class Channel(Base):
     # Channel-declared "required" metadata fields (JSON list of catalog
     # keys, see app/services/required_fields.py). Drives the resource-list
     # display column and the agent filter-DSL gating. Mandatory and add-only
-    # after creation: defaults to the code-enforced baseline (locked seven);
+    # after creation: defaults to the code-enforced baseline (locked six);
     # the startup light migration converges legacy NULL/partial rows to the
     # same baseline. There is no "unrestricted" state anymore.
     required_metadata_fields: Mapped[list[str] | None] = mapped_column(

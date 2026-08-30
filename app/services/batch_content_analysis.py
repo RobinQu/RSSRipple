@@ -38,6 +38,7 @@ from app.models.movie import Movie
 from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
+from app.services.resource_parser import extract_subtitle_group_from_filename
 from app.services.runtime_config import runtime_config
 from app.services.torrent_inspect import TorrentReport
 
@@ -95,6 +96,19 @@ def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> Non
     """
     if not report.file_parses:
         return
+
+    # Title parsing remains authoritative.  When it yielded no group, use the
+    # release-name convention found in overseas filenames (``...-GROUP.mkv``).
+    # Require one unambiguous group across the torrent so mixed packs cannot
+    # accidentally stamp the resource with one constituent release's group.
+    if not getattr(resource, "subtitle_group", None):
+        filename_groups: dict[str, str] = {}
+        for fp in report.file_parses:
+            group = extract_subtitle_group_from_filename(fp.get("path"))
+            if group:
+                filename_groups.setdefault(group.casefold(), group)
+        if len(filename_groups) == 1:
+            resource.subtitle_group = next(iter(filename_groups.values()))
 
     hint_by_path: dict[str, str] = {}
     for cluster in report.clusters:
@@ -366,21 +380,29 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
         else {}
     )
     changed = 0
+    placement_changed = False
     special_changed = False
     for row in resource.file_assignments:
-        if row.source != "auto" or row.series_id or row.movie_id:
+        if row.source != "auto":
             continue
-        row.series_id = work_id if work_type == "series" else None
-        row.movie_id = work_id if work_type == "movie" else None
-        if work_type == "series" and row.season is None and resource.season is not None:
+        if not row.series_id and not row.movie_id:
+            row.series_id = work_id if work_type == "series" else None
+            row.movie_id = work_id if work_type == "movie" else None
+            changed += 1
+        if (
+            work_type == "series"
+            and row.season is None
+            and resource.season is not None
+        ):
             row.season = resource.season
+            placement_changed = True
         if row.file_path in special_overrides:
             row.season = 0
             row.episode_start = special_overrides[row.file_path]
             row.episode_end = special_overrides[row.file_path]
             special_changed = True
-        changed += 1
-    if special_changed:
+            placement_changed = True
+    if special_changed or placement_changed:
         resource.season_ranges = compute_season_ranges(resource)
     if changed:
         links = (await db.execute(

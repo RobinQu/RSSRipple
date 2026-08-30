@@ -12,7 +12,7 @@ from __future__ import annotations
 # per-season. We detect this by checking the raw episode against the
 # season's episode_count from TMDB/web-fallback metadata and converting when the
 # arithmetic works out. Values outside the tolerance envelope are flagged
-# ``ambiguous`` and routed to AgentSuggestion for manual review.
+# ``ambiguous`` and routed to Channel resource confirmation.
 
 # Extra headroom for still-airing shows where TMDB's episode_count lags a
 # few episodes behind the true count.
@@ -91,10 +91,10 @@ def reconcile_episode(
 
     candidate = raw_episode - prev_total
     if 1 <= candidate <= season_count + _RECONCILE_TOLERANCE:
-        # Clamp to season_count when tolerance overshoots — TMDB just being
-        # behind on episode_count is the common case.
-        final_ep = min(candidate, season_count) if candidate > season_count else candidate
-        return final_ep, raw_episode, "reconciled"
+        # Keep the inferred value inside the tolerance headroom.  Clamping it
+        # to the stale metadata count aliases a newly-aired episode onto the
+        # previous one (for example E8 becoming E7).
+        return candidate, raw_episode, "reconciled"
 
     return raw_episode, None, "ambiguous"
 
@@ -106,22 +106,21 @@ def locate_absolute_episode(
 
     Walks seasons in ascending order subtracting each season's
     ``episode_count``; the season the remainder lands in is the answer. The
-    final season gets ``_RECONCILE_TOLERANCE`` headroom (clamped to its
-    ``episode_count``) for still-airing shows where the metadata source lags
-    a few episodes behind. Returns ``None`` when the number overshoots the
+    final season gets ``_RECONCILE_TOLERANCE`` headroom, preserving the
+    inferred episode number when the metadata source lags a few episodes
+    behind. Returns ``None`` when the number overshoots the
     total (+ tolerance) or the map is empty.
     """
     if absolute < 1 or not seasons_map:
         return None
     remaining = absolute
     ordered = sorted((s, c) for s, c in seasons_map.items() if c > 0)
-    for season, count in ordered:
+    for index, (season, count) in enumerate(ordered):
         if remaining <= count:
             return season, remaining
+        if index == len(ordered) - 1 and remaining <= count + _RECONCILE_TOLERANCE:
+            return season, remaining
         remaining -= count
-    if ordered and remaining <= _RECONCILE_TOLERANCE:
-        season, count = ordered[-1]
-        return season, count
     return None
 
 
@@ -129,8 +128,10 @@ def verified_season_count(entity: dict | None) -> int | None:
     """Season-count evidence from a matched_entity-style dict.
 
     Prefers an explicit ``number_of_seasons`` int; falls back to counting the
-    ``seasons`` list excluding season 0 (specials). Returns ``None`` when
-    neither source has usable data — callers must NOT guess a season then.
+    ``seasons`` list excluding season 0 (specials). A source may instead mark
+    the current matched entry ``single_season_entry=True`` (Bangumi subject
+    semantics); this is match-scoped evidence and is not persisted as the
+    work's total season count. Returns ``None`` when no source is usable.
     """
     if not isinstance(entity, dict):
         return None
@@ -148,7 +149,27 @@ def verified_season_count(entity: dict | None) -> int | None:
         )
         if count >= 1:
             return count
+    if entity.get("single_season_entry") is True:
+        return 1
     return None
+
+
+def season_evidence_from_series(series) -> dict:
+    """Build reusable missing-season evidence from a persisted TV work.
+
+    A Bangumi TVSeries identity represents one subject, and one subject is one
+    season. Preserve that entry-level meaning on already-linked/known-work
+    paths without claiming ``TVSeries.number_of_seasons == 1``.
+    """
+    external_source = str(getattr(series, "external_source", "") or "").lower()
+    external_id = str(getattr(series, "external_id", "") or "").lower()
+    return {
+        "number_of_seasons": getattr(series, "number_of_seasons", None),
+        "seasons": getattr(series, "seasons", None),
+        "single_season_entry": (
+            external_source == "bangumi" or external_id.startswith("bangumi:")
+        ),
+    }
 
 
 def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
@@ -251,7 +272,7 @@ def resolve_missing_season(resource, entity: dict | None) -> str | None:
     matched_entity-style dict with ``number_of_seasons``/``seasons``) →
     ``season = 1``; multi-season or unknown evidence →
     ``episode_confidence = "ambiguous"`` (季号不确定, routed to a human
-    PendingDecision downstream).
+    Channel resource confirmation downstream).
 
     No-op for resources whose season is already known, batch resources (a 合集
     bypasses per-episode flow), and ``manual`` rows (user-vetted). Returns

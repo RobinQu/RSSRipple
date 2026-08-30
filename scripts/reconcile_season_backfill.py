@@ -30,6 +30,7 @@ from app.models.series import TVSeries
 from app.services.metadata_episode_reconcile import (
     apply_episode_reconcile,
     resolve_missing_season,
+    season_evidence_from_series,
     seasons_map_from_list,
     verified_season_count,
 )
@@ -78,10 +79,7 @@ def reconcile_stock_resource(resource, series_row) -> str:
     """
     if series_row is None:
         return OUTCOME_SKIPPED
-    entity = {
-        "number_of_seasons": series_row.number_of_seasons,
-        "seasons": series_row.seasons,
-    }
+    entity = season_evidence_from_series(series_row)
     seasons_map = seasons_map_from_list(series_row.seasons)
     if not seasons_map and verified_season_count(entity) is None:
         return OUTCOME_SKIPPED

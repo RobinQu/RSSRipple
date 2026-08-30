@@ -29,3 +29,8 @@ class DashboardData(BaseModel):
     active_download_count: int = 0
     active_download_groups: list[ActiveDownloadGroup] = []
     pending_decisions: list[Any] = []
+    pending_decisions_total: int = 0
+    pending_confirmations: list[Any] = []
+    pending_confirmations_total: int = 0
+    pending_plans: list[Any] = []
+    pending_plans_total: int = 0

@@ -31,18 +31,11 @@ from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
     FileResourceDetailResponse,
     FileResourceResponse,
-    MetadataLinkRequest,
-    MetadataSearchRequest,
-    MetadataSearchResult,
     ResourceAssociationUpdateRequest,
     ResourceFilesResponse,
     ResourceParseCorrectionRequest,
 )
-from app.services.metadata_service import (
-    fetch_and_link_metadata,
-    manual_link_metadata,
-    manual_search_metadata,
-)
+from app.services.metadata_service import fetch_and_link_metadata
 from app.services.task_queue import task_queue
 from app.services.torrent_inspect import fetch_torrent_file, parse_torrent_files
 
@@ -465,7 +458,17 @@ async def get_resource(resource_id: str, db: AsyncSession = Depends(get_db)):
             status_code=404,
             content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
         )
-    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
+    payload = FileResourceDetailResponse.model_validate(resource).model_dump()
+    channel = await db.get(Channel, resource.channel_id)
+    if channel is not None:
+        from app.services.resource_confirmation import inspect_resource_confirmation
+
+        confirmation = inspect_resource_confirmation(
+            resource, channel.required_metadata_fields
+        )
+        payload["confirmation_kinds"] = list(confirmation.kinds)
+        payload["missing_fields"] = list(confirmation.missing_fields)
+    return success_response(payload)
 
 
 @router.get("/resources/{resource_id}/metadata")
@@ -520,71 +523,6 @@ async def get_resource_metadata(resource_id: str, db: AsyncSession = Depends(get
         "metadata_matched_at": resource.metadata_matched_at.isoformat() if resource.metadata_matched_at else None,
         "linked": linked,
     })
-
-
-@router.post("/resources/{resource_id}/metadata/search")
-async def search_metadata(
-    resource_id: str, body: MetadataSearchRequest, db: AsyncSession = Depends(get_db)
-):
-    resource = await db.get(FileResource, resource_id)
-    if not resource:
-        return JSONResponse(
-            status_code=404,
-            content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
-        )
-    try:
-        results = await manual_search_metadata(
-            db,
-            body.search_title,
-            body.content_type,
-            body.data_source_type,
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=502,
-            content={"success": False, "data": None, "error": {"code": "LLM_ERROR", "message": str(e)}},
-        )
-    return success_response({"results": [MetadataSearchResult(**r).model_dump() for r in results]})
-
-
-@router.api_route("/resources/{resource_id}/metadata/link", methods=["POST", "PUT"])
-async def link_metadata(
-    resource_id: str, body: MetadataLinkRequest, db: AsyncSession = Depends(get_db)
-):
-    resource = await db.get(FileResource, resource_id)
-    if not resource:
-        return JSONResponse(
-            status_code=404,
-            content={"success": False, "data": None, "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
-        )
-    channel = await db.get(Channel, resource.channel_id)
-    try:
-        await manual_link_metadata(db, resource, channel, body.selected_result)
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "data": None, "error": {"code": "INTERNAL_SERVER_ERROR", "message": str(e)}},
-        )
-
-    # Re-trigger agent runs for the channel
-    for agent in channel.agents:
-        if agent.status == "active":
-            try:
-                await task_queue.enqueue("run_agent", f"agent:{agent.id}", {"agent_id": agent.id})
-            except Exception:
-                pass
-
-    # Expire and re-fetch resource with relationships eager-loaded so Pydantic
-    # serialization works without triggering implicit lazy IO.
-    await db.flush()
-    resource = (await db.execute(
-        select(FileResource)
-        .where(FileResource.id == resource.id)
-        .options(*_DETAIL_LOAD_OPTIONS)
-    )).scalar_one()
-    return success_response(FileResourceDetailResponse.model_validate(resource).model_dump())
 
 
 @router.patch("/resources/{resource_id}/episode")
@@ -666,11 +604,11 @@ async def correct_episode(
     # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
     # session and only sees committed data. Enqueuing first creates a race
     # where the worker reads the pre-correction ``episode_confidence`` and
-    # re-creates the stale ambiguous PendingDecision instead of dispatching.
+    # keeps the resource behind the Channel confirmation gate.
     await db.commit()
 
     # Re-trigger active agents on this channel so the corrected resource can
-    # now be dispatched (or the ambiguous PendingDecision cleared). Pass the
+    # now pass the Channel confirmation gate and be dispatched. Pass the
     # resource id explicitly so run_agent does a *targeted* run against the
     # agent's current rules — bypassing the consumption watermark, since the
     # corrected resource may be old. The watermark is not advanced.

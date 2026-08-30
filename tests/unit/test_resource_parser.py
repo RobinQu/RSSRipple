@@ -545,6 +545,47 @@ def test_normalize_fills_missing_tech_without_title_repair():
     assert "search_title" not in out
 
 
+@pytest.mark.parametrize(
+    ("title_raw", "expected"),
+    [
+        ("[LoliHouse] 作品名 - 01 [1080p]", "LoliHouse"),
+        ("【喵萌奶茶屋】★07月新番★[猫与龙][06][1080p]", "喵萌奶茶屋"),
+        ("［桜都字幕组］作品名 [07][1080p]", "桜都字幕组"),
+    ],
+)
+def test_normalize_fills_subtitle_group_from_leading_bracket_styles(
+    title_raw, expected,
+):
+    assert _norm(title_raw, {})["subtitle_group"] == expected
+
+
+def test_normalize_preserves_mapped_subtitle_group():
+    out = _norm("【标题里的标签】作品名 [01]", {"subtitle_group": "人工修订组"})
+    assert out["subtitle_group"] == "人工修订组"
+
+
+def test_normalize_extracts_bilingual_pack_titles_without_bracket_leak():
+    raw = "[7³ACG] 伪恋/Nisekoi False Love S01 | 01-20+SPx4 [简繁字幕] BDrip 1080p"
+    out = _norm(raw, {"title_cn": "伪恋"})
+    assert out["title_en"] == "Nisekoi False Love"
+    assert out["search_title"] == "Nisekoi False Love"
+
+
+def test_normalize_supports_fullwidth_bilingual_separator():
+    raw = "[LinRip] 午夜的倾心旋律 ／ Mayonaka Heart Tune [BDRemux 1080p AVC FLAC]"
+    out = _norm(raw, {"title_cn": "午夜的倾心旋律 ／ Mayonaka Heart Tune"})
+    assert out["title_en"] == "Mayonaka Heart Tune"
+    assert out["search_title"] == "Mayonaka Heart Tune"
+
+
+def test_normalize_recovers_cjk_title_when_channel_mapping_has_no_title():
+    raw = "[云光字幕组] 新 攻壳机动队THE.GHOST.IN.THE.SHELL[07][简体双语][1080p]招募翻译"
+    out = _norm(raw, {})
+    assert out["title_cn"] == "新 攻壳机动队"
+    assert out["title_en"] == "THE.GHOST.IN.THE.SHELL"
+    assert out["search_title"] == "THE.GHOST.IN.THE.SHELL"
+
+
 def test_normalize_resolution_from_4k():
     raw = "[G] Show - 1 (3840x2160 AVC AAC MKV)"
     out = _norm(raw, {})
@@ -681,6 +722,7 @@ class TestExtractEpisodeFallback:
     def test_version_tag_uppercase_and_multi_digit(self):
         assert extract_episode_fallback("[Group] Some Work [01V2]") == (1, None)
         assert extract_episode_fallback("[Group] Some Work [12v10]") == (12, None)
+        assert extract_episode_fallback("[Group] Some Work [01a]") == (1, None)
 
     def test_version_tag_does_not_unlock_tech_brackets(self):
         # [1080p] / [2026] still never match; a bare [v2] has no episode number.

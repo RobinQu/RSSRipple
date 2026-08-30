@@ -35,6 +35,9 @@ class TestDashboardPopulated:
         data = res.json()["data"]
         assert data["active_download_count"] >= 1
         assert data["pending_decisions"]
+        assert data["pending_decisions_total"] >= len(data["pending_decisions"])
+        assert data["pending_confirmations_total"] >= len(data["pending_confirmations"])
+        assert data["pending_plans_total"] >= len(data["pending_plans"])
 
     async def test_dashboard_with_movie_group(
         self, client, setup_with_task_and_decision,
@@ -55,12 +58,59 @@ class TestDashboardPopulated:
         decisions = [d for d in data["pending_decisions"] if d["id"] == fx.pd_id]
         assert len(decisions) == 1
         d = decisions[0]
-        assert d["candidates"] == [fx.r1]
-        assert len(d["candidate_resources"]) == 1
+        assert d["candidates"] == [fx.r1, fx.r2]
+        assert len(d["candidate_resources"]) == 2
         c = d["candidate_resources"][0]
         assert c["id"] == fx.r1
         assert c["title_raw"] == "[G] S - 01"
         assert "episode_confidence" in c
+
+    async def test_pending_decisions_have_independent_pagination_and_true_total(
+        self, client, db_session_factory, setup_with_task_and_decision,
+    ):
+        from app.models.pending_decision import PendingDecision
+
+        fx = setup_with_task_and_decision
+        now = datetime.now(UTC)
+        decision_ids = [fx.pd_id]
+        async with db_session_factory() as s:
+            for episode in (2, 3):
+                decision_id = _uuid()
+                decision_ids.append(decision_id)
+                s.add(PendingDecision(
+                    id=decision_id,
+                    agent_id=fx.a_id,
+                    series_id=fx.s_id,
+                    episode=episode,
+                    candidates=[fx.r1, fx.r2],
+                    reason=f"冲突 {episode}",
+                    status="pending",
+                    expires_at=now + timedelta(days=7),
+                    created_at=now + timedelta(seconds=episode),
+                ))
+            # Legacy single-resource confirmations are not Agent decisions and
+            # must not inflate the total or occupy a page slot.
+            s.add(PendingDecision(
+                id=_uuid(),
+                agent_id=fx.a_id,
+                series_id=fx.s_id,
+                episode=4,
+                candidates=[fx.r1],
+                reason="旧版单资源修订",
+                status="pending",
+                expires_at=now + timedelta(days=7),
+                created_at=now + timedelta(seconds=4),
+            ))
+            await s.commit()
+
+        res = await client.get(
+            "/api/v1/dashboard?decision_page=2&confirmation_page=1&plan_page=1&page_size=1"
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["pending_decisions_total"] == 3
+        assert len(data["pending_decisions"]) == 1
+        assert data["pending_decisions"][0]["id"] in decision_ids
 
     async def test_dashboard_pending_plans(
         self, client, db_session_factory, sample_channel, sample_downloader,
@@ -107,14 +157,20 @@ class TestDashboardPopulated:
             await s.commit()
             plan_id = plan.id
 
-        res = await client.get("/api/v1/dashboard")
+        res = await client.get("/api/v1/dashboard?page_size=1")
         assert res.status_code == 200
         data = res.json()["data"]
+        assert data["pending_plans_total"] == 1
         plans = [p for p in data["pending_plans"] if p["id"] == plan_id]
         assert len(plans) == 1
         assert plans[0]["status"] == "pending"
         assert len(plans[0]["ops_preview"]) == 1
         assert plans[0]["ops_preview"][0]["src"] == "/downloads/x/a.mkv"
+
+        page_two = await client.get("/api/v1/dashboard?plan_page=2&page_size=1")
+        assert page_two.status_code == 200
+        assert page_two.json()["data"]["pending_plans_total"] == 1
+        assert page_two.json()["data"]["pending_plans"] == []
 
 
     async def test_dashboard_pending_confirmations(
@@ -142,15 +198,49 @@ class TestDashboardPopulated:
         assert len(confs) == 1
         c = confs[0]
         assert c["resource"]["episode_confidence"] == "ambiguous"
+        assert "season_ambiguous" in c["kinds"]
         assert c["channel_name"] == sample_channel.name
         assert c["work_title"] == sample_series.title_cn
 
-    async def test_dashboard_pending_confirmations_excludes_batch_and_movie(
+    async def test_pending_confirmations_have_independent_pagination_and_true_total(
+        self, client, db_session_factory, sample_channel,
+    ):
+        from app.models.file_resource import FileResource
+
+        now = datetime.now(UTC)
+        resource_ids = []
+        async with db_session_factory() as s:
+            for index in range(3):
+                resource_id = _uuid()
+                resource_ids.append(resource_id)
+                s.add(FileResource(
+                    id=resource_id,
+                    channel_id=sample_channel.id,
+                    guid=f"confirmation-page-{index}",
+                    title_raw=f"Unlinked {index}",
+                    torrent_url=f"magnet:?xt=urn:btih:confirmation{index}",
+                    created_at=now + timedelta(seconds=index),
+                ))
+            await s.commit()
+
+        res = await client.get(
+            "/api/v1/dashboard?decision_page=1&confirmation_page=2&plan_page=1&page_size=2"
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["pending_confirmations_total"] == 3
+        assert len(data["pending_confirmations"]) == 1
+        assert data["pending_confirmations"][0]["resource"]["id"] == resource_ids[0]
+
+    async def test_dashboard_rejects_invalid_todo_pagination(self, client):
+        assert (await client.get("/api/v1/dashboard?decision_page=0")).status_code == 422
+        assert (await client.get("/api/v1/dashboard?page_size=101")).status_code == 422
+
+    async def test_dashboard_stale_ambiguous_is_not_an_issue_for_batch_or_movie(
         self, client, db_session_factory, sample_channel, sample_series,
     ):
-        """Batches (coverage dedup, no single episode) and movie-linked
-        resources (no episode question) are not actionable confirmations even
-        if a stale ambiguous flag lingers."""
+        """A stale ambiguous flag adds no season/episode issue to batches or
+        movies; independent missing required fields may still surface them."""
         from app.models.file_resource import FileResource
         from app.models.movie import Movie
 
@@ -174,9 +264,14 @@ class TestDashboardPopulated:
 
         res = await client.get("/api/v1/dashboard")
         assert res.status_code == 200
-        ids = {c["resource"]["id"] for c in res.json()["data"]["pending_confirmations"]}
-        assert batch_id not in ids
-        assert movie_id not in ids
+        confirmations = {
+            c["resource"]["id"]: c
+            for c in res.json()["data"]["pending_confirmations"]
+        }
+        for resource_id in (batch_id, movie_id):
+            kinds = confirmations.get(resource_id, {}).get("kinds", [])
+            assert "season_ambiguous" not in kinds
+            assert "episode_ambiguous" not in kinds
 
 
 @pytest.fixture
@@ -242,7 +337,7 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
     pd_id = _uuid()
     async with db_session_factory() as s:
         s.add(PendingDecision(id=pd_id, agent_id=a_id, series_id=s_id, episode=1,
-                              candidates=[r1], reason="冲突", status="pending",
+                              candidates=[r1, r2], reason="冲突", status="pending",
                               expires_at=datetime.now(UTC) + timedelta(days=7)))
         await s.commit()
 

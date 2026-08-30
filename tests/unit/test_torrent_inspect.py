@@ -135,6 +135,7 @@ def test_parse_no_info_dict_returns_none(tmp_path):
     ("作品X/第2季/作品X 第03話.mkv", (2, 3)),
     ("Movie.2024.1080p.WEB-DL.mkv", (None, None)),
     ("Show S01E12v2.mkv", (1, 12)),
+    ("Show S01/Show [01a].mkv", (1, 1)),
     ("Show SP03.mkv", (0, 3)),
     ("Show OVA 02.mkv", (0, 2)),
     ("Hyouka. TV (2012) 22; BD_1080P.mkv", (None, 22)),
@@ -284,10 +285,18 @@ def _stub_httpx(monkeypatch, *, status: int = 200, chunks: list[bytes] | None = 
 
 async def test_fetch_success(tmp_path, monkeypatch):
     monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
-    _stub_httpx(monkeypatch, chunks=[b"torrent-bytes"])
+    payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
+    _stub_httpx(monkeypatch, chunks=[payload])
     out = await fetch_torrent_file("https://x/abc.torrent", "rid-1")
     assert out == str(tmp_path / "rid-1.torrent")
-    assert (tmp_path / "rid-1.torrent").read_bytes() == b"torrent-bytes"
+    assert (tmp_path / "rid-1.torrent").read_bytes() == payload
+
+
+async def test_fetch_invalid_bencode_is_not_written(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    _stub_httpx(monkeypatch, chunks=[b"<!doctype html>not a torrent"])
+    assert await fetch_torrent_file("https://x/invalid.torrent", "rid-invalid") is None
+    assert list(tmp_path.iterdir()) == []
 
 
 async def test_fetch_404_returns_none(tmp_path, monkeypatch):
@@ -451,6 +460,15 @@ async def test_inspect_single_keeps_verdict_and_cache(monkeypatch):
     assert r.batch_scope is None
     assert r.episode == 5
     assert r.torrent_file == "/tmp/rid-a.torrent"
+
+
+async def test_inspect_single_writes_episode_from_01a_filename(monkeypatch):
+    _stub_pipeline(monkeypatch, [_f("Show S01/Show [01a].mkv")])
+    r = _resource(series_id="series-1", season=None, episode=None)
+    assert await maybe_inspect_torrent(None, r) is False
+    assert r.season == 1
+    assert r.episode == 1
+    assert r.episode_confidence == "raw"
 
 
 async def test_inspect_magnet_skipped(monkeypatch):
@@ -690,6 +708,37 @@ async def test_post_metadata_pass_binds_auto_assignments_to_single_series(
     assert assignment.movie_id is None
 
 
+async def test_post_metadata_pass_backfills_season_on_bound_auto_assignment(
+    db_session, sample_channel,
+):
+    """A previously bound auto row still receives the resource season."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+    from app.models.series import TVSeries
+    from app.services.batch_content_analysis import bind_single_work_assignments
+
+    series = TVSeries(id=str(uuid.uuid4()), title_cn="测试剧集")
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+        title_raw="测试剧集 - 08", torrent_url="https://x/test.torrent",
+        season=1, is_batch=False, series_id=series.id,
+    )
+    assignment = ResourceFileAssignment(
+        resource_id=resource.id, series_id=series.id,
+        file_path="测试剧集 - 08.mkv", season=None,
+        episode_start=8, episode_end=8, source="auto",
+    )
+    db_session.add_all([series, resource, assignment])
+    await db_session.commit()
+
+    assert await bind_single_work_assignments(db_session, resource) == 0
+    await db_session.commit()
+    await db_session.refresh(assignment)
+    assert assignment.season == 1
+
+
 async def test_fractional_release_episode_maps_to_specials_season(
     db_session, sample_channel,
 ):
@@ -721,7 +770,10 @@ async def test_fractional_release_episode_maps_to_specials_season(
 
 
 def test_normalize_fields_subtitle_group_and_bare_resolution_fallbacks():
-    from app.services.resource_parser import normalize_parsed_fields
+    from app.services.resource_parser import (
+        extract_subtitle_group_from_filename,
+        normalize_parsed_fields,
+    )
 
     out = normalize_parsed_fields(
         "[Xspitfire911] 葬送的芙莉莲/Sousou No Frieren S01 + S02 BDRIP 1080p X265 10bit VOSTFR",
@@ -735,6 +787,10 @@ def test_normalize_fields_subtitle_group_and_bare_resolution_fallbacks():
     # Pure-number leading brackets are years, not groups.
     year_out = normalize_parsed_fields("[2020] Some Movie.mkv", {})
     assert year_out.get("subtitle_group") != "2020"
+    assert extract_subtitle_group_from_filename(
+        "I.Became.a.Legend.S01E09.1080p.CR.WEB-DL.AAC2.0.H.264-VARYG.mkv"
+    ) == "VARYG"
+    assert extract_subtitle_group_from_filename("Some.Show.S01E01-x265.mkv") is None
 
 
 def test_apply_auto_assignments_and_season_ranges():
@@ -747,7 +803,7 @@ def test_apply_auto_assignments_and_season_ranges():
 
     resource = SimpleNamespace(
         id="r1", file_assignments=FakeCollection(), season_ranges=None,
-        batch_scope=None,
+        batch_scope=None, subtitle_group=None,
     )
     report = ti.analyze_torrent_files(_frieren_listing())
     bca.apply_auto_assignments(resource, report)
@@ -763,6 +819,27 @@ def test_apply_auto_assignments_and_season_ranges():
     ranges = bca.compute_season_ranges(resource)
     assert {"season": 1, "episode_start": 1, "episode_end": 28} in ranges
     assert {"season": 2, "episode_start": 1, "episode_end": 12} in ranges
+
+
+def test_apply_auto_assignments_fills_unambiguous_filename_subtitle_group():
+    from types import SimpleNamespace
+
+    import app.services.batch_content_analysis as bca
+
+    report = ti.analyze_torrent_files([{
+        "name": (
+            "I.Became.a.Legend.after.My.10.Year.Long.Last.Stand.S01E09."
+            "1080p.CR.WEB-DL.AAC2.0.H.264-VARYG.mkv"
+        ),
+        "size": 1_400_000_000,
+    }])
+    resource = SimpleNamespace(
+        id="r-varyg", file_assignments=[], subtitle_group=None,
+    )
+
+    bca.apply_auto_assignments(resource, report)
+
+    assert resource.subtitle_group == "VARYG"
 
 
 def test_llm_single_episode_and_multi_episode_range_are_normalized():

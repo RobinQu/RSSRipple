@@ -3,7 +3,6 @@
 from app.services import metadata_audio_resolver as mar
 from app.services import metadata_wikipedia_client as wc
 from app.services.metadata_agent import (
-    SUPPORTED_METADATA_SOURCES,
     ResourceMetadata,
     UnifiedMetadataAgent,
     _seasons_map_from,
@@ -23,8 +22,8 @@ def test_metadata_source_normalization_defaults_to_wikipedia():
     assert normalize_metadata_source_type("TMDB") == "tmdb"
     assert normalize_metadata_source_type("wikipedia") == "wikipedia"
     assert normalize_metadata_source_type("unknown") == "wikipedia"
-    # Legacy ReAct sources still normalize through for manual search / eval.
-    assert normalize_metadata_source_type("local") == "local"
+    # Local-library lookup is a search mode, not a metadata source.
+    assert normalize_metadata_source_type("local") == "wikipedia"
     # Removed sources (exa) map to the default.
     assert normalize_metadata_source_type("exa") == "wikipedia"
 
@@ -53,21 +52,6 @@ def test_tools_are_restricted_to_selected_source():
     assert _tool_names(agent, "wikipedia") == {
         "search_wikipedia",
         "get_wikipedia_page",
-        "finalize",
-    }
-
-
-def test_jina_source_is_supported_and_normalized():
-    assert "jina" in SUPPORTED_METADATA_SOURCES
-    assert normalize_metadata_source_type("jina") == "jina"
-    assert normalize_metadata_source_type("JINA") == "jina"
-
-
-def test_tools_are_restricted_to_jina_source():
-    agent = UnifiedMetadataAgent()
-    assert _tool_names(agent, "jina") == {
-        "search_jina",
-        "read_jina_url",
         "finalize",
     }
 
@@ -201,7 +185,7 @@ class TestReconcileEpisode:
 
     def test_absolute_last_episode(self):
         # Slime S4 finale — absolute 85, per-season 12 (if season size = 13,
-        # 85-71 = 14 which is 1 over → clamps to 12 via tolerance envelope).
+        # 85-71 = 14 which is 1 over and remains E14 inside the tolerance envelope.
         # We accept anything in [1, season_count + tolerance].
         seasons = {1: 24, 2: 24, 3: 23, 4: 13}
         result = reconcile_episode(raw_episode=85, raw_season=4, seasons_map=seasons)
@@ -209,8 +193,7 @@ class TestReconcileEpisode:
         ep, abs_ep, conf = result
         assert conf == "reconciled"
         assert abs_ep == 85
-        # Within the season's episode range
-        assert 1 <= ep <= 13
+        assert ep == 14
 
     def test_no_seasons_map_returns_none(self):
         assert reconcile_episode(raw_episode=84, raw_season=4, seasons_map={}) is None
@@ -255,52 +238,6 @@ def _tool_message(name: str, content: dict, call_id: str):
     from langchain_core.messages import ToolMessage
 
     return ToolMessage(content=_json.dumps(content), name=name, tool_call_id=call_id)
-
-
-def test_extract_search_info_picks_up_jina_tool_calls():
-    messages = [
-        _ai_message("search_jina", {"query": "Breaking Bad"}),
-        _tool_message(
-            "search_jina",
-            {"success": True, "data": [{"title": "Breaking Bad", "url": "https://en.wikipedia.org/wiki/Breaking_Bad"}]},
-            "search_jina",
-        ),
-        _ai_message("read_jina_url", {"url": "https://www.imdb.com/title/tt0903747/"}),
-        _tool_message(
-            "read_jina_url",
-            {"success": True, "data": {"title": "Breaking Bad", "url": "https://www.imdb.com/title/tt0903747/", "content": "..."}},
-            "read_jina_url",
-        ),
-    ]
-    info = UnifiedMetadataAgent._extract_search_info(messages)
-    assert "jina" in info["data_sources_used"]
-    assert info["method"] == "jina"
-    assert info["source_errors"] == {}
-
-
-def test_extract_search_info_tracks_jina_errors():
-    messages = [
-        _ai_message("search_jina", {"query": "Unknown Show"}),
-        _tool_message(
-            "search_jina",
-            {"success": False, "data": [], "error": "JINA_API_KEY not configured"},
-            "search_jina",
-        ),
-    ]
-    info = UnifiedMetadataAgent._extract_search_info(messages)
-    assert "jina" in info["data_sources_used"]
-    assert info["source_errors"]["jina"] == "JINA_API_KEY not configured"
-    assert info["error"] and "Jina" in info["error"]
-
-
-def test_extract_search_info_tracks_jina_empty_results():
-    messages = [
-        _ai_message("search_jina", {"query": "No Match"}),
-        _tool_message("search_jina", {"success": True, "data": []}, "search_jina"),
-    ]
-    info = UnifiedMetadataAgent._extract_search_info(messages)
-    assert info["source_errors"]["jina"] == "no results"
-    assert info["error"] and "Jina" in info["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -566,9 +503,10 @@ def test_work_name_prefix_splits_cjk_from_romaji():
 
 def test_detect_audio_work_type():
     assert _detect_audio_work_type("【ASMR】愛上火車 少女們的祕事簿♪[WAV/MP3]") == "asmr"
-    assert _detect_audio_work_type("[JMAX] ウマ娘 - トレセンラーメン列伝 [FLAC 96kHz/24bit]") == "music"
+    assert _detect_audio_work_type("[JMAX] ウマ娘 - トレセンラーメン列伝 [OST FLAC 96kHz/24bit]") == "music"
     assert _detect_audio_work_type("TVアニメ「X」OPテーマ「Y」／Aimer [FLAC]") == "music"
     assert _detect_audio_work_type("某ドラマCD 第1巻 [FLAC]") == "drama_cd"
+    assert _detect_audio_work_type("[H-Enc] TV Show (BDRip 1080p HEVC FLAC)") is None
     # Normal anime episodes are NOT flagged.
     assert _detect_audio_work_type("[LoliHouse] 无职转生 3期 - 03 [WebRip 1080p HEVC AAC]") is None
     assert _detect_audio_work_type("") is None
@@ -707,6 +645,69 @@ async def test_process_short_circuits_known_series(db_session, sample_channel):
     assert resource.movie_id is None
     assert resource.metadata_matched_at is not None
     assert resource.metadata_failure_type is None  # success
+
+
+async def test_process_reuses_successful_sibling_resource_title(db_session, sample_channel):
+    """A prior linked episode is a deterministic alias even when the metadata
+    provider stored a different translation/romanisation on the work row."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+    from app.utils.time import utcnow
+
+    series = TVSeries(
+        id=str(uuid.uuid4()),
+        title_cn="同一个研讨会的染谷同学是AV女优的事",
+        title_en="同じゼミの染谷さんがセクシー女優だった話",
+        external_id="mal:63619", external_source="mal",
+        content_type="tv", number_of_seasons=1,
+    )
+    sibling = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="sibling-e06",
+        title_raw="[Sakurato] Onaji Zemi no Someya-san [06]",
+        title_cn="关于同组的染谷同学是性感女优这件事。",
+        title_en="Onaji Zemi no Someya-san ga Sexy Joyuu Datta Hanashi.",
+        search_title="Onaji Zemi no Someya-san ga Sexy Joyuu Datta Hanashi.",
+        series_id=series.id, season=1, episode=6,
+        metadata_matched_at=utcnow(),
+        torrent_url="magnet:?xt=urn:btih:sibling06",
+    )
+    target = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid="target-e07",
+        title_raw="[桜都字幕组] 关于同组的染谷同学是性感女优这件事。 / "
+                  "Onaji Zemi no Someya-san ga Sexy Joyuu Datta Hanashi. [07]",
+        title_cn="关于同组的染谷同学是性感女优这件事。",
+        title_en="Onaji Zemi no Someya-san ga Sexy Joyuu Datta Hanashi.",
+        search_title="Onaji Zemi no Someya-san ga Sexy Joyuu Datta Hanashi.",
+        episode=7,
+        torrent_url="magnet:?xt=urn:btih:target07",
+    )
+    db_session.add_all([series, sibling, target])
+    await db_session.commit()
+
+    agent = UnifiedMetadataAgent()
+    await agent._set_cache(
+        target.title_raw,
+        "wikipedia",
+        ResourceMetadata(
+            clean_title=target.title_raw,
+            found=False,
+            content_type="tv",
+            subtitle_group="桜都字幕组",
+            reason="No matching work found",
+        ),
+        db_session,
+    )
+    await db_session.commit()
+    agent._run_react = AsyncMock()
+    result = await agent.process(target, sample_channel, db_session)
+
+    agent._run_react.assert_not_called()
+    assert result.found is True
+    assert target.series_id == series.id
+    assert target.season == 1
+    assert target.subtitle_group == "桜都字幕组"
 
 
 async def test_process_resolves_asmr_to_audio_work(monkeypatch, db_session, sample_channel):
@@ -851,8 +852,8 @@ async def test_process_routes_wikipedia_to_search_then_judge(db_session, sample_
 
 def test_cache_source_key_namespaces_by_source():
     from app.services.metadata_agent import _cache_source_key
-    assert _cache_source_key("jina") == "metadata_agent:jina"
-    assert _cache_source_key("local") == "metadata_agent:local"
+    assert _cache_source_key("bangumi") == "metadata_agent:bangumi"
+    assert _cache_source_key("tmdb") == "metadata_agent:tmdb"
     # Unset source resolves to the default (wikipedia), still its own namespace.
     assert _cache_source_key(None) == "metadata_agent:wikipedia"
 
@@ -862,16 +863,16 @@ async def test_get_cache_is_source_scoped(db_session):
     agent = UnifiedMetadataAgent()
     meta = ResourceMetadata(
         clean_title="Show", content_type="tv", found=False,
-        reason="No matching work found in Jina",
+        reason="No matching work found in Bangumi",
     )
-    await agent._set_cache("[G] Show - 01", "jina", meta, db_session)
+    await agent._set_cache("[G] Show - 01", "bangumi", meta, db_session)
     await db_session.commit()
 
-    hit = await agent._get_cache("[G] Show - 01", "jina", db_session)
+    hit = await agent._get_cache("[G] Show - 01", "bangumi", db_session)
     assert hit is not None and hit.found is False
 
     # Different source -> miss (no cross-source poisoning)
-    miss = await agent._get_cache("[G] Show - 01", "exa", db_session)
+    miss = await agent._get_cache("[G] Show - 01", "tmdb", db_session)
     assert miss is None
 
 
@@ -885,17 +886,17 @@ async def test_set_cache_upsert_overwrites_same_source(db_session):
     agent = UnifiedMetadataAgent()
     m1 = ResourceMetadata(clean_title="Show", found=True, content_type="tv")
     m2 = ResourceMetadata(clean_title="Show", found=False, content_type="tv", reason="No match")
-    await agent._set_cache("[G] Show - 01", "jina", m1, db_session)
+    await agent._set_cache("[G] Show - 01", "bangumi", m1, db_session)
     await db_session.commit()
-    await agent._set_cache("[G] Show - 01", "jina", m2, db_session)  # must not raise
+    await agent._set_cache("[G] Show - 01", "bangumi", m2, db_session)  # must not raise
     await db_session.commit()
 
-    hit = await agent._get_cache("[G] Show - 01", "jina", db_session)
+    hit = await agent._get_cache("[G] Show - 01", "bangumi", db_session)
     assert hit is not None and hit.found is False  # m2 overwrote m1
     count = (await db_session.execute(
         select(func.count()).select_from(MetadataCache).where(
             MetadataCache.title == "[G] Show - 01",
-            MetadataCache.source == "metadata_agent:jina",
+            MetadataCache.source == "metadata_agent:bangumi",
         )
     )).scalar_one()
     assert count == 1  # no duplicate rows
@@ -1673,10 +1674,10 @@ class TestLocateAbsoluteEpisode:
         assert locate_absolute_episode(96, m) == (4, 24)
 
     def test_final_season_tolerance(self):
-        # TMDB episode_count lags a still-airing show: 97/98 clamp to S4E24.
+        # TMDB episode_count lags a still-airing show: preserve E25/E26.
         m = {1: 24, 2: 24, 3: 24, 4: 24}
-        assert locate_absolute_episode(97, m) == (4, 24)
-        assert locate_absolute_episode(98, m) == (4, 24)
+        assert locate_absolute_episode(97, m) == (4, 25)
+        assert locate_absolute_episode(98, m) == (4, 26)
         assert locate_absolute_episode(99, m) is None
 
     def test_beyond_total_returns_none(self):
@@ -1913,7 +1914,10 @@ async def test_series_history_context_none_without_match(monkeypatch, db_session
 # ---------------------------------------------------------------------------
 
 from app.services.metadata_agent import _apply_verified_season_default  # noqa: E402
-from app.services.metadata_episode_reconcile import verified_season_count  # noqa: E402
+from app.services.metadata_episode_reconcile import (  # noqa: E402
+    season_evidence_from_series,
+    verified_season_count,
+)
 
 
 class TestApplyEpisodeReconcileCrossCheck:
@@ -1983,6 +1987,25 @@ class TestVerifiedSeasonCount:
         assert verified_season_count({"number_of_seasons": 0, "seasons": []}) is None
         assert verified_season_count({"seasons": [{"season_number": 0}]}) is None
 
+    def test_match_scoped_single_season_entry(self):
+        assert verified_season_count({"single_season_entry": True}) == 1
+        # Explicit work-level structure remains authoritative.
+        assert verified_season_count({
+            "number_of_seasons": 2,
+            "single_season_entry": True,
+        }) == 2
+
+    def test_bangumi_series_identity_restores_entry_evidence(self):
+        series = SimpleNamespace(
+            external_source="bangumi",
+            external_id="bangumi:123",
+            number_of_seasons=None,
+            seasons=None,
+        )
+        evidence = season_evidence_from_series(series)
+        assert evidence["single_season_entry"] is True
+        assert verified_season_count(evidence) == 1
+
 
 class TestVerifiedSeasonDefault:
     """_apply_verified_season_default: season=1 only when the matched entity
@@ -1992,6 +2015,14 @@ class TestVerifiedSeasonDefault:
         meta = ResourceMetadata(
             clean_title="X", content_type="tv", found=True,
             matched_entity={"number_of_seasons": 1},
+        )
+        _apply_verified_season_default(meta)
+        assert meta.season == 1
+        assert meta.season_ambiguous is False
+
+    def test_single_season_entry_defaults_without_work_count(self):
+        meta = _meta(
+            matched_entity={"single_season_entry": True},
         )
         _apply_verified_season_default(meta)
         assert meta.season == 1

@@ -42,8 +42,6 @@ from app.services.metadata_repository import _cache_source_key
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_source_io import (
     _execute_get_tmdb_details,
-    _execute_read_jina_url,
-    _execute_search_jina,
     _execute_search_tmdb,
     fetch_tmdb_episode_list,
 )
@@ -182,46 +180,6 @@ async def get_wikipedia_page(title: str, lang: str = "en") -> str:
         JSON: {success, data: {title, page_id, url, summary, categories}}
     """
     result = await _execute_get_wikipedia_page(title, lang)
-    return json.dumps(result, ensure_ascii=False)
-
-
-@tool
-async def search_jina(query: str) -> str:
-    """Search the web via Jina Search for pages about a work.
-
-    Available only in Jina source mode. Returns SERP hits, each with the full
-    markdown ``content`` of the top pages — scan titles/URLs for the work, then
-    read the content for canonical names, years, and external IDs. Prefer
-    authoritative URLs: TMDB, IMDb, Wikipedia, Wikidata, Fandom, MyAnimeList,
-    AniList. If the best URL was not in the top results, call ``read_jina_url``
-    on it to fetch its content directly.
-
-    Args:
-        query: Search query (try Chinese, romanized Japanese, or English variants)
-
-    Returns:
-        JSON: {"success": true, "data": [{title, url, description, content}]}
-    """
-    result = await _execute_search_jina(query)
-    return json.dumps(result, ensure_ascii=False)
-
-
-@tool
-async def read_jina_url(url: str) -> str:
-    """Fetch a single URL's full content via Jina Reader.
-
-    Use in Jina source mode when ``search_jina`` did not surface a promising
-    page, or to read a specific TMDB/IMDb/Wikipedia URL in full. Returns the
-    page's markdown content; extract the canonical title, year, external ID,
-    and poster URL from it.
-
-    Args:
-        url: Absolute URL to read (e.g. a TMDB/IMDb/Wikipedia page URL)
-
-    Returns:
-        JSON: {"success": true, "data": {title, url, description, content, links}}
-    """
-    result = await _execute_read_jina_url(url)
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -428,8 +386,6 @@ class UnifiedMetadataAgent:
             return [search_tmdb, get_tmdb_details, finalize]
         if source == "wikipedia":
             return [search_wikipedia, get_wikipedia_page, finalize]
-        if source == "jina":
-            return [search_jina, read_jina_url, finalize]
         return [search_wikipedia, get_wikipedia_page, finalize]
 
     def _agent_for_source(self, data_source_type: str) -> Any:
@@ -630,9 +586,21 @@ class UnifiedMetadataAgent:
         # trustworthy. Definitive results (found / not_found / non_work) are
         # applied directly without spending another LLM call.
         cached: ResourceMetadata | None = None
+        cached_failure: str | None = None
         if not force_refresh:
             cached = await self._get_cache(raw_title, data_source_type, db)
-            if cached is not None and _classify_failure(cached) != "transient":
+            cached_failure = _classify_failure(cached) if cached is not None else None
+            # Release-title fields are independent of whether the metadata
+            # source found a work.  Apply the cached group before the local
+            # known-work shortcut: that shortcut deliberately supersedes an
+            # old not_found verdict, but must not discard its valid parse.
+            if cached is not None:
+                _repo._fill_subtitle_group(cached, resource)
+            # Successful and definite non-work verdicts remain immediate.
+            # A plain not_found is deferred until after the local historical
+            # title index: a sibling linked since the miss was cached is newer,
+            # stronger evidence and must be allowed to repair the resource.
+            if cached is not None and cached_failure in (None, "non_work"):
                 await self._apply_to_resource(cached, resource, channel, db)
                 _record_metadata_attempt(resource, cached)
                 return cached
@@ -664,16 +632,22 @@ class UnifiedMetadataAgent:
                 # ("... 第四季 - 89") would otherwise keep the absolute number
                 # forever. Uses the series' persisted per-season counts.
                 from app.models.series import TVSeries
+                from app.services.episode_history import apply_episode_history_reconcile
                 from app.services.metadata_episode_reconcile import (
                     apply_episode_reconcile,
                     resolve_missing_season,
+                    season_evidence_from_series,
                     seasons_map_from_list,
                 )
                 series_row = await db.get(TVSeries, work_id)
                 if series_row is not None:
-                    if series_row.seasons and apply_episode_reconcile(
-                        resource, seasons_map_from_list(series_row.seasons)
-                    ):
+                    seasons_map = seasons_map_from_list(series_row.seasons)
+                    changed = await apply_episode_history_reconcile(
+                        db, resource, seasons_map=seasons_map
+                    )
+                    if not changed and seasons_map:
+                        changed = apply_episode_reconcile(resource, seasons_map)
+                    if changed:
                         logger.info(
                             "[metadata_agent] short-circuit reconciled %r -> S%sE%s (abs %s)",
                             raw_title[:60], resource.season, resource.episode,
@@ -682,10 +656,9 @@ class UnifiedMetadataAgent:
                     # Same verified season rule as _apply_to_resource: after
                     # reconciliation, a season-less resource gets season=1 only
                     # for a provably single-season work, else 季号不确定.
-                    resolve_missing_season(resource, {
-                        "number_of_seasons": series_row.number_of_seasons,
-                        "seasons": series_row.seasons,
-                    })
+                    resolve_missing_season(
+                        resource, season_evidence_from_series(series_row)
+                    )
             resource.metadata_matched_at = utcnow()
             resource.metadata_attempts = int(
                 getattr(resource, "metadata_attempts", 0) or 0
@@ -705,6 +678,13 @@ class UnifiedMetadataAgent:
                 found=True,
                 content_type=work_type,
             )
+
+        # No historical work alias superseded the definitive cached miss.
+        # Apply it now without spending another network/LLM call.
+        if cached is not None and cached_failure == "not_found":
+            await self._apply_to_resource(cached, resource, channel, db)
+            _record_metadata_attempt(resource, cached)
+            return cached
 
         # 0c. Non-media (software / cracked tools) -> non_work, never retried.
         if _is_non_media(raw_title):
@@ -823,6 +803,8 @@ class UnifiedMetadataAgent:
         self,
         raw_title: str,
         data_source_type: str | None = None,
+        *,
+        fallback_sources: list[str] | None = None,
     ) -> ResourceMetadata:
         """Stateless, DB-free extraction for evaluation/testing.
 
@@ -844,7 +826,9 @@ class UnifiedMetadataAgent:
         # S3: search-first + single-LLM-judge for wikipedia; bangumi runs the
         # same shape against the Bangumi subject API; ReAct otherwise.
         if source == "wikipedia":
-            finalize_dict, search_info = await self._run_search_then_judge(raw_title, source)
+            finalize_dict, search_info = await self._run_search_then_judge(
+                raw_title, source, fallback_sources=fallback_sources
+            )
         elif source == "bangumi":
             from app.services.metadata_bangumi import run_bangumi_search_then_judge
 
@@ -853,6 +837,7 @@ class UnifiedMetadataAgent:
             )
             finalize_dict, search_info = await self._maybe_web_fallback(
                 finalize_dict, search_info, raw_title,
+                fallback_sources=fallback_sources,
             )
         else:
             finalize_dict, search_info = await self._run_react(message, source)
@@ -861,6 +846,7 @@ class UnifiedMetadataAgent:
                 # parity with _run_search_then_judge's title-only call).
                 finalize_dict, search_info = await self._maybe_web_fallback(
                     finalize_dict, search_info, raw_title,
+                    fallback_sources=fallback_sources,
                 )
                 await _attach_tmdb_episode_list(finalize_dict)
         finalize_dict["search_method"] = search_info.get("method")
@@ -894,14 +880,6 @@ class UnifiedMetadataAgent:
             ),
             "bangumi": (
                 "Source mode: Bangumi Search. Use Bangumi subject metadata only."
-            ),
-            "jina": (
-                "Source mode: Jina Search + Reader. Use search_jina to find pages, "
-                "read_jina_url to fetch a specific page in full. Prefer TMDB / IMDb / "
-                "Wikipedia / Wikidata / Fandom / MyAnimeList URLs. Cap of 3 tool calls "
-                "before finalize. When the evidence references a TMDB or IMDb page, emit "
-                "external_id as tmdb:XXXXX / imdb:ttXXXXXXX (Jina is the route, TMDB/IMDb "
-                "the identifier source)."
             ),
         }[source]
         message = f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
@@ -1135,10 +1113,6 @@ class UnifiedMetadataAgent:
                         methods_used.add("wikipedia")
                     elif name == "get_wikipedia_page":
                         methods_used.add("wikipedia")
-                    elif name == "search_jina":
-                        methods_used.add("jina")
-                    elif name == "read_jina_url":
-                        methods_used.add("jina")
             elif isinstance(msg, ToolMessage):
                 if msg.name == "search_tmdb":
                     try:
@@ -1179,19 +1153,6 @@ class UnifiedMetadataAgent:
                                 source_errors.setdefault("wikipedia", "no results")
                     except (json.JSONDecodeError, TypeError):
                         pass
-                elif msg.name in ("search_jina", "read_jina_url"):
-                    try:
-                        content = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
-                        if isinstance(content, dict):
-                            if not content.get("success"):
-                                source_errors.setdefault("jina", content.get("error", "no results"))
-                                search_error = search_error or f"Jina: {content.get('error', 'no results')}"
-                            elif msg.name == "search_jina" and not content.get("data"):
-                                source_errors.setdefault("jina", "no results")
-                                search_error = search_error or "Jina: no results"
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
         return {
             "method": "|".join(sorted(methods_used)) if methods_used else None,
             "data_sources_used": sorted(methods_used),

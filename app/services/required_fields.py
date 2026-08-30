@@ -38,19 +38,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services.filter_engine import ALL_FIELDS
+from app.services.filter_engine import ALL_FIELDS, get_field_value
 
 # ── Row shapes ────────────────────────────────────────────────────────────
 # Mirrors RowShape in frontend/src/utils/requiredFields.ts. Derived from which
 # work/collection FK a resource carries; unlinked resources ("unknown") only
 # match fields without an applies_to restriction.
 TV_SINGLE = "tv_single"
-TV_BATCH = "tv_batch"
+TV_SEASON_BATCH = "tv_season_batch"
+TV_MULTI_SEASON = "tv_multi_season"
+TV_BATCH = "tv_batch"  # legacy shape name accepted by callers/tests
+AUDIO = "audio"
 FRANCHISE = "franchise"
 MOVIE = "movie"
 
-WORK_SHAPES: tuple[str, ...] = (TV_SINGLE, TV_BATCH, MOVIE)
-TV_SHAPES: tuple[str, ...] = (TV_SINGLE, TV_BATCH)
+WORK_SHAPES: tuple[str, ...] = (TV_SINGLE, TV_SEASON_BATCH, TV_MULTI_SEASON, MOVIE)
+TV_SHAPES: tuple[str, ...] = (TV_SINGLE, TV_SEASON_BATCH, TV_MULTI_SEASON)
+CONTENT_TYPE_SHAPES: tuple[str, ...] = (*WORK_SHAPES, AUDIO)
 
 # ── Lock scopes ───────────────────────────────────────────────────────────
 # Code-enforced requirement tiers. ``always`` = required for every resource;
@@ -78,7 +82,7 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "section": "base",
         "group": "title",
         "dsl_fields": ["title_en"],
-        "lock": LOCK_ALWAYS,
+        "lock": None,
     },
     "search_title": {
         "section": "base",
@@ -91,6 +95,10 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "group": "work_type",
         "dsl_fields": ["content_type"],
         "lock": LOCK_ALWAYS,
+        # A franchise collection can mix TV, movies, OVA and extras and has
+        # no flat work FK by invariant, so no single tv/movie/audio value is
+        # semantically valid for that row shape.
+        "applies_to": CONTENT_TYPE_SHAPES,
     },
     "is_batch": {
         "section": "base",
@@ -120,7 +128,7 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "group": "episode",
         "dsl_fields": ["season"],
         "lock": LOCK_TV,
-        "applies_to": TV_SHAPES,
+        "applies_to": (TV_SINGLE, TV_SEASON_BATCH),
     },
     "episode": {
         "section": "tv",
@@ -134,14 +142,14 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "group": "episode",
         "dsl_fields": ["episode_start"],
         "lock": LOCK_TV_BATCH,
-        "applies_to": (TV_BATCH,),
+        "applies_to": (TV_SEASON_BATCH,),
     },
     "episode_end": {
         "section": "tv",
         "group": "episode",
         "dsl_fields": ["episode_end"],
         "lock": LOCK_TV_BATCH,
-        "applies_to": (TV_BATCH,),
+        "applies_to": (TV_SEASON_BATCH,),
     },
     "absolute_episode": {
         "section": "tv",
@@ -235,14 +243,20 @@ BASE_REQUIRED_FIELDS: frozenset[str] = frozenset(
 # Shape tier: lock scope -> keys required for resources of that shape. The
 # ``tv`` scope (season) applies to both TV shapes; franchise packs don't take
 # any TV episode machinery.
-_SHAPE_LOCKS: dict[str, str] = {TV_SINGLE: LOCK_TV_SINGLE, TV_BATCH: LOCK_TV_BATCH, FRANCHISE: LOCK_FRANCHISE}
+_SHAPE_LOCKS: dict[str, str] = {
+    TV_SINGLE: LOCK_TV_SINGLE,
+    TV_SEASON_BATCH: LOCK_TV_BATCH,
+    TV_BATCH: LOCK_TV_BATCH,
+    TV_MULTI_SEASON: "",
+    FRANCHISE: LOCK_FRANCHISE,
+}
 SHAPE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     shape: (
         tuple(k for k, e in REQUIRED_FIELD_CATALOG.items() if e["lock"] == LOCK_TV)
-        if shape in TV_SHAPES
+        if shape in (TV_SINGLE, TV_SEASON_BATCH, TV_BATCH)
         else ()
     )
-    + tuple(k for k, e in REQUIRED_FIELD_CATALOG.items() if e["lock"] == scope)
+    + tuple(k for k, e in REQUIRED_FIELD_CATALOG.items() if scope and e["lock"] == scope)
     for shape, scope in _SHAPE_LOCKS.items()
 }
 
@@ -264,6 +278,80 @@ def required_keys_for_shape(shape: str) -> frozenset[str]:
         for k, e in REQUIRED_FIELD_CATALOG.items()
         if e["lock"] == LOCK_ALWAYS and _applies(e)
     ) | frozenset(SHAPE_REQUIRED_FIELDS.get(shape, ()))
+
+
+def resource_shape(resource: Any) -> str | None:
+    """Return the required-field row shape for a file resource.
+
+    Unlinked resources have no supported work shape. Audio resources use only
+    universally applicable Channel fields; TV/movie-only fields are skipped.
+    """
+    if getattr(resource, "audio_work_id", None):
+        return AUDIO
+    if getattr(resource, "collection_id", None) or getattr(resource, "batch_scope", None) == "franchise":
+        return FRANCHISE
+    if getattr(resource, "movie_id", None):
+        return MOVIE
+    if getattr(resource, "series_id", None):
+        if not getattr(resource, "is_batch", False):
+            return TV_SINGLE
+        scope = getattr(resource, "batch_scope", None)
+        if scope == "multi_season":
+            return TV_MULTI_SEASON
+        if scope == "season":
+            return TV_SEASON_BATCH
+        return None
+    return None
+
+
+def applicable_required_fields(
+    keys: list[str] | None, shape: str
+) -> tuple[str, ...]:
+    """Return declared required keys that apply to ``shape`` in catalog order."""
+    selected = set(normalize_required_fields(keys))
+    return tuple(
+        key
+        for key, entry in REQUIRED_FIELD_CATALOG.items()
+        if key in selected
+        and (not entry.get("applies_to") or shape in entry["applies_to"])
+    )
+
+
+def _semantic_field_value(resource: Any, key: str) -> Any:
+    """Resolve one catalog key to the value relevant to this resource."""
+    fields = REQUIRED_FIELD_CATALOG[key]["dsl_fields"]
+    if len(fields) == 1:
+        return get_field_value(resource, fields[0])
+    if getattr(resource, "series_id", None):
+        field = next((f for f in fields if f.startswith("series.")), fields[0])
+    elif getattr(resource, "movie_id", None):
+        field = next((f for f in fields if f.startswith("movie.")), fields[0])
+    else:
+        return None
+    return get_field_value(resource, field)
+
+
+def missing_required_fields(
+    resource: Any, required_metadata_fields: list[str] | None
+) -> list[str]:
+    """Return applicable Channel-required fields whose resource value is empty.
+
+    ``False`` and numeric zero are valid values.  Blank strings and empty
+    collections are missing, matching the Filter DSL's empty-value semantics.
+    """
+    shape = resource_shape(resource)
+    if shape is None:
+        return []
+    missing: list[str] = []
+    for key in applicable_required_fields(required_metadata_fields, shape):
+        value = _semantic_field_value(resource, key)
+        if value is None:
+            missing.append(key)
+        elif isinstance(value, str) and not value.strip():
+            missing.append(key)
+        elif isinstance(value, (list, tuple, set)) and not value:
+            missing.append(key)
+    return missing
 
 
 # Resource-level fields are always allowed in agent filters — they come from
@@ -352,7 +440,10 @@ __all__ = [
     "REQUIRED_FIELD_SECTIONS",
     "SHAPE_REQUIRED_FIELDS",
     "allowed_agent_filter_fields",
+    "applicable_required_fields",
+    "missing_required_fields",
     "normalize_required_fields",
+    "resource_shape",
     "required_keys_for_shape",
     "validate_filter_against_allowed",
     "validate_required_fields",

@@ -585,7 +585,10 @@ async def _apply_light_migrations(conn) -> None:
             "('metadata_auto_refresh_enabled', "
             "'metadata_auto_refresh_interval_minutes', "
             "'default_metadata_source', "
-            "'exa_mcp_url', 'exa_enabled')"
+            "'exa_mcp_url', 'exa_enabled', 'jina_api_key', 'jina_enabled')"
+        ))
+        await conn.execute(text(
+            "DELETE FROM metadata_cache WHERE source = 'metadata_agent:jina'"
         ))
 
     # ── channels.required_metadata_fields baseline convergence ───────────
@@ -597,6 +600,62 @@ async def _apply_light_migrations(conn) -> None:
     # gain any missing locked keys; every row is reordered into canonical
     # catalog order so the stacked display column renders deterministically.
     # Idempotent: converged rows normalize to themselves on re-run.
+    # ``title_en`` used to be part of the locked baseline. Remove it once
+    # from existing channel declarations so those rows do not keep producing
+    # confirmations after the field becomes opt-in. A sentinel is required:
+    # users may explicitly add the field again under the add-only policy.
+    async with _best_effort(conn, "channels.title_en unlock"):
+        import json as _json
+
+        sentinel = "required_fields_title_en_unlock_v1"
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker == "pending":
+            rows = await conn.execute(text(
+                "SELECT id, required_metadata_fields FROM channels"
+            ))
+            changed = 0
+            for row in rows:
+                raw = row.required_metadata_fields
+                if isinstance(raw, str):
+                    try:
+                        current = _json.loads(raw)
+                    except ValueError:
+                        current = []
+                else:
+                    current = list(raw or [])
+                updated = [key for key in current if key != "title_en"]
+                if updated == current:
+                    continue
+                payload = _json.dumps(updated)
+                if is_postgres:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = "
+                        "CAST(:val AS JSONB) WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                else:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = :val "
+                        "WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                changed += 1
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
+            if changed:
+                logger.info("[migrate] removed legacy title_en requirement from %d channels", changed)
+
     async with _best_effort(conn, "channels.required_metadata_fields baseline"):
         import json as _json
 
@@ -642,6 +701,105 @@ async def _apply_light_migrations(conn) -> None:
                 "to the locked baseline",
                 updated,
             )
+
+    # ── one-time weak audio classification repair ───────────────────────
+    # FLAC/ALAC are codecs, not proof that a release is an AudioWork. Clear
+    # stub music links when the torrent enrichment already proves a numbered
+    # multi-video batch; the normal metadata backfill will relink it as TV.
+    async with _best_effort(conn, "weak audio classification repair"):
+        sentinel = "weak_audio_stub_reclassify_v1"
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker == "pending":
+            rows = await conn.execute(text(
+                "SELECT fr.id, fr.audio_work_id "
+                "FROM file_resources fr JOIN audio_works aw "
+                "ON aw.id = fr.audio_work_id "
+                "WHERE aw.external_source = 'stub' "
+                "AND aw.content_type = 'music' "
+                "AND fr.is_batch = TRUE "
+                "AND (SELECT COUNT(*) FROM resource_file_assignments rfa "
+                "     WHERE rfa.resource_id = fr.id "
+                "       AND rfa.episode_start IS NOT NULL "
+                "       AND rfa.episode_end IS NOT NULL) >= 2"
+            ))
+            repaired = 0
+            for row in rows:
+                await conn.execute(text(
+                    "UPDATE file_resources SET audio_work_id = NULL, "
+                    "metadata_matched_at = NULL, metadata_attempts = 0, "
+                    "last_metadata_attempt_at = NULL, metadata_failure_type = NULL "
+                    "WHERE id = :id"
+                ), {"id": row.id})
+                repaired += 1
+            await conn.execute(text(
+                "DELETE FROM audio_works WHERE external_source = 'stub' "
+                "AND content_type = 'music' "
+                "AND NOT EXISTS (SELECT 1 FROM file_resources fr "
+                "                WHERE fr.audio_work_id = audio_works.id)"
+            ))
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
+            if repaired:
+                logger.info("[migrate] reset %d weak audio-linked resources for TV relinking", repaired)
+
+    # ── one-time single-season batch coverage sync ─────────────────────
+    # Older association saves updated only file-level seasons. Converge the
+    # resource-level flat coverage fields used by Channel confirmation and
+    # Agent dedup whenever assignments prove exactly one season.
+    async with _best_effort(conn, "single-season batch coverage sync"):
+        sentinel = "single_season_batch_coverage_sync_v1"
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker == "pending":
+            result = await conn.execute(text(
+                "UPDATE file_resources SET "
+                "season = (SELECT MIN(rfa.season) FROM resource_file_assignments rfa "
+                "          WHERE rfa.resource_id = file_resources.id), "
+                "episode_start = (SELECT MIN(rfa.episode_start) "
+                "                 FROM resource_file_assignments rfa "
+                "                 WHERE rfa.resource_id = file_resources.id), "
+                "episode_end = (SELECT MAX(rfa.episode_end) "
+                "               FROM resource_file_assignments rfa "
+                "               WHERE rfa.resource_id = file_resources.id) "
+                "WHERE is_batch = TRUE AND batch_scope = 'season' "
+                "AND series_id IS NOT NULL "
+                "AND (SELECT COUNT(DISTINCT rfa.season) "
+                "     FROM resource_file_assignments rfa "
+                "     WHERE rfa.resource_id = file_resources.id "
+                "       AND rfa.season IS NOT NULL) = 1"
+            ))
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
+            if result.rowcount:
+                logger.info(
+                    "[migrate] synchronized flat coverage for %d single-season batches",
+                    result.rowcount,
+                )
 
     # ── downloader_type enum widening ────────────────────────────────────
     # Older PostgreSQL DBs may have a native enum restricting

@@ -14,11 +14,9 @@ AUDIO_CONTENT_TYPES: frozenset[str] = frozenset(
 )
 
 
-# Ordered: the first matching pattern wins. ASMR is the most specific (a
-# standalone audio work with no TV/movie equivalent). Music markers target
-# lossless/hi-res audio releases and OSTs - anime OP/ED themes carrying these
-# tags still reach this path only when they did NOT short-circuit to a known
-# series, which is the right fallback.
+# Ordered: the first matching pattern wins. Encoding/quality tokens such as
+# FLAC, ALAC, 24bit and kHz are deliberately not included: they are common on
+# video Blu-ray releases and cannot establish that a work is audio.
 _AUDIO_TYPE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("asmr", re.compile(r"ASMR", re.IGNORECASE)),
     ("drama_cd", re.compile(r"ドラマ\s*CD|Drama\s*CD|广播剧|廣播劇")),
@@ -26,9 +24,10 @@ _AUDIO_TYPE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "music",
         re.compile(
-            r"\[FLAC|\bFLAC\b|\bALAC\b|96kHz|48kHz|24bit|"
-            r"サントラ|Soundtrack|\bOST\b|シングル|\bSingle\b|"
-            r"ボーカル|Vocal\b|キャラクターソング|Character\s*Song",
+            r"サントラ|Soundtrack|\bOST\b|シングル|"
+            r"ボーカル|Vocal\b|キャラクターソング|Character\s*Song|"
+            r"(?:OP|ED)\s*テーマ|オープニング\s*テーマ|"
+            r"エンディング\s*テーマ|主题曲|主題曲",
             re.IGNORECASE,
         ),
     ),

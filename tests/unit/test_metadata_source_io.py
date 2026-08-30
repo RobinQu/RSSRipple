@@ -1,4 +1,4 @@
-"""Tests for metadata_source_io: the thin TMDB/Jina I/O wrappers.
+"""Tests for metadata_source_io: the thin TMDB I/O wrappers.
 
 All external boundaries (metadata_search_agent functions, httpx) are mocked.
 """
@@ -7,8 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.metadata_source_io import (
     _execute_get_tmdb_details,
-    _execute_read_jina_url,
-    _execute_search_jina,
     _execute_search_tmdb,
 )
 
@@ -136,36 +134,3 @@ async def test_get_tmdb_details_http_error():
         out = await _execute_get_tmdb_details("42", "tv")
     assert out["success"] is False
     assert "connection refused" in out["error"]
-
-
-# ---------------------------------------------------------------------------
-# search_jina / read_jina_url
-# ---------------------------------------------------------------------------
-
-
-async def test_search_jina_success_and_failure():
-    with patch(f"{_SEARCH_MOD}._search_jina", new_callable=AsyncMock, return_value=[{"url": "u"}]):
-        out = await _execute_search_jina("q")
-    assert out == {"success": True, "data": [{"url": "u"}]}
-
-    with patch(f"{_SEARCH_MOD}._search_jina", new_callable=AsyncMock, side_effect=RuntimeError("timeout")):
-        out = await _execute_search_jina("q")
-    assert out["success"] is False
-    assert "timeout" in out["error"]
-
-
-async def test_read_jina_url_paths():
-    with patch(f"{_SEARCH_MOD}._read_jina_url", new_callable=AsyncMock, return_value={"content": "text"}):
-        out = await _execute_read_jina_url("https://a.com", with_links=True)
-    assert out == {"success": True, "data": {"content": "text"}}
-
-    # Empty payload -> explicit error
-    with patch(f"{_SEARCH_MOD}._read_jina_url", new_callable=AsyncMock, return_value={}):
-        out = await _execute_read_jina_url("https://a.com")
-    assert out["success"] is False
-    assert out["error"] == "no content returned"
-
-    with patch(f"{_SEARCH_MOD}._read_jina_url", new_callable=AsyncMock, side_effect=RuntimeError("429")):
-        out = await _execute_read_jina_url("https://a.com")
-    assert out["success"] is False
-    assert "429" in out["error"]

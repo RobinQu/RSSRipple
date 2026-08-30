@@ -905,6 +905,36 @@ async def test_global_backfill_processes_agent_enabled_channels_only(db_session)
     assert all(r.metadata_attempts == 0 for r in off_rows)
 
 
+async def test_global_backfill_reprocesses_linked_resources_with_missing_fields(db_session):
+    """A linked work with an incomplete Channel contract is eligible for the
+    same background pipeline; it is not hidden behind the unmatched-only
+    query."""
+    from unittest.mock import MagicMock, patch
+
+    from app.models.series import TVSeries
+
+    ch = await _agent_channel(db_session, name="linked-repair")
+    series = TVSeries(id=_uuid(), title_cn="Known work", is_anime=None)
+    db_session.add(series)
+    await db_session.flush()
+    resource = FileResource(
+        id=_uuid(), channel_id=ch.id, guid="linked-repair",
+        title_raw="Known work - 01", torrent_url="magnet:?xt=urn:btih:linked-repair",
+        series_id=series.id, is_batch=False, season=1, episode=1,
+    )
+    db_session.add(resource)
+    await db_session.commit()
+
+    mock_agent = MagicMock()
+    mock_agent.process = AsyncMock(side_effect=_stamp_process())
+    with patch("app.services.metadata_agent.get_agent", return_value=mock_agent):
+        count = await fs.backfill_unmatched_resources_global(db_session, limit=10)
+
+    assert count == 1
+    assert mock_agent.process.await_count == 1
+    assert mock_agent.process.await_args.kwargs["force_refresh"] is True
+
+
 async def test_global_backfill_respects_per_run_limit(db_session):
     """The per-run limit caps how many resources are re-processed in one tick."""
     from unittest.mock import MagicMock, patch

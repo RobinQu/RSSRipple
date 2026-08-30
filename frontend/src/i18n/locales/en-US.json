@@ -88,7 +88,15 @@
     "pendingPlans": "File Operation Change Confirmations",
     "pendingConfirmations": "Resource Metadata Confirmations",
     "pendingItems": "Pending Items",
-    "noPendingHint": "No pending items"
+    "noPendingHint": "No pending items",
+    "missingFields": "Missing required fields: {fields}",
+    "confirmationKinds": {
+      "metadata_unlinked": "Work not identified",
+      "required_fields_missing": "Required fields missing",
+      "season_ambiguous": "Season uncertain",
+      "episode_ambiguous": "Episode uncertain",
+      "batch_coverage_unknown": "Batch coverage uncertain"
+    }
   },
   "channels": {
     "title": "Channels",
@@ -212,7 +220,6 @@
     "metadataFallbackPlaceholder": "Select fallback sites (selection order wins)",
     "metadataFallbackHelper": "Earlier entries win; clear all to disable the web fallback",
     "sources": {
-      "jina": "Jina Search + Reader",
       "wikipedia": "Wikipedia",
       "tmdb": "TMDB",
       "local": "Local library",
@@ -255,7 +262,7 @@
     "requiredFieldsSavedHint": "Previously saved: add-only, cannot be removed",
     "requiredFieldsLockedTag": "System-required",
     "requiredFieldsSavedTag": "Saved",
-    "requiredFieldSection_base": "Base Required (All Types)",
+    "requiredFieldSection_base": "Base Fields (All Types)",
     "requiredFieldSection_tv": "TV Series",
     "requiredFieldSection_pack": "Multi-work Pack",
     "requiredFieldSection_release": "Release Info",

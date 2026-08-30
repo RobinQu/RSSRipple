@@ -680,7 +680,16 @@ def _plan_single(
     )
     if payload.file_associations is not None and association is None:
         raise PlanError("权威文件关联中没有单集主视频映射")
-    season = association.season if association is not None else (resource.season if resource else None)
+    # A complete file-association snapshot is authoritative for the file
+    # mapping, but an auto-generated single-file assignment may carry the
+    # episode while still lacking the season. Fall back to the resource-level
+    # season rather than treating the nullable association value as an
+    # explicit override.
+    season = (
+        association.season
+        if association is not None and association.season is not None
+        else (resource.season if resource else None)
+    )
     episode = (
         association.episode_start
         if association is not None

@@ -3,11 +3,9 @@ import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Trash2, RefreshCw, Download, Pencil, ListTree } from 'lucide-react';
-import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Modal, Checkbox, Space, Select } from 'antd';
+import { Typography, Spin, Card, Button, Tag, Descriptions, Statistic, Table, Row, Col, App, Space } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { moviesApi } from '../api/movies';
-import { worksApi } from '../api/works';
-import type { MetadataSourceOption } from '../api/channels';
 import type { Movie, FileResource } from '../types';
 import { timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
@@ -15,6 +13,7 @@ import { posterUrl, useDefaultPoster } from '../utils/poster';
 import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
+import WorkMetadataRefreshModal from '../components/WorkMetadataRefreshModal';
 
 const { Title, Text, Link: AntdLink } = Typography;
 
@@ -26,13 +25,9 @@ export default function MovieDetail() {
   const [movie, setMovie] = useState<Movie | null>(null);
   useDocumentTitle(movie ? movie.title_cn || movie.title_en || movie.original_title : t('movies.title'));
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [createTaskResourceId, setCreateTaskResourceId] = useState<string | null>(null);
   const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
   const [refreshOpen, setRefreshOpen] = useState(false);
-  const [overrideManualEdits, setOverrideManualEdits] = useState(false);
-  const [refreshSource, setRefreshSource] = useState<string | null>(null);
-  const [refreshSources, setRefreshSources] = useState<MetadataSourceOption[]>([]);
 
   const loadMovie = useCallback(async () => {
     if (!id) return;
@@ -46,40 +41,8 @@ export default function MovieDetail() {
   }, [loadMovie]);
 
   const openRefreshDialog = () => {
-    setOverrideManualEdits(false);
-    // Load the source catalog: the refresh names its source explicitly
-    // (there is no global default source anymore).
-    worksApi.getMetadataConfig().then((r) => {
-      if (r.success && r.data) {
-        setRefreshSources(r.data.sources);
-        const available = (r.data.sources ?? []).filter((s) => s.available);
-        setRefreshSource((cur) =>
-          cur && available.some((s) => s.value === cur) ? cur : (available[0]?.value ?? null),
-        );
-      }
-    });
     setRefreshOpen(true);
   };
-
-  async function handleRefreshMetadata() {
-    if (!id || !refreshSource) return;
-    setRefreshOpen(false);
-    setRefreshing(true);
-    try {
-      const r = await worksApi.refreshMetadata(id, 'movie', refreshSource, overrideManualEdits);
-      if (r.success) {
-        const filled = r.data.filled?.length ?? 0;
-        message.success(
-          filled > 0 ? t('works.refreshFilled', { n: filled }) : t('works.refreshNoChange'),
-        );
-        await loadMovie();
-      } else {
-        message.error(r.error?.message || t('works.refreshFailed'));
-      }
-    } finally {
-      setRefreshing(false);
-    }
-  }
 
   async function handleDelete() {
     if (!id) return;
@@ -194,7 +157,6 @@ export default function MovieDetail() {
         </Button>
         <Button
           icon={<RefreshCw size={16} />}
-          loading={refreshing}
           onClick={openRefreshDialog}
         >
           {t('works.refreshMetadata')}
@@ -311,43 +273,12 @@ export default function MovieDetail() {
         onClose={() => setFilesResourceId(null)}
       />
 
-      <Modal
-        open={refreshOpen}
-        title={t('works.refreshMetadata')}
-        okText={t('common.confirm')}
-        cancelText={t('common.cancel')}
-        okButtonProps={{ disabled: !refreshSource }}
-        onOk={handleRefreshMetadata}
-        onCancel={() => setRefreshOpen(false)}
-      >
-        <p>{t('works.refreshDesc')}</p>
-        <div style={{ marginBottom: 12 }}>
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-            {t('works.refreshSource')}
-          </Text>
-          <Select
-            style={{ width: '100%' }}
-            value={refreshSource}
-            onChange={setRefreshSource}
-            options={refreshSources.map((s) => ({
-              value: s.value,
-              label: s.available
-                ? t(`channels.sources.${s.value}`, { defaultValue: s.label })
-                : `${t(`channels.sources.${s.value}`, { defaultValue: s.label })} (${t('channels.sourceUnavailable')})`,
-              disabled: !s.available,
-            }))}
-          />
-        </div>
-        <Checkbox
-          checked={overrideManualEdits}
-          onChange={(e) => setOverrideManualEdits(e.target.checked)}
-        >
-          {t('works.overrideManualEdits')}
-        </Checkbox>
-        <p style={{ marginTop: 8, color: 'var(--rr-text-muted)', fontSize: 12 }}>
-          {t('works.overrideManualEditsDesc')}
-        </p>
-      </Modal>
+      {id && movie && <WorkMetadataRefreshModal
+        open={refreshOpen} workId={id} contentType="movie"
+        initialQuery={movie.title_en || movie.title_cn || movie.original_title || ''}
+        existingSource={movie.external_source}
+        onClose={() => setRefreshOpen(false)} onApplied={loadMovie}
+      />}
     </div>
   );
 }

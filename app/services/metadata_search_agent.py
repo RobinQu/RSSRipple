@@ -1,7 +1,6 @@
 """Single-source metadata search helpers.
 
-TMDB is exposed as an independent data source; Jina provides search + reader
-primitives for the ReAct agent. Callers must choose one source explicitly;
+TMDB is exposed as an independent data source. Callers choose one source explicitly;
 this module no longer performs layered fallback search.
 
 All sources produce a uniform ``MetadataCandidate`` dict that drops into the
@@ -21,7 +20,6 @@ from httpx import HTTPStatusError, TimeoutException
 from app.services.anime_signals import is_anime_from_tmdb
 from app.services.genre_registry import TMDB_ID_TO_NAME
 from app.services.runtime_config import runtime_config
-from app.services.url_tools import keep_k_per_hostname
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +40,7 @@ class MetadataCandidate(TypedDict, total=False):
     genre: list[str]
     status: str | None
     external_id: str
-    external_source: str  # "tmdb" | "jina" | "llm_search"
+    external_source: str
     number_of_episodes: int | None
     number_of_seasons: int | None
     start_date: str | None
@@ -362,159 +360,6 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
 
     _cache_set("tmdb", title, candidates)
     return candidates
-
-
-# ---------------------------------------------------------------------------
-# Jina Search + Reader source
-# ---------------------------------------------------------------------------
-
-# Jina returns a flat envelope: {"code": 200, "status": 200, "data": [...]}.
-# Search ``data`` is a list of SERP hits; Reader ``data`` is a single page dict.
-_JINA_SEARCH_URL = "https://s.jina.ai/"
-_JINA_READER_URL = "https://r.jina.ai/"
-_JINA_SEARCH_TIMEOUT = 20.0
-_JINA_READER_TIMEOUT = 60.0
-
-
-def _jina_headers(extras: dict[str, str] | None = None) -> dict[str, str]:
-    """Common Jina request headers. Caller passes the auth token explicitly."""
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-Engine": "auto",  # let Jina pick browser/direct per URL
-        "X-Retain-Images": "none",
-        "X-Retain-Links": "text",
-        "X-Md-Link-Style": "discarded",
-    }
-    if extras:
-        headers.update(extras)
-    return headers
-
-
-async def _search_jina(query: str, num: int = 3) -> list[dict[str, Any]]:
-    """Search the web via Jina Search API (``s.jina.ai``).
-
-    Returns SERP hits as ``[{title, url, description, content}]`` where
-    ``content`` is the markdown of each top page. Capped at 2 per hostname so
-    a single site (Fandom, IMDB, …) can't dominate a small top-N. Cached by
-    query like the TMDB/Exa sources.
-    """
-    if not runtime_config.jina_api_key:
-        logger.info("[metadata_agent][jina] skipped query=%r: JINA_API_KEY not configured", query[:120])
-        return []
-
-    cached = _cache_get("jina", query)
-    if cached is not None:
-        logger.info("[metadata_agent][jina] cache hit query=%r hits=%d", query[:120], len(cached))
-        return cached
-
-    headers = _jina_headers({
-        "Authorization": f"Bearer {runtime_config.jina_api_key}",
-        "X-Preset": "agent",
-        "X-Timeout": "20",
-    })
-    payload = {"q": query, "num": num, "gl": "us", "hl": "en"}
-
-    try:
-        async with httpx.AsyncClient(timeout=_JINA_SEARCH_TIMEOUT) as client:
-            resp = await client.post(_JINA_SEARCH_URL, headers=headers, json=payload)
-            resp.raise_for_status()
-            body = resp.json()
-    except (HTTPStatusError, TimeoutException) as e:
-        logger.warning(
-            "[metadata_agent][jina] search failed query=%r: %s", query[:120], e,
-        )
-        _cache_set("jina", query, [])
-        return []
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent][jina] search unexpected error query=%r: %s",
-            query[:120], e, exc_info=True,
-        )
-        _cache_set("jina", query, [])
-        return []
-
-    raw_items = body.get("data") if isinstance(body, dict) else None
-    if not isinstance(raw_items, list):
-        logger.info(
-            "[metadata_agent][jina] no data[] in response query=%r body=%s",
-            query[:120], _compact_obj(body, max_len=600),
-        )
-        _cache_set("jina", query, [])
-        return []
-
-    results: list[dict[str, Any]] = []
-    for item in raw_items:
-        if not isinstance(item, dict):
-            continue
-        url = item.get("url") or item.get("link")
-        if not url:
-            continue
-        results.append({
-            "title": item.get("title"),
-            "url": url,
-            "description": item.get("description"),
-            "content": item.get("content"),
-        })
-
-    results = keep_k_per_hostname(results, k=2)
-    logger.info(
-        "[metadata_agent][jina] returning query=%r hits=%d (raw=%d)",
-        query[:120], len(results), len(raw_items),
-    )
-    _cache_set("jina", query, results)
-    return results
-
-
-async def _read_jina_url(url: str, *, with_links: bool = False) -> dict[str, Any]:
-    """Fetch a single URL's full content via Jina Reader API (``r.jina.ai``).
-
-    Returns ``{title, url, description, content, links}``. Not cached — URLs
-    are ephemeral and Jina Reader itself caches ~5 min on its side.
-    """
-    if not runtime_config.jina_api_key:
-        logger.info("[metadata_agent][jina] read skipped url=%r: JINA_API_KEY not configured", url[:120])
-        return {}
-
-    extras: dict[str, str] = {
-        "Authorization": f"Bearer {runtime_config.jina_api_key}",
-        "X-Timeout": "60",
-    }
-    if with_links:
-        extras["X-With-Links-Summary"] = "true"
-    headers = _jina_headers(extras)
-    payload = {"url": url}
-
-    try:
-        async with httpx.AsyncClient(timeout=_JINA_READER_TIMEOUT) as client:
-            resp = await client.post(_JINA_READER_URL, headers=headers, json=payload)
-            resp.raise_for_status()
-            body = resp.json()
-    except (HTTPStatusError, TimeoutException) as e:
-        logger.warning("[metadata_agent][jina] read failed url=%r: %s", url[:120], e)
-        return {}
-    except Exception as e:
-        logger.warning(
-            "[metadata_agent][jina] read unexpected error url=%r: %s",
-            url[:120], e, exc_info=True,
-        )
-        return {}
-
-    data = body.get("data") if isinstance(body, dict) else None
-    if not isinstance(data, dict):
-        logger.info(
-            "[metadata_agent][jina] no data object in read response url=%r body=%s",
-            url[:120], _compact_obj(body, max_len=600),
-        )
-        return {}
-
-    return {
-        "title": data.get("title"),
-        "url": data.get("url") or url,
-        "description": data.get("description"),
-        "content": data.get("content"),
-        "links": data.get("links") if with_links else None,
-    }
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ import type {
   FileResourceDetail,
   FilterSuggestionResponse,
   GroupedResource,
-  MetadataSearchResult,
   MetadataSource,
   Movie,
   PreviewEntry,
@@ -206,18 +205,6 @@ export const resourcesApi = {
       } | null;
       metadata_matched_at?: string | null;
     }>(`/resources/${id}/metadata`),
-  searchMetadata: (
-    id: string,
-    body: { search_title: string; content_type: 'tv' | 'movie' },
-  ) =>
-    api.post<{ results: MetadataSearchResult[] }>(
-      `/resources/${id}/metadata/search`,
-      body,
-    ),
-  linkMetadata: (
-    id: string,
-    body: { selected_result: MetadataSearchResult & { content_type: 'tv' | 'movie' } },
-  ) => api.post<FileResource>(`/resources/${id}/metadata/link`, body),
   correctEpisode: (
     id: string,
     body: { episode: number | null; season?: number | null; absolute_episode?: number | null; note?: string },

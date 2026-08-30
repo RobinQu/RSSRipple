@@ -18,6 +18,8 @@ from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
+from app.models.resource_file_assignment import ResourceFileAssignment
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
 from app.services import metadata_dedup as dedup
@@ -25,6 +27,64 @@ from app.services import metadata_dedup as dedup
 
 def _uuid() -> str:
     return str(uuid.uuid4())
+
+
+async def test_rehome_series_as_movie_moves_batch_links_and_assignments(
+    db_session, channel
+):
+    """Online wrong-table repair preserves association provenance and cannot
+    violate the resource/work unique constraints."""
+    from sqlalchemy import select
+
+    series = TVSeries(
+        id=_uuid(), title_cn="异形基地", external_id="tmdb:4722",
+        external_source="tmdb", content_type="movie",
+    )
+    movie = Movie(
+        id=_uuid(), title_cn="异形基地", external_id="tmdb:4722",
+        external_source="tmdb", content_type="movie",
+    )
+    resource = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="body-snatchers-pack",
+        title_raw="Body Snatchers (1993)", torrent_url="magnet:?xt=1",
+        is_batch=True, batch_scope="movies", series_id=series.id,
+    )
+    db_session.add_all([series, movie, resource])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceWorkLink(
+            id=_uuid(), resource_id=resource.id, series_id=series.id,
+            source="manual",
+        ),
+        ResourceWorkLink(
+            id=_uuid(), resource_id=resource.id, movie_id=movie.id,
+            source="auto",
+        ),
+        ResourceFileAssignment(
+            id=_uuid(), resource_id=resource.id, file_path="film.mkv",
+            series_id=series.id, season=1, episode_start=1, episode_end=1,
+            source="manual",
+        ),
+    ])
+    await db_session.flush()
+
+    await dedup.rehome_series_as_movie(db_session, series, movie)
+
+    await db_session.refresh(resource)
+    assert resource.series_id is None
+    assert resource.movie_id == movie.id
+    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
+    assert len(links) == 1
+    assert links[0].movie_id == movie.id
+    assert links[0].source == "manual"
+    assignment = (await db_session.execute(
+        select(ResourceFileAssignment)
+    )).scalar_one()
+    assert assignment.series_id is None
+    assert assignment.movie_id == movie.id
+    assert assignment.season is None
+    assert assignment.episode_start is None
+    assert assignment.episode_end is None
 
 
 TEST_FIELD_MAPPING = {

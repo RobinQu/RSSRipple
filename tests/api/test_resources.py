@@ -262,6 +262,31 @@ class TestResourceSearchLink:
         assert res.status_code == 200
         assert res.json()["data"]["results"][0]["genre"] == []
 
+    async def test_search_forwards_source_and_fallback_sites(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="RAW-source",
+        )
+        with patch(
+            "app.services.metadata_service.search_metadata_via_llm",
+            new_callable=AsyncMock,
+            return_value=[],
+        ) as search:
+            res = await client.post(
+                f"/api/v1/resources/{rid}/metadata/search",
+                json={
+                    "search_title": "Someya-san",
+                    "content_type": "tv",
+                    "data_source_type": "bangumi",
+                    "fallback_sources": ["bangumi", "anilist"],
+                },
+            )
+        assert res.status_code == 200
+        search.assert_awaited_once_with(
+            "Someya-san", "bangumi", ["bangumi", "anilist"]
+        )
+
     async def test_search_llm_error_returns_502(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="RAW-e")
         with patch(
@@ -973,6 +998,63 @@ class TestResourceAssociations:
         assert len(body["file_assignments"]) == 3
         assert all(a["season"] == 1 for a in body["file_assignments"])
         assert body["season_ranges"] == [{"season": 1, "episode_start": 1, "episode_end": 3}]
+        assert body["season"] == 1
+        assert body["episode_start"] == 1
+        assert body["episode_end"] == 3
+
+    async def test_batch_association_repeated_save_is_idempotent(
+        self, client, sample_channel, db_session_factory,
+    ):
+        sid = await self._make_series(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        payload = {
+            "is_batch": True,
+            "works": [{"work_type": "series", "work_id": sid}],
+            "assignments": [{
+                "file_path": "Show.S01E01.mkv",
+                "work_type": "series",
+                "work_id": sid,
+                "season": 1,
+                "episode_start": 1,
+                "episode_end": 1,
+            }],
+        }
+
+        first = await client.put(
+            f"/api/v1/resources/{rid}/associations", json=payload,
+        )
+        second = await client.put(
+            f"/api/v1/resources/{rid}/associations", json=payload,
+        )
+
+        assert first.status_code == 200, first.text[:500]
+        assert second.status_code == 200, second.text[:500]
+        links = second.json()["data"]["work_links"]
+        assert len(links) == 1
+        assert links[0]["series_id"] == sid
+        assert links[0]["source"] == "manual"
+
+    async def test_association_fields_can_correct_missing_titles(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="RAW-title",
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": False,
+                "works": [],
+                "assignments": [],
+                "fields": {
+                    "title_cn": "新 攻壳机动队",
+                    "search_title": "THE.GHOST.IN.THE.SHELL",
+                },
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        assert res.json()["data"]["title_cn"] == "新 攻壳机动队"
+        assert res.json()["data"]["search_title"] == "THE.GHOST.IN.THE.SHELL"
 
     async def test_multi_season_evidence_derives_multi_season(
         self, client, sample_channel, db_session_factory,

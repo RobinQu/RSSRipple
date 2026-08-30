@@ -13,9 +13,10 @@ into a matched_entity that drops into the existing upsert path:
   * ``episode_list`` comes from ``/v0/episodes`` (main story, integer
     ``sort`` only); the season tag is the resource's parsed season marker
     (else 1 — a Bangumi subject IS one season);
-  * ``seasons`` / ``number_of_seasons`` are deliberately NOT set: a Bangumi
-    subject is one season of a work, so claiming work-level season counts
-    would violate the never-guess-season invariant.
+  * TV subjects carry ``single_season_entry=True`` as match-scoped structural
+    evidence. A Bangumi subject is one season, so the current resource can
+    safely default to season 1 without writing a possibly false work-level
+    ``number_of_seasons`` value. Movies do not carry this marker.
 """
 
 from __future__ import annotations
@@ -132,7 +133,8 @@ async def _build_matched_entity(
     images = subj.get("images") or {}
     tags = [t.get("name") for t in (subj.get("tags") or [])[:8] if t.get("name")]
     platform = str(subj.get("platform") or "")
-    return {
+    content_type = "movie" if platform == "剧场版" else "tv"
+    entity = {
         "external_id": f"bangumi:{sid}",
         "external_source": "bangumi",
         "title_cn": subj.get("name_cn") or subj.get("name"),
@@ -145,8 +147,11 @@ async def _build_matched_entity(
         "genre": tags,
         "is_anime": True,  # the search is restricted to the anime category
         "episode_list": ep_list or None,
-        "_content_type": "movie" if platform == "剧场版" else "tv",
+        "_content_type": content_type,
     }
+    if content_type == "tv":
+        entity["single_season_entry"] = True
+    return entity
 
 
 def _build_evidence_text(candidates: list[dict]) -> str:

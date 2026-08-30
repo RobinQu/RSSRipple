@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.metadata_search import MetadataCandidate
+
 
 def _coerce_file_size(v: int | float | None) -> int | None:
     """Accept float file_size (e.g. LLM-extracted "10.7 GiB" → 10.7) and truncate to int."""
@@ -163,6 +165,8 @@ class FileResourceDetailResponse(FileResourceResponse):
 
     work_links: list[ResourceWorkLinkItem] = []
     file_assignments: list[ResourceFileAssignmentItem] = []
+    confirmation_kinds: list[str] = []
+    missing_fields: list[str] = []
 
 
 class GroupedResource(BaseModel):
@@ -171,43 +175,6 @@ class GroupedResource(BaseModel):
     title: str
     poster_url: str | None = None
     resources: list[FileResourceResponse] = []
-
-
-class MetadataSearchRequest(BaseModel):
-    search_title: str
-    content_type: str = "tv"
-    data_source_type: str | None = None
-
-
-class MetadataSearchResult(BaseModel):
-    content_type: str
-    title_cn: str | None = None
-    title_en: str | None = None
-    original_title: str | None = None
-    description: str | None = None
-    poster_url: str | None = None
-    year: int | None = None
-    external_id: str | None = None
-    rating: float | None = None
-    genre: list[str] = []
-
-    @field_validator("genre", mode="before")
-    @classmethod
-    def _none_genre_to_empty(cls, v: Any) -> Any:
-        # LLM 与本地库候选都可能给出 genre=None（未提供）；响应结构对前端
-        # 保持 list 形状，空列表即"未提供"。
-        return [] if v is None else v
-    status: str | None = None
-    number_of_episodes: int | None = None
-    number_of_seasons: int | None = None
-    start_date: str | None = None
-    end_date: str | None = None
-    release_date: str | None = None
-    runtime: int | None = None
-
-
-class MetadataLinkRequest(BaseModel):
-    selected_result: dict
 
 
 class EpisodeCorrectionRequest(BaseModel):
@@ -265,7 +232,28 @@ class AssociationWorkRef(BaseModel):
     """One work of a resource's association set (PUT /resources/{id}/associations)."""
 
     work_type: Literal["series", "movie"]
-    work_id: str
+    work_id: str | None = None
+    client_key: str | None = None
+    candidate: MetadataCandidate | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> "AssociationWorkRef":
+        if self.candidate is not None:
+            if not self.client_key:
+                raise ValueError("client_key is required for an external candidate")
+            if self.work_id not in (None, self.client_key):
+                raise ValueError("candidate work_id must be its client_key")
+            self.work_id = None
+            expected = "tv" if self.work_type == "series" else "movie"
+            if (
+                self.candidate.origin != "external"
+                or self.candidate.content_type != expected
+                or not self.candidate.selectable
+            ):
+                raise ValueError("candidate does not match work_type")
+        elif self.work_id is None:
+            raise ValueError("work_id is required for an existing work")
+        return self
 
 
 class AssociationFileAssignment(BaseModel):

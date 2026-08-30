@@ -69,6 +69,7 @@ class RunAgentRequest(BaseModel):
     title_ids: list[str] | None = None
     titles: list[dict[str, Any]] | None = None
     data_source_type: str = DEFAULT_DATA_SOURCE_TYPE
+    trusted_sites: list[str] | None = None
 
 
 class RunAgentResponse(BaseModel):
@@ -77,12 +78,6 @@ class RunAgentResponse(BaseModel):
     job_id: str
     title_ids: list[str]
     total: int
-
-
-class SearchMetadataRequest(BaseModel):
-    search_title: str
-    content_type: str
-    data_source_type: str = DEFAULT_DATA_SOURCE_TYPE
 
 
 class SaveDatasetRequest(BaseModel):
@@ -181,6 +176,7 @@ async def run_agent(
     data_source_type = normalize_data_source_type(body.data_source_type)
     for title in titles:
         title["data_source_type"] = data_source_type
+        title["trusted_sites"] = body.trusted_sites
     if not titles and body.title_ids:
         raise HTTPException(
             status_code=422,
@@ -275,46 +271,6 @@ async def get_job_status(job_id: str):
         "results": job["results"],
         "error": job.get("error"),
     }
-
-
-# ── Manual metadata search ──────────────────────────────────────────────
-
-
-@router.post("/search-metadata")
-async def search_metadata(body: SearchMetadataRequest):
-    if body.content_type not in ("tv", "movie"):
-        raise HTTPException(status_code=422, detail="content_type must be 'tv' or 'movie'")
-
-    from app.database import async_session_factory
-    from app.services.metadata_service import manual_search_metadata
-
-    try:
-        data_source_type = normalize_data_source_type(body.data_source_type)
-        logger.info(
-            "[eval][api] search_metadata start source=%s content_type=%s title=%r",
-            data_source_type, body.content_type, body.search_title[:240],
-        )
-        async with async_session_factory() as db:
-            candidates = await manual_search_metadata(
-                db,
-                body.search_title,
-                body.content_type,
-                data_source_type,
-            )
-        logger.info(
-            "[eval][api] search_metadata done source=%s title=%r candidates=%d sample=%s",
-            data_source_type,
-            body.search_title[:240],
-            len(candidates),
-            candidates[:3],
-        )
-        return {"candidates": candidates}
-    except Exception as exc:
-        logger.exception(
-            "[eval][api] search_metadata failed source=%s content_type=%s title=%r",
-            body.data_source_type, body.content_type, body.search_title[:240],
-        )
-        raise HTTPException(status_code=502, detail=str(exc))
 
 
 # ── Dataset CRUD ────────────────────────────────────────────────────────

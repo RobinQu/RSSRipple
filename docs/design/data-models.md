@@ -30,10 +30,11 @@ class Channel(Base):
                                          # section 按作品形态（base/tv/pack 先行）+ 语义 group；
                                          # 每键带 lock 作用域与 applies_to 形态适用性）；驱动资源列表
                                          # 「必填字段」列展示与 Agent 过滤 DSL 门控。
-                                         # 强制且创建后只增不删：代码强制基线 = 基础必选七件套
-                                         # （title_cn/title_en/search_title/content_type/is_batch/
+                                         # 强制且创建后只增不删：代码强制基线 = 基础必选六件套
+                                         # （title_cn/search_title/content_type/is_batch/
                                          # year/is_anime）+ 形态必填（tv→season、tv_single→episode、
-                                         # tv_batch→episode_start/end、franchise→resource_collection）
+                                         # tv_season_batch→season+episode_start/end；跨季批次由
+                                         # batch_seasons 覆盖校验；franchise→resource_collection）
                                          # 永不可清除，不存在"不限制"状态；
                                          # 存量 NULL/残缺行由启动轻迁移收敛为基线
     default_is_anime: bool               # 「默认标记为 Anime」：NOT NULL DEFAULT FALSE（轻迁移加列）；
@@ -161,18 +162,19 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 **合集资源识别**：`is_batch=true` 标识多集打包资源（Season Pack / 全集 / `S01E01~13` / `[01-12 合集]` 等）。判定分三层：
 
 1. **Pre-parser**（`app/services/resource_parser.detect_batch`）：抓取时用正则识别典型 pattern，直接写入 `is_batch / episode_start / episode_end`。覆盖的范围形态：`SxxEyy~zz`、方括号内纯数字范围 `[01-12]`（后缀关键词可选）、**括号内尾部范围**（括号含标题文字但以范围结尾，如 `[青春猪头少年不会梦到圣诞服女郎 01-13]`）、**季标记上下文中的裸范围**（`S01 | 01-24`、`第2季 13-24`，季标记后 80 字符内；占有量词防 `S04 - 05` 单集回溯误判）、裸范围+强制关键词（`01-12 合集`）、`第01-第12话`；连接符含全角 `～`/`〜`，范围尾部容忍 `+SPx11` 类特典后缀。无边界关键词：Season Pack / Batch / BD-BOX / 全集|全季|合集|完整|完结 / Complete Series / **`TV fin`**（必须带 TV 前缀；裸 `Fin` 也是单集最终话用法，刻意不作关键词）/ 整理搬运 等。**整碟包规则**：标题含显式季标记（`S0x`/`Season N`/`Nst|nd|rd|th Season`/`第N季` 含中文数字）且解析不出任何集号且含整碟 token（`BD`/`BDRip`/`BDMV`/`BDRemux`/`Blu-ray`/`BD-BOX`，词边界）→ 判合集（`葬送的芙莉莲 第二季 (BD ...)` 形态）。sanity 过滤：`end-start>200` 或 `end>999` 判误报（挡 `[2020-2021]` 年份对）。命中时同时**清空 `resource.episode`**（field_mapping 可能把年份/分辨率/标题数字解析成单集号）并设 `batch_scope="season"`（标题层默认单季包，torrent 分析可修正）。
-2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end，并把覆盖季集合持久化到 `batch_seasons`）/`franchise`（≥2 作品簇，同写 `batch_seasons`，触发 `franchise_service.link_franchise_pack` 创建/复用 `franchise_pack` 来源的 WorkCollection、逐个匹配成员作品并挂 `collection_id`、资源改挂 collection）/`unknown`（不改判）。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）为保留优化项，未实现。
+2. **Torrent 内容检测（通道 A，`app/services/torrent_inspect.maybe_inspect_torrent`）**：metadata 匹配前，对 `is_batch=false` 且 `torrent_url` 为 http(s) 直链的资源下载 .torrent 落盘（`TORRENT_CACHE_DIR`，记 `torrent_file`），bencode 解析文件清单 → `analyze_torrent_files` 纯函数按视频文件过滤、路径分量集号提取、顶层目录聚类判出 scope：`single`（≤1 视频文件，不改判）/`season`（单季多集，填 episode_start/end）/`multi_season`（≥2 季标记，清空 season 与 episode_start/end，并把覆盖季集合持久化到 `batch_seasons`）/`franchise`（≥2 作品簇，同写 `batch_seasons`，触发 `franchise_service.link_franchise_pack`；父 WorkCollection 仅由清洗后的资源标题确定并立即创建/复用，资源先挂 collection 且清除单作品 FK，TV/OVA/Film 等子目录成员解析只作尽力富化，失败/超时不能阻止父合集成立）/`unknown`（不改判）。文件映射富化同时在标题未解析出字幕组时尝试读取视频文件尾缀 `...-GROUP.ext`/`...[GROUP].ext`；仅唯一一致且非技术词的结果回填 `subtitle_group`。magnet 与下载/解析失败静默跳过。下载后 RPC 修正（通道 B）保留同一富化能力。
    **文件关联富化 pass（所有作品形态）**：① 确定性写回——按统一 `analyze_torrent_files` 的 `file_parses` 为单集 TV、单部电影及各类合集 upsert `resource_file_assignments`（source=auto，簇目录名作 `work_title_hint`）；作品链接完成后 `bind_single_work_assignments` 把单一作品绑定到这些行，TV 同时补季号/特别篇 S00；合集另重算 `season_ranges`。② LLM 精判只对合集门控（`app/services/batch_content_analysis.py`：scope=franchise，或 is_batch 且未解析集号占比 ≥0.5 且视频数 ≥2 且配置了 LLM key）——区分纯电影包与混合包、把电影簇经频道源 `process_title_only` → Movie 落库并绑定 links+assignments（source=llm）；失败/无 key 静默降级。Magnet 在抓取期无法取得清单时，由下载完成通知生成前用下载器清单运行同一确定性分析补齐。
 3. **MetadataAgent**（LLM）：finalize schema 输出 `is_batch / inferred_episode_start / inferred_episode_end` 与可选 `batch_scope`（白名单 season|multi_season|franchise|movies，表外值丢弃）；LLM 输出的非空值覆盖 pre-parser 结果（`is_batch` 单向 OR 合并，只会补 True 不会改 False）；`batch_scope` 仅当现有值为 NULL/"season" 时写入（torrent 分析的 multi_season/franchise/movies 不被降级），LLM 未输出时默认 `"season"`。
 
-合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`(series_id, season)`；跨季包→`(series_id, batch_seasons)`。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision，episode 哨兵 -1；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的 active 任务判重跳过；覆盖度不同（S1 包 vs S2 包）的合集不去重、各自派发。**覆盖度未知（season 包无季号、multi_season 无 batch_seasons）不再派发**——覆盖度是 organize 覆盖度校验的必填依据，落 PendingDecision（episode 哨兵 -2，reason 前缀「合集范围不确定」）待人工修订补齐后定向重跑。franchise 包作品 FK 全清，不进入派发。
+合集资源约束：`episode` 字段固定为空（避免与"单集集数"语义混淆）；`episode_start/end` 尽力而为，标题未标明时保留为空。**合集去重按内容覆盖度**（`agent_service._batch_coverage_key`）：电影包→`movie_id`；单季包→`(series_id, season)`；跨季包→`(series_id, batch_seasons)`。仅当覆盖度已知且完全相同的多个版本才进入与单集一致的冲突解决（ask → PendingDecision；auto → LLM pick → 启发式），跨运行则按同 agent + 同覆盖度的 active 任务判重跳过；覆盖度不同（S1 包 vs S2 包）的合集不去重、各自派发。**覆盖度未知（season 包无季号、multi_season 无 batch_seasons）不再派发**——它进入所属 Channel 的文件资源待确认，不创建 Agent PendingDecision；人工修订补齐后定向重跑。franchise 包作品 FK 全清，不进入派发。
 
 **跨季集号 reconciliation**：部分 RSS 标题使用**绝对集号**（跨全部季数累加），例如「关于我转生变成史莱姆这档事 第四季 S04 - 84」中的 `84` 实际是从第一季累计到第四季当前集的绝对数，而不是第四季的第 84 集。为了让 Agent 侧的 `(series_id, season, episode)` 去重语义稳定，在 `_apply_to_resource` 里根据 metadata 的 `seasons: [{season_number, episode_count}]` 证据做一次调整：
 
-- **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。若标题未解析出季数（`season=None`），`apply_episode_reconcile()` 会用 `locate_absolute_episode()` 按各季集数累减反推 `(season, episode)` 并**同时写回两个字段**；超出总集数 + tolerance(2) 时记为 `ambiguous`。
+- **`NN(MM)` 双标记**（如 `13(85)`）——pre-parser 直接抽取，`episode=13`，`absolute_episode=85`，`episode_confidence="reconciled"`。若标题未解析出季数（`season=None`），`apply_episode_reconcile()` 会用 `locate_absolute_episode()` 按各季集数累减反推 `(season, episode)` 并**同时写回两个字段**；超出总集数 + tolerance(2) 时记为 `ambiguous`。尚在更新时 metadata 少报的 tolerance 集数保留真实推导值（如已知 E7 后的 E8），不钳回旧集号。
 - **只标了 MM**（如 `S04 - 84`）——`reconcile_episode()` 检查 `raw_episode ≤ season_count + tolerance(2)`：符合就保留（`raw`）；否则减去前几季累计集数得到 candidate；candidate 落在 `[1, season_count + tolerance]` → 记为 `reconciled`（写回 `absolute_episode`），否则记为 `ambiguous`。
 - `apply_episode_reconcile()` 跳过条件：合集资源；`episode` 与 `absolute_episode` 均为空；`episode_confidence == "manual"`；以及 `season` 已知且已为 `reconciled` 的资源（不重算）。无判定依据（空 map / 未知季）时仅给无标记资源补上 `raw`。
-- `ambiguous` 的资源**不参与派发**。`agent_service` 在通过 work-scope + filter 之后，将其创建为一条 PendingDecision（reason 以 `"集号不确定，需要人工确认集号: {title}"` 标记、`candidates` 仅含该资源本身、跳过 LLM 候选选择），等待用户在前端手动修正集号；**不再**归入 `AgentSuggestion`。用户修正集号（`episode_confidence` 变为 `manual`）后，下一次运行会自动把这条过期决策标记为 `decided`，资源重新进入正常 filter→派发流程。
+- **人工历史推断**：已链接单集 TV 资源在上述算术前运行 `apply_episode_history_reconcile`。同频道+同作品+同发布组的相邻 `manual` 记录可确定 `(season, absolute_episode-episode)` 惯例；无同组证据时至少两个发布组或两个不同 absolute 样本完全一致才自动外推。只使用目标前 2 集内的已结构化历史；冲突/超界仍为 `ambiguous`，`manual` 永不覆盖。成功时原始数字写入 `absolute_episode`，结果标为 `reconciled`。
+- `ambiguous` 的资源**不参与派发**。它仅进入所属 Channel 的文件资源待确认，不创建 AgentSuggestion 或 PendingDecision；用户修正为 `manual` 后，定向 Agent 运行重新进入正常 filter→派发流程。
 - `ambiguous` 只对**单集 tv 资源**有意义：合集资源（`is_batch`，按内容覆盖度去重）与电影链接资源（无集号/季号问题）携带的 ambiguous 一律为残留标记——派发流程的 ambiguous 分支跳过这两类；Dashboard「待确认」列表（`pending_confirmations`）同样排除。各人工修订入口负责了结残留：标记为合集（PATCH `/resources/{id}`）置 `manual`；重新链接为电影（`/metadata/link`）或将作品 `content_type` 改为非 tv（PUT `/series/{id}`）置 null。存量遗留行由启动轻迁移 `ambiguous_stale_clear` 一次性清理（合集→`manual`，电影链接/非 tv 作品链接→null，app_settings 哨兵保证只跑一次）。
 - `episode_confidence` 值：`raw` / `reconciled` / `ambiguous` / `manual` / `None`（老数据）。
 
@@ -607,11 +609,9 @@ class AgentSuggestion(Base):
 
 ### PendingDecision（待决策项）
 
-两种场景创建 PendingDecision：
-1. 同一作品的同一剧集（或同一电影）出现多个符合条件的候选资源，且 `conflict_resolution="ask"` 时创建（候选选择类）。
-2. `episode_confidence="ambiguous"` 的资源（集号无法判定是单季集号还是绝对集号）创建，等待用户手动确认集号——此时 `candidates` 只含该资源本身，reason 以 `"集号不确定"` 前缀标记，且**跳过 LLM 候选选择**（无"挑最优候选"语义）。
+PendingDecision 只在一个场景创建：同一作品的同一剧集、同一电影或相同覆盖度合集出现**至少两个**已通过 Channel metadata/必选字段门禁及 Agent 规则的候选资源，且 `conflict_resolution="ask"`。单资源的 metadata 未识别、必选字段缺失、季集不确定或合集范围不确定一律属于 Channel 文件资源待确认，不进入本表。
 
-**幂等性保证**：同一 `(agent_id, series_id | movie_id, season, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`，不会像 v1 那样堆积重复记录。`season` 计入键值（S1E3 与 S4E3 不再互相合并）；调用方传入的 key 为 4 元组 `(type, target_id, season, episode)`，旧 3 元组 `(type, target_id, episode)` 仍兼容（season=None）。`reason_override` 参数支持非冲突类决策（如集号不确定）复用同一 upsert 路径，并通过 `skip_llm` 跳过 LLM 调用。
+**幂等性保证**：同一 `(agent_id, series_id | movie_id, season, episode, status='pending')` 键值全局唯一——Agent 反复运行时，`create_pending_decision` 会 upsert 已有行、合并新 `candidates`（保序、去重）、刷新 `reason` 和 `expires_at`。`season` 计入键值（S1E3 与 S4E3 不再互相合并）；调用方传入的 key 为 4 元组 `(type, target_id, season, episode)`。
 
 ```python
 class PendingDecision(Base):
@@ -624,13 +624,10 @@ class PendingDecision(Base):
     episode: int | None                  # 集数（TV 作品）
     season: int | None                   # 季数（TV 作品；幂等键的一部分，NULL=电影/无季资源）
     candidates: list[str]                # 候选 FileResource ID 列表（按匹配度预排序）
-    reason: str                          # 需要决策的原因（如："多个资源匹配第03集"；
-                                         #   集号不确定类以 "集号不确定" 前缀标记）
-    llm_suggestion: str | None           # LLM 对候选的推荐理由（llm_enabled=true 时填充；
-                                         #   集号不确定类决策跳过 LLM，为 None）
+    reason: str                          # 需要决策的原因（如："多个资源匹配第03集"）
+    llm_suggestion: str | None           # LLM 对多候选的推荐理由
     llm_picked_resource_id: str | None   # LLM 选中的候选资源 ID（llm_enabled=true 时填充）。
-                                         # 驱动 "AI 自动处理" 动作与决策 UI 中的高亮行；
-                                         # 集号不确定类决策为 None
+                                         # 驱动 "AI 自动处理" 动作与决策 UI 中的高亮行
     decided_resource_id: str | None      # 用户最终选择的资源 ID（或 AI 自动处理选中的资源）
     status: str                          # "pending" | "decided" | "expired" | "skipped"
     expires_at: datetime | None          # 过期时间（默认 7 天）

@@ -44,6 +44,11 @@ def test_dashboard_schemas_instantiate():
     data = DashboardData(
         active_agents=1, active_channels=1, active_download_count=1,
         active_download_groups=[grp], pending_decisions=[],
+        pending_decisions_total=3, pending_confirmations_total=2,
+        pending_plans_total=1,
     )
     assert data.active_agents == 1
     assert len(data.active_download_groups) == 1
+    assert data.pending_decisions_total == 3
+    assert data.pending_confirmations_total == 2
+    assert data.pending_plans_total == 1

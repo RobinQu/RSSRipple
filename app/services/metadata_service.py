@@ -511,6 +511,7 @@ async def match_audio_work_by_title(db: AsyncSession, title: str) -> tuple[Audio
 async def search_metadata_via_llm(
     title: str,
     data_source_type: str | None = None,
+    fallback_sources: list[str] | None = None,
 ) -> list[dict]:
     """Search for metadata using the unified metadata agent.
 
@@ -525,7 +526,9 @@ async def search_metadata_via_llm(
             "[metadata] agent search start title=%r data_source_type=%s",
             title[:160], data_source_type,
         )
-        result = await get_agent().process_title_only(title, data_source_type)
+        result = await get_agent().process_title_only(
+            title, data_source_type, fallback_sources=fallback_sources
+        )
     except Exception as e:
         logger.warning("[metadata] Agent search failed for %r: %s", title[:60], e)
         return []
@@ -1588,10 +1591,6 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
 
     Implements the 4-layer matching strategy from AGENTS.md.
     """
-    # Layer 1: already linked
-    if resource.series_id or resource.movie_id:
-        return
-
     async def _reconcile_with_series() -> None:
         """Episode reconciliation for agent-free link paths: uses the linked
         series' persisted per-season counts (absolute-numbered releases like
@@ -1603,26 +1602,35 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         provably has a single season; a multi-season (or unknown) series means
         the season can't be verified — the resource is marked season-uncertain
         (``episode_confidence="ambiguous"``) and routed to a "季号不确定"
-        PendingDecision downstream. Batch resources are excluded (a 合集
+        Channel resource confirmation downstream. Batch resources are excluded (a 合集
         doesn't need a verified single season number to dispatch), and
         movie-linked resources are untouched."""
         if not resource.series_id:
             return
         from app.models.series import TVSeries
+        from app.services.episode_history import apply_episode_history_reconcile
         from app.services.metadata_episode_reconcile import (
             apply_episode_reconcile,
             resolve_missing_season,
+            season_evidence_from_series,
             seasons_map_from_list,
         )
         series_row = await db.get(TVSeries, resource.series_id)
         if series_row is None:
             return
-        if series_row.seasons:
-            apply_episode_reconcile(resource, seasons_map_from_list(series_row.seasons))
-        resolve_missing_season(resource, {
-            "number_of_seasons": series_row.number_of_seasons,
-            "seasons": series_row.seasons,
-        })
+        seasons_map = seasons_map_from_list(series_row.seasons)
+        history_applied = await apply_episode_history_reconcile(
+            db, resource, seasons_map=seasons_map
+        )
+        if seasons_map and not history_applied:
+            apply_episode_reconcile(resource, seasons_map)
+        resolve_missing_season(resource, season_evidence_from_series(series_row))
+
+    # Layer 1: already linked.  Reconciliation still has work to do here:
+    # older linked rows may gain a trusted sibling correction later.
+    if resource.series_id or resource.movie_id:
+        await _reconcile_with_series()
+        return
 
     # Layer 2: ChannelRawTitleMapping
     # Primary lookup: by normalized search_title_key (handles episode/resolution variations)
@@ -1713,7 +1721,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
     try:
         from app.services.metadata_agent import resolve_metadata_source
 
-        # Respect the channel's configured source (e.g. jina) instead of
+        # Respect the channel's configured primary source instead of
         # hardcoding the default - otherwise a Jina channel's per-resource
         # refresh would silently run the Exa agent.
         data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
@@ -1757,6 +1765,7 @@ async def manual_search_metadata(
     search_title: str,
     content_type: str,
     data_source_type: str | None = None,
+    fallback_sources: list[str] | None = None,
 ) -> list[dict]:
     """Search for metadata candidates. No persistence.
 
@@ -1778,7 +1787,9 @@ async def manual_search_metadata(
         )
         return results
 
-    results = await search_metadata_via_llm(search_title, data_source_type)
+    results = await search_metadata_via_llm(
+        search_title, data_source_type, fallback_sources
+    )
     normalized: list[dict] = []
     for result in results:
         item = dict(result)
@@ -1941,17 +1952,23 @@ async def manual_link_metadata(
         # reconciliation + verified season rule (resolve_missing_season)
         # against the freshly-upserted series' seasons evidence, so a
         # season-less resource doesn't keep a guessed/empty season.
+        from app.services.episode_history import apply_episode_history_reconcile
         from app.services.metadata_episode_reconcile import (
             apply_episode_reconcile,
             resolve_missing_season,
+            season_evidence_from_series,
             seasons_map_from_list,
         )
-        if entity.seasons:
-            apply_episode_reconcile(resource, seasons_map_from_list(entity.seasons))
-        resolve_missing_season(resource, {
-            "number_of_seasons": entity.number_of_seasons,
-            "seasons": entity.seasons,
-        })
+        seasons_map = seasons_map_from_list(entity.seasons)
+        history_applied = await apply_episode_history_reconcile(
+            db, resource, seasons_map=seasons_map
+        )
+        if seasons_map and not history_applied:
+            apply_episode_reconcile(resource, seasons_map)
+        season_evidence = season_evidence_from_series(entity)
+        if selected_result.get("single_season_entry") is True:
+            season_evidence["single_season_entry"] = True
+        resolve_missing_season(resource, season_evidence)
 
     resource.metadata_matched_at = utcnow()
 

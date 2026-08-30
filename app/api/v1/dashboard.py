@@ -2,8 +2,8 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,15 +15,216 @@ from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
+from app.models.movie import Movie
 from app.models.organize_plan import OrganizePlan
 from app.models.pending_decision import PendingDecision
+from app.models.series import TVSeries
 from app.schemas.common import success_response
+from app.schemas.file_resource import FileResourceResponse
+from app.services.resource_confirmation import (
+    LEGACY_CONFIRMATION_REASON_PREFIXES,
+    ResourceConfirmation,
+    inspect_resource_confirmation,
+)
 
 router = APIRouter()
 
+_CONFIRMATION_SCAN_BATCH_SIZE = 200
+
+
+def _serialize_confirmation(
+    resource: FileResource, confirmation: ResourceConfirmation,
+) -> dict:
+    return {
+        "resource": FileResourceResponse.model_validate(resource).model_dump(),
+        "channel_name": resource.channel.name if resource.channel else None,
+        "work_title": (
+            (resource.series.title_cn or resource.series.title_en)
+            if resource.series_id and resource.series
+            else (resource.movie.title_cn or resource.movie.title_en)
+            if resource.movie_id and resource.movie
+            else None
+        ),
+        "kinds": list(confirmation.kinds),
+        "missing_fields": list(confirmation.missing_fields),
+    }
+
+
+async def _page_pending_decisions(
+    db: AsyncSession, page: int, page_size: int,
+) -> tuple[list[dict], int]:
+    filters = (
+        PendingDecision.status == "pending",
+        not_(
+            or_(
+                *(
+                    PendingDecision.reason.startswith(prefix)
+                    for prefix in LEGACY_CONFIRMATION_REASON_PREFIXES
+                )
+            )
+        ),
+    )
+    # Candidate cardinality is stored in a JSON column whose length function
+    # differs between PostgreSQL and Turso. Select the small decision summary
+    # set once and apply the canonical >=2 gate in Python for dialect parity.
+    summaries = (await db.execute(
+        select(PendingDecision.id, PendingDecision.candidates)
+        .where(*filters)
+        .order_by(PendingDecision.created_at.desc(), PendingDecision.id.desc())
+    )).all()
+    eligible_ids = [row.id for row in summaries if len(row.candidates or []) >= 2]
+    total = len(eligible_ids)
+    page_ids = eligible_ids[(page - 1) * page_size:page * page_size]
+    if not page_ids:
+        return [], total
+
+    decisions = (await db.execute(
+        select(PendingDecision)
+        .where(PendingDecision.id.in_(page_ids))
+        .options(
+            selectinload(PendingDecision.series),
+            selectinload(PendingDecision.movie),
+            selectinload(PendingDecision.agent),
+        )
+    )).scalars().all()
+    decisions_by_id = {decision.id: decision for decision in decisions}
+    ordered_decisions = [
+        decisions_by_id[decision_id]
+        for decision_id in page_ids
+        if decision_id in decisions_by_id
+    ]
+
+    candidate_ids = {
+        resource_id
+        for decision in ordered_decisions
+        for resource_id in (decision.candidates or [])
+    }
+    candidate_rows = (await db.execute(
+        select(FileResource)
+        .where(FileResource.id.in_(candidate_ids))
+        .options(
+            selectinload(FileResource.series),
+            selectinload(FileResource.movie),
+            selectinload(FileResource.audio_work),
+            selectinload(FileResource.collection),
+        )
+    )).scalars().all()
+    candidates_by_id = {resource.id: resource for resource in candidate_rows}
+
+    items: list[dict] = []
+    for decision in ordered_decisions:
+        candidates = [
+            candidates_by_id[resource_id]
+            for resource_id in (decision.candidates or [])
+            if resource_id in candidates_by_id
+        ]
+        items.append({
+            "id": decision.id,
+            "agent_id": decision.agent_id,
+            "agent_name": decision.agent.name if decision.agent else None,
+            "series_id": decision.series_id,
+            "movie_id": decision.movie_id,
+            "episode": decision.episode,
+            "season": decision.season,
+            "reason": decision.reason,
+            "llm_suggestion": decision.llm_suggestion,
+            "candidates": [candidate.id for candidate in candidates],
+            "candidate_resources": [
+                FileResourceResponse.model_validate(candidate).model_dump()
+                for candidate in candidates
+            ],
+            "title": (
+                (decision.series.title_cn or decision.series.title_en)
+                if decision.series_id and decision.series
+                else (decision.movie.title_cn or decision.movie.title_en)
+                if decision.movie_id and decision.movie
+                else "Unknown"
+            ),
+            "created_at": decision.created_at.isoformat(),
+        })
+    return items, total
+
+
+async def _page_pending_confirmations(
+    db: AsyncSession, page: int, page_size: int,
+) -> tuple[list[dict], int]:
+    """Page policy-derived confirmations while returning an exact total."""
+    load_options = (
+        selectinload(FileResource.channel),
+        selectinload(FileResource.series).selectinload(TVSeries.collection),
+        selectinload(FileResource.movie).selectinload(Movie.collection),
+        selectinload(FileResource.audio_work),
+        selectinload(FileResource.collection),
+    )
+    page_start = (page - 1) * page_size
+    page_end = page_start + page_size
+    matched = 0
+    items: list[dict] = []
+    # The confirmation policy spans resource, channel and work fields, so it
+    # intentionally stays in the shared policy helper instead of duplicating
+    # a fragile dialect-specific SQL predicate. Read only the ordered ids up
+    # front, then hydrate resources in bounded batches; this avoids OFFSET's
+    # quadratic full-table scan while keeping ORM relationship memory bounded.
+    ordered_ids = (await db.execute(
+        select(FileResource.id)
+        .order_by(FileResource.created_at.desc(), FileResource.id.desc())
+    )).scalars().all()
+    for batch_start in range(0, len(ordered_ids), _CONFIRMATION_SCAN_BATCH_SIZE):
+        batch_ids = ordered_ids[
+            batch_start:batch_start + _CONFIRMATION_SCAN_BATCH_SIZE
+        ]
+        batch_rows = (await db.execute(
+            select(FileResource)
+            .where(FileResource.id.in_(batch_ids))
+            .options(*load_options)
+        )).scalars().all()
+        rows_by_id = {resource.id: resource for resource in batch_rows}
+        for resource_id in batch_ids:
+            resource = rows_by_id.get(resource_id)
+            if resource is None:
+                continue  # deleted concurrently after the id snapshot
+            required_fields = (
+                resource.channel.required_metadata_fields
+                if resource.channel else None
+            )
+            confirmation = inspect_resource_confirmation(resource, required_fields)
+            if not confirmation.required:
+                continue
+            if page_start <= matched < page_end:
+                items.append(_serialize_confirmation(resource, confirmation))
+            matched += 1
+    return items, matched
+
+
+async def _page_pending_plans(
+    db: AsyncSession, page: int, page_size: int,
+) -> tuple[list[dict], int]:
+    from app.api.v1.organize import _PLAN_LOAD_OPTIONS, _plan_list_item
+
+    total = int((await db.execute(
+        select(func.count()).select_from(OrganizePlan).where(
+            OrganizePlan.status == "pending"
+        )
+    )).scalar_one() or 0)
+    plans = (await db.execute(
+        select(OrganizePlan)
+        .where(OrganizePlan.status == "pending")
+        .order_by(OrganizePlan.created_at.desc(), OrganizePlan.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .options(*_PLAN_LOAD_OPTIONS)
+    )).scalars().all()
+    return [_plan_list_item(plan) for plan in plans], total
+
 
 @router.get("/dashboard")
-async def get_dashboard(db: AsyncSession = Depends(get_db)):
+async def get_dashboard(
+    decision_page: int = Query(1, ge=1),
+    confirmation_page: int = Query(1, ge=1),
+    plan_page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
     active_agents_q = await db.execute(
         select(func.count()).select_from(Agent).where(Agent.status == "active")
     )
@@ -150,110 +351,18 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
             "tasks": untracked_tasks,
         })
 
-    # Pending decisions (top 10)
-    pd_q = await db.execute(
-        select(PendingDecision)
-        .where(PendingDecision.status == "pending")
-        .order_by(PendingDecision.created_at.desc())
-        .limit(10)
-        .options(
-            selectinload(PendingDecision.series),
-            selectinload(PendingDecision.movie),
-            selectinload(PendingDecision.agent),
-        )
+    # Each todo tab is independently paged. Totals always describe the full
+    # actionable set, so the headline metric and tab counts no longer stop at
+    # the current page size.
+    pending_decisions, pending_decisions_total = await _page_pending_decisions(
+        db, decision_page, page_size
     )
-    from app.schemas.file_resource import FileResourceResponse
-
-    pending_decisions = []
-    for pd in pd_q.scalars().all():
-        # Load candidate resources (full rows — the frontend renders raw titles
-        # and, for ambiguous episode/season decisions, an inline correction
-        # form keyed off ``episode_confidence``).
-        res_q = await db.execute(
-            select(FileResource)
-            .where(FileResource.id.in_(pd.candidates or []))
-            .options(
-                selectinload(FileResource.audio_work),
-                selectinload(FileResource.collection),
-            )
-        )
-        candidates = res_q.scalars().all()
-        pending_decisions.append({
-            "id": pd.id,
-            "agent_id": pd.agent_id,
-            "agent_name": pd.agent.name if pd.agent else None,
-            "series_id": pd.series_id,
-            "movie_id": pd.movie_id,
-            "episode": pd.episode,
-            "season": pd.season,
-            "reason": pd.reason,
-            "llm_suggestion": pd.llm_suggestion,
-            "candidates": [c.id for c in candidates],
-            "candidate_resources": [
-                FileResourceResponse.model_validate(c).model_dump()
-                for c in candidates
-            ],
-            "title": (
-                (pd.series.title_cn or pd.series.title_en) if pd.series_id and pd.series
-                else (pd.movie.title_cn or pd.movie.title_en) if pd.movie_id and pd.movie
-                else "Unknown"
-            ),
-            "created_at": pd.created_at.isoformat(),
-        })
-
-    # Pending resource confirmations — file resources whose episode/season
-    # number is ambiguous (episode_confidence="ambiguous") and awaits a manual
-    # correction. Surfaced on the dashboard alongside agent decisions and
-    # organize plans as an actionable todo; correcting the episode via
-    # ``PATCH /resources/{id}/episode`` flips the confidence to "manual" and
-    # re-runs the channel's agents.
-    pending_confirmations = []
-    conf_q = await db.execute(
-        select(FileResource)
-        .where(
-            FileResource.episode_confidence == "ambiguous",
-            # The episode/season question only exists for single-episode tv
-            # resources: batches dedup by content coverage and movies carry
-            # no episode number, so neither is actionable here.
-            FileResource.is_batch.is_(False),
-            FileResource.movie_id.is_(None),
-        )
-        .order_by(FileResource.created_at.desc())
-        .limit(10)
-        .options(
-            selectinload(FileResource.channel),
-            selectinload(FileResource.series),
-            selectinload(FileResource.movie),
-            selectinload(FileResource.audio_work),
-        )
+    pending_confirmations, pending_confirmations_total = (
+        await _page_pending_confirmations(db, confirmation_page, page_size)
     )
-    for r in conf_q.scalars().all():
-        pending_confirmations.append({
-            "resource": FileResourceResponse.model_validate(r).model_dump(),
-            "channel_name": r.channel.name if r.channel else None,
-            "work_title": (
-                (r.series.title_cn or r.series.title_en) if r.series_id and r.series
-                else (r.movie.title_cn or r.movie.title_en) if r.movie_id and r.movie
-                else None
-            ),
-        })
-
-    # Pending organize plans (top 10) — they are actionable todos too, surfaced
-    # on the dashboard with the same in-place execute/cancel/detail operations.
-    # Reuse the plan list-item builder from the organize routes (includes the
-    # ops preview so the frontend can render file paths inline).
-    from app.api.v1.organize import _PLAN_LOAD_OPTIONS, _plan_list_item
-
-    pending_plans = []
-    plan_q = await db.execute(
-        select(OrganizePlan)
-        .where(OrganizePlan.status == "pending")
-        .order_by(OrganizePlan.created_at.desc())
-        .limit(10)
-        .options(*_PLAN_LOAD_OPTIONS)
+    pending_plans, pending_plans_total = await _page_pending_plans(
+        db, plan_page, page_size
     )
-    for p in plan_q.scalars().all():
-        pending_plans.append(_plan_list_item(p))
 
     return success_response({
         "active_agents": active_agents,
@@ -261,6 +370,9 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         "active_download_count": len(tasks) + len(untracked_tasks),
         "active_download_groups": active_download_groups,
         "pending_decisions": pending_decisions,
+        "pending_decisions_total": pending_decisions_total,
         "pending_confirmations": pending_confirmations,
+        "pending_confirmations_total": pending_confirmations_total,
         "pending_plans": pending_plans,
+        "pending_plans_total": pending_plans_total,
     })

@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 # Generic media-descriptor fields correctable in wizard step 3. Applied only
 # when explicitly present in ``body.fields``; never touch episode_confidence.
 MEDIA_FIELDS = (
+    "title_cn",
+    "title_en",
+    "search_title",
     "resolution",
     "subtitle_group",
     "source",
@@ -69,19 +72,49 @@ class AssociationUpdateResult:
 async def _resolve_works(
     db: AsyncSession, body: ResourceAssociationUpdateRequest
 ) -> dict[tuple[str, str], TVSeries | Movie]:
-    """Resolve + dedupe the requested works; 422 on unknown ids."""
+    """Resolve existing works and materialize external candidates atomically."""
     resolved: dict[tuple[str, str], TVSeries | Movie] = {}
+    candidate_ids: dict[str, str] = {}
     for ref in body.works:
-        key = (ref.work_type, ref.work_id)
+        work_id = ref.work_id
+        if ref.candidate is not None:
+            data = dict(ref.candidate.metadata)
+            data.update({
+                "content_type": ref.candidate.content_type,
+                "external_source": ref.candidate.identity_source,
+                "external_id": ref.candidate.external_id,
+                "title_cn": ref.candidate.title_cn,
+                "title_en": ref.candidate.title_en,
+                "original_title": ref.candidate.original_title,
+                "poster_url": ref.candidate.poster_url,
+            })
+            if ref.work_type == "series":
+                from app.services.metadata_service import create_or_update_series_from_external
+
+                obj = await create_or_update_series_from_external(db, data)
+            else:
+                from app.services.metadata_service import create_or_update_movie_from_external
+
+                obj = await create_or_update_movie_from_external(db, data)
+            work_id = obj.id
+            candidate_ids[ref.client_key or ""] = work_id
+            ref.work_id = work_id
+        if work_id is None:
+            raise AssociationValidationError("作品引用缺少 work_id")
+        key = (ref.work_type, work_id)
         if key in resolved:
             raise AssociationValidationError("作品关联列表中存在重复项")
-        model = TVSeries if ref.work_type == "series" else Movie
-        obj = await db.get(model, ref.work_id)
-        if obj is None:
-            raise AssociationValidationError(
-                f"作品不存在：{ref.work_type} {ref.work_id}"
-            )
+        if ref.candidate is None:
+            model = TVSeries if ref.work_type == "series" else Movie
+            obj = await db.get(model, work_id)
+            if obj is None:
+                raise AssociationValidationError(
+                    f"作品不存在：{ref.work_type} {work_id}"
+                )
         resolved[key] = obj
+    for assignment in body.assignments:
+        if assignment.work_id in candidate_ids:
+            assignment.work_id = candidate_ids[assignment.work_id]
     return resolved
 
 
@@ -217,6 +250,42 @@ def _apply_assignments(
         row.source = "manual"
 
 
+def _apply_work_links(
+    resource: FileResource,
+    work_keys: set[tuple[str, str]],
+) -> None:
+    """Apply the desired work-link set without delete/reinsert collisions.
+
+    PostgreSQL may flush INSERTs before orphan DELETEs. Replacing an unchanged
+    link with a new ORM object can therefore violate the per-resource/work
+    unique constraint. Keep matching rows in place, remove only stale rows,
+    and create only genuinely new links.
+    """
+    existing = {
+        (
+            "series" if row.series_id is not None else "movie",
+            row.series_id or row.movie_id,
+        ): row
+        for row in resource.work_links
+    }
+
+    for key, row in list(existing.items()):
+        if key not in work_keys:
+            resource.work_links.remove(row)
+
+    for work_type, work_id in sorted(work_keys):
+        row = existing.get((work_type, work_id))
+        if row is not None:
+            row.source = "manual"
+            continue
+        resource.work_links.append(ResourceWorkLink(
+            resource_id=resource.id,
+            series_id=work_id if work_type == "series" else None,
+            movie_id=work_id if work_type == "movie" else None,
+            source="manual",
+        ))
+
+
 async def apply_association_update(
     db: AsyncSession,
     resource: FileResource,
@@ -266,20 +335,31 @@ async def apply_association_update(
 
         # Links replace-set: after a wizard save the association set is
         # human-curated, so provenance becomes 'manual'.
-        resource.work_links.clear()
-        for wt, wid in sorted(work_keys):
-            resource.work_links.append(ResourceWorkLink(
-                resource_id=resource.id,
-                series_id=wid if wt == "series" else None,
-                movie_id=wid if wt == "movie" else None,
-                source="manual",
-            ))
+        _apply_work_links(resource, work_keys)
 
         _apply_assignments(db, resource, body)
 
         from app.services.batch_content_analysis import compute_season_ranges
 
         resource.season_ranges = compute_season_ranges(resource)
+        if resource.batch_scope == "season":
+            season_candidates = seasons or (
+                [resource.season] if resource.season is not None else []
+            )
+            if len(season_candidates) == 1:
+                resource.season = season_candidates[0]
+                resource.batch_seasons = [season_candidates[0]]
+            if len(resource.season_ranges or []) == 1:
+                only_range = resource.season_ranges[0]
+                resource.episode_start = only_range["episode_start"]
+                resource.episode_end = only_range["episode_end"]
+            else:
+                resource.episode_start = None
+                resource.episode_end = None
+        elif resource.batch_scope == "multi_season":
+            resource.season = None
+            resource.episode_start = None
+            resource.episode_end = None
 
         # Marking a resource as 合集 settles any stale ambiguous episode flag.
         if resource.episode_confidence == "ambiguous":
@@ -293,7 +373,7 @@ async def apply_association_update(
         resource.batch_seasons = None
         resource.work_links.clear()
         for row in list(resource.file_assignments):
-            db.delete(row)
+            await db.delete(row)
             resource.file_assignments.remove(row)
 
         if "episode" in sent:

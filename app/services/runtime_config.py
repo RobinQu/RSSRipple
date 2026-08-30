@@ -49,11 +49,9 @@ _SETTING_DEFS: dict[str, tuple[str, str, bool]] = {
     # External search data sources
     "tmdb_api_key": ("tmdb_api_key", _KIND_STR, True),
     "bangumi_api_key": ("bangumi_api_key", _KIND_STR, True),
-    "jina_api_key": ("jina_api_key", _KIND_STR, True),
     "wigolo_base_url": ("wigolo_base_url", _KIND_STR, False),
     "wigolo_api_token": ("wigolo_api_token", _KIND_STR, True),
     "web_fallback_enabled": ("web_fallback_enabled", _KIND_BOOL, False),
-    "jina_enabled": ("jina_enabled", _KIND_BOOL, False),
     "tmdb_enabled": ("tmdb_enabled", _KIND_BOOL, False),
     "wikipedia_enabled": ("wikipedia_enabled", _KIND_BOOL, False),
 }
@@ -129,10 +127,6 @@ class _RuntimeConfig:
         return self._str("bangumi_api_key")
 
     @property
-    def jina_api_key(self) -> str:
-        return self._str("jina_api_key")
-
-    @property
     def wigolo_base_url(self) -> str:
         return self._str("wigolo_base_url")
 
@@ -143,10 +137,6 @@ class _RuntimeConfig:
     @property
     def web_fallback_enabled(self) -> bool:
         return self._bool("web_fallback_enabled")
-
-    @property
-    def jina_enabled(self) -> bool:
-        return self._bool("jina_enabled")
 
     @property
     def tmdb_enabled(self) -> bool:

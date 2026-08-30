@@ -58,7 +58,7 @@ FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一
     - `eq` / `ne`：视为**集合相等/不等**（忽略顺序）。
   - genre 字段（`series.genre`, `movie.genre`）是带命名空间的列表字段，取值为资源关联作品的 `genre`（封闭 TMDB 27 类英文 canonical 名，见 data-models.md「genre 取值约定」），支持操作符与逐元素语义同列表字段；资源未关联作品时值为空，适用标准空值语义。
   - 枚举字段（`episode_confidence`）在存储层是普通字符串，走字符串字段求值路径；UI 限制取值为 `"raw" | "reconciled" | "ambiguous" | "manual"`。
-  - 作品类型字段（`content_type`）是派生枚举字符串字段：值由资源互斥的作品 FK 派生——`series_id` 非空 → `"tv"`、`movie_id` 非空 → `"movie"`、`audio_work_id` 非空 → `"audio"`、三者皆空（未识别）→ 空值（适用标准空值语义，`is_empty` 可匹配「未识别」）。走字符串字段求值路径；UI 限制取值为 `"tv" | "movie" | "audio"`。该派生只读 FK id，无需 eager-load 作品关系，所有求值点均安全。
+  - 作品类型字段（`content_type`）是派生枚举字符串字段：值由资源互斥的作品 FK 派生——`series_id` 非空 → `"tv"`、`movie_id` 非空 → `"movie"`、`audio_work_id` 非空 → `"audio"`、三者皆空（未识别或仅挂 WorkCollection 的 franchise 包）→ 空值（适用标准空值语义，`is_empty` 可匹配）。走字符串字段求值路径；UI 限制取值为 `"tv" | "movie" | "audio"`。franchise 可混合 TV/电影/OVA 且按不变量清除 flat FK，不存在合法的单一枚举值，因此该字段对 franchise 必填门禁不适用；其形态由 `is_batch` + `resource_collection` 表达。该派生只读 FK id，无需 eager-load作品关系，所有求值点均安全。
   - 字符串字段（其余全部）支持：`eq`, `ne`, `contains`, `fuzzy`, `in`, `regex`。
 - **operator 语义**（字符串比较均忽略大小写）：
   - `eq`：字段值等于 value（字符串去首尾空格后比较）。
@@ -72,7 +72,7 @@ FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一
 - **空值处理**：若字段值为 None/空：
   - 对于 `is_required` 语义由 DSL 外层决定——即空值时 `eq/contains/fuzzy/regex/gt/...` 判定为不通过；`ne` 判定为通过。
 - **非空值校验**：所有取值操作符（`eq/ne/contains/fuzzy/in/regex/gt/...`）的 `value` 在保存时（`validate_filter_config`，Agent 创建/更新接口）必须非空——空字符串、纯空白、null 一律返回 422。原因是 `eq ""` 这类条件对任何资源都不通过（正操作符遇空值失败，非空值又不等于 `""`），保存即静默过滤掉全部资源。校验只拦截保存，存量配置的求值语义不变。
-- **频道必填字段门控**：频道必填字段清单 `required_metadata_fields` 覆盖**全部 DSL 字段**（资源级字段以 DSL 字段名为目录键；作品字段按 `series.`/`movie.` 成对归入语义键 `rating`/`year`/`genre`/`is_anime`/`collection`；资源级 franchise 合集展示名走 `resource_collection` 键）。该清单下 Agent 的 `filter_config` 与各 work 的 `filter_overrides` 在保存时仅允许使用资源级字段（发布/集数/标题/作品类型分组，含资源级 `collection`）+ 已声明字段映射的作品字段（如 `rating` → `series.rating`/`movie.rating`），违规 422。清单**强制且创建后只增不删**：代码强制基线永不可清除——不存在"不限制"状态；基线＝基础必选七件套（`title_cn/title_en/search_title/content_type/is_batch/year/is_anime`，故 `series.year`/`movie.year`/`series.is_anime`/`movie.is_anime` 在所有频道默认放行）∪ 形态必填（TV→`season`、单集→`episode`、合集→`episode_start/end`、franchise 包→`resource_collection`；目录键带 `lock` 作用域与 `applies_to` 行形态适用性）；更新移除任何已保存键 422；存量 NULL/残缺行由启动轻迁移收敛为基线。`pick_preferences`（优选偏好）与 OrganizeRule 的 filter 不受此门控。权威目录：`app/services/required_fields.py`。
+- **频道必填字段门控**：频道必填字段清单 `required_metadata_fields` 覆盖**全部 DSL 字段**（资源级字段以 DSL 字段名为目录键；作品字段按 `series.`/`movie.` 成对归入语义键 `rating`/`year`/`genre`/`is_anime`/`collection`；资源级 franchise 合集展示名走 `resource_collection` 键）。该清单下 Agent 的 `filter_config` 与各 work 的 `filter_overrides` 在保存时仅允许使用资源级字段 + 已声明字段映射的作品字段，违规 422；运行时还按资源形态检查全部适用必填值，缺任一字段即阻止 Agent 过滤/派发并进入 Channel 文件资源待确认。清单**强制且创建后只增不删**：代码强制基线永不可清除；基线＝基础必选六件套（`title_cn/search_title/content_type/is_batch/year/is_anime`），`title_en` 为可选字段；其中 `content_type` 对无单一媒介类型的 franchise 行不适用，`year/is_anime` 只适用于单作品行。TV 单季合集才要求 `season`/`episode_start`/`episode_end`，跨季合集改由 `batch_seasons` 覆盖校验，AudioWork 不进入 TV 合集字段检查。`pick_preferences`（优选偏好）与 OrganizeRule filter 不受字段声明门控；偏好引用的非必选字段为空时仅视为该偏好未命中，不阻止资源。权威目录：`app/services/required_fields.py`。
 - **合并规则**：AgentWork 的 `filter_overrides` 若存在，则与全局 `filter_config` 按 AND 包装：
   ```json
   { "combinator": "and", "conditions": [agent.filter_config, work.filter_overrides] }
@@ -196,4 +196,3 @@ FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一
 ```
 
 ---
-

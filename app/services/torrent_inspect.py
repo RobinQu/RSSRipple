@@ -182,7 +182,8 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
             return None
 
     content = await asyncio.to_thread(_download)
-    if not content:
+    if not content or parse_torrent_payload(content) is None:
+        logger.debug("[torrent] rejecting non-bencode or unusable payload %s", url[:80])
         return None
 
     dest = cache_dir / f"{resource_id}.torrent"
@@ -206,7 +207,15 @@ async def ensure_torrent_cached(resource: "FileResource") -> str | None:
     """
     path = resource.torrent_file
     if path and Path(path).exists():
-        return path
+        if parse_torrent_files(path) is not None:
+            return path
+        # A previous implementation persisted HTTP error pages as .torrent
+        # files. Remove those poison entries before attempting a fresh fetch.
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+        resource.torrent_file = None
     url = resource.torrent_url or ""
     if not (url.startswith("http://") or url.startswith("https://")):
         return None
@@ -230,21 +239,12 @@ def _decode_text(value) -> str:
     return str(value)
 
 
-def parse_torrent_files(path: str) -> list[dict] | None:
-    """Parse a .torrent file's file listing.
-
-    Handles both multi-file torrents (``info/files``, path components joined
-    with ``/``; paths are kept relative to the torrent root, i.e. the
-    ``info/name`` root directory is NOT prepended, so the first path component
-    is meaningful for clustering) and single-file torrents (``info/name``).
-    Returns ``[{"name": <relative path>, "size": int}, ...]``, or None when
-    the file cannot be read/decoded or has no usable ``info`` dict.
-    """
+def parse_torrent_payload(raw: bytes) -> list[dict] | None:
+    """Decode and validate torrent bytes before they are persisted."""
     try:
-        raw = Path(path).read_bytes()
         decoded = bencodepy.decode(raw)
     except Exception as e:
-        logger.debug("[torrent] bencode decode failed %s: %s", path, e)
+        logger.debug("[torrent] bencode decode failed in payload: %s", e)
         return None
 
     if not isinstance(decoded, dict):
@@ -266,13 +266,31 @@ def parse_torrent_files(path: str) -> list[dict] | None:
             name = "/".join(_decode_text(p) for p in parts)
             if name:
                 out.append({"name": name, "size": length})
-        return out
+        return out or None
 
     name = info.get(b"name.utf-8") or info.get(b"name")
     length = info.get(b"length")
     if name is None or not isinstance(length, int):
         return None
     return [{"name": _decode_text(name), "size": length}]
+
+
+def parse_torrent_files(path: str) -> list[dict] | None:
+    """Parse a .torrent file's file listing.
+
+    Handles both multi-file torrents (``info/files``, path components joined
+    with ``/``; paths are kept relative to the torrent root, i.e. the
+    ``info/name`` root directory is NOT prepended, so the first path component
+    is meaningful for clustering) and single-file torrents (``info/name``).
+    Returns ``[{"name": <relative path>, "size": int}, ...]``, or None when
+    the file cannot be read/decoded or has no usable ``info`` dict.
+    """
+    try:
+        raw = Path(path).read_bytes()
+    except Exception as e:
+        logger.debug("[torrent] read failed %s: %s", path, e)
+        return None
+    return parse_torrent_payload(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +562,16 @@ async def maybe_inspect_torrent(
                 return False
     url = resource.torrent_url or ""
     cached_path = resource.torrent_file
+    if cached_path and Path(cached_path).exists() and parse_torrent_files(cached_path) is None:
+        # Be defensive for callers that invoke inspection without the normal
+        # ensure_torrent_cached pre-pass: a stale HTML/error page must never
+        # block a later valid fetch forever.
+        try:
+            Path(cached_path).unlink()
+        except OSError:
+            pass
+        resource.torrent_file = None
+        cached_path = None
     if not (cached_path and Path(cached_path).exists()) and not url.startswith(("http://", "https://")):
         return False
 
@@ -584,6 +612,27 @@ async def maybe_inspect_torrent(
             resource.batch_scope = "franchise"
             resource.episode = None
             resource.batch_seasons = report.seasons or None
+        elif report.scope == "single" and resource.series_id and report.file_parses:
+            # A single-file TV release can carry its episode only in the
+            # torrent filename (notably ``[01a]``).  Persist that deterministic
+            # evidence at resource level so Channel required-field checks can
+            # settle without an unnecessary manual decision.  Keep movie and
+            # audio resources untouched; their numeric tokens are not episodes.
+            parsed = next(
+                (
+                    item
+                    for item in report.file_parses
+                    if item.get("episode") is not None
+                ),
+                None,
+            )
+            if parsed:
+                if resource.season is None and parsed.get("season") is not None:
+                    resource.season = parsed["season"]
+                if resource.episode is None:
+                    resource.episode = parsed["episode"]
+                if getattr(resource, "episode_confidence", None) in (None, "ambiguous"):
+                    resource.episode_confidence = "raw"
 
         # Enrichment pass for every resource type: all main video files get a
         # durable assignment row. Batch-only LLM refinement may subsequently

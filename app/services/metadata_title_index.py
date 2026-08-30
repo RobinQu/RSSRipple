@@ -74,6 +74,7 @@ class WorkTitleIndex:
                 return self._title_index
             from sqlalchemy import select
 
+            from app.models.file_resource import FileResource
             from app.models.movie import Movie
             from app.models.series import TVSeries
 
@@ -127,6 +128,38 @@ class WorkTitleIndex:
                     _add(k, "movie", r.id)
                 for alias in (r.aliases or []):
                     _add(alias, "movie", r.id)
+
+            # Successful resource links are historical title aliases too.
+            # Metadata providers often use a different Chinese translation or
+            # romanisation (Zemi/Semi, localized titles, etc.) from the next
+            # release.  Reusing the already-linked sibling's parsed titles is
+            # deterministic and avoids asking the network to rediscover the
+            # same identity for every episode.  Only successfully matched,
+            # single-work rows participate; ambiguous aliases are discarded by
+            # the same _add conflict rule as canonical work titles.
+            linked_resources = (
+                await db.execute(
+                    select(
+                        FileResource.series_id,
+                        FileResource.movie_id,
+                        FileResource.title_cn,
+                        FileResource.title_en,
+                        FileResource.search_title,
+                    ).distinct().where(
+                        FileResource.metadata_matched_at.is_not(None),
+                        FileResource.collection_id.is_(None),
+                        (FileResource.series_id.is_not(None))
+                        | (FileResource.movie_id.is_not(None)),
+                    )
+                )
+            ).all()
+            for r in linked_resources:
+                if bool(r.series_id) == bool(r.movie_id):
+                    continue
+                work_type = "tv" if r.series_id else "movie"
+                work_id = r.series_id or r.movie_id
+                for key in (r.title_cn, r.title_en, r.search_title):
+                    _add(key, work_type, work_id)
 
             self._title_index = index
             self._title_index_ambiguous = ambiguous

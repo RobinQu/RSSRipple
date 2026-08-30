@@ -140,7 +140,7 @@ class TestDatasetGet:
         assert r.status_code == 200
         data = r.json()
         assert data["name"] == "pytest-eval-v1"
-        assert data["data_source_type"] in ("combined", "tmdb", "exa")
+        assert data["data_source_type"] in ("wikipedia", "tmdb", "bangumi")
         assert len(data["entries"]) == 1
         assert data["entries"][0]["raw_title"] == "[EZT] Latest Movie [1080p]"
         assert data["entries"][0]["review_status"] == "accepted"
@@ -360,7 +360,7 @@ class TestPageServing:
         assert "processingStatus" in html  # JS state variable
         assert "computeSearchStats" in html
         assert "btnSelectTmdbFailed" in html
-        assert "btnSelectExaFailed" in html
+        assert "btnSelectBangumiFailed" in html
         assert "btnSelectWikiFailed" in html
         assert "datasetSourceType" not in html
         assert "newDatasetSourceType" in html

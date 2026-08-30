@@ -19,6 +19,8 @@ import {
 import { worksApi } from '../api/works';
 import type { RefreshItem } from '../api/works';
 import type { MetadataSourceOption } from '../api/channels';
+import { metadataApi } from '../api/metadata';
+import type { MetadataSource } from '../types';
 import { genreSlug } from '../constants/genres';
 import type { Work } from '../types';
 import CollectionsPanel from '../components/CollectionsPanel';
@@ -59,8 +61,10 @@ export default function WorksPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchRefreshing, setBatchRefreshing] = useState(false);
   // Batch refresh names its source explicitly (no global default anymore).
-  const [batchSource, setBatchSource] = useState<string | null>(null);
+  const [batchSource, setBatchSource] = useState<MetadataSource | null>(null);
   const [sourceOptions, setSourceOptions] = useState<MetadataSourceOption[]>([]);
+  const [trustedSites, setTrustedSites] = useState<string[]>([]);
+  const [trustedOptions, setTrustedOptions] = useState<{ value: string; label: string }[]>([]);
 
   const topRef = useRef<HTMLDivElement | null>(null);
 
@@ -146,7 +150,7 @@ export default function WorksPage() {
     if (selectedItems.length === 0 || !batchSource) return;
     setBatchRefreshing(true);
     try {
-      const r = await worksApi.batchRefreshMetadata(selectedItems, batchSource);
+      const r = await worksApi.batchRefreshMetadata(selectedItems, batchSource, trustedSites);
       if (r.success) {
         message.success(t('works.batchRefreshStarted', { n: r.data.count }));
         setSelectMode(false);
@@ -167,8 +171,12 @@ export default function WorksPage() {
     setSelected(new Set());
     if (next && sourceOptions.length === 0) {
       // Load the source catalog once for the batch-refresh picker.
-      worksApi.getMetadataConfig().then((r) => {
-        if (r.success && r.data) setSourceOptions(r.data.sources ?? []);
+      metadataApi.sources().then((r) => {
+        if (r.success && r.data) {
+          setSourceOptions(r.data.primary_sources);
+          setTrustedSites(r.data.default_trusted_sites);
+          setTrustedOptions(r.data.trusted_sites.map((site) => ({ value: site.value, label: site.value })));
+        }
       });
     }
   };
@@ -250,7 +258,7 @@ export default function WorksPage() {
               style={{ minWidth: 140 }}
               placeholder={t('works.refreshSource')}
               value={batchSource}
-              onChange={(v) => setBatchSource(v)}
+              onChange={(v) => setBatchSource(v as MetadataSource)}
               options={sourceOptions.map((s) => ({
                 value: s.value,
                 label: s.available
@@ -259,6 +267,9 @@ export default function WorksPage() {
                 disabled: !s.available,
               }))}
             />
+            <Select mode="multiple" size="small" style={{ minWidth: 220 }}
+              placeholder="可信站点" value={trustedSites} onChange={setTrustedSites}
+              options={trustedOptions} />
             <Button
               size="small"
               type="primary"

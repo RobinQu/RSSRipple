@@ -22,8 +22,8 @@ logger = logging.getLogger("rssripple.eval")
 
 GROUND_TRUTH_DIR = Path(__file__).parent.parent.parent / "data"
 DATASET_VERSION = "1.0"
-DATA_SOURCE_TYPES = {"combined", "tmdb", "exa", "wikipedia"}
-DEFAULT_DATA_SOURCE_TYPE = "exa"
+DATA_SOURCE_TYPES = {"tmdb", "wikipedia", "bangumi"}
+DEFAULT_DATA_SOURCE_TYPE = "wikipedia"
 
 
 # ── DB helpers ──────────────────────────────────────────────────────────
@@ -282,11 +282,11 @@ def _infer_data_source_type(
             explicit = payload.get("eval_data_source_type")
             if explicit in DATA_SOURCE_TYPES:
                 return explicit
-    return "combined"
+    return "legacy_unavailable"
 
 
 def normalize_data_source_type(value: str | None) -> str:
-    """Return a supported data source type, defaulting to Exa Agent search."""
+    """Return one of the same three primary sources exposed by the app."""
     normalized = (value or DEFAULT_DATA_SOURCE_TYPE).strip().lower()
     return normalized if normalized in DATA_SOURCE_TYPES else DEFAULT_DATA_SOURCE_TYPE
 

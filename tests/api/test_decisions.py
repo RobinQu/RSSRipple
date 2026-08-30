@@ -98,6 +98,36 @@ class TestDecisions:
         res = await client.post("/api/v1/decisions/nope/skip")
         assert res.status_code == 404
 
+    async def test_single_candidate_legacy_row_is_not_actionable(
+        self, client, setup, db_session_factory
+    ):
+        from app.models.pending_decision import PendingDecision
+
+        ch, _dl, aid = setup
+        resource = await _create_resource(
+            db_session_factory, ch, "[G] Legacy ambiguous - 01"
+        )
+        async with db_session_factory() as session:
+            decision = PendingDecision(
+                id=_uuid(),
+                agent_id=aid,
+                status="pending",
+                candidates=[resource["id"]],
+                reason="集号不确定，需要人工确认",
+            )
+            session.add(decision)
+            await session.commit()
+            decision_id = decision.id
+
+        listed = await client.get(f"/api/v1/agents/{aid}/decisions")
+        assert all(row["id"] != decision_id for row in listed.json()["data"])
+        confirmed = await client.post(
+            f"/api/v1/decisions/{decision_id}/confirm",
+            json={"resource_id": resource["id"]},
+        )
+        assert confirmed.status_code == 409
+        assert confirmed.json()["error"]["code"] == "INVALID_STATE"
+
     async def test_confirm_bad_resource_id_returns_400(self, client, setup, db_session_factory):
         ch, dl, aid = setup
         r1 = await _create_resource(db_session_factory, ch, "[G] YA - 01")

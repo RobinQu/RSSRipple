@@ -1,6 +1,8 @@
 """Tests for required_fields: catalog validation, normalization, shape-aware
 requirement tiers, allowed-field computation, and filter-tree gating."""
 
+from types import SimpleNamespace
+
 from app.services.filter_engine import ALL_FIELDS
 from app.services.required_fields import (
     BASE_REQUIRED_FIELDS,
@@ -10,6 +12,7 @@ from app.services.required_fields import (
     REQUIRED_FIELD_SECTIONS,
     SHAPE_REQUIRED_FIELDS,
     allowed_agent_filter_fields,
+    missing_required_fields,
     normalize_required_fields,
     required_keys_for_shape,
     validate_filter_against_allowed,
@@ -29,12 +32,13 @@ def test_catalog_covers_every_dsl_field():
     assert covered == set(ALL_FIELDS)
 
 
-def test_base_tier_is_seven_always_required_fields():
-    """基础必选：标题×3 + 作品类型/是否合集 + 发行年份/动漫判定。"""
+def test_base_tier_is_six_always_required_fields():
+    """基础必选：标题/检索 + 作品类型/是否合集 + 年份/动漫判定。"""
     assert BASE_REQUIRED_FIELDS == frozenset({
-        "title_cn", "title_en", "search_title",
+        "title_cn", "search_title",
         "content_type", "is_batch", "year", "is_anime",
     })
+    assert REQUIRED_FIELD_CATALOG["title_en"]["lock"] is None
     for key in BASE_REQUIRED_FIELDS:
         assert REQUIRED_FIELD_CATALOG[key]["lock"] == "always"
 
@@ -73,10 +77,40 @@ def test_required_keys_per_shape_respects_applies_to():
     franchise = required_keys_for_shape("franchise")
     assert "resource_collection" in franchise
     assert "year" not in franchise and "is_anime" not in franchise
+    assert "content_type" not in franchise
     assert "title_cn" in franchise and "is_batch" in franchise
     movie = required_keys_for_shape("movie")
     assert BASE_REQUIRED_FIELDS <= movie
     assert not ({"season", "episode"} & movie)
+
+
+def test_missing_required_fields_uses_resource_shape_and_false_is_present():
+    series = SimpleNamespace(
+        start_date=None,
+        is_anime=False,
+        rating=None,
+        genre=["Animation"],
+        collection=None,
+    )
+    resource = SimpleNamespace(
+        series_id="series-1",
+        movie_id=None,
+        audio_work_id=None,
+        collection_id=None,
+        series=series,
+        is_batch=False,
+        title_cn="中文名",
+        title_en="English",
+        search_title="title",
+        season=1,
+        episode=2,
+    )
+    missing = missing_required_fields(resource, ["year", "is_anime", "rating"])
+    assert "year" in missing
+    assert "rating" in missing
+    assert "is_anime" not in missing
+    assert "season" not in missing
+    assert "episode" not in missing
 
 
 def test_sections_order_work_type_first_then_semantic():
@@ -96,7 +130,9 @@ def test_applies_to_mirrors_dsl_namespacing():
         namespaced = any(f.startswith(("series.", "movie.")) for f in entry["dsl_fields"])
         if namespaced:
             assert entry.get("applies_to"), key
-            assert set(entry["applies_to"]) <= {"tv_single", "tv_batch", "movie"}
+            assert set(entry["applies_to"]) <= {
+                "tv_single", "tv_season_batch", "tv_multi_season", "movie"
+            }
 
 
 # ---------------------------------------------------------------------------

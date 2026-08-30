@@ -534,7 +534,7 @@ class TestProcessResources:
         with patch("transmission_rpc.Client", client_cls):
             yield client_instance
 
-    async def test_resource_without_metadata_goes_to_suggestions(
+    async def test_resource_without_metadata_stays_channel_scoped(
         self, db_session, channel, downloader, series
     ):
         agent = await self._make_agent(
@@ -547,7 +547,7 @@ class TestProcessResources:
         result = await process_resources(agent, [res], db_session)
         assert result.unrecognized == 1
         assert result.dispatched == 0
-        assert len(result.suggestions) >= 1
+        assert result.suggestions == []
 
     async def test_resource_not_matching_work_skipped(
         self, db_session, channel, downloader, series, series_b
@@ -1246,19 +1246,16 @@ class TestProcessResources:
         await db_session.flush()
         result = await process_resources(agent, [r1, r2], db_session)
         assert result.dispatched == 0
-        # Two packs of the same work share the idempotency key → one merged
-        # decision with both candidates, episode sentinel -2.
-        assert result.pending_decisions == 2
-        pd = (await db_session.execute(
+        # Coverage is a Channel/FileResource confirmation issue, never an
+        # Agent candidate-choice decision.
+        assert result.pending_decisions == 0
+        pds = (await db_session.execute(
             select(PendingDecision).where(PendingDecision.agent_id == agent.id)
-        )).scalars().one()
-        assert pd.episode == -2
-        assert pd.reason.startswith("合集范围不确定")
-        assert sorted(pd.candidates) == sorted([r1.id, r2.id])
+        )).scalars().all()
+        assert pds == []
 
         # 人工修订（PATCH 语义：补季号/集数范围）后定向重跑：覆盖度键完整
-        # → 正常冲突解决（同季两版本 ask → 1 条冲突决策），旧的"范围不确定"
-        # 决策自动了结。
+        # → 正常冲突解决（同季两版本 ask → 1 条真正的多选一决策）。
         r1.season = 1
         r1.batch_scope = "season"
         r1.episode_start, r1.episode_end = 1, 12
@@ -1268,8 +1265,6 @@ class TestProcessResources:
         await db_session.flush()
         result2 = await process_resources(agent, [r1, r2], db_session)
         assert result2.pending_decisions == 1
-        await db_session.refresh(pd)
-        assert pd.status == "decided"
 
     async def test_batch_multi_season_without_seasons_creates_decision(
         self, db_session, channel, downloader, series
@@ -1288,7 +1283,7 @@ class TestProcessResources:
         await db_session.flush()
         result = await process_resources(agent, [r], db_session)
         assert result.dispatched == 0
-        assert result.pending_decisions == 1
+        assert result.pending_decisions == 0
 
     async def test_batch_cross_run_same_coverage_skipped(
         self, db_session, channel, downloader, series
@@ -1347,12 +1342,11 @@ class TestProcessResources:
         assert result.dispatched == 1
         assert result.duplicates_skipped == 0
 
-    async def test_ambiguous_episode_routes_to_pending_decision(
+    async def test_ambiguous_episode_is_channel_confirmation_not_agent_decision(
         self, db_session, channel, downloader, series
     ):
         """Resources whose episode_confidence=='ambiguous' must not be
-        dispatched — they're routed to a PendingDecision so the user can
-        confirm the correct per-season episode number before download."""
+        dispatched, but they never create an Agent candidate decision."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1364,28 +1358,19 @@ class TestProcessResources:
         await db_session.flush()
         result = await process_resources(agent, [r], db_session)
         assert result.dispatched == 0
-        assert result.pending_decisions == 1
+        assert result.pending_decisions == 0
         assert len(result.suggestions) == 0
-        # The resource matched the rules, so it's recorded for the run-history
-        # "matched resources" list (viewable in the run drawer as 待决策).
-        assert result.matched == 1
-        assert result.matched_resource_ids == [r.id]
+        assert result.matched == 0
+        assert result.matched_resource_ids == []
         pds = (await db_session.execute(
             select(PendingDecision).where(PendingDecision.agent_id == agent.id)
         )).scalars().all()
-        assert len(pds) == 1
-        assert pds[0].status == "pending"
-        assert "集号不确定" in pds[0].reason
-        assert r.id in (pds[0].candidates or [])
-        # Ambiguous decisions carry no "pick the best candidate" semantics,
-        # so the LLM suggestion must be skipped.
-        assert pds[0].llm_suggestion is None
+        assert pds == []
 
-    async def test_ambiguous_season_routes_to_season_reason_decision(
+    async def test_ambiguous_season_is_not_an_agent_decision(
         self, db_session, channel, downloader, series
     ):
-        """Season-uncertain resources (season is None, confidence ambiguous)
-        get the 季号不确定 reason; episode-uncertain ones keep 集号不确定."""
+        """Season uncertainty is owned by the Channel confirmation queue."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1397,19 +1382,16 @@ class TestProcessResources:
         await db_session.flush()
         result = await process_resources(agent, [r], db_session)
         assert result.dispatched == 0
-        assert result.pending_decisions == 1
+        assert result.pending_decisions == 0
         pds = (await db_session.execute(
             select(PendingDecision).where(PendingDecision.agent_id == agent.id)
         )).scalars().all()
-        assert len(pds) == 1
-        assert "季号不确定" in pds[0].reason
-        assert pds[0].llm_suggestion is None
+        assert pds == []
 
-    async def test_ambiguous_season_decision_resolved_after_correction(
+    async def test_ambiguous_season_dispatches_after_correction(
         self, db_session, channel, downloader, series
     ):
-        """The cleanup pass matches BOTH reason prefixes: correcting a
-        season-uncertain resource to manual resolves its 季号不确定 PD."""
+        """Correcting a Channel confirmation lets a targeted run dispatch."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1420,24 +1402,20 @@ class TestProcessResources:
         db_session.add(r)
         await db_session.flush()
         first = await process_resources(agent, [r], db_session)
-        assert first.pending_decisions == 1
+        assert first.pending_decisions == 0
         # User confirms season + episode via PATCH /resources/{id}/episode.
         r.season = 2
         r.episode_confidence = "manual"
         await db_session.flush()
         second = await process_resources(agent, [r], db_session)
         assert second.dispatched == 1
-        pds = (await db_session.execute(
-            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
-        )).scalars().all()
-        assert len(pds) == 1
-        assert pds[0].status == "decided"
+        assert second.pending_decisions == 0
 
-    async def test_ambiguous_decision_resolved_after_correction(
+    async def test_ambiguous_episode_dispatches_after_correction(
         self, db_session, channel, downloader, series
     ):
         """Once the user corrects the episode (confidence='manual'), the next
-        run resolves the stale ambiguous PendingDecision and dispatches."""
+        run dispatches without creating or resolving an Agent decision."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1447,22 +1425,17 @@ class TestProcessResources:
         )
         db_session.add(r)
         await db_session.flush()
-        # First run: ambiguous → PD created, nothing dispatched.
+        # First run: held by Channel confirmation, nothing dispatched.
         first = await process_resources(agent, [r], db_session)
-        assert first.pending_decisions == 1
+        assert first.pending_decisions == 0
         assert first.dispatched == 0
         # User corrects the episode via PATCH /resources/{id}/episode.
         r.episode_confidence = "manual"
         await db_session.flush()
-        # Second run: resource passes the ambiguous gate, dispatches; the
-        # stale ambiguous PD is marked decided by the cleanup pass.
+        # Second run: resource passes the confirmation gate and dispatches.
         second = await process_resources(agent, [r], db_session)
         assert second.dispatched == 1
-        pds = (await db_session.execute(
-            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
-        )).scalars().all()
-        assert len(pds) == 1
-        assert pds[0].status == "decided"
+        assert second.pending_decisions == 0
 
     async def test_ambiguous_batch_resource_skips_episode_gate(
         self, db_session, channel, downloader, series
@@ -1742,10 +1715,10 @@ class TestProcessResourcesEdgeCases:
         assert "dispatch boom" in result.errors[0]
         assert result.dispatched == 0
 
-    async def test_suggestions_fuzzy_clustering(
+    async def test_unrecognized_similar_titles_do_not_create_agent_suggestions(
         self, db_session, channel, downloader
     ):
-        """Two unrecognized resources with similar titles are grouped together."""
+        """Unrecognized metadata is owned by the Channel, not the Agent."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1766,14 +1739,13 @@ class TestProcessResourcesEdgeCases:
 
         result = await process_resources(agent, [r1, r2], db_session)
         assert result.unrecognized == 2
-        # The two similar titles should be clustered into 1 suggestion group
-        assert len(result.suggestions) == 1
+        assert result.suggestions == []
         assert len(result.suggestions[0]["resources"]) == 2
 
-    async def test_suggestions_dissimilar_titles_separate_groups(
+    async def test_unrecognized_dissimilar_titles_do_not_create_agent_suggestions(
         self, db_session, channel, downloader
     ):
-        """Two unrecognized resources with very different titles get separate groups."""
+        """Title similarity does not move Channel confirmations to the Agent."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1794,7 +1766,7 @@ class TestProcessResourcesEdgeCases:
 
         result = await process_resources(agent, [r1, r2], db_session)
         assert result.unrecognized == 2
-        assert len(result.suggestions) == 2
+        assert result.suggestions == []
 
     async def test_scope_channel_wide_movie_dispatch(
         self, db_session, channel, downloader, movie
@@ -1885,10 +1857,10 @@ class TestProcessResourcesEdgeCases:
         assert "decision boom" in result.errors[0]
         assert result.pending_decisions == 0
 
-    async def test_suggestion_with_empty_search_title_uses_title_raw(
+    async def test_unrecognized_empty_search_title_stays_channel_scoped(
         self, db_session, channel, downloader
     ):
-        """Unrecognized resource with empty search_title falls back to title_raw for grouping."""
+        """Missing titles remain a Channel confirmation concern."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1901,8 +1873,7 @@ class TestProcessResourcesEdgeCases:
 
         result = await process_resources(agent, [r], db_session)
         assert result.unrecognized == 1
-        # title_raw is used as key when search_title is empty/falsy
-        assert len(result.suggestions) == 1
+        assert result.suggestions == []
 
     async def test_suggestion_with_both_titles_empty_skips_grouping(
         self, db_session, channel, downloader

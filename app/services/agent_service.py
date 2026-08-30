@@ -28,8 +28,11 @@ from app.services.filter_engine import (
     loaded_relation,
     merge_filters,
 )
+from app.services.resource_confirmation import (
+    LEGACY_CONFIRMATION_REASON_PREFIXES,
+    inspect_resource_confirmation,
+)
 from app.services.runtime_config import runtime_config
-from app.services.text_normalizer import partial_similarity_score
 from app.utils.download_paths import DownloadPathError, resolve_download_dir
 from app.utils.time import utcnow
 
@@ -53,22 +56,6 @@ class RunResult:
 
 
 _RESOLUTION_SCORE = {"2160p": 3, "4k": 3, "1080p": 2, "720p": 1}
-
-
-# Reason prefix used for ambiguous-episode PendingDecisions. The cleanup
-# pass in process_resources identifies these decisions by this prefix and
-# resolves them once the user has manually corrected the episode number
-# (episode_confidence becomes "manual"). Keep the prefix stable.
-_AMBIGUOUS_EPISODE_REASON = "集号不确定，需要人工确认集号: {title}"
-
-# Season-uncertain counterpart: the work was matched but the season number
-# could not be verified (multi-season work, no season marker in the title).
-# Same human-correction backflow as the ambiguous-episode reason — a PATCH
-# correction sets episode_confidence="manual" and the decision auto-resolves.
-_AMBIGUOUS_SEASON_REASON = "季号不确定，需要人工确认季号: {title}"
-
-# Prefixes identifying human-correction PendingDecisions in the cleanup pass.
-_AMBIGUOUS_REASON_PREFIXES = ("集号不确定", "季号不确定")
 
 
 @dataclass
@@ -418,11 +405,7 @@ async def create_pending_decision(
 
     ``key`` is ``(type, target_id, season, episode)``; the legacy 3-element
     ``(type, target_id, episode)`` shape is still accepted (season=None).
-
-    ``reason_override`` lets callers reuse this upsert for non-conflict
-    decisions — notably ambiguous-episode resources that need manual episode
-    confirmation rather than candidate picking. When set, the LLM suggestion
-    (which is about choosing among candidates) is skipped via ``skip_llm``.
+    ``reason_override`` supplies a scope-aware message for batch conflicts.
     """
     if len(key) == 4:
         type_, target_id, season, episode = key
@@ -488,9 +471,8 @@ async def create_pending_decision(
         existing.candidates = merged
         existing.reason = reason
         existing.expires_at = utcnow() + timedelta(days=7)
-        # Only re-generate the LLM pick if the candidate set actually changed
-        # (skip the LLM call on no-op re-runs). Ambiguous-episode decisions
-        # carry no "pick the best candidate" semantics, so the LLM is skipped.
+        # Only re-generate the LLM pick when needed; repeated no-op runs keep
+        # the existing recommendation.
         if not skip_llm and (
             merged != (existing.candidates or []) or not existing.llm_picked_resource_id
         ):
@@ -649,18 +631,6 @@ async def _persist_suggestions(
 # UI renders only reason + candidates, so the sentinel is never displayed.
 _BATCH_EPISODE_SENTINEL = -1
 
-# PendingDecision.episode marker for "batch scope unknown" decisions: the
-# batch passed work-scope + filter but no automatic layer (title pre-parser /
-# torrent content analysis / LLM) could determine its content coverage —
-# season pack without a season number, or multi-season pack without
-# ``batch_seasons``. Coverage is mandatory input for the organize planner's
-# completeness check, so such a pack is held for manual correction (PATCH
-# /resources/{id} → targeted re-run) instead of being dispatched into a
-# download that could never be planned. Distinct from the conflict sentinel
-# above so the two decision kinds never merge on the idempotency key.
-_BATCH_SCOPE_UNKNOWN_SENTINEL = -2
-_BATCH_SCOPE_UNKNOWN_REASON = "合集范围不确定，需要人工确认季号/集数范围: {title}"
-_BATCH_SCOPE_UNKNOWN_PREFIX = "合集范围不确定"
 
 
 def _batch_coverage_key(resource: FileResource) -> tuple | None:
@@ -787,6 +757,7 @@ async def process_resources(
     db: AsyncSession,
     *,
     autocommit: bool = False,
+    required_metadata_fields: list[str] | None = None,
 ) -> RunResult:
     """Process a list of resources through filtering, dedup, and dispatch.
 
@@ -807,23 +778,18 @@ async def process_resources(
     for resource in resources:
         result.total_resources += 1
 
-        # Metadata pre-check
+        # Metadata pre-check. Metadata completeness is owned by the resource's
+        # Channel, not by an Agent decision. Unlinked resources therefore do
+        # not create AgentSuggestion/PendingDecision rows.
         if not resource.series_id and not resource.movie_id:
             result.unrecognized += 1
-            key = resource.search_title or resource.title_raw
-            if key:
-                grouped = False
-                for existing_key in list(suggestions.keys()):
-                    try:
-                        if partial_similarity_score(key, existing_key) >= 80:
-                            suggestions[existing_key]["resources"].append(resource.id)
-                            suggestions[existing_key]["sample_title"] = key
-                            grouped = True
-                            break
-                    except Exception:
-                        continue
-                if not grouped:
-                    suggestions[key] = {"sample_title": key, "resources": [resource.id]}
+            continue
+
+        confirmation = inspect_resource_confirmation(
+            resource, required_metadata_fields
+        )
+        if confirmation.required:
+            result.unrecognized += 1
             continue
 
         # Work scope + filter (filter-level match).
@@ -839,60 +805,14 @@ async def process_resources(
                 result.filter_failed += 1
             continue
 
-        # Ambiguous episode/season number — the metadata pipeline had seasons
-        # evidence but couldn't decide whether the raw number is per-season or
-        # absolute (episode-uncertain), or couldn't verify the season at all
-        # (season-uncertain: season is None). Route to a PendingDecision (not
-        # a dispatch, not a suggestion) so the user can manually confirm
-        # before we download — never auto-download something we're unsure
-        # about. This runs AFTER work-scope + filter so we only ask about
-        # resources the agent would actually download. Batch resources skip
-        # this gate: a 合集 bypasses per-episode flow and dedups by content
-        # coverage instead. Movie-linked resources skip it too — a movie
-        # carries no episode/season question (a stale ambiguous flag from a
-        # previous tv link must not hold a movie hostage).
-        if (
-            getattr(resource, "episode_confidence", None) == "ambiguous"
-            and not getattr(resource, "is_batch", False)
-            and not resource.movie_id
-        ):
-            reason = (
-                _AMBIGUOUS_SEASON_REASON
-                if resource.season is None
-                else _AMBIGUOUS_EPISODE_REASON
-            )
-            try:
-                await create_pending_decision(
-                    agent,
-                    ("series", resource.series_id, resource.season, resource.episode),
-                    [resource],
-                    db,
-                    reason_override=reason,
-                    skip_llm=True,
-                )
-                if autocommit:
-                    await db.commit()
-                result.pending_decisions += 1
-                result.unrecognized += 1
-                # The resource passed work-scope + filter; it merely couldn't
-                # be auto-dispatched (ambiguous number). Record it so the
-                # run-history drawer can show the pending-decision resource.
-                result.matched += 1
-                result.matched_resource_ids.append(resource.id)
-            except Exception as e:
-                logger.exception("Failed to create ambiguous-episode decision for %s: %s", resource.id, e)
-                result.errors.append(str(e))
-            continue
-
         # Batch (合集) resources dedup/conflict by *content coverage* (see
         # _batch_coverage_key): strictly identical coverage (same work + same
         # season / same season set) goes through the normal conflict
         # resolution; different coverage never conflicts. Coverage is a
         # **mandatory** field for downstream organize planning (覆盖度校验),
-        # so unknown coverage no longer dispatches: it routes to a
-        # PendingDecision for manual correction (same pattern as ambiguous
-        # episodes — PATCH /resources/{id} then a targeted re-run). Franchise
-        # packs never reach here (work FKs are cleared → unrecognized bucket).
+        # so unknown coverage is stopped by the Channel confirmation gate.
+        # Franchise packs never reach here (work FKs are cleared →
+        # unrecognized bucket).
         if getattr(resource, "is_batch", False):
             # Same-FileResource guard (crash recovery / re-run).
             existing_stmt = select(DownloadTask).where(
@@ -908,41 +828,11 @@ async def process_resources(
                 result.duplicates_skipped += 1
                 continue
             coverage = _batch_coverage_key(resource)
+            # Unknown coverage is caught by the Channel confirmation gate
+            # above. Keep this defensive guard for callers that supplied a
+            # non-ORM resource shape without the expected batch fields.
             if coverage is None:
-                # 合集范围（season 包的季号 / multi_season 的 batch_seasons）
-                # 是 organize 覆盖度校验的必填依据；三层自动解析（标题
-                # pre-parser → torrent 内容检测 → LLM）都补不齐时不能派发
-                # ——下载了也无法规划整理。落待决策项请人工修订（修订入口
-                # 会触发定向重跑，届时覆盖度键完整即正常派发并自动了结
-                # 该决策，见 _resolve_corrected_ambiguous_decisions）。
-                try:
-                    await create_pending_decision(
-                        agent,
-                        (
-                            "movie" if resource.movie_id else "series",
-                            resource.movie_id or resource.series_id,
-                            None,
-                            _BATCH_SCOPE_UNKNOWN_SENTINEL,
-                        ),
-                        [resource],
-                        db,
-                        reason_override=_BATCH_SCOPE_UNKNOWN_REASON,
-                        skip_llm=True,
-                    )
-                    if autocommit:
-                        await db.commit()
-                    result.pending_decisions += 1
-                    result.unrecognized += 1
-                    # Passed work-scope + filter, just couldn't auto-dispatch;
-                    # record it like the ambiguous branch does.
-                    result.matched += 1
-                    result.matched_resource_ids.append(resource.id)
-                except Exception as e:
-                    logger.exception(
-                        "Failed to create batch-scope decision for %s: %s",
-                        resource.id, e,
-                    )
-                    result.errors.append(str(e))
+                result.unrecognized += 1
                 continue
             # Cross-run dedup against active/completed tasks with the
             # exact same coverage. Series packs honor the per-work
@@ -1053,28 +943,17 @@ async def process_resources(
             logger.exception("Failed to process candidates for %s: %s", key, e)
             result.errors.append(str(e))
 
-    # Cleanup: resolve ambiguous-episode PendingDecisions whose candidate the
-    # user has already corrected (episode_confidence != "ambiguous"). Once the
-    # episode is hand-confirmed, the resource re-enters the normal
-    # filter→dispatch flow on this run, so the stale "please confirm episode"
-    # decision is no longer relevant. Mark it "decided" so it leaves the
-    # pending queue.
-    await _resolve_corrected_ambiguous_decisions(agent, db)
+    await _retire_legacy_resource_confirmation_decisions(agent, db)
 
     result.suggestions = list(suggestions.values())
     await _persist_suggestions(agent.id, result.suggestions, db)
     return result
 
 
-async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession) -> None:
-    """Mark pending human-correction decisions as decided once their
-    candidates have been corrected.
-
-    Two families: ambiguous-episode/season decisions (candidate's
-    ``episode_confidence`` left "ambiguous", typically corrected to "manual"
-    via the PATCH endpoints) and batch-scope-unknown decisions (every
-    candidate's coverage key — season / season set — is now determinable,
-    i.e. the user filled in the batch fields)."""
+async def _retire_legacy_resource_confirmation_decisions(
+    agent: Agent, db: AsyncSession
+) -> None:
+    """Remove legacy resource-metadata issues from the Agent decision queue."""
     pd_rows = (await db.execute(
         select(PendingDecision).where(
             PendingDecision.agent_id == agent.id,
@@ -1083,30 +962,8 @@ async def _resolve_corrected_ambiguous_decisions(agent: Agent, db: AsyncSession)
     )).scalars().all()
     for pd in pd_rows:
         reason = pd.reason or ""
-        is_batch_scope = reason.startswith(_BATCH_SCOPE_UNKNOWN_PREFIX)
-        if not is_batch_scope and not reason.startswith(_AMBIGUOUS_REASON_PREFIXES):
+        if not reason.startswith(LEGACY_CONFIRMATION_REASON_PREFIXES):
             continue
-        cand_ids = list(pd.candidates or [])
-        if not cand_ids:
-            pd.status = "decided"
-            continue
-        cand_rows = (await db.execute(
-            select(FileResource).where(FileResource.id.in_(cand_ids))
-        )).scalars().all()
-        if not cand_rows:
-            continue
-        if is_batch_scope:
-            # Resolve only when every candidate's content coverage is now
-            # determinable (season pack got a season number, multi-season
-            # pack got batch_seasons). The corrected resource re-enters the
-            # normal batch flow on this same run.
-            if all(_batch_coverage_key(c) is not None for c in cand_rows):
-                pd.status = "decided"
-        # Resolve only when every candidate has been corrected away from
-        # "ambiguous" (typically to "manual"). If any candidate is still
-        # ambiguous the decision stays pending for the user to act on.
-        elif all(
-            getattr(c, "episode_confidence", None) != "ambiguous" for c in cand_rows
-        ):
-            pd.status = "decided"
+        pd.status = "skipped"
+        pd.decided_at = utcnow()
     await db.flush()

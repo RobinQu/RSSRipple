@@ -67,7 +67,8 @@ def _resource() -> SimpleNamespace:
     return SimpleNamespace(
         search_title=None, episode=16, season=1, is_batch=False,
         episode_start=None, episode_end=None, title_cn=None, title_en=None,
-        subtitle_langs=None, episode_confidence=None, batch_scope=None,
+        subtitle_group=None, subtitle_langs=None,
+        episode_confidence=None, batch_scope=None,
         series_id=None, movie_id=None, audio_work_id=None,
         metadata_matched_at=None,
     )
@@ -100,6 +101,38 @@ async def test_movie_verdict_flips_to_existing_series(db_session):
     assert resource.series_id == series.id
     assert resource.movie_id is None
     assert (await db_session.execute(select(Movie))).scalars().all() == []
+
+
+async def test_movie_verdict_repairs_misfiled_movie_series(db_session):
+    """A TVSeries row that itself says movie is migrated, not preserved."""
+    series = TVSeries(
+        id=_uuid(), title_cn="异形基地", title_en="Body Snatchers",
+        external_id="tmdb:4722", external_source="tmdb", content_type="movie",
+    )
+    db_session.add(series)
+    await db_session.flush()
+
+    meta = _meta(
+        content_type="movie",
+        matched_entity={
+            "external_id": "tmdb:4722", "external_source": "tmdb",
+            "title_cn": "异形基地", "title_en": "Body Snatchers",
+            "release_date": "1993-01-15",
+        },
+    )
+    resource = _resource()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+
+    movies = (await db_session.execute(select(Movie))).scalars().all()
+    assert len(movies) == 1
+    assert movies[0].external_id == "tmdb:4722"
+    assert resource.movie_id == movies[0].id
+    assert resource.series_id is None
+    assert await db_session.get(TVSeries, series.id) is None
 
 
 async def test_tv_verdict_flips_to_existing_movie(db_session):
@@ -203,13 +236,32 @@ async def test_set_cache_upserts_replacing_stale_row(db_session):
 # ---------------------------------------------------------------------------
 
 
-async def test_not_found_only_sets_search_title(db_session):
+async def test_not_found_does_not_overwrite_parsed_search_title(db_session):
     meta = _meta(found=False, clean_title="Cleaned Title")
     resource = _resource()
+    resource.search_title = "Parser Title"
     await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
-    assert resource.search_title == "Cleaned Title"
+    assert resource.search_title == "Parser Title"
     assert resource.series_id is None
     assert resource.metadata_matched_at is None
+
+
+async def test_not_found_does_not_fill_search_title_from_failed_verdict(db_session):
+    meta = _meta(found=False, clean_title="[Group] Noisy S01E03 1080p")
+    resource = _resource()
+    await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.search_title is None
+
+
+async def test_not_found_fills_missing_subtitle_group_without_overwriting(db_session):
+    meta = _meta(found=False, subtitle_group="  喵萌奶茶屋  ")
+    resource = _resource()
+    await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.subtitle_group == "喵萌奶茶屋"
+
+    resource.subtitle_group = "人工修订组"
+    await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.subtitle_group == "人工修订组"
 
 
 async def test_episode_season_and_titles_filled_from_meta(db_session):
@@ -235,6 +287,24 @@ async def test_episode_season_and_titles_filled_from_meta(db_session):
     assert resource.title_cn == "标题"
     assert resource.title_en == "Title"
     assert resource.subtitle_langs == ["zh-CN", "ja"]
+
+
+async def test_all_release_fields_are_written_back(db_session):
+    meta = _meta(
+        resolution="1080p", source="WEB-DL", video_codec="HEVC",
+        audio_codec="AAC", subtitle_type="内封", subtitle_group="VARYG",
+        subtitle_langs=[], container="mkv",
+    )
+    resource = _resource()
+    await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.resolution == "1080p"
+    assert resource.source == "WEB-DL"
+    assert resource.video_codec == "HEVC"
+    assert resource.audio_codec == "AAC"
+    assert resource.subtitle_type == "内封"
+    assert resource.subtitle_group == "VARYG"
+    assert resource.subtitle_langs == []
+    assert resource.container == "mkv"
 
 
 async def test_batch_flags_clear_single_episode(db_session):
@@ -310,6 +380,24 @@ async def test_batch_scope_not_downgraded_from_torrent_analysis(db_session):
     ):
         await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
     assert resource.batch_scope == "multi_season"
+
+
+async def test_franchise_metadata_match_does_not_restore_flat_work_fk(db_session):
+    meta = _meta(
+        matched_entity={
+            "external_id": "tmdb:700", "external_source": "tmdb",
+            "title_cn": "福星小子",
+        },
+    )
+    resource = _resource()
+    resource.is_batch = True
+    resource.batch_scope = "franchise"
+    await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.series_id is None
+    assert resource.movie_id is None
+    assert resource.audio_work_id is None
+    assert resource.metadata_matched_at is not None
+    assert (await db_session.execute(select(TVSeries))).scalars().all() == []
 
 
 async def test_episode_reconciliation_absolute_to_per_season(db_session):

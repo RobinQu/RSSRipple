@@ -136,23 +136,9 @@ From raw RSS titles, extract:
   Emit ``[]`` when the title has no subtitle marker at all; only use
   ``null`` to mean "I don't know / defer to the pre-parser".
 
-## SEARCH QUERY VARIANTS (Jina mode only)
-
-When the title spans multiple languages (Chinese/Japanese/English), try these
-variants in order and combine evidence across them:
-  1. Chinese title (title_cn) — best for Chinese release info, Baidu/Douban
-  2. Romanized Japanese — for anime, use the romaji title
-  3. English title — for TMDB/IMDb-style databases
-Search each with ``search_jina`` at most once. Prefer TMDB / IMDb / Wikipedia /
-Wikidata / MyAnimeList / AniList URLs in the results.
-
 ## SOURCE MODE
 - TMDB mode: use search_tmdb and get_tmdb_details only.
 - Wikipedia mode: use search_wikipedia and get_wikipedia_page only.
-- Jina mode: use search_jina and read_jina_url only. Cap at 3 tool calls before
-  finalize. When evidence comes from a TMDB/IMDb page reached via Jina, emit
-  external_id in canonical form (tmdb:XXXXX / imdb:ttXXXXXXX) — Jina is the
-  route, TMDB/IMDb is the identifier source.
 
 ## finalize SCHEMA
 Always output valid JSON matching:
@@ -181,7 +167,7 @@ Always output valid JSON matching:
   "container": "string|null",
   "matched_entity": {
     "external_id": "tmdb:XXXXX",
-    "external_source": "tmdb",  # tmdb|wikipedia|jina — canonical ID source
+    "external_source": "tmdb",  # canonical registry identity source
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "poster_url": "...",
     "rating": float, "genre": ["<from the ## genre list below>", ...],
@@ -197,7 +183,7 @@ Always output valid JSON matching:
   } | null,
   "ambiguous": true/false,
   "ambiguous_candidates": [],
-  "data_sources_used": ["tmdb"|"wikipedia"|"jina"],
+  "data_sources_used": ["tmdb"|"wikipedia"|"bangumi"],
   "confidence": 0.0-1.0,
   "reason": "explanation"
 }

@@ -42,7 +42,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、前 10 条 pending_decisions |
+| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、三类待办的独立服务端分页。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
 
 `GET /dashboard` 响应 `data` 结构：
 ```json
@@ -59,9 +59,16 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
       "tasks": [ { "task_id": "...", "resource_title": "...", "progress": 0.5, "agent_id": "...", "agent_name": "...", "channel_id": "...", "channel_name": "..." } ]
     }
   ],
-  "pending_decisions": [ { ... } ]
+  "pending_decisions": [ { ... } ],
+  "pending_decisions_total": 3,
+  "pending_confirmations": [ { ... } ],
+  "pending_confirmations_total": 36,
+  "pending_plans": [ { ... } ],
+  "pending_plans_total": 2
 }
 ```
+
+三个 `*_total` 均为对应待办的真实全量数，不受当前页 `page_size` 限制；三个页码相互独立，切换其中一个列表不会改变另两个列表的页位。Agent 决策总数与分页结果只计入候选数至少为 2 的有效多选一决策；文件资源确认总数与分页结果统一调用 Channel 确认策略计算。
 
 `untracked` 组：对每个下载器调用 `list_torrents`，筛选 `status ∈ {downloading, download pending}` 且 `is_finished=false` 且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name`；计入 `active_download_count`。
 
@@ -90,7 +97,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 频道资源列表响应额外返回 `has_download_task`：只要该资源曾创建过任意 `DownloadTask`（下载 Agent 或手动、任意当前状态）即为 true，供频道页标记“已下载”。
 
-`required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选七件套**（`title_cn/title_en/search_title/content_type/is_batch/year/is_anime`，全形态适用）∪ **形态必填**（TV 单集→`season`+`episode`；TV 合集→`season`+`episode_start`+`episode_end`；多作品合集→`resource_collection`）；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR（消息列出被移除的键），仅允许在其上新增。存量 NULL/残缺行由启动轻迁移收敛为基线。
+`required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选六件套**（`title_cn/search_title/content_type/is_batch/year/is_anime`，全形态适用）∪ **形态必填**（TV 单集→`season`+`episode`；TV 单季合集→`season`+`episode_start`+`episode_end`；跨季合集不要求单值 season/range，仅校验 `batch_seasons`；多作品合集→`resource_collection`）；`title_en` 保留为可选目录字段；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR。Agent 运行前按资源形态检查这些字段的实际值，缺失资源进入 Channel 文件资源待确认并阻止派发；AudioWork 不进入 TV 合集范围检查；`pick_preferences` 可引用目录外字段，空值只是不命中偏好。
 
 `POST /channels/{id}/summarize-filters` 请求体：`{ "resource_ids": ["...", "..."] }`；响应 `data`：
 
@@ -291,13 +298,13 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/agents/{agent_id}/decisions` | 待决策列表（分页，可按 status 查询） |
+| GET | `/agents/{agent_id}/decisions` | Agent 多候选下载决策列表（分页，可按 status 查询；资源 metadata 确认不在此返回） |
 | POST | `/decisions/{id}/confirm` | 确认选择某个候选资源 → 推送下载 |
 | POST | `/decisions/{id}/skip` | 跳过本次决策（标记 skipped） |
 | POST | `/decisions/{id}/ai-pick` | AI 自动处理：让 LLM 选中最优候选（优先复用缓存的 `llm_picked_resource_id`，否则即时调用 LLM）并派发下载 |
 | POST | `/agents/{agent_id}/decisions/batch` | 批量处理：对多条 pending 决策统一执行 `skip` 或 `ai` 动作 |
 
-`POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。
+`POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。所有决策操作均要求至少两个合格候选；旧版单候选资源修订行返回 409 `INVALID_STATE`。
 
 `POST /decisions/{id}/ai-pick` 无请求体。决策非 `pending` 状态返回 `400 NOT_PENDING`；LLM 未能给出选择返回 `400 LLM_NO_PICK`（需手动确认）。响应 `data`：`{ "id", "status", "decided_resource_id", "decided_at" }`。
 
@@ -368,30 +375,34 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/channels/{channel_id}/field-values` | Filter DSL 编辑器的自动补全数据源。Query 参数 `field`（必填，仅支持字符串字段与 `subtitle_langs`）、`q`（可选，忽略大小写的前缀匹配）、`limit`（默认 10，最大 50）。返回该频道下 top-N 出现频率最高的候选值数组。数值型字段被拒绝（422）。|
 | GET | `/resources/{id}` | 资源详情。返回 **Detail schema**：基础资源字段 + `season_ranges`（逐季集数范围）+ `work_links[]`（合集多作品关联，含 `source` provenance 与服务端解析的 `work_title`）+ `file_assignments[]`（文件级映射：path/size/work FK/hint/season/episode_start/end/source）。列表端点仍返回精简基础 schema |
 | GET | `/resources/{id}/metadata` | 获取 metadata（若未链接则触发自动匹配流程，返回匹配结果；匹配中返回 status=processing 可轮询）；链接为剧集时 `linked.entity` 额外携带 `seasons`（每季 `season_number`/`episode_count`），供集号修正 UI 从绝对集号前端预填季号 |
-| POST | `/resources/{id}/metadata/search` | 手动 MetadataAgent 搜索：`{ "search_title": "...", "content_type": "tv"|"movie", "data_source_type": "tmdb"|"wikipedia"|"bangumi"|"jina"? }` → 返回候选列表 |
-| PUT | `/resources/{id}/metadata/link` | 手动确认关联：`{ "selected_result": { ... } }` → 创建/更新 TVSeries/Movie，写入 resource FK，写入 ChannelRawTitleMapping，重新触发 Agent 过滤；链接为电影时清除资源上残留的 `episode_confidence="ambiguous"`（置 null——电影无集号/季号问题；链接为剧集时保留 reconcile/季号判定的原有语义） |
+| GET | `/metadata/sources` | 统一来源目录：三种主来源、可用状态、可信站点及默认顺序 |
+| POST | `/metadata/search` | 统一只读搜索：`{query, content_type, mode, source?, trusted_sites?}`；`trusted_sites=null` 使用默认顺序，`[]` 禁用全网回退；返回本地或在线规范化候选 |
+| POST | `/works/metadata/preview` | 预览在线候选与现有作品的字段差异及人工保护状态，不写库 |
+| POST | `/works/metadata/apply` | 应用已确认候选；同步候选提供的非人工字段，空值不清空，身份冲突返回 409 |
 | PATCH | `/resources/{id}/episode` | 手动修正集号：`{ "episode": int|null, "season": int?, "absolute_episode": int|null?, "note": string? }` → 写入 per-season episode（可选保留 absolute_episode），设置 `episode_confidence="manual"`。未显式发送 `season` 且已知 absolute 集号、资源已链接剧集且该剧集有逐季集数数据时，服务端用 `locate_absolute_episode` 推导 season（episode 也未显式发送时一并推导）——显式值永远优先。**先 commit 再入队**（worker 只读已提交数据，避免读到修正前的 `ambiguous` 而重建过期决策），然后对该 channel 下所有 active Agent 入队一次**定向运行**（`resource_ids=[该资源]`）：按 Agent 当前规则只处理该资源，**绕过消费水位线**（资源可能较旧）、**不推进水位线**。省略 `absolute_episode` 时保留原值。 |
 | PATCH | `/resources/{id}` | 人工修订解析字段（`ResourceParseCorrectionRequest`）：`{ "episode"?, "season"?, "absolute_episode"?, "episode_start"?, "episode_end"?, "is_batch"?, "batch_scope"?: "season"\|"multi_season"\|"franchise"\|"movies", 通用字段?: resolution/subtitle_group/source/video_codec/audio_codec/subtitle_type/container/subtitle_langs }` —— 全可选，仅显式发送的字段被更新（`model_fields_set` 语义）。服务端强制合集不变量（与抓取期 pre-parser 对齐）：`is_batch=true` 强制 `episode=null` 且未显式发送 scope 时缺省 `batch_scope="season"`；`is_batch=false` 清空 `batch_scope`/`episode_start`/`episode_end`。显式发送 `episode`/`season`/`absolute_episode` 任一即置 `episode_confidence="manual"`；未发送集号字段但修订结果为 `is_batch=true` 且原为 `ambiguous` 时同样置 `manual`（合集无单集概念，标记合集即了结集号/季号问题）；**通用媒体描述字段不触碰 `episode_confidence`**。**先 commit 再入队**对该频道全部 active Agent 的定向运行（语义同 PATCH `/episode`）。旧 `PATCH /resources/{id}/episode` 保留。 |
-| PUT | `/resources/{id}/associations` | 编辑向导统一提交（`ResourceAssociationUpdateRequest`）：`{ "is_batch": bool, "works": [{work_type, work_id}], "collection_id"?, "assignments": [{file_path, work_type, work_id, file_size?, season?, episode_start?, episode_end?}], "season"?/"episode"?/"absolute_episode"?(仅非合集分支), "fields"?: 通用字段 }` → 原子应用全部不变量：非合集至多一个作品（写入互斥 FK，清空 links/assignments/collection）；合集恰一作品时镜像到 FK（保 dedup coverage key），多作品清 FK 仅留 links；`batch_scope` 自动推导（全 movie→movies；tv+movie 或多 tv→franchise；单 tv→season/multi_season 按季证据）；assignments 必须引用 works 集合、TV 文件必须带季、同 (work, season) 集号区间**重叠→422**、断档→200+warnings；`season_ranges` 按 assignments 重算；diff-preserving 替换（未变化的行保留 auto/llm provenance，改动/新增行标 manual）。works 为空的非合集提交保留现有挂载（含音频链接）——纯通用字段保存不清关联。先 commit 再定向 Agent 重跑；响应为 Detail schema + `warnings[]` |
+| PUT | `/resources/{id}/associations` | 编辑向导统一提交（`ResourceAssociationUpdateRequest`）：`{ "is_batch": bool, "works": [{work_type, work_id}], "collection_id"?, "assignments": [{file_path, work_type, work_id, file_size?, season?, episode_start?, episode_end?}], "season"?/"episode"?/"absolute_episode"?(仅非合集分支), "fields"?: 通用字段及 title_cn/title_en/search_title }` → 原子应用全部不变量：非合集至多一个作品（写入互斥 FK，清空 links/assignments/collection）；合集恰一作品时镜像到 FK（保 dedup coverage key），多作品清 FK 仅留 links；`batch_scope` 自动推导（全 movie→movies；tv+movie 或多 tv→franchise；单 tv→season/multi_season 按季证据）；单季合集从 assignments 同步资源级 `season/episode_start/episode_end`，跨季合集清空这些扁平字段并使用 `batch_seasons/season_ranges`；assignments 必须引用 works 集合、TV 文件必须带季、同 (work, season) 集号区间**重叠→422**、断档→200+warnings；work links 与 assignments 均按差量更新，重复保存幂等。works 为空的非合集提交保留现有挂载（含音频链接）。先 commit 再定向 Agent 重跑；响应为 Detail schema + `warnings[]` |
 | POST | `/resources/{id}/analyze-batch` | 向导第二步重析（**不落库**）：按 files 端点同一解析链取清单 → 返回 `{ "suggestion": { "deterministic": {scope_hint, seasons, season_ranges, files:[{path,size,season,episode}], clusters:[{title,files}]}, "works": [{candidate_key,title,content_type,files:[...]}] }, "listing_source" }`。**deterministic 层始终返回**（纯路径解析无需 LLM，并支持 `Title 01;` archive 格式）；`works` 的 candidate_key 只能来自服务端候选作品集合，后端校验后返回，标题仅作兼容提示；无清单时 `suggestion=null` |
 | POST | `/resources/{id}/analyze-batch-stream?force=false` | 上述重析的 SSE 交互端点；web 按资源/标题/torrent 清单/解析版本指纹读取持久缓存，未命中则以 `batch-analysis:<fingerprint>` 幂等键提交 `analyze_batch_files` 后台任务，并轮询队列的共享进度状态转发 `status` / LLM `delta` / `warning` / `result`。`force=true` 仅供用户主动「重新解析」在旧任务结束后以同 key 重新入队并覆盖旧缓存；Redis Queue 的 active-key 原子去重保证多 web/多窗口只执行一次，SSE 断开不取消 worker 任务。 |
 | GET | `/resources/{id}/files` | 资源 torrent 文件清单（`ResourceFilesResponse`）：`{ "files": [{"name", "size"}], "source" }`，`source` 记录清单来源（首个命中即返回）：`torrent_cache`（本地缓存 .torrent 经 bencode 解析）→ `torrent_fetch`（http(s) `torrent_url` 现场下载，缓存路径写回 `torrent_file`）→ `downloader`（最新 DownloadTask 的下载器 RPC `get_torrent_files`，失败静默）→ `notification`（最新完成通知冻结快照 `payload.files`）→ `none`（全部不可用，返回空 `files`）。404 遵循统一错误结构。 |
 
 `PUT /resources/{id}/associations` 成功提交后额外入队 `refresh_resource_organize`：对该资源已有 completed 任务原地刷新通知快照，并重建 pending/failed 变更计划。`GET /organize/plans/{id}` 返回 `resource_id`，供详情 Drawer 复用文件资源向导的「文件关联」步骤直接修订；非开放状态只读。
 
-`POST /resources/{id}/metadata/search` 请求体示例：
+`POST /metadata/search` 请求体示例：
 ```json
 {
-  "search_title": "Ascendance of a Bookworm",
+  "query": "Ascendance of a Bookworm",
   "content_type": "tv",
-  "data_source_type": "tmdb"
+  "mode": "online",
+  "source": "tmdb",
+  "trusted_sites": ["bangumi", "anilist", "tmdb", "wikipedia"]
 }
 ```
 
 响应 `data`：
 ```json
 {
-  "results": [
+  "candidates": [
     {
       "title_cn": "...", "title_en": "...", "original_title": "...",
       "description": "...", "poster_url": "https://...", "year": 2024,
@@ -408,7 +419,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/works` | 作品列表（分页，支持 search 模糊搜索和 content_type 过滤：all/tv/movie；`collection_id` 参数：合集 UUID=仅该合集成员（音频作品被排除），字面量 `none`=仅未分组作品，缺省=不过滤；tv/movie 条目带 `collection_id`/`collection_name`（显示名 = 合集 title_cn 或 title_en，未分组为 null）与 `is_anime`（可空布尔三态，见下），音频条目无合集恒为 null） |
-| POST | `/works/refresh-metadata` | 刷新单个作品元数据：body `{id, content_type: "tv"\|"movie", source, override_manual_edits?}` → `source` **必填**（无全局默认源；缺失 422、不可用源 400），用现有标题对所选源重新搜索并补全缺失字段；`override_manual_edits`（默认 false）勾选「覆盖所有人工编辑字段」时才覆盖 `manually_edited_fields` 中的字段（见 data-models.md「人工编辑保护」）。频道级定期刷新复用同一管线（source=频道自身 metadata_source，恒不覆盖人工编辑，详见 business-logic.md「数据源选择规则」）；`GET /works/metadata-config` 仅返回 `{sources}` 目录（原 PUT 已删除）；批量端点 `/works/batch-refresh-metadata` 同样 `source` 必填 |
+| POST | `/works/batch-refresh-metadata` | body `{items, source, trusted_sites}`；后台使用统一搜索服务并同步候选提供的非人工字段 |
 
 ### TVSeries
 

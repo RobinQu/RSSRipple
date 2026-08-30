@@ -30,6 +30,48 @@ _SEASON_SUFFIX_RE = re.compile(
 )
 
 
+_FILENAME_GROUP_SUFFIX_RE = re.compile(
+    r"(?:-|\[)([A-Za-z0-9][A-Za-z0-9._]{1,31})\]?$",
+    flags=re.IGNORECASE,
+)
+_VIDEO_EXTENSION_RE = re.compile(
+    r"\.(?:mkv|mp4|m4v|avi|mov|wmv|ts|m2ts|webm)$",
+    flags=re.IGNORECASE,
+)
+_TECHNICAL_FILENAME_SUFFIXES = {
+    "aac", "aac20", "ac3", "av1", "avc", "bluray", "bdrip", "cr",
+    "ddp", "ddp51", "dts", "flac", "h264", "h265", "hevc", "opus",
+    "remux", "truehd", "web", "webdl", "webrip", "x264", "x265",
+}
+
+
+def extract_subtitle_group_from_filename(file_path: str | None) -> str | None:
+    """Extract a release group placed at the end of a video filename.
+
+    Overseas release groups commonly use ``...-GROUP.mkv`` (or, less often,
+    ``...[GROUP].mkv``), while Chinese/Japanese groups generally appear at the
+    start of the RSS title.  This helper is intentionally filename-only and
+    conservative: directory names, whitespace-bearing suffixes, numeric tags,
+    and common codec/source tokens are rejected.
+    """
+    if not file_path:
+        return None
+    filename = re.split(r"[/\\]", str(file_path))[-1].strip()
+    stem = _VIDEO_EXTENSION_RE.sub("", filename)
+    match = _FILENAME_GROUP_SUFFIX_RE.search(stem)
+    if not match:
+        return None
+    candidate = match.group(1).strip()
+    normalized = re.sub(r"[._-]", "", candidate.casefold())
+    if (
+        candidate.isdigit()
+        or normalized in _TECHNICAL_FILENAME_SUFFIXES
+        or re.fullmatch(r"\d{3,4}p", normalized)
+    ):
+        return None
+    return candidate
+
+
 def strip_season_from_title(title: str | None) -> str | None:
     """Remove a trailing season suffix from a work title.
 
@@ -505,6 +547,15 @@ _LEADING_BRACKETS_RE = re.compile(r"^(?:\s*[\[【][^\]】]*[\]】])+")
 # isolate the work-name segment(s) from a raw title.
 _EPISODE_TAIL_RE = re.compile(r"\s*-\s*\d+\b.*$")
 _TRAILING_TECH_RE = re.compile(r"\s*[\[【(（].*$")
+_BILINGUAL_SPLIT_RE = re.compile(r"\s*[/／]\s*")
+_CJK_LATIN_BOUNDARY_RE = re.compile(
+    r"(?<=[\u3040-\u30ff\u3400-\u9fff])(?=[A-Za-z][A-Za-z0-9.' _-]{2,}$)"
+)
+_PACK_SUFFIX_RE = re.compile(
+    r"\s+(?:S\d{1,2}|Season\s*\d+)\b(?:\s*[|｜].*)?$|"
+    r"\s*[|｜]\s*\d{1,3}(?:\s*[-~～]\s*\d{1,3})?(?:\s*\+\s*SP\s*x?\d+)?\s*$",
+    re.IGNORECASE,
+)
 
 _RESOLUTION_WXH_RE = re.compile(r"\b(\d{3,4})\s*[x×]\s*(\d{3,4})\b", re.IGNORECASE)
 # Bare "1080p" / "1080P" form (the WXH regex only covers 1920x1080 shapes).
@@ -543,7 +594,9 @@ _SPECIAL_EPISODE_RE = re.compile(
     r"(?=[\s._\-\])]|$)",
     re.IGNORECASE,
 )
-_BRACKET_EPISODE_RE = re.compile(r"\[(\d{1,3})(?:v\d+)?\]", re.IGNORECASE)
+_BRACKET_EPISODE_RE = re.compile(
+    r"\[(\d{1,3})(?:v\d+|[a-z])?\]", re.IGNORECASE
+)
 _FB_SEASON_SUFFIX_RE = re.compile(r"\bSeason\s*(\d{1,2})\b", re.IGNORECASE)
 _FB_SEASON_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+Season\b", re.IGNORECASE)
 _FB_SEASON_S_RE = re.compile(r"\bS(\d{1,2})\b(?!E)", re.IGNORECASE)
@@ -730,7 +783,8 @@ def _title_core_segments(title_raw: str) -> list[str]:
     core = _LEADING_BRACKETS_RE.sub("", title_raw).strip()
     core = _EPISODE_TAIL_RE.sub("", core)
     core = _TRAILING_TECH_RE.sub("", core)
-    return [s.strip() for s in core.split("/") if s.strip()]
+    core = _PACK_SUFFIX_RE.sub("", core).strip()
+    return [s.strip() for s in _BILINGUAL_SPLIT_RE.split(core) if s.strip()]
 
 
 def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
@@ -751,21 +805,42 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
     if not title_raw:
         return out
 
-    if _has_bracket_leak(out.get("title_cn")) or _has_bracket_leak(out.get("title_en")):
-        segments = _title_core_segments(title_raw)
-        cjk_seg = next((s for s in segments if _CJK_RE.search(s)), None)
-        lat_seg = next(
-            (s for s in segments if _ASCII_ONLY_RE.fullmatch(s) and _LATIN_RE.search(s)),
-            None,
-        )
-        if _has_bracket_leak(out.get("title_cn")):
+    segments = _title_core_segments(title_raw)
+    cjk_seg = next((s for s in segments if _CJK_RE.search(s)), None)
+    lat_seg = next(
+        (s for s in segments if _ASCII_ONLY_RE.fullmatch(s) and _LATIN_RE.search(s)),
+        None,
+    )
+    bilingual_title = cjk_seg is not None and lat_seg is not None
+    cn_leaked = _has_bracket_leak(out.get("title_cn"))
+    en_leaked = _has_bracket_leak(out.get("title_en"))
+    if not out.get("title_cn") and cjk_seg:
+        # Some feeds provide no title mapping at all. Recover the obvious CJK
+        # work-name prefix from the cleaned release title; an adjacent latin
+        # alias such as ``攻壳机动队THE.GHOST...`` is kept out of title_cn.
+        title_parts = _CJK_LATIN_BOUNDARY_RE.split(cjk_seg, maxsplit=1)
+        out["title_cn"] = title_parts[0].strip()
+        adjacent_latin = title_parts[1].strip() if len(title_parts) == 2 else None
+        if adjacent_latin and not out.get("title_en"):
+            out["title_en"] = adjacent_latin
+        if not out.get("search_title"):
+            out["search_title"] = adjacent_latin or out["title_cn"]
+    if (
+        cn_leaked
+        or en_leaked
+        or (bilingual_title and not out.get("title_en"))
+    ):
+        if cn_leaked:
             out["title_cn"] = cjk_seg
-        if _has_bracket_leak(out.get("title_en")):
+        if en_leaked:
+            out["title_en"] = lat_seg
+        elif bilingual_title and not out.get("title_en"):
             out["title_en"] = lat_seg
         # Prefer the latin variant for search_title: series.title_en is the
         # romanized name local matching keys on, and bilingual titles bury the
         # searchable name in a later " / " segment.
-        out["search_title"] = lat_seg or cjk_seg or out.get("search_title")
+        if bilingual_title or cn_leaked or en_leaked:
+            out["search_title"] = lat_seg or cjk_seg or out.get("search_title")
 
     if not out.get("resolution"):
         m = _RESOLUTION_WXH_RE.search(title_raw)
@@ -792,13 +867,16 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
         if m:
             out["container"] = m.group(1)
 
-    # Fansub group fallback: a leading "[Group]" bracket is the near-universal
-    # release convention, but the per-channel regexes only cover it when the
-    # channel author mapped subtitle_group explicitly.
+    # Fansub group fallback: a leading "[Group]" / "【Group】" bracket is the
+    # near-universal release convention, but per-channel regexes may only
+    # cover one bracket style (or omit subtitle_group entirely).
     if not out.get("subtitle_group"):
-        m = re.match(r"^\s*\[([^\]]+)\]", title_raw)
+        m = re.match(
+            r"^\s*(?:\[([^\]]+)\]|【([^】]+)】|［([^］]+)］)",
+            title_raw,
+        )
         if m:
-            candidate = m.group(1).strip()
+            candidate = next(group for group in m.groups() if group is not None).strip()
             # Pure-number brackets are years/tags, not group names.
             if candidate and not candidate.isdigit():
                 out["subtitle_group"] = candidate

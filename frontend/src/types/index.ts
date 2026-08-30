@@ -11,7 +11,7 @@ export type ChannelStatus = 'active' | 'inactive' | 'error';
 // Channel primary metadata source (two-source architecture). The wider
 // MetadataSource union remains for legacy manual-search paths.
 export type ChannelMetadataSource = 'wikipedia' | 'tmdb';
-export type MetadataSource = 'jina' | 'wikipedia' | 'tmdb' | 'local';
+export type MetadataSource = 'wikipedia' | 'tmdb' | 'bangumi';
 export interface Channel {
   id: string;
   name: string;
@@ -149,6 +149,8 @@ export interface FileResource {
 export interface FileResourceDetail extends FileResource {
   work_links: ResourceWorkLinkItem[];
   file_assignments: ResourceFileAssignmentItem[];
+  confirmation_kinds?: ResourceConfirmationKind[];
+  missing_fields?: string[];
 }
 
 export interface GroupedResource {
@@ -241,6 +243,8 @@ export interface SeasonRange {
 export interface AssociationWorkRef {
   work_type: WorkRefType;
   work_id: string;
+  client_key?: string;
+  candidate?: MetadataCandidate;
 }
 
 export interface AssociationFileAssignmentInput {
@@ -264,6 +268,9 @@ export interface AssociationUpdatePayload {
   fields?: Partial<
     Pick<
       FileResource,
+      | 'title_cn'
+      | 'title_en'
+      | 'search_title'
       | 'resolution'
       | 'subtitle_group'
       | 'source'
@@ -948,6 +955,25 @@ export interface MetadataSearchResult {
   year: number | null;
   external_id: string | null;
   content_type: 'tv' | 'movie';
+  single_season_entry?: boolean | null;
+}
+
+export interface MetadataCandidate {
+  origin: 'local' | 'external';
+  content_type: 'tv' | 'movie';
+  title_cn: string | null;
+  title_en: string | null;
+  original_title: string | null;
+  year: number | null;
+  poster_url: string | null;
+  work_id: string | null;
+  primary_source: MetadataSource | null;
+  identity_source: string | null;
+  external_id: string | null;
+  match_path: 'local' | 'primary' | 'web_fallback';
+  selectable: boolean;
+  unavailable_reason: string | null;
+  metadata: Record<string, unknown>;
 }
 
 // Agent suggestions
@@ -1020,13 +1046,21 @@ export interface DashboardPendingItem {
   created_at: string;
 }
 
-// A file resource with an ambiguous episode/season number awaiting manual
-// correction (episode_confidence="ambiguous"). Surfaced on the dashboard as an
-// actionable todo independent of any single agent's PendingDecision.
+export type ResourceConfirmationKind =
+  | 'metadata_unlinked'
+  | 'required_fields_missing'
+  | 'season_ambiguous'
+  | 'episode_ambiguous'
+  | 'batch_coverage_unknown';
+
+// Channel-scoped file-resource metadata confirmation, independent of any
+// Agent's multi-candidate download decision.
 export interface DashboardConfirmationItem {
   resource: FileResource;
   channel_name: string | null;
   work_title: string | null;
+  kinds: ResourceConfirmationKind[];
+  missing_fields: string[];
 }
 
 export interface DashboardData {
@@ -1035,8 +1069,11 @@ export interface DashboardData {
   active_download_count: number;
   active_download_groups: DashboardDownloadGroup[];
   pending_decisions: DashboardPendingItem[];
+  pending_decisions_total: number;
   pending_confirmations: DashboardConfirmationItem[];
+  pending_confirmations_total: number;
   pending_plans: OrganizePlanListItem[];
+  pending_plans_total: number;
 }
 
 // Filter suggestions (Agent-rules based)

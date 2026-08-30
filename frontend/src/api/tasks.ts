@@ -68,6 +68,18 @@ export const decisionsApi = {
 };
 
 export const dashboardApi = {
-  get: () =>
-    api.get<import('../types').DashboardData>('/dashboard'),
+  get: (params: {
+    decisionPage?: number;
+    confirmationPage?: number;
+    planPage?: number;
+    pageSize?: number;
+  } = {}) => {
+    const qs = new URLSearchParams({
+      decision_page: String(params.decisionPage ?? 1),
+      confirmation_page: String(params.confirmationPage ?? 1),
+      plan_page: String(params.planPage ?? 1),
+      page_size: String(params.pageSize ?? 10),
+    });
+    return api.get<import('../types').DashboardData>(`/dashboard?${qs.toString()}`);
+  },
 };

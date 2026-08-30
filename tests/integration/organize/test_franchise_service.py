@@ -185,14 +185,14 @@ async def test_member_in_other_collection_is_not_stolen(db_session):
 # ---------------------------------------------------------------------------
 
 
-async def test_no_work_titles_keeps_batch_verdict_only(db_session):
+async def test_no_work_titles_still_links_parent_collection(db_session):
     channel = await _seed_channel(db_session)
     resource = await _seed_resource(db_session, channel)
     await link_franchise_pack(db_session, resource, _report(), channel)
-    assert resource.collection_id is None
+    assert resource.collection_id is not None
 
 
-async def test_all_members_failed_creates_nothing(db_session):
+async def test_all_members_failed_still_links_parent_collection(db_session):
     channel = await _seed_channel(db_session)
     resource = await _seed_resource(db_session, channel)
 
@@ -203,7 +203,7 @@ async def test_all_members_failed_creates_nothing(db_session):
 
     with _patch_agent(_NotFound()):
         await link_franchise_pack(db_session, resource, _report("X", "Y"), channel)
-    assert resource.collection_id is None
+    assert resource.collection_id is not None
 
 
 async def test_member_raise_and_untitled_and_non_tv_movie_skipped(db_session):
@@ -256,7 +256,7 @@ async def test_agent_exception_on_process_title_is_absorbed(db_session):
 
     with _patch_agent(_Boom()):
         await link_franchise_pack(db_session, resource, _report("Z"), channel)
-    assert resource.collection_id is None
+    assert resource.collection_id is not None
 
 
 # ---------------------------------------------------------------------------

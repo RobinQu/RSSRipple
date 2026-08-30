@@ -16,9 +16,9 @@ class TestSystemSettings:
         # All recognized keys are present.
         for key in (
             "llm_api_key", "llm_model", "llm_base_url", "llm_enable_thinking",
-            "tmdb_api_key", "bangumi_api_key", "jina_api_key",
+            "tmdb_api_key", "bangumi_api_key",
             "wigolo_base_url", "wigolo_api_token", "web_fallback_enabled",
-            "jina_enabled", "tmdb_enabled", "wikipedia_enabled",
+            "tmdb_enabled", "wikipedia_enabled",
         ):
             assert key in data["settings"], key
 
@@ -79,25 +79,25 @@ class TestSystemSettings:
 
     async def test_put_omitted_secret_unchanged(self, client):
         # Set a secret.
-        await client.put("/api/v1/system-settings", json={"jina_api_key": "jina-orig"})
-        assert runtime_config.jina_api_key == "jina-orig"
+        await client.put("/api/v1/system-settings", json={"tmdb_api_key": "tmdb-orig"})
+        assert runtime_config.tmdb_api_key == "tmdb-orig"
 
-        # A PUT that does not mention jina_api_key must not clear it.
+        # A PUT that does not mention tmdb_api_key must not clear it.
         await client.put("/api/v1/system-settings", json={"llm_model": "other"})
-        assert runtime_config.jina_api_key == "jina-orig"
+        assert runtime_config.tmdb_api_key == "tmdb-orig"
         got = await client.get("/api/v1/system-settings")
-        assert got.json()["data"]["settings"]["jina_api_key"]["configured"] is True
+        assert got.json()["data"]["settings"]["tmdb_api_key"]["configured"] is True
 
     async def test_put_empty_secret_clears_override(self, client):
         # Set then clear via an explicit empty string.
-        await client.put("/api/v1/system-settings", json={"jina_api_key": "jina-orig-2"})
-        assert runtime_config.jina_api_key == "jina-orig-2"
+        await client.put("/api/v1/system-settings", json={"tmdb_api_key": "tmdb-orig-2"})
+        assert runtime_config.tmdb_api_key == "tmdb-orig-2"
 
-        await client.put("/api/v1/system-settings", json={"jina_api_key": ""})
+        await client.put("/api/v1/system-settings", json={"tmdb_api_key": ""})
         # Cleared -> reverts to the env default (empty in the test env).
-        assert runtime_config.jina_api_key == ""
+        assert runtime_config.tmdb_api_key == ""
         got = await client.get("/api/v1/system-settings")
-        assert got.json()["data"]["settings"]["jina_api_key"]["configured"] is False
+        assert got.json()["data"]["settings"]["tmdb_api_key"]["configured"] is False
 
     async def test_put_resets_metadata_agent(self, client):
         # The agent singleton is rebuilt after a settings write so new LLM

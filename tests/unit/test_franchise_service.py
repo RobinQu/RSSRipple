@@ -17,7 +17,11 @@ from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
-from app.services.franchise_service import FRANCHISE_PACK_SOURCE, link_franchise_pack
+from app.services.franchise_service import (
+    FRANCHISE_PACK_SOURCE,
+    enforce_franchise_resource_invariant,
+    link_franchise_pack,
+)
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.torrent_inspect import TorrentReport
 
@@ -105,6 +109,17 @@ def _agent(results: dict[str, ResourceMetadata | Exception]) -> MagicMock:
     mock.process_title_only = _process_title_only
     mock.calls = calls
     return mock
+
+
+def test_enforce_franchise_resource_invariant_covers_shortcut_paths():
+    resource = _resource(
+        "channel", series_id="series", movie_id=None, audio_work_id=None,
+    )
+    assert enforce_franchise_resource_invariant(resource) is True
+    assert resource.series_id is None
+    assert resource.movie_id is None
+    assert resource.audio_work_id is None
+    assert enforce_franchise_resource_invariant(resource) is False
 
 
 async def _collections(db_session) -> list[WorkCollection]:
@@ -226,7 +241,7 @@ async def test_work_with_existing_collection_not_stolen(db_session):
     assert resource.collection_id == new_coll.id
 
 
-async def test_all_members_fail_keeps_batch_verdict_only(db_session):
+async def test_all_members_fail_still_links_parent_collection(db_session):
     ch = await _channel(db_session)
     resource = _resource(ch.id)
     db_session.add(resource)
@@ -240,8 +255,9 @@ async def test_all_members_fail_keeps_batch_verdict_only(db_session):
         await link_franchise_pack(db_session, resource, _report("作品X TV", "作品X 剧场版"), ch)
     await db_session.flush()
 
-    assert await _collections(db_session) == []
-    assert resource.collection_id is None
+    collections = await _collections(db_session)
+    assert len(collections) == 1
+    assert resource.collection_id == collections[0].id
     assert resource.series_id is None and resource.movie_id is None
     assert resource.is_batch is True and resource.batch_scope == "franchise"
 
@@ -263,6 +279,6 @@ async def test_entity_without_title_skipped(db_session):
         await link_franchise_pack(db_session, resource, _report("作品X TV"), ch)
     await db_session.flush()
 
-    assert await _collections(db_session) == []
+    assert len(await _collections(db_session)) == 1
     assert (await db_session.execute(select(TVSeries))).scalars().all() == []
-    assert resource.collection_id is None
+    assert resource.collection_id is not None

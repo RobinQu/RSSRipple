@@ -67,6 +67,7 @@ import WorkSelector from '../components/WorkSelector';
 import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import NotificationsPanel from '../components/NotificationsPanel';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
+import SeasonInput from '../components/SeasonInput';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
 import type {
@@ -1087,14 +1088,11 @@ export default function AgentDetail() {
                                           />
                                         </Tooltip>
                                       )}
-                                      <InputNumber
+                                      <SeasonInput
                                         size="small"
-                                        min={0}
                                         value={draft.season}
                                         placeholder={t('resource.seasonLabel')}
-                                        onChange={(v) =>
-                                          patchDraft({ season: typeof v === 'number' ? v : null })
-                                        }
+                                        onChange={(v) => patchDraft({ season: v })}
                                         style={{ width: 72 }}
                                       />
                                       <InputNumber

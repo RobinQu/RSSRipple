@@ -1112,6 +1112,36 @@ async def test_manual_link_applies_verified_season_default(db_session, channel):
     assert res.episode_confidence == "raw"
 
 
+async def test_manual_bangumi_link_uses_entry_scoped_season_default(
+    db_session, channel,
+):
+    res = _resource(
+        channel.id,
+        title_raw="[G] Single Bangumi Entry - 03 [1080p]",
+        season=None,
+        episode=3,
+    )
+    db_session.add(res)
+    await db_session.flush()
+    selected = {
+        "content_type": "tv",
+        "title_en": "Single Bangumi Entry",
+        "external_id": "bangumi:single-entry",
+        "external_source": "bangumi",
+        "single_season_entry": True,
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        entity = await ms.manual_link_metadata(
+            db_session, res, channel, selected,
+        )
+    assert res.season == 1
+    assert entity.number_of_seasons is None
+
+
 async def test_manual_link_marks_season_uncertain(db_session, channel):
     """Manual link to a multi-season series marks a season-less resource
     季号不确定 instead of guessing a season."""
