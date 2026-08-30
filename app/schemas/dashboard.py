@@ -18,6 +18,7 @@ class ActiveDownloadTask(BaseModel):
     agent_name: str
     channel_id: str
     channel_name: str
+    download_speed: int = 0
 
 
 class ActiveDownloadGroup(BaseModel):

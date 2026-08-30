@@ -39,7 +39,7 @@ import {
   describeCondition,
   isFilterEmpty,
 } from '../components/filterUtils';
-import { timeAgo, formatBytes } from '../utils/format';
+import { timeAgo, formatBytes, formatSpeed } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import type { Agent, DashboardData, DashboardPendingItem, FileResource, Library, OrganizePlanListItem } from '../types';
 import { resourcesApi } from '../api/channels';
@@ -1245,7 +1245,17 @@ export default function Dashboard() {
                               ) : null}
                             </Space>
                           </div>
-                          <ProgressBar progress={task.progress} />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <ProgressBar progress={task.progress} />
+                            </div>
+                            <Text
+                              type="secondary"
+                              style={{ fontSize: 12, minWidth: 62, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}
+                            >
+                              ↓{formatSpeed(task.download_speed)}
+                            </Text>
+                          </div>
                         </div>
                       ))}
                     </div>

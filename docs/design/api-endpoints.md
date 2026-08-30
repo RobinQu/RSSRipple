@@ -42,7 +42,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、三类待办的独立服务端分页。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
+| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、三类待办的独立服务端分页。活跃下载 task 条目的 `download_speed` 为下载器实时 `rate_download`（无法匹配实时种子时回退本地任务记录），单位 bytes/s。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
 | POST | `/dashboard/todos/ignore` | 单个或批量忽略同类待办。Body：`{kind: "decision"|"confirmation"|"plan", ids: string[1..100]}`。decision→`skipped`；confirmation→资源写 `confirmation_ignored_at`，永久退出待确认列表但不删除资源；plan→`cancelled` 并追加 organize audit。响应 `{requested, ignored, unchanged}` |
 
 `GET /dashboard` 响应 `data` 结构：
@@ -57,7 +57,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
       "id": "uuid-or-null",
       "title": "作品名或未识别",
       "poster_url": "/posters/xxx.jpg",
-      "tasks": [ { "task_id": "...", "resource_title": "...", "progress": 0.5, "agent_id": "...", "agent_name": "...", "channel_id": "...", "channel_name": "..." } ]
+      "tasks": [ { "task_id": "...", "resource_title": "...", "progress": 0.5, "download_speed": 1048576, "agent_id": "...", "agent_name": "...", "channel_id": "...", "channel_name": "..." } ]
     }
   ],
   "pending_decisions": [ { ... } ],

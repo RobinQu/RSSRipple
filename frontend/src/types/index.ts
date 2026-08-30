@@ -1023,6 +1023,7 @@ export interface DashboardDownloadGroup {
     agent_name: string | null;
     channel_id: string | null;
     channel_name: string | null;
+    download_speed: number;
     // Present on 'untracked' entries (torrents RSSRipple did not dispatch).
     downloader_id?: string | null;
     downloader_name?: string | null;

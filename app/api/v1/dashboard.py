@@ -333,6 +333,7 @@ async def get_dashboard(
             "agent_name": agent.name if agent else None,
             "channel_id": agent.channel_id if agent else None,
             "channel_name": agent.channel.name if agent and agent.channel else None,
+            "download_speed": task.download_speed or 0,
         }
         if resource and resource.series_id and resource.series:
             key = ("series", resource.series_id)
@@ -389,6 +390,26 @@ async def get_dashboard(
             return []
 
     torrent_lists = await asyncio.gather(*(_list_torrents(d) for d in downloaders))
+
+    # Prefer the live daemon rate for tracked tasks.  The scheduler persists
+    # speeds periodically, but the dashboard is also polled independently and
+    # should not wait for the next scheduler tick to reflect current traffic.
+    task_ids_by_torrent = {
+        (task.downloader_id, task.transmission_torrent_id): task.id
+        for task in tasks
+        if task.transmission_torrent_id is not None
+    }
+    live_speeds: dict[str, int] = {}
+    for downloader, torrents in zip(downloaders, torrent_lists, strict=True):
+        for torrent in torrents:
+            task_id = task_ids_by_torrent.get((downloader.id, torrent.get("id")))
+            if task_id is not None:
+                live_speeds[task_id] = int(torrent.get("rate_download") or 0)
+    for group in groups.values():
+        for task_entry in group["tasks"]:
+            if task_entry["task_id"] in live_speeds:
+                task_entry["download_speed"] = live_speeds[task_entry["task_id"]]
+
     for downloader, torrents in zip(downloaders, torrent_lists, strict=True):
         tracked_ids = tracked.get(downloader.id, set())
         for torrent in torrents:
@@ -408,6 +429,7 @@ async def get_dashboard(
                     "channel_name": None,
                     "downloader_id": downloader.id,
                     "downloader_name": downloader.name,
+                    "download_speed": int(torrent.get("rate_download") or 0),
                 })
 
     if untracked_tasks:

@@ -9,6 +9,7 @@ import {
   Button,
   Space,
   Table,
+  Tabs,
   Progress,
   Spin,
   App,
@@ -70,6 +71,7 @@ export default function DownloaderDetail() {
   const [loadingTorrents, setLoadingTorrents] = useState(true);
   const [torrentError, setTorrentError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
   const [taskPage, setTaskPage] = useState(1);
   const [taskTotal, setTaskTotal] = useState(0);
 
@@ -100,6 +102,7 @@ export default function DownloaderDetail() {
       setTasks(res.data);
       if (res.meta) setTaskTotal(res.meta.total);
     }
+    setLoadingTasks(false);
   }, [id, taskPage]);
 
   useEffect(() => {
@@ -112,12 +115,20 @@ export default function DownloaderDetail() {
     fetchTasks();
   }, [fetchTasks]);
 
+  const hasActiveTorrents = torrents.some((torrent) => ACTIVE_STATUSES.has(torrent.status));
+  const hasActiveTasks = tasks.some((task) =>
+    ['pending', 'queued', 'downloading'].includes(task.status),
+  );
+
   useEffect(() => {
-    const hasActive = torrents.some((t) => ACTIVE_STATUSES.has(t.status));
+    const hasActive = hasActiveTorrents || hasActiveTasks;
     if (!hasActive) return;
-    const timer = setInterval(fetchTorrents, 3000);
+    const timer = setInterval(() => {
+      fetchTorrents();
+      fetchTasks();
+    }, 3000);
     return () => clearInterval(timer);
-  }, [torrents, fetchTorrents]);
+  }, [hasActiveTorrents, hasActiveTasks, fetchTorrents, fetchTasks]);
 
   const handleTest = async () => {
     if (!id) return;
@@ -249,7 +260,13 @@ export default function DownloaderDetail() {
           <div style={{ marginTop: 2 }}>
             {['pending', 'queued', 'downloading'].includes(record.status) ? (
               <Text type="secondary" style={{ fontSize: 11 }}>
-                ↓{formatSpeed(record.download_speed)} · ETA {formatEta(record.eta)}
+                ↓{formatSpeed(
+                  record.transmission_torrent_id == null
+                    ? record.download_speed
+                    : torrents.find((torrent) => torrent.id === record.transmission_torrent_id)
+                        ?.rate_download ?? record.download_speed,
+                )}{' '}
+                · ETA {formatEta(record.eta)}
               </Text>
             ) : (
               <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
@@ -296,45 +313,57 @@ export default function DownloaderDetail() {
         </Descriptions>
       </Card>
 
-      <Title level={4} style={{ marginBottom: 12 }}>
-        {t('downloaders.transmissionTorrents')}
-        <Text type="secondary" style={{ fontSize: 14, fontWeight: 'normal', marginLeft: 8 }}>
-          ({torrents.length})
-        </Text>
-      </Title>
-
-      {torrentError ? (
-        <Alert type="error" message={t('downloaders.transmissionUnreachable')} description={torrentError} showIcon style={{ marginBottom: 16 }} />
-      ) : (
-        <Table
-          className="stack-table"
-          columns={withMobileLabels(torrentColumns)}
-          dataSource={torrents}
-          rowKey="id"
-          loading={loadingTorrents}
-          size="small"
-          pagination={torrents.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}
-          locale={{ emptyText: t('downloaders.noTransmissionTorrents') }}
-          style={{ marginBottom: 24 }}
+      <Card>
+        <Tabs
+          items={[
+            {
+              key: 'transmission',
+              label: `${t('downloaders.transmissionTorrents')} (${torrents.length})`,
+              children: torrentError ? (
+                <Alert
+                  type="error"
+                  message={t('downloaders.transmissionUnreachable')}
+                  description={torrentError}
+                  showIcon
+                />
+              ) : (
+                <Table
+                  className="stack-table"
+                  columns={withMobileLabels(torrentColumns)}
+                  dataSource={torrents}
+                  rowKey="id"
+                  loading={loadingTorrents}
+                  size="small"
+                  pagination={torrents.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}
+                  locale={{ emptyText: t('downloaders.noTransmissionTorrents') }}
+                />
+              ),
+            },
+            {
+              key: 'tasks',
+              label: `${t('downloaders.localTasks')} (${taskTotal})`,
+              children: (
+                <Table
+                  className="stack-table"
+                  columns={withMobileLabels(taskColumns)}
+                  dataSource={tasks}
+                  rowKey="id"
+                  loading={loadingTasks}
+                  size="small"
+                  pagination={{
+                    current: taskPage,
+                    pageSize: 20,
+                    total: taskTotal,
+                    onChange: setTaskPage,
+                    showSizeChanger: false,
+                  }}
+                  locale={{ emptyText: t('common.noData') }}
+                />
+              ),
+            },
+          ]}
         />
-      )}
-
-      <Title level={4} style={{ marginBottom: 12 }}>{t('downloaders.localTasks')}</Title>
-      <Table
-        className="stack-table"
-        columns={withMobileLabels(taskColumns)}
-        dataSource={tasks}
-        rowKey="id"
-        size="small"
-        pagination={{
-          current: taskPage,
-          pageSize: 20,
-          total: taskTotal,
-          onChange: setTaskPage,
-          showSizeChanger: false,
-        }}
-        locale={{ emptyText: t('common.noData') }}
-      />
+      </Card>
     </div>
   );
 }
