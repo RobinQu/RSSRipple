@@ -30,6 +30,8 @@ class Channel(Base):
                                          # section 按作品形态（base/tv/pack 先行）+ 语义 group；
                                          # 每键带 lock 作用域与 applies_to 形态适用性）；驱动资源列表
                                          # 「必填字段」列展示与 Agent 过滤 DSL 门控。
+                                         # 现行新频道基线为五件套（不含 title_cn）；title_cn/title_en 可选。
+                                         # 历史频道已保存 title_cn 时由兼容迁移保留其必选语义。
                                          # 强制且创建后只增不删：代码强制基线 = 基础必选六件套
                                          # （title_cn/search_title/content_type/is_batch/
                                          # year/is_anime）+ 形态必填（tv→season、tv_single→episode、

@@ -32,12 +32,13 @@ def test_catalog_covers_every_dsl_field():
     assert covered == set(ALL_FIELDS)
 
 
-def test_base_tier_is_six_always_required_fields():
-    """基础必选：标题/检索 + 作品类型/是否合集 + 年份/动漫判定。"""
+def test_base_tier_is_five_always_required_fields():
+    """基础必选：检索 + 作品类型/是否合集 + 年份/动漫判定。"""
     assert BASE_REQUIRED_FIELDS == frozenset({
-        "title_cn", "search_title",
+        "search_title",
         "content_type", "is_batch", "year", "is_anime",
     })
+    assert REQUIRED_FIELD_CATALOG["title_cn"]["lock"] is None
     assert REQUIRED_FIELD_CATALOG["title_en"]["lock"] is None
     for key in BASE_REQUIRED_FIELDS:
         assert REQUIRED_FIELD_CATALOG[key]["lock"] == "always"
@@ -78,7 +79,7 @@ def test_required_keys_per_shape_respects_applies_to():
     assert "resource_collection" in franchise
     assert "year" not in franchise and "is_anime" not in franchise
     assert "content_type" not in franchise
-    assert "title_cn" in franchise and "is_batch" in franchise
+    assert "title_cn" not in franchise and "is_batch" in franchise
     movie = required_keys_for_shape("movie")
     assert BASE_REQUIRED_FIELDS <= movie
     assert not ({"season", "episode"} & movie)
@@ -176,6 +177,10 @@ def test_normalize_empty_gives_locked_baseline():
         k for k in REQUIRED_FIELD_CATALOG if k in LOCKED_REQUIRED_FIELDS
     ]
     assert normalize_required_fields(None) == normalize_required_fields([])
+
+
+def test_normalize_preserves_legacy_title_cn_when_already_saved():
+    assert "title_cn" in normalize_required_fields(["title_cn"])
 
 
 def test_normalize_includes_year_is_anime_and_tv_machinery():

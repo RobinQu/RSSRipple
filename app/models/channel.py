@@ -11,7 +11,7 @@ from app.services.required_fields import normalize_required_fields
 
 
 def _default_required_fields() -> list[str]:
-    """Baseline required-fields list for new channels (locked six plus shape fields)."""
+    """Baseline required-fields list for new channels plus shape fields."""
     return normalize_required_fields([])
 
 

@@ -113,6 +113,23 @@ class TestChannelsCRUD:
         assert res.status_code == 200
         assert "genre" in res.json()["data"]["required_metadata_fields"]
 
+        # A legacy channel that already saved optional title_cn keeps the
+        # add-only requirement and cannot remove it.
+        with_title_cn = list(res.json()["data"]["required_metadata_fields"]) + ["title_cn"]
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_fields": with_title_cn},
+        )
+        assert res.status_code == 200
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"required_metadata_fields": [
+                key for key in with_title_cn if key != "title_cn"
+            ]},
+        )
+        assert res.status_code == 422
+        assert "title_cn" in res.json()["error"]["message"]
+
         # Unknown catalog key → 422.
         res = await client.put(
             f"/api/v1/channels/{sample_channel.id}",
@@ -158,8 +175,7 @@ class TestChannelsCRUD:
         assert year["lock"] == "always"
         locked_keys = {f["key"] for f in data["fields"] if f["locked"]}
         assert locked_keys == {
-            "title_cn", "search_title",
-            "content_type", "is_batch", "year", "is_anime",
+            "search_title", "content_type", "is_batch", "year", "is_anime",
             "season", "episode", "episode_start", "episode_end",
             "resource_collection",
         }

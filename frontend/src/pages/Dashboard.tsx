@@ -143,7 +143,10 @@ export default function Dashboard() {
     setLoading(false);
   }, [confirmationPage, decisionPage, planPage]);
 
-  usePolling(fetchData, 10000);
+  // The dashboard response includes live downloader rates for every active
+  // task, so keep this polling cadence short enough for the speed indicator
+  // to feel live without introducing a separate dashboard data path.
+  usePolling(fetchData, 3000);
 
   useEffect(() => {
     fetchData();

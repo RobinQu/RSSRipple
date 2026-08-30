@@ -593,6 +593,61 @@ async def _apply_light_migrations(conn) -> None:
             "DELETE FROM metadata_cache WHERE source = 'metadata_agent:jina'"
         ))
 
+    # ── channels.required_metadata_fields title_cn compatibility ─────────
+    # title_cn is no longer part of the baseline for new channels, but it was
+    # previously locked. Preserve it on every channel that existed before this
+    # change so the add-only contract does not silently loosen legacy Agents.
+    async with _best_effort(conn, "channels.title_cn compatibility"):
+        import json as _json
+
+        sentinel = "required_fields_title_cn_compat_v1"
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker == "pending":
+            rows = await conn.execute(text(
+                "SELECT id, required_metadata_fields FROM channels"
+            ))
+            changed = 0
+            for row in rows:
+                raw = row.required_metadata_fields
+                if isinstance(raw, str):
+                    try:
+                        current = _json.loads(raw)
+                    except ValueError:
+                        current = []
+                else:
+                    current = list(raw or [])
+                if "title_cn" in current:
+                    continue
+                payload = _json.dumps(["title_cn", *current])
+                if is_postgres:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = "
+                        "CAST(:val AS JSONB) WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                else:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = :val "
+                        "WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                changed += 1
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
+            if changed:
+                logger.info("[migrate] preserved legacy title_cn requirement on %d channels", changed)
+
     # ── channels.required_metadata_fields baseline convergence ───────────
     # The required-fields list is mandatory and add-only after creation:
     # every channel must carry at least the code-enforced baseline (base

@@ -76,7 +76,9 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "section": "base",
         "group": "title",
         "dsl_fields": ["title_cn"],
-        "lock": LOCK_ALWAYS,
+        # Chinese localization is optional. Legacy channels that already
+        # stored this key retain it through the channel add-only policy.
+        "lock": None,
     },
     "title_en": {
         "section": "base",
@@ -229,10 +231,11 @@ def _locked_keys() -> frozenset[str]:
     return frozenset(k for k, e in REQUIRED_FIELD_CATALOG.items() if e["lock"] is not None)
 
 
-# Code-enforced baseline forced into EVERY channel's stored list: the always
+# Code-enforced baseline forced into EVERY new channel's stored list: the always
 # required base fields plus the shape-scoped ones. They can never be cleared —
 # hence there is no "unrestricted" configuration. (The list itself is add-only
-# after channel creation.)
+# after channel creation. Existing channels may retain optional keys that were
+# previously part of the baseline (notably title_cn).
 LOCKED_REQUIRED_FIELDS: frozenset[str] = _locked_keys()
 
 # Base tier: required regardless of the resource's work type.

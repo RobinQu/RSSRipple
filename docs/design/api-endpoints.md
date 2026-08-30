@@ -75,6 +75,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 ### Channels
 
+> 兼容变更：新建频道的代码基线为 `search_title/content_type/is_batch/year/is_anime` 五件套；`title_cn` 与 `title_en` 均可选。历史频道已保存的 `title_cn` 继续按必选字段处理。
+
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/channels` | 频道列表（分页） |

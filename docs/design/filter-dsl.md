@@ -73,6 +73,7 @@ FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一
   - 对于 `is_required` 语义由 DSL 外层决定——即空值时 `eq/contains/fuzzy/regex/gt/...` 判定为不通过；`ne` 判定为通过。
 - **非空值校验**：所有取值操作符（`eq/ne/contains/fuzzy/in/regex/gt/...`）的 `value` 在保存时（`validate_filter_config`，Agent 创建/更新接口）必须非空——空字符串、纯空白、null 一律返回 422。原因是 `eq ""` 这类条件对任何资源都不通过（正操作符遇空值失败，非空值又不等于 `""`），保存即静默过滤掉全部资源。校验只拦截保存，存量配置的求值语义不变。
 - **频道必填字段门控**：频道必填字段清单 `required_metadata_fields` 覆盖**全部 DSL 字段**（资源级字段以 DSL 字段名为目录键；作品字段按 `series.`/`movie.` 成对归入语义键 `rating`/`year`/`genre`/`is_anime`/`collection`；资源级 franchise 合集展示名走 `resource_collection` 键）。该清单下 Agent 的 `filter_config` 与各 work 的 `filter_overrides` 在保存时仅允许使用资源级字段 + 已声明字段映射的作品字段，违规 422；运行时还按资源形态检查全部适用必填值，缺任一字段即阻止 Agent 过滤/派发并进入 Channel 文件资源待确认。清单**强制且创建后只增不删**：代码强制基线永不可清除；基线＝基础必选六件套（`title_cn/search_title/content_type/is_batch/year/is_anime`），`title_en` 为可选字段；其中 `content_type` 对无单一媒介类型的 franchise 行不适用，`year/is_anime` 只适用于单作品行。TV 单季合集才要求 `season`/`episode_start`/`episode_end`，跨季合集改由 `batch_seasons` 覆盖校验，AudioWork 不进入 TV 合集字段检查。`pick_preferences`（优选偏好）与 OrganizeRule filter 不受字段声明门控；偏好引用的非必选字段为空时仅视为该偏好未命中，不阻止资源。权威目录：`app/services/required_fields.py`。
+- 现行基线变更：新频道不再强制 `title_cn`，但历史频道已保存的 `title_cn` 继续按必选字段处理。
 - **合并规则**：AgentWork 的 `filter_overrides` 若存在，则与全局 `filter_config` 按 AND 包装：
   ```json
   { "combinator": "and", "conditions": [agent.filter_config, work.filter_overrides] }
