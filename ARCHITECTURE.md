@@ -8,12 +8,12 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 
 | 层 | 技术选型 |
 |---|---|
-| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 (async), APScheduler, pyturso |
-| Frontend | React 18, TypeScript, Vite, Ant Design 5, react-router v6 |
+| Backend | Python 3.12+, FastAPI, SQLAlchemy 2.0 (async), APScheduler, pyturso |
+| Frontend | React 19, TypeScript, Vite, Ant Design 6, react-router v6 |
 | External | Transmission (RPC), LLM API (OpenAI-compatible chat/completions), TMDB API, Wikipedia REST, Bangumi API, Wigolo（自托管搜索，有序回退补身份）、feedparser |
 | Task Queue | 内置 MemoryQueue / RedisQueue 双后端（基于 SETNX 做幂等） |
 
-数据库默认使用嵌入式 Turso（SQLite 兼容，MVCC 并发写），分布式部署可切换至 PostgreSQL。分布式部署（PostgreSQL + Redis 队列）下进程按 `APP_ROLE` 拆分：`web` 只服务 HTTP 并入队，`worker`（入口 `python -m app.worker`）运行调度器与队列消费、无 HTTP；默认 `docker-compose.yml` 为 1 web + 3 worker，单机/standalone 保持 `all`（单进程全功能）。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
+数据库默认使用 PostgreSQL（分布式部署可切换至嵌入式 Turso）。分布式部署（PostgreSQL + Redis 队列）下进程按 `APP_ROLE` 拆分：`web` 只服务 HTTP 并入队，`worker`（入口 `python -m app.worker`）运行调度器与队列消费、无 HTTP；默认 `docker-compose.yml` 为 1 web + 3 worker，单机/standalone 保持 `all`（单进程全功能）。全文检索双后端统一基于作品表 `search_text` 归一化列：Turso 走原生 FTS（ngram）边车数据库（与 MVCC 互斥，靠 `fts_outbox` 变更日志 + 30 秒 drain 同步），PostgreSQL 走 `pg_trgm` GIN 索引。
 
 ## 3. 模块划分
 
@@ -54,7 +54,7 @@ RSSRipple 是一个 RSS 订阅源聚合 + 智能筛选 + 自动推送到下载�
 - **Client 层**：外部服务封装（RSS 解析、Transmission RPC、LLM 调用）。下载器通过工厂 `app.clients.downloader.get_downloader_client(downloader)` 分派：`type="transmission"` → `TransmissionWrapper`，`type="mock"` → `MockDownloaderWrapper`（本地内存模拟器，用于测试 Agent 流程）。二者共享同一异步接口。
 - **Scheduler 层**：APScheduler 管理定时任务（频道抓取、进度同步、过期清理）
 - **Task Queue 层**：异步后台任务队列（手动触发的 fetch/run），支持内存和 Redis 两种后端
-- **数据层**：SQLAlchemy ORM，嵌入式 Turso 默认（MVCC 并发写；FTS 走边车库）
+- **数据层**：SQLAlchemy ORM，PostgreSQL 默认（MVCC 并发写；FTS 走边车库）
 
 ## 4. 核心数据实体
 
@@ -196,13 +196,10 @@ MetadataAgent 数据源约束：
 | `/downloaders` | 下载器列表 |
 | `/downloaders/new`, `/downloaders/:id/edit` | 下载器表单（含 Transmission RPC 配置与默认下载目录） |
 | `/downloaders/:id` | 下载器详情（Transmission 实时种子、速度） |
-| `/series` | 剧集列表 |
-| `/series/:id` | 剧集详情（含编辑表单、删除功能，Agent 引用检查） |
-| `/movies` | 电影列表 |
-| `/movies/:id` | 电影详情（含编辑表单、删除功能，Agent 引用检查） |
+| `/works` | WorksPage（作品仓库海报墙，All/TV/Movie/Audio/合集浏览模式） |
+| `/collections/:id` | 合集详情（大 IP 分组） |
 | `/volumes` | 存储卷管理 |
-| `/media-servers` | 媒体服务器 + 扫描派生媒体库 + 整理规则 |
-| `/organize` | 文件整理计划 / 审计 |
+| `/media-library` | 媒体库管理（合并原 `/media-servers` 与 `/organize`） |
 | `/settings` | 系统设置（含 API Keys、数据源） |
 
 ## 8. 关键设计决策

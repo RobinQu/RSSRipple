@@ -128,7 +128,7 @@ Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTR
 
 | Layer | Technology |
 | --- | --- |
-| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
+| Backend | Python 3.12+, FastAPI, SQLAlchemy 2.0 async, Pydantic v2 |
 | Database | PostgreSQL by default; Turso (embedded, MVCC concurrent writes) via `docker-compose.standalone.yml` |
 | Queue / Scheduler | MemoryQueue or RedisQueue, APScheduler |
 | RSS | feedparser |
