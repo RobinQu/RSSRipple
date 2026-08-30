@@ -67,7 +67,35 @@ export default function Agents() {
       title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, record) => <Link to={`/agents/${record.id}`}>{name}</Link>,
+      render: (name: string, record) => {
+        const metadataSource = record.channel?.metadata_source;
+        return (
+          <div>
+            <Link to={`/agents/${record.id}`}>{name}</Link>
+            <Space size={[4, 4]} wrap style={{ display: 'flex', marginTop: 4 }}>
+              <StatusBadge status={record.status} />
+              {metadataSource && (
+                <Tag color="cyan" style={{ margin: 0 }}>
+                  {t(`channels.sources.${metadataSource}`, { defaultValue: metadataSource })}
+                </Tag>
+              )}
+              {record.scope_channel_wide ? (
+                <Tag color="purple" style={{ margin: 0 }}>{t('agents.channelWide')}</Tag>
+              ) : (
+                <Tag color="blue" style={{ margin: 0 }}>
+                  {t('agents.worksCount', { n: record.works?.length || 0 })}
+                </Tag>
+              )}
+              <Tag color={record.conflict_resolution === 'auto' ? undefined : 'gold'} style={{ margin: 0 }}>
+                {t(`agents.conflictTag`, { mode: t(record.conflict_resolution === 'auto' ? 'agents.auto' : 'agents.ask') })}
+              </Tag>
+              <Tag color={record.llm_enabled ? 'blue' : undefined} style={{ margin: 0 }}>
+                {t('agents.llm')}: {record.llm_enabled ? t('agents.on') : t('agents.off')}
+              </Tag>
+            </Space>
+          </div>
+        );
+      },
     },
     {
       title: t('agents.channel'),
@@ -83,37 +111,6 @@ export default function Agents() {
       title: t('agents.downloader'),
       key: 'downloader',
       render: (_, record) => record.downloader?.name || record.downloader_id?.slice(0, 8) || t('format.dash'),
-    },
-    {
-      title: t('common.status'),
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
-      render: (status: string) => <StatusBadge status={status} />,
-    },
-    {
-      title: t('agents.scope'),
-      key: 'scope',
-      width: 120,
-      render: (_, record) =>
-        record.scope_channel_wide ? (
-          <Tag color="purple">{t('agents.channelWide')}</Tag>
-        ) : (
-          <Tag color="blue">{t('agents.worksCount', { n: record.works?.length || 0 })}</Tag>
-        ),
-    },
-    {
-      title: t('agents.conflictResolution'),
-      dataIndex: 'conflict_resolution',
-      key: 'conflict_resolution',
-      width: 120,
-      render: (v: string) => (v === 'auto' ? <Tag>{t('agents.auto')}</Tag> : <Tag color="gold">{t('agents.ask')}</Tag>),
-    },
-    {
-      title: t('agents.llm'),
-      key: 'llm',
-      width: 80,
-      render: (_, record) => (record.llm_enabled ? <Tag color="blue">{t('agents.on')}</Tag> : <Tag>{t('agents.off')}</Tag>),
     },
     {
       title: t('agents.lastRun'),

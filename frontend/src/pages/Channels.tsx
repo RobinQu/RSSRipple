@@ -112,28 +112,23 @@ export default function Channels() {
       render: (name: string, record) => (
         <div>
           <Link to={`/channels/${record.id}`}>{name}</Link>
-          <div style={{ marginTop: 4 }}>
-            {record.metadata_agent_enabled ? (
-              <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{t('channels.agent')}</Tag>
-            ) : (
-              <Tag style={{ margin: 0, fontSize: 11 }}>{t('agents.off')}</Tag>
+          <Space size={[4, 4]} wrap style={{ display: 'flex', marginTop: 4 }}>
+            <StatusBadge status={record.status} />
+            {record.metadata_source && (
+              <Tag color="cyan" style={{ margin: 0 }}>
+                {t(`channels.sources.${record.metadata_source}`, { defaultValue: record.metadata_source })}
+              </Tag>
             )}
-          </div>
+            {record.metadata_agent_enabled ? (
+              <Tag color="blue" style={{ margin: 0 }}>{t('channels.agent')}</Tag>
+            ) : (
+              <Tag style={{ margin: 0 }}>{t('agents.off')}</Tag>
+            )}
+            {record.last_fetch_status === 'failed' && (
+              <Tag color="error" style={{ margin: 0 }}>{t('channels.lastFailed')}</Tag>
+            )}
+          </Space>
         </div>
-      ),
-    },
-    {
-      title: t('common.status'),
-      dataIndex: 'status',
-      key: 'status',
-      width: 110,
-      render: (status: string, record) => (
-        <Space size={4}>
-          <StatusBadge status={status} />
-          {record.last_fetch_status && record.last_fetch_status === 'failed' && (
-            <Tag color="error" style={{ fontSize: 10 }}>{t('channels.lastFailed')}</Tag>
-          )}
-        </Space>
       ),
     },
     {

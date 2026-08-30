@@ -339,6 +339,7 @@
     "channelWide": "Channel-wide",
     "worksCount": "{n} work(s)",
     "conflictResolution": "Conflict",
+    "conflictTag": "Conflict: {mode}",
     "auto": "Auto",
     "ask": "Ask",
     "llm": "LLM",

@@ -339,6 +339,7 @@
     "channelWide": "整个频道",
     "worksCount": "{n} 作品",
     "conflictResolution": "冲突处理",
+    "conflictTag": "冲突：{mode}",
     "auto": "自动",
     "ask": "询问",
     "llm": "LLM",
