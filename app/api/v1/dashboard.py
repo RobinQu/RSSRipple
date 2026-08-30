@@ -16,16 +16,20 @@ from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
+from app.models.organize_audit import OrganizeAuditEntry
 from app.models.organize_plan import OrganizePlan
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.schemas.common import success_response
+from app.schemas.dashboard import DashboardTodoIgnoreRequest
 from app.schemas.file_resource import FileResourceResponse
+from app.services.decision_service import maybe_reset_agent_run_status
 from app.services.resource_confirmation import (
     LEGACY_CONFIRMATION_REASON_PREFIXES,
     ResourceConfirmation,
     inspect_resource_confirmation,
 )
+from app.utils.time import utcnow
 
 router = APIRouter()
 
@@ -167,6 +171,7 @@ async def _page_pending_confirmations(
     # quadratic full-table scan while keeping ORM relationship memory bounded.
     ordered_ids = (await db.execute(
         select(FileResource.id)
+        .where(FileResource.confirmation_ignored_at.is_(None))
         .order_by(FileResource.created_at.desc(), FileResource.id.desc())
     )).scalars().all()
     for batch_start in range(0, len(ordered_ids), _CONFIRMATION_SCAN_BATCH_SIZE):
@@ -215,6 +220,69 @@ async def _page_pending_plans(
         .options(*_PLAN_LOAD_OPTIONS)
     )).scalars().all()
     return [_plan_list_item(plan) for plan in plans], total
+
+
+@router.post("/dashboard/todos/ignore")
+async def ignore_dashboard_todos(
+    body: DashboardTodoIgnoreRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Persistently dismiss one or many dashboard todos of the same kind."""
+    ids = list(dict.fromkeys(body.ids))
+    ignored = 0
+    affected_agents: set[str] = set()
+    if body.kind == "decision":
+        rows = (await db.execute(
+            select(PendingDecision).where(
+                PendingDecision.id.in_(ids),
+                PendingDecision.status == "pending",
+            )
+        )).scalars().all()
+        for row in rows:
+            if (
+                len(row.candidates or []) < 2
+                or (row.reason or "").startswith(LEGACY_CONFIRMATION_REASON_PREFIXES)
+            ):
+                continue
+            row.status = "skipped"
+            row.decided_at = utcnow()
+            affected_agents.add(row.agent_id)
+            ignored += 1
+        if affected_agents:
+            await db.flush()
+            for agent_id in affected_agents:
+                await maybe_reset_agent_run_status(db, agent_id)
+    elif body.kind == "confirmation":
+        rows = (await db.execute(
+            select(FileResource).where(FileResource.id.in_(ids))
+        )).scalars().all()
+        now = utcnow()
+        for row in rows:
+            if row.confirmation_ignored_at is None:
+                row.confirmation_ignored_at = now
+                ignored += 1
+    else:
+        rows = (await db.execute(
+            select(OrganizePlan).where(
+                OrganizePlan.id.in_(ids),
+                OrganizePlan.status.in_(("pending", "failed")),
+            )
+        )).scalars().all()
+        for row in rows:
+            from_status = row.status
+            row.status = "cancelled"
+            db.add(OrganizeAuditEntry(
+                plan_id=row.id,
+                action="cancelled",
+                detail={"from_status": from_status, "source": "dashboard_ignore"},
+            ))
+            ignored += 1
+    await db.commit()
+    return success_response({
+        "requested": len(ids),
+        "ignored": ignored,
+        "unchanged": len(ids) - ignored,
+    })
 
 
 @router.get("/dashboard")

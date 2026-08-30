@@ -82,4 +82,9 @@ export const dashboardApi = {
     });
     return api.get<import('../types').DashboardData>(`/dashboard?${qs.toString()}`);
   },
+  ignoreTodos: (kind: 'decision' | 'confirmation' | 'plan', ids: string[]) =>
+    api.post<{ requested: number; ignored: number; unchanged: number }>(
+      '/dashboard/todos/ignore',
+      { kind, ids },
+    ),
 };

@@ -1,8 +1,13 @@
 """Dashboard Pydantic schemas."""
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class DashboardTodoIgnoreRequest(BaseModel):
+    kind: Literal["decision", "confirmation", "plan"]
+    ids: list[str] = Field(min_length=1, max_length=100)
 
 
 class ActiveDownloadTask(BaseModel):

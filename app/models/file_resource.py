@@ -136,6 +136,10 @@ class FileResource(Base):
     )
     last_metadata_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     metadata_failure_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # User explicitly dismissed this resource from Channel metadata
+    # confirmations.  The resource remains available for search/audit, but is
+    # no longer surfaced as a dashboard todo.
+    confirmation_ignored_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

@@ -20,6 +20,7 @@ from app.schemas.pending_decision import (
     DecisionActionResponse,
     PendingDecisionResponse,
 )
+from app.services.decision_service import maybe_reset_agent_run_status
 from app.services.resource_confirmation import LEGACY_CONFIRMATION_REASON_PREFIXES
 from app.utils.time import utcnow
 
@@ -44,31 +45,6 @@ def _is_choice_decision(decision: PendingDecision) -> bool:
             LEGACY_CONFIRMATION_REASON_PREFIXES
         )
     )
-
-
-async def _maybe_reset_agent_run_status(db: AsyncSession, agent_id: str) -> None:
-    """Reset ``Agent.last_run_status`` from "pending_decisions" to "success"
-    once the agent has no pending decisions left.
-
-    The job handler freezes ``last_run_status`` at run end; when the user
-    finishes handling the decisions, the run is effectively complete. Only
-    resets when no pending decision remains — while some are still open the
-    status keeps reflecting that.
-    """
-    from app.models.agent import Agent
-
-    agent = await db.get(Agent, agent_id)
-    if not agent or agent.last_run_status != "pending_decisions":
-        return
-    remaining = (await db.execute(
-        select(func.count()).select_from(PendingDecision).where(
-            PendingDecision.agent_id == agent_id,
-            PendingDecision.status == "pending",
-            _choice_decision_filter(),
-        )
-    )).scalar_one()
-    if remaining == 0:
-        agent.last_run_status = "success"
 
 
 async def _ai_pick_and_dispatch(
@@ -230,7 +206,7 @@ async def confirm_decision(
     if agent and resource:
         await dispatch_download(agent, resource, db)
 
-    await _maybe_reset_agent_run_status(db, decision.agent_id)
+    await maybe_reset_agent_run_status(db, decision.agent_id)
     await db.commit()
     # Reload with relationships eager-loaded: commit() expires the ORM object
     # and PendingDecisionResponse includes series/movie, so a plain refresh
@@ -275,7 +251,7 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     decision.status = "skipped"
     decision.decided_at = utcnow()
     await db.flush()
-    await _maybe_reset_agent_run_status(db, decision.agent_id)
+    await maybe_reset_agent_run_status(db, decision.agent_id)
     await db.commit()
     # See confirm_decision: reload with series/movie eager-loaded to avoid
     # implicit lazy IO during response serialization.
@@ -389,6 +365,6 @@ async def batch_decisions(
         except Exception as e:  # noqa: BLE001
             resp.failed += 1
             resp.errors.append(f"{dec.id}: {e}")
-    await _maybe_reset_agent_run_status(db, agent_id)
+    await maybe_reset_agent_run_status(db, agent_id)
     await db.commit()
     return success_response(resp.model_dump())

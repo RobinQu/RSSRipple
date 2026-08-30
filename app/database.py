@@ -393,6 +393,8 @@ async def _apply_light_migrations(conn) -> None:
         ("file_resources", "metadata_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("file_resources", "last_metadata_attempt_at", "DATETIME"),
         ("file_resources", "metadata_failure_type", "VARCHAR(16)"),
+        ("file_resources", "confirmation_ignored_at",
+         "DATETIME" if is_turso else "TIMESTAMP"),
         # AudioWork link for non-TV/non-movie works (ASMR / music / drama CD /
         # radio). The audio_works table itself is created by create_all.
         ("file_resources", "audio_work_id", "VARCHAR(36)"),

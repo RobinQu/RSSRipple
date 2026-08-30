@@ -571,11 +571,32 @@ a:hover {
   padding: 2px 0;
 }
 
+.dashboard-todo-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid var(--rr-border-soft);
+}
+
+.dashboard-todo-item {
+  padding: 10px 0 !important;
+}
+
+.dashboard-todo-list .ant-list-pagination {
+  margin: 16px 0;
+}
+
+.dashboard-todo-list .ant-pagination {
+  padding-top: 4px;
+}
+
 .pending-resource-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 10px;
 }
 
 .pending-resource-summary {
@@ -614,8 +635,8 @@ a:hover {
   display: flex;
   align-items: flex-end;
   gap: 16px;
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--rr-border-soft);
 }
 

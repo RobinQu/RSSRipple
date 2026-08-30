@@ -21,6 +21,7 @@ import {
   theme,
   InputNumber,
   Tooltip,
+  Checkbox,
 } from 'antd';
 import { dashboardApi, decisionsApi } from '../api/tasks';
 import { agentsApi } from '../api/agents';
@@ -96,6 +97,10 @@ export default function Dashboard() {
   // the decisions candidates and the confirmations rows.
   const [filesResourceId, setFilesResourceId] = useState<string | null>(null);
   const [correctionResource, setCorrectionResource] = useState<FileResource | null>(null);
+  const [selectedTodos, setSelectedTodos] = useState<Record<string, string[]>>({
+    decision: [], confirmation: [], plan: [],
+  });
+  const [ignoringTodos, setIgnoringTodos] = useState(false);
 
   const fetchData = useCallback(async () => {
     const [res, agentsRes, libRes] = await Promise.all([
@@ -155,11 +160,76 @@ export default function Dashboard() {
   };
 
   const handleSkip = async (decisionId: string) => {
-    const r = await decisionsApi.skip(decisionId);
-    if (r.success) {
-      message.success(t('dashboard.skipped'));
-      fetchData();
-    }
+    await handleIgnoreTodos('decision', [decisionId]);
+  };
+
+  const handleIgnoreTodos = (
+    kind: 'decision' | 'confirmation' | 'plan',
+    ids: string[],
+  ): Promise<void> => new Promise((resolve) => {
+    modal.confirm({
+      title: t('dashboard.ignoreConfirmTitle'),
+      content: t('dashboard.ignoreConfirmContent', { n: ids.length }),
+      okText: t('dashboard.ignore'),
+      okButtonProps: { danger: true },
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        setIgnoringTodos(true);
+        const r = await dashboardApi.ignoreTodos(kind, ids);
+        setIgnoringTodos(false);
+        if (r.success) {
+          message.success(t('dashboard.ignoredCount', { n: r.data.ignored }));
+          setSelectedTodos((prev) => ({ ...prev, [kind]: [] }));
+          await fetchData();
+        } else {
+          message.error(r.error?.message || t('dashboard.failed'));
+        }
+        resolve();
+      },
+      onCancel: () => resolve(),
+    });
+  });
+
+  const toggleTodo = (kind: string, id: string, checked: boolean) => {
+    setSelectedTodos((prev) => ({
+      ...prev,
+      [kind]: checked
+        ? [...new Set([...prev[kind], id])]
+        : prev[kind].filter((value) => value !== id),
+    }));
+  };
+
+  const renderTodoToolbar = (
+    kind: 'decision' | 'confirmation' | 'plan',
+    pageIds: string[],
+  ) => {
+    const selected = selectedTodos[kind];
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
+    return (
+      <div className="dashboard-todo-toolbar">
+        <Checkbox
+          checked={allSelected}
+          indeterminate={!allSelected && pageIds.some((id) => selected.includes(id))}
+          onChange={(event) => setSelectedTodos((prev) => ({
+            ...prev,
+            [kind]: event.target.checked
+              ? [...new Set([...prev[kind], ...pageIds])]
+              : prev[kind].filter((id) => !pageIds.includes(id)),
+          }))}
+        >
+          {t('common.selectAll')}
+        </Checkbox>
+        <Button
+          size="small"
+          danger
+          disabled={selected.length === 0}
+          loading={ignoringTodos}
+          onClick={() => handleIgnoreTodos(kind, selected)}
+        >
+          {t('dashboard.ignoreSelected', { n: selected.length })}
+        </Button>
+      </div>
+    );
   };
 
   const handleCorrectEpisode = async (cid: string, displayedDraft?: EpisodeDraft) => {
@@ -400,7 +470,10 @@ export default function Dashboard() {
               key: 'decisions',
               label: `${t('dashboard.pendingDecisions')} (${dashboard.pending_decisions_total})`,
               children: (
+                <>
+          {renderTodoToolbar('decision', dashboard.pending_decisions.map((item) => item.id))}
           <List
+            className="dashboard-todo-list"
             dataSource={dashboard.pending_decisions}
             pagination={dashboard.pending_decisions_total > TODO_PAGE_SIZE ? {
               current: decisionPage,
@@ -412,7 +485,8 @@ export default function Dashboard() {
             renderItem={(d) => (
               <List.Item
                 key={d.id}
-                style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
+                className="dashboard-todo-item"
+                style={{ display: 'block' }}
               >
                 <div
                   style={{
@@ -422,7 +496,13 @@ export default function Dashboard() {
                     marginBottom: 12,
                   }}
                 >
-                  <div>
+                  <div style={{ display: 'flex', gap: 8, minWidth: 0 }}>
+                    <Checkbox
+                      checked={selectedTodos.decision.includes(d.id)}
+                      onChange={(event) => toggleTodo('decision', d.id, event.target.checked)}
+                      aria-label={t('dashboard.selectTodo')}
+                    />
+                    <div style={{ minWidth: 0 }}>
                     <Text strong>{d.reason}</Text>
                     <div style={{ fontSize: 12, color: 'var(--rr-text-muted)', marginTop: 4 }}>
                       <Link to={`/agents/${d.agent_id}`}>
@@ -448,9 +528,10 @@ export default function Dashboard() {
                         {t('agents.ambiguousHint')}
                       </div>
                     )}
+                    </div>
                   </div>
-                  <Button size="small" onClick={() => handleSkip(d.id)}>
-                    {t('common.skip')}
+                  <Button size="small" danger onClick={() => handleSkip(d.id)}>
+                    {t('dashboard.ignore')}
                   </Button>
                 </div>
 
@@ -583,13 +664,17 @@ export default function Dashboard() {
               </List.Item>
             )}
               />
+                </>
               ),
             },
             {
               key: 'confirmations',
               label: `${t('dashboard.pendingConfirmations')} (${dashboard.pending_confirmations_total})`,
               children: (
+                <>
+                {renderTodoToolbar('confirmation', dashboard.pending_confirmations.map((item) => item.resource.id))}
                 <List
+                  className="dashboard-todo-list"
                   dataSource={dashboard.pending_confirmations}
                   pagination={dashboard.pending_confirmations_total > TODO_PAGE_SIZE ? {
                     current: confirmationPage,
@@ -616,10 +701,16 @@ export default function Dashboard() {
                     return (
                       <List.Item
                         key={r.id}
-                        style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
+                        className="dashboard-todo-item"
+                        style={{ display: 'block' }}
                       >
                         <div className="pending-resource-confirmation">
                           <div className="pending-resource-header">
+                            <Checkbox
+                              checked={selectedTodos.confirmation.includes(r.id)}
+                              onChange={(event) => toggleTodo('confirmation', r.id, event.target.checked)}
+                              aria-label={t('dashboard.selectTodo')}
+                            />
                             <div className="pending-resource-summary">
                               <div className="pending-resource-work-line">
                             {r.series_id || r.movie_id ? (
@@ -672,6 +763,14 @@ export default function Dashboard() {
                               </Space>
                             </div>
                             <div className="pending-resource-inspect">
+                              <Button
+                                type="link"
+                                danger
+                                size="small"
+                                onClick={() => handleIgnoreTodos('confirmation', [r.id])}
+                              >
+                                {t('dashboard.ignore')}
+                              </Button>
                               <Button
                                 type="link"
                                 size="small"
@@ -739,13 +838,17 @@ export default function Dashboard() {
                     );
                   }}
                 />
+                </>
               ),
             },
             {
               key: 'plans',
               label: `${t('dashboard.pendingPlans')} (${dashboard.pending_plans_total})`,
               children: (
+                <>
+                {renderTodoToolbar('plan', dashboard.pending_plans.map((item) => item.id))}
                 <List
+                  className="dashboard-todo-list"
                   dataSource={dashboard.pending_plans}
                   pagination={dashboard.pending_plans_total > TODO_PAGE_SIZE ? {
                     current: planPage,
@@ -760,7 +863,8 @@ export default function Dashboard() {
               return (
                 <List.Item
                   key={p.id}
-                  style={{ padding: '16px 24px', borderBottom: '1px solid var(--rr-border-soft)', display: 'block' }}
+                  className="dashboard-todo-item"
+                  style={{ display: 'block' }}
                 >
                   <div
                     style={{
@@ -771,6 +875,11 @@ export default function Dashboard() {
                       marginBottom: 8,
                     }}
                   >
+                    <Checkbox
+                      checked={selectedTodos.plan.includes(p.id)}
+                      onChange={(event) => toggleTodo('plan', p.id, event.target.checked)}
+                      aria-label={t('dashboard.selectTodo')}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <Space size={8} wrap>
                         <StatusBadge status={p.status} />
@@ -860,8 +969,9 @@ export default function Dashboard() {
                   )}
                 </List.Item>
               );
-            }}
-              />
+                  }}
+                />
+                </>
               ),
             },
           ]}

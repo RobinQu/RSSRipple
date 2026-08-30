@@ -172,6 +172,15 @@ class TestDashboardPopulated:
         assert page_two.json()["data"]["pending_plans_total"] == 1
         assert page_two.json()["data"]["pending_plans"] == []
 
+        ignored = await client.post(
+            "/api/v1/dashboard/todos/ignore",
+            json={"kind": "plan", "ids": [plan_id]},
+        )
+        assert ignored.status_code == 200
+        assert ignored.json()["data"]["ignored"] == 1
+        after = await client.get("/api/v1/dashboard")
+        assert after.json()["data"]["pending_plans_total"] == 0
+
 
     async def test_dashboard_pending_confirmations(
         self, client, db_session_factory, sample_channel, sample_series,
@@ -201,6 +210,36 @@ class TestDashboardPopulated:
         assert "season_ambiguous" in c["kinds"]
         assert c["channel_name"] == sample_channel.name
         assert c["work_title"] == sample_series.title_cn
+
+        ignored = await client.post(
+            "/api/v1/dashboard/todos/ignore",
+            json={"kind": "confirmation", "ids": [rid]},
+        )
+        assert ignored.status_code == 200
+        assert ignored.json()["data"]["ignored"] == 1
+        after = await client.get("/api/v1/dashboard")
+        assert rid not in {
+            item["resource"]["id"]
+            for item in after.json()["data"]["pending_confirmations"]
+        }
+
+    async def test_dashboard_can_batch_ignore_decisions(
+        self, client, setup_with_task_and_decision, db_session_factory,
+    ):
+        from app.models.pending_decision import PendingDecision
+
+        decision_id = setup_with_task_and_decision.pd_id
+        ignored = await client.post(
+            "/api/v1/dashboard/todos/ignore",
+            json={"kind": "decision", "ids": [decision_id]},
+        )
+        assert ignored.status_code == 200
+        assert ignored.json()["data"] == {
+            "requested": 1, "ignored": 1, "unchanged": 0,
+        }
+        async with db_session_factory() as session:
+            row = await session.get(PendingDecision, decision_id)
+            assert row.status == "skipped"
 
     async def test_pending_confirmations_have_independent_pagination_and_true_total(
         self, client, db_session_factory, sample_channel,

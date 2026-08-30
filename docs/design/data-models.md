@@ -153,6 +153,8 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 
 序列化：`GET/PATCH/PUT` 单资源端点返回 `FileResourceDetailResponse`（在基础 schema 上附 `work_links[]` + `file_assignments[]`，需 `_DETAIL_LOAD_OPTIONS` selectinload）；列表端点保持精简基础 schema。
 
+`FileResource.confirmation_ignored_at`：用户在 Dashboard 单个或批量忽略「文件资源元数据确认」时写入 UTC 时间。非空资源仍完整保留并可在频道资源页检索/修订，但不再进入 Dashboard 待确认策略扫描；它不等价于 metadata 已补齐，也不会删除或派发资源。
+
 资源的 FK 互斥规则：
 - 若为剧集资源，`series_id` 非空，`movie_id` 必须为空；具体集数统一使用 `episode` 字段。
 - 若为电影资源，`movie_id` 非空，`series_id` 必须为空。

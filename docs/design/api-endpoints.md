@@ -43,6 +43,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、三类待办的独立服务端分页。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
+| POST | `/dashboard/todos/ignore` | 单个或批量忽略同类待办。Body：`{kind: "decision"|"confirmation"|"plan", ids: string[1..100]}`。decision→`skipped`；confirmation→资源写 `confirmation_ignored_at`，永久退出待确认列表但不删除资源；plan→`cancelled` 并追加 organize audit。响应 `{requested, ignored, unchanged}` |
 
 `GET /dashboard` 响应 `data` 结构：
 ```json
@@ -68,7 +69,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 }
 ```
 
-三个 `*_total` 均为对应待办的真实全量数，不受当前页 `page_size` 限制；三个页码相互独立，切换其中一个列表不会改变另两个列表的页位。Agent 决策总数与分页结果只计入候选数至少为 2 的有效多选一决策；文件资源确认总数与分页结果统一调用 Channel 确认策略计算。
+三个 `*_total` 均为对应待办的真实全量数，不受当前页 `page_size` 限制；三个页码相互独立，切换其中一个列表不会改变另两个列表的页位。Agent 决策总数与分页结果只计入候选数至少为 2 的有效多选一决策；文件资源确认总数与分页结果统一调用 Channel 确认策略计算，并排除 `confirmation_ignored_at` 非空的资源。
 
 `untracked` 组：对每个下载器调用 `list_torrents`，筛选 `status ∈ {downloading, download pending}` 且 `is_finished=false` 且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name`；计入 `active_download_count`。
 
