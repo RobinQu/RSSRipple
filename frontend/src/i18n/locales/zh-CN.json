@@ -1082,6 +1082,7 @@
     "sourceLinks": "数据源",
     "colRating": "评分",
     "colStatus": "状态",
+    "colReleaseDate": "发行时间",
     "colInfo": "季集/年份",
     "colGenre": "分类",
     "year": "年份",

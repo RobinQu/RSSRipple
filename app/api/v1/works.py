@@ -134,7 +134,10 @@ def _normalize_series(s: TVSeries) -> dict:
         "seasons": s.number_of_seasons,
         "number_of_episodes": s.number_of_episodes,
         "number_of_seasons": s.number_of_seasons,
-        "release_date": None,
+        # The unified works API exposes one date field for all work types.
+        # TVSeries stores it as start_date, so keep the list view consistent
+        # with the series detail page instead of returning a misleading null.
+        "release_date": str(s.start_date) if s.start_date else None,
         "runtime": None,
         "created_at": s.created_at.isoformat() + "Z" if s.created_at else None,
         "updated_at": s.updated_at.isoformat() + "Z" if s.updated_at else None,

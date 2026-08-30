@@ -208,7 +208,7 @@ export default function CollectionDetail() {
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colType')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
-                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colStatus')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colReleaseDate')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colInfo')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colGenre')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('common.operation')}</th>
@@ -252,8 +252,8 @@ export default function CollectionDetail() {
                         <td style={{ padding: '8px' }} data-label={t('works.colRating')}>
                           {w.rating != null ? `★ ${w.rating.toFixed(1)}` : '—'}
                         </td>
-                        <td style={{ padding: '8px' }} data-label={t('works.colStatus')}>
-                          {w.status || '—'}
+                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colReleaseDate')}>
+                          {w.release_date || '—'}
                         </td>
                         <td
                           style={{ padding: '8px', whiteSpace: 'nowrap' }}

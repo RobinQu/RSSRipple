@@ -109,7 +109,18 @@ export default function Channels() {
       title: t('common.name'),
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, record) => <Link to={`/channels/${record.id}`}>{name}</Link>,
+      render: (name: string, record) => (
+        <div>
+          <Link to={`/channels/${record.id}`}>{name}</Link>
+          <div style={{ marginTop: 4 }}>
+            {record.metadata_agent_enabled ? (
+              <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>{t('channels.agent')}</Tag>
+            ) : (
+              <Tag style={{ margin: 0, fontSize: 11 }}>{t('agents.off')}</Tag>
+            )}
+          </div>
+        </div>
+      ),
     },
     {
       title: t('common.status'),
@@ -131,14 +142,6 @@ export default function Channels() {
       key: 'fetch_interval',
       width: 120,
       render: (v: number) => t('channels.minutesUnit', { n: Math.round(v / 60) }),
-    },
-    {
-      title: t('channels.metadataSource'),
-      dataIndex: 'metadata_agent_enabled',
-      key: 'metadata_agent_enabled',
-      width: 110,
-      render: (v: boolean) =>
-        v ? <Tag color="blue">{t('channels.agent')}</Tag> : <Tag>{t('agents.off')}</Tag>,
     },
     {
       title: t('channels.lastFetch'),

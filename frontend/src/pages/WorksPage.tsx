@@ -99,7 +99,9 @@ export default function WorksPage() {
     setView(v);
     setPage(1);
     setSelected(new Set());
-    setSearchParams(v === 'collections' ? { view: 'collections' } : {}, { replace: true });
+    // Keep view switches in browser history so Back returns to the actual
+    // previous works view after opening a collection.
+    setSearchParams(v === 'collections' ? { view: 'collections' } : {});
   };
 
   const handlePageChange = (p: number) => {
@@ -319,7 +321,7 @@ export default function WorksPage() {
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colCollection')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
-                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colStatus')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colReleaseDate')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colInfo')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colGenre')}</th>
                   </tr>
@@ -400,8 +402,8 @@ export default function WorksPage() {
                         <td style={{ padding: '8px' }} data-label={t('works.colRating')}>
                           {w.rating != null ? `★ ${w.rating.toFixed(1)}` : '—'}
                         </td>
-                        <td style={{ padding: '8px' }} data-label={t('works.colStatus')}>
-                          {w.status || '—'}
+                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colReleaseDate')}>
+                          {w.release_date || '—'}
                         </td>
                         <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colInfo')}>
                           {info}

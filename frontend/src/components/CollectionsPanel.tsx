@@ -2,10 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, Search } from 'lucide-react';
-import { Table, Button, Space, Empty, Tag, Input } from 'antd';
-import type { TableColumnsType } from 'antd';
+import { Button, Space, Empty, Tag, Input, Spin, Typography } from 'antd';
 import { collectionsApi } from '../api/collections';
-import { withMobileLabels } from '../utils/table';
+import Pagination from './Pagination';
 import CollectionFormModal from './CollectionFormModal';
 import type { WorkCollection } from '../types';
 
@@ -50,31 +49,6 @@ export default function CollectionsPanel() {
     return <Tag color={color}>{t(`collections.source_${src}`, src)}</Tag>;
   };
 
-  const columns: TableColumnsType<WorkCollection> = [
-    {
-      title: t('collections.colName'),
-      key: 'name',
-      render: (_, record) => (
-        <a onClick={() => navigate(`/collections/${record.id}`)}>
-          {record.title_cn}
-          {record.title_en ? ` / ${record.title_en}` : ''}
-        </a>
-      ),
-    },
-    {
-      title: t('collections.colSource'),
-      key: 'source',
-      width: 130,
-      render: (_, record) => sourceTag(record),
-    },
-    {
-      title: t('collections.colWorks'),
-      key: 'work_count',
-      width: 90,
-      render: (_, record) => record.work_count ?? 0,
-    },
-  ];
-
   return (
     <div>
       <div
@@ -105,21 +79,56 @@ export default function CollectionsPanel() {
         </Space>
       </div>
 
-      <Table
-        className="stack-table"
-        columns={withMobileLabels(columns)}
-        dataSource={collections}
-        rowKey="id"
-        loading={loading}
-        locale={{ emptyText: <Empty description={t('collections.noCollections')} /> }}
-        pagination={{
-          current: page,
-          pageSize: PAGE_SIZE,
-          total,
-          onChange: setPage,
-          showSizeChanger: false,
-        }}
-      />
+      {loading && collections.length === 0 ? (
+        <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />
+      ) : collections.length === 0 ? (
+        <Empty description={t('collections.noCollections')} style={{ marginTop: 48 }} />
+      ) : (
+        <>
+          <Spin spinning={loading}>
+            <div className="resource-table-wrap" style={{ marginBottom: 16 }}>
+              <table className="resource-table works-table">
+                <colgroup>
+                  <col />
+                  <col style={{ width: 130 }} />
+                  <col style={{ width: 90 }} />
+                </colgroup>
+                <thead>
+                  <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('collections.colName')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('collections.colSource')}</th>
+                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('collections.colWorks')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {collections.map((record) => (
+                    <tr
+                      key={record.id}
+                      className="resource-row works-row"
+                      style={{ borderTop: '1px solid var(--rr-border-soft)', cursor: 'pointer' }}
+                      onClick={() => navigate(`/collections/${record.id}`)}
+                    >
+                      <td style={{ padding: '8px' }} data-label={t('collections.colName')}>
+                        <Typography.Text strong>{record.title_cn}</Typography.Text>
+                        {record.title_en && <Typography.Text type="secondary"> / {record.title_en}</Typography.Text>}
+                      </td>
+                      <td style={{ padding: '8px' }} data-label={t('collections.colSource')}>
+                        {sourceTag(record)}
+                      </td>
+                      <td style={{ padding: '8px' }} data-label={t('collections.colWorks')}>
+                        {record.work_count ?? 0}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Spin>
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0' }}>
+            <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPageChange={setPage} />
+          </div>
+        </>
+      )}
 
       <CollectionFormModal
         open={formOpen}
