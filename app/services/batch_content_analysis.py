@@ -39,6 +39,7 @@ from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.resource_parser import extract_subtitle_group_from_filename
+from app.services.subtitle_groups import join_legacy_subtitle_group, normalize_subtitle_groups
 from app.services.runtime_config import runtime_config
 from app.services.torrent_inspect import TorrentReport
 
@@ -101,14 +102,17 @@ def apply_auto_assignments(resource: FileResource, report: TorrentReport) -> Non
     # release-name convention found in overseas filenames (``...-GROUP.mkv``).
     # Require one unambiguous group across the torrent so mixed packs cannot
     # accidentally stamp the resource with one constituent release's group.
-    if not getattr(resource, "subtitle_group", None):
+    if not getattr(resource, "subtitle_group", None) and not getattr(resource, "subtitle_groups", None):
         filename_groups: dict[str, str] = {}
         for fp in report.file_parses:
             group = extract_subtitle_group_from_filename(fp.get("path"))
             if group:
                 filename_groups.setdefault(group.casefold(), group)
         if len(filename_groups) == 1:
-            resource.subtitle_group = next(iter(filename_groups.values()))
+            group = next(iter(filename_groups.values()))
+            resource.subtitle_groups = normalize_subtitle_groups(group)
+            resource.subtitle_group = join_legacy_subtitle_group(resource.subtitle_groups)
+            resource.subtitle_groups_source = "heuristic"
 
     hint_by_path: dict[str, str] = {}
     for cluster in report.clusters:

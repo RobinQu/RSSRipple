@@ -369,7 +369,7 @@ _AUTOCOMPLETE_STRING_FIELDS = {
     "subtitle_group", "resolution", "source", "video_codec", "audio_codec",
     "subtitle_type", "container", "title_cn", "title_en", "search_title",
 }
-_AUTOCOMPLETE_LIST_FIELDS = {"subtitle_langs"}
+_AUTOCOMPLETE_LIST_FIELDS = {"subtitle_langs", "subtitle_groups"}
 _AUTOCOMPLETE_ALL = _AUTOCOMPLETE_STRING_FIELDS | _AUTOCOMPLETE_LIST_FIELDS
 
 
@@ -426,7 +426,8 @@ async def list_channel_field_values(
     # how to unnest, so pull the JSON blobs and aggregate in Python. The
     # per-channel volume is small (thousands at most), so a fetch-and-count
     # in memory is fine and avoids dialect-specific SQL.
-    stmt = select(FileResource.subtitle_langs).where(
+    column = getattr(FileResource, field)
+    stmt = select(column).where(
         FileResource.channel_id == channel_id,
         FileResource.subtitle_langs.isnot(None),
     )
@@ -976,11 +977,38 @@ async def correct_parse_fields(
     # episode_confidence — a mis-parsed resolution says nothing about the
     # episode number.
     for _field in (
-        "resolution", "subtitle_group", "source", "video_codec",
+        "resolution", "subtitle_group", "subtitle_groups", "source", "video_codec",
         "audio_codec", "subtitle_type", "container", "subtitle_langs",
     ):
         if _field in sent:
             setattr(resource, _field, getattr(body, _field))
+
+    # Keep the legacy scalar and canonical list synchronized.  The plural
+    # field is authoritative when both are present; conflicting submissions
+    # are rejected rather than silently rewriting a manual correction.
+    from app.services.subtitle_groups import (
+        join_legacy_subtitle_group,
+        normalize_subtitle_groups,
+    )
+    if "subtitle_group" in sent and "subtitle_groups" in sent:
+        if normalize_subtitle_groups(body.subtitle_group) != normalize_subtitle_groups(
+            body.subtitle_groups, split=False
+        ):
+            return JSONResponse(
+                status_code=422,
+                content={"success": False, "data": None, "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "subtitle_group and subtitle_groups disagree",
+                }},
+            )
+    if "subtitle_groups" in sent:
+        resource.subtitle_groups = normalize_subtitle_groups(body.subtitle_groups, split=False)
+        resource.subtitle_group = join_legacy_subtitle_group(resource.subtitle_groups)
+        resource.subtitle_groups_source = "manual"
+    elif "subtitle_group" in sent:
+        resource.subtitle_groups = normalize_subtitle_groups(body.subtitle_group)
+        resource.subtitle_group = body.subtitle_group
+        resource.subtitle_groups_source = "manual"
 
     # Batch invariants (aligned with the fetch-service pre-parser).
     if resource.is_batch:

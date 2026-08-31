@@ -47,6 +47,7 @@ MEDIA_FIELDS = (
     "search_title",
     "resolution",
     "subtitle_group",
+    "subtitle_groups",
     "source",
     "video_codec",
     "audio_codec",

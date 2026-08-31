@@ -112,7 +112,7 @@ export default function SeriesDetail() {
   const resourceColumns: TableColumnsType<FileResource> = [
     { title: t('series.name'), dataIndex: 'title_raw', key: 'title', ellipsis: true },
     { title: t('series.resolution'), dataIndex: 'resolution', key: 'resolution', width: 100, render: (v: string | null) => v ? <Tag>{v}</Tag> : '—' },
-    { title: t('series.subtitleGroup'), dataIndex: 'subtitle_group', key: 'subtitle_group', width: 140, render: (v: string | null) => v || '—' },
+    { title: t('series.subtitleGroup'), dataIndex: 'subtitle_groups', key: 'subtitle_groups', width: 180, render: (_: unknown, r: any) => (r.subtitle_groups?.length ? r.subtitle_groups : (r.subtitle_group ? [r.subtitle_group] : [])).join(' & ') || '—' },
     { title: t('series.publishedAt'), dataIndex: 'published_at', key: 'published_at', width: 160, render: (v: string | null) => (v ? timeAgo(v) : '—') },
     {
       title: t('common.actions'),

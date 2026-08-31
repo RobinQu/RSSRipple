@@ -39,6 +39,7 @@ from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.webhook_delivery import WebhookDelivery
 from app.services.genre_registry import normalize_genres
+from app.services.subtitle_groups import subtitle_groups_for_resource
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -175,6 +176,7 @@ def build_payload(
             "episode_start": resource.episode_start if resource else None,
             "episode_end": resource.episode_end if resource else None,
             "subtitle_langs": resource.subtitle_langs if resource else None,
+            "subtitle_groups": subtitle_groups_for_resource(resource) if resource else None,
             "resolution": resource.resolution if resource else None,
             "container": resource.container if resource else None,
             "title_year": resource.title_year if resource else None,

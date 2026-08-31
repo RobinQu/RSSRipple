@@ -28,6 +28,7 @@ class FileResourceResponse(BaseModel):
     title_en: str | None = None
     search_title: str | None = None
     subtitle_group: str | None = None
+    subtitle_groups: list[str] | None = None
     episode: int | None = None
     season: int | None = None
     title_year: int | None = None
@@ -220,6 +221,7 @@ class ResourceParseCorrectionRequest(BaseModel):
     # sent keys are applied; these never touch ``episode_confidence``.
     resolution: str | None = None
     subtitle_group: str | None = None
+    subtitle_groups: list[str] | None = None
     source: str | None = None
     video_codec: str | None = None
     audio_codec: str | None = None

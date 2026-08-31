@@ -67,11 +67,11 @@ export default function AudioWorkDetail() {
     },
     {
       title: t('series.subtitleGroup'),
-      dataIndex: 'subtitle_group',
-      key: 'subtitle_group',
+      dataIndex: 'subtitle_groups',
+      key: 'subtitle_groups',
       width: 160,
       ellipsis: true,
-      render: (val: string | null) => val || <Text type="secondary">-</Text>,
+      render: (_: unknown, r: any) => (r.subtitle_groups?.length ? r.subtitle_groups : (r.subtitle_group ? [r.subtitle_group] : [])).join(' & ') || <Text type="secondary">-</Text>,
     },
     {
       title: t('series.publishedAt'),

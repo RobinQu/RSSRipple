@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.file_resource import FileResource
 from app.services.metadata_episode_reconcile import _RECONCILE_TOLERANCE
+from app.services.subtitle_groups import canonical_group_set
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,9 @@ _MAX_ABSOLUTE_DISTANCE = 2
 _HISTORY_SCAN_LIMIT = 60
 
 
-def _group_key(value: str | None) -> str:
-    return (value or "").strip().casefold()
+def _group_key(value: object) -> frozenset[str]:
+    """Stable release-group identity for scalar and plural values."""
+    return canonical_group_set(value)
 
 
 def _convention(row: FileResource) -> tuple[int, int] | None:
@@ -56,6 +58,7 @@ def _choose_convention(
     cross-group fallback requires either two groups or two distinct absolute
     examples, and every eligible example must agree.
     """
+    target_group = _group_key(target_group)
     same_group = (
         [row for row in rows if _group_key(row.subtitle_group) == target_group]
         if target_group
@@ -228,7 +231,8 @@ async def apply_episode_history_reconcile(
     if not rows:
         return False
 
-    convention = _choose_convention(rows, _group_key(getattr(resource, "subtitle_group", None)))
+    convention = _choose_convention(rows, getattr(resource, "subtitle_groups", None)
+                                     or getattr(resource, "subtitle_group", None))
     if convention is None:
         return False
     season, offset = convention

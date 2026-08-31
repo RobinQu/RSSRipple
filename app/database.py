@@ -359,6 +359,12 @@ async def _apply_light_migrations(conn) -> None:
         # subtitle_langs: JSON array of BCP-47 language tags. SQLite stores JSON
         # as TEXT; PostgreSQL has a proper JSONB type.
         ("file_resources", "subtitle_langs", "TEXT" if is_turso else "JSONB"),
+        # Canonical subtitle/release-group members.  The legacy scalar
+        # subtitle_group column remains available as a raw compatibility value
+        # until the migration script has completed and external clients have
+        # moved to the plural field.
+        ("file_resources", "subtitle_groups", "TEXT" if is_turso else "JSONB"),
+        ("file_resources", "subtitle_groups_source", "VARCHAR(16)"),
         # Episode reconciliation (P2): stores the original absolute-numbering
         # value when the agent converts "S04 - 84" → per-season 13; and a
         # confidence tag noting where the final episode value came from.

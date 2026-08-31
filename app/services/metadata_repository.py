@@ -21,6 +21,12 @@ from app.services.metadata_episode_reconcile import (
     seasons_map_from_list,
 )
 from app.services.metadata_resource_meta import ResourceMetadata
+from app.services.subtitle_groups import (
+    join_legacy_subtitle_group,
+    normalize_group_key,
+    normalize_subtitle_groups,
+    subtitle_groups_for_resource,
+)
 from app.services.metadata_sources import normalize_metadata_source_type
 from app.utils.time import utcnow
 
@@ -69,14 +75,54 @@ def _fill_subtitle_group(meta: ResourceMetadata, resource: Any) -> None:
     returns ``found=false``.  Existing non-empty values win because they may
     come from a channel mapping or a manual correction.
     """
-    current = getattr(resource, "subtitle_group", None)
-    candidate = meta.subtitle_group
-    if (
-        not (isinstance(current, str) and current.strip())
-        and isinstance(candidate, str)
-        and candidate.strip()
+    current = subtitle_groups_for_resource(resource)
+    if not getattr(resource, "subtitle_groups", None) and current:
+        resource.subtitle_groups = list(current)
+        resource.subtitle_groups_source = "legacy"
+    candidate = meta.subtitle_groups
+    if candidate is None:
+        candidate = normalize_subtitle_groups(meta.subtitle_group)
+    if candidate and (
+        not current
+        or getattr(resource, "subtitle_groups_source", None) == "unresolved"
     ):
-        resource.subtitle_group = candidate.strip()
+        resource.subtitle_groups = list(candidate)
+        resource.subtitle_groups_source = "llm"
+        resource.subtitle_group = join_legacy_subtitle_group(candidate)
+
+
+async def _register_subtitle_group_mapping(
+    meta: ResourceMetadata, resource: Any, db: AsyncSession,
+) -> None:
+    """Persist a constrained LLM split for reuse by future feed items.
+
+    The model may only register groups that are exact members of the parser's
+    candidate split.  This keeps the learned registry from inventing labels
+    while still allowing an unresolved compound value to be promoted after a
+    successful metadata pass.
+    """
+    raw = getattr(resource, "subtitle_group", None)
+    candidate = normalize_subtitle_groups(meta.subtitle_groups, split=False)
+    if not raw or len(candidate) < 2:
+        return
+    allowed = {normalize_group_key(x) for x in normalize_subtitle_groups(raw)}
+    if not candidate or not all(normalize_group_key(x) in allowed for x in candidate):
+        return
+    from sqlalchemy import select
+    from app.models.subtitle_group_mapping import SubtitleGroupMapping
+    key = normalize_group_key(raw)
+    row = (await db.execute(
+        select(SubtitleGroupMapping).where(SubtitleGroupMapping.normalized_key == key)
+    )).scalar_one_or_none()
+    if row is None:
+        row = SubtitleGroupMapping(
+            raw_value=str(raw), normalized_key=key,
+            groups=candidate, resolution="llm",
+        )
+        db.add(row)
+    elif row.resolution not in {"manual", "llm"}:
+        row.groups = candidate
+        row.resolution = "llm"
 
 
 async def _apply_to_resource(
@@ -123,6 +169,7 @@ async def _apply_to_resource(
     if meta.title_en:
         resource.title_en = resource.title_en or meta.title_en
     _fill_subtitle_group(meta, resource)
+    await _register_subtitle_group_mapping(meta, resource, db)
     # All release-description fields are part of the metadata result.  The
     # old write-back only persisted subtitle languages, leaving resolution,
     # source, codecs, subtitle type and container permanently empty even when
@@ -371,6 +418,7 @@ async def _set_cache(
             "title_cn": meta.title_cn,
             "title_en": meta.title_en,
             "subtitle_group": meta.subtitle_group,
+            "subtitle_groups": meta.subtitle_groups,
             "resolution": meta.resolution,
             "source": meta.source,
             "video_codec": meta.video_codec,

@@ -241,7 +241,7 @@ def _calc_confidence(validated_mapping: dict) -> str:
     resolution, and source reflects how completely the LLM understood the feed.
     """
     expected_fields = {
-        "title_cn", "title_en", "subtitle_group", "episode",
+        "title_cn", "title_en", "subtitle_groups", "episode",
         "resolution", "source",
     }
     field_mappings = validated_mapping.get("field_mappings", {})
@@ -268,7 +268,7 @@ The output must be a JSON object with two parts:
 The target fields to extract are:
 - title_cn (str): Chinese title/name
 - title_en (str): English title/name
-- subtitle_group (str): Release group name (often in brackets at the start)
+- subtitle_groups (list[str]): Release group names, including joint releases
 - episode (int): Episode number
 - season (int): Season number
 - resolution (str): Video resolution (e.g., "1080p", "720p")
@@ -301,7 +301,7 @@ Example output for a typical anime RSS feed:
   "field_mappings": {
     "title_cn": {"source": "title", "regex": "\\\\]\\\\s*(.+?)\\\\s*/", "group": 1},
     "title_en": {"source": "title", "regex": "/\\\\s*(.+?)\\\\s*-", "group": 1},
-    "subtitle_group": {"source": "title", "regex": "^\\\\[([^\\\\]]+)\\\\]", "group": 1},
+    "subtitle_groups": {"source": "title", "regex": "^\\\\[([^\\\\]]+)\\\\]", "group": 1},
     "episode": {"source": "title", "regex": "-\\\\s*(\\\\d+)\\\\b", "group": 1, "transform": "int"},
     "resolution": {
         "source": "title",

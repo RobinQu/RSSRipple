@@ -31,6 +31,7 @@ from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.models.storage_volume import StorageVolume
+from app.models.subtitle_group_mapping import SubtitleGroupMapping
 from app.models.webhook_delivery import WebhookDelivery
 from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
@@ -65,6 +66,7 @@ __all__ = [
     "WebhookDelivery",
     "Library",
     "StorageVolume",
+    "SubtitleGroupMapping",
     "MediaServerInstance",
     "MediaServerBinding",
     "OrganizeRule",
@@ -77,4 +79,3 @@ __all__ = [
 # enqueue + PostgreSQL search_text maintenance). Imported last so the model
 # classes above are already defined.
 import app.services.work_search_events as _work_search_events  # noqa: E402, F401
-

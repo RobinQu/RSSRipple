@@ -48,13 +48,14 @@ BOOL_FIELDS = {"is_batch", "series.is_anime", "movie.is_anime"}
 # operators below act element-wise. ``series.genre`` / ``movie.genre`` resolve
 # through the resource's linked work (values are the closed TMDB genre set,
 # compared case-insensitively element-wise).
-LIST_STRING_FIELDS = {"subtitle_langs", "series.genre", "movie.genre"}
+LIST_STRING_FIELDS = {"subtitle_groups", "subtitle_langs", "series.genre", "movie.genre"}
 ALL_FIELDS = STRING_FIELDS | NUMBER_FIELDS | BOOL_FIELDS | LIST_STRING_FIELDS
 
 STRING_OPS = {"eq", "ne", "contains", "fuzzy", "in", "regex"}
 NUMBER_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "in"}
 BOOL_OPS = {"eq", "ne"}
 LIST_STRING_OPS = {"eq", "ne", "contains", "in"}
+SUBTITLE_GROUP_OPS = LIST_STRING_OPS | {"fuzzy", "regex"}
 # Value-less operators: they test the field's own emptiness, take no ``value``
 # (the key may be omitted), and are valid for every field type. Use these
 # instead of ``eq ""`` — an empty-string ``eq`` never matches anything.
@@ -159,7 +160,9 @@ def _validate_node(node: Any, errors: list[str], path: str) -> None:
         if field in BOOL_FIELDS and op not in BOOL_OPS:
             errors.append(f"{path}.operator: operator {op!r} not supported for bool field {field!r}")
             return
-        if field in LIST_STRING_FIELDS and op not in LIST_STRING_OPS:
+        if field in LIST_STRING_FIELDS and op not in (
+            SUBTITLE_GROUP_OPS if field == "subtitle_groups" else LIST_STRING_OPS
+        ):
             errors.append(f"{path}.operator: operator {op!r} not supported for list field {field!r}")
             return
         # A missing/blank value is always a mistake for value-taking
@@ -267,9 +270,17 @@ def evaluate_field_condition(cond: dict, resource: Any) -> bool:
             return item_set != exp_set
         if op == "contains":
             return str(expected).strip().lower() in item_set
+        if field == "subtitle_groups" and op == "fuzzy":
+            return any(similarity_score(str(expected), item) >= 85 for item in items)
         if op == "in":
             values = [str(v).strip().lower() for v in _coerce_in_list(expected) if str(v).strip()]
             return any(v in item_set for v in values)
+        if field == "subtitle_groups" and op == "regex":
+            try:
+                pattern = re.compile(str(expected), re.IGNORECASE)
+            except re.error:
+                return False
+            return any(pattern.search(item) is not None for item in items)
         return False
 
     # Bool field short-circuit — null semantics match the documented scalar
@@ -394,6 +405,10 @@ def get_field_value(resource: Any, field: str) -> Any:
     through the linked Movie/TVSeries; ``year`` derives from the work's
     date field (Movie.release_date / TVSeries.start_date).
     """
+    if field == "subtitle_groups":
+        from app.services.subtitle_groups import subtitle_groups_for_resource
+
+        return subtitle_groups_for_resource(resource)
     # Work type is derived from the mutually-exclusive work FKs, not a column.
     # Reading the FK ids needs no eager-loading (the relationships are never
     # touched), so it is safe at every filter evaluation site.

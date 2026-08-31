@@ -14,7 +14,7 @@ BoolCondition = {
 }
 
 FieldCondition = {
-  "field": "subtitle_group" | "resolution" | "source" | "video_codec" |
+  "field": "subtitle_group" | "subtitle_groups" | "resolution" | "source" | "video_codec" |
            "audio_codec" | "subtitle_type" | "container" | "file_size" |
            "episode" | "season" | "episode_start" | "episode_end" |
            "absolute_episode" | "is_batch" | "subtitle_langs" |
@@ -32,6 +32,8 @@ FieldCondition = {
 ```
 
 FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一个有序 FieldCondition 列表，用于冲突解决中的确定性候选排序（只排序不过滤，见 business-logic.md「优选偏好层」）；校验共用同一套字段/操作符白名单（`validate_field_conditions`）。
+
+`subtitle_groups` 是规范字幕组字段（列表）。`contains`、`in`、`fuzzy`、`regex` 按成员求值；`eq`/`ne` 保持完整列表精确比较。旧 `subtitle_group` 规则由 `scripts/subtitle_groups_eval.py --apply` 转换并保留精确单组语义。
 
 ### 求值语义
 

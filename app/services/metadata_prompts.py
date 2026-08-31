@@ -20,7 +20,7 @@ Example 1 — Chinese anime with season number in brackets and title:
   Raw: "[SweetSub&LoliHouse] 小书痴的下克上 领主的养女 / Honzuki no Gekokujou S04 - 11 [WebRip 1080p HEVC-10bit AAC][简繁日内封字幕]（第四季）"
   → clean_title: "小书痴的下克上 领主的养女"
   → content_type: tv, episode: 11, season: 4
-  → subtitle_group: "SweetSub&LoliHouse", resolution: "1080p"
+  → subtitle_groups: ["SweetSub", "LoliHouse"], resolution: "1080p"
   → subtitle_langs: ["zh-CN", "zh-TW", "ja"]
   → title_cn: "小书痴的下克上 领主的养女", title_en: "Ascendance of a Bookworm"
   → search query: "Ascendance of a Bookworm"
@@ -29,7 +29,7 @@ Example 2 — English TV with SXXEXX notation:
   Raw: "Ace Of The Diamond S04E13 720p WEB H264-SKYANiME"
   → clean_title: "Ace of the Diamond", content_type: tv, episode: 13, season: 4
   → title_en: "Ace of the Diamond", resolution: "720p", source: "WEB"
-  → video_codec: "H264", subtitle_group: "SKYANiME"
+  → video_codec: "H264", subtitle_groups: ["SKYANiME"]
 
 Example 3 — Anime with season number embedded in title:
   Raw: "[LoliHouse] 异世界悠闲农家 2 / Isekai Nonbiri Nouka 2 - 12 [WebRip 1080p HEVC-10bit AAC][简繁内封字幕]"
@@ -51,7 +51,7 @@ Example 6 — Chinese collection tag with "合集":
   Raw: "[LoliHouse] 异世界悠闲农家 2 / Isekai Nonbiri Nouka 2 [01-12 合集][WebRip 1080p HEVC-10bit AAC][简繁内封字幕][Fin]"
   → clean_title: "异世界悠闲农家", content_type: tv, season: 2, episode: null
   → is_batch: true, inferred_episode_start: 1, inferred_episode_end: 12
-  → subtitle_group: "LoliHouse", resolution: "1080p"
+  → subtitle_groups: ["LoliHouse"], resolution: "1080p"
 
 Example 7 — Batch without explicit boundaries:
   Raw: "[SubGroup] Some Show S02 (Season Pack) 1080p"
@@ -157,7 +157,7 @@ Always output valid JSON matching:
   "inferred_episode_end": int|null,
   "title_cn": "string|null",
   "title_en": "string|null",
-  "subtitle_group": "string|null",
+  "subtitle_groups": ["string", ...] | null,
   "resolution": "string|null",
   "source": "string|null",
   "video_codec": "string|null",
@@ -209,7 +209,7 @@ matching this schema:
   "inferred_episode_end": int|null,
   "title_cn": "string|null",
   "title_en": "string|null",
-  "subtitle_group": "string|null",
+  "subtitle_groups": ["string", ...] | null,
   "resolution": "string|null",
   "matched_entity": {
     "external_id": "wikipedia:<lang>:<page_id>",
@@ -291,7 +291,7 @@ matching this schema:
   "inferred_episode_end": int|null,
   "title_cn": "string|null",
   "title_en": "string|null",
-  "subtitle_group": "string|null",
+  "subtitle_groups": ["string", ...] | null,
   "resolution": "string|null",
   "matched_entity": {
     "external_id": "string|null",
@@ -360,7 +360,7 @@ matching this schema:
   "inferred_episode_end": int|null,
   "title_cn": "string|null",
   "title_en": "string|null",
-  "subtitle_group": "string|null",
+  "subtitle_groups": ["string", ...] | null,
   "resolution": "string|null",
   "matched_entity": {
     "external_id": "bangumi:<subject_id>",

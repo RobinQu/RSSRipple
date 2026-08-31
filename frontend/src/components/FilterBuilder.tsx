@@ -45,6 +45,7 @@ type FieldType = 'string' | 'number' | 'bool' | 'list';
 
 const FIELD_TYPES: Record<FilterField, FieldType> = {
   subtitle_group: 'string',
+  subtitle_groups: 'list',
   resolution: 'string',
   source: 'string',
   video_codec: 'string',
@@ -93,6 +94,7 @@ const FIELD_TYPES: Record<FilterField, FieldType> = {
 // use their own dedicated inputs.
 const AUTOCOMPLETE_FIELDS: Set<FilterField> = new Set([
   'subtitle_group',
+  'subtitle_groups',
   'resolution',
   'source',
   'video_codec',
@@ -158,7 +160,7 @@ function useFieldOptions(t: TFunction, allowedFields?: FilterField[] | null) {
   // field *means*, so users can find "文件大小" next to "容器" and "集数"
   // next to "是否合集" instead of hunting across String/Number/Bool buckets.
   const release_fields: FilterField[] = [
-    'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
+    'subtitle_groups', 'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
     'subtitle_type', 'subtitle_langs', 'container', 'file_size',
   ];
   const episode_fields: FilterField[] = [

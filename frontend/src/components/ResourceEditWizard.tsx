@@ -54,7 +54,7 @@ interface Placement {
 
 type MediaFieldKey =
   | 'resolution'
-  | 'subtitle_group'
+  | 'subtitle_groups'
   | 'source'
   | 'video_codec'
   | 'audio_codec'
@@ -73,7 +73,7 @@ const MEDIA_TEXT_KEYS: MediaFieldKey[] = [
   'video_codec',
   'audio_codec',
   'subtitle_type',
-  'subtitle_group',
+  'subtitle_groups',
 ];
 
 const LANG_PRESETS = ['zh-CN', 'zh-TW', 'zh-HK', 'ja', 'en', 'ko', 'multi'];
@@ -146,7 +146,7 @@ export default function ResourceEditWizard({
 
   const [media, setMedia] = useState<Record<MediaFieldKey, string>>({
     resolution: '',
-    subtitle_group: '',
+    subtitle_groups: '',
     source: '',
     video_codec: '',
     audio_codec: '',
@@ -255,7 +255,7 @@ export default function ResourceEditWizard({
       setEpAbsolute(d.absolute_episode ?? null);
       setMedia({
         resolution: d.resolution || '',
-        subtitle_group: d.subtitle_group || '',
+        subtitle_groups: (d.subtitle_groups ?? (d.subtitle_group ? [d.subtitle_group] : [])).join(', '),
         source: d.source || '',
         video_codec: d.video_codec || '',
         audio_codec: d.audio_codec || '',
@@ -295,7 +295,7 @@ export default function ResourceEditWizard({
 
   const loadMediaOptions = async () => {
     if (!detail) return;
-    const fields: MediaFieldKey[] = ['resolution', 'source', 'video_codec', 'audio_codec', 'subtitle_type', 'container', 'subtitle_group'];
+    const fields: MediaFieldKey[] = ['resolution', 'source', 'video_codec', 'audio_codec', 'subtitle_type', 'container', 'subtitle_groups'];
     const results = await Promise.all(
       fields.map(async (f) => {
         try {
@@ -660,7 +660,11 @@ export default function ResourceEditWizard({
     const fields: Record<string, unknown> = {};
     for (const k of MEDIA_TEXT_KEYS) {
       const cur = media[k].trim() || null;
-      if (cur !== (detail[k] || null)) fields[k] = cur;
+      if (k === 'subtitle_groups') {
+        const groups = cur ? cur.split(/[,，]/).map((x) => x.trim()).filter(Boolean) : [];
+        const original = detail.subtitle_groups ?? (detail.subtitle_group ? [detail.subtitle_group] : []);
+        if (JSON.stringify(groups) !== JSON.stringify(original)) fields.subtitle_groups = groups;
+      } else if (cur !== (detail[k] || null)) fields[k] = cur;
     }
     for (const k of DIRECT_METADATA_FIELD_KEYS) {
       const cur = directMetadata[k].trim() || null;
@@ -722,7 +726,9 @@ export default function ResourceEditWizard({
     const mediaChanges: { key: MediaFieldKey | DirectMetadataFieldKey | 'subtitle_langs'; from: string; to: string }[] = [];
     for (const k of MEDIA_TEXT_KEYS) {
       const cur = media[k].trim() || null;
-      const prev = detail[k] || null;
+      const prev = k === 'subtitle_groups'
+        ? ((detail.subtitle_groups?.length ? detail.subtitle_groups : (detail.subtitle_group ? [detail.subtitle_group] : [])).join(', ') || null)
+        : (detail[k] || null);
       if (cur !== prev) {
         mediaChanges.push({
           key: k,
@@ -1480,7 +1486,7 @@ function mediaLabelKey(k: MediaFieldKey | string): string {
     case 'audio_codec': return 'audioCodec';
     case 'subtitle_type': return 'subtitleType';
     case 'container': return 'container';
-    case 'subtitle_group': return 'subtitleGroup';
+    case 'subtitle_groups': return 'subtitleGroup';
     default: return String(k);
   }
 }

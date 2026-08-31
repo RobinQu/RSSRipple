@@ -353,7 +353,8 @@ async def _generate_llm_pick(
         for i, c in enumerate(candidates, 1):
             meta_fields = sum(
                 1 for v in (
-                    c.subtitle_group, c.resolution, c.source, c.video_codec,
+                    getattr(c, "subtitle_groups", None) or c.subtitle_group,
+                    c.resolution, c.source, c.video_codec,
                     c.audio_codec, c.subtitle_type, c.container, c.file_size,
                 ) if v not in (None, "", [])
             )
@@ -366,7 +367,7 @@ async def _generate_llm_pick(
                 work_rating = getattr(work, "rating", None)
             lines.append(
                 f"{i}. title={c.title_raw} year={work_year} rating={work_rating} "
-                f"subtitle_group={c.subtitle_group} resolution={c.resolution} "
+                f"subtitle_groups={getattr(c, 'subtitle_groups', None) or c.subtitle_group} resolution={c.resolution} "
                 f"source={c.source} video_codec={c.video_codec} audio_codec={c.audio_codec} "
                 f"size={c.file_size} subtitle_langs={getattr(c, 'subtitle_langs', None)} "
                 f"has_subtitle={has_sub} meta_completeness={meta_fields}/8 "

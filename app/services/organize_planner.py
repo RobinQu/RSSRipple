@@ -200,6 +200,7 @@ def build_filter_context(
         episode_start=resource.episode_start if resource else None,
         episode_end=resource.episode_end if resource else None,
         subtitle_langs=list(resource.subtitle_langs or []) if resource else [],
+        subtitle_groups=list(getattr(resource, "subtitle_groups", None) or []) if resource else [],
         resolution=resource.resolution if resource else None,
         container=resource.container if resource else None,
         absolute_episode=None,

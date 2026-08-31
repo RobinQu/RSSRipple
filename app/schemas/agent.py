@@ -185,6 +185,7 @@ class RulesPreviewResource(ORMModel):
     title_raw: str
     title_cn: str | None = None
     subtitle_group: str | None = None
+    subtitle_groups: list[str] | None = None
     resolution: str | None = None
     source: str | None = None
     video_codec: str | None = None
@@ -225,6 +226,7 @@ class AgentRunResource(ORMModel):
     title_raw: str
     title_cn: str | None = None
     subtitle_group: str | None = None
+    subtitle_groups: list[str] | None = None
     resolution: str | None = None
     episode: int | None = None
     season: int | None = None

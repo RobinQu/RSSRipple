@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Combinator = Literal["and", "or"]
 FieldName = Literal[
-    "subtitle_group", "resolution", "source", "video_codec",
+    "subtitle_group", "subtitle_groups", "resolution", "source", "video_codec",
     "audio_codec", "subtitle_type", "container", "file_size",
     "episode", "season", "title_cn", "title_en", "search_title",
     "series.genre", "movie.genre", "series.is_anime", "movie.is_anime",

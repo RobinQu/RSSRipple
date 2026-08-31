@@ -178,7 +178,12 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "applies_to": (FRANCHISE,),
     },
     # ── Section「发布信息」：跨形态可选 ──
-    "subtitle_group": {"section": "release", "group": "release", "dsl_fields": ["subtitle_group"], "lock": None},
+    "subtitle_group": {
+        "section": "release", "group": "release",
+        # Keep the catalog key stable for add-only channel declarations while
+        # allowing the canonical plural DSL field alongside the legacy alias.
+        "dsl_fields": ["subtitle_group", "subtitle_groups"], "lock": None,
+    },
     "resolution": {"section": "release", "group": "release", "dsl_fields": ["resolution"], "lock": None},
     "source": {"section": "release", "group": "release", "dsl_fields": ["source"], "lock": None},
     "video_codec": {"section": "release", "group": "release", "dsl_fields": ["video_codec"], "lock": None},

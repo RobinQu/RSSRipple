@@ -102,6 +102,7 @@ export interface FileResource {
   title_en: string | null;
   search_title: string | null;
   subtitle_group: string | null;
+  subtitle_groups: string[] | null;
   episode: number | null;
   season: number | null;
   is_batch: boolean;
@@ -196,6 +197,7 @@ export interface ResourceCorrectionBody {
   batch_scope?: BatchScope | null;
   resolution?: string | null;
   subtitle_group?: string | null;
+  subtitle_groups?: string[] | null;
   source?: string | null;
   video_codec?: string | null;
   audio_codec?: string | null;
@@ -273,6 +275,7 @@ export interface AssociationUpdatePayload {
       | 'search_title'
       | 'resolution'
       | 'subtitle_group'
+      | 'subtitle_groups'
       | 'source'
       | 'video_codec'
       | 'audio_codec'
@@ -514,6 +517,7 @@ export interface Episode {
 
 // Filter DSL
 export type FilterField =
+  | 'subtitle_groups'
   | 'subtitle_group'
   | 'resolution'
   | 'source'
@@ -557,7 +561,7 @@ export type StringFilterField = Exclude<
 export type NumberFilterField = 'file_size' | 'episode' | 'season' | 'episode_start' | 'episode_end' | 'absolute_episode'
   | 'movie.rating' | 'movie.year' | 'series.rating' | 'series.year';
 export type BoolFilterField = 'is_batch' | 'series.is_anime' | 'movie.is_anime';
-export type ListFilterField = 'subtitle_langs' | 'movie.genre' | 'series.genre';
+export type ListFilterField = 'subtitle_groups' | 'subtitle_langs' | 'movie.genre' | 'series.genre';
 
 export type FilterOperator =
   | 'eq'
@@ -677,6 +681,7 @@ export interface RulesPreviewResource {
   title_raw: string;
   title_cn?: string | null;
   subtitle_group?: string | null;
+  subtitle_groups?: string[] | null;
   resolution?: string | null;
   source?: string | null;
   video_codec?: string | null;
@@ -707,6 +712,7 @@ export interface AgentRunResource {
   title_raw: string;
   title_cn?: string | null;
   subtitle_group?: string | null;
+  subtitle_groups?: string[] | null;
   resolution?: string | null;
   episode?: number | null;
   season?: number | null;

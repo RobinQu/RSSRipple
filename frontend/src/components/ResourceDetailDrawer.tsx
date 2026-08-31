@@ -274,7 +274,7 @@ export default function ResourceDetailDrawer({
             </Space>
           ),
         },
-        { key: 'subtitle_group', label: t('resource.subtitleGroup'), children: r.subtitle_group || dash },
+        { key: 'subtitle_groups', label: t('resource.subtitleGroup'), children: (r.subtitle_groups?.length ? r.subtitle_groups : (r.subtitle_group ? [r.subtitle_group] : [])).join(' & ') || dash },
         {
           key: 'is_batch',
           label: t('resource.isBatch'),

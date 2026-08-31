@@ -9,6 +9,8 @@ import re
 from datetime import datetime
 from typing import Any
 
+from app.services.subtitle_groups import normalize_subtitle_groups
+
 logger = logging.getLogger(__name__)
 
 
@@ -802,6 +804,13 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
     ``Np`` form.
     """
     out = dict(parsed)
+    # Keep the legacy scalar mapping usable while exposing the canonical list
+    # to downstream filters and API serializers.  A mapping may already emit
+    # ``subtitle_groups``; in that case it is authoritative.
+    if "subtitle_groups" not in out and out.get("subtitle_group"):
+        out["subtitle_groups"] = normalize_subtitle_groups(out["subtitle_group"])
+    elif "subtitle_groups" in out and out.get("subtitle_groups") is not None:
+        out["subtitle_groups"] = normalize_subtitle_groups(out["subtitle_groups"])
     if not title_raw:
         return out
 
@@ -880,6 +889,7 @@ def normalize_parsed_fields(title_raw: str | None, parsed: dict) -> dict:
             # Pure-number brackets are years/tags, not group names.
             if candidate and not candidate.isdigit():
                 out["subtitle_group"] = candidate
+                out["subtitle_groups"] = normalize_subtitle_groups(candidate)
 
     # Episode/season fallbacks (bracket "[03]", SxxExx, "Season 3", 第N季) —
     # the per-channel episode regexes typically only cover the "- NN" form.

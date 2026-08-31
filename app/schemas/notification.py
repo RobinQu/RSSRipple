@@ -135,6 +135,7 @@ class NotificationResourcePayload(BaseModel):
     episode_start: int | None = None
     episode_end: int | None = None
     subtitle_langs: list[str] | None = None
+    subtitle_groups: list[str] | None = None
     resolution: str | None = None
     container: str | None = None
     title_year: int | None = None

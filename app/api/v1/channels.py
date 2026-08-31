@@ -528,7 +528,7 @@ async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: 
         return success_response(empty)
 
     exact_fields = [
-        "subtitle_group",
+        "subtitle_groups",
         "resolution",
         "video_codec",
         "audio_codec",
@@ -536,14 +536,30 @@ async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: 
         "subtitle_type",
         "source",
     ]
+    from app.services.subtitle_groups import subtitle_groups_for_resource
 
     def _common_conditions(group) -> tuple[list[dict], list[str]]:
         """Fields where one value covers >=80% of the group."""
         conds, parts = [], []
         n = len(group)
         for field in exact_fields:
-            values = [getattr(r, field) for r in group if getattr(r, field)]
+            values = [
+                (subtitle_groups_for_resource(r) if field == "subtitle_groups" else getattr(r, field, None))
+                for r in group
+                if (subtitle_groups_for_resource(r) if field == "subtitle_groups" else getattr(r, field, None))
+            ]
             if not values:
+                continue
+            if field == "subtitle_groups":
+                member_counts = Counter(
+                    str(member).strip().casefold()
+                    for row in values for member in row
+                    if str(member).strip()
+                )
+                common = [member for member, count in member_counts.items() if count / n >= 0.8]
+                if common:
+                    conds.append({"field": field, "operator": "contains", "value": common[0]})
+                    parts.append(f"{field} contains {common[0]}")
                 continue
             most_common, count = Counter(values).most_common(1)[0]
             if count / n >= 0.8:
@@ -575,8 +591,23 @@ async def summarize_filters(channel_id: str, body: SummarizeFiltersRequest, db: 
         for field in exact_fields:
             if field in global_fields:
                 continue
-            values = [getattr(r, field) for r in group if getattr(r, field)]
+            values = [
+                (subtitle_groups_for_resource(r) if field == "subtitle_groups" else getattr(r, field, None))
+                for r in group
+                if (subtitle_groups_for_resource(r) if field == "subtitle_groups" else getattr(r, field, None))
+            ]
             if not values:
+                continue
+            if field == "subtitle_groups":
+                member_counts = Counter(
+                    str(member).strip().casefold()
+                    for row in values for member in row
+                    if str(member).strip()
+                )
+                common = [member for member, count in member_counts.items() if count / n >= 0.8]
+                if common:
+                    override_conds.append({"field": field, "operator": "contains", "value": common[0]})
+                    override_parts.append(f"{field} contains {common[0]}")
                 continue
             most_common, count = Counter(values).most_common(1)[0]
             if count / n >= 0.8:

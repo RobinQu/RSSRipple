@@ -652,6 +652,17 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         # tech fields the LLM-regexes miss (1920x1080, bare WEB, AACx2). No-op
         # for resources the field_mapping already parsed cleanly.
         parsed = normalize_parsed_fields(title, parsed)
+        # New mappings may emit the plural field directly.  Keep the legacy
+        # scalar column populated as a compatibility/raw representation while
+        # the canonical list is used by downstream services.
+        from app.services.subtitle_groups import join_legacy_subtitle_group
+        if parsed.get("subtitle_groups") and not parsed.get("subtitle_group"):
+            parsed["subtitle_group"] = join_legacy_subtitle_group(parsed["subtitle_groups"])
+        if parsed.get("subtitle_group"):
+            from app.services.subtitle_groups import resolve_subtitle_groups
+            groups, group_source = await resolve_subtitle_groups(db, parsed["subtitle_group"])
+            parsed["subtitle_groups"] = groups
+            parsed["subtitle_groups_source"] = group_source
         parsed = {k: v for k, v in parsed.items() if v is not None}
 
         # Pop explicit fields

@@ -81,7 +81,9 @@ class FileResource(Base):
     title_cn: str | None                 # 中文标题
     title_en: str | None                 # 英文标题
     search_title: str | None             # 清洗后用于搜索的标题
-    subtitle_group: str | None           # 字幕组
+    subtitle_group: str | None           # 兼容旧字段；规范化后与 subtitle_groups 同步
+    subtitle_groups: list[str] | None    # 字幕组列表，联合发布按成员保存
+    subtitle_groups_source: str | None   # legacy|heuristic|llm|manual|unresolved
     episode: int | None                  # 集数
     season: int | None                   # 季数
     title_year: int | None               # 从原始标题解析的作品年份（"[2026]" 或独立年份 token，

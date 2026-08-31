@@ -27,6 +27,10 @@ class FileResource(Base):
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
     search_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     subtitle_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Canonical release-group representation.  ``subtitle_group`` is retained
+    # as a legacy/raw compatibility column during the migration window.
+    subtitle_groups: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    subtitle_groups_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
     episode: Mapped[int | None] = mapped_column(Integer, nullable=True)
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Release year parsed from the raw title ("[2026]" / standalone token).

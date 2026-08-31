@@ -906,7 +906,7 @@ class UnifiedMetadataAgent:
         # Add pre-parsed fields as hints
         hints = []
         for attr in (
-            "title_cn", "title_en", "subtitle_group", "episode", "season",
+            "title_cn", "title_en", "subtitle_groups", "subtitle_group", "episode", "season",
             "resolution", "source", "video_codec", "audio_codec",
             "subtitle_type", "container",
         ):

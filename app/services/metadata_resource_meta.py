@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.services.subtitle_groups import normalize_subtitle_groups
+
 BATCH_SCOPE_VALUES = ("season", "multi_season", "franchise", "movies")
 
 
@@ -63,6 +65,7 @@ class ResourceMetadata:
     audio_codec: str | None = None
     subtitle_type: str | None = None
     subtitle_group: str | None = None
+    subtitle_groups: list[str] | None = None
     # BCP-47 language tags: ["zh-CN", "zh-TW", "ja", "en"], or ["multi"] for
     # titles marked "多语言" / "多国字幕" without specifics. None means the
     # LLM had nothing to say — pre-parser output is kept.
@@ -120,6 +123,15 @@ class ResourceMetadata:
             audio_codec=data.get("audio_codec"),
             subtitle_type=data.get("subtitle_type"),
             subtitle_group=data.get("subtitle_group"),
+            subtitle_groups=(
+                normalize_subtitle_groups(data.get("subtitle_groups"), split=False)
+                if data.get("subtitle_groups") is not None
+                else (
+                    normalize_subtitle_groups(data.get("subtitle_group"))
+                    if data.get("subtitle_group") is not None
+                    else None
+                )
+            ),
             subtitle_langs=data.get("subtitle_langs"),
             container=data.get("container"),
             matched_entity=entity if entity else None,

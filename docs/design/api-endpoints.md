@@ -122,7 +122,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 }
 ```
 
-规则拆分逻辑：字段（subtitle_group/resolution/video_codec/audio_codec/container/subtitle_type/source）在**全部选中资源**中 ≥80% 同值 → 全局条件；在**单个作品**内 ≥80% 同值但不满足全局 → 该作品的 `filter_overrides`。未链接作品的资源计入 `unlinked_count`，不产生订阅。
+规则拆分逻辑：字段（subtitle_groups/resolution/video_codec/audio_codec/container/subtitle_type/source）在**全部选中资源**中 ≥80% 同值 → 全局条件；字幕组按成员生成 `contains` 条件；在**单个作品**内 ≥80% 同值但不满足全局 → 该作品的 `filter_overrides`。未链接作品的资源计入 `unlinked_count`，不产生订阅。
 
 ### Agents
 

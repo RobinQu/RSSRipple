@@ -327,7 +327,7 @@ async def run_bangumi_search_then_judge(
         for key in (
             "inferred_episode", "inferred_season", "is_batch",
             "inferred_episode_start", "inferred_episode_end",
-            "subtitle_group", "resolution", "title_en",
+            "subtitle_groups", "subtitle_group", "resolution", "title_en",
         ):
             value = (judge_dict or {}).get(key)
             if value is not None:

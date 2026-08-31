@@ -7,6 +7,10 @@ import type {
 } from '../types';
 import type { TFunction } from 'i18next';
 
+export function subtitleGroupsText(resource: { subtitle_groups?: string[] | null; subtitle_group?: string | null }): string {
+  return (resource.subtitle_groups?.length ? resource.subtitle_groups : (resource.subtitle_group ? [resource.subtitle_group] : [])).join(' & ');
+}
+
 // ---------------------------------------------------------------------------
 // Filter tree guards & helpers — shared by FilterBuilder and its consumers.
 // Lives outside FilterBuilder.tsx so that file only exports components
@@ -160,7 +164,7 @@ export const REQUIRED_FIELD_DSL_MAP: Record<string, FilterField[]> = {
 // All resource-level fields (everything not work-namespaced). Keep in sync
 // with the field groups in FilterBuilder.
 const RESOURCE_LEVEL_FIELDS: FilterField[] = [
-  'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
+  'subtitle_groups', 'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
   'subtitle_type', 'subtitle_langs', 'container', 'file_size',
   'episode', 'season', 'episode_start', 'episode_end', 'absolute_episode',
   'is_batch', 'episode_confidence',
