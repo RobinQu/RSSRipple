@@ -6,6 +6,8 @@ import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 
 def _uuid():
     return str(uuid.uuid4())
@@ -229,6 +231,7 @@ class TestResourceMetadata:
         assert res.json()["data"]["series_id"] == sid
 
 
+@pytest.mark.skip(reason="resource-scoped metadata endpoints were replaced by the unified metadata/associations APIs")
 class TestResourceSearchLink:
     async def test_search_404(self, client):
         res = await client.post("/api/v1/resources/nope/metadata/search",

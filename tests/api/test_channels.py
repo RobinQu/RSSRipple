@@ -371,7 +371,7 @@ class TestChannelActions:
         assert data["unlinked_count"] == 1
         assert data["works"] == []
         conds = data["global_filter_config"]["conditions"]
-        assert {c["field"] for c in conds} == {"subtitle_group", "resolution"}
+        assert {c["field"] for c in conds} == {"subtitle_groups", "resolution"}
 
     async def test_summarize_filters_splits_global_and_work_overrides(
         self, client, sample_channel, db_session_factory
@@ -411,10 +411,10 @@ class TestChannelActions:
         assert by_series[s1_id]["resource_count"] == 2
         # subtitle_group differs between works -> per-work overrides, not global.
         assert by_series[s1_id]["filter_overrides"]["conditions"] == [
-            {"field": "subtitle_group", "operator": "eq", "value": "ANi"}
+            {"field": "subtitle_groups", "operator": "contains", "value": "ani"}
         ]
         assert by_series[s2_id]["filter_overrides"]["conditions"] == [
-            {"field": "subtitle_group", "operator": "eq", "value": "LoliHouse"}
+            {"field": "subtitle_groups", "operator": "contains", "value": "lolihouse"}
         ]
         assert by_series[s1_id]["title"] == "剧A"
 

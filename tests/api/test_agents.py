@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -257,7 +257,7 @@ class TestAgentsCRUD:
         from app.models.series import TVSeries
 
         ch_id, dl_id = channel_and_dl
-        s = TVSeries(id=_uuid(), title_cn="S")
+        s = TVSeries(id=_uuid(), title_cn="S", content_type="tv", start_date=date(2024, 1, 1), is_anime=False)
         s_idle = TVSeries(id=_uuid(), title_cn="Idle")
         db_session.add_all([s, s_idle])
         await db_session.flush()
@@ -315,7 +315,7 @@ class TestAgentsCRUD:
         from app.models.series import TVSeries
 
         ch_id, dl_id = channel_and_dl
-        s = TVSeries(id=_uuid(), title_cn="S")
+        s = TVSeries(id=_uuid(), title_cn="S", content_type="tv", start_date=date(2024, 1, 1), is_anime=False)
         db_session.add(s)
         await db_session.flush()
         r_keep = FileResource(
@@ -411,13 +411,14 @@ class TestAgentsCRUD:
         from app.models.series import TVSeries
 
         ch_id, dl_id = channel_and_dl
-        s = TVSeries(id=_uuid(), title_cn="S")
+        s = TVSeries(id=_uuid(), title_cn="S", content_type="tv", start_date=date(2024, 1, 1), is_anime=False)
         db_session.add(s)
         await db_session.flush()
         r = FileResource(
             id=_uuid(), channel_id=ch_id, guid=_uuid(),
             title_raw="[G] S - 01", torrent_url="magnet:?xt=urn:btih:bk",
-            series_id=s.id, episode=1, subtitle_group="G",
+            series_id=s.id, episode=1, season=1, subtitle_group="G",
+            title_year=2024, search_title="S", is_batch=False,
         )
         db_session.add(r)
         await db_session.commit()

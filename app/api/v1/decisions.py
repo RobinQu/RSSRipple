@@ -143,6 +143,8 @@ async def list_decisions(
             .options(
                 selectinload(FileResource.audio_work),
                 selectinload(FileResource.collection),
+                selectinload(FileResource.series),
+                selectinload(FileResource.movie),
             )
         )).scalars().all()
         from app.schemas.file_resource import FileResourceResponse

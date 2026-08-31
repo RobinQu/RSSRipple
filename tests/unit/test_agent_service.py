@@ -104,6 +104,8 @@ def _make_resource(channel_id: str, **overrides) -> FileResource:
         parsed_at=datetime.now(UTC),
     )
     base.update(overrides)
+    if base.get("is_batch") and base.get("batch_scope") is None:
+        base["batch_scope"] = "season"
     return FileResource(**base)
 
 
@@ -1740,7 +1742,6 @@ class TestProcessResourcesEdgeCases:
         result = await process_resources(agent, [r1, r2], db_session)
         assert result.unrecognized == 2
         assert result.suggestions == []
-        assert len(result.suggestions[0]["resources"]) == 2
 
     async def test_unrecognized_dissimilar_titles_do_not_create_agent_suggestions(
         self, db_session, channel, downloader

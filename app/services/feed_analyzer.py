@@ -246,6 +246,10 @@ def _calc_confidence(validated_mapping: dict) -> str:
     }
     field_mappings = validated_mapping.get("field_mappings", {})
     covered = set(field_mappings.keys()) & expected_fields
+    # Legacy channel mappings used the singular key; count it as the
+    # canonical plural field for confidence scoring until migration.
+    if "subtitle_group" in field_mappings:
+        covered.add("subtitle_groups")
     ratio = len(covered) / len(expected_fields) if expected_fields else 0
     if ratio >= 0.8:
         return "high"

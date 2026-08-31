@@ -39,8 +39,8 @@ from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.resource_parser import extract_subtitle_group_from_filename
-from app.services.subtitle_groups import join_legacy_subtitle_group, normalize_subtitle_groups
 from app.services.runtime_config import runtime_config
+from app.services.subtitle_groups import join_legacy_subtitle_group, normalize_subtitle_groups
 from app.services.torrent_inspect import TorrentReport
 
 if TYPE_CHECKING:

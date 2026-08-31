@@ -131,6 +131,7 @@ class TestResourcesMore:
         assert r.json()["data"]["movie_id"] == mid
         assert r.json()["data"]["linked"]["type"] == "movie"
 
+    @pytest.mark.skip(reason="resource-scoped metadata search replaced by /api/v1/metadata/search")
     async def test_search_metadata_via_manual(self, client, env, db_session_factory):
         rid = await _make_resource(db_session_factory, env.ch_id)
         with patch(
@@ -145,6 +146,7 @@ class TestResourcesMore:
         assert r.status_code == 200
         assert len(r.json()["data"]["results"]) == 1
 
+    @pytest.mark.skip(reason="resource-scoped metadata link replaced by work metadata apply/associations")
     async def test_link_metadata_error_path(self, client, env, db_session_factory):
         rid = await _make_resource(db_session_factory, env.ch_id)
         with patch(
@@ -155,6 +157,7 @@ class TestResourcesMore:
                                  json={"selected_result": {"content_type": "tv", "external_id": "x"}})
         assert r.status_code == 500
 
+    @pytest.mark.skip(reason="resource-scoped metadata link replaced by work metadata apply/associations")
     async def test_link_metadata_movie(self, client, env, db_session_factory, monkeypatch):
         rid = await _make_resource(db_session_factory, env.ch_id)
         sel = {
@@ -183,19 +186,25 @@ class TestResourcesMore:
 class TestDecisionsMore:
     async def test_list_with_candidates(self, client, env, db_session_factory):
         from app.models.pending_decision import PendingDecision
-        rid = await _make_resource(db_session_factory, env.ch_id)
+        from app.models.series import TVSeries
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", content_type="tv"))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, env.ch_id, series_id=sid, season=1, episode=1)
+        rid2 = await _make_resource(db_session_factory, env.ch_id, series_id=sid, season=1, episode=1)
         did = _uuid()
         async with db_session_factory() as s:
             s.add(PendingDecision(
                 id=did, agent_id=env.aid, status="pending",
-                candidates=[rid], reason="x",
+                candidates=[rid, rid2], reason="x",
                 expires_at=datetime.now(UTC) + timedelta(days=7),
             ))
             await s.commit()
         r = await client.get(f"/api/v1/agents/{env.aid}/decisions?status=pending")
         assert r.status_code == 200
         assert r.json()["meta"]["total"] == 1
-        assert r.json()["data"][0]["candidate_resources"][0]["id"] == rid
+        assert {item["id"] for item in r.json()["data"][0]["candidate_resources"]} == {rid, rid2}
 
     async def test_confirm_missing_agent_or_resource(self, client, env, db_session_factory):
         from app.models.pending_decision import PendingDecision
@@ -208,12 +217,11 @@ class TestDecisionsMore:
                 expires_at=datetime.now(UTC) + timedelta(days=7),
             ))
             await s.commit()
-        # Confirm decision without agent/resource - should still mark decided but skip dispatch
+        # A candidate that is not a persisted resource is an invalid decision.
         with patch("app.services.agent_service.dispatch_download", AsyncMock()) as d:
             r = await client.post(f"/api/v1/decisions/{did}/confirm",
                                   json={"resource_id": rid})
-        assert r.status_code == 200
-        assert r.json()["data"]["status"] == "decided"
+        assert r.status_code == 409
         d.assert_not_awaited()
 
 
@@ -247,11 +255,13 @@ class TestDashboardPopulatedFull:
                 Movie(id=m_id, title_cn="电影", title_en="M", content_type="movie"),
             ])
             await s.commit()
-        r_series = _uuid(); r_movie = _uuid(); r_unk = _uuid()
+        r_series = _uuid(); r_series2 = _uuid(); r_movie = _uuid(); r_unk = _uuid()
         async with db_session_factory() as s:
             s.add_all([
                 FileResource(id=r_series, channel_id=ch_id, guid="g1", title_raw="S ep1",
-                             torrent_url="m:", series_id=s_id, search_title="S"),
+                             torrent_url="m:", series_id=s_id, search_title="S", season=1, episode=1),
+                FileResource(id=r_series2, channel_id=ch_id, guid="g1b", title_raw="S ep1 alt",
+                             torrent_url="m:", series_id=s_id, search_title="S", season=1, episode=1),
                 FileResource(id=r_movie, channel_id=ch_id, guid="g2", title_raw="Movie!",
                              torrent_url="m:", movie_id=m_id, search_title="M"),
                 FileResource(id=r_unk, channel_id=ch_id, guid="g3", title_raw="Unknown!!!",
@@ -273,7 +283,7 @@ class TestDashboardPopulatedFull:
             await s.commit()
         async with db_session_factory() as s:
             s.add(PendingDecision(id=_uuid(), agent_id=a_id, series_id=s_id,
-                                  episode=1, candidates=[r_series], reason="c",
+                                  episode=1, candidates=[r_series, r_series2], reason="c",
                                   status="pending",
                                   expires_at=datetime.now(UTC) + timedelta(days=7)))
             await s.commit()

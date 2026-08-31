@@ -21,13 +21,13 @@ from app.services.metadata_episode_reconcile import (
     seasons_map_from_list,
 )
 from app.services.metadata_resource_meta import ResourceMetadata
+from app.services.metadata_sources import normalize_metadata_source_type
 from app.services.subtitle_groups import (
     join_legacy_subtitle_group,
     normalize_group_key,
     normalize_subtitle_groups,
     subtitle_groups_for_resource,
 )
-from app.services.metadata_sources import normalize_metadata_source_type
 from app.utils.time import utcnow
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,7 @@ async def _register_subtitle_group_mapping(
     if not candidate or not all(normalize_group_key(x) in allowed for x in candidate):
         return
     from sqlalchemy import select
+
     from app.models.subtitle_group_mapping import SubtitleGroupMapping
     key = normalize_group_key(raw)
     row = (await db.execute(
