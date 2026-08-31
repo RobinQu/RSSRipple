@@ -34,7 +34,9 @@ from tests.integration.http._http import (
     TIMEOUT,
     _api,
     _poll_fetch,
+    associate_metadata_request,
     ensure_series,
+    refresh_work_metadata,
 )
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
@@ -427,7 +429,7 @@ class TestTmdbCollectionLink:
                 _ensure_detached("movie", m["id"])
 
         res = _movies_channel[0]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
             method="put",
             json={
@@ -470,7 +472,7 @@ class TestTmdbCollectionLink:
             # update path hits link_movie_collection's already-linked early
             # return instead of fetching TMDB again.
             res = _movies_channel[1] if len(_movies_channel) > 1 else _movies_channel[0]
-            r = _api(
+            r = associate_metadata_request(
                 f"/api/v1/resources/{res['id']}/metadata/link",
                 method="put",
                 json={
@@ -527,11 +529,8 @@ class TestMetadataSourceRefresh:
     LLM then finalizes deterministically."""
 
     def _refresh(self, series_id: str, source: str) -> dict:
-        r = _llm_api(
-            "/api/v1/works/refresh-metadata",
-            method="post",
-            timeout=240.0,
-            json={"id": series_id, "content_type": "tv", "source": source},
+        r = refresh_work_metadata(
+            series_id, "tv", source, api=_llm_api,
         )
         assert r.status_code == 200, f"refresh ({source}) failed: {r.text}"
         data = r.json()["data"]
@@ -546,29 +545,32 @@ class TestMetadataSourceRefresh:
         assert data["filled"] == []
 
     def test_refresh_jina_source_not_found(self, _fake_source_keys):
-        """jina ReAct: search_jina tool errors (fake key) → found=False."""
-        sid = ensure_series("覆盖率检索不到剧集", "Coverage Unfindable Series", api=_llm_api)
-        data = self._refresh(sid, "jina")
-        assert data["filled"] == []
+        """Deprecated jina is rejected by the unified search contract."""
+        r = _llm_api(
+            "/api/v1/metadata/search",
+            method="post",
+            json={
+                "query": "Coverage Unfindable Series",
+                "content_type": "tv",
+                "mode": "online",
+                "source": "jina",
+            },
+        )
+        assert r.status_code == 422
 
-    def test_refresh_tmdb_canned_match_fills_fields(self, _fake_source_keys):
-        """The mock LLM finalizes found=true for canned titles (芙莉莲): the
-        refresh fill path populates empty fields on the fresh series, then the
-        series is deleted to keep the shared app-llm DB clean."""
-        # Delete any leftover from a previous run so the fill path starts
-        # from empty fields (ensure_series alone would reuse the filled row).
-        r = _llm_api("/api/v1/series", params={"page_size": 100, "title": "芙莉莲·覆盖率填充"})
-        for s in r.json().get("data", []):
-            if s.get("title_cn") == "芙莉莲·覆盖率填充":
-                _llm_api(f"/api/v1/series/{s['id']}", method="delete")
-        sid = ensure_series("芙莉莲·覆盖率填充", "Coverage Fill Frieren", api=_llm_api)
-        try:
-            data = self._refresh(sid, "tmdb")
-            assert data["found"] is True
-            assert data["filled"], f"expected fields to be filled: {data}"
-            assert data.get("candidate", {}).get("external_id") == "mock-exa-frieren"
-        finally:
-            try:
-                _llm_api(f"/api/v1/series/{sid}", method="delete")
-            except Exception:
-                pass
+    def test_tmdb_canned_search_returns_candidate(self, _fake_source_keys):
+        """The unified TMDB search returns the mock LLM's canned candidate."""
+        r = _llm_api(
+            "/api/v1/metadata/search",
+            method="post",
+            json={
+                "query": "黄泉使者",
+                "content_type": "tv",
+                "mode": "online",
+                "source": "tmdb",
+            },
+        )
+        assert r.status_code == 200, r.text
+        candidates = r.json()["data"]["candidates"]
+        assert candidates
+        assert candidates[0]["external_id"] == "mock-exa-daemons"

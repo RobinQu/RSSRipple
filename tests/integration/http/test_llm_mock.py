@@ -25,6 +25,7 @@ from tests.integration.http._http import (
     RICH_FIELD_MAPPING,
     TEST_SERVER,
     ensure_series,
+    search_metadata_request,
 )
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
@@ -385,8 +386,8 @@ class TestMetadataAgentMock:
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 
-    def test_manual_search_via_agent(self):
-        """POST /resources/{id}/metadata/search (jina) runs the mock ReAct loop."""
+    def test_manual_search_via_agent(self, _fake_tmdb_key):
+        """Unified metadata search runs the mock TMDB ReAct loop."""
         # Channel with the agent disabled — we only need a resource id.
         r = _api(
             "/api/v1/channels",
@@ -410,13 +411,14 @@ class TestMetadataAgentMock:
             rid = r.json()["data"][0]["id"]
 
             # Canned title → candidates with the mock entity
-            r = _api(
+            r = search_metadata_request(
                 f"/api/v1/resources/{rid}/metadata/search",
+                api=_api,
                 method="post",
                 json={
                     "search_title": "黄泉使者",
                     "content_type": "tv",
-                    "data_source_type": "jina",
+                    "data_source_type": "tmdb",
                 },
             )
             assert r.status_code == 200, f"search failed: {r.text}"
@@ -425,13 +427,14 @@ class TestMetadataAgentMock:
             assert results[0]["external_id"] == "mock-exa-daemons"
 
             # Unknown title → empty candidate list (found=false)
-            r = _api(
+            r = search_metadata_request(
                 f"/api/v1/resources/{rid}/metadata/search",
+                api=_api,
                 method="post",
                 json={
                     "search_title": "完全不存在的作品",
                     "content_type": "tv",
-                    "data_source_type": "jina",
+                    "data_source_type": "tmdb",
                 },
             )
             assert r.status_code == 200

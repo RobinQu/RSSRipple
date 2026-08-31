@@ -24,6 +24,7 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    associate_metadata_request,
     ensure_series,
 )
 
@@ -443,7 +444,7 @@ class TestDispatchErrorPath:
         linked = [res for res in resources if res.get("series_id")]
         if not linked:
             res0 = resources[0]
-            r = _api(
+            r = associate_metadata_request(
                 f"/api/v1/resources/{res0['id']}/metadata/link",
                 method="put",
                 json={

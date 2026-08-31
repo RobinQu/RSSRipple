@@ -128,7 +128,11 @@ class TorrentService:
         if "seed" not in self._sessions:
             ses = lt.session()
             ses.apply_settings({
-                "listen_interfaces": "0.0.0.0:0",
+                # Stable, distinct loopback-reachable ports make the direct
+                # peer connection below deterministic in Docker. With port
+                # zero libtorrent can still report no listener after the
+                # short startup wait, leaving the download at 0% forever.
+                "listen_interfaces": "0.0.0.0:16881",
                 "enable_dht": False,
                 "enable_lsd": True,
                 "enable_natpmp": False,
@@ -143,7 +147,7 @@ class TorrentService:
         if "download" not in self._sessions:
             ses = lt.session()
             ses.apply_settings({
-                "listen_interfaces": "0.0.0.0:0",
+                "listen_interfaces": "0.0.0.0:16882",
                 "enable_dht": False,
                 "enable_lsd": True,
                 "enable_natpmp": False,

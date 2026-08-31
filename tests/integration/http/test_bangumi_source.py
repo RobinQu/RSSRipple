@@ -16,7 +16,7 @@ import os
 import httpx
 import pytest
 
-from tests.integration.http._http import API_HEADERS
+from tests.integration.http._http import API_HEADERS, refresh_work_metadata
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
 
@@ -53,10 +53,8 @@ def test_bangumi_source_autolink():
     the work's empty fields from the expanded subject + episode list."""
     sid = _ensure_series()
     try:
-        r = _llm_api(
-            "/api/v1/works/refresh-metadata",
-            method="post",
-            json={"id": sid, "content_type": "tv", "source": "bangumi"},
+        r = refresh_work_metadata(
+            sid, "tv", "bangumi", api=_llm_api,
         )
         assert r.status_code == 200, f"refresh failed: {r.status_code} {r.text}"
         data = r.json()["data"]
@@ -70,7 +68,9 @@ def test_bangumi_source_autolink():
         r = _llm_api(f"/api/v1/series/{sid}")
         assert r.status_code == 200
         series = r.json()["data"]
-        assert series["external_source"] == "bangumi"
+        # Existing works keep their creator-owned primary identity columns;
+        # the selected Bangumi identity is added to WorkExternalId instead.
+        assert series["external_source"] is None
         assert series["description"]
         assert series["rating"] == 9.1
     finally:

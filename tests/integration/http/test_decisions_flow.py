@@ -49,11 +49,29 @@ def _ensure_series(title_cn: str, title_en: str) -> str:
     if r.status_code == 200:
         for s in r.json().get("data", []):
             if s.get("title_cn") == title_cn:
+                updates = {}
+                if not s.get("start_date"):
+                    updates["start_date"] = "2023-01-01"
+                if s.get("is_anime") is None:
+                    updates["is_anime"] = True
+                if not s.get("number_of_seasons"):
+                    updates["number_of_seasons"] = 1
+                if updates:
+                    updated = _api(
+                        f"/api/v1/series/{s['id']}", method="put", json=updates
+                    )
+                    assert updated.status_code == 200, updated.text
                 return s["id"]
     r = _api(
         "/api/v1/series",
         method="post",
-        json={"title_cn": title_cn, "title_en": title_en},
+        json={
+            "title_cn": title_cn,
+            "title_en": title_en,
+            "start_date": "2023-01-01",
+            "is_anime": True,
+            "number_of_seasons": 1,
+        },
     )
     assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
     return r.json()["data"]["id"]
@@ -329,10 +347,10 @@ class TestEpisodeCorrection:
 
 
 class TestAgentSuggestions:
-    """Unrecognized resources aggregate into agent suggestions."""
+    """Unrecognized resources remain owned by Channel confirmation."""
 
     def test_suggestions_from_unrecognized(self):
-        """Agent run over unlinked resources persists suggestion groups."""
+        """Agent run over unlinked resources does not create suggestions."""
         # mikanani-ext carries 5 series; none of them are pre-seeded here
         # (the dispatch/decisions suites use /rss/mikanani?series=N with
         # their own channels), so most resources stay unrecognized.
@@ -360,9 +378,9 @@ class TestAgentSuggestions:
             assert resources
 
             dl_id = _ensure_mock_downloader()
-            # Backfill-commit ALL resources: process_resources runs over the
-            # whole backlog — linked ones dispatch, unrecognized ones aggregate
-            # into persisted suggestion groups.
+            # Backfill-commit ALL resources. Unlinked rows are deliberately
+            # retained in the Channel confirmation queue; AgentSuggestion is
+            # no longer a second ownership path for the same problem.
             r = _api(
                 "/api/v1/agents",
                 method="post",
@@ -384,12 +402,7 @@ class TestAgentSuggestions:
             data = r.json()["data"]
             # Response: {"scope_channel_wide": ..., "suggestions": [...]}
             groups = data["suggestions"] if isinstance(data, dict) else data
-            # Series pre-seeded by other suites in this run may link some
-            # resources, but at least one of the 5 ext series is unknown.
-            assert groups, "expected suggestion groups for unrecognized resources"
-            g = groups[0]
-            assert g.get("sample_title")
-            assert g.get("resources")
+            assert groups == []
         finally:
             # The channel owns download tasks by now; DELETE cascades them.
             _api(f"/api/v1/agents/{agent_id}", method="delete")

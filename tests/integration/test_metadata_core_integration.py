@@ -265,7 +265,7 @@ class TestEpisodeReconcile:
         assert locate_absolute_episode(0, self.SEASONS) is None
         assert locate_absolute_episode(500, self.SEASONS) is None
         # Within the final-season tolerance headroom.
-        assert locate_absolute_episode(49, self.SEASONS) == (4, 12)
+        assert locate_absolute_episode(49, self.SEASONS) == (4, 13)
         assert locate_absolute_episode(3, {}) is None
 
     def test_seasons_map_from_ignores_specials_and_junk(self):

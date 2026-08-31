@@ -31,6 +31,7 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    associate_metadata_request,
 )
 
 FEED_URL = f"{TEST_SERVER}/rss/mikanani?series=3"  # 咒术回战, 18 resources
@@ -174,7 +175,7 @@ class TestGenreNormalizationOnLink:
     def test_manual_link_normalizes_genre(self, _genre_channel):
         """Legacy/alias genre values are clamped to the closed set on upsert."""
         rid = _genre_channel["resources"][0]["id"]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{rid}/metadata/link",
             method="put",
             json={
@@ -213,7 +214,7 @@ class TestGenreFilterDSL:
         """Agent over the genre channel; one resource linked to a genre series."""
         ch_id = _genre_channel["channel_id"]
         rid = _genre_channel["resources"][0]["id"]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{rid}/metadata/link",
             method="put",
             json={

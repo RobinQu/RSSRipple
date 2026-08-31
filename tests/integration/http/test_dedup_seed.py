@@ -20,6 +20,7 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    associate_metadata_request,
 )
 
 DUP_TITLE_CN = "去重重复剧"
@@ -83,7 +84,7 @@ class TestDedupSeed:
         r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 1})
         rid = r.json()["data"][0]["id"]
 
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{rid}/metadata/link",
             method="put",
             json={

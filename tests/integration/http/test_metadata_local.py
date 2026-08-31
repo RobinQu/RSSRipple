@@ -27,6 +27,9 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    associate_metadata_request,
+    search_metadata,
+    search_metadata_request,
 )
 
 KUSURIYA_TITLE_CN = "药屋少女的呢喃"
@@ -52,7 +55,12 @@ def _ensure_series(title_cn: str, title_en: str) -> str:
     r = _api(
         "/api/v1/series",
         method="post",
-        json={"title_cn": title_cn, "title_en": title_en},
+        json={
+            "title_cn": title_cn,
+            "title_en": title_en,
+            "start_date": "2023-01-01",
+            "is_anime": True,
+        },
     )
     assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
     return r.json()["data"]["id"]
@@ -298,7 +306,7 @@ class TestManualSearchLink:
     def test_manual_link_creates_series(self, _unlinked_channel):
         """PUT /resources/{id}/metadata/link creates the series + mapping."""
         res = _unlinked_channel["resources"][0]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
             method="put",
             json={
@@ -336,7 +344,7 @@ class TestManualSearchLink:
     def test_local_fts_search(self, _unlinked_channel):
         """POST metadata/search data_source_type=local finds the new series."""
         res = _unlinked_channel["resources"][2]
-        r = _api(
+        r = search_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/search",
             method="post",
             json={
@@ -353,7 +361,7 @@ class TestManualSearchLink:
     def test_local_fts_search_movie(self, _unlinked_channel):
         """Local search with content_type=movie returns a list (maybe empty)."""
         res = _unlinked_channel["resources"][2]
-        r = _api(
+        r = search_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/search",
             method="post",
             json={
@@ -368,7 +376,7 @@ class TestManualSearchLink:
     def test_local_fts_search_short_query(self, _unlinked_channel):
         """Sub-3-char queries use the LIKE fallback instead of trigram FTS."""
         res = _unlinked_channel["resources"][2]
-        r = _api(
+        r = search_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/search",
             method="post",
             json={
@@ -384,7 +392,7 @@ class TestManualSearchLink:
     def test_manual_link_movie(self, _unlinked_channel):
         """Linking a movie result creates the Movie entity."""
         res = _unlinked_channel["resources"][3]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
             method="put",
             json={
@@ -410,7 +418,7 @@ class TestManualSearchLink:
         if not TestManualSearchLink.series_id:
             pytest.skip("no series — prerequisite failed")
         res = _unlinked_channel["resources"][4]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
             method="put",
             json={
@@ -438,7 +446,7 @@ class TestManualSearchLink:
         if not TestManualSearchLink.series_id:
             pytest.skip("no series — prerequisite failed")
         res = _unlinked_channel["resources"][5]
-        r = _api(
+        r = associate_metadata_request(
             f"/api/v1/resources/{res['id']}/metadata/link",
             method="put",
             json={
@@ -675,14 +683,14 @@ class TestWorksSettings:
         assert r.json()["data"]["settings"]["llm_model"]["value"] != "integration-test-model"
 
     def test_works_metadata_config(self):
-        """The config endpoint is a source catalog only (no global default)."""
-        r = _api("/api/v1/works/metadata-config")
+        """The unified metadata endpoint exposes the source catalog."""
+        r = _api("/api/v1/metadata/sources")
         assert r.status_code == 200
         data = r.json()["data"]
-        assert "sources" in data
-        assert "default_source" not in data
+        assert "primary_sources" in data
+        assert "trusted_sites" in data
 
-        # PUT no longer exists → 405
+        # The removed per-works config route is no longer writable.
         r = _api(
             "/api/v1/works/metadata-config",
             method="put",
@@ -690,23 +698,16 @@ class TestWorksSettings:
         )
         assert r.status_code == 405
 
-    def test_refresh_metadata_local_source(self):
-        """refresh-metadata with source=local exercises the local agent path."""
+    def test_unified_local_work_search(self):
+        """The unified local mode finds an existing work without mutation."""
         series_id = _ensure_series(KUSURIYA_TITLE_CN, "The Apothecary Diaries")
-        r = _api_refresh(
-            "/api/v1/works/refresh-metadata",
-            json={"id": series_id, "content_type": "tv", "source": "local"},
+        r = search_metadata(
+            KUSURIYA_TITLE_CN,
+            "tv",
         )
-        assert r.status_code == 200, f"refresh failed: {r.text}"
-        assert "found" in r.json()["data"]
-
-        # Work not found → found=False
-        r = _api_refresh(
-            "/api/v1/works/refresh-metadata",
-            json={"id": "nonexistent", "content_type": "movie", "source": "local"},
-        )
-        assert r.status_code == 200
-        assert r.json()["data"]["found"] is False
+        assert r.status_code == 200, f"search failed: {r.text}"
+        candidates = r.json()["data"]["candidates"]
+        assert any(c.get("work_id") == series_id for c in candidates)
 
     def test_batch_refresh_metadata(self):
         series_id = _ensure_series(KUSURIYA_TITLE_CN, "The Apothecary Diaries")
@@ -714,7 +715,7 @@ class TestWorksSettings:
             "/api/v1/works/batch-refresh-metadata",
             json={
                 "items": [{"id": series_id, "content_type": "tv"}],
-                "source": "local",
+                "source": "wikipedia",
             },
         )
         assert r.status_code == 200, f"batch refresh failed: {r.text}"
@@ -725,7 +726,7 @@ class TestWorksSettings:
         r = _api(
             "/api/v1/works/batch-refresh-metadata",
             method="post",
-            json={"items": [], "source": "local"},
+            json={"items": [], "source": "wikipedia"},
         )
         assert r.status_code == 200
         assert r.json()["data"]["count"] == 0

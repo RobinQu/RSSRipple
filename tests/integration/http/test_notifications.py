@@ -30,6 +30,7 @@ from tests.integration.http._http import (
     API_HEADERS,
     MIKANANI_1_URL,
     RICH_FIELD_MAPPING,
+    associate_metadata_request,
 )
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
@@ -120,8 +121,9 @@ def test_notification_pipeline_end_to_end():
     # asserted to carry the canonical work.genre. The title is deliberately
     # unique — reusing 葬送的芙莉莲 would duplicate the _llm_env series and
     # trip the same-title collision guard for auto-link in other tests.
-    r = _api(
+    r = associate_metadata_request(
         f"/api/v1/resources/{resources[0]['id']}/metadata/link",
+        api=_api,
         method="put",
         json={
             "selected_result": {

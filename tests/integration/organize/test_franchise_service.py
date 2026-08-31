@@ -2,7 +2,7 @@
 
 覆盖 ``link_franchise_pack`` 的完整契约：成员解析（stub agent →
 create_or_update_* upsert）、WorkCollection get-or-create（归一化标题
-幂等）、已属其他合集的作品不被抢走、全部成员失败时仅保留 batch 判定、
+幂等）、已属其他合集的作品不被抢走、全部成员失败时仍保留父合集、
 FK 互斥清理与 _pack_title 的回退链。
 """
 
@@ -48,7 +48,10 @@ async def _seed_resource(db_session, channel, **kw) -> FileResource:
     resource = FileResource(
         id=_uuid(), channel_id=channel.id, guid=_uuid(),
         title_raw=kw.pop("title_raw", "[VCB] 某大IP 全家桶"),
-        torrent_url="magnet:?xt=urn:btih:abc", **kw,
+        torrent_url="magnet:?xt=urn:btih:abc",
+        is_batch=kw.pop("is_batch", True),
+        batch_scope=kw.pop("batch_scope", "franchise"),
+        **kw,
     )
     db_session.add(resource)
     await db_session.flush()

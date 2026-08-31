@@ -29,6 +29,8 @@ from tests.integration.http._http import (
     RSSRIPPLE,
     _api,
     _poll_fetch,
+    associate_metadata_request,
+    search_metadata_request,
 )
 
 _HAS_LLM = bool(os.environ.get("LLM_API_KEY"))
@@ -40,6 +42,7 @@ def _api_llm_search(path: str, **kw) -> httpx.Response:
     can take minutes under load — use a 240s budget instead of the shared 60s
     client (which flaky-times-out on this endpoint), mirroring _api_refresh."""
     c = httpx.Client(timeout=240.0, headers=API_HEADERS)
+    kw.pop("method", None)
     return c.post(f"{RSSRIPPLE}{path}", **kw)
 
 
@@ -126,8 +129,9 @@ class TestMetadataMatching:
         if not TestMetadataMatching.first_resource_id:
             pytest.skip("No resources available — prerequisite test failed")
 
-        r = _api_llm_search(
+        r = search_metadata_request(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
+            api=_api_llm_search,
             json={
                 "search_title": "Breaking Bad",
                 "content_type": "tv",
@@ -185,8 +189,9 @@ class TestMetadataLink:
             pytest.skip("No metadata API keys configured — cannot perform search+link")
 
         # First, search for a known TV show (long-timeout client: real LLM)
-        r_search = _api_llm_search(
+        r_search = search_metadata_request(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/search",
+            api=_api_llm_search,
             json={
                 "search_title": "Breaking Bad",
                 "content_type": "tv",
@@ -216,7 +221,7 @@ class TestMetadataLink:
                 selected["content_type"] = "tv"
 
         # Link metadata
-        r_link = _api(
+        r_link = associate_metadata_request(
             f"/api/v1/resources/{TestMetadataMatching.first_resource_id}/metadata/link",
             method="put",
             json={"selected_result": selected},
