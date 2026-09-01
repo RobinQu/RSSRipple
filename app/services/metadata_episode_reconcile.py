@@ -274,16 +274,33 @@ def resolve_missing_season(resource, entity: dict | None) -> str | None:
     ``episode_confidence = "ambiguous"`` (季号不确定, routed to a human
     Channel resource confirmation downstream).
 
-    No-op for resources whose season is already known, batch resources (a 合集
-    bypasses per-episode flow), and ``manual`` rows (user-vetted). Returns
-    ``"season-defaulted"`` / ``"marked-ambiguous"`` when it changed the
-    resource, else ``None``.
+    Batch resources (合集) only take the verified single-season default —
+    ``batch_scope`` None/``"season"`` with exactly one verified season →
+    ``season = 1`` — and are NEVER marked ``ambiguous``: per-episode
+    confidence has no meaning for a pack, whose uncertainty is gated by the
+    batch-coverage confirmation instead. Multi-season / franchise / movie
+    packs (``batch_scope`` in ``"multi_season"``/``"franchise"``/``"movies"``)
+    are a full no-op.
+
+    No-op for resources whose season is already known and ``manual`` rows
+    (user-vetted). Returns ``"season-defaulted"`` / ``"marked-ambiguous"``
+    when it changed the resource, else ``None``.
     """
     if (
         getattr(resource, "season", None) is not None
-        or getattr(resource, "is_batch", False)
         or getattr(resource, "episode_confidence", None) == "manual"
     ):
+        return None
+    if getattr(resource, "is_batch", False):
+        # 合集：仅取 verified 单季默认值；多季/无证据直接不动，绝不标
+        # ambiguous（合集待确认走 batch coverage 门禁）。
+        if getattr(resource, "batch_scope", None) in (
+            "multi_season", "franchise", "movies",
+        ):
+            return None
+        if verified_season_count(entity) == 1:
+            resource.season = 1
+            return "season-defaulted"
         return None
     if verified_season_count(entity) == 1:
         resource.season = 1

@@ -28,14 +28,21 @@ fetch_channel_resources(channel, db)
   │     │     # ① 一律缓存：所有 http(s) 直链资源先 ensure_torrent_cached
   │     │     #   （先 bencode 校验完整 payload，只有有效清单才落盘
   │     │     #   TORRENT_CACHE_DIR 并写回 torrent_file；已有缓存先校验，
-  │     │     #   无效缓存删除后再尝试下载；magnet/下载失败静默），保证后续
+  │     │     #   无效缓存删除后再尝试下载；magnet/下载失败静默——超时 20s，
+  │     │     #   瞬时失败（超时/连接/非 200）自动重试一次，非 bencode/超限/
+  │     │     #   写盘失败不重试），保证后续
   │     │     #   文件清单查询（GET /resources/{id}/files）无需重新下载；
+  │     │     #   手动修订/确认端点（PATCH episode / PATCH 资源 /
+  │     │     #   PUT associations）在 commit 后、入队定向运行前对
+  │     │     #   torrent_file 缺失的 http(s) 资源 best-effort 重建缓存
+  │     │     #   （ensure_torrent_cached + maybe_inspect_torrent，失败静默）
   │     │     # ② 合集分析门控：maybe_inspect_torrent 对 is_batch=false 的
   │     │     #   资源、以及已判合集但信息不完整（batch_scope 为 NULL，或
   │     │     #   scope="season" 缺 episode_start/end）的资源跑 bencode 解析
   │     │     #   文件清单 → analyze_torrent_files 判
   │     │     #   scope（season/multi_season/franchise）并补齐集数范围
-  │     │     #   （single/unknown 不降级既有合集判定），franchise 触发
+  │     │     #   （season 分支对已链接且可验证单季的作品补 season=1；
+  │     │     #   single/unknown 不降级既有合集判定），franchise 触发
   │     │     #   franchise_service.link_franchise_pack（成员作品逐个走
   │     │     #   process_title_only 匹配落库 → get-or-create franchise_pack
   │     │     #   来源 WorkCollection → 资源挂 collection_id、作品 FK 全清）。
@@ -160,7 +167,7 @@ fetch_and_link_metadata(resource, channel, db)
 
 **季号验证规则（season never guessed）**：季号只能来自标题季标记或经元数据证据验证，绝不猜测。
 
-- **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的 `_reconcile_with_series`，以及 S1 known-work 短路与 `manual_link_metadata`）：`apply_episode_reconcile` 之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_season(resource, entity)`（metadata_episode_reconcile；`entity` 为 `{number_of_seasons, seasons, single_season_entry}` 证据 dict）——剧集恰好可验证为 1 季 → `season = 1`；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）。`season_evidence_from_series` 会对主身份为 Bangumi 的已关联作品恢复条目级单季证据，因此 known-work/历史资源定向重跑同样生效，但不改写作品总季数。合集资源与 `manual` 行不触碰；电影链接不受影响。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，不创建 Agent PendingDecision。
+- **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的 `_reconcile_with_series`，以及 S1 known-work 短路与 `manual_link_metadata`）：`apply_episode_reconcile` 之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_season(resource, entity)`（metadata_episode_reconcile；`entity` 为 `{number_of_seasons, seasons, single_season_entry}` 证据 dict）——剧集恰好可验证为 1 季 → `season = 1`；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）。`season_evidence_from_series` 会对主身份为 Bangumi 的已关联作品恢复条目级单季证据，因此 known-work/历史资源定向重跑同样生效，但不改写作品总季数。合集资源同样适用单季默认：`batch_scope` 为 NULL/`season` 且作品可验证单季时落 `season = 1`，但**绝不标 ambiguous**（多季/无证据保持 season=None，走合集 coverage 待确认门禁）；`multi_season`/`franchise`/`movies` 与 `manual` 行不触碰；电影链接不受影响。torrent 内容检测的 season 分支（`maybe_inspect_torrent`）对已链接且可验证单季的作品同样补 `season=1`。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，候选含 scope 为 NULL/season 且缺季号的合集行，不创建 Agent PendingDecision。
 - **MetadataAgent 路径**（`_apply_verified_season_default`）：finalize 结果 `content_type=tv` 且 `inferred_season` 为空时，用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据做同一判定——恰为 1 季 → `season=1`；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 `apply_episode_reconcile` **之后**检查：reconcile 可能已从 `absolute_episode` 合法推导出季号，只有季号仍为 None 才落 `episode_confidence="ambiguous"`（合集与 manual 除外）。
 - **一致性交叉检查**（`apply_episode_reconcile`）：资源同时带 season 与 `absolute_episode` 且 confidence 非 `manual` 时，用 `locate_absolute_episode` 复核；绝对集号算术定位到的 (season, episode) 与现值不一致 → `episode_confidence="ambiguous"`（标题季标记与绝对算术冲突，绝不静默信一方）；locate 返回 None 视为无证据，不改动。
 - **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品近邻 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品 seasons 算术。同组相邻 manual 一条即可作为证据；跨组需双样本共识，冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修复后对 active Agent 定向运行（不推进水位线），以清理待确认决策并正常派发。

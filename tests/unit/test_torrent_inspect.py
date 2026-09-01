@@ -279,8 +279,12 @@ def _stub_httpx(monkeypatch, *, status: int = 200, chunks: list[bytes] | None = 
     async def _fake_to_thread(fn, *a, **kw):
         return fn()
 
+    async def _no_sleep(*a, **kw):
+        return None
+
     monkeypatch.setattr(ti.httpx, "Client", _Client)
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
 
 
 async def test_fetch_success(tmp_path, monkeypatch):
@@ -339,9 +343,120 @@ async def test_fetch_network_error_returns_none(tmp_path, monkeypatch):
     async def _fake_to_thread(fn, *a, **kw):
         return fn()
 
+    async def _no_sleep(*a, **kw):
+        return None
+
     monkeypatch.setattr(ti.httpx, "Client", _Client)
     monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
     assert await fetch_torrent_file("https://x/a.torrent", "rid-5") is None
+
+
+# fetch_torrent_file retry budget (one retry for transient failures only)
+
+def _stub_httpx_counting(monkeypatch, behaviors):
+    """Stub httpx.Client where ``behaviors`` is a list of per-attempt actions:
+    ``("raise", exc)`` / ``("respond", status, chunks)``. Returns the call
+    counter list (``calls[0]`` = number of download attempts)."""
+    calls = [0]
+
+    class _Resp:
+        def __init__(self_inner, status, chunks):
+            self_inner.status_code = status
+            self_inner._chunks = chunks
+
+        def __enter__(self_inner):
+            return self_inner
+
+        def __exit__(self_inner, *a):
+            return False
+
+        def iter_bytes(self_inner):
+            yield from self_inner._chunks
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self_inner):
+            return self_inner
+
+        def __exit__(self_inner, *a):
+            return False
+
+        def stream(self_inner, method, url):
+            idx = min(calls[0], len(behaviors) - 1)
+            calls[0] += 1
+            action = behaviors[idx]
+            if action[0] == "raise":
+                raise action[1]
+            _, status, chunks = action
+            return _Resp(status, chunks)
+
+    async def _fake_to_thread(fn, *a, **kw):
+        return fn()
+
+    async def _no_sleep(*a, **kw):
+        return None
+
+    monkeypatch.setattr(ti.httpx, "Client", _Client)
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    return calls
+
+
+async def test_fetch_retries_transient_failure_then_succeeds(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
+    calls = _stub_httpx_counting(monkeypatch, [
+        ("raise", ti.httpx.ConnectError("connection refused")),
+        ("respond", 200, [payload]),
+    ])
+    out = await fetch_torrent_file("https://x/retry.torrent", "rid-retry")
+    assert out == str(tmp_path / "rid-retry.torrent")
+    assert calls[0] == 2
+
+
+async def test_fetch_transient_failure_exhausts_attempts(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    calls = _stub_httpx_counting(monkeypatch, [
+        ("raise", ti.httpx.ConnectError("connection refused")),
+        ("raise", ti.httpx.ReadTimeout("timed out")),
+    ])
+    assert await fetch_torrent_file("https://x/down.torrent", "rid-down") is None
+    assert calls[0] == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_fetch_404_retried_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    calls = _stub_httpx_counting(monkeypatch, [
+        ("respond", 404, [b""]),
+        ("respond", 404, [b""]),
+    ])
+    assert await fetch_torrent_file("https://x/missing.torrent", "rid-404") is None
+    assert calls[0] == 2
+
+
+async def test_fetch_oversize_not_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    monkeypatch.setattr(ti, "_MAX_TORRENT_BYTES", 16)
+    calls = _stub_httpx_counting(monkeypatch, [
+        ("respond", 200, [b"x" * 10, b"y" * 10]),
+        ("respond", 200, [b"x" * 10, b"y" * 10]),
+    ])
+    assert await fetch_torrent_file("https://x/big.torrent", "rid-big2") is None
+    assert calls[0] == 1
+
+
+async def test_fetch_invalid_bencode_not_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    calls = _stub_httpx_counting(monkeypatch, [
+        ("respond", 200, [b"<!doctype html>not a torrent"]),
+        ("respond", 200, [b"<!doctype html>not a torrent"]),
+    ])
+    assert await fetch_torrent_file("https://x/html.torrent", "rid-html") is None
+    assert calls[0] == 1
 
 
 # =============================================================================
@@ -519,6 +634,78 @@ async def test_inspect_enriches_season_batch_missing_range(monkeypatch):
     assert await maybe_inspect_torrent(None, r) is True
     assert r.episode_start == 1
     assert r.episode_end == 2
+
+
+class _FakeDb:
+    """Minimal db double: only ``get`` is used by the season backfill path."""
+
+    def __init__(self, series=None, *, raises=False):
+        self._series = series
+        self._raises = raises
+
+    async def get(self, model, pk):
+        if self._raises:
+            raise RuntimeError("db down")
+        return self._series
+
+
+def _series_ns(**kw):
+    base = dict(number_of_seasons=None, seasons=None,
+                external_source="", external_id="")
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+async def test_inspect_season_branch_defaults_single_season(monkeypatch):
+    """season 分支：无季标记合集 linked 到可验证单季作品 → season=1。"""
+    _stub_pipeline(monkeypatch, [
+        _f("Show - 01 [1080p].mkv"),
+        _f("Show - 02 [1080p].mkv"),
+    ])
+    db = _FakeDb(_series_ns(number_of_seasons=1,
+                            seasons=[{"season_number": 1, "episode_count": 12}]))
+    r = _resource(series_id="s-1", season=None, episode=None)
+    assert await maybe_inspect_torrent(db, r) is True
+    assert r.batch_scope == "season"
+    assert r.season == 1
+
+
+async def test_inspect_season_branch_multi_season_stays_none(monkeypatch):
+    """多季作品绝不猜季号：season 保持 None（走 batch coverage 门禁）。"""
+    _stub_pipeline(monkeypatch, [
+        _f("Show - 01 [1080p].mkv"),
+        _f("Show - 02 [1080p].mkv"),
+    ])
+    db = _FakeDb(_series_ns(number_of_seasons=3))
+    r = _resource(series_id="s-1", season=None, episode=None)
+    assert await maybe_inspect_torrent(db, r) is True
+    assert r.batch_scope == "season"
+    assert r.season is None
+
+
+async def test_inspect_season_branch_bangumi_single_entry(monkeypatch):
+    """Bangumi 条目级单季证据（external_source=bangumi）同样补 season=1。"""
+    _stub_pipeline(monkeypatch, [
+        _f("Show - 01 [1080p].mkv"),
+        _f("Show - 02 [1080p].mkv"),
+    ])
+    db = _FakeDb(_series_ns(external_source="bangumi", external_id="bangumi:123"))
+    r = _resource(series_id="s-1", season=None, episode=None)
+    assert await maybe_inspect_torrent(db, r) is True
+    assert r.season == 1
+
+
+async def test_inspect_season_branch_db_failure_tolerated(monkeypatch):
+    """series 查询失败不阻断检测：batch 判定照常，season 保持 None。"""
+    _stub_pipeline(monkeypatch, [
+        _f("Show - 01 [1080p].mkv"),
+        _f("Show - 02 [1080p].mkv"),
+    ])
+    db = _FakeDb(raises=True)
+    r = _resource(series_id="s-1", season=None, episode=None)
+    assert await maybe_inspect_torrent(db, r) is True
+    assert r.batch_scope == "season"
+    assert r.season is None
 
 
 async def test_inspect_batch_single_listing_keeps_verdict(monkeypatch):

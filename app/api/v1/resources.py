@@ -37,7 +37,12 @@ from app.schemas.file_resource import (
 )
 from app.services.metadata_service import fetch_and_link_metadata
 from app.services.task_queue import task_queue
-from app.services.torrent_inspect import fetch_torrent_file, parse_torrent_files
+from app.services.torrent_inspect import (
+    ensure_torrent_cached,
+    fetch_torrent_file,
+    maybe_inspect_torrent,
+    parse_torrent_files,
+)
 
 router = APIRouter()
 
@@ -99,6 +104,35 @@ async def _store_batch_analysis(key: str, payload: dict) -> None:
             row.metadata_json = payload
             row.generation = METADATA_CACHE_GENERATION
         await session.commit()
+
+
+async def _retry_torrent_cache(db: AsyncSession, resource_id: str) -> None:
+    """Best-effort .torrent re-cache before a manual-confirmation rerun.
+
+    The targeted agent rerun following a manual correction reuses the cached
+    .torrent to rebuild file assignments; when the cache is missing (the
+    original fetch failed) the rerun would settle nothing, so re-download it
+    here. Only fires when ``torrent_file`` is missing (or its file is gone)
+    and ``torrent_url`` is a plain http(s) direct link. Any failure is
+    logged and swallowed — this must never block the confirmation flow.
+    """
+    try:
+        resource = await db.get(FileResource, resource_id)
+        if resource is None:
+            return
+        cached = resource.torrent_file
+        if cached and Path(cached).exists():
+            return
+        url = resource.torrent_url or ""
+        if not url.startswith(("http://", "https://")):
+            return
+        await ensure_torrent_cached(resource)
+        await maybe_inspect_torrent(db, resource)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — best-effort, never blocks the flow
+        logger.warning(
+            "[resources] torrent re-cache failed for %s", resource_id, exc_info=True
+        )
 
 # Eager-load set for single-resource responses that serialize the batch
 # enrichment tables (FileResourceDetailResponse). List endpoints keep using
@@ -608,6 +642,10 @@ async def correct_episode(
     # keeps the resource behind the Channel confirmation gate.
     await db.commit()
 
+    # Re-cache a missing .torrent so the targeted rerun can rebuild file
+    # assignments (best-effort, never blocks the flow).
+    await _retry_torrent_cache(db, resource_id)
+
     # Re-trigger active agents on this channel so the corrected resource can
     # now pass the Channel confirmation gate and be dispatched. Pass the
     # resource id explicitly so run_agent does a *targeted* run against the
@@ -778,6 +816,10 @@ async def update_resource_associations(
 
     channel_id = resource.channel_id
     await db.commit()
+
+    # Re-cache a missing .torrent so the targeted rerun can rebuild file
+    # assignments (best-effort, never blocks the flow).
+    await _retry_torrent_cache(db, resource_id)
 
     try:
         await task_queue.enqueue(
@@ -1034,6 +1076,10 @@ async def correct_parse_fields(
     # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
     # session and only sees committed data.
     await db.commit()
+
+    # Re-cache a missing .torrent so the targeted rerun can rebuild file
+    # assignments (best-effort, never blocks the flow).
+    await _retry_torrent_cache(db, resource_id)
 
     channel = await db.get(Channel, channel_id, options=[
         selectinload(Channel.agents),

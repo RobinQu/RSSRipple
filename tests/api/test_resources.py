@@ -865,6 +865,80 @@ class TestParseCorrection:
         assert res.status_code == 404
 
 
+class TestTorrentRecacheOnConfirmation:
+    """Manual-confirmation endpoints re-cache a missing .torrent before the
+    targeted rerun (best-effort; failures never block the response)."""
+
+    async def test_recaches_when_torrent_file_missing(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            torrent_url="https://x/pack.torrent", torrent_file=None,
+        )
+        ensure = AsyncMock(return_value=None)
+        inspect = AsyncMock(return_value=False)
+        monkeypatch.setattr("app.api.v1.resources.ensure_torrent_cached", ensure)
+        monkeypatch.setattr("app.api.v1.resources.maybe_inspect_torrent", inspect)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        ensure.assert_awaited_once()
+        inspect.assert_awaited_once()
+
+    async def test_skips_when_cache_exists(
+        self, client, sample_channel, db_session_factory, monkeypatch, tmp_path,
+    ):
+        cached = tmp_path / "cached.torrent"
+        cached.write_bytes(b"d8:announce0:e")
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            torrent_url="https://x/pack.torrent", torrent_file=str(cached),
+        )
+        ensure = AsyncMock(return_value=None)
+        inspect = AsyncMock(return_value=False)
+        monkeypatch.setattr("app.api.v1.resources.ensure_torrent_cached", ensure)
+        monkeypatch.setattr("app.api.v1.resources.maybe_inspect_torrent", inspect)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        ensure.assert_not_awaited()
+        inspect.assert_not_awaited()
+
+    async def test_recache_failure_does_not_block_response(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            torrent_url="https://x/pack.torrent", torrent_file=None,
+        )
+        ensure = AsyncMock(side_effect=RuntimeError("network down"))
+        monkeypatch.setattr("app.api.v1.resources.ensure_torrent_cached", ensure)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["episode"] == 3
+        ensure.assert_awaited_once()
+
+    async def test_skips_magnet_url(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)  # magnet
+        ensure = AsyncMock(return_value=None)
+        inspect = AsyncMock(return_value=False)
+        monkeypatch.setattr("app.api.v1.resources.ensure_torrent_cached", ensure)
+        monkeypatch.setattr("app.api.v1.resources.maybe_inspect_torrent", inspect)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        ensure.assert_not_awaited()
+        inspect.assert_not_awaited()
+
+
 class TestParseCorrectionGenericFields:
     """PATCH /resources/{id} also accepts generic media-descriptor fields
     (wizard step 3); they never touch episode_confidence."""

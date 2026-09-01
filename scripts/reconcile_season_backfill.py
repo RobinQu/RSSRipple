@@ -1,16 +1,24 @@
 """One-off backfill: reconcile season/episode for stock series-linked resources.
 
 Repairs FileResource rows created before the cross-season reconcile /
-verified-season rules ran on every link path. Targets series-linked,
-non-batch resources whose ``episode_confidence`` is ``reconciled``/``raw``/
-NULL (never ``manual``, never already ``ambiguous``) and that either have no
-season (``season IS NULL``) or carry both a season and an
-``absolute_episode`` (consistency cross-check candidates). Each row is run
-through ``apply_episode_reconcile`` with the linked series' persisted
-per-season counts, then through ``resolve_missing_season`` when the season is
-still unknown (single-season → ``season=1``; multi/unknown →
-``episode_confidence="ambiguous"``, surfaced as a "季号不确定" PendingDecision
-on the agents' next run — this script creates no PendingDecisions itself).
+verified-season rules ran on every link path. Two candidate groups:
+
+- Non-batch rows whose ``episode_confidence`` is ``reconciled``/``raw``/NULL
+  (never ``manual``, never already ``ambiguous``) and that either have no
+  season (``season IS NULL``) or carry both a season and an
+  ``absolute_episode`` (consistency cross-check candidates). Each row is run
+  through ``apply_episode_reconcile`` with the linked series' persisted
+  per-season counts, then through ``resolve_missing_season`` when the season
+  is still unknown (single-season → ``season=1``; multi/unknown →
+  ``episode_confidence="ambiguous"``, surfaced as a "季号不确定" PendingDecision
+  on the agents' next run — this script creates no PendingDecisions itself).
+- Batch rows (合集) with ``season IS NULL`` and ``batch_scope`` NULL/``season``:
+  a pack has no per-episode reconcile semantics, so these skip
+  ``apply_episode_reconcile`` and go straight to ``resolve_missing_season``,
+  which only takes the verified single-season default (``season=1``) and
+  never marks a batch ``ambiguous`` — multi-season/unknown evidence leaves
+  the row unchanged (uncertainty is gated by the batch-coverage
+  confirmation, not by episode confidence).
 
 NOTE on locking: the embedded-Turso backend holds a single-process exclusive
 file lock, so STOP the app (``docker compose stop app``) before running this
@@ -55,16 +63,29 @@ def candidate_query():
     """Stock rows eligible for the season reconcile backfill."""
     return select(FileResource).where(
         FileResource.series_id.isnot(None),
-        FileResource.is_batch.is_(False),
         or_(
-            FileResource.episode_confidence.is_(None),
-            FileResource.episode_confidence.in_(["reconciled", "raw"]),
-        ),
-        or_(
-            FileResource.season.is_(None),
             and_(
-                FileResource.season.isnot(None),
-                FileResource.absolute_episode.isnot(None),
+                FileResource.is_batch.is_(False),
+                or_(
+                    FileResource.episode_confidence.is_(None),
+                    FileResource.episode_confidence.in_(["reconciled", "raw"]),
+                ),
+                or_(
+                    FileResource.season.is_(None),
+                    and_(
+                        FileResource.season.isnot(None),
+                        FileResource.absolute_episode.isnot(None),
+                    ),
+                ),
+            ),
+            # 无季标记合集：仅取 verified 单季默认（batch_scope NULL/season）。
+            and_(
+                FileResource.is_batch.is_(True),
+                FileResource.season.is_(None),
+                or_(
+                    FileResource.batch_scope.is_(None),
+                    FileResource.batch_scope == "season",
+                ),
             ),
         ),
     ).order_by(FileResource.created_at)
@@ -85,6 +106,13 @@ def reconcile_stock_resource(resource, series_row) -> str:
         return OUTCOME_SKIPPED
 
     season_before = resource.season
+    if getattr(resource, "is_batch", False):
+        # 合集没有单集 reconcile 语义：跳过 apply_episode_reconcile，直接走
+        # verified 单季默认；多季/无证据保持不动，绝不标 ambiguous。
+        outcome = resolve_missing_season(resource, entity)
+        if outcome == "season-defaulted":
+            return OUTCOME_SEASON_DEFAULTED
+        return OUTCOME_UNCHANGED
     apply_episode_reconcile(resource, seasons_map)
     # Reconcile may flag the row ambiguous itself (absolute number overshoots
     # the total, or the season marker contradicts the absolute arithmetic).

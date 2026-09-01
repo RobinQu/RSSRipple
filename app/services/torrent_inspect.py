@@ -39,7 +39,12 @@ logger = logging.getLogger(__name__)
 # Hard caps for the .torrent download: a real torrent is typically < 1 MB;
 # 50 MB is far above anything legitimate and guards against abusive payloads.
 _MAX_TORRENT_BYTES = 50 * 1024 * 1024
-_DOWNLOAD_TIMEOUT = 10
+_DOWNLOAD_TIMEOUT = 20
+
+# Retry budget: one automatic retry (2 attempts total) with a short backoff,
+# only for transient failures (timeout / connection error / non-200 status).
+_MAX_ATTEMPTS = 2
+_RETRY_BACKOFF_SECONDS = 1
 
 # Files smaller than this are never a main feature (samples, previews, menus).
 _MIN_VIDEO_SIZE = 50 * 1024 * 1024
@@ -141,8 +146,10 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
     Only plain http(s) URLs are fetched. The file is stored as
     ``<resource_id>.torrent`` and the local path is returned (relative to the
     data root with the default config, mirroring how the poster cache hands
-    back its cache-dir path). Returns None on any failure: non-http(s) URL,
-    non-200 status, body over 50 MB, timeout (10 s), or write error.
+    back its cache-dir path). Transient failures (timeout / connection
+    error / non-200 status) are retried once with a short backoff; permanent
+    failures (oversized body, non-bencode payload, write error, non-http(s)
+    URL) are not. Returns None on any failure.
     """
     if not url or not (url.startswith("http://") or url.startswith("https://")):
         return None
@@ -156,7 +163,11 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
         logger.warning("[torrent] cache dir not writable %s: %s", cache_dir, e)
         return None
 
-    def _download() -> bytes | None:
+    # Sentinel for non-retryable download failures (oversized body): distinct
+    # from None so the retry loop below does not waste the second attempt.
+    abort = object()
+
+    def _download():
         try:
             ua = (
                 f"{settings.app_name}/0.1.0 "
@@ -174,14 +185,22 @@ async def fetch_torrent_file(url: str, resource_id: str) -> str | None:
                     total += len(chunk)
                     if total > _MAX_TORRENT_BYTES:
                         logger.warning("[torrent] oversized body (>50MB) %s", url[:80])
-                        return None
+                        return abort
                     chunks.append(chunk)
                 return b"".join(chunks)
         except Exception as e:
             logger.warning("[torrent] download failed %s: %s", url[:80], e)
             return None
 
-    content = await asyncio.to_thread(_download)
+    content = None
+    for attempt in range(_MAX_ATTEMPTS):
+        content = await asyncio.to_thread(_download)
+        if content is abort:
+            return None
+        if content is not None:
+            break
+        if attempt < _MAX_ATTEMPTS - 1:
+            await asyncio.sleep(_RETRY_BACKOFF_SECONDS)
     if not content or parse_torrent_payload(content) is None:
         logger.debug("[torrent] rejecting non-bencode or unusable payload %s", url[:80])
         return None
@@ -597,6 +616,25 @@ async def maybe_inspect_torrent(
             resource.episode = None
             resource.episode_start = report.episode_start
             resource.episode_end = report.episode_end
+            if resource.season is None and resource.series_id:
+                # 无季标记合集：linked 作品可验证为单季时补 season=1（与
+                # resolve_missing_season 同一 verified 证据规则，绝不猜测）；
+                # 多季/未知保持 None，走 batch coverage 门禁。失败静默，
+                # 绝不阻断检测。
+                try:
+                    from app.models.series import TVSeries
+                    from app.services.metadata_episode_reconcile import (
+                        season_evidence_from_series,
+                        verified_season_count,
+                    )
+
+                    series = await db.get(TVSeries, resource.series_id)
+                    if series is not None and verified_season_count(
+                        season_evidence_from_series(series)
+                    ) == 1:
+                        resource.season = 1
+                except Exception:  # noqa: BLE001 — best-effort enrichment
+                    pass
         elif report.scope == "multi_season":
             resource.is_batch = True
             resource.batch_scope = "multi_season"

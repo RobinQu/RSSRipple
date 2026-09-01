@@ -28,6 +28,7 @@ import { metadataApi } from '../api/metadata';
 import { channelsApi, resourcesApi } from '../api/channels';
 import { seriesApi } from '../api/series';
 import { formatBytes } from '../utils/format';
+import { clientId } from '../utils/uuid';
 import { DEFAULT_FALLBACK_SOURCES } from './channel-form/constants';
 import SeasonInput from './SeasonInput';
 import type {
@@ -39,6 +40,7 @@ import type {
   MetadataCandidate,
   MetadataSource,
   ResourceFileItem,
+  ResourceFilesResponse,
   WorkRefType,
 } from '../types';
 
@@ -127,6 +129,12 @@ export default function ResourceEditWizard({
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<FileResourceDetail | null>(null);
   const [files, setFiles] = useState<ResourceFileItem[]>([]);
+  const [filesSource, setFilesSource] = useState<ResourceFilesResponse['source'] | null>(null);
+  const [filesRetrying, setFilesRetrying] = useState(false);
+  // Batch editing state for the expanded work's assignment rows (step 1).
+  const [checkedAssign, setCheckedAssign] = useState<string[]>([]);
+  const [batchSeason, setBatchSeason] = useState<number | null>(null);
+  const [batchEpStart, setBatchEpStart] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -195,6 +203,8 @@ export default function ResourceEditWizard({
     setLoading(true);
     setDetail(null);
     setFiles([]);
+    setFilesSource(null);
+    setCheckedAssign([]);
     setSuggestion(null);
     setCheckedFiles([]);
     setSelectedWorkKey(null);
@@ -235,6 +245,11 @@ export default function ResourceEditWizard({
       }
       setWorks(nextWorks);
       setWorkTitles(titles);
+      // Default-expand the first work so existing file associations (the
+      // season's mapping list) are visible without an extra click.
+      if (nextWorks.length > 0) {
+        setSelectedWorkKey(workKeyOf(nextWorks[0].work_type, nextWorks[0].work_id));
+      }
       const nextPlacements: Record<string, Placement> = {};
       for (const a of d.file_assignments ?? []) {
         const wt: WorkRefType | null = a.series_id ? 'series' : a.movie_id ? 'movie' : null;
@@ -279,6 +294,7 @@ export default function ResourceEditWizard({
       const filesRes = await resourcesApi.getFiles(resourceId);
       if (!cancelled && filesRes.success) {
         setFiles(filesRes.data.files);
+        setFilesSource(filesRes.data.source);
       }
       const collRes = await collectionsApi.list(1, 50);
       if (!cancelled && collRes.success) {
@@ -292,6 +308,23 @@ export default function ResourceEditWizard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourceId, initialStep]);
+
+  /** Re-call GET /resources/{id}/files — the server live-retries the torrent
+   * fetch on every call, so this is the manual recovery entry when an earlier
+   * download failed (source "none" despite an http(s) torrent_url). */
+  const retryFetchFiles = async () => {
+    if (!resourceId) return;
+    setFilesRetrying(true);
+    try {
+      const res = await resourcesApi.getFiles(resourceId);
+      if (res.success) {
+        setFiles(res.data.files);
+        setFilesSource(res.data.source);
+      }
+    } finally {
+      setFilesRetrying(false);
+    }
+  };
 
   const loadMediaOptions = async () => {
     if (!detail) return;
@@ -372,6 +405,12 @@ export default function ResourceEditWizard({
       }
       return next;
     });
+    setCheckedAssign((prev) =>
+      prev.filter((path) => {
+        const p = placements[path];
+        return p != null && workKeyOf(p.workType, p.workId) !== key;
+      }),
+    );
     if (selectedWorkKey === key) setSelectedWorkKey(null);
     worksDirtyRef.current = true;
   };
@@ -383,6 +422,7 @@ export default function ResourceEditWizard({
       return next;
     });
     setCheckedFiles((prev) => prev.filter((p) => !paths.includes(p)));
+    setCheckedAssign((prev) => prev.filter((p) => !paths.includes(p)));
   };
 
   const setPlacementField = (
@@ -393,6 +433,44 @@ export default function ResourceEditWizard({
       ...prev,
       [path]: { ...prev[path], ...patch },
     }));
+  };
+
+  /** Assignment rows of one work in display order (natural path sort, so the
+   * episode numbers embedded in filenames ascend) — shared by the render and
+   * the batch increment fill to guarantee identical ordering. */
+  const sortedEntriesFor = (key: string): [string, Placement][] =>
+    Object.entries(placements)
+      .filter(([, p]) => workKeyOf(p.workType, p.workId) === key)
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+
+  /** Batch-apply one season to every checked assignment row. */
+  const applyBatchSeason = () => {
+    if (batchSeason == null || checkedAssign.length === 0) return;
+    setPlacements((prev) => {
+      const next = { ...prev };
+      for (const path of checkedAssign) {
+        if (next[path]) next[path] = { ...next[path], season: batchSeason };
+      }
+      return next;
+    });
+  };
+
+  /** Fill checked rows with ascending episode numbers (start, start+1, …) in
+   * display order; each file becomes a single-episode mapping. */
+  const applyBatchEpisodeIncrement = () => {
+    if (batchEpStart == null || !selectedWorkKey || checkedAssign.length === 0) return;
+    const order = sortedEntriesFor(selectedWorkKey)
+      .map(([path]) => path)
+      .filter((path) => checkedAssign.includes(path));
+    setPlacements((prev) => {
+      const next = { ...prev };
+      order.forEach((path, i) => {
+        if (next[path]) {
+          next[path] = { ...next[path], epStart: batchEpStart + i, epEnd: batchEpStart + i };
+        }
+      });
+      return next;
+    });
   };
 
   const joinChecked = () => {
@@ -982,7 +1060,20 @@ export default function ResourceEditWizard({
             )}
           </>
         ) : files.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('resource.noListingHint')} />
+          filesSource === 'none' && detail?.torrent_url?.startsWith('http') ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={t('resource.torrentFetchFailed')}
+              action={
+                <Button size="small" loading={filesRetrying} onClick={retryFetchFiles}>
+                  {t('common.retry')}
+                </Button>
+              }
+            />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('resource.noListingHint')} />
+          )
         ) : analyzing ? (
           <div style={{ minHeight: 420, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 24 }}>
             <Spin size="large" />
@@ -992,25 +1083,29 @@ export default function ResourceEditWizard({
             </pre>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(300px, 38%) minmax(0, 1fr)', gap: 12, height: '100%', minHeight: 0, overflow: compact ? 'auto' : 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(380px, 42%) minmax(0, 1fr)', gap: 12, height: '100%', minHeight: 0, overflow: compact ? 'auto' : 'hidden' }}>
             {/* Left: works */}
             <div style={{ border: '1px solid var(--rr-border-soft)', borderRadius: 8, padding: 8 }}>
               <Text strong style={{ fontSize: 12 }}>{t('resource.stepWorkType')}</Text>
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {works.map((w) => {
                   const key = workKeyOf(w.work_type, w.work_id);
-                  const entries = Object.entries(placements).filter(
-                    ([, p]) => workKeyOf(p.workType, p.workId) === key,
-                  );
+                  const entries = sortedEntriesFor(key);
+                  const checkedSet = new Set(checkedAssign);
+                  const checkedHere = entries.filter(([path]) => checkedSet.has(path));
+                  const allChecked = entries.length > 0 && checkedHere.length === entries.length;
                   const count = entries.length;
                   const active = selectedWorkKey === key;
                   return (
                     <div key={key}>
                       <div
-                        onClick={() => setSelectedWorkKey(active ? null : key)}
+                        onClick={() => {
+                          setSelectedWorkKey(active ? null : key);
+                          if (!active) setCheckedAssign([]);
+                        }}
                         style={{
                           display: 'flex',
-                          alignItems: 'center',
+                          alignItems: 'flex-start',
                           gap: 6,
                           padding: '5px 7px',
                           borderRadius: 6,
@@ -1020,9 +1115,9 @@ export default function ResourceEditWizard({
                         }}
                       >
                         <span style={{ flex: 1, minWidth: 0 }}>
-                          <Text ellipsis style={{ fontSize: 12, display: 'block' }}>
+                          <span style={{ fontSize: 12, display: 'block', overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
                             {workTitles[key] || w.work_id}
-                          </Text>
+                          </span>
                           <Text type="secondary" style={{ fontSize: 11 }}>
                             {w.work_type === 'series' ? t('works.tv') : t('works.movie')} · {count}
                           </Text>
@@ -1042,6 +1137,49 @@ export default function ResourceEditWizard({
                           <div
                             style={{
                               display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 6,
+                              alignItems: 'center',
+                              padding: '2px 0 6px',
+                              borderBottom: '1px dashed var(--rr-border-soft)',
+                              marginBottom: 4,
+                            }}
+                          >
+                            <Text type="secondary" style={{ fontSize: 11 }}>{t('resource.batchToolbarHint')}</Text>
+                            <SeasonInput
+                              size="small"
+                              value={batchSeason}
+                              onChange={setBatchSeason}
+                              style={{ width: 72 }}
+                              placeholder={t('resource.seasonLabel')}
+                            />
+                            <Button
+                              size="small"
+                              disabled={batchSeason == null || checkedHere.length === 0}
+                              onClick={applyBatchSeason}
+                            >
+                              {t('resource.applySeasonToSelected', { count: checkedHere.length })}
+                            </Button>
+                            <InputNumber
+                              size="small"
+                              min={0}
+                              value={batchEpStart}
+                              onChange={(v) => setBatchEpStart(typeof v === 'number' ? v : null)}
+                              style={{ width: 72 }}
+                              controls={false}
+                              placeholder={t('resource.epStartCol')}
+                            />
+                            <Button
+                              size="small"
+                              disabled={batchEpStart == null || checkedHere.length === 0}
+                              onClick={applyBatchEpisodeIncrement}
+                            >
+                              {t('resource.fillEpisodesIncrement', { count: checkedHere.length })}
+                            </Button>
+                          </div>
+                          <div
+                            style={{
+                              display: 'flex',
                               gap: 4,
                               alignItems: 'center',
                               borderBottom: '1px solid var(--rr-border)',
@@ -1049,21 +1187,42 @@ export default function ResourceEditWizard({
                               marginBottom: 2,
                             }}
                           >
+                            <Checkbox
+                              checked={allChecked}
+                              indeterminate={checkedHere.length > 0 && !allChecked}
+                              onChange={(e) =>
+                                setCheckedAssign(e.target.checked ? entries.map(([path]) => path) : [])
+                              }
+                            />
                             <Text type="secondary" style={{ fontSize: 10, flex: 1 }}>{t('resource.fileColName')}</Text>
-                            <Text type="secondary" style={{ fontSize: 10, width: 52, textAlign: 'center' }}>{t('resource.seasonLabel')}</Text>
-                            <Text type="secondary" style={{ fontSize: 10, width: 52, textAlign: 'center' }}>{t('resource.epStartCol')}</Text>
-                            <Text type="secondary" style={{ fontSize: 10, width: 52, textAlign: 'center' }}>{t('resource.epEndCol')}</Text>
-                            <span style={{ width: 22 }} />
+                            <Text type="secondary" style={{ fontSize: 10, width: 52, flexShrink: 0, textAlign: 'center' }}>{t('resource.seasonLabel')}</Text>
+                            <Text type="secondary" style={{ fontSize: 10, width: 52, flexShrink: 0, textAlign: 'center' }}>{t('resource.epStartCol')}</Text>
+                            <Text type="secondary" style={{ fontSize: 10, width: 52, flexShrink: 0, textAlign: 'center' }}>{t('resource.epEndCol')}</Text>
+                            <span style={{ width: 22, flexShrink: 0 }} />
                           </div>
                           <div style={{ maxHeight: compact ? 220 : 300, overflowY: 'auto' }}>
                             {entries.map(([path, p]) => (
-                              <div key={path} style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '1px 0' }}>
-                                <Text ellipsis title={path} style={{ fontSize: 11, flex: 1, minWidth: 0 }}>
+                              <div key={path} style={{ display: 'flex', gap: 4, alignItems: 'flex-start', padding: '1px 0' }}>
+                                <Checkbox
+                                  style={{ marginTop: 4 }}
+                                  checked={checkedSet.has(path)}
+                                  onChange={(e) =>
+                                    setCheckedAssign((prev) =>
+                                      e.target.checked
+                                        ? [...prev, path]
+                                        : prev.filter((x) => x !== path),
+                                    )
+                                  }
+                                />
+                                <span
+                                  title={path}
+                                  style={{ fontSize: 11, flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4, marginTop: 3 }}
+                                >
                                   {path.split('/').pop()}
-                                </Text>
-                                <SeasonInput size="small" value={p.season} onChange={(v) => setPlacementField(path, { season: v })} style={{ width: 52 }} />
-                                <InputNumber size="small" min={0} value={p.epStart} onChange={(v) => setPlacementField(path, { epStart: typeof v === 'number' ? v : null })} style={{ width: 52 }} controls={false} />
-                                <InputNumber size="small" min={0} value={p.epEnd} onChange={(v) => setPlacementField(path, { epEnd: typeof v === 'number' ? v : null })} style={{ width: 52 }} controls={false} />
+                                </span>
+                                <SeasonInput size="small" value={p.season} onChange={(v) => setPlacementField(path, { season: v })} style={{ width: 52, flexShrink: 0 }} />
+                                <InputNumber size="small" min={0} value={p.epStart} onChange={(v) => setPlacementField(path, { epStart: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
+                                <InputNumber size="small" min={0} value={p.epEnd} onChange={(v) => setPlacementField(path, { epEnd: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
                                 <Button size="small" type="text" icon={<X size={11} />} onClick={() => unassignPaths([path])} />
                               </div>
                             ))}
@@ -1161,11 +1320,11 @@ export default function ResourceEditWizard({
                         }}
                       >
                         <Checkbox checked={checked} tabIndex={-1} />
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere' }}>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
                           {f.name}
                         </span>
                         {parsed && (parsed.season != null || parsed.episode != null) && (
-                          <Tag style={{ fontSize: 10, margin: 0, width: 70, textAlign: 'center' }} color="default">
+                          <Tag style={{ fontSize: 10, margin: 0, width: 70, flexShrink: 0, textAlign: 'center' }} color="default">
                             {parsed.season != null ? `S${parsed.season}` : ''}
                             {parsed.episode != null ? ` E${parsed.episode}` : ''}
                           </Tag>
@@ -1569,7 +1728,7 @@ function WorkPickerModal({
 
   const pickOnline = async (r: MetadataCandidate) => {
     if (!r.selectable) return;
-    const clientKey = `candidate:${crypto.randomUUID()}`;
+    const clientKey = `candidate:${clientId()}`;
     onPick(
       {
         work_type: metaType === 'tv' ? 'series' : 'movie',

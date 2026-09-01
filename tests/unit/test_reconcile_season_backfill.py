@@ -41,8 +41,9 @@ def _resource(channel_id, **overrides):
 
 
 async def test_candidate_query_selection(db_session, sample_channel):
-    """Only series-linked, non-batch, non-manual/non-ambiguous rows with a
-    missing season (or a season+absolute pair) are selected."""
+    """Non-batch: series-linked, non-manual/non-ambiguous rows with a missing
+    season (or a season+absolute pair) are selected. Batch: series-linked
+    rows with ``season IS NULL`` and scope NULL/``season`` are selected."""
     series = TVSeries(id=_uuid(), title_cn="剧", content_type="tv")
     db_session.add(series)
     ch = sample_channel.id
@@ -50,15 +51,25 @@ async def test_candidate_query_selection(db_session, sample_channel):
         "season_none": _resource(ch, series_id=series.id, season=None, episode=3),
         "season_abs": _resource(ch, series_id=series.id, season=2, episode=5,
                                 absolute_episode=30, episode_confidence="reconciled"),
+        # batch candidates: season-less, scope NULL or "season"
+        "batch_unscoped": _resource(ch, series_id=series.id, season=None,
+                                    episode=None, is_batch=True),
+        "batch_season_scope": _resource(ch, series_id=series.id, season=None,
+                                        episode=None, is_batch=True,
+                                        batch_scope="season"),
         # excluded: manual
         "manual": _resource(ch, series_id=series.id, season=None, episode=3,
                             episode_confidence="manual"),
         # excluded: already ambiguous
         "ambiguous": _resource(ch, series_id=series.id, season=None, episode=3,
                                episode_confidence="ambiguous"),
-        # excluded: batch
-        "batch": _resource(ch, series_id=series.id, season=None, episode=None,
-                           is_batch=True),
+        # excluded: multi_season batch (scope not season-like)
+        "batch_multi": _resource(ch, series_id=series.id, season=None,
+                                 episode=None, is_batch=True,
+                                 batch_scope="multi_season", batch_seasons=[1, 2]),
+        # excluded: batch with season already known
+        "batch_known": _resource(ch, series_id=series.id, season=1,
+                                 episode=None, is_batch=True, batch_scope="season"),
         # excluded: season known, no absolute number
         "plain": _resource(ch, series_id=series.id, season=1, episode=3),
         # excluded: not series-linked
@@ -69,7 +80,12 @@ async def test_candidate_query_selection(db_session, sample_channel):
 
     selected = (await db_session.execute(candidate_query())).scalars().all()
     selected_ids = {r.id for r in selected}
-    assert selected_ids == {rows["season_none"].id, rows["season_abs"].id}
+    assert selected_ids == {
+        rows["season_none"].id,
+        rows["season_abs"].id,
+        rows["batch_unscoped"].id,
+        rows["batch_season_scope"].id,
+    }
 
 
 def _series_row(**kw):
@@ -148,6 +164,37 @@ def test_reconcile_stock_resource_never_touches_manual():
     assert reconcile_stock_resource(r, series) == OUTCOME_UNCHANGED
     assert r.season is None
     assert r.episode_confidence == "manual"
+
+
+def test_reconcile_batch_defaults_single_season():
+    """无季标记合集 + 可验证单季作品 → season=1（跳过单集 reconcile）。"""
+    r = _resource("ch", season=None, episode=None, is_batch=True)
+    series = _series_row(number_of_seasons=1,
+                         seasons=[{"season_number": 1, "episode_count": 12}])
+    assert reconcile_stock_resource(r, series) == OUTCOME_SEASON_DEFAULTED
+    assert r.season == 1
+    assert r.episode_confidence is None
+
+
+def test_reconcile_batch_multi_season_unchanged():
+    """合集多季/无证据：保持不动，绝不标 ambiguous。"""
+    r = _resource("ch", season=None, episode=None, is_batch=True,
+                  batch_scope="season")
+    series = _series_row(
+        number_of_seasons=3,
+        seasons=[{"season_number": n, "episode_count": 24} for n in (1, 2, 3)],
+    )
+    assert reconcile_stock_resource(r, series) == OUTCOME_UNCHANGED
+    assert r.season is None
+    assert r.episode_confidence is None
+
+
+def test_reconcile_batch_skipped_without_evidence():
+    r = _resource("ch", season=None, episode=None, is_batch=True)
+    assert reconcile_stock_resource(r, None) == OUTCOME_SKIPPED
+    assert reconcile_stock_resource(r, _series_row()) == OUTCOME_SKIPPED
+    assert r.season is None
+    assert r.episode_confidence is None
 
 
 async def test_candidate_query_empty_db(db_session):

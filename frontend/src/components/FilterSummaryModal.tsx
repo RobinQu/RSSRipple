@@ -21,6 +21,7 @@ import { agentsApi } from '../api/agents';
 import FilterBuilder from './FilterBuilder';
 import useAgentFilterFields from '../hooks/useAgentFilterFields';
 import { findInvalidConditions, nullIfEmptyFilter } from './filterUtils';
+import { clientId } from '../utils/uuid';
 import type {
   Agent,
   AgentWork,
@@ -42,14 +43,6 @@ interface Props {
 }
 
 const hasCJK = (s: string) => /[㐀-鿿぀-ヿ가-힯]/.test(s);
-
-/** crypto.randomUUID requires a secure context; this app is often served over
- * plain http on a LAN host, so fall back to a manual id there. The id is only
- * a client-side temp key for the not-yet-persisted work row. */
-const tempId = (): string =>
-  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `tmp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** Build an AgentForm-compatible temp work entry from a suggestion. The
  * embedded series/movie object carries display-only fields so WorkSelector
@@ -80,7 +73,7 @@ function buildTempWork(w: FilterSuggestionWork): AgentWork {
     updated_at: '',
   };
   return {
-    id: tempId(),
+    id: clientId(),
     agent_id: '',
     content_type: w.content_type,
     series_id: w.series_id,

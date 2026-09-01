@@ -2197,11 +2197,52 @@ class TestResolveMissingSeason:
         assert r.season == 2
         assert r.episode_confidence is None
 
-    def test_noop_for_batch(self):
-        r = self._r(is_batch=True, episode=None)
-        assert resolve_missing_season(r, {"number_of_seasons": 1}) is None
+    def test_batch_scope_none_single_season_defaults_1(self):
+        """无季标记合集 + 作品可验证单季 → season=1（verified，非猜测）。"""
+        r = self._r(is_batch=True, batch_scope=None, episode=None)
+        out = resolve_missing_season(r, {"number_of_seasons": 1, "seasons": None})
+        assert out == "season-defaulted"
+        assert r.season == 1
+        assert r.episode_confidence is None
+
+    def test_batch_scope_season_single_season_defaults_1(self):
+        r = self._r(is_batch=True, batch_scope="season", episode=None)
+        entity = {"seasons": [
+            {"season_number": 0, "episode_count": 2},  # specials ignored
+            {"season_number": 1, "episode_count": 12},
+        ]}
+        assert resolve_missing_season(r, entity) == "season-defaulted"
+        assert r.season == 1
+        assert r.episode_confidence is None
+
+    def test_batch_multi_season_never_ambiguous(self):
+        """合集多季/无证据：不动 season，绝不标 ambiguous（走 coverage 门禁）。"""
+        r = self._r(is_batch=True, batch_scope=None, episode=None)
+        assert resolve_missing_season(r, {"number_of_seasons": 3}) is None
         assert r.season is None
         assert r.episode_confidence is None
+
+    def test_batch_no_evidence_never_ambiguous(self):
+        r = self._r(is_batch=True, batch_scope="season", episode=None)
+        assert resolve_missing_season(r, {}) is None
+        assert resolve_missing_season(r, None) is None
+        assert r.season is None
+        assert r.episode_confidence is None
+
+    def test_batch_multi_scope_noop(self):
+        """multi_season/franchise/movies 合集完全不取单季默认。"""
+        for scope in ("multi_season", "franchise", "movies"):
+            r = self._r(is_batch=True, batch_scope=scope, episode=None)
+            assert resolve_missing_season(r, {"number_of_seasons": 1}) is None
+            assert r.season is None
+            assert r.episode_confidence is None
+
+    def test_batch_manual_noop(self):
+        r = self._r(is_batch=True, batch_scope=None, episode=None,
+                    episode_confidence="manual")
+        assert resolve_missing_season(r, {"number_of_seasons": 1}) is None
+        assert r.season is None
+        assert r.episode_confidence == "manual"
 
     def test_noop_for_manual(self):
         r = self._r(episode_confidence="manual")
