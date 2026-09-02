@@ -142,6 +142,14 @@ tasks:
       - aiWaitFor: The decisions tab shows pending decision cards with candidate Confirm/Skip actions, or an empty state
         timeout: 10000
 
+  # ── Agent Detail — Notifications Tab ───────────────────────────
+  - name: View Notifications tab
+    flow:
+      - ai: Click the "Notifications" tab
+      - aiWaitFor: The notifications tab shows webhook management controls and either a notification table or "No notifications yet"
+        timeout: 10000
+      - aiAssert: The tab has controls for adding a webhook, retrying notifications and regenerating notifications
+
   # ── Agent Detail — Filter Tab ───────────────────────────────────
   - name: View Filter tab and test filters
     flow:

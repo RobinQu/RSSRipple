@@ -1,0 +1,64 @@
+# RSSRipple Media Library — consolidated plans, audit and media-server config
+# The suite is safe on a fresh instance: it exercises empty states and modal
+# validation without requiring a live Plex/Emby/Jellyfin server.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
+
+agent:
+  testId: media-library-lifecycle
+  groupName: RSSRipple E2E
+  groupDescription: Media library tabs, redirects and configuration validation
+
+tasks:
+  - name: Switch UI language to English
+    flow:
+      - ai: Click the "语言" (Language) dropdown at the bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The sidebar shows "Media Library" and "Settings"
+        timeout: 10000
+
+  - name: Open Media Library plans tab
+    flow:
+      - ai: Click "Media Library" in the left sidebar
+      - aiWaitFor: The "Media Library" page loads with tabs "Change Plans", "Operation Audit" and "Media Server Config"
+        timeout: 10000
+      - aiAssert: The Change Plans tab shows a status filter, a library filter, Refresh, Execute Selected and either a plans table or "No organize plans yet"
+
+  - name: Verify audit tab
+    flow:
+      - ai: Click the "Operation Audit" tab
+      - aiWaitFor: The audit tab shows an audit table or "No audit entries yet"
+        timeout: 10000
+
+  - name: Verify media server config tab
+    flow:
+      - ai: Click the "Media Server Config" tab
+      - aiWaitFor: The config tab shows a "New Server" button and either media server rows or "No media servers yet"
+        timeout: 10000
+
+  - name: Validate new media server form
+    flow:
+      - ai: Click the "New Server" button
+      - aiWaitFor: A "New Server" modal opens with Name, Type, URL, Token and Path Bindings fields
+        timeout: 10000
+      - ai: Click the Save button without entering a name or URL
+      - aiAssert: Required validation messages for the server name and URL are visible and the modal remains open
+      - ai: Click the Cancel button in the modal
+      - aiAssert: The New Server modal is closed
+
+  - name: Verify legacy media routes redirect
+    flow:
+      - ai: Navigate the browser to /media-servers on the current server
+      - sleep: 1500
+      - aiAssert: The browser is on /media-library and the Media Library page is visible
+      - ai: Navigate the browser to /organize on the current server
+      - sleep: 1500
+      - aiAssert: The browser is on /media-library and the Media Library page is visible
+
+  - name: Return to dashboard
+    flow:
+      - ai: Click "Dashboard" in the left sidebar
+      - aiWaitFor: The Dashboard page loads with statistics cards
+        timeout: 10000

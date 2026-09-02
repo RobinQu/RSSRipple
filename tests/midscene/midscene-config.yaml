@@ -17,6 +17,8 @@ files:
   - ./agents-lifecycle.yaml
   - ./resources-metadata.yaml
   - ./works-repository.yaml
+  - ./collections-lifecycle.yaml
+  - ./media-library-lifecycle.yaml
 
 # Run scripts sequentially; suites are self-contained (each creates and cleans
 # up its own entities), but sequential runs keep the server load predictable.

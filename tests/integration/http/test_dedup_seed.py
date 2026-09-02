@@ -15,6 +15,8 @@ The merge itself runs after the suite — these tests only assert the seed.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from tests.integration.http._http import (
     RICH_FIELD_MAPPING,
     TEST_SERVER,
@@ -23,7 +25,12 @@ from tests.integration.http._http import (
     associate_metadata_request,
 )
 
-DUP_TITLE_CN = "去重重复剧"
+# This test intentionally leaves seed rows for the post-suite dedup job.  Keep
+# each run isolated so a rerun against a preserved integration database cannot
+# resolve the metadata link through an earlier run's external identity.
+_RUN_ID = uuid4().hex[:10]
+DUP_TITLE_CN = f"去重重复剧-{_RUN_ID}"
+DUP_EXTERNAL_ID = f"dedup-ext-{_RUN_ID}"
 FEED_URL = f"{TEST_SERVER}/rss/mikanani?series=3"
 
 
@@ -36,7 +43,7 @@ class TestDedupSeed:
             json={
                 "title_cn": DUP_TITLE_CN,
                 "title_en": "Dedup Dup Series",
-                "external_id": "dedup-ext-1",
+                "external_id": DUP_EXTERNAL_ID,
                 "external_source": "tmdb",
             },
         )
@@ -92,7 +99,7 @@ class TestDedupSeed:
                     "content_type": "tv",
                     "title_cn": DUP_TITLE_CN,
                     "title_en": "Dedup Dup Series",
-                    "external_id": "dedup-ext-1",
+                    "external_id": DUP_EXTERNAL_ID,
                     "external_source": "tmdb",
                 }
             },

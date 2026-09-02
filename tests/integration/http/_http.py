@@ -50,12 +50,12 @@ def _api(path: str, method: str = "get", **kw):
 def _poll_fetch(channel_id: str, timeout: int = 120, accept_failed: bool = False) -> dict:
     """Block until the channel fetch job reaches a terminal state.
 
-    Returns the inner ``data`` dict. By default only ``done`` is terminal
-    (matches the channel ground-truth tests). Pass ``accept_failed=True`` to
-    also treat ``failed`` as terminal - used by the e2e/agent pipeline tests
-    that tolerate a failed fetch rather than waiting out the full timeout.
+    Returns the inner ``data`` dict. A failed fetch is returned immediately so
+    callers can report the worker error instead of waiting out the full
+    timeout. ``accept_failed`` is retained for compatibility with existing
+    callers; callers that tolerate failures can inspect the returned status.
     """
-    terminal = ("done", "failed") if accept_failed else ("done",)
+    terminal = ("done", "failed")
     deadline = time.time() + timeout
     while time.time() < deadline:
         r = _api(f"/api/v1/channels/{channel_id}/fetch-status")

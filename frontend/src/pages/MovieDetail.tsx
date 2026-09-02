@@ -101,7 +101,7 @@ export default function MovieDetail() {
       key: 'subtitle_groups',
       width: 140,
       ellipsis: true,
-      render: (_: unknown, r: any) => (r.subtitle_groups?.length ? r.subtitle_groups : (r.subtitle_group ? [r.subtitle_group] : [])).join(' & ') || <Text type="secondary">—</Text>,
+      render: (_: unknown, r: FileResource) => (r.subtitle_groups?.length ? r.subtitle_groups : (r.subtitle_group ? [r.subtitle_group] : [])).join(' & ') || <Text type="secondary">—</Text>,
     },
     {
       title: t('series.publishedAt'),

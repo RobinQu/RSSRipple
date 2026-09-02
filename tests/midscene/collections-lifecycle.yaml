@@ -1,0 +1,78 @@
+# RSSRipple Collections — collection browse and CRUD lifecycle.
+
+web:
+  url: ${RSSRIPPLE_URL:-http://localhost:9001}
+
+agent:
+  testId: collections-lifecycle
+  groupName: RSSRipple E2E
+  groupDescription: Collection browse, create, edit, detail and delete flows
+
+tasks:
+  - name: Switch UI language to English
+    flow:
+      - ai: Click the "语言" (Language) dropdown at the bottom of the left sidebar
+      - sleep: 500
+      - ai: Select "English" from the language dropdown options
+      - aiWaitFor: The sidebar shows "Repository"
+        timeout: 10000
+
+  - name: Open collections view
+    flow:
+      - ai: Click "Repository" in the left sidebar
+      - aiWaitFor: The Repository page loads with the type filter
+        timeout: 10000
+      - ai: Click the "Collections" segment
+      - aiWaitFor: The collections view shows a search box, a "New Collection" button and either a collection table or "No collections yet"
+        timeout: 10000
+
+  - name: Create a collection
+    flow:
+      - ai: Click the "New Collection" button
+      - aiWaitFor: A "New Collection" modal opens with Chinese name, English name and Description fields
+        timeout: 10000
+      - aiInput: The Chinese name field
+        value: Midscene Test Collection
+      - aiInput: The English name field
+        value: Midscene Collection
+      - aiInput: The Description field
+        value: Created by the Midscene lifecycle suite
+      - ai: Click the Save button in the modal
+      - aiWaitFor: The collections view contains "Midscene Test Collection" and shows a success notification
+        timeout: 15000
+
+  - name: Search and open collection detail
+    flow:
+      - aiInput: The collections search box
+        value: Midscene Test Collection
+      - sleep: 1000
+      - ai: Click the "Midscene Test Collection" row
+      - aiWaitFor: The collection detail page shows the collection title, a member works count, Attach work, Edit and Delete buttons
+        timeout: 10000
+      - aiAssert: The detail page shows "No works in this collection" because this test collection has no members
+
+  - name: Edit collection metadata
+    flow:
+      - ai: Click the "Edit" button on the collection detail page
+      - aiWaitFor: An "Edit Collection" modal opens with the current collection fields
+        timeout: 10000
+      - ai: Clear the English name field
+      - aiInput: The English name field
+        value: Midscene Collection Updated
+      - ai: Click the Save button in the modal
+      - aiWaitFor: The collection detail page shows "Midscene Collection Updated" and a saved notification
+        timeout: 15000
+
+  - name: Delete collection
+    flow:
+      - ai: Click the "Delete" button on the collection detail page
+      - sleep: 500
+      - ai: In the delete confirmation dialog, click the danger "Delete" button
+      - aiWaitFor: The collections view opens and no longer contains "Midscene Test Collection"
+        timeout: 15000
+
+  - name: Return to dashboard
+    flow:
+      - ai: Click "Dashboard" in the left sidebar
+      - aiWaitFor: The Dashboard page loads with statistics cards
+        timeout: 10000
