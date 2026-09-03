@@ -517,6 +517,21 @@ async def _apply_light_migrations(conn) -> None:
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
 
+    # Dashboard hot-path indexes.  Keep these in the light migration as
+    # create_all only creates indexes for brand-new databases.
+    for index_ddl in (
+        "CREATE INDEX IF NOT EXISTS ix_file_resources_confirmation_created "
+        "ON file_resources (confirmation_ignored_at, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_pending_decisions_status_created "
+        "ON pending_decisions (status, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_download_tasks_status_agent "
+        "ON download_tasks (status, agent_id)",
+        "CREATE INDEX IF NOT EXISTS ix_download_tasks_downloader_torrent "
+        "ON download_tasks (downloader_id, transmission_torrent_id)",
+    ):
+        async with _best_effort(conn, "dashboard query index"):
+            await conn.execute(text(index_ddl))
+
     # ── agents.notify_webhook_* → agent_webhooks rows ────────────────────
     # Webhook registration moved from three columns on ``agents`` to the
     # ``agent_webhooks`` fan-out table. Copy each legacy registration over
@@ -663,10 +678,63 @@ async def _apply_light_migrations(conn) -> None:
     # gain any missing locked keys; every row is reordered into canonical
     # catalog order so the stacked display column renders deterministically.
     # Idempotent: converged rows normalize to themselves on re-run.
-    # ``title_en`` used to be part of the locked baseline. Remove it once
-    # from existing channel declarations so those rows do not keep producing
-    # confirmations after the field becomes opt-in. A sentinel is required:
-    # users may explicitly add the field again under the add-only policy.
+    # ``title_cn`` and ``title_en`` used to be part of the locked baseline.
+    # Remove each once from existing channel declarations so those rows do not
+    # keep producing confirmations after the fields become opt-in. Sentinels
+    # are required: users may explicitly add either field again under the
+    # add-only policy.
+    async with _best_effort(conn, "channels.title_cn unlock"):
+        import json as _json
+
+        sentinel = "required_fields_title_cn_unlock_v1"
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker == "pending":
+            rows = await conn.execute(text(
+                "SELECT id, required_metadata_fields FROM channels"
+            ))
+            changed = 0
+            for row in rows:
+                raw = row.required_metadata_fields
+                if isinstance(raw, str):
+                    try:
+                        current = _json.loads(raw)
+                    except ValueError:
+                        current = []
+                else:
+                    current = list(raw or [])
+                updated = [key for key in current if key != "title_cn"]
+                if updated == current:
+                    continue
+                payload = _json.dumps(updated)
+                if is_postgres:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = "
+                        "CAST(:val AS JSONB) WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                else:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = :val "
+                        "WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                changed += 1
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
+            if changed:
+                logger.info("[migrate] removed legacy title_cn requirement from %d channels", changed)
+
     async with _best_effort(conn, "channels.title_en unlock"):
         import json as _json
 

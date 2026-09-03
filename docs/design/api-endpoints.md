@@ -75,7 +75,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 ### Channels
 
-> 兼容变更：新建频道的代码基线为 `search_title/content_type/is_batch/year/is_anime` 五件套；`title_cn` 与 `title_en` 均可选。历史频道已保存的 `title_cn` 继续按必选字段处理。
+> 兼容变更：新建频道的代码基线为 `search_title/content_type/is_batch/year/is_anime` 五件套；`title_cn` 与 `title_en` 均可选。启动轻迁移会一次性移除历史基线遗留的 `title_cn`/`title_en`；用户此后主动勾选的字段仍遵循只增不减。
 
 | Method | Path | 说明 |
 |--------|------|------|
@@ -100,7 +100,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 频道资源列表响应额外返回 `has_download_task`：只要该资源曾创建过任意 `DownloadTask`（下载 Agent 或手动、任意当前状态）即为 true，供频道页标记“已下载”。
 
-`required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选六件套**（`title_cn/search_title/content_type/is_batch/year/is_anime`，全形态适用）∪ **形态必填**（TV 单集→`season`+`episode`；TV 单季合集→`season`+`episode_start`+`episode_end`；跨季合集不要求单值 season/range，仅校验 `batch_seasons`；多作品合集→`resource_collection`）；`title_en` 保留为可选目录字段；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR。Agent 运行前按资源形态检查这些字段的实际值，缺失资源进入 Channel 文件资源待确认并阻止派发；AudioWork 不进入 TV 合集范围检查；`pick_preferences` 可引用目录外字段，空值只是不命中偏好。
+`required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选五件套**（`search_title/content_type/is_batch/year/is_anime`）∪ **形态必填**（TV 单集→`season`+`episode`；TV 单季合集→`season`+`episode_start`+`episode_end`；跨季合集不要求单值 season/range，仅校验 `batch_seasons`；多作品合集→`resource_collection`）；`title_cn`/`title_en` 均为可选目录字段；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR。Agent 运行前按资源形态检查这些字段的实际值，缺失资源进入 Channel 文件资源待确认并阻止派发；AudioWork 不进入 TV 合集范围检查；`pick_preferences` 可引用目录外字段，空值只是不命中偏好。
 
 `POST /channels/{id}/summarize-filters` 请求体：`{ "resource_ids": ["...", "..."] }`；响应 `data`：
 

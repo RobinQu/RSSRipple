@@ -239,8 +239,8 @@ def _locked_keys() -> frozenset[str]:
 # Code-enforced baseline forced into EVERY new channel's stored list: the always
 # required base fields plus the shape-scoped ones. They can never be cleared —
 # hence there is no "unrestricted" configuration. (The list itself is add-only
-# after channel creation. Existing channels may retain optional keys that were
-# previously part of the baseline (notably title_cn).
+# after channel creation. One-time migrations remove keys inherited solely
+# from older baselines; users may explicitly opt into those keys again.
 LOCKED_REQUIRED_FIELDS: frozenset[str] = _locked_keys()
 
 # Base tier: required regardless of the resource's work type.

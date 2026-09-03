@@ -73,6 +73,28 @@ async def test_migrations_are_idempotent(db_engine, db_session):
     assert row == "wikipedia"
 
 
+async def test_legacy_required_titles_are_unlocked_once(db_engine, db_session):
+    """Old baseline title fields stop gating resources, but later explicit
+    opt-in survives subsequent startups."""
+    ch = _channel("required-titles", "wikipedia")
+    ch.required_metadata_fields = ["title_cn", "title_en", "search_title"]
+    db_session.add(ch)
+    await db_session.commit()
+
+    async with db_engine.begin() as conn:
+        await _apply_light_migrations(conn)
+    await db_session.refresh(ch)
+    assert "title_cn" not in ch.required_metadata_fields
+    assert "title_en" not in ch.required_metadata_fields
+
+    ch.required_metadata_fields = [*ch.required_metadata_fields, "title_cn"]
+    await db_session.commit()
+    async with db_engine.begin() as conn:
+        await _apply_light_migrations(conn)
+    await db_session.refresh(ch)
+    assert "title_cn" in ch.required_metadata_fields
+
+
 async def test_torrent_detection_columns_are_added(db_engine, db_session):
     """Torrent content detection P1: batch_scope / collection_id / torrent_file
     on file_resources — migration is idempotent and values round-trip."""
