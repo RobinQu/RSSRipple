@@ -2183,6 +2183,32 @@ class TestResolveMissingSeason:
         assert r.season is None
         assert r.episode_confidence == "ambiguous"
 
+    def test_matching_bilingual_sequel_suffix_uses_verified_season(self):
+        for title_cn, title_en in (
+            ("乙女游戏世界对路人角色很不友好2", "Otome Game Sekai 2"),
+            ("乡下大叔成为剑圣II", "Katainaka no Ossan II"),
+        ):
+            r = self._r(title_cn=title_cn, title_en=title_en)
+            entity = {
+                "number_of_seasons": 2,
+                "seasons": [
+                    {"season_number": 1, "episode_count": 12},
+                    {"season_number": 2, "episode_count": 12},
+                ],
+            }
+            assert resolve_missing_season(r, entity) == "season-title-inferred"
+            assert r.season == 2
+            assert r.episode_confidence == "raw"
+
+    def test_single_or_unverified_bare_suffix_stays_ambiguous(self):
+        single = self._r(title_cn="作品2", title_en=None)
+        assert resolve_missing_season(single, {"number_of_seasons": 2}) == "marked-ambiguous"
+        assert single.season is None
+
+        unavailable = self._r(title_cn="作品III", title_en="Show III")
+        assert resolve_missing_season(unavailable, {"number_of_seasons": 2}) == "marked-ambiguous"
+        assert unavailable.season is None
+
     def test_unknown_season_count_marks_ambiguous(self):
         r = self._r()
         assert resolve_missing_season(r, {}) == "marked-ambiguous"

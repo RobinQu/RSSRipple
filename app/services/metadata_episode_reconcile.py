@@ -7,6 +7,8 @@ primary source.
 """
 from __future__ import annotations
 
+import re
+
 # Some RSS titles number episodes absolutely across all seasons (S04 - 84,
 # where 84 = cumulative episode count across seasons 1-4) rather than
 # per-season. We detect this by checking the raw episode against the
@@ -17,6 +19,75 @@ from __future__ import annotations
 # Extra headroom for still-airing shows where TMDB's episode_count lags a
 # few episodes behind the true count.
 _RECONCILE_TOLERANCE = 2
+
+_TRAILING_ARABIC_SEQUEL_RE = re.compile(
+    r"(?:\s+|(?<=[\u3400-\u9fff]))([2-9]|[1-9]\d)$"
+)
+_TRAILING_ROMAN_SEQUEL_RE = re.compile(
+    r"(?:\s+|(?<=[\u3400-\u9fff]))([IVX]{2,5})$", re.IGNORECASE
+)
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10}
+
+
+def _roman_to_int(value: str) -> int | None:
+    total = 0
+    previous = 0
+    for char in reversed(value.upper()):
+        current = _ROMAN_VALUES.get(char)
+        if current is None:
+            return None
+        total += -current if current < previous else current
+        previous = max(previous, current)
+    numerals = ((10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
+    remaining = total
+    canonical = ""
+    for number, numeral in numerals:
+        while remaining >= number:
+            canonical += numeral
+            remaining -= number
+    return total if 2 <= total <= 20 and canonical == value.upper() else None
+
+
+def _trailing_sequel_number(title: str | None) -> int | None:
+    if not title:
+        return None
+    text = title.strip()
+    match = _TRAILING_ARABIC_SEQUEL_RE.search(text)
+    if match:
+        return int(match.group(1))
+    match = _TRAILING_ROMAN_SEQUEL_RE.search(text)
+    return _roman_to_int(match.group(1)) if match else None
+
+
+def infer_verified_title_season(resource, entity: dict | None) -> int | None:
+    """Infer a sequel suffix only when bilingual titles and metadata agree."""
+    if not isinstance(entity, dict):
+        return None
+    titles = {
+        str(value).strip().casefold(): str(value).strip()
+        for value in (
+            getattr(resource, "title_cn", None),
+            getattr(resource, "title_en", None),
+        )
+        if value and str(value).strip()
+    }
+    suffixes = [_trailing_sequel_number(title) for title in titles.values()]
+    if len(suffixes) < 2 or suffixes[0] is None or len(set(suffixes)) != 1:
+        return None
+    candidate = suffixes[0]
+    available = {
+        season.get("season_number")
+        for season in entity.get("seasons") or []
+        if isinstance(season, dict)
+        and isinstance(season.get("season_number"), int)
+        and season["season_number"] >= 1
+    }
+    if candidate in available:
+        return candidate
+    count = entity.get("number_of_seasons")
+    if isinstance(count, int) and not isinstance(count, bool) and candidate <= count:
+        return candidate
+    return None
 
 
 def _seasons_map_from(entity: dict | None) -> dict[int, int]:
@@ -291,6 +362,12 @@ def resolve_missing_season(resource, entity: dict | None) -> str | None:
         or getattr(resource, "episode_confidence", None) == "manual"
     ):
         return None
+    title_season = infer_verified_title_season(resource, entity)
+    if title_season is not None:
+        resource.season = title_season
+        if not getattr(resource, "is_batch", False):
+            resource.episode_confidence = "raw"
+        return "season-title-inferred"
     if getattr(resource, "is_batch", False):
         # 合集：仅取 verified 单季默认值；多季/无证据直接不动，绝不标
         # ambiguous（合集待确认走 batch coverage 门禁）。

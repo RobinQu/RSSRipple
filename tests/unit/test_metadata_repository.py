@@ -451,6 +451,34 @@ async def test_episode_confidence_raw_when_no_seasons_map(db_session):
     assert resource.episode_confidence == "raw"
 
 
+async def test_apply_uses_verified_bilingual_sequel_suffix(db_session):
+    meta = _meta(
+        season_ambiguous=True,
+        matched_entity={
+            "external_id": "tmdb:1402",
+            "external_source": "tmdb",
+            "title_cn": "作品",
+            "number_of_seasons": 2,
+            "seasons": [
+                {"season_number": 1, "episode_count": 12},
+                {"season_number": 2, "episode_count": 12},
+            ],
+        },
+    )
+    resource = _resource()
+    resource.season = None
+    resource.episode = 9
+    resource.title_cn = "乙女游戏世界对路人角色很不友好2"
+    resource.title_en = "Otome Game Sekai wa Mob ni Kibishii Sekai desu 2"
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+    assert resource.season == 2
+    assert resource.episode_confidence == "raw"
+
+
 async def test_tv_verdict_creates_series_when_no_conflict(db_session):
     meta = _meta(
         matched_entity={

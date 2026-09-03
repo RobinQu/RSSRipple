@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -56,6 +56,19 @@ class RunResult:
 
 
 _RESOLUTION_SCORE = {"2160p": 3, "4k": 3, "1080p": 2, "720p": 1}
+
+_DEDUP_ACTIVE_STATUSES = ("pending", "queued", "downloading", "paused", "completed")
+
+
+def _task_occupies_download_slot():
+    """Return the SQL predicate for active or previously downloaded tasks."""
+    return or_(
+        DownloadTask.status.in_(_DEDUP_ACTIVE_STATUSES),
+        and_(
+            DownloadTask.status == "cancelled",
+            DownloadTask.completed_at.is_not(None),
+        ),
+    )
 
 
 @dataclass
@@ -139,9 +152,7 @@ async def compute_rule_diff(
         rows = (await db.execute(
             select(DownloadTask.file_resource_id).where(
                 DownloadTask.file_resource_id.in_(res_ids),
-                DownloadTask.status.in_(
-                    ["pending", "queued", "downloading", "paused", "completed"]
-                ),
+                _task_occupies_download_slot(),
             )
         )).all()
         tasked = {row[0] for row in rows}
@@ -681,9 +692,7 @@ async def _find_existing_episode_task(
         .join(FileResource, DownloadTask.file_resource_id == FileResource.id)
         .where(
             DownloadTask.agent_id == agent.id,
-            DownloadTask.status.in_(
-                ["pending", "queued", "downloading", "paused", "completed"]
-            ),
+            _task_occupies_download_slot(),
             FileResource.series_id == resource.series_id,
             FileResource.episode == resource.episode,
         )
@@ -715,9 +724,7 @@ async def _find_active_batch_duplicate(
         .join(FileResource, DownloadTask.file_resource_id == FileResource.id)
         .where(
             DownloadTask.agent_id == agent.id,
-            DownloadTask.status.in_(
-                ["pending", "queued", "downloading", "paused", "completed"]
-            ),
+            _task_occupies_download_slot(),
             FileResource.is_batch.is_(True),
             work_filter,
         )
@@ -820,9 +827,7 @@ async def process_resources(
                 and_(
                     DownloadTask.agent_id == agent.id,
                     DownloadTask.file_resource_id == resource.id,
-                    DownloadTask.status.in_(
-                        ["pending", "queued", "downloading", "paused", "completed"]
-                    ),
+                    _task_occupies_download_slot(),
                 )
             )
             if (await db.execute(existing_stmt)).scalars().first():
@@ -862,7 +867,7 @@ async def process_resources(
             stmt = select(DownloadTask).where(
                 and_(
                     DownloadTask.agent_id == agent.id,
-                    DownloadTask.status.in_(["pending", "queued", "downloading", "paused", "completed"]),
+                    _task_occupies_download_slot(),
                     DownloadTask.file_resource.has(movie_id=resource.movie_id),
                 )
             )

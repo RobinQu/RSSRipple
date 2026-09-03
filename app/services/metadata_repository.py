@@ -341,7 +341,8 @@ async def _apply_to_resource(
             and not getattr(resource, "is_batch", False)
             and getattr(resource, "episode_confidence", None) != "manual"
         ):
-            resource.episode_confidence = "ambiguous"
+            from app.services.metadata_episode_reconcile import resolve_missing_season
+            resolve_missing_season(resource, meta.matched_entity)
 
         resource.metadata_matched_at = utcnow()
 
