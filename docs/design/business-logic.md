@@ -460,6 +460,8 @@ process_resources(agent, resources, db)
 
 ### Schedule 调度
 
+Dashboard 实时读取与后台调度相互独立：SPA 每 3 秒只请求 `/dashboard/downloads`，下载器 `list_torrents` 并发执行且单实例最多等待 2 秒；统计、Top4 Agent 与待办通过 `/dashboard/overview` 每 30 秒刷新。待确认总数仍调用统一 Channel 确认策略精确计算，但扫描查询必须显式限制 ORM 关系加载，禁止 Channel/Agent 默认 `selectin` 关系级联。
+
 APScheduler（AsyncIOScheduler，内存 store）在 **worker 进程**启动时初始化（`APP_ROLE=worker` 或 `all`；`APP_ROLE=web` 的进程不起调度器、不消费队列）。**所有周期 job 只 enqueue 不执行**。两层机制保证 N 个 worker 各跑一份调度器时每个 interval 只执行一次：① tick 节流——`queue.throttle(<type>, ttl=interval)`（Redis SET NX EX，键 `rssripple:tick:<type>`），本 interval 内第一个 tick 胜出，其余直接跳过（active-key 去重只挡并发重复，挡不住错峰 tick，必须有这层）；② 队列 active-key 去重兜底并发窗口，BLPOP 单消费者保证恰好执行一次。job 函数体仍可直接调用（单测依赖）。
 
 ```

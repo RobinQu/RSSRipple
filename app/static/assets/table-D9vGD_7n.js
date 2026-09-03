@@ -1,0 +1,1 @@
+function e(e){return e.map(e=>({...e,onCell:(t,n)=>({...e.onCell?e.onCell(t,n):{},"data-label":typeof e.title==`string`?e.title:void 0})}))}export{e as t};

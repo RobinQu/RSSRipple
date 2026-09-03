@@ -42,14 +42,17 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/dashboard` | 概览数据：活跃 Agent 数、活跃下载（按 TVSeries/Movie 分组，无 metadata 的归入"未识别"组；下载器中正在下载但无对应 DownloadTask 的种子归入"未跟踪"组）、三类待办的独立服务端分页。活跃下载 task 条目的 `download_speed` 为下载器实时 `rate_download`（无法匹配实时种子时回退本地任务记录），单位 bytes/s。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
+| GET | `/dashboard/overview` | 非实时概览：活跃 Agent/频道数、按活动任务数排序的 Top4 Agent 精简摘要、三类待办的独立服务端分页。Query：`decision_page`/`confirmation_page`/`plan_page`（默认 1）及共享 `page_size`（默认 10，最大 100） |
+| GET | `/dashboard/downloads` | 实时下载快照：`active_download_count` + `active_download_groups`。下载器 RPC 并发且单实例最多等待 2 秒；失败时已跟踪任务保留数据库速度，无法读取的未跟踪种子跳过 |
+| GET | `/dashboard` | 向后兼容聚合响应，合并 overview 与 downloads；SPA 不轮询此端点 |
 | POST | `/dashboard/todos/ignore` | 单个或批量忽略同类待办。Body：`{kind: "decision"|"confirmation"|"plan", ids: string[1..100]}`。decision→`skipped`；confirmation→资源写 `confirmation_ignored_at`，永久退出待确认列表但不删除资源；plan→`cancelled` 并追加 organize audit。响应 `{requested, ignored, unchanged}` |
 
-`GET /dashboard` 响应 `data` 结构：
+`GET /dashboard` 兼容聚合响应的 `data` 结构（拆分端点分别返回对应字段）：
 ```json
 {
   "active_agents": 3,
   "active_channels": 2,
+  "top_agents": [ { "id": "...", "name": "...", "active_task_count": 2, "works": [ ... ] } ],
   "active_download_count": 12,
   "active_download_groups": [
     {

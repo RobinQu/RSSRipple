@@ -24,6 +24,23 @@ async def test_dashboard_empty(client):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_split_endpoints(client):
+    overview = await client.get("/api/v1/dashboard/overview")
+    assert overview.status_code == 200
+    overview_data = overview.json()["data"]
+    assert overview_data["active_agents"] == 0
+    assert overview_data["top_agents"] == []
+    assert "active_download_groups" not in overview_data
+
+    downloads = await client.get("/api/v1/dashboard/downloads")
+    assert downloads.status_code == 200
+    assert downloads.json()["data"] == {
+        "active_download_count": 0,
+        "active_download_groups": [],
+    }
+
+
+@pytest.mark.asyncio
 async def test_dashboard_with_data(client):
     # Create channel + downloader + agent
     with patch(MOCK_VALIDATE, new_callable=AsyncMock, return_value=(True, "Valid", 10, 8)):
@@ -40,3 +57,5 @@ async def test_dashboard_with_data(client):
     res = await client.get("/api/v1/dashboard")
     data = res.json()["data"]
     assert data["active_agents"] == 1
+    assert data["top_agents"][0]["name"] == "A1"
+    assert data["top_agents"][0]["active_task_count"] == 0

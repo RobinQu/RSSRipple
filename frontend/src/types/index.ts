@@ -1070,11 +1070,28 @@ export interface DashboardConfirmationItem {
   missing_fields: string[];
 }
 
-export interface DashboardData {
+export interface DashboardAgentSummary {
+  id: string;
+  name: string;
+  channel_id: string;
+  channel_name: string | null;
+  downloader_name: string | null;
+  scope_channel_wide: boolean;
+  filter_config: BoolCondition | null;
+  active_task_count: number;
+  works: Array<{
+    id: string;
+    filter_overrides: BoolCondition | null;
+    display_name_override: string | null;
+    series: Pick<TVSeries, 'id' | 'title_cn' | 'title_en' | 'original_title' | 'poster_url'> | null;
+    movie: Pick<Movie, 'id' | 'title_cn' | 'title_en' | 'original_title' | 'poster_url'> | null;
+  }>;
+}
+
+export interface DashboardOverviewData {
   active_agents: number;
   active_channels: number;
-  active_download_count: number;
-  active_download_groups: DashboardDownloadGroup[];
+  top_agents: DashboardAgentSummary[];
   pending_decisions: DashboardPendingItem[];
   pending_decisions_total: number;
   pending_confirmations: DashboardConfirmationItem[];
@@ -1082,6 +1099,13 @@ export interface DashboardData {
   pending_plans: OrganizePlanListItem[];
   pending_plans_total: number;
 }
+
+export interface DashboardDownloadsData {
+  active_download_count: number;
+  active_download_groups: DashboardDownloadGroup[];
+}
+
+export interface DashboardData extends DashboardOverviewData, DashboardDownloadsData {}
 
 // Filter suggestions (Agent-rules based)
 export interface FilterSuggestionWork {

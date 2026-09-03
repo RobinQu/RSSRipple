@@ -27,6 +27,17 @@ async def _insert(db_session_factory, model, **kw):
 
 
 class TestDashboardPopulated:
+    async def test_overview_does_not_contact_downloader(
+        self, client, mock_transmission, setup_with_task_and_decision,
+    ):
+        res = await client.get("/api/v1/dashboard/overview")
+        assert res.status_code == 200
+        mock_transmission.list_torrents.assert_not_awaited()
+
+        live = await client.get("/api/v1/dashboard/downloads")
+        assert live.status_code == 200
+        mock_transmission.list_torrents.assert_awaited_once()
+
     async def test_dashboard_groups_by_series_movie_unknown(
         self, client, setup_with_task_and_decision,
     ):

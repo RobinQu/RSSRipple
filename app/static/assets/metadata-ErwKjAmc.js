@@ -1,0 +1,1 @@
+import{t as e}from"./client-CBkNKilR.js";var t={sources:()=>e.get(`/metadata/sources`),search:t=>e.post(`/metadata/search`,t),preview:t=>e.post(`/works/metadata/preview`,t),apply:t=>e.post(`/works/metadata/apply`,t)};export{t};

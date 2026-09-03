@@ -1,0 +1,1 @@
+import{t as e}from"./client-CBkNKilR.js";var t={list:(t=1,n=20,r)=>{let i=new URLSearchParams({page:String(t),page_size:String(n)});return r&&i.set(`search`,r),e.get(`/series?${i.toString()}`)},get:t=>e.get(`/series/${t}`),create:t=>e.post(`/series`,t),update:(t,n)=>e.put(`/series/${t}`,n),delete:t=>e.delete(`/series/${t}`)};export{t};

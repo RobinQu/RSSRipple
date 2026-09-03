@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { lazy, Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
@@ -24,15 +24,11 @@ import {
   Checkbox,
 } from 'antd';
 import { dashboardApi, decisionsApi } from '../api/tasks';
-import { agentsApi } from '../api/agents';
 import { organizeApi } from '../api/organize';
 import { usePolling } from '../hooks/usePolling';
 import ProgressBar from '../components/ProgressBar';
 import OrganizeOpPaths from '../components/OrganizeOpPaths';
-import OrganizePlanDrawer from '../components/OrganizePlanDrawer';
 import StatusBadge from '../components/StatusBadge';
-import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
-import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import SeasonInput from '../components/SeasonInput';
 import {
   collectFieldConditions,
@@ -41,10 +37,20 @@ import {
 } from '../components/filterUtils';
 import { timeAgo, formatBytes, formatSpeed } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
-import type { Agent, DashboardData, DashboardPendingItem, FileResource, Library, OrganizePlanListItem } from '../types';
+import type {
+  DashboardDownloadsData,
+  DashboardOverviewData,
+  DashboardPendingItem,
+  FileResource,
+  Library,
+  OrganizePlanListItem,
+} from '../types';
 import { resourcesApi } from '../api/channels';
 
 const { Title, Text } = Typography;
+const OrganizePlanDrawer = lazy(() => import('../components/OrganizePlanDrawer'));
+const ResourceFilesDrawer = lazy(() => import('../components/ResourceFilesDrawer'));
+const ResourceCorrectionModal = lazy(() => import('../components/ResourceCorrectionModal'));
 
 // Per-candidate draft for the ambiguous episode/season correction form.
 interface EpisodeDraft {
@@ -52,13 +58,6 @@ interface EpisodeDraft {
   episode: number | null;
   absolute_episode: number | null;
 }
-
-/** GET /agents rows carry a few extra joined fields beyond the Agent type. */
-type AgentListItem = Agent & {
-  channel_name?: string | null;
-  downloader_name?: string | null;
-  active_task_count?: number;
-};
 
 // Download-group type → tag color and label key. Anything not listed (the
 // "unknown" group) falls back to the unidentified styling.
@@ -75,11 +74,14 @@ export default function Dashboard() {
   useDocumentTitle(t('nav.dashboard'));
   const { message, modal } = App.useApp();
   const { token } = theme.useToken();
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [overview, setOverview] = useState<DashboardOverviewData | null>(null);
+  const [downloads, setDownloads] = useState<DashboardDownloadsData>({
+    active_download_count: 0,
+    active_download_groups: [],
+  });
   const [decisionPage, setDecisionPage] = useState(1);
   const [confirmationPage, setConfirmationPage] = useState(1);
   const [planPage, setPlanPage] = useState(1);
-  const [topAgents, setTopAgents] = useState<AgentListItem[]>([]);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [loading, setLoading] = useState(true);
   const [dlFilter, setDlFilter] = useUrlTab('all', ['all', 'agent', 'untracked'] as const, 'dl');
@@ -102,19 +104,15 @@ export default function Dashboard() {
   });
   const [ignoringTodos, setIgnoringTodos] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    const [res, agentsRes, libRes] = await Promise.all([
-      dashboardApi.get({
-        decisionPage,
-        confirmationPage,
-        planPage,
-        pageSize: TODO_PAGE_SIZE,
-      }),
-      agentsApi.list(1, 100),
-      organizeApi.listLibraries(),
-    ]);
+  const fetchOverview = useCallback(async () => {
+    const res = await dashboardApi.overview({
+      decisionPage,
+      confirmationPage,
+      planPage,
+      pageSize: TODO_PAGE_SIZE,
+    });
     if (res.success) {
-      setDashboard(res.data);
+      setOverview(res.data);
       const decisionLastPage = Math.max(
         1,
         Math.ceil(res.data.pending_decisions_total / TODO_PAGE_SIZE),
@@ -131,32 +129,37 @@ export default function Dashboard() {
       if (confirmationPage > confirmationLastPage) setConfirmationPage(confirmationLastPage);
       if (planPage > planLastPage) setPlanPage(planLastPage);
     }
-    if (agentsRes.success) {
-      // Top 4 active agents, busiest first.
-      const active = (agentsRes.data as AgentListItem[]).filter(
-        (a) => a.status === 'active',
-      );
-      active.sort((a, b) => (b.active_task_count ?? 0) - (a.active_task_count ?? 0));
-      setTopAgents(active.slice(0, 4));
-    }
-    if (libRes.success) setLibraries(libRes.data);
     setLoading(false);
   }, [confirmationPage, decisionPage, planPage]);
 
-  // The dashboard response includes live downloader rates for every active
-  // task, so keep this polling cadence short enough for the speed indicator
-  // to feel live without introducing a separate dashboard data path.
-  usePolling(fetchData, 3000);
+  const fetchDownloads = useCallback(async () => {
+    const res = await dashboardApi.downloads();
+    if (res.success) setDownloads(res.data);
+  }, []);
+
+  // Static counts/todos are deliberately decoupled from live downloader RPC.
+  usePolling(fetchOverview, 30000, true, false);
+  usePolling(fetchDownloads, 3000);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    void fetchOverview();
+  }, [fetchOverview]);
+
+  useEffect(() => {
+    if (!planDrawerId || libraries.length > 0) return;
+    void organizeApi.listLibraries().then((res) => {
+      if (res.success) setLibraries(res.data);
+    });
+  }, [libraries.length, planDrawerId]);
+
+  const dashboard = overview ? { ...overview, ...downloads } : null;
+  const topAgents = overview?.top_agents ?? [];
 
   const handleConfirm = async (decisionId: string, resourceId: string) => {
     const r = await decisionsApi.confirm(decisionId, resourceId);
     if (r.success) {
       message.success(t('dashboard.confirmed'));
-      fetchData();
+      fetchOverview();
     } else {
       message.error(r.error?.message || t('dashboard.failed'));
     }
@@ -183,7 +186,7 @@ export default function Dashboard() {
         if (r.success) {
           message.success(t('dashboard.ignoredCount', { n: r.data.ignored }));
           setSelectedTodos((prev) => ({ ...prev, [kind]: [] }));
-          await fetchData();
+          await fetchOverview();
         } else {
           message.error(r.error?.message || t('dashboard.failed'));
         }
@@ -255,7 +258,7 @@ export default function Dashboard() {
         delete next[cid];
         return next;
       });
-      fetchData();
+      fetchOverview();
     } else {
       message.error(r.error?.message || t('agents.saveFailed'));
     }
@@ -280,7 +283,7 @@ export default function Dashboard() {
     setExecutingPlanId(null);
     if (r.success) {
       message.success(t('organize.executed'));
-      fetchData();
+      fetchOverview();
     } else {
       message.error(r.error?.message || t('organize.executeFailed'));
     }
@@ -296,7 +299,7 @@ export default function Dashboard() {
         const r = await organizeApi.cancelPlan(record.id);
         if (r.success) {
           message.success(t('organize.cancelled'));
-          fetchData();
+          fetchOverview();
         } else {
           message.error(r.error?.message || t('organize.cancelFailed'));
         }
@@ -1272,28 +1275,34 @@ export default function Dashboard() {
       </Card>
       </div>
 
-      <OrganizePlanDrawer
-        planId={planDrawerId}
-        libraries={libraries}
-        onClose={() => setPlanDrawerId(null)}
-        onChanged={fetchData}
-      />
-
-      <ResourceFilesDrawer
-        resourceId={filesResourceId}
-        open={!!filesResourceId}
-        onClose={() => setFilesResourceId(null)}
-      />
-
-      <ResourceCorrectionModal
-        resourceId={correctionResource?.id ?? null}
-        open={!!correctionResource}
-        onClose={() => setCorrectionResource(null)}
-        onSaved={() => {
-          setCorrectionResource(null);
-          fetchData();
-        }}
-      />
+      <Suspense fallback={null}>
+        {planDrawerId && (
+          <OrganizePlanDrawer
+            planId={planDrawerId}
+            libraries={libraries}
+            onClose={() => setPlanDrawerId(null)}
+            onChanged={fetchOverview}
+          />
+        )}
+        {filesResourceId && (
+          <ResourceFilesDrawer
+            resourceId={filesResourceId}
+            open
+            onClose={() => setFilesResourceId(null)}
+          />
+        )}
+        {correctionResource && (
+          <ResourceCorrectionModal
+            resourceId={correctionResource.id}
+            open
+            onClose={() => setCorrectionResource(null)}
+            onSaved={() => {
+              setCorrectionResource(null);
+              fetchOverview();
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

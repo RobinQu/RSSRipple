@@ -1,0 +1,1 @@
+import{t as e}from"./client-CBkNKilR.js";var t={list:(t=1,n=20,r,i)=>{let a=new URLSearchParams({page:String(t),page_size:String(n)});return r&&a.set(`search`,r),i&&a.set(`content_type`,i),e.get(`/audio-works?${a.toString()}`)},get:t=>e.get(`/audio-works/${t}`),update:(t,n)=>e.put(`/audio-works/${t}`,n),delete:t=>e.delete(`/audio-works/${t}`)};export{t};

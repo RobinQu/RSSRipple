@@ -4,6 +4,8 @@
 
 频道详情平铺资源行的作品分类标签区除“剧集/电影”“合集”外，在资源曾创建过任意下载任务（不区分 Agent/手动来源及任务状态）时显示“已下载”。
 
+Dashboard 数据刷新分为两条互不阻塞的路径：`/dashboard/overview` 首次加载、翻页/操作后立即刷新并每 30 秒轮询；`/dashboard/downloads` 首次加载并每 3 秒轮询。页面隐藏时暂停、恢复可见时立即刷新，同类异步轮询完成后才安排下一次，禁止请求重叠。Top4 Agent 随 overview 返回，媒体库仅在打开整理计划 Drawer 时按需加载。非首页路由与 Dashboard 重型 Drawer/Modal 均使用动态 import，首屏不加载；路由 Suspense 边界位于 `AppLayout` 内容区，页面 chunk 加载时 Sidebar/MobileNav 与外层布局保持挂载，仅内容区显示加载状态；字体仅使用本地系统字体栈。
+
 | Route | Page | 内容说明 |
 |-------|------|----------|
 | `/login` | Login | 登录页（**独立于侧边栏布局**，认证前无 sidebar）：6 位 TOTP 验证码输入（`Input.OTP`，输满 6 位自动提交）→ `POST /auth/otp`；成功整页重载回 `/`，失败就地展示错误。API client 收到 401（且当前不在 `/login`）时自动跳转本页 |

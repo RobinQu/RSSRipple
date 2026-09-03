@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import GZipMiddleware
 
 # Import models for SQLAlchemy discovery
 import app.models  # noqa: F401
@@ -218,6 +219,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # Auth gate for /api/v1/* and /posters/* (no-op when AUTH_ENABLED=false).
 from app.middleware.auth import AuthMiddleware  # noqa: E402
@@ -302,8 +304,22 @@ except OSError:  # pragma: no cover
 app.mount("/posters", StaticFiles(directory=str(_poster_dir)), name="poster-cache")
 
 # Static files (frontend)
+class ImmutableStaticFiles(StaticFiles):
+    """Serve content-hashed build assets with a long-lived browser cache."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if STATIC_DIR.exists():  # pragma: no cover
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="static-assets")
+    app.mount(
+        "/assets",
+        ImmutableStaticFiles(directory=STATIC_DIR / "assets"),
+        name="static-assets",
+    )
 
     def spa_index_response() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store, max-age=0"})

@@ -1,32 +1,41 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import Channels from './pages/Channels';
-import ChannelForm from './pages/ChannelForm';
-import ChannelDetail from './pages/ChannelDetail';
-import Downloaders from './pages/Downloaders';
-import DownloaderForm from './pages/DownloaderForm';
-import DownloaderDetail from './pages/DownloaderDetail';
-import Agents from './pages/Agents';
-import AgentForm from './pages/AgentForm';
-import AgentDetail from './pages/AgentDetail';
-import SeriesDetail from './pages/SeriesDetail';
-import MovieDetail from './pages/MovieDetail';
-import WorkEditPage from './pages/WorkEditPage';
-import AudioWorkDetail from './pages/AudioWorkDetail';
-import WorksPage from './pages/WorksPage';
-import CollectionDetail from './pages/CollectionDetail';
-import MediaLibrary from './pages/MediaLibrary';
-import SettingsPage from './pages/Settings';
-import Login from './pages/Login';
 import PageErrorBoundary from './components/PageErrorBoundary';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Channels = lazy(() => import('./pages/Channels'));
+const ChannelForm = lazy(() => import('./pages/ChannelForm'));
+const ChannelDetail = lazy(() => import('./pages/ChannelDetail'));
+const Downloaders = lazy(() => import('./pages/Downloaders'));
+const DownloaderForm = lazy(() => import('./pages/DownloaderForm'));
+const DownloaderDetail = lazy(() => import('./pages/DownloaderDetail'));
+const Agents = lazy(() => import('./pages/Agents'));
+const AgentForm = lazy(() => import('./pages/AgentForm'));
+const AgentDetail = lazy(() => import('./pages/AgentDetail'));
+const SeriesDetail = lazy(() => import('./pages/SeriesDetail'));
+const MovieDetail = lazy(() => import('./pages/MovieDetail'));
+const WorkEditPage = lazy(() => import('./pages/WorkEditPage'));
+const AudioWorkDetail = lazy(() => import('./pages/AudioWorkDetail'));
+const WorksPage = lazy(() => import('./pages/WorksPage'));
+const CollectionDetail = lazy(() => import('./pages/CollectionDetail'));
+const MediaLibrary = lazy(() => import('./pages/MediaLibrary'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const Login = lazy(() => import('./pages/Login'));
 
 function App() {
   return (
     <PageErrorBoundary>
       <Routes>
         {/* Login sits outside AppLayout — no sidebar until authenticated. */}
-        <Route path="/login" element={<Login />} />
+        <Route
+          path="/login"
+          element={(
+            <Suspense fallback={<div className="route-loading" aria-label="Loading" />}>
+              <Login />
+            </Suspense>
+          )}
+        />
         <Route path="/" element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="works" element={<WorksPage />} />

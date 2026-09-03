@@ -1,4 +1,5 @@
-import { Grid, Layout } from 'antd';
+import { Suspense } from 'react';
+import { Grid, Layout, Spin } from 'antd';
 import { Outlet } from 'react-router-dom';
 import Sidebar, { MobileNav } from './Sidebar';
 
@@ -20,7 +21,23 @@ export default function AppLayout() {
             minHeight: '100vh',
           }}
         >
-          <Outlet />
+          <Suspense
+            fallback={(
+              <div
+                aria-label="Loading"
+                style={{
+                  minHeight: 240,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Spin />
+              </div>
+            )}
+          >
+            <Outlet />
+          </Suspense>
         </Content>
       </Layout>
     </Layout>

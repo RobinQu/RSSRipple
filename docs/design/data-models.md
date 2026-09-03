@@ -158,6 +158,8 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 
 `FileResource.confirmation_ignored_at`：用户在 Dashboard 单个或批量忽略「文件资源元数据确认」时写入 UTC 时间。非空资源仍完整保留并可在频道资源页检索/修订，但不再进入 Dashboard 待确认策略扫描；它不等价于 metadata 已补齐，也不会删除或派发资源。
 
+Dashboard 待确认扫描索引：`Index(confirmation_ignored_at, created_at, id)`，同时支撑未忽略资源过滤及稳定倒序分页扫描。
+
 资源的 FK 互斥规则：
 - 若为剧集资源，`series_id` 非空，`movie_id` 必须为空；具体集数统一使用 `episode` 字段。
 - 若为电影资源，`movie_id` 非空，`series_id` 必须为空。
@@ -506,6 +508,8 @@ class DownloadTask(Base):
     notification: DownloadNotification | None   # 一对一（download_task_id 唯一）
 ```
 
+活动任务与实时种子匹配索引：`Index(status, agent_id)`、`Index(downloader_id, transmission_torrent_id)`。
+
 ### DownloadNotification（下载完成通知）
 
 下载任务驱动的通知队列，从属于下载 Agent（每 Agent 单例 FIFO，按 `created_at` 升序）。payload 为创建时冻结的完整快照（任务 + 资源 + 作品 + torrent 文件清单）。fan-out 重构后本表**只保留快照锚点**；投递状态全部下放到 `WebhookDelivery`（通知的展示状态由 delivery 聚合计算，不落库）。完整语义见 [notifications.md](notifications.md)。
@@ -640,6 +644,8 @@ class PendingDecision(Base):
     decided_at: datetime | None
     updated_at: datetime
 ```
+
+Dashboard 待决策扫描索引：`Index(status, created_at, id)`。
 
 ### AgentRun（Agent 执行记录）
 

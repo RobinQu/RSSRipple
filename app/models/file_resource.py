@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -13,6 +13,10 @@ class FileResource(Base):
     __tablename__ = "file_resources"
     __table_args__ = (
         UniqueConstraint("channel_id", "guid", name="uq_file_resources_channel_guid"),
+        Index(
+            "ix_file_resources_confirmation_created",
+            "confirmation_ignored_at", "created_at", "id",
+        ),
     )
 
     id: Mapped[str] = mapped_column(

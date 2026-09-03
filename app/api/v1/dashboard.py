@@ -5,12 +5,13 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, raiseload, selectinload
 
 from app.clients.downloader import get_downloader_client
 from app.config import settings
 from app.database import get_db
 from app.models.agent import Agent
+from app.models.agent_work import AgentWork
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
@@ -154,11 +155,16 @@ async def _page_pending_confirmations(
 ) -> tuple[list[dict], int]:
     """Page policy-derived confirmations while returning an exact total."""
     load_options = (
-        selectinload(FileResource.channel),
-        selectinload(FileResource.series).selectinload(TVSeries.collection),
-        selectinload(FileResource.movie).selectinload(Movie.collection),
-        selectinload(FileResource.audio_work),
-        selectinload(FileResource.collection),
+        # Channel/Agent models contain several default selectin relationships.
+        # A wildcard guard prevents those unrelated graphs from being loaded
+        # once per scan batch; every relation used by the confirmation policy
+        # is opted in explicitly below.
+        raiseload("*"),
+        joinedload(FileResource.channel),
+        joinedload(FileResource.series).joinedload(TVSeries.collection),
+        joinedload(FileResource.movie).joinedload(Movie.collection),
+        joinedload(FileResource.audio_work),
+        joinedload(FileResource.collection),
     )
     page_start = (page - 1) * page_size
     page_end = page_start + page_size
@@ -285,14 +291,78 @@ async def ignore_dashboard_todos(
     })
 
 
-@router.get("/dashboard")
-async def get_dashboard(
-    decision_page: int = Query(1, ge=1),
-    confirmation_page: int = Query(1, ge=1),
-    plan_page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
-):
+async def _top_agent_summaries(db: AsyncSession) -> list[dict]:
+    active_statuses = ("pending", "queued", "downloading")
+    task_counts = (
+        select(
+            DownloadTask.agent_id.label("agent_id"),
+            func.count().label("active_task_count"),
+        )
+        .where(DownloadTask.status.in_(active_statuses))
+        .group_by(DownloadTask.agent_id)
+        .subquery()
+    )
+    rows = (await db.execute(
+        select(Agent, func.coalesce(task_counts.c.active_task_count, 0))
+        .outerjoin(task_counts, task_counts.c.agent_id == Agent.id)
+        .where(Agent.status == "active")
+        .order_by(
+            func.coalesce(task_counts.c.active_task_count, 0).desc(),
+            Agent.created_at.desc(),
+        )
+        .limit(4)
+        .options(
+            raiseload("*"),
+            joinedload(Agent.channel),
+            joinedload(Agent.downloader),
+            selectinload(Agent.works).joinedload(AgentWork.series),
+            selectinload(Agent.works).joinedload(AgentWork.movie),
+        )
+    )).all()
+    summaries: list[dict] = []
+    for agent, active_task_count in rows:
+        works = []
+        for work in agent.works:
+            works.append({
+                "id": work.id,
+                "filter_overrides": work.filter_overrides,
+                "display_name_override": work.display_name_override,
+                "series": ({
+                    "id": work.series.id,
+                    "title_cn": work.series.title_cn,
+                    "title_en": work.series.title_en,
+                    "original_title": work.series.original_title,
+                    "poster_url": work.series.poster_url,
+                } if work.series else None),
+                "movie": ({
+                    "id": work.movie.id,
+                    "title_cn": work.movie.title_cn,
+                    "title_en": work.movie.title_en,
+                    "original_title": work.movie.original_title,
+                    "poster_url": work.movie.poster_url,
+                } if work.movie else None),
+            })
+        summaries.append({
+            "id": agent.id,
+            "name": agent.name,
+            "channel_id": agent.channel_id,
+            "channel_name": agent.channel.name if agent.channel else None,
+            "downloader_name": agent.downloader.name if agent.downloader else None,
+            "scope_channel_wide": agent.scope_channel_wide,
+            "filter_config": agent.filter_config,
+            "active_task_count": int(active_task_count or 0),
+            "works": works,
+        })
+    return summaries
+
+
+async def _dashboard_overview(
+    db: AsyncSession,
+    decision_page: int,
+    confirmation_page: int,
+    plan_page: int,
+    page_size: int,
+) -> dict:
     active_agents_q = await db.execute(
         select(func.count()).select_from(Agent).where(Agent.status == "active")
     )
@@ -303,15 +373,40 @@ async def get_dashboard(
     )
     active_channels = active_channels_q.scalar_one() or 0
 
+    pending_decisions, pending_decisions_total = await _page_pending_decisions(
+        db, decision_page, page_size
+    )
+    pending_confirmations, pending_confirmations_total = (
+        await _page_pending_confirmations(db, confirmation_page, page_size)
+    )
+    pending_plans, pending_plans_total = await _page_pending_plans(
+        db, plan_page, page_size
+    )
+    return {
+        "active_agents": active_agents,
+        "active_channels": active_channels,
+        "top_agents": await _top_agent_summaries(db),
+        "pending_decisions": pending_decisions,
+        "pending_decisions_total": pending_decisions_total,
+        "pending_confirmations": pending_confirmations,
+        "pending_confirmations_total": pending_confirmations_total,
+        "pending_plans": pending_plans,
+        "pending_plans_total": pending_plans_total,
+    }
+
+
+async def _dashboard_downloads(db: AsyncSession) -> dict:
+
     # Active download tasks
     active_statuses = ["pending", "queued", "downloading"]
     tasks_q = await db.execute(
         select(DownloadTask)
         .where(DownloadTask.status.in_(active_statuses))
         .options(
-            selectinload(DownloadTask.agent).selectinload(Agent.channel),
-            selectinload(DownloadTask.file_resource).selectinload(FileResource.series),
-            selectinload(DownloadTask.file_resource).selectinload(FileResource.movie),
+            raiseload("*"),
+            joinedload(DownloadTask.agent).joinedload(Agent.channel),
+            joinedload(DownloadTask.file_resource).joinedload(FileResource.series),
+            joinedload(DownloadTask.file_resource).joinedload(FileResource.movie),
         )
     )
     tasks = tasks_q.scalars().all()
@@ -383,7 +478,8 @@ async def get_dashboard(
         try:
             wrapper = get_downloader_client(downloader)
             return await asyncio.wait_for(
-                wrapper.list_torrents(), timeout=settings.transmission_timeout
+                wrapper.list_torrents(),
+                timeout=min(settings.transmission_timeout, 2),
             )
         except Exception:
             # An unreachable downloader must not break the dashboard.
@@ -441,28 +537,41 @@ async def get_dashboard(
             "tasks": untracked_tasks,
         })
 
-    # Each todo tab is independently paged. Totals always describe the full
-    # actionable set, so the headline metric and tab counts no longer stop at
-    # the current page size.
-    pending_decisions, pending_decisions_total = await _page_pending_decisions(
-        db, decision_page, page_size
-    )
-    pending_confirmations, pending_confirmations_total = (
-        await _page_pending_confirmations(db, confirmation_page, page_size)
-    )
-    pending_plans, pending_plans_total = await _page_pending_plans(
-        db, plan_page, page_size
-    )
-
-    return success_response({
-        "active_agents": active_agents,
-        "active_channels": active_channels,
+    return {
         "active_download_count": len(tasks) + len(untracked_tasks),
         "active_download_groups": active_download_groups,
-        "pending_decisions": pending_decisions,
-        "pending_decisions_total": pending_decisions_total,
-        "pending_confirmations": pending_confirmations,
-        "pending_confirmations_total": pending_confirmations_total,
-        "pending_plans": pending_plans,
-        "pending_plans_total": pending_plans_total,
-    })
+    }
+
+
+@router.get("/dashboard/overview")
+async def get_dashboard_overview(
+    decision_page: int = Query(1, ge=1),
+    confirmation_page: int = Query(1, ge=1),
+    plan_page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    return success_response(await _dashboard_overview(
+        db, decision_page, confirmation_page, plan_page, page_size
+    ))
+
+
+@router.get("/dashboard/downloads")
+async def get_dashboard_downloads(db: AsyncSession = Depends(get_db)):
+    return success_response(await _dashboard_downloads(db))
+
+
+@router.get("/dashboard")
+async def get_dashboard(
+    decision_page: int = Query(1, ge=1),
+    confirmation_page: int = Query(1, ge=1),
+    plan_page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Backward-compatible aggregate; the SPA polls split endpoints."""
+    overview = await _dashboard_overview(
+        db, decision_page, confirmation_page, plan_page, page_size
+    )
+    downloads = await _dashboard_downloads(db)
+    return success_response({**overview, **downloads})

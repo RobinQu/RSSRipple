@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,6 +11,13 @@ from app.database import Base
 
 class DownloadTask(Base):
     __tablename__ = "download_tasks"
+    __table_args__ = (
+        Index("ix_download_tasks_status_agent", "status", "agent_id"),
+        Index(
+            "ix_download_tasks_downloader_torrent",
+            "downloader_id", "transmission_torrent_id",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
