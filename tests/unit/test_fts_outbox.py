@@ -87,6 +87,31 @@ async def test_search_text_maintained_on_turso(db_session, sample_series):
     assert sample_series.search_text == "测试剧集 test series test series 别名"
 
 
+async def test_collection_search_text_maintained_without_outbox(db_session):
+    """WorkCollection rows get search_text from the same before_flush hook
+    (title_cn/title_en/aliases through normalize_title) but are NEVER
+    enqueued into fts_outbox — the FTS sidecar covers work tables only."""
+    from app.models.work_collection import WorkCollection
+
+    c = WorkCollection(
+        id=str(uuid.uuid4()),
+        title_cn="無職転生",
+        title_en="Mushoku Tensei",
+        aliases=["无职转生"],
+    )
+    db_session.add(c)
+    await db_session.commit()
+    assert c.search_text is not None
+    assert "mushoku tensei" in c.search_text
+    assert "无职转生" in c.search_text  # OpenCC t2s folds 無職転生
+    assert await _outbox_for(db_session, c.id) == []
+
+    c.title_en = "Mushoku Tensei: Jobless Reincarnation"
+    await db_session.commit()
+    assert "jobless reincarnation" in c.search_text
+    assert await _outbox_for(db_session, c.id) == []
+
+
 # ---------------------------------------------------------------------------
 # Drain (Turso sidecar replay)
 # ---------------------------------------------------------------------------

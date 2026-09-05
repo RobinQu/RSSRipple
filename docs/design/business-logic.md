@@ -163,14 +163,14 @@ fetch_and_link_metadata(resource, channel, db)
   └─ 全部失败 → resource 保持未链接（series_id/movie_id 均为 null）
 ```
 
-**Bangumi 频道源匹配流程（`metadata_bangumi`，镜像 wikipedia 的 search-then-judge 形态）**：复用 wikipedia 的 query 清洗（`_candidate_queries`）→ `POST /v0/search/subjects` 限 `type=[2]`（动画分类，命中即动漫）→ 确定性 auto-link（归一化标题相等 + 标题年份守卫 ±1，**唯一命中**才免 LLM）→ 否则单次 LLM judge（专用 prompt `_BANGUMI_JUDGE_SYSTEM_PROMPT`）→ 命中条目经详情（`GET /v0/subjects/{id}`）+ 剧集（`GET /v0/episodes` 分页）端点展开为 matched_entity：`external_id=bangumi:{id}`（身份证据自动落 `is_anime=True`）、title_cn=name_cn、original_title=name、description=summary、rating=rating.score、start_date=date、number_of_episodes=eps、genre=tags（出口钳制）、`is_anime=True`；TV 条目不伪造 `seasons`/`number_of_seasons`，而携带仅在本次匹配链路使用的 `single_season_entry=true`——Bangumi 的一个 subject 本身就是一季，因此标题无季标记时可由统一缺季规则安全补 `season=1`，同时不污染作品级总季数；platform=剧场版时不写该证据。episode_list 取本篇（type=0）的整数 sort，season 标签用资源解析出的季号（无则 1）；platform=剧场版 → content_type=movie。found=False 走统一有序网络搜索回退（仅补身份）；缓存命名空间 `metadata_agent:bangumi`；手动搜索/评测（`process_title_only`）同样支持，手动搜索响应保留 `single_season_entry` 供链接时判定。客户端 `bangumi_client`：UA 固定 `robinqu/RSSRipple`，token 走 `runtime_config.bangumi_api_key`（env `BANGUMI_API_KEY` 或设置页覆盖），API 基础地址走 `settings.bangumi_api_base`（env `BANGUMI_API_BASE`，默认 `https://api.bgm.tv/v0`，可指向镜像/mock），无独立启用开关——token 即启用。
+**Bangumi 频道源匹配流程（`metadata_bangumi`，镜像 wikipedia 的 search-then-judge 形态）**：复用 wikipedia 的 query 清洗（`_candidate_queries`）→ `POST /v0/search/subjects` 限 `type=[2]`（动画分类，命中即动漫）→ 确定性 auto-link（归一化标题相等 + 标题年份守卫 ±1，**唯一命中**才免 LLM；**季感知**——Bangumi 一个 subject 就是一季，资源/刷新提示带季号 >1 时基础名条目（恒为第一季）永不 auto-link，仅"候选标题自带同季标记且基础名命中查询"的唯一候选可免 LLM，其余交 judge）→ 否则单次 LLM judge（专用 prompt `_BANGUMI_JUDGE_SYSTEM_PROMPT`）→ 命中条目经详情（`GET /v0/subjects/{id}`）+ 剧集（`GET /v0/episodes` 分页）端点展开为 matched_entity：`external_id=bangumi:{id}`（身份证据自动落 `is_anime=True`）、title_cn=name_cn、original_title=name、description=summary、rating=rating.score、start_date=date、number_of_episodes=eps、genre=tags（出口钳制）、`is_anime=True`；TV 条目不伪造 `seasons`/`number_of_seasons`，而携带仅在本次匹配链路使用的 `single_season_entry=true`——Bangumi 的一个 subject 本身就是一季（作品单季化后该语义固化为注册表粒度 `granularity="season"`：`bangumi:{id}` 身份直接落**季作品**袋，匹配即得对应季作品），因此标题无季标记时可由统一缺季规则安全补季号，同时不污染作品级总季数；platform=剧场版时不写该证据。episode_list 取本篇（type=0）的整数 sort，season 标签用资源解析出的季号（无则 1）；platform=剧场版 → content_type=movie。found=False 走统一有序网络搜索回退（仅补身份）；缓存命名空间 `metadata_agent:bangumi`；手动搜索/评测（`process_title_only`）同样支持，手动搜索响应保留 `single_season_entry` 供链接时判定。客户端 `bangumi_client`：UA 固定 `robinqu/RSSRipple`，token 走 `runtime_config.bangumi_api_key`（env `BANGUMI_API_KEY` 或设置页覆盖），API 基础地址走 `settings.bangumi_api_base`（env `BANGUMI_API_BASE`，默认 `https://api.bgm.tv/v0`，可指向镜像/mock），无独立启用开关——token 即启用。
 
 **季号验证规则（season never guessed）**：季号只能来自标题季标记或经元数据证据验证，绝不猜测。
 
-- **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的 `_reconcile_with_series`，以及 S1 known-work 短路与 `manual_link_metadata`）：`apply_episode_reconcile` 之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_season(resource, entity)`（metadata_episode_reconcile；`entity` 为 `{number_of_seasons, seasons, single_season_entry}` 证据 dict）。裸标题尾缀（如中英标题同时以 `2` 或 `II` 结尾）不在抓取 pre-parser 阶段单独采信；作品链接后，仅当两个不同语言标题的尾缀一致、且作品元数据证明该季存在时，才将其作为经验证的季号。否则剧集恰好可验证为 1 季 → `season = 1`；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）。`season_evidence_from_series` 会对主身份为 Bangumi 的已关联作品恢复条目级单季证据，因此 known-work/历史资源定向重跑同样生效，但不改写作品总季数。合集资源同样适用上述标题验证与单季默认：`batch_scope` 为 NULL/`season` 且作品可验证单季时落 `season = 1`，但**绝不标 ambiguous**（多季/无证据保持 season=None，走合集 coverage 待确认门禁）；`multi_season`/`franchise`/`movies` 与 `manual` 行不触碰；电影链接不受影响。torrent 内容检测的 season 分支（`maybe_inspect_torrent`）对已链接且可验证单季的作品同样补 `season=1`。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，候选含 scope 为 NULL/season 且缺季号的合集行，不创建 Agent PendingDecision。
-- **MetadataAgent 路径**（`_apply_verified_season_default`）：finalize 结果 `content_type=tv` 且 `inferred_season` 为空时，用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据做同一判定——恰为 1 季 → `season=1`；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 `apply_episode_reconcile` **之后**调用相同的 `resolve_missing_season` 验证双语标题尾缀；reconcile 和标题证据均未得到季号时，才落 `episode_confidence="ambiguous"`（合集与 manual 除外）。
+- **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的统一链接后步骤 `reconcile_linked_series_resource`，以及 known-work 短路与 `manual_link_metadata`）：历史惯例推断与绝对集号定位之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_work(resource, entity, work=链接作品)`（metadata_episode_reconcile；`resolve_missing_season` 保留为兼容别名）。**链接作品自身身份是最强季证据**（`work_verified_season`：季作品即季——`season_number≠1` 直接可信；`season_number=1` 需单季证据才可信：legacy 惰性列的单季证据或 Bangumi `single_season_entry` 条目证据，`season_evidence_from_series` 对已关联 Bangumi 身份的作品恢复该证据）。裸标题尾缀（如中英标题同时以 `2` 或 `II` 结尾）不在抓取 pre-parser 阶段单独采信；作品链接后，仅当两个不同语言标题的尾缀一致、且作品元数据证明该季存在时，才将其作为经验证的季号。可验证 → 落对应季号；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）；系列级身份只解析到合集而季不可定时，资源由 `park_resource_on_collection` 挂合集待确认（清作品 FK、保留 `collection_id`）。合集资源同样适用上述标题验证与单季默认：`batch_scope` 为 NULL/`season` 且可验证季号时落 `season`，但**绝不标 ambiguous**（多季/无证据保持 season=None，走合集 coverage 待确认门禁）；`multi_season`/`franchise`/`movies` 与 `manual` 行不触碰；电影链接不受影响。torrent 内容检测的 season 分支（`maybe_inspect_torrent`）对已链接且可验证单季的作品同样补季号。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，候选含 scope 为 NULL/season 且缺季号的合集行，不创建 Agent PendingDecision。
+- **MetadataAgent 路径**（`_apply_verified_season_default`）：finalize 结果 `content_type=tv` 且 `inferred_season` 为空时，用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据做同一判定——恰为 1 季 → `season=1`；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 upsert 落库**之后**经 `reconcile_linked_series_resource` 完成绝对集号定位（沿合集成员）、单季算术与验证季默认；均得不到季号时落 `episode_confidence="ambiguous"`（合集与 manual 除外）或挂合集待确认。
 - **一致性交叉检查**（`apply_episode_reconcile`）：资源同时带 season 与 `absolute_episode` 且 confidence 非 `manual` 时，用 `locate_absolute_episode` 复核；绝对集号算术定位到的 (season, episode) 与现值不一致 → `episode_confidence="ambiguous"`（标题季标记与绝对算术冲突，绝不静默信一方）；locate 返回 None 视为无证据，不改动。
-- **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品近邻 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品 seasons 算术。同组相邻 manual 一条即可作为证据；跨组需双样本共识，冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修复后对 active Agent 定向运行（不推进水位线），以清理待确认决策并正常派发。
+- **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品近邻 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品自身集数算术（季作品的 `number_of_episodes`；legacy 行回退惰性 seasons 列）。同组相邻 manual 一条即可作为证据；跨组需双样本共识，冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修复后对 active Agent 定向运行（不推进水位线），以清理待确认决策并正常派发。
 - **LLM 指引**：系统/judge prompt 与 finalize 工具说明均要求——标题无季标记时必须依据工具结果的 `number_of_seasons`/`seasons` 验证（单季 → `inferred_season=1`；多季 → `ambiguous=true` + `ambiguous_candidates`），且输入带 `title_year` 提示时优先年份一致的候选（年份冲突 >±1 是反对证据）。
 
 `extract_search_title(resource)`（同步、无 LLM；Layer 2/3 的匹配 key 来源）优先级：
@@ -181,16 +181,14 @@ fetch_and_link_metadata(resource, channel, db)
 
 该函数设计上是保守的：多括号标题（`[Group][Work][S04][13]`）无法用正则可靠分离作品名与发布元数据，交由 LLM agent 处理；本函数只需"足够好"以支撑本地 DB/FTS 匹配和 agent 禁用/失败时的兜底。
 
-`create_or_update_series_from_external(db, data)` 逻辑（P3 起查找顺序）：
-1. **身份袋反查**：按 canonical `(source, external_id)` 查 WorkExternalId 身份袋——任何曾入袋的 id（langlinks pageids、网络搜索回退 id 等）确定性收敛，同 `work_type` 才命中。
-2. **legacy 主列查找**：按 `external_id（canonical + raw 两种形态）+ external_source IN (data.external_source, 'llm_search')` 查询——兼容 canonical 化/身份袋之前写入的旧行。
-3. **标题精确回退**：`title_cn/title_en/original_title`（含去季后缀形式）**加上 `alt_titles`**（Wikipedia langlinks 的跨语言页面标题）匹配已有行的三个标题列。
+`create_or_update_series_from_external(db, data, *, season_hint=None)` 逻辑（作品单季化重写，返回 `TVSeries | None`）：
 
-后续动作：
-- 存在 → 更新字段（合并 aliases：新别名 append 去重；poster_url 若本地缺失则下载）；若原 `external_source="llm_search"` 则迁移为新 source。
-- 不存在 → 创建新实体（aliases 同样纳入 `alt_titles`）。
-- **成功 upsert 必写身份袋**：matched_entity 的主 id + `alt_external_ids: [{source, id}]`（P3 新增键，如 wikipedia langlinks pageids）全部入袋；主 id 列维持 creator-wins（仅既有填充/迁移规则可改它）。
-- 返回实体。
+1. **按注册表粒度分类身份**（`_identity_granularity`，`SourceSpec.granularity`：wikipedia/tmdb/imdb=series 级、bangumi/mal/anilist/douban=season 级、tmdb/douban 电影形态=movie；合成形式 `{id}#s{N}` 拆出系列级 id + 季号）。目标季号判定顺序：`season_hint`（资源解析上下文，`resource_season_hint`：标题季标记优先、双语续作尾缀验证推断次之）→ 合成身份的 `#s{N}` → 实体标题季标记 → 可验证单季证据（=1）。
+2. **逐季 id → 作品袋反查**；命中即得季作品（更新分支 `_update_series_from_entity`：字段语义同拆分前——人工编辑保护、creator-wins 主 id、别名合并、海报缓存、genre 钳制、`apply_is_anime`；惰性孤儿 `seasons`/`number_of_seasons` 列**永不写入**，`number_of_episodes`/`start_date`/`end_date`/`episode_list` 全部按季取值）。
+3. **系列级 id → 合集袋反查 → 成员选择**（`_resolve_collection_member`）：按 `(collection_id, season_number)` 找成员作品，缺失则**惰性创建**（`_create_season_work`：从父条目 `seasons`/`episode_list` 取该季数据建季作品，基础名入主列、季限定变体进 aliases，袋合成身份 `{系列id}#s{N}`；不物化未出现的季）。合集可验证单季（仅一个成员或实体可验证单季）时无季号也可落定；多季/未知则把系列级 id 落合集袋并**返回 None**——调用方经 `find_collection_for_entity` 找回合集后 `park_resource_on_collection` 挂合集待确认，绝不猜季。
+4. **legacy 兼容**：仍袋在/列为未拆分 legacy TVSeries 行主 id 的身份按原样收敛到该行（季拆分迁移负责搬家）。
+5. **两级标题兜底**：袋全落空时先以剥季基础标题匹配合集（`_find_collection_by_titles`：归一化标题 + 合集 aliases 的 Python 侧比较，复用 franchise get-or-create 模式）；命中合集后在其成员中按季号选作品（季感知——「第三季」剥季后绝不错撞 S1 作品）；合集也没有才新建「壳合集 + 季作品」。每次成功 upsert 把实体的全部 id 按粒度落袋（`_bag_entity_ids_by_granularity`），合集 aliases 顺带合并（`_merge_collection_aliases`）。
+6. web fallback（metadata_web_fallback.py）身份按其注册表粒度落袋（系列级 id 落合集袋），其余不变。
 
 `create_or_update_movie_from_external` 同理。
 
@@ -212,10 +210,10 @@ Wikipedia 的 page id 按语言站点独立编号，同一作品的 zhwiki 页�
 wikipedia 主源频道的**季/集内容一律来自 Wikipedia 页面本身**（源一致性规则：内容不从其他源补；LLM judge 仍只做作品识别，judge schema 不含 seasons）。链路：
 
 1. **抓取**：页面被选中后（search-then-judge 的 auto-link 短路**和** LLM judge 选中两条路径都会走），`_attach_wikipedia_content` 用 `fetch_wikipedia_wikitext`（MediaWiki `action=parse&prop=wikitext`，httpx + Wikimedia UA）取选中页面的原始 wikitext；完全解析失败时经 langlinks 重试**一次**（zh↔ja，剧集列表常只在一侧）。
-2. **解析**（`app/services/wikipedia_episode_parser.py`，纯函数）：infobox **仅取 `{{Infobox animanga/TVAnime}}` 块**（zh/ja 同名；块到下一个 `{{Infobox animanga/` 子模板为止；无 TVAnime 块的页面——如史萊姆主页面——返回 None，绝不把 Novel/Manga 块的 話數 当 TV 季数）→ `parse_seasons_from_infobox`（支持 `{{ubl|...}}` 与 `<br />` 分隔、`第N季/第N期/第一季`（汉字序数）、`話數/话数/話数/集數` 字段、全/共、全/半角数字；无季标记的 `全M話` 视作单季、但仅当恰好一个 plain 计数 TV 块）；`各話列表/各話リスト` 章节 → `parse_episode_list`（zh `{{劇集列表/base}}` 与 ja 规则变体 `{{エピソードリスト/base}}`；`Chapter = 第N季/期` 设当前季，`Number = 第M話`（含汉字数字 `第一話`）成行，Title/Subtitle 去 `{{lang|ja|...}}`/wiki 链接/简单模板，Aux5 解析 `'''2023年'''<br />10月8日` 与续年 `10月15日` 为 ISO 日期）。无 Chapter 标记 → 单季（season=1）；章节内编号若从 >1 开始（跨年绝对编号）则重排为季内 1 起；`番外編` 等无集号行跳过。无剧集章节 → 返回 None。已采样确认 zh/ja 真实页面（100カノ zh+ja、無職転生、小書痴、史萊姆、攻殻機動隊 SAC——后者无剧集章节，按 None 处理）；其余语言/模板形态本阶段不支持（代码注释注明）。
-3. **合并进 matched_entity**：`seasons`（infobox 集数权威；剧集列表季数更多时以列表为准——连载中 infobox 滞后）、`number_of_seasons`、`number_of_episodes`（求和）与新键 `episode_list`。`ResourceMetadata.from_dict`/MetadataCache 整体携带 `matched_entity`，`episode_list` 随缓存往返不丢失。此外，若实体尚无 `start_date`，从 `episode_list` 最早的非空 `air_date` 派生（series upsert 只认 `start_date` 键，而 wikipedia 路径此前无任何环节产生它）；已有 `start_date` 不覆盖。
-4. **落库**：`create_or_update_series_from_external` 在 `episode_list` 存在时调用 `upsert_episodes`（按 `(series_id, season, episode)` 幂等 upsert title/air_date；只增不删）；wikipedia 来源携带 `seasons` 时**覆盖** `series.seasons`/`number_of_seasons`（tmdb/回退路径不变），但带**防退化 guard**（`seasons_overwrite_allowed`，`number_of_episodes` 一并门控）：现有结构为空、或解析季数 ≥ 现有季数才覆盖；解析季数**更少**（如合并建模的 {1:51} 覆盖已验证 4 季）一律拒绝并记 warning。陈旧的 TMDB 建模行在下一次刷新时被纠正。
-5. **覆盖率评测与回填**：`scripts/wikipedia_seasons_eval.py`（dry-run 默认）对所有 wikipedia 链接的 TVSeries 逐部抓取 + 解析并输出覆盖率汇总；`--apply` 复用同一 `evaluate_series` 读路径执行写回填（覆盖 seasons/number_of_seasons/number_of_episodes + `upsert_episodes`，批量提交），并走同一防退化 guard——被拒的报告打印 `[guard-skip]`，seasons 与 Episode 均不写入——对 wikipedia 主源作品取代 `series_seasons_backfill.py` 的 seasons 回填。
+2. **解析**（`app/services/wikipedia_episode_parser.py`，纯函数）：infobox **仅取 `{{Infobox animanga/TVAnime}}` 块**（zh/ja 同名；块到下一个 `{{Infobox animanga/` 子模板为止；无 TVAnime 块的页面——如史萊姆主页面——返回 None，绝不把 Novel/Manga 块的 話數 当 TV 季数）→ `parse_seasons_from_infobox`（支持 `{{ubl|...}}` 与 `<br />` 分隔、`第N季/第N期/第一季`（汉字序数）、`話數/话数/話数/集數` 字段、全/共、全/半角数字；无季标记的 `全M話` 视作单季、但仅当恰好一个 plain 计数 TV 块）；**播出日期** → `parse_season_air_dates`（TVAnime 块的 `播放開始`/`播放結束`/`放送開始`/`放送終了` 字段，产出 `{season: {air_date, end_date}}`：`第N季` 标记项归对应季（含 cour/篇章后缀——`第1季上半`/`第2期前半クール`/`第4期喪失編` 均归该季，同季多段取最早开始/最晚结束）、季内区间 `開始－結束` 同行解析、错位写在结束字段里的区间同样还原开始日期、悬挂区间符（`2026年8月12日 -`）按开放区间只取开始、结束字段的无标记首项在恰好一季缺结束时跨字段闭合、仅到月/仅到年的片段降级为月首/月末、年初/年末占位日以保年份；无季标记的 plain 日期仅在恰好一个 plain 日期块时归第 1 季，多个 plain 块=独立续作不猜）；`各話列表/各話リスト` 章节 → `parse_episode_list`（zh `{{劇集列表/base}}` 与 ja 规则变体 `{{エピソードリスト/base}}`；`Chapter = 第N季/期` 设当前季，`Number = 第M話`（含汉字数字 `第一話`）成行，Title/Subtitle 去 `{{lang|ja|...}}`/wiki 链接/简单模板，Aux5 解析 `'''2023年'''<br />10月8日` 与续年 `10月15日` 为 ISO 日期）。无 Chapter 标记 → 单季（season=1）；章节内编号若从 >1 开始（跨年绝对编号）则重排为季内 1 起；`番外編` 等无集号行跳过。无剧集章节 → 返回 None。已采样确认 zh/ja 真实页面（100カノ zh+ja、無職転生、小書痴、史萊姆、攻殻機動隊 SAC——后者无剧集章节，按 None 处理）；其余语言/模板形态本阶段不支持（代码注释注明）。
+3. **合并进 matched_entity**：`seasons`（infobox 集数权威；剧集列表季数更多时以列表为准——连载中 infobox 滞后）、`number_of_seasons`、`number_of_episodes`（求和）与新键 `episode_list`；逐季播出日期以 `air_date`/`end_date` 键叠加进 `seasons` 条目（季作品 upsert 的 `_work_start_date`/`_work_end_date` 优先读它们）。`ResourceMetadata.from_dict`/MetadataCache 整体携带 `matched_entity`，`episode_list` 随缓存往返不丢失。此外，若实体尚无 `start_date`，从 `episode_list` 最早的非空 `air_date` 派生、再退到 `seasons` 条目最早 `air_date`（series upsert 只认 `start_date` 键）；已有 `start_date` 不覆盖。
+4. **落库**：季作品 upsert 在 `episode_list` 存在时调用 `upsert_episodes`（按 `(series_id, season, episode)` 幂等 upsert title/air_date；只增不删；季作品只收本季条目，逐季源实体的条目标到其 `season_number`）。作品单季化后 `series.seasons`/`number_of_seasons` 两列退役为惰性孤儿、**永不写入**——实体的逐季数据改用于：惰性创建缺失季作品时的季级字段（该季 `number_of_episodes`/`start_date`/`end_date` 取自父条目 `seasons` 项与 `episode_list` 子集）与上述 Episode 落库；旧 `seasons_overwrite_allowed` 防退化 guard 随列退役从 metadata_service 删除。
+5. **覆盖率评测与回填**：`scripts/wikipedia_seasons_eval.py`（dry-run 默认）对所有 wikipedia 链接的 TVSeries 逐部抓取 + 解析并输出覆盖率汇总；`--apply` 复用同一 `evaluate_series` 读路径执行写回填（批量提交 + `upsert_episodes`）。防退化 guard 已**内联进脚本**（解析季数少于既有行即 `[guard-skip]` 不写入），仅服务季拆分迁移前的存量行——对 wikipedia 主源 legacy 作品取代 `series_seasons_backfill.py` 的 seasons 回填；完成 `season_split_migration.py` 后该回填路径失去意义（新季作品不再携带 seasons 列数据）。**日期回填**走 `scripts/wikipedia_airdate_backfill.py`（dry-run 默认 + `--apply`）：对缺 `start_date`/`end_date` 的 wikipedia 身份季作品重抓页面跑 `parse_season_air_dates`，经 `_work_start_date`/`_work_end_date` 同一语义派生本季日期，只填 NULL 字段、尊重 `manually_edited_fields`；身份解析覆盖 `wikipedia:{lang}:{pageid}`（剥离 `#s{N}`）、legacy 裸 pageid/标题形式（zh→en→ja 探测）、`wikipedia_url`（`/wiki/` 与 `?curid=` 两种形式）与身份袋；链接版本页无日期时依次回退 zh/ja langlink 对应页、`<标题> (アニメ)`/` (動畫)` 动画子页面探测、同合集兄弟季作品的 locator（共享系列级页面），最终回退 bangumi 袋/主身份的按 id 精确查询（季粒度首播日期）。
 
 网络搜索回退仍只补身份/链接（`seasons`/集数继续被剥离），内容以 Wikipedia 主源为准。
 
@@ -267,12 +265,12 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 
 ### WorkCollection（大 IP 合集分组）
 
-**定位：collection 是组织层而非消歧核心**——匹配/派发仍以单个作品行（TVSeries/Movie）为准，合集只提供浏览分组、详情页"同系列作品"和 DSL 过滤维度。
+**定位：collection 是组织层而非消歧核心**——匹配/派发仍以单个作品行（TVSeries/Movie）为准，合集只提供浏览分组、详情页"同系列作品"和 DSL 过滤维度。作品单季化后合集升级为**系列级元数据载体**：每部剧集作品必属一个合集（无自然合集时 upsert 自动建 `series_group` 壳合集），系列级源身份落合集身份袋（`work_type="collection"`），季限定/跨语言标题变体收进合集 `aliases` 供两级标题兜底；franchise 包挂载时若成员作品的壳合集只含该作品，壳合集被 franchise 合集吸收（身份袋合并、空壳删除）。
 
 - **确定性 TMDB 链接（不经 LLM）**：`link_movie_collection(db, movie)`（collection_service）在 Movie upsert 后调用——`metadata_repository._apply_to_resource` 两处与 `metadata_service` 的 Layer-4 落库、`manual_link_metadata`。当 `movie.external_id` 为 canonical `tmdb:<digits>` 且 `collection_id` 为空时，直接 httpx 拉 TMDB movie details 读 `belongs_to_collection`（{id, name, poster_path}），按 `(external_source="tmdb_collection", external_id=原始数字 id)` 幂等 upsert WorkCollection 并回填 FK。不能用 LLM `matched_entity`（Layers 1-3、S1 短路、缓存命中都绕过 TMDB details；bangumi 模式没有 TMDB 工具）；不能用 `canonicalize_external_id`（会把 collection id 改写进电影 id 空间）。TMDB 未配置/禁用、电影无合集、已链接时静默 no-op。存量电影用 `scripts/collection_backfill.py`（dry-run 默认，`--apply` 执行）回填。
 - **同名作品注入（替代合集注入）**：Agent 消息在 ReAct 循环前构建，只有本地库信息，故不做 collection 注入。改为 `_find_same_title_works`（原 `_has_same_title_collision` 重构为返回碰撞作品列表，Layer-3 布尔语义以列表真值保持）：≥2 个本地作品归一化标题精确碰撞时，把列表（标题、年份、类型、季数）注入 `_build_production_message`，提示结合标题年份选择正确作品——修复的真实错误模式是"链接到错误的既有本地作品"。
 - **去重合并保留合集归属**：`_merge_movie_group`/`_merge_series_group` 中存留方保留自己的 collection_id，为空时取重复行的（collection 链接是作品级副作用，不 bump `METADATA_CACHE_GENERATION`）。
-- **Wikidata TV 归组回填（确定性带外脚本，非 agent 数据源）**：TV 没有 TMDB collection 等价物，故 series 归组走 `scripts/tv_collection_backfill.py`（dry-run 默认，`--apply` 执行，逻辑在 `app/services/wikidata_collection.py`）。对每个 `collection_id IS NULL` 的 TVSeries：先按行上 LLM 挂载的 `wikipedia_url`（URL host 锁定语言版，可信）→ `wikipedia_page_id`（不带语言版，逐 en/zh/ja 尝试且实体 label/alias 必须与作品标题精确匹配才采纳）→ `wbsearchentities` 兜底（仅当恰好一个结果 label/alias 与标题精确匹配，消歧即跳过）解析 Wikidata 实体 QID；再读实体的 P179（"part of the series"）claim——无 P179 跳过、多个不同 P179 值判 ambiguous 跳过（绝不猜 franchise）；单个则按 `(external_source="wikidata", external_id=franchise QID)` 幂等 upsert WorkCollection（title_cn/title_en 取 franchise 实体 zh/en label）并回填 `series.collection_id`。同 franchise 作品经唯一约束收敛到同一行。全程确定性、无 LLM、不进 metadata agent 循环。
+- **Wikidata TV 归组回填（确定性带外脚本，非 agent 数据源）**：TV 没有 TMDB collection 等价物，故 series 归组走 `scripts/tv_collection_backfill.py`（dry-run 默认，`--apply` 执行，逻辑在 `app/services/wikidata_collection.py`）。对每个 `collection_id IS NULL` 的 TVSeries（作品单季化迁移后常态下不存在——剧集作品必属合集，本脚本仅服务迁移前的存量行）：先按行上 LLM 挂载的 `wikipedia_url`（URL host 锁定语言版，可信）→ `wikipedia_page_id`（不带语言版，逐 en/zh/ja 尝试且实体 label/alias 必须与作品标题精确匹配才采纳）→ `wbsearchentities` 兜底（仅当恰好一个结果 label/alias 与标题精确匹配，消歧即跳过）解析 Wikidata 实体 QID；再读实体的 P179（"part of the series"）claim——无 P179 跳过、多个不同 P179 值判 ambiguous 跳过（绝不猜 franchise）；单个则按 `(external_source="wikidata", external_id=franchise QID)` 幂等 upsert WorkCollection（title_cn/title_en 取 franchise 实体 zh/en label）并回填 `series.collection_id`。同 franchise 作品经唯一约束收敛到同一行。全程确定性、无 LLM、不进 metadata agent 循环。
 - **TMDB collection parts 按需可见性（不落库，非 agent 数据源）**：`GET /collections/{id}?include_parts=true` 对 `tmdb_collection` 合集实时拉 TMDB `/collection/{id}` 的 parts（`fetch_tmdb_collection_parts`，进程内 10 分钟 TTL 缓存防刷新打爆 TMDB），与本地电影 canonical `tmdb:<id>` external_id 集合（`tracked_movie_tmdb_ids`）求差集（`filter_untracked_parts` 纯函数），响应附 `untracked_parts`——本地库尚未收录的 franchise 作品（如未上线的新作）。已收录部分本就在 `works` 中。parts 永不持久化：WorkCollection 保持轻量分组实体，非 TMDB 合集或 TMDB 未配置时不输出该字段（拉取失败输出空数组）。
 
 ### Metadata Search Agent 数据源策略
@@ -293,7 +291,7 @@ MetadataAgent 不再采用多级搜索或跨数据源 fallback。每次搜索必
 数据源选择规则：
 - 一个数据源当且仅当启用且凭证已配置时才在 UI 中可选；`wikipedia` 无需凭证，`bangumi` 配置 token 即启用。启用开关为 `WEB_FALLBACK_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`。
 - 作品库手动刷新必须通过统一来源目录选择来源、可信站点和具体候选；批量刷新同样携带 `source + trusted_sites`，但只自动应用确定性候选。
-- **频道级定期刷新（原全局自动刷新已废除）**：Channel 新增 `metadata_refresh_enabled` / `metadata_refresh_interval_minutes`（NULL=默认 1440）/ `metadata_refresh_full_scope` 三列。开启后调度器按间隔入队 `refresh_channel_works`（stable key `channel-refresh:<id>`），handler 只做参数派生——source = 频道自身 `metadata_source`、`override_manual_edits=False`——作品选集经 `select_channel_works_for_refresh`（默认缺失门控：只选确有待填空字段的作品，谓词与 `refresh_work_metadata` 的 fill 清单一致；`full_scope=True` 跳过门控刷全部关联作品），随后复用与手动刷新完全相同的 `refresh_work_metadata → search_metadata_via_llm → process_title_only` 单一管线执行。存量频道开关一律收敛为关闭（轻迁移）。
+- **频道级定期刷新（原全局自动刷新已废除）**：Channel 新增 `metadata_refresh_enabled` / `metadata_refresh_interval_minutes`（NULL=默认 1440）/ `metadata_refresh_full_scope` 三列。开启后调度器按间隔入队 `refresh_channel_works`（stable key `channel-refresh:<id>`），handler 只做参数派生——source = 频道自身 `metadata_source`、`override_manual_edits=False`——作品选集经 `select_channel_works_for_refresh`（默认缺失门控：只选确有待填空字段的作品，谓词与 `refresh_work_metadata` 的 fill 清单一致；`full_scope=True` 跳过门控刷全部关联作品），随后复用与手动刷新完全相同的 `refresh_work_metadata → search_metadata_via_llm → process_title_only` 单一管线执行——剧集作品刷新会把自身 `season_number` 作为 `season_hint` 传入搜索（bangumi 季感知 auto-link/judge 据此选对当季条目，不会把第一季条目身份错填进后续季作品），日期写回走与 upsert 一致的季级语义（`_work_start_date`/`_work_end_date`：season 粒度实体取自身日期；系列级实体仅在该季 `seasons` 条目/集日期子集有证据时填本季日期，第一季或可验证单季才回落实体级日期）。存量频道开关一律收敛为关闭（轻迁移）。
 
 兼容规则：
 - `combined` 仅作为旧评测数据集值保留；运行时归一化为默认 `wikipedia`，不得作为新数据集或新搜索任务的数据源类型。
@@ -350,11 +348,15 @@ process_resources(agent, resources, db)
   │     │     季/集号不确定、合集覆盖范围不确定，任一命中即不参与 Agent
   │     │     过滤/下载（unrecognized++）。问题仅进入 Channel 文件资源待确认，
   │     │     不创建 AgentSuggestion/PendingDecision；修订后定向重跑。
+  │     │     links-only multi_season 包（作品单季化终态：作品 FK 全清、季作品
+  │     │     挂在 resource_work_links）经 links 表识别——links 非空即视为
+  │     │     已关联作品，覆盖度取关联季作品 id 集合。
   │     │
   │     ├─ b. work-scope + filter 评估（_resource_matches_rules）:
   │     │     matched, work = _resource_matches_rules(resource, rule_set)
-  │     │     # scope=false 时需命中订阅作品；再与 effective_filter（全局 filter_config
-  │     │     #   AND work.filter_overrides）求值
+  │     │     # scope=false 时需命中订阅作品（links-only multi_season 包任一
+  │     │     #   关联季作品被订阅即在范围内）；再与 effective_filter（全局
+  │     │     #   filter_config AND work.filter_overrides）求值
   │     │     if not matched:
   │     │         # 区分"在订阅范围内但 filter 未通过"与"不在范围内"
   │     │         if 在订阅范围内（scope_channel_wide 或命中 work）: filter_failed++
@@ -363,37 +365,38 @@ process_resources(agent, resources, db)
   │     ├─ c. 合集分支（resource.is_batch=True）:
   │     │     先查同一 FileResource 的 active/completed 任务（防重跑重复派发）。
   │     │     再按内容覆盖度去重（_batch_coverage_key）：电影包→movie_id；
-  │     │     单季包→(series_id, season)（season 未知则覆盖度未知）；
-  │     │     跨季包→(series_id, batch_seasons 季集合)（batch_seasons 由
-  │     │     torrent 内容检测持久化；未知已由步骤 a 的 Channel 门禁拦截）。
+  │     │     单季包→("season", series_id)——季作品身份即覆盖度（legacy
+  │     │     未拆分系列级行过渡态仍用解析季号 ("season", season)，未知则
+  │     │     覆盖度未知）；跨季包→("multi_season", links 关联季作品 id
+  │     │     集合)（legacy 带 FK 行回退 batch_seasons 季集合；未知已由
+  │     │     步骤 a 的 Channel 门禁拦截）。
   │     │     覆盖度已知 → 先查同
   │     │     agent 同作品 active 任务中是否有覆盖度完全相同的合集
   │     │     （Python 侧比对；剧集包受 enable_episode_dedup 门控、电影包
-  │     │     与单集电影一致不门控），命中则 duplicates_skipped++；否则以
+  │     │     与单集电影一致不门控；links-only 包与 agent 其他 FK 全清的
+  │     │     合集资源比对），命中则 duplicates_skipped++；否则以
   │     │     ("batch", work_id, coverage) 进 candidates_by_key，与单集走
   │     │     同一冲突解决（ask → PendingDecision，episode 置哨兵 -1 与
-  │     │     无集号单集决策区分，reason 用合集文案；auto → 优选偏好 →
+  │     │     无集号单集决策区分，season 分量由作品 season_number 填充，
+  │     │     reason 用合集文案；auto → 优选偏好 →
   │     │     LLM pick → 启发式评分）。覆盖度不同的合集（S1 包 vs S2 包、S1-S2 vs
   │     │     S1-S3）互不冲突、各自派发；franchise 包作品 FK 全清走不到
-  │     │     这里。已知限制：同一作品不同季集合的 multi_season 冲突会
-  │     │     合并进同一条 PendingDecision（幂等键编不下季集合）。
+  │     │     这里。已知限制：links-only multi_season 包的决策共享
+  │     │     (series=NULL, season=NULL, episode=-1) 幂等槽位（幂等列编不下
+  │     │     作品 id 集合）。
   │     │
   │     ├─ d. 去重检查（仅单集资源）:
   │     │     电影：按 movie_id 查询 active DownloadTask，存在则跳过；key=("movie", movie_id, None, None)
   │     │     TV 单集：dedup = work.enable_episode_dedup if work else True
-  │     │             dedup 且 episode 非空时按 (series_id, episode) 查询 active 任务并做
-  │     │             **季兼容比对**（_find_existing_episode_task：季号相等，或任一方
-  │     │             season=None 即视为同一槽位；两个都有编号且不同的季仍互不去重），
-  │     │             存在则跳过——防止同一集的两个发布变体因季归属差异（如链接先后
-  │     │             导致 S1 vs season=None）跨运行重复下载
-  │     │             key=("series", series_id, season, episode)
+  │     │             dedup 且 episode 非空时按 (series_id, episode) 查询 active 任务，
+  │     │             存在则跳过——作品单季化后槽位身份为 (series, episode)
+  │     │             （季已编码在季作品身份，旧的「季兼容」比对逻辑整体删除）
+  │     │             key=("series", series_id, episode)
   │     │
   │     └─ e. candidates_by_key[key].append(resource)；matched++；
   │           matched_resource_ids.append(resource.id)
   │
   ├─ 4. 候选聚合处理:
-  │     先做**季未知归并**：key=("series", sid, None, E5) 的候选组并入其有编号同集组
-  │     ("series", sid, S, E5)——季归属差异不再拆成两个单候选组各自直发。
   │     for key, candidates in candidates_by_key.items():
   │         if len(candidates) == 1:
   │             dispatch_download(agent, candidates[0])  # dispatched++
@@ -506,9 +509,11 @@ startup:
   │
   ├─ 5b. 每 5 分钟任务:
   │     enqueue "backfill_metadata"  # 重试可重试的未匹配资源；顺带重跑
-  │                                  # stale raw 集数 reconcile（链接时作品
-  │                                  # 尚无逐季数据、后补齐的绝对集号资源，
-  │                                  # reconcile_stale_raw_episodes）
+  │                                  # stale raw 集数 reconcile（链接时季作品
+  │                                  # 尚无集数数据、后补齐 number_of_episodes
+  │                                  # 的绝对集号资源，reconcile_stale_raw_episodes，
+  │                                  # seasons_map_for_work 取季作品自身计数，
+  │                                  # legacy 行回退惰性 seasons 列）
   │
   ├─ 5c. 每小时任务（仅 Turso 后端注册）:
   │     enqueue "fts_reconcile"      # FTS 影子表对账：全量 diff 基表 vs 影子表，
@@ -537,10 +542,15 @@ startup:
         enqueue "daily_dedup"  # 04:00 运行：合并重复的 TVSeries/Movie 行（安全网，
                             # 防止 metadata agent 偶尔为同一作品新建第二行）。聚类 key 基于
                             # 共享的 title_cn/title_en/original_title **+ aliases**（归一化
-                            # 含 OpenCC 繁转简），只折叠可证明为同一作品的行；**年份守卫**：
+                            # 含 OpenCC 繁转简），只折叠可证明为同一作品的行；作品单季化后
+                            # 聚类按 **season_number 隔离**——同 IP 不同季标题再像也绝不互
+                            # 合并，legacy 未拆分系列级行只互相聚类；**年份守卫**：
                             # 首播/发行年相差 >1 年的同标题聚类不合并（重制/重启/同名系列，
                             # 记 note 跳过）；子表重指向防撞——Episode/AgentWork/
-                            # PendingDecision 自然键冲突的重复行删除而非强转（幂等）。
+                            # PendingDecision 自然键冲突的重复行删除而非强转（幂等）；
+                            # ResourceWorkLink/ResourceFileAssignment 随之重指向存留方
+                            # （唯一键碰撞折叠、manual provenance 转移，不再被 FK CASCADE
+                            # 静默丢行）；手动合并入口 POST /works/merge 复用同一合并机器。
                             # P3：合并时身份袋取并集（存留方继承重复方的主 id 与袋行，见
                             # merge_external_id_bags；跨表合并同样处理，标题配对同样受
                             # 年份守卫约束，外部 id 相等不受）

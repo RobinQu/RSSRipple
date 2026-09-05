@@ -251,29 +251,44 @@ class TestAgentsCRUD:
     async def test_get_agent_includes_latest_completed_episode(
         self, client, channel_and_dl, db_session
     ):
-        """GET /agents/{id} annotates TV works with the latest completed S/E."""
+        """GET /agents/{id} annotates TV works with the latest completed S/E.
+
+        Per-season works: progress aggregates across the subscribed work's
+        collection siblings — a season-1 subscription reflects downloads that
+        landed on the season-3 work (pre-split series-level semantics).
+        """
         from app.models.download_task import DownloadTask
         from app.models.file_resource import FileResource
         from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
 
         ch_id, dl_id = channel_and_dl
+        coll = WorkCollection(id=_uuid(), title_cn="S")
         s = TVSeries(id=_uuid(), title_cn="S", content_type="tv", start_date=date(2024, 1, 1), is_anime=False)
+        s3 = TVSeries(id=_uuid(), title_cn="S", season_number=3, content_type="tv")
         s_idle = TVSeries(id=_uuid(), title_cn="Idle")
-        db_session.add_all([s, s_idle])
+        db_session.add(coll)
+        await db_session.flush()
+        s.collection_id = coll.id
+        s3.collection_id = coll.id
+        db_session.add_all([s, s3, s_idle])
         await db_session.flush()
 
-        def _res(guid, season, episode, is_batch=False):
+        def _res(guid, season, episode, series_id=None, is_batch=False):
             return FileResource(
                 id=_uuid(), channel_id=ch_id, guid=guid,
                 title_raw=guid, torrent_url=f"magnet:?xt=urn:btih:{guid}",
-                series_id=s.id, season=season, episode=episode, is_batch=is_batch,
+                series_id=series_id or s.id, season=season, episode=episode, is_batch=is_batch,
             )
 
         r13 = _res("e13", 1, 3)
         r15 = _res("e15", 1, 5)
+        # Completed download linked to the season-3 sibling work; the resource
+        # season is NULL so the work's own season_number supplies S3.
+        r_s3 = _res("e310", None, 10, series_id=s3.id)
         r_batch = _res("eb", 1, None, is_batch=True)  # excluded: batch
         r_active = _res("e18", 1, 8)                   # excluded: not completed
-        db_session.add_all([r13, r15, r_batch, r_active])
+        db_session.add_all([r13, r15, r_s3, r_batch, r_active])
         await db_session.flush()
 
         def _task(rid, status, completed=False):
@@ -288,6 +303,7 @@ class TestAgentsCRUD:
             # Organize(move) changes a completed task to cancelled but keeps
             # completed_at; it must continue contributing library progress.
             _task(r15.id, "cancelled", completed=True),
+            _task(r_s3.id, "completed", completed=True),
             _task(r_active.id, "downloading"),
         ])
         await db_session.commit()
@@ -304,9 +320,19 @@ class TestAgentsCRUD:
         res = await client.get(f"/api/v1/agents/{aid}")
         assert res.status_code == 200
         works = {w["series_id"]: w for w in res.json()["data"]["works"]}
-        assert works[s.id]["latest_completed_season"] == 1
-        assert works[s.id]["latest_completed_episode"] == 5
+        # Collection-wide progress: the S3 sibling's completed E10 wins.
+        assert works[s.id]["latest_completed_season"] == 3
+        assert works[s.id]["latest_completed_episode"] == 10
         assert works[s_idle.id]["latest_completed_season"] is None
+        assert works[s_idle.id]["latest_completed_episode"] is None
+
+        # The standalone works endpoint (works tab loads through it) must
+        # carry the same annotation.
+        res = await client.get(f"/api/v1/agents/{aid}/works")
+        assert res.status_code == 200
+        works = {w["series_id"]: w for w in res.json()["data"]}
+        assert works[s.id]["latest_completed_season"] == 3
+        assert works[s.id]["latest_completed_episode"] == 10
         assert works[s_idle.id]["latest_completed_episode"] is None
 
     async def test_rules_preview_diff(self, client, channel_and_dl, db_session):

@@ -1342,6 +1342,217 @@ class TestResourceAssociations:
         assert body["container"] == "mkv"
 
 
+    async def test_collection_consistency_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """两级关联（per-season works）：提交 collection_id 时，每个 series
+        作品必须属于该合集。"""
+        from app.models.work_collection import WorkCollection
+
+        coll_a, coll_b = _uuid(), _uuid()
+        sid = _uuid()
+        async with db_session_factory() as s:
+            from app.models.series import TVSeries
+
+            s.add(WorkCollection(id=coll_a, title_cn="合集A"))
+            s.add(WorkCollection(id=coll_b, title_cn="合集B"))
+            s.add(TVSeries(
+                id=sid, title_cn="剧", title_en="Show", content_type="tv",
+                collection_id=coll_a,
+            ))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": coll_b,
+                "works": [{"work_type": "series", "work_id": sid}],
+            },
+        )
+        assert res.status_code == 422
+        assert "合集" in res.json()["error"]["message"]
+
+    async def test_collection_consistency_accepted(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.work_collection import WorkCollection
+
+        coll_a = _uuid()
+        sid = _uuid()
+        async with db_session_factory() as s:
+            from app.models.series import TVSeries
+
+            s.add(WorkCollection(id=coll_a, title_cn="合集A"))
+            s.add(TVSeries(
+                id=sid, title_cn="剧", title_en="Show", content_type="tv",
+                collection_id=coll_a,
+            ))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": coll_a,
+                "works": [{"work_type": "series", "work_id": sid}],
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        assert res.json()["data"]["collection_id"] == coll_a
+
+    async def _make_multi_work_setup(self, db_session_factory):
+        """Two per-season works (S1/S2) of one collection + a pack resource."""
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+
+        coll_id = _uuid()
+        s1, s2 = _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(id=coll_id, title_cn="无职转生（系列）"))
+            s.add(TVSeries(
+                id=s1, title_cn="无职转生", content_type="tv",
+                season_number=1, number_of_episodes=2, collection_id=coll_id,
+            ))
+            s.add(TVSeries(
+                id=s2, title_cn="无职转生", content_type="tv",
+                season_number=2, number_of_episodes=2, collection_id=coll_id,
+            ))
+            await s.commit()
+        return coll_id, s1, s2
+
+    async def test_multi_work_every_work_needs_assignment(
+        self, client, sample_channel, db_session_factory,
+    ):
+        coll_id, s1, s2 = await self._make_multi_work_setup(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": coll_id,
+                "works": [
+                    {"work_type": "series", "work_id": s1},
+                    {"work_type": "series", "work_id": s2},
+                ],
+                "assignments": [
+                    {
+                        "file_path": "S01/E01.mkv", "work_type": "series",
+                        "work_id": s1, "season": 1,
+                        "episode_start": 1, "episode_end": 2,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 422
+        assert "每个关联作品都必须有文件指派" in res.json()["error"]["message"]
+
+    async def test_multi_work_whole_range_miss_rejected(
+        self, client, sample_channel, db_session_factory,
+    ):
+        coll_id, s1, s2 = await self._make_multi_work_setup(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": coll_id,
+                "works": [
+                    {"work_type": "series", "work_id": s1},
+                    {"work_type": "series", "work_id": s2},
+                ],
+                "assignments": [
+                    {
+                        "file_path": "S01/E01.mkv", "work_type": "series",
+                        "work_id": s1, "season": 1,
+                        "episode_start": 1, "episode_end": 2,
+                    },
+                    # s2 有指派但完全未覆盖其应有集数（1-2）。
+                    {
+                        "file_path": "S02/E09.mkv", "work_type": "series",
+                        "work_id": s2, "season": 2,
+                        "episode_start": 9, "episode_end": 9,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 422
+        assert "完全未覆盖" in res.json()["error"]["message"]
+
+    async def test_multi_work_tail_shortfall_warns(
+        self, client, sample_channel, db_session_factory,
+    ):
+        coll_id, s1, s2 = await self._make_multi_work_setup(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": coll_id,
+                "works": [
+                    {"work_type": "series", "work_id": s1},
+                    {"work_type": "series", "work_id": s2},
+                ],
+                "assignments": [
+                    {
+                        "file_path": "S01/E01.mkv", "work_type": "series",
+                        "work_id": s1, "season": 1,
+                        "episode_start": 1, "episode_end": 2,
+                    },
+                    {
+                        "file_path": "S02/E01.mkv", "work_type": "series",
+                        "work_id": s2, "season": 2,
+                        "episode_start": 1, "episode_end": 1,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        warnings = res.json()["data"]["warnings"]
+        assert any("结尾" in w and "e02" in w for w in warnings)
+
+    async def test_multi_work_unassigned_media_file_rejected(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from app.services import resource_association
+
+        coll_id, s1, s2 = await self._make_multi_work_setup(db_session_factory)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+
+        async def _fake_listing(resource):
+            return {"S01/E01.mkv", "S01/E02.mkv", "S02/E01.mkv", "S02/E02.mkv"}
+
+        monkeypatch.setattr(
+            resource_association, "_known_media_files", _fake_listing
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={
+                "is_batch": True,
+                "collection_id": coll_id,
+                "works": [
+                    {"work_type": "series", "work_id": s1},
+                    {"work_type": "series", "work_id": s2},
+                ],
+                "assignments": [
+                    {
+                        "file_path": "S01/E01.mkv", "work_type": "series",
+                        "work_id": s1, "season": 1,
+                        "episode_start": 1, "episode_end": 2,
+                    },
+                    {
+                        "file_path": "S02/E01.mkv", "work_type": "series",
+                        "work_id": s2, "season": 2,
+                        "episode_start": 1, "episode_end": 2,
+                    },
+                ],
+            },
+        )
+        assert res.status_code == 422
+        assert "未指派" in res.json()["error"]["message"]
+        assert "S01/E02.mkv" in res.json()["error"]["message"]
+
+
 class TestAnalyzeBatch:
     """POST /resources/{id}/analyze-batch — non-persistent LLM suggestions."""
 

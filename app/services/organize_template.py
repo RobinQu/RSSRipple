@@ -177,14 +177,15 @@ def _collapse_optional_groups(rendered: str) -> str:
 def render_template(template: str, context: Mapping[str, Any]) -> str:
     """按快照上下文渲染模板，返回清洗后的相对路径（``/`` 分隔）。
 
-    ``episode_title`` 缺失渲染为空段；其余被引用的占位符取值为 None →
-    ``TemplateRenderError``（规划失败，不落计划）。
+    ``episode_title`` 缺失渲染为空段；``collection`` 无取值（作品无合集）
+    渲染为空串并折叠该目录层级（不产生 ``//``）；其余被引用的占位符取值
+    为 None → ``TemplateRenderError``（规划失败，不落计划）。
     """
     values: dict[str, Any] = {}
     for _literal, field_name, format_spec, _conversion in _iter_fields(template):
         value = context.get(field_name)
         if value is None:
-            if field_name == "episode_title":
+            if field_name in ("episode_title", "collection"):
                 value = ""
             else:
                 raise TemplateRenderError(f"模板占位符 {{{field_name}}} 缺少取值")
@@ -198,10 +199,13 @@ def render_template(template: str, context: Mapping[str, Any]) -> str:
     except (ValueError, KeyError, IndexError) as exc:
         raise TemplateRenderError(f"模板渲染失败：{exc}") from exc
     rendered = _collapse_optional_groups(rendered)
-    if rendered.startswith("/"):
-        raise TemplateRenderError("模板渲染结果不允许是绝对路径")
+    # 空分量（空的可选变量，如无合集时的 ``{collection}``）整层折叠；
+    # 折叠后结果不可能以 ``/`` 开头（模板级的绝对路径在保存时已拒绝）。
+    parts = [part for part in rendered.split("/") if part != ""]
+    if not parts:
+        raise TemplateRenderError("模板渲染结果为空")
     try:
-        components = [sanitize_component(part) for part in rendered.split("/")]
+        components = [sanitize_component(part) for part in parts]
     except ValueError as exc:
         raise TemplateRenderError(f"模板渲染结果非法：{exc}") from exc
     return "/".join(components)

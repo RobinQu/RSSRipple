@@ -151,6 +151,27 @@ class TestRenderTemplate:
         out = render_template("{title}{ext}", ctx)
         assert len(out.split("/")[0]) <= 150
 
+    def test_collection_placeholder_renders_parent_dir(self):
+        ctx = {**TV_CONTEXT, "collection": "攻壳机动队（系列）"}
+        out = render_template(
+            "{collection}/{title}/Season {season:02d}/{title} - {episode_code}{ext}",
+            ctx,
+        )
+        assert out == (
+            "攻壳机动队（系列）/攻壳机动队/Season 01/"
+            "攻壳机动队 - s01e04.mkv"
+        )
+
+    def test_collection_missing_collapses_dir_level(self):
+        """无合集时 {collection} 渲染为空串并折叠该目录层级（不产生 //）。"""
+        ctx = {**TV_CONTEXT, "collection": None}
+        out = render_template(
+            "{collection}/{title}/Season {season:02d}/{title} - {episode_code}{ext}",
+            ctx,
+        )
+        assert out == "攻壳机动队/Season 01/攻壳机动队 - s01e04.mkv"
+        assert "//" not in out
+
 
 class TestSanitizeComponent:
     def test_strips_slash_control_and_trailing_dots(self):

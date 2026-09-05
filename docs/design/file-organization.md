@@ -224,16 +224,16 @@ class OrganizeAuditEntry(Base):
 | `{title}` | 显示标题：`title_cn or title_en or original_title` |
 | `{title_en}` / `{title_cn}` / `{original_title}` | `work.title_en` / `title_cn` / `original_title` |
 | `{year}` | `work.year`（电影）/ `resource.title_year` 回退 |
-| `{season}` / `{episode}` | `resource.season` / `episode`；支持格式说明符 `{season:02d}` |
+| `{season}` / `{episode}` | `resource.season` / `episode`（作品单季化后季号回退到 `work.season_number`——季作品即季）；支持格式说明符 `{season:02d}` |
 | `{episode_code}` | Plex 季集标识：单集 `s01e01`，单文件多集 `s01e01-e02` |
-| `{episode_title}` | `work.episodes` 按 (season, episode) 查得分集标题，缺失渲染为空段 |
+| `{episode_title}` | `work.episodes` 按集号查得分集标题（v2 快照无 season 分量——所有行都属于 `work.season_number`；v1 旧快照仍按 (season, episode) 匹配），缺失渲染为空段 |
 | `{category}` | `plan.category`（电影类别目录；为空时计划落待分类，见上） |
-| `{collection}` | `work.collection`（合集显示名） |
+| `{collection}` | `work.collection`（合集显示名）；作品无合集时渲染为空串并**折叠该目录层级**（不产生空分量），供 `{collection}/Season {season:02d}/...` 式上层目录使用 |
 | `{resolution}` / `{container}` | `resource.resolution` / `container` |
 | `{ext}` | 源文件扩展名（含前导点，如 `.mkv`） |
 
 - **保存时校验**：非法占位符 / 非法格式说明符 → 422；模板渲染结果含绝对路径、`..` 段 → 422。
-- **运行时缺数据**（如 TV 模板缺 `season`）→ 规划失败（落 failed 计划行，见"触发链路"）。
+- **运行时缺数据**（如 TV 模板缺 `season`）→ 规划失败（落 failed 计划行，见"触发链路"）；仅 `episode_title` 与 `collection` 例外——缺失渲染为空段/空串并折叠层级。
 - **内置 Plex 兼容预设**（创建规则时可一键填入）：
   - TV：`{title}/Season {season:02d}/{title} - {episode_code}[ - {episode_title}]{ext}`
   - 电影：`{category}/{title} ({year})/{title} ({year}){ext}`
@@ -245,7 +245,7 @@ class OrganizeAuditEntry(Base):
 规划是纯函数：`build_plan(快照, 磁盘文件列表, 解析后的库根)`——**接口不变**，收的是 service 层已解析好的 `root_path`（volume.mount_path + root_subpath），planner 自身不感知卷模型。沿用 vault-organizer 的文件归类语义：主视频 = 最大视频文件，按模板渲染 move；字幕判定语言与 forced/SDH/CC 标记后同名随正片 move；电影 Blu-ray 转录常见的外置音轨（MKA/AC3/EAC3/DTS/DTSHD/TrueHD/FLAC/AAC/OPUS/WAV 等）因 Plex 无外置电影音轨挂载约定，按原相对路径完整保存至电影目录 `Audio Tracks/` 供后续 remux，避免误识别与数据丢失；其余文件 keep。安全不变量：
 
 - **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）先回退 torrent 文件清单（`_resolve_manifest`：torrent 缓存 → torrent_url 拉取 → 下载器 RPC，过滤绝对路径与 `.`/`..` 分量；.torrent 解析的清单相对于种子根，多文件种子补上 `info/name` 根目录分量以匹配 `download_dir/<根目录>/<文件>` 落盘布局）逐项精确匹配，再退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；皆无 → 规划失败。
-- **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx / E09 / EP09 / 第09話 / 裸方括号 `[01]`（含 vN 修订号）→ 目录分量 → `resource.season` 回退链），覆盖度校验「期望集 ⊆ 已解析集」，缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。期望集的展开顺序：`episode_start/end` 优先 → `work.seasons` 逐季集数 → **本地文件清单推导**（已解析集同季时取 min..max 连续区间，中间缺集仍拒绝——torrent 文件清单本地可缓存，合集范围解析以实际内容为准）→ 皆无才视为无校验依据。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 按文件解析季号分组逐组校验（不回退 `resource.season`——该 scope 下恒为 NULL；期望集展开顺序同单季，显式依据与文件清单区间（≥2 集）皆无的季只记 warning 跳过校验而非整体拒绝，因多季包边界信息不全）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
+- **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx / E09 / EP09 / 第09話 / 裸方括号 `[01]`（含 vN 修订号）→ 目录分量 → `resource.season` → `work.season_number` 回退链（v2 快照：季作品即季，后者兜底）），覆盖度校验「期望集 ⊆ 已解析集」，缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。期望集来自**这一季作品自身**（作品单季化后不再有逐季 `seasons` 数据）：`episode_start/end` 优先 → 季作品的 Episode 行 / `number_of_episodes` → **本地文件清单推导**（已解析集同季时取 min..max 连续区间，中间缺集仍拒绝——torrent 文件清单本地可缓存，合集范围解析以实际内容为准）→ 皆无才视为无校验依据。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 终态经权威文件关联（`file_associations`）**按季作品拆分**（`_plan_same_target_multi_work`：每个关联季作品独立成组，逐组复用单季校验与模板渲染）；无权威关联的 legacy 快照按文件解析季号分组、以本地文件清单推导的 min..max 区间逐组校验（该季已解析集 <2 无法构成区间时只记 warning 跳过该季——多季包边界信息不全，不整个拒绝；不回退 `resource.season`——该 scope 下恒为 NULL）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
 - **冲突预检**：move op 的 dst 已存在且 size 与源不符 → 规划失败（绝不覆盖）；size 相符视为已移动的重放，交执行器收敛。
 
 ## 触发与执行链路

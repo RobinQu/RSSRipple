@@ -17,7 +17,7 @@ Invariants (since the add-only policy):
 - The list is **mandatory**: every channel carries at least the code-enforced
   baseline — base fields (:data:`BASE_REQUIRED_FIELDS`, required for every
   resource shape) plus the shape-scoped fields (:data:`SHAPE_REQUIRED_FIELDS`,
-  e.g. season+episode for single-episode TV) — so they can never be cleared
+  e.g. episode for single-episode TV) — so they can never be cleared
   and there is no "unrestricted" state.
 - The list is **add-only after creation**: the channel API rejects any update
   that would drop a previously-saved key.
@@ -36,9 +36,10 @@ column renders deterministically; :func:`normalize_required_fields` enforces it.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
-from app.services.filter_engine import ALL_FIELDS, get_field_value
+from app.services.filter_engine import ALL_FIELDS, get_field_value, loaded_relation
 
 # ── Row shapes ────────────────────────────────────────────────────────────
 # Mirrors RowShape in frontend/src/utils/requiredFields.ts. Derived from which
@@ -53,7 +54,6 @@ FRANCHISE = "franchise"
 MOVIE = "movie"
 
 WORK_SHAPES: tuple[str, ...] = (TV_SINGLE, TV_SEASON_BATCH, TV_MULTI_SEASON, MOVIE)
-TV_SHAPES: tuple[str, ...] = (TV_SINGLE, TV_SEASON_BATCH, TV_MULTI_SEASON)
 CONTENT_TYPE_SHAPES: tuple[str, ...] = (*WORK_SHAPES, AUDIO)
 
 # ── Lock scopes ───────────────────────────────────────────────────────────
@@ -61,7 +61,6 @@ CONTENT_TYPE_SHAPES: tuple[str, ...] = (*WORK_SHAPES, AUDIO)
 # scoped values = required whenever the resource has that shape. Locked keys
 # are always present in a channel's stored list and can never be removed.
 LOCK_ALWAYS = "always"
-LOCK_TV = "tv"  # any TV resource (single or batch)
 LOCK_TV_SINGLE = "tv_single"
 LOCK_TV_BATCH = "tv_batch"
 LOCK_FRANCHISE = "franchise"
@@ -125,11 +124,15 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "applies_to": WORK_SHAPES,
     },
     # ── Section「剧集作品」：集数机制仅对 TV 资源有意义 ──
+    # 作品单季化（per-season works）：季号由作品身份承载（TVSeries =
+    # 恰好一季），``season`` 从形态必填退役为可选声明；DSL 字段本身保留
+    # （资源解析证据）。``absolute_episode`` / ``episode_confidence`` 两键已
+    # 退役出目录（字段仍存在于资源模型与 DSL）。
     "season": {
         "section": "tv",
         "group": "episode",
         "dsl_fields": ["season"],
-        "lock": LOCK_TV,
+        "lock": None,
         "applies_to": (TV_SINGLE, TV_SEASON_BATCH),
     },
     "episode": {
@@ -152,20 +155,6 @@ REQUIRED_FIELD_CATALOG: dict[str, dict[str, Any]] = {
         "dsl_fields": ["episode_end"],
         "lock": LOCK_TV_BATCH,
         "applies_to": (TV_SEASON_BATCH,),
-    },
-    "absolute_episode": {
-        "section": "tv",
-        "group": "episode",
-        "dsl_fields": ["absolute_episode"],
-        "lock": None,
-        "applies_to": TV_SHAPES,
-    },
-    "episode_confidence": {
-        "section": "tv",
-        "group": "episode",
-        "dsl_fields": ["episode_confidence"],
-        "lock": None,
-        "applies_to": TV_SHAPES,
     },
     # ── Section「多作品合集」：franchise 包专属 ──
     "resource_collection": {
@@ -248,9 +237,10 @@ BASE_REQUIRED_FIELDS: frozenset[str] = frozenset(
     k for k, e in REQUIRED_FIELD_CATALOG.items() if e["lock"] == LOCK_ALWAYS
 )
 
-# Shape tier: lock scope -> keys required for resources of that shape. The
-# ``tv`` scope (season) applies to both TV shapes; franchise packs don't take
-# any TV episode machinery.
+# Shape tier: lock scope -> keys required for resources of that shape.
+# Franchise packs don't take any TV episode machinery; multi-season packs
+# (works carried on the link table) take none either — their coverage gate
+# lives in resource_confirmation.
 _SHAPE_LOCKS: dict[str, str] = {
     TV_SINGLE: LOCK_TV_SINGLE,
     TV_SEASON_BATCH: LOCK_TV_BATCH,
@@ -259,12 +249,9 @@ _SHAPE_LOCKS: dict[str, str] = {
     FRANCHISE: LOCK_FRANCHISE,
 }
 SHAPE_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    shape: (
-        tuple(k for k, e in REQUIRED_FIELD_CATALOG.items() if e["lock"] == LOCK_TV)
-        if shape in (TV_SINGLE, TV_SEASON_BATCH, TV_BATCH)
-        else ()
+    shape: tuple(
+        k for k, e in REQUIRED_FIELD_CATALOG.items() if scope and e["lock"] == scope
     )
-    + tuple(k for k, e in REQUIRED_FIELD_CATALOG.items() if scope and e["lock"] == scope)
     for shape, scope in _SHAPE_LOCKS.items()
 }
 
@@ -293,22 +280,26 @@ def resource_shape(resource: Any) -> str | None:
 
     Unlinked resources have no supported work shape. Audio resources use only
     universally applicable Channel fields; TV/movie-only fields are skipped.
+    Terminal multi-season packs clear the flat work FK (works live on the
+    link table) — they are shaped by ``batch_scope`` alone.
     """
     if getattr(resource, "audio_work_id", None):
         return AUDIO
-    if getattr(resource, "collection_id", None) or getattr(resource, "batch_scope", None) == "franchise":
+    scope = getattr(resource, "batch_scope", None)
+    if getattr(resource, "collection_id", None) or scope == "franchise":
         return FRANCHISE
     if getattr(resource, "movie_id", None):
         return MOVIE
     if getattr(resource, "series_id", None):
         if not getattr(resource, "is_batch", False):
             return TV_SINGLE
-        scope = getattr(resource, "batch_scope", None)
         if scope == "multi_season":
             return TV_MULTI_SEASON
         if scope == "season":
             return TV_SEASON_BATCH
         return None
+    if scope == "multi_season" and getattr(resource, "is_batch", False):
+        return TV_MULTI_SEASON
     return None
 
 
@@ -325,18 +316,47 @@ def applicable_required_fields(
     )
 
 
+def _linked_work(resource: Any) -> tuple[str | None, Any | None]:
+    """First work reachable through the multi-work link table.
+
+    Terminal multi-season packs clear the flat work FKs and carry their works
+    in ``resource_work_links``. Only already-loaded relationships are
+    consulted (async sessions cannot lazy-load); an unloaded link table
+    yields ``(None, None)``.
+    """
+    links = loaded_relation(resource, "work_links")
+    if not links:
+        return None, None
+    for link in links:
+        if getattr(link, "series_id", None):
+            return "series", loaded_relation(link, "series")
+        if getattr(link, "movie_id", None):
+            return "movie", loaded_relation(link, "movie")
+    return None, None
+
+
 def _semantic_field_value(resource: Any, key: str) -> Any:
     """Resolve one catalog key to the value relevant to this resource."""
     fields = REQUIRED_FIELD_CATALOG[key]["dsl_fields"]
     if len(fields) == 1:
-        return get_field_value(resource, fields[0])
+        value = get_field_value(resource, fields[0])
+        if value is None and fields[0] == "content_type":
+            # Links-carried packs: derive the medium from the link table.
+            kind, _work = _linked_work(resource)
+            if kind is not None:
+                return "tv" if kind == "series" else "movie"
+        return value
     if getattr(resource, "series_id", None):
         field = next((f for f in fields if f.startswith("series.")), fields[0])
-    elif getattr(resource, "movie_id", None):
+        return get_field_value(resource, field)
+    if getattr(resource, "movie_id", None):
         field = next((f for f in fields if f.startswith("movie.")), fields[0])
-    else:
+        return get_field_value(resource, field)
+    kind, work = _linked_work(resource)
+    if kind is None or work is None:
         return None
-    return get_field_value(resource, field)
+    field = next((f for f in fields if f.startswith(f"{kind}.")), fields[0])
+    return get_field_value(SimpleNamespace(**{kind: work}), field)
 
 
 def missing_required_fields(

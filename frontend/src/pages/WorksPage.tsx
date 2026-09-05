@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Library, Search, RefreshCw, CheckCircle } from 'lucide-react';
+import { Library, Search, RefreshCw, CheckCircle, Plus } from 'lucide-react';
 import {
   Typography,
   Input,
@@ -23,12 +23,15 @@ import { metadataApi } from '../api/metadata';
 import type { MetadataSource } from '../types';
 import { genreSlug } from '../constants/genres';
 import type { Work } from '../types';
+import { seasonWorkInfo } from '../utils/season';
 import CollectionsPanel from '../components/CollectionsPanel';
+import CollectionFormModal from '../components/CollectionFormModal';
 import Pagination from '../components/Pagination';
 
 const { Title, Text } = Typography;
 
 type View = 'all' | 'tv' | 'movie' | 'audio' | 'collections';
+const VIEWS: View[] = ['all', 'tv', 'movie', 'audio', 'collections'];
 const PAGE_SIZE = 20;
 
 function getDisplayTitle(w: Work): string {
@@ -51,10 +54,13 @@ export default function WorksPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
-  // 'collections' switches the page into the collections browse/manage view.
-  const [view, setView] = useState<View>(() =>
-    searchParams.get('view') === 'collections' ? 'collections' : 'all',
-  );
+  // Per-season works: the flat "all" list is the default landing view; the
+  // grouped browse (collections) stays one Segment away. ?view= always wins
+  // (browser history).
+  const [view, setView] = useState<View>(() => {
+    const v = searchParams.get('view') as View | null;
+    return v && VIEWS.includes(v) ? v : 'all';
+  });
 
   // Selection + batch refresh
   const [selectMode, setSelectMode] = useState(false);
@@ -65,6 +71,11 @@ export default function WorksPage() {
   const [sourceOptions, setSourceOptions] = useState<MetadataSourceOption[]>([]);
   const [trustedSites, setTrustedSites] = useState<string[]>([]);
   const [trustedOptions, setTrustedOptions] = useState<{ value: string; label: string }[]>([]);
+
+  // Collections view: form modal + panel refresh live here so the header
+  // toolbar (Segmented + search + action) is identical across all views.
+  const [collectionFormOpen, setCollectionFormOpen] = useState(false);
+  const [collectionsRefreshKey, setCollectionsRefreshKey] = useState(0);
 
   const topRef = useRef<HTMLDivElement | null>(null);
 
@@ -101,7 +112,7 @@ export default function WorksPage() {
     setSelected(new Set());
     // Keep view switches in browser history so Back returns to the actual
     // previous works view after opening a collection.
-    setSearchParams(v === 'collections' ? { view: 'collections' } : {});
+    setSearchParams({ view: v });
   };
 
   const handlePageChange = (p: number) => {
@@ -219,28 +230,38 @@ export default function WorksPage() {
             value={view}
             onChange={(v) => handleViewChange(v as View)}
           />
-          {view !== 'collections' && (
-            <>
-              <Input
-                prefix={<Search size={14} style={{ color: 'var(--rr-text-muted)' }} />}
-                placeholder={t('works.searchPlaceholder')}
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setPage(1);
-                  setSelected(new Set());
-                }}
-                style={{ width: 220 }}
-                allowClear
-              />
-              <Button
-                type={selectMode ? 'primary' : 'default'}
-                icon={<CheckCircle size={14} />}
-                onClick={toggleSelectMode}
-              >
-                {t('works.select')}
-              </Button>
-            </>
+          <Input
+            prefix={<Search size={14} style={{ color: 'var(--rr-text-muted)' }} />}
+            placeholder={
+              view === 'collections'
+                ? t('collections.searchPlaceholder')
+                : t('works.searchPlaceholder')
+            }
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+              setSelected(new Set());
+            }}
+            style={{ width: 220 }}
+            allowClear
+          />
+          {view !== 'collections' ? (
+            <Button
+              type={selectMode ? 'primary' : 'default'}
+              icon={<CheckCircle size={14} />}
+              onClick={toggleSelectMode}
+            >
+              {t('works.select')}
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<Plus size={14} />}
+              onClick={() => setCollectionFormOpen(true)}
+            >
+              {t('collections.new')}
+            </Button>
           )}
         </div>
       </div>
@@ -288,7 +309,15 @@ export default function WorksPage() {
 
       {/* Content */}
       {view === 'collections' ? (
-        <CollectionsPanel />
+        <>
+          <CollectionsPanel search={search} refreshKey={collectionsRefreshKey} />
+          <CollectionFormModal
+            open={collectionFormOpen}
+            collection={null}
+            onClose={() => setCollectionFormOpen(false)}
+            onSaved={() => setCollectionsRefreshKey((k) => k + 1)}
+          />
+        </>
       ) : loading && works.length === 0 ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
           <Spin size="large" />
@@ -340,8 +369,8 @@ export default function WorksPage() {
                     const info =
                       w.content_type === 'movie'
                         ? (w.year ?? '—')
-                        : w.number_of_seasons
-                          ? `${w.number_of_seasons}S · ${w.number_of_episodes ?? '?'}E`
+                        : w.content_type === 'tv'
+                          ? seasonWorkInfo(t, w.season_number ?? null, w.number_of_episodes ?? null) || '—'
                           : '—';
                     return (
                       <tr

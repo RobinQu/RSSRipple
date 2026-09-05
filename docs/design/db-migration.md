@@ -18,6 +18,7 @@ SQLite（旧） ──migrate_to_turso──▶ Turso ──migrate_to_postgres�
 - **Turso → PostgreSQL**：`scripts/migrate_to_postgres.py`。按外键依赖序逐表复制，类型自动转换，保留全部 UUID 主键与时间戳。
 - **SQLite → PostgreSQL**：分两步走（先 `migrate_to_turso`，再 `migrate_to_postgres`）。`migrate_to_postgres` 只接受 Turso URL——它需要 MVCC 模式下打开的 Turso 文件。
 - **PostgreSQL → Turso**：不支持（无反向脚本）。PostgreSQL 是能力超集；需要「降级」回单节点时，从最近的 Turso 备份重建，或接受以全新库重新抓取。
+- **作品单季化迁移**（`season_split_migration.py`）与后端矩阵正交：它是同一后端内的原地数据迁移（系列级作品行 → 季作品 + 壳合集），两个后端通用，见第 5 节。
 
 ## 1. SQLite → Turso（`scripts/migrate_to_turso.py`）
 
@@ -130,9 +131,62 @@ docker compose run --rm app \
 
 > 校验前同样确保 app 已停（见第 3 节的行数假阳性说明）。
 
-## 数据安全不变量（总结）
+## 5. 作品单季化迁移（`scripts/season_split_migration.py`）
 
-1. **迁移永远复制、不改源**：两个脚本都只读源文件。
+作品单季化（per-season works，终态设计见 [per-season-works.md](per-season-works.md)）的 schema 部分（`tv_series.season_number`、`work_collections.aliases/search_text/manually_edited_fields` 加列）由 `_apply_light_migrations` 随启动自动完成，无需操作；本节是把**存量系列级 TVSeries 行拆分为季作品**的一次性数据迁移 runbook（per-season-works.md 的 P8）。
+
+### 5.1 脚本用法
+
+```bash
+# 0. 迁移前抓行数快照（供 verify 的行数守恒对比）
+uv run python scripts/verify_season_split.py --write-snapshot counts.json
+
+# 1. dry-run（默认）：完整动作清单在一个事务内 staging 后整体回滚，
+#    输出每部作品的建合集/拆季/子表去向供人工核对
+uv run python scripts/season_split_migration.py            # 可加 --limit N 先试跑几部
+
+# 2. 核对无误后写入
+uv run python scripts/season_split_migration.py --apply
+
+# 3. 校验（只读；退出码 0=全部通过）
+uv run python scripts/verify_season_split.py --snapshot counts.json
+```
+
+行为概要（每部 legacy TVSeries 按 created_at 升序）：建/取壳合集（沿用既有 `collection_id` → 合集袋反查 → 归一化基础标题 get-or-create `series_group`）→ 系列级身份袋行重指向合集袋 → 判定季集合（`seasons` JSON ∪ Episode 行 ∪ 资源 season 值）→ 多季拆分（最小季复用原行，其余季新建季作品并袋合成身份 `{主id}#s{N}`；逐季源 id 默认留锚点季，资源证据一致指向他季时随之搬家；季首播日缺失时用本季 Episode 最早 `air_date` 离线补齐）→ 子表按 season 分量重指向（无法定位的 season=NULL 资源挂合集待确认）→ AgentWork 不动（订阅保持作品粒度，汇总行列出建议补订阅的季作品）→ `--apply` 收尾 `backfill_search_text` + 创建部分唯一索引 `uq_tv_series_collection_season`。
+
+**校验脚本覆盖**：①全部子表/身份袋无悬空 FK；②行数守恒（`--snapshot` 对比迁移前快照；必须守恒的表任何差异即失败，合法增长/碰撞收缩的表只报 delta）；③每部 TVSeries 必属合集、`(collection_id, season_number)` 唯一、`Episode.season` 恒等于作品 `season_number`；④`search_text` 无空值；⑤降级版派发等价检查（每条已匹配资源挂载在作品/合集/links 之一，默认 warning，`--strict` 升级为失败）。
+
+### 5.2 安全不变量
+
+- **先备份**：PG 用 `pg_dump`；Turso 停 app 后复制 db 文件 + wal 边车。
+- **跑前停 app**：Turso 是单进程独占文件锁；同时避免迁移期间并发写。**脚本单向、不可逆**——没有反向迁移，回滚只能靠备份。
+- **dry-run 先行**：默认不落库，人工核对动作清单后才 `--apply`。
+- **幂等**：重跑跳过已迁移作品并收敛（同 IP 多条 legacy 行坍缩进同一合集时，冗余行被合并吸收而非制造重复季成员）。
+- 迁移后启动 app，`_apply_light_migrations` 与启动回填（search_text 空值、FTS 边车 drain/对账）自动收敛。
+
+### 5.3 Docker 操作序列
+
+```bash
+docker compose stop app worker                     # standalone 栈只停 app
+# 备份：PG → pg_dump；Turso → 复制卷内 db 文件 + wal
+docker compose run --rm app \
+  uv run --no-project python scripts/verify_season_split.py --write-snapshot counts.json
+docker compose run --rm app \
+  uv run --no-project python scripts/season_split_migration.py            # dry-run 核对
+docker compose run --rm app \
+  uv run --no-project python scripts/season_split_migration.py --apply
+docker compose run --rm app \
+  uv run --no-project python scripts/verify_season_split.py --snapshot counts.json
+docker compose up -d
+```
+
+### 5.4 迁移后立即元数据刷新（year 门控）
+
+拆分出的**非锚点季作品 `start_date` 为 NULL**（仅锚点季保留原值；Episode `air_date` 离线推导只补有逐集数据的季）。Channel 必选字段 `year` 由作品 `start_date` 派生，为空的季作品会拦下其新资源（进 Channel 文件资源待确认）。因此迁移完成后应立即对这些季作品执行一次元数据刷新（作品模块逐个/批量「刷新元数据」，或开频道级定期刷新），把本季首播日期补齐；同样建议按迁移汇总行的清单为相关 Agent 补订阅其余季作品。
+
+
+
+1. **迁移永远复制、不改源**：后端迁移两个脚本都只读源文件；作品单季化迁移是唯一的原地写迁移——单向不可逆，必须先备份、停 app、dry-run 核对后 `--apply`（见第 5 节）。
 2. **迁移前停 app**：Turso 单进程锁 + 避免目标库被并发写入。
 3. **`--force` 是幂等重建**：目标从头按源重建，重复执行不累积。
 4. **迁移后必校验**：`verify_search_parity.py` 的「0 表行数不一致」是数据完整性的硬性证明。

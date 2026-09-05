@@ -84,6 +84,9 @@ export interface ResourceWorkRef {
   is_anime?: boolean | null;
   rating?: number | null;
   number_of_seasons?: number | null;
+  // Per-season works: the season this work IS (0 = specials). The series
+  // brief is serialized from the ORM object, so the column flows through.
+  season_number?: number | null;
   number_of_episodes?: number | null;
   start_date?: string | null;
   release_date?: string | null;
@@ -336,6 +339,8 @@ export interface CollectionSibling {
   title: string | null;
   year: number | null;
   type: 'series' | 'movie';
+  // Per-season works: present on series siblings (0 = specials).
+  season_number?: number | null;
 }
 
 // WorkCollection — franchise grouping (browse/manage in the /works 合集 view)
@@ -387,6 +392,10 @@ export interface TVSeries {
   status: string | null;
   number_of_episodes: number | null;
   number_of_seasons: number | null;
+  // Per-season works: which season of the IP this work IS (0 = specials).
+  // Identity attribute — read-only in the UI; ``number_of_seasons`` /
+  // ``seasons`` are legacy orphan columns.
+  season_number: number | null;
   // Per-season episode counts — only present where the backend injects them
   // (resource metadata endpoint), used to prefill season from an absolute
   // episode number in the correction popover.
@@ -462,6 +471,8 @@ export interface Work {
   status: string | null;
   content_type: WorkContentType;
   number_of_seasons: number | null;
+  // Per-season works: present on tv items (0 = specials), absent elsewhere.
+  season_number?: number | null;
   number_of_episodes: number | null;
   release_date: string | null;
   runtime: number | null;

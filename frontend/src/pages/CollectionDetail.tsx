@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { ArrowLeft, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { App, Button, Empty, Spin, Tag, Typography } from 'antd';
+import { ArrowLeft, GitMerge, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { App, Button, Empty, Modal, Radio, Spin, Tag, Typography } from 'antd';
 import { collectionsApi } from '../api/collections';
+import { worksApi } from '../api/works';
 import { genreSlug } from '../constants/genres';
+import { seasonLabel, seasonWorkInfo } from '../utils/season';
 import CollectionFormModal from '../components/CollectionFormModal';
 import AttachWorkModal from '../components/AttachWorkModal';
 import Pagination from '../components/Pagination';
@@ -34,6 +36,7 @@ export default function CollectionDetail() {
   const [total, setTotal] = useState(0);
   const [formOpen, setFormOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   useDocumentTitle(collection?.title_cn ?? t('collections.title'));
 
@@ -84,7 +87,16 @@ export default function CollectionDetail() {
 
   const sourceTag = (c: WorkCollection) => {
     const src = c.external_source || 'manual';
-    const color = src === 'tmdb_collection' ? 'blue' : src === 'wikidata' ? 'purple' : 'default';
+    const color =
+      src === 'tmdb_collection'
+        ? 'blue'
+        : src === 'wikidata'
+          ? 'purple'
+          : src === 'series_group'
+            ? 'green'
+            : src === 'franchise_pack'
+              ? 'orange'
+              : 'default';
     return <Tag color={color}>{t(`collections.source_${src}`, src)}</Tag>;
   };
 
@@ -165,6 +177,9 @@ export default function CollectionDetail() {
         <Button type="primary" icon={<Plus size={14} />} onClick={() => setAttachOpen(true)}>
           {t('collections.attach')}
         </Button>
+        <Button icon={<GitMerge size={14} />} onClick={() => setMergeOpen(true)}>
+          {t('collections.merge')}
+        </Button>
         <Button icon={<Pencil size={14} />} onClick={() => setFormOpen(true)}>
           {t('common.edit')}
         </Button>
@@ -220,9 +235,7 @@ export default function CollectionDetail() {
                     const info =
                       w.content_type === 'movie'
                         ? (w.year ?? '—')
-                        : w.number_of_seasons
-                          ? `${w.number_of_seasons}S · ${w.number_of_episodes ?? '?'}E`
-                          : '—';
+                        : seasonWorkInfo(t, w.season_number ?? null, w.number_of_episodes ?? null) || '—';
                     return (
                       <tr
                         key={w.id}
@@ -328,6 +341,178 @@ export default function CollectionDetail() {
         onClose={() => setAttachOpen(false)}
         onAttached={reload}
       />
+      <MergeWorksModal
+        open={mergeOpen}
+        collectionId={collection.id}
+        onClose={() => setMergeOpen(false)}
+        onMerged={reload}
+      />
     </div>
+  );
+}
+
+/** 「合并作品」弹窗（per-season works 的常规修复工具）：列出同季重复的
+ * 季作品分组，选定保留作品后先以 confirm=false 试调（后端 422 返回不可逆
+ * 警告文案），弹确认框后再以 confirm=true 提交。 */
+function MergeWorksModal({
+  open,
+  collectionId,
+  onClose,
+  onMerged,
+}: {
+  open: boolean;
+  collectionId: string;
+  onClose: () => void;
+  onMerged: () => void;
+}) {
+  const { t } = useTranslation();
+  const { message, modal } = App.useApp();
+  const [loading, setLoading] = useState(false);
+  const [works, setWorks] = useState<Work[]>([]);
+  // Survivor pick per season group (keyed by season_number).
+  const [survivorBySeason, setSurvivorBySeason] = useState<Record<number, string>>({});
+  const [merging, setMerging] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setSurvivorBySeason({});
+    setLoading(true);
+    collectionsApi
+      .works(collectionId, 1, 100)
+      .then((r) => {
+        if (r.success) setWorks(r.data);
+      })
+      .finally(() => setLoading(false));
+  }, [open, collectionId]);
+
+  // Only same-season series groups with 2+ members are merge candidates
+  // (the server rejects cross-season merges — a work IS one season).
+  const groups = useMemo(() => {
+    const bySeason = new Map<number, Work[]>();
+    for (const w of works) {
+      if (w.content_type !== 'tv' || w.season_number == null) continue;
+      const arr = bySeason.get(w.season_number) ?? [];
+      arr.push(w);
+      bySeason.set(w.season_number, arr);
+    }
+    return [...bySeason.entries()]
+      .filter(([, arr]) => arr.length > 1)
+      .sort((a, b) => a[0] - b[0]);
+  }, [works]);
+
+  const doMerge = async (season: number, members: Work[]) => {
+    const survivorId = survivorBySeason[season] ?? members[0]?.id;
+    if (!survivorId) return;
+    const duplicateIds = members.map((w) => w.id).filter((wid) => wid !== survivorId);
+    setMerging(true);
+    try {
+      const probe = await worksApi.merge({
+        survivor_type: 'series',
+        survivor_id: survivorId,
+        duplicate_ids: duplicateIds,
+        confirm: false,
+      });
+      if (probe.success) return; // unexpected without confirm — nothing to do
+      if (probe.error?.code !== 'VALIDATION_ERROR') {
+        message.error(probe.error?.message || t('collections.mergeFailed'));
+        return;
+      }
+      modal.confirm({
+        title: t('collections.mergeTitle'),
+        content: probe.error.message,
+        okText: t('collections.mergeConfirm'),
+        okButtonProps: { danger: true },
+        cancelText: t('common.cancel'),
+        onOk: async () => {
+          const r = await worksApi.merge({
+            survivor_type: 'series',
+            survivor_id: survivorId,
+            duplicate_ids: duplicateIds,
+            confirm: true,
+          });
+          if (r.success) {
+            message.success(t('collections.mergeDone', { n: r.data.merged }));
+            onMerged();
+            onClose();
+          } else {
+            message.error(r.error?.message || t('collections.mergeFailed'));
+          }
+        },
+      });
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={t('collections.mergeTitle')}
+      footer={null}
+      onCancel={onClose}
+      destroyOnHidden
+      width={560}
+    >
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+        {t('collections.mergeHint')}
+      </Text>
+      <Spin spinning={loading}>
+        {groups.length === 0 && !loading ? (
+          <Empty
+            description={t('collections.mergeNoDuplicates')}
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        ) : (
+          groups.map(([season, members]) => {
+            const survivorId = survivorBySeason[season] ?? members[0]?.id;
+            return (
+              <div
+                key={season}
+                style={{
+                  border: '1px solid var(--rr-border-soft)',
+                  borderRadius: 8,
+                  padding: '8px 12px',
+                  marginBottom: 10,
+                }}
+              >
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                  {seasonLabel(t, season)}
+                </Text>
+                <Radio.Group
+                  value={survivorId}
+                  onChange={(e) =>
+                    setSurvivorBySeason((prev) => ({ ...prev, [season]: e.target.value as string }))
+                  }
+                  style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+                >
+                  {members.map((w) => (
+                    <Radio key={w.id} value={w.id}>
+                      <Text style={{ fontSize: 12 }}>
+                        {getDisplayTitle(w)}
+                        {w.year ? ` (${w.year})` : ''}
+                      </Text>
+                      <Text type="secondary" style={{ fontSize: 11, marginLeft: 6 }}>
+                        {survivorId === w.id ? t('collections.mergeSurvivor') : t('collections.mergeDuplicates')}
+                      </Text>
+                    </Radio>
+                  ))}
+                </Radio.Group>
+                <div style={{ textAlign: 'right', marginTop: 8 }}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    danger
+                    loading={merging}
+                    onClick={() => void doMerge(season, members)}
+                  >
+                    {t('collections.mergeConfirm')}
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </Spin>
+    </Modal>
   );
 }

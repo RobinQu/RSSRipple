@@ -234,6 +234,71 @@ class TestDashboardPopulated:
             for item in after.json()["data"]["pending_confirmations"]
         }
 
+    async def test_dashboard_pending_confirmations_links_carried_multi_season(
+        self, client, db_session_factory, sample_channel,
+    ):
+        """Links-carried multi-season packs clear the flat work FKs; the
+        dashboard must eager-load the work-link table or every work-derived
+        required field (content_type / is_anime / year) reads as missing and
+        the pack is falsely flagged metadata_unlinked."""
+        from datetime import date
+
+        from app.models.channel import Channel
+        from app.models.file_resource import FileResource
+        from app.models.resource_work_link import ResourceWorkLink
+        from app.models.series import TVSeries
+        from app.services.required_fields import normalize_required_fields
+
+        async with db_session_factory() as s:
+            ch = await s.get(Channel, sample_channel.id)
+            ch.required_metadata_fields = normalize_required_fields([])
+            s1 = TVSeries(
+                id=_uuid(), title_cn="怪盗Joker", season_number=1,
+                content_type="tv", is_anime=True, start_date=date(2014, 10, 6),
+            )
+            s2 = TVSeries(
+                id=_uuid(), title_cn="怪盗Joker", season_number=2,
+                content_type="tv", is_anime=True, start_date=date(2015, 4, 6),
+            )
+            undated = TVSeries(
+                id=_uuid(), title_cn="古见同学有交流障碍", season_number=1,
+                content_type="tv", is_anime=True,
+            )
+            full = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="lc-full",
+                title_raw="[LinRip] 怪盗Joker S1-S2 [BDRemux 1080p]",
+                torrent_url="magnet:?xt=urn:btih:lc1",
+                search_title="Kaitou Joker",
+                is_batch=True, batch_scope="multi_season", batch_seasons=[1, 2],
+            )
+            noyear = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="lc-noyear",
+                title_raw="[VCB] 古见同学有交流障碍 [S1 Fin]",
+                torrent_url="magnet:?xt=urn:btih:lc2",
+                search_title="Komi Can't Communicate",
+                is_batch=True, batch_scope="multi_season", batch_seasons=[1],
+            )
+            s.add_all([s1, s2, undated, full, noyear])
+            await s.flush()
+            s.add_all([
+                ResourceWorkLink(resource_id=full.id, series_id=s1.id),
+                ResourceWorkLink(resource_id=full.id, series_id=s2.id),
+                ResourceWorkLink(resource_id=noyear.id, series_id=undated.id),
+            ])
+            await s.commit()
+            full_id, noyear_id = full.id, noyear.id
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        confs = res.json()["data"]["pending_confirmations"]
+        # Fully-resolvable pack needs no confirmation at all.
+        assert full_id not in {c["resource"]["id"] for c in confs}
+        # Only the genuinely unknown work year may be flagged — content_type
+        # and is_anime resolve through the link table.
+        entry = next(c for c in confs if c["resource"]["id"] == noyear_id)
+        assert entry["kinds"] == ["required_fields_missing"]
+        assert entry["missing_fields"] == ["year"]
+
     async def test_dashboard_can_batch_ignore_decisions(
         self, client, setup_with_task_and_decision, db_session_factory,
     ):

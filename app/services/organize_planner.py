@@ -226,7 +226,12 @@ def build_filter_context(
 def _episode_title(payload: NotificationPayload, season: int, episode: int) -> str | None:
     work = payload.work
     for ep in (work.episodes or []) if work else []:
-        if ep.get("season") == season and ep.get("episode") == episode:
+        if ep.get("episode") != episode:
+            continue
+        # v2 snapshots carry no season component (the work IS the season);
+        # legacy v1 rows still match on their season.
+        ep_season = ep.get("season")
+        if ep_season is None or ep_season == season:
             return ep.get("title") or None
     return None
 
@@ -685,12 +690,16 @@ def _plan_single(
     # mapping, but an auto-generated single-file assignment may carry the
     # episode while still lacking the season. Fall back to the resource-level
     # season rather than treating the nullable association value as an
-    # explicit override.
+    # explicit override; v2 snapshots can finally fall back to the work's own
+    # season_number (a per-season work IS the season).
     season = (
         association.season
         if association is not None and association.season is not None
         else (resource.season if resource else None)
     )
+    work = payload.work
+    if season is None and work is not None:
+        season = work.season_number
     episode = (
         association.episode_start
         if association is not None
@@ -733,6 +742,8 @@ def _plan_batch(
     work = payload.work
     scope = resource.batch_scope if resource else None
     multi_season = scope == "multi_season"
+    # v2 快照：季作品身份承载季号（作品即季）；legacy v1 快照无此键。
+    work_season = work.season_number if work else None
 
     videos, subtitles, others = _split(disk_files)
     if not videos:
@@ -745,7 +756,8 @@ def _plan_batch(
             # resource.season 恒为 NULL，即便意外有值也不能回退，否则整包
             # 会被错并进同一季。
             return base
-        return base or (resource.season if resource else None)
+        # 单季包：文件名 → 目录分量 → resource.season → 季作品自身。
+        return base or (resource.season if resource else None) or work_season
 
     # 逐文件解析 (season, episode)：文件名 SxxExx → 目录分量 → resource.season
     # 回退链（多季包无 resource.season 回退，见上）；解析不出的视频按特典 keep。
@@ -784,36 +796,43 @@ def _plan_batch(
         for covered_key in run_keys:
             covered_episodes[covered_key] = f
 
-    # 覆盖度校验：期望集由 episode_start/end 或 work.seasons 展开，
-    # 「期望集 ⊆ 已解析集」；缺集 → 规划失败，绝不硬猜。两者皆无时回退到
-    # **本地文件清单推导**：全部已解析文件同季 → 期望集 = 该季 min..max
-    # 连续区间（中间缺集仍拒绝）；无法推导才视为无校验依据。
-    # 多季包按季分组逐组校验（见 _check_multi_season_coverage）。
+    # 覆盖度校验（单季包）：期望集来自「这一季作品自身」——资源
+    # episode_start/end → 季作品的 Episode 行 / number_of_episodes →
+    # 本地文件清单推导；「期望集 ⊆ 已解析集」，缺集 → 规划失败，绝不硬猜。
+    # 多季包在终态经权威文件关联按季作品拆分（_plan_same_target_multi_work），
+    # 不会走到这里；无关联的 legacy 快照按季分组、以文件清单区间逐组校验
+    # （v2 快照不再有逐季 seasons 数据可用）。
     if multi_season:
-        _check_multi_season_coverage(resource, work, covered_episodes)
+        _check_multi_season_coverage_from_files(covered_episodes)
     else:
-        expected: set[tuple[int, int]]
+        expected: set[tuple[int, int]] | None = None
         if (
             resource is not None
             and resource.episode_start is not None
             and resource.episode_end is not None
         ):
-            if resource.season is None:
+            season = resource.season if resource.season is not None else work_season
+            if season is None:
                 raise PlanError("合集缺少季号，无法校验覆盖度")
             expected = {
-                (resource.season, e) for e in range(resource.episode_start, resource.episode_end + 1)
+                (season, e) for e in range(resource.episode_start, resource.episode_end + 1)
             }
-        elif work and work.seasons:
-            expected = {
-                (s["season_number"], e)
-                for s in work.seasons
-                for e in range(1, s["episode_count"] + 1)
-            }
-        else:
+        elif work is not None and work_season is not None:
+            ep_rows = [
+                e for e in (work.episodes or []) if e.get("episode") is not None
+            ]
+            if ep_rows:
+                expected = {(work_season, e["episode"]) for e in ep_rows}
+            elif work.number_of_episodes:
+                expected = {
+                    (work_season, e)
+                    for e in range(1, work.number_of_episodes + 1)
+                }
+        if expected is None:
             derived = _derive_expected_from_files(covered_episodes)
             if derived is None:
                 raise PlanError(
-                    "合集缺少集数范围与逐季数据，文件清单亦无法推导，"
+                    "合集缺少集数范围与季作品集数数据，文件清单亦无法推导，"
                     "无法校验覆盖度"
                 )
             expected = derived
@@ -862,58 +881,31 @@ def _derive_expected_from_files(
     return {(season, e) for e in range(min(nums), max(nums) + 1)}
 
 
-def _check_multi_season_coverage(
-    resource: Any,
-    work: Any,
+def _check_multi_season_coverage_from_files(
     episodes: dict[tuple[int, int], DiskFile],
 ) -> None:
-    """多季包按文件解析出的季号分组，逐组做覆盖度校验。
+    """Legacy 多季快照（无权威文件关联）的覆盖度校验：按文件解析出的季号
+    分组，逐组以本地文件清单推导 min..max 连续区间（中间缺集仍拒绝）。
 
-    期望集展开顺序与单季包一致（episode_start/end 优先，回退
-    work.seasons 逐季集数）——但 multi_season scope 下
-    ``resource.episode_start/end`` 恒为 NULL，实际走的是逐季数据。
-
-    某一季拿不到显式依据（episode_start/end 与 work.seasons 皆无）时
-    回退到**本地文件清单推导**（该季 min..max 连续区间，中间缺集仍
-    拒绝）；该季已解析集 <2 无法构成区间时才**只记 warning 跳过该季**
-    的校验，不整个拒绝——多季包边界信息不全（包内可能只含作品的部分
-    季）。拿到期望集的季（显式或推导）保持「缺集拒绝」。
+    v2 快照不再有逐季 seasons 数据；终态的 multi_season 包经
+    file_associations 按季作品拆分后逐作品复用单季校验，不会走到这里。
+    某季已解析集 <2 无法构成区间时只记 warning 跳过该季——多季包边界信息
+    不全（包内可能只含作品的部分季），不整个拒绝。
     """
     by_season: dict[int, set[int]] = {}
     for season, episode in episodes:
         by_season.setdefault(season, set()).add(episode)
 
     for season in sorted(by_season):
-        expected_eps: set[int] | None = None
-        if (
-            resource is not None
-            and resource.episode_start is not None
-            and resource.episode_end is not None
-        ):
-            expected_eps = set(
-                range(resource.episode_start, resource.episode_end + 1)
+        have = sorted(by_season[season])
+        if len(have) < 2:
+            logger.warning(
+                "[organize] 多季包第 %s 季已解析集不足，无法从文件清单推导"
+                "覆盖度区间，跳过该季校验",
+                season,
             )
-        elif work and work.seasons:
-            entry = next(
-                (s for s in work.seasons if s.get("season_number") == season),
-                None,
-            )
-            if entry and entry.get("episode_count"):
-                expected_eps = set(range(1, entry["episode_count"] + 1))
-        if expected_eps is None:
-            have = sorted(by_season[season])
-            if len(have) >= 2:
-                # 文件清单推导：该季 min..max 连续区间（中间缺集仍拒绝）。
-                expected_eps = set(range(have[0], have[-1] + 1))
-            else:
-                logger.warning(
-                    "[organize] 多季包第 %s 季缺少覆盖度校验依据"
-                    "（episode_start/end、逐季数据与文件清单区间皆无），"
-                    "跳过该季校验",
-                    season,
-                )
-                continue
-        missing = sorted(expected_eps - by_season[season])
+            continue
+        missing = sorted(set(range(have[0], have[-1] + 1)) - by_season[season])
         if missing:
             desc = ", ".join(f"e{e:02d}" for e in missing[:5])
             raise PlanError(

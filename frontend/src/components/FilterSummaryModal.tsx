@@ -64,6 +64,7 @@ function buildTempWork(w: FilterSuggestionWork): AgentWork {
     status: null,
     number_of_episodes: null,
     number_of_seasons: null,
+    season_number: null,
     start_date: null,
     end_date: null,
     release_date: null,

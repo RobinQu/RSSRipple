@@ -296,6 +296,12 @@ class ResourceAssociationUpdateRequest(BaseModel):
       all-movie → "movies"; mixed tv+movie or multi-tv → "franchise";
       single tv → "season" when a season is known else "multi_season".
     - Every assignment's (work_type, work_id) must appear in ``works``.
+    - Two-level association (per-season works): when ``collection_id`` is
+      sent, every series work in ``works`` must belong to that collection.
+    - Multi-work packs (>1 work) must be complete: every work has at least
+      one assignment, every media file of the known torrent listing is
+      assigned, and each series work's placements cover its expected episode
+      range (whole-range misses are 422, gaps are warnings).
     """
 
     is_batch: bool

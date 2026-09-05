@@ -1,14 +1,16 @@
 """ORM event hooks keeping the search indexes in sync with work rows.
 
 Two backends, one pair of flush hooks that inspects the session's
-new/dirty/deleted work objects (TVSeries / Movie / AudioWork):
+new/dirty/deleted work objects (TVSeries / Movie / AudioWork /
+WorkCollection):
 
 * **Turso** — enqueue ``fts_outbox`` rows (``upsert``/``delete``) in the
   *same transaction* as the base row. The ``_drain_fts_outbox`` scheduler job
   replays them onto the FTS sidecar shadow tables, so sidecar writes are
   eventually consistent with the main database and never depend on a caller
   remembering to call ``upsert_*_fts``/``delete_*_fts`` (the old scattered
-  call sites were removed).
+  call sites were removed). The sidecar covers the work tables only —
+  WorkCollection changes never enter the outbox.
 
 * **PostgreSQL** — recompute the ``search_text`` column (normalized
   concatenation of every title field) so it stays current for the ``pg_trgm``
@@ -40,23 +42,31 @@ from app.models.audio_work import AudioWork
 from app.models.fts_outbox import FtsOutbox
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 
 logger = logging.getLogger(__name__)
 
 _SEARCH_SYNC_PENDING = "_search_sync_pending"
 _SEARCH_SYNC_DONE = "_search_sync_done"
 
+_SearchTextT = TVSeries | Movie | AudioWork | WorkCollection
 
-def build_search_text(obj: TVSeries | Movie | AudioWork) -> str:
-    """Normalized search haystack for a work row.
+
+def build_search_text(obj: _SearchTextT) -> str:
+    """Normalized search haystack for a work/collection row.
 
     Concatenation of ``title_cn``/``title_en``/``original_title`` and every
-    alias through ``normalize_title`` (NFKC + OpenCC t2s + lowercase). Both
-    the Turso FTS shadow index and the PostgreSQL ``search_text`` column match
-    against this exact representation, so matching semantics stay identical
-    across backends.
+    alias through ``normalize_title`` (NFKC + OpenCC t2s + lowercase).
+    WorkCollection has no ``original_title`` column; everything else shares
+    this exact representation, so matching semantics stay identical across
+    backends and row kinds.
     """
-    parts = [obj.title_cn, obj.title_en, obj.original_title, *(obj.aliases or [])]
+    parts = [
+        obj.title_cn,
+        obj.title_en,
+        getattr(obj, "original_title", None),
+        *(obj.aliases or []),
+    ]
     from app.services.text_normalizer import normalize_title
 
     return " ".join(n for n in (normalize_title(t) for t in parts) if n)
@@ -72,7 +82,7 @@ def _entity_type(obj: object) -> str | None:
     return None
 
 
-def _set_search_text(obj: TVSeries | Movie | AudioWork) -> None:
+def _set_search_text(obj: _SearchTextT) -> None:
     text = build_search_text(obj)
     if getattr(obj, "search_text", None) != text:
         obj.search_text = text
@@ -92,6 +102,10 @@ def _before_flush(session, flush_context, instances) -> None:
     turso = is_turso_url(settings.database_url)
 
     for obj in session.new:
+        if isinstance(obj, WorkCollection):
+            # search_text only — collections never enter the FTS outbox.
+            _set_search_text(obj)
+            continue
         etype = _entity_type(obj)
         if etype is None:
             continue
@@ -99,6 +113,9 @@ def _before_flush(session, flush_context, instances) -> None:
         if turso:
             pending.add(("upsert", obj))
     for obj in session.dirty:
+        if isinstance(obj, WorkCollection):
+            _set_search_text(obj)
+            continue
         etype = _entity_type(obj)
         if etype is None:
             continue

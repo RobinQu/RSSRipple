@@ -147,14 +147,19 @@ async def list_collection_works(
     """Paginated member works of a collection.
 
     Items use the same normalized shape as ``GET /works`` (content_type
-    "tv"/"movie" discriminator, collection fields included), merged from
-    TVSeries + Movie and sorted by ``created_at`` descending.
+    "tv"/"movie" discriminator, collection fields included). Per-season
+    works ordering: season works first, ascending by ``season_number``
+    (specials 0 up front), then movies by ``created_at`` descending.
     """
     collection = await db.get(WorkCollection, collection_id)
     if not collection:
         return _not_found()
-    works: list[dict] = []
-    for model, normalize in ((TVSeries, _normalize_series), (Movie, _normalize_movie)):
+    series_items: list[dict] = []
+    movie_items: list[dict] = []
+    for model, normalize, sink in (
+        (TVSeries, _normalize_series, series_items),
+        (Movie, _normalize_movie, movie_items),
+    ):
         q = (
             select(model)
             .options(selectinload(model.collection))
@@ -162,8 +167,11 @@ async def list_collection_works(
             .order_by(model.created_at.desc())
         )
         result = await db.execute(q)
-        works.extend(normalize(w) for w in result.scalars().all())
-    works.sort(key=lambda w: w["created_at"] or "", reverse=True)
+        sink.extend(normalize(w) for w in result.scalars().all())
+    series_items.sort(
+        key=lambda w: (w.get("season_number") or 0, w["created_at"] or "")
+    )
+    works = [*series_items, *movie_items]
     total = len(works)
     offset = (page - 1) * page_size
     return paginated_response(

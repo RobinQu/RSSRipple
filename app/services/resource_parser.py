@@ -87,6 +87,18 @@ def strip_season_from_title(title: str | None) -> str | None:
     return stripped or title
 
 
+def season_from_title(title: str | None) -> int | None:
+    """Season number carried by a work title (``第N季`` / ``Season N`` /
+    ``N th Season`` / ``S04``), or None when the title has no season marker.
+
+    Counterpart of :func:`strip_season_from_title`; used by the per-season
+    upsert to pin the target season from a matched entity's titles.
+    """
+    if not title:
+        return None
+    return _season_marker(title.strip())
+
+
 def parse_entry(entry: dict, field_mapping: dict | None, description: str | None = None) -> dict:
     """Parse a feedparser entry into FileResource fields.
 

@@ -589,3 +589,141 @@ async def test_merge_series_inherits_collection_when_survivor_has_none(db_sessio
     survivor = (await db_session.execute(select(TVSeries))).scalars().one()
     assert survivor.id == s1.id
     assert survivor.collection_id == coll_id
+
+
+# ---------------------------------------------------------------------------
+# Batch 4: per-season works (作品单季化)
+# ---------------------------------------------------------------------------
+
+
+async def test_merge_duplicate_series_isolated_by_season_number(db_session):
+    """Same title on different season works must never cluster (per-season
+    works: 不同季标题再像也不合并); same-season duplicates still merge."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="bangumi:111", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0,
+    )
+    s1.season_number = 1
+    s1_dup = await _make_series(
+        db_session, external_id="bangumi:112", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=1),
+    )
+    s1_dup.season_number = 1
+    s2 = await _make_series(
+        db_session, external_id="bangumi:501963", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=2),
+    )
+    s2.season_number = 2
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    from sqlalchemy import select
+    remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+    assert sorted(s.season_number for s in remaining) == [1, 2]
+    assert {s.id for s in remaining} == {s1.id, s2.id}  # oldest survives
+
+
+async def test_merge_duplicate_series_legacy_rows_cluster_together(db_session):
+    """Legacy unsplit series-level rows (multi-season evidence in the inert
+    columns) cluster among themselves, never into a per-season row."""
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    legacy1 = await _make_series(
+        db_session, external_id="tmdb:82684", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0,
+    )
+    legacy1.seasons = [
+        {"season_number": 1, "episode_count": 23},
+        {"season_number": 2, "episode_count": 24},
+    ]
+    legacy2 = await _make_series(
+        db_session, external_id="tmdb:82684", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=1),
+    )
+    legacy2.number_of_seasons = 3
+    per_season = await _make_series(
+        db_session, external_id="bangumi:501963", title_cn="无职转生",
+        title_en="Mushoku Tensei", created_at=t0 + timedelta(minutes=2),
+    )
+    per_season.season_number = 3
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.series_groups == 1
+    assert report.series_removed == 1
+    from sqlalchemy import select
+    remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+    assert len(remaining) == 2
+    assert legacy1.id in {s.id for s in remaining}
+    assert per_season.id in {s.id for s in remaining}
+
+
+async def test_merge_series_repoints_work_links_and_assignments(
+    db_session, channel
+):
+    """ResourceWorkLink / ResourceFileAssignment follow the survivor instead
+    of being silently CASCADE-deleted with the duplicate; unique-key
+    collisions collapse with manual provenance preserved."""
+    from sqlalchemy import select
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    s1 = await _make_series(
+        db_session, external_id="TMDB:82684", title_cn="剧A",
+        title_en="Show A", created_at=t0,
+    )
+    s2 = await _make_series(
+        db_session, external_id="TMDB 82684", title_cn="剧A",
+        title_en="Show A", created_at=t0 + timedelta(minutes=1),
+    )
+    res1 = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="pack-1", title_raw="raw",
+        torrent_url="magnet:?xt=1", is_batch=True, batch_scope="multi_season",
+    )
+    res2 = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="pack-2", title_raw="raw",
+        torrent_url="magnet:?xt=2", is_batch=True, batch_scope="multi_season",
+    )
+    db_session.add_all([res1, res2])
+    await db_session.flush()
+    # res1 links BOTH works (collision on uq_resource_link_series after
+    # re-point); the dup's link is manual and must win.
+    db_session.add_all([
+        ResourceWorkLink(
+            id=_uuid(), resource_id=res1.id, series_id=s1.id, source="auto",
+        ),
+        ResourceWorkLink(
+            id=_uuid(), resource_id=res1.id, series_id=s2.id, source="manual",
+        ),
+        ResourceWorkLink(
+            id=_uuid(), resource_id=res2.id, series_id=s2.id, source="llm",
+        ),
+        ResourceFileAssignment(
+            id=_uuid(), resource_id=res2.id, file_path="ShowA/E01.mkv",
+            series_id=s2.id, season=1, episode_start=1, episode_end=1,
+            source="manual",
+        ),
+    ])
+    await db_session.flush()
+
+    report = await dedup.merge_duplicate_series(db_session)
+    await db_session.flush()
+
+    assert report.work_links_updated == 1  # res2's link re-pointed
+    assert report.file_assignments_updated == 1
+    links = (await db_session.execute(select(ResourceWorkLink))).scalars().all()
+    assert len(links) == 2
+    by_resource = {link.resource_id: link for link in links}
+    assert by_resource[res1.id].series_id == s1.id
+    assert by_resource[res1.id].source == "manual"  # manual provenance kept
+    assert by_resource[res2.id].series_id == s1.id
+    assignment = (await db_session.execute(
+        select(ResourceFileAssignment)
+    )).scalar_one()
+    assert assignment.series_id == s1.id
+    assert assignment.season == 1

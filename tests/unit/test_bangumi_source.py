@@ -116,6 +116,34 @@ def test_autolink_subject_requires_unique_match():
     assert mb._autolink_subject(cands, ["无职转生"], 2024) is None
 
 
+def _otome_subjects():
+    s1 = {
+        "id": 359980, "name": "乙女ゲー世界はモブに厳しい世界です",
+        "name_cn": "女性向遊戲世界對路人角色很不友好", "date": "2022-04-03",
+    }
+    s2 = {
+        "id": 412144, "name": "乙女ゲー世界はモブに厳しい世界です2",
+        "name_cn": "恋爱游戏世界对路人角色很不友好 第二季", "date": "2026-07-08",
+    }
+    return s1, s2
+
+
+def test_autolink_subject_season_aware():
+    s1, s2 = _otome_subjects()
+    queries = ["女性向遊戲世界對路人角色很不友好", "恋爱游戏世界对路人角色很不友好"]
+    # No season context: the base-named entry auto-links (unchanged behavior).
+    assert mb._autolink_subject([s1, s2], queries, None)["id"] == 359980
+    # Season > 1: the base-named (season-1) entry must never auto-link; the
+    # unique candidate carrying the same season marker + base title wins.
+    assert mb._autolink_subject([s1, s2], queries, None, 2)["id"] == 412144
+    # No season-marked candidate → no auto-link; the LLM judge decides.
+    assert mb._autolink_subject([s1], queries, None, 2) is None
+    # Season 1 keeps the base-name behavior.
+    assert mb._autolink_subject([s1, s2], queries, None, 1)["id"] == 359980
+    # Year guard still applies on the season path.
+    assert mb._autolink_subject([s1, s2], queries, 2020, 2) is None
+
+
 # ---------------------------------------------------------------------------
 # metadata_bangumi — full flow (network + LLM mocked)
 # ---------------------------------------------------------------------------
@@ -167,6 +195,61 @@ async def test_run_bangumi_autolink_builds_entity():
     assert "seasons" not in me
     assert "number_of_seasons" not in me
     assert me["single_season_entry"] is True
+
+
+async def test_run_bangumi_autolink_respects_resource_season():
+    """A season-2 resource must auto-link the season-2 subject, not the
+    base-named season-1 entry (a Bangumi subject IS one season)."""
+    s1, s2 = _otome_subjects()
+    resource = SimpleNamespace(
+        search_title="恋爱游戏世界对路人角色很不友好 第二季",
+        title_cn=None, title_en=None, season=2, episode=9, title_year=None,
+    )
+    with (
+        patch.object(mb, "search_subjects", AsyncMock(return_value=[s1, s2])),
+        patch.object(mb, "get_subject", AsyncMock(return_value=s2)),
+        patch.object(
+            mb, "get_subject_episodes",
+            AsyncMock(return_value=[{"sort": i, "name_cn": f"第{i}话"} for i in range(1, 13)]),
+        ),
+        patch.object(mb, "bangumi_configured", return_value=True),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            AsyncMock(), "[G] 恋爱游戏世界对路人角色很不友好 第二季 - 09 [1080p]",
+            resource=resource,
+        )
+    assert info["method"] == "bangumi_search_then_autolink"
+    me = finalize["matched_entity"]
+    assert me["external_id"] == "bangumi:412144"
+    assert me["start_date"] == "2026-07-08"
+    assert me["episode_list"][0]["season"] == 2
+
+
+async def test_run_bangumi_season2_never_autolinks_base_entry():
+    """Only the base-named season-1 subject in the candidate set → the judge
+    (which receives the season hint) must decide, not the auto-link."""
+    s1, _s2 = _otome_subjects()
+    judge_json = (
+        '{"found": false, "clean_title": "恋爱游戏世界对路人角色很不友好",'
+        ' "content_type": "tv", "reason": "no season 2 entry"}'
+    )
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=SimpleNamespace(content=judge_json))
+    resource = SimpleNamespace(
+        search_title="恋爱游戏世界对路人角色很不友好 第二季",
+        title_cn=None, title_en=None, season=2, episode=9, title_year=None,
+    )
+    with (
+        patch.object(mb, "search_subjects", AsyncMock(return_value=[s1])),
+        patch.object(mb, "bangumi_configured", return_value=True),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            model, "[G] 恋爱游戏世界对路人角色很不友好 第二季 - 09",
+            resource=resource,
+        )
+    assert info["method"] == "bangumi_search_then_judge"
+    assert finalize["found"] is False
+    model.ainvoke.assert_awaited_once()
 
 
 async def test_run_bangumi_movie_platform_maps_to_movie():

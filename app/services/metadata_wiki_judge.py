@@ -36,6 +36,7 @@ from app.services.wikipedia_episode_parser import (
     has_animanga_film_infobox,
     has_tvanime_infobox,
     parse_episode_list,
+    parse_season_air_dates,
     parse_seasons_from_infobox,
 )
 
@@ -50,8 +51,10 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
     runs the deterministic parser; on total parse failure, retries ONCE via
     the zh<->ja langlink (episode sections often live on only one side).
     Merges ``seasons`` / ``number_of_seasons`` / ``number_of_episodes`` and
-    the new ``episode_list`` key, and derives ``start_date`` from the
-    earliest episode ``air_date`` when the entity has none (the series
+    the new ``episode_list`` key, overlays per-season broadcast dates from
+    the infobox (播放開始/放送開始 …) onto the seasons entries
+    (``air_date``/``end_date``), and derives ``start_date`` from the
+    earliest episode or season air date when the entity has none (the series
     upsert only reads ``start_date``). Also marks ``is_anime`` when the page
     carries an animanga infobox block (``TVAnime`` for TV works,
     ``Movie|Film|OVA`` for theatrical works — deterministic anime signals,
@@ -93,21 +96,39 @@ async def _attach_wikipedia_content(me: dict, page: dict) -> None:
         me["seasons"] = seasons
         me["number_of_seasons"] = len(seasons)
         me["number_of_episodes"] = sum(s["episode_count"] for s in seasons)
+    # Per-season broadcast dates from the infobox (播放開始/放送開始 …) —
+    # overlaid onto the seasons entries as ``air_date``/``end_date``, which
+    # is exactly what the upsert's ``_work_start_date``/``_work_end_date``
+    # read for per-season works.
+    air_dates = parse_season_air_dates(wikitext) if wikitext else None
+    if seasons and air_dates:
+        for s in seasons:
+            d = air_dates.get(s.get("season_number"))
+            if d:
+                if d.get("air_date"):
+                    s["air_date"] = d["air_date"]
+                if d.get("end_date"):
+                    s["end_date"] = d["end_date"]
     episodes = (list_data or {}).get("episodes")
     if episodes:
         me["episode_list"] = episodes
     if not me.get("start_date"):
         # The series upsert only reads ``start_date`` and no wikipedia step
-        # produces it - derive it from the earliest episode air date so the
-        # work gets a release year. Cached entities carry episode_list, so
-        # this also covers cache-hit replays of the same finalize payload.
-        air_dates = sorted(
+        # produces it - derive it from the earliest episode air date, else
+        # the earliest season broadcast date, so the work gets a release
+        # year. Cached entities carry episode_list/seasons, so this also
+        # covers cache-hit replays of the same finalize payload.
+        date_pool = sorted(
             ep["air_date"]
             for ep in (me.get("episode_list") or [])
             if ep.get("air_date")
+        ) or sorted(
+            s["air_date"]
+            for s in (me.get("seasons") or [])
+            if isinstance(s, dict) and s.get("air_date")
         )
-        if air_dates:
-            me["start_date"] = air_dates[0]
+        if date_pool:
+            me["start_date"] = date_pool[0]
     logger.info(
         "[metadata_agent] wikipedia content for %r: %s seasons, %d episodes",
         title, len(seasons or []), len(episodes or []),

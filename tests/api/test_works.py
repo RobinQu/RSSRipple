@@ -114,3 +114,138 @@ class TestWorksListCollectionFilter:
         assert ids == {free_series.id}
         assert grouped_series.id not in ids and grouped_movie.id not in ids
         assert audio.id not in ids
+
+
+class TestWorksMerge:
+    """POST /works/merge — manual same-season merge entry (per-season works)."""
+
+    async def _make_series(
+        self, db_session, *, title="无职转生", season_number=1, created_at=None
+    ):
+        s = TVSeries(
+            id=_uuid(), title_cn=title, title_en="Mushoku Tensei",
+            content_type="tv", season_number=season_number,
+        )
+        if created_at is not None:
+            s.created_at = created_at
+        db_session.add(s)
+        await db_session.commit()
+        return s
+
+    async def test_merge_requires_confirm(self, client, db_session):
+        s1 = await self._make_series(db_session)
+        s2 = await self._make_series(db_session)
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": s1.id,
+                "duplicate_ids": [s2.id],
+            },
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        # Nothing merged.
+        from sqlalchemy import select
+
+        remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+        assert len(remaining) == 2
+
+    async def test_merge_rejects_cross_season(self, client, db_session):
+        s1 = await self._make_series(db_session, season_number=1)
+        s3 = await self._make_series(db_session, season_number=3)
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": s1.id,
+                "duplicate_ids": [s3.id],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 422
+        assert "同季" in res.json()["error"]["message"]
+
+    async def test_merge_unknown_work_404(self, client, db_session):
+        s1 = await self._make_series(db_session)
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": s1.id,
+                "duplicate_ids": [_uuid()],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
+
+    async def test_merge_survivor_in_duplicates_rejected(self, client, db_session):
+        s1 = await self._make_series(db_session)
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": s1.id,
+                "duplicate_ids": [s1.id],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 422
+
+    async def test_merge_series_success_repoints_children(
+        self, client, db_session, sample_channel
+    ):
+        from sqlalchemy import select
+
+        from app.models.file_resource import FileResource
+
+        s1 = await self._make_series(db_session, title="无职转生 第三季")
+        s2 = await self._make_series(db_session, title="无职转生 第三季")
+        res_row = FileResource(
+            id=_uuid(), channel_id=sample_channel.id, guid="g-merge",
+            title_raw="raw", torrent_url="magnet:?xt=1", series_id=s2.id,
+        )
+        db_session.add(res_row)
+        await db_session.commit()
+
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": s1.id,
+                "duplicate_ids": [s2.id],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        data = res.json()["data"]
+        assert data["survivor_id"] == s1.id
+        assert data["merged"] == 1
+        assert data["file_resources_updated"] == 1
+
+        remaining = (await db_session.execute(select(TVSeries))).scalars().all()
+        assert [s.id for s in remaining] == [s1.id]
+        await db_session.refresh(res_row)
+        assert res_row.series_id == s1.id
+
+    async def test_merge_movies_success(self, client, db_session):
+        from sqlalchemy import select
+
+        m1 = Movie(id=_uuid(), title_cn="攻壳机动队", content_type="movie")
+        m2 = Movie(id=_uuid(), title_cn="攻壳机动队", content_type="movie")
+        db_session.add_all([m1, m2])
+        await db_session.commit()
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "movie",
+                "survivor_id": m2.id,  # explicit survivor wins over age order
+                "duplicate_ids": [m1.id],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 200, res.text[:500]
+        assert res.json()["data"]["survivor_id"] == m2.id
+        remaining = (await db_session.execute(select(Movie))).scalars().all()
+        assert [m.id for m in remaining] == [m2.id]

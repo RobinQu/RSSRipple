@@ -148,10 +148,12 @@ async def _apply_backfill(
                 # to avoid async lazy loads during evaluation. The work's
                 # collection feeds series.collection / movie.collection; the
                 # resource's own collection feeds the resource-level
-                # ``collection`` field (franchise packs).
+                # ``collection`` field (franchise packs); work_links carry the
+                # works of links-only multi-season packs (per-season works).
                 selectinload(FileResource.series).selectinload(TVSeries.collection),
                 selectinload(FileResource.movie).selectinload(Movie.collection),
                 selectinload(FileResource.collection),
+                selectinload(FileResource.work_links),
             )
         )).scalars().all()
         if rows:
@@ -303,6 +305,58 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)):
     return success_response(AgentResponse.model_validate(agent).model_dump())
 
 
+async def _annotate_latest_completed(db: AsyncSession, works: list[dict]) -> None:
+    """Fill ``latest_completed_season``/``latest_completed_episode`` on
+    serialized AgentWork dicts (in place).
+
+    Per-season works: a subscription targets one season work, but "library
+    progress" is a series-level concept — aggregate across the work's
+    collection siblings so the tag keeps reflecting the whole series
+    (pre-split semantics). Resource season falls back to the work's own
+    season_number.
+    """
+    series_ids = [w["series_id"] for w in works if w.get("series_id")]
+    if not series_ids:
+        return
+    from app.models.download_task import DownloadTask
+
+    coll_rows = (await db.execute(
+        select(TVSeries.id, TVSeries.collection_id).where(TVSeries.id.in_(series_ids))
+    )).all()
+    coll_by_series = {sid: cid for sid, cid in coll_rows}
+    coll_ids = {cid for _, cid in coll_rows if cid}
+    rows = []
+    if coll_ids:
+        rows = (await db.execute(
+            select(
+                TVSeries.collection_id,
+                func.coalesce(FileResource.season, TVSeries.season_number),
+                FileResource.episode,
+            )
+            .join(DownloadTask, DownloadTask.file_resource_id == FileResource.id)
+            .join(TVSeries, FileResource.series_id == TVSeries.id)
+            .where(
+                TVSeries.collection_id.in_(coll_ids),
+                FileResource.is_batch.is_(False),
+                FileResource.episode.isnot(None),
+                # Organization with ``move`` changes the status to cancelled;
+                # completed_at remains the durable completion evidence.
+                DownloadTask.completed_at.isnot(None),
+            )
+        )).all()
+    latest: dict[str, tuple[int, int]] = {}
+    for cid, season, ep in rows:
+        key = (season or 0, ep)
+        if cid not in latest or key > latest[cid]:
+            latest[cid] = key
+    for w in works:
+        cid = coll_by_series.get(w.get("series_id"))
+        if cid and cid in latest:
+            season_key, w["latest_completed_episode"] = latest[cid]
+            # season_key is (season or 0); store back None when unset.
+            w["latest_completed_season"] = season_key or None
+
+
 @router.get("/agents/{agent_id}")
 async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     agent = (await db.execute(
@@ -318,32 +372,7 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
 
     # Latest completed download position per subscribed TV series (across all
     # agents' tasks — it reflects the library's progress on that series).
-    series_ids = [w.series_id for w in agent.works if w.series_id]
-    if series_ids:
-        from app.models.download_task import DownloadTask
-        rows = (await db.execute(
-            select(FileResource.series_id, FileResource.season, FileResource.episode)
-            .join(DownloadTask, DownloadTask.file_resource_id == FileResource.id)
-            .where(
-                FileResource.series_id.in_(series_ids),
-                FileResource.is_batch.is_(False),
-                FileResource.episode.isnot(None),
-                # Organization with ``move`` changes the status to cancelled;
-                # completed_at remains the durable completion evidence.
-                DownloadTask.completed_at.isnot(None),
-            )
-        )).all()
-        latest: dict[str, tuple[int, int]] = {}
-        for sid, season, ep in rows:
-            key = (season or 0, ep)
-            if sid not in latest or key > latest[sid]:
-                latest[sid] = key
-        for w in resp["works"]:
-            sid = w.get("series_id")
-            if sid and sid in latest:
-                season_key, w["latest_completed_episode"] = latest[sid]
-                # season_key is (season or 0); store back None when unset.
-                w["latest_completed_season"] = season_key or None
+    await _annotate_latest_completed(db, resp["works"])
     return success_response(resp)
 
 
@@ -726,10 +755,12 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
         select(FileResource).where(FileResource.channel_id == channel_id).options(
             # Work-namespaced DSL fields (movie.rating, series.collection …)
             # resolve via these; the resource-level ``collection`` field
-            # (franchise packs) via the resource's own collection relation.
+            # (franchise packs) via the resource's own collection relation;
+            # work_links carry the works of links-only multi-season packs.
             selectinload(FileResource.series).selectinload(TVSeries.collection),
             selectinload(FileResource.movie).selectinload(Movie.collection),
             selectinload(FileResource.collection),
+            selectinload(FileResource.work_links),
         )
     )).scalars().all()
     diff = await compute_rule_diff(old, new, list(resources), db)
@@ -767,9 +798,11 @@ async def list_works(agent_id: str, db: AsyncSession = Depends(get_db)):
         .options(selectinload(AgentWork.series), selectinload(AgentWork.movie))
     )
     works = res.scalars().all()
-    return success_response([
-        AgentWorkResponse.model_validate(w).model_dump() for w in works
-    ])
+    payload = [AgentWorkResponse.model_validate(w).model_dump() for w in works]
+    # Same latest-completed annotation as GET /agents/{id} — the works tab
+    # loads through this endpoint and must not lose the progress tags.
+    await _annotate_latest_completed(db, payload)
+    return success_response(payload)
 
 
 @router.post("/agents/{agent_id}/works", status_code=201)

@@ -8,7 +8,8 @@ across successive fetches (e.g. ``TMDB:82684``, ``TMDB 82684``,
 ``external_id`` string, so every new shape spawned a new TVSeries entity for
 the same real work. This module merges those duplicate rows into a canonical
 survivor and re-points all references (FileResource / ChannelRawTitleMapping /
-AgentWork / PendingDecision / Episode) at the survivor.
+AgentWork / PendingDecision / Episode / ResourceWorkLink /
+ResourceFileAssignment) at the survivor.
 
 Grouping key: ``(normalized_title_cn, normalized_title_en)`` — both compared
 after ``normalize_title`` so trad/simp Chinese and half/full-width variants
@@ -38,10 +39,101 @@ from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.external_ids import merge_external_id_bags
+from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
 from app.services.metadata_service import canonicalize_external_id
 from app.services.text_normalizer import normalize_title
 
 logger = logging.getLogger(__name__)
+
+
+async def _repoint_enrichment_rows(
+    db: AsyncSession,
+    *,
+    src_series_ids: Iterable[str] = (),
+    src_movie_ids: Iterable[str] = (),
+    dst_series_id: str | None = None,
+    dst_movie_id: str | None = None,
+) -> tuple[int, int]:
+    """Re-point ``resource_work_links`` / ``resource_file_assignments`` rows
+    from merged-away works onto the survivor.
+
+    Without this, deleting a duplicate work would silently drop its enrichment
+    rows via the FK CASCADE — losing human-curated (``manual``) file mappings.
+
+    Unique-key collisions collapse instead of erroring: a link whose
+    ``(resource_id, target)`` pair already exists is dropped, and an
+    assignment whose ``(resource_id, file_path)`` row already exists is
+    dropped likewise; ``manual`` provenance is preserved onto the surviving
+    row. Cross-type re-points onto a movie clear the TV placement fields
+    (mirroring :func:`rehome_series_as_movie`).
+
+    Returns ``(links_repointed, assignments_repointed)``.
+    """
+    assert (dst_series_id is None) != (dst_movie_id is None)
+    dst_id = dst_series_id or dst_movie_id
+    links_repointed = 0
+    for column, ids in (
+        (ResourceWorkLink.series_id, list(src_series_ids)),
+        (ResourceWorkLink.movie_id, list(src_movie_ids)),
+    ):
+        if not ids:
+            continue
+        for link in (await db.execute(
+            select(ResourceWorkLink).where(column.in_(ids))
+        )).scalars().all():
+            dst_column = (
+                ResourceWorkLink.series_id if dst_series_id
+                else ResourceWorkLink.movie_id
+            )
+            existing = (await db.execute(
+                select(ResourceWorkLink).where(
+                    ResourceWorkLink.resource_id == link.resource_id,
+                    dst_column == dst_id,
+                )
+            )).scalars().first()
+            if existing is not None:
+                if link.source == "manual":
+                    existing.source = "manual"
+                await db.delete(link)
+            else:
+                link.series_id = dst_series_id
+                link.movie_id = dst_movie_id
+                links_repointed += 1
+
+    assignments_repointed = 0
+    for column, ids in (
+        (ResourceFileAssignment.series_id, list(src_series_ids)),
+        (ResourceFileAssignment.movie_id, list(src_movie_ids)),
+    ):
+        if not ids:
+            continue
+        for row in (await db.execute(
+            select(ResourceFileAssignment).where(column.in_(ids))
+        )).scalars().all():
+            # uq (resource_id, file_path): a pre-existing row for the same
+            # file wins; manual provenance transfers onto it.
+            existing = (await db.execute(
+                select(ResourceFileAssignment).where(
+                    ResourceFileAssignment.resource_id == row.resource_id,
+                    ResourceFileAssignment.file_path == row.file_path,
+                    ResourceFileAssignment.id != row.id,
+                )
+            )).scalars().first()
+            if existing is not None:
+                if row.source == "manual":
+                    existing.source = "manual"
+                await db.delete(row)
+                continue
+            row.series_id = dst_series_id
+            row.movie_id = dst_movie_id
+            if dst_movie_id is not None and column is ResourceFileAssignment.series_id:
+                # Cross-type (series → movie): TV placement fields are
+                # meaningless on a movie assignment.
+                row.season = None
+                row.episode_start = None
+                row.episode_end = None
+            assignments_repointed += 1
+    return links_repointed, assignments_repointed
 
 
 async def rehome_series_as_movie(
@@ -54,37 +146,10 @@ async def rehome_series_as_movie(
     episode evidence) is deliberately checked by the caller, while this
     function owns the canonical reference migration and identity-bag merge.
     """
-    # Multi-work links have a per-target uniqueness constraint.  Collapse a
-    # pre-existing movie link instead of converting the series row into a
-    # duplicate (manual provenance wins when either side is manual).
-    links = (await db.execute(
-        select(ResourceWorkLink).where(ResourceWorkLink.series_id == series.id)
-    )).scalars().all()
-    for link in links:
-        existing = (await db.execute(
-            select(ResourceWorkLink).where(
-                ResourceWorkLink.resource_id == link.resource_id,
-                ResourceWorkLink.movie_id == movie.id,
-            )
-        )).scalars().first()
-        if existing is not None:
-            if link.source == "manual":
-                existing.source = "manual"
-            await db.delete(link)
-        else:
-            link.series_id = None
-            link.movie_id = movie.id
-
-    await db.execute(
-        update(ResourceFileAssignment)
-        .where(ResourceFileAssignment.series_id == series.id)
-        .values(
-            series_id=None,
-            movie_id=movie.id,
-            season=None,
-            episode_start=None,
-            episode_end=None,
-        )
+    # Multi-work links / per-file assignments follow the work, collapsing
+    # per-target / per-file uniqueness collisions (manual provenance wins).
+    await _repoint_enrichment_rows(
+        db, src_series_ids=[series.id], dst_movie_id=movie.id
     )
     await db.execute(
         update(FileResource)
@@ -128,6 +193,8 @@ class DedupReport:
     mappings_updated: int = 0
     pending_decisions_updated: int = 0
     episodes_updated: int = 0
+    work_links_updated: int = 0
+    file_assignments_updated: int = 0
     notes: list[str] = field(default_factory=list)
 
 
@@ -194,21 +261,42 @@ class _UnionFind:
         return result
 
 
-def _cluster_by_shared_title(entities: list) -> list[list]:
+def _cluster_by_shared_title(entities: list, bucket_of=None) -> list[list]:
     """Group ``entities`` so that any two sharing a normalized title end up in
-    the same cluster."""
+    the same cluster.
+
+    ``bucket_of`` optionally maps an entity to a cluster-isolation key: two
+    entities only ever union when they share a title key AND land in the same
+    bucket. Per-season works use this to keep different seasons of one IP
+    apart no matter how alike their titles/aliases are.
+    """
     uf = _UnionFind()
-    keyed: dict[str, list[str]] = {}
+    keyed: dict[tuple, list[str]] = {}
     id_to_entity = {e.id: e for e in entities}
     for e in entities:
         uf.add(e.id)
+        bucket = bucket_of(e) if bucket_of is not None else None
         for k in _title_keys(e):
-            keyed.setdefault(k, []).append(e.id)
+            keyed.setdefault((bucket, k), []).append(e.id)
     for ids in keyed.values():
         first = ids[0]
         for other in ids[1:]:
             uf.union(first, other)
     return [[id_to_entity[i] for i in ids] for ids in uf.groups().values()]
+
+
+def _series_cluster_bucket(series: TVSeries) -> tuple:
+    """Cluster-isolation key for per-season works.
+
+    Only works representing the SAME season may cluster (different seasons of
+    one IP inevitably share normalized titles/aliases yet must never merge).
+    Legacy unsplit series-level rows (pre-migration, multi-season evidence in
+    the inert ``seasons``/``number_of_seasons`` columns) cluster only among
+    themselves — never bridged into a per-season row.
+    """
+    if is_unsplit_legacy_series(series):
+        return ("legacy",)
+    return ("season", series.season_number if series.season_number is not None else 1)
 
 
 def _pick_canonical_external_id(candidates: Iterable[TVSeries | Movie]) -> str | None:
@@ -321,14 +409,28 @@ async def _repoint_series_children(
             n += 1
     report.episodes_updated += n
 
+    # Multi-work links / per-file assignments follow the survivor (their FKs
+    # CASCADE on work deletion — without re-pointing, manual mappings would be
+    # silently lost).
+    links_n, assignments_n = await _repoint_enrichment_rows(
+        db, src_series_ids=dup_ids, dst_series_id=survivor_id
+    )
+    report.work_links_updated += links_n
+    report.file_assignments_updated += assignments_n
+
 
 async def _merge_series_group(
-    db: AsyncSession, rows: list[TVSeries], report: DedupReport
+    db: AsyncSession,
+    rows: list[TVSeries],
+    report: DedupReport,
+    survivor: TVSeries | None = None,
 ) -> None:
     if len(rows) < 2:
         return
-    rows.sort(key=lambda r: (r.created_at, r.id))
-    survivor, *duplicates = rows
+    if survivor is None:
+        rows.sort(key=lambda r: (r.created_at, r.id))
+        survivor = rows[0]
+    duplicates = [r for r in rows if r.id != survivor.id]
     dup_ids = [d.id for d in duplicates]
 
     # Point child rows at survivor (collision-safe)
@@ -436,14 +538,26 @@ async def _repoint_movie_children(
             n += 1
     report.pending_decisions_updated += n
 
+    # See _repoint_series_children: links/assignments must follow the survivor.
+    links_n, assignments_n = await _repoint_enrichment_rows(
+        db, src_movie_ids=dup_ids, dst_movie_id=survivor_id
+    )
+    report.work_links_updated += links_n
+    report.file_assignments_updated += assignments_n
+
 
 async def _merge_movie_group(
-    db: AsyncSession, rows: list[Movie], report: DedupReport
+    db: AsyncSession,
+    rows: list[Movie],
+    report: DedupReport,
+    survivor: Movie | None = None,
 ) -> None:
     if len(rows) < 2:
         return
-    rows.sort(key=lambda r: (r.created_at, r.id))
-    survivor, *duplicates = rows
+    if survivor is None:
+        rows.sort(key=lambda r: (r.created_at, r.id))
+        survivor = rows[0]
+    duplicates = [r for r in rows if r.id != survivor.id]
     dup_ids = [d.id for d in duplicates]
 
     await _repoint_movie_children(db, dup_ids, survivor.id, report)
@@ -489,12 +603,19 @@ async def _merge_movie_group(
 
 
 async def merge_duplicate_series(db: AsyncSession, report: DedupReport | None = None) -> DedupReport:
-    """Merge TVSeries rows that share any normalized title."""
+    """Merge TVSeries rows that share any normalized title.
+
+    Per-season works (作品单季化): clustering is isolated by
+    ``season_number`` — different seasons of one IP share titles/aliases yet
+    must never merge; legacy unsplit series-level rows only cluster among
+    themselves. The year guard (remakes/reboots) still applies within a
+    cluster.
+    """
     report = report or DedupReport()
     all_series = list((await db.execute(select(TVSeries))).scalars().all())
     # Only cluster entities that carry at least one usable title
     keyed = [s for s in all_series if _title_keys(s)]
-    for group in _cluster_by_shared_title(keyed):
+    for group in _cluster_by_shared_title(keyed, bucket_of=_series_cluster_bucket):
         if len(group) > 1:
             if _year_conflict([g.start_date for g in group]):
                 report.notes.append(
@@ -636,6 +757,11 @@ async def merge_cross_type_duplicates(
                     .values(series_id=series.id, movie_id=None)
                 )).rowcount or 0
                 report.pending_decisions_updated += n
+                links_n, assignments_n = await _repoint_enrichment_rows(
+                    db, src_movie_ids=[movie.id], dst_series_id=series.id
+                )
+                report.work_links_updated += links_n
+                report.file_assignments_updated += assignments_n
 
                 series.aliases = _merge_aliases([series, movie])
                 for attr in ("title_cn", "title_en", "original_title"):
@@ -687,6 +813,11 @@ async def merge_cross_type_duplicates(
                     .values(movie_id=movie.id, series_id=None)
                 )).rowcount or 0
                 report.pending_decisions_updated += n
+                links_n, assignments_n = await _repoint_enrichment_rows(
+                    db, src_series_ids=[series.id], dst_movie_id=movie.id
+                )
+                report.work_links_updated += links_n
+                report.file_assignments_updated += assignments_n
 
                 movie.aliases = _merge_aliases([movie, series])
                 for attr in ("title_cn", "title_en", "original_title"):

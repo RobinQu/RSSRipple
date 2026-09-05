@@ -4,6 +4,7 @@ cache round-trip, seasons override + Episode upsert (metadata_service)."""
 from __future__ import annotations
 
 import pathlib
+import uuid
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy import select
 
 import app.services.metadata_wiki_judge as judge
 from app.models.episode import Episode
+from app.models.series import TVSeries
 from app.services import metadata_service as ms
 from app.services.metadata_resource_meta import ResourceMetadata
 
@@ -75,6 +77,25 @@ async def test_attach_total_failure_leaves_entity_untouched(monkeypatch):
     me = {"external_id": "wikipedia:9"}
     await judge._attach_wikipedia_content(me, {"title": "X", "lang": "zh"})
     assert me == {"external_id": "wikipedia:9"}
+
+
+async def test_attach_overlays_infobox_air_dates(monkeypatch):
+    """Infobox broadcast dates (播放開始/播放結束) overlay onto the seasons
+    entries as air_date/end_date and seed the entity start_date."""
+    wt = ("{{Infobox animanga/TVAnime\n"
+          "| 集數 = 第一季：全14話 <br />第二季：全12話\n"
+          "| 播放開始 = 第一季：2019年10月2日－12月25日<br />第二季：2020年4月5日－6月21日\n"
+          "}}")
+    monkeypatch.setattr(
+        judge, "fetch_wikipedia_wikitext", AsyncMock(return_value=wt)
+    )
+    me = {}
+    await judge._attach_wikipedia_content(me, {"title": "小書痴的下剋上", "lang": "zh"})
+    assert me["seasons"] == [
+        {"season_number": 1, "episode_count": 14, "air_date": "2019-10-02", "end_date": "2019-12-25"},
+        {"season_number": 2, "episode_count": 12, "air_date": "2020-04-05", "end_date": "2020-06-21"},
+    ]
+    assert me["start_date"] == "2019-10-02"
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +222,14 @@ async def test_series_upsert_populates_and_updates_episodes(db_session):
     assert len(rows) == 2
     assert rows[0].title == "甲"
     assert str(rows[0].air_date) == "2024-01-01"
-    assert s.number_of_seasons == 1
+    # Per-season model: the inert-orphan columns are never written.
+    assert s.number_of_seasons is None
+    assert s.seasons is None
+    assert s.season_number == 1
 
-    # Next refresh: wikipedia seasons OVERRIDE (now 2 seasons) and episode
-    # rows update in place - no duplicates.
+    # Next refresh: the same work converges via the collection bag; season-1
+    # episode rows update in place (no duplicates), and the season-2 entries
+    # of the series-level entity do NOT land on the season-1 work.
     ep_list_v2 = [
         {"season": 1, "episode": 1, "title": "甲改", "subtitle": "A", "air_date": "2024-01-02"},
         {"season": 1, "episode": 2, "title": "乙", "subtitle": "B", "air_date": "2024-01-08"},
@@ -221,14 +246,13 @@ async def test_series_upsert_populates_and_updates_episodes(db_session):
         )
     )
     assert s2.id == s.id
-    assert s2.number_of_seasons == 2
-    assert [x["season_number"] for x in s2.seasons] == [1, 2]
+    assert s2.number_of_seasons is None
+    assert s2.seasons is None
     rows = await _episode_rows(db_session, s.id)
-    assert len(rows) == 3
+    assert len(rows) == 2
     by_key = {(r.season, r.episode): r for r in rows}
     assert by_key[(1, 1)].title == "甲改"
     assert str(by_key[(1, 1)].air_date) == "2024-01-02"
-    assert by_key[(2, 1)].title == "丙"
 
 
 async def test_upsert_episodes_idempotent(db_session):
@@ -252,122 +276,27 @@ async def test_upsert_episodes_skips_incomplete_entries(db_session):
 
 
 # ---------------------------------------------------------------------------
-# Anti-regression guard (wikipedia seasons override)
+# Anti-regression guard (wikipedia seasons override) — RETIRED (P3): the
+# ``seasons``/``number_of_seasons`` columns are inert orphans in the
+# per-season work model, so ``seasons_overwrite_allowed`` and its override
+# semantics no longer exist. The script-level guard lives inlined in
+# ``scripts/wikipedia_seasons_eval.py`` and is covered below.
 # ---------------------------------------------------------------------------
-
-
-class TestSeasonsOverwriteAllowed:
-    def test_empty_existing_allows(self):
-        assert ms.seasons_overwrite_allowed(None, None, [{"season_number": 1}])
-        assert ms.seasons_overwrite_allowed([], None, [{"season_number": 1}])
-
-    def test_more_seasons_allows(self):
-        existing = [{"season_number": 1, "episode_count": 12}]
-        incoming = existing + [{"season_number": 2, "episode_count": 12}]
-        assert ms.seasons_overwrite_allowed(existing, 1, incoming)
-
-    def test_equal_count_allows_refresh(self):
-        existing = [{"season_number": 1, "episode_count": 12}]
-        incoming = [{"season_number": 1, "episode_count": 13}]
-        assert ms.seasons_overwrite_allowed(existing, 1, incoming)
-
-    def test_fewer_seasons_blocked(self):
-        existing = [{"season_number": n, "episode_count": 12} for n in (1, 2, 3, 4)]
-        assert not ms.seasons_overwrite_allowed(
-            existing, 4, [{"season_number": 1, "episode_count": 51}]
-        )
-
-    def test_existing_count_falls_back_to_number_of_seasons(self):
-        assert not ms.seasons_overwrite_allowed(
-            None, 4, [{"season_number": 1, "episode_count": 51}]
-        )
-        assert ms.seasons_overwrite_allowed(
-            None, 1, [{"season_number": 1, "episode_count": 26}]
-        )
-
-
-async def test_wikipedia_guard_blocks_poorer_seasons(db_session):
-    """史萊姆 case: a verified 4-season row must not be regressed by a merged
-    single-season wikipedia parse (seasons/number_of_seasons AND the derived
-    number_of_episodes all stay)."""
-    s = await ms.create_or_update_series_from_external(
-        db_session, _wiki_entity(
-            seasons=[{"season_number": n, "episode_count": 12} for n in (1, 2, 3, 4)],
-            number_of_seasons=4,
-            number_of_episodes=48,
-        )
-    )
-    assert s.number_of_seasons == 4
-    s2 = await ms.create_or_update_series_from_external(
-        db_session, _wiki_entity(
-            seasons=[{"season_number": 1, "episode_count": 51}],
-            number_of_seasons=1,
-            number_of_episodes=51,
-        )
-    )
-    assert s2.id == s.id
-    assert s2.number_of_seasons == 4
-    assert s2.number_of_episodes == 48
-    assert [x["season_number"] for x in s2.seasons] == [1, 2, 3, 4]
-
-
-async def test_wikipedia_guard_allows_equal_and_more(db_session):
-    s = await ms.create_or_update_series_from_external(
-        db_session, _wiki_entity(
-            seasons=[{"season_number": 1, "episode_count": 12}],
-            number_of_seasons=1,
-        )
-    )
-    # Equal count: structure refresh allowed.
-    s = await ms.create_or_update_series_from_external(
-        db_session, _wiki_entity(
-            seasons=[{"season_number": 1, "episode_count": 13}],
-            number_of_seasons=1,
-        )
-    )
-    assert s.seasons == [{"season_number": 1, "episode_count": 13}]
-    # More seasons: allowed.
-    s = await ms.create_or_update_series_from_external(
-        db_session, _wiki_entity(
-            seasons=[
-                {"season_number": 1, "episode_count": 13},
-                {"season_number": 2, "episode_count": 12},
-            ],
-            number_of_seasons=2,
-        )
-    )
-    assert s.number_of_seasons == 2
-
-
-async def test_tmdb_path_not_guarded(db_session):
-    """The guard only constrains the wikipedia override; tmdb keeps its
-    unconditional fill semantics."""
-    entity = {
-        "external_id": "tmdb:42",
-        "external_source": "tmdb",
-        "title_cn": "T作品",
-        "content_type": "tv",
-        "seasons": [{"season_number": n, "episode_count": 12} for n in (1, 2, 3)],
-        "number_of_seasons": 3,
-    }
-    s = await ms.create_or_update_series_from_external(db_session, entity)
-    assert s.number_of_seasons == 3
-    entity["seasons"] = [{"season_number": 1, "episode_count": 36}]
-    entity["number_of_seasons"] = 1
-    s = await ms.create_or_update_series_from_external(db_session, entity)
-    assert s.number_of_seasons == 1  # unchanged tmdb behavior: overwritten
 
 
 async def test_apply_report_guard_skip(db_session):
     """Script-level: a guard-flagged report writes nothing."""
     from scripts.wikipedia_seasons_eval import apply_report
 
-    s = await ms.create_or_update_series_from_external(
-        db_session, _wiki_entity(
-            seasons=[{"season_number": n, "episode_count": 12} for n in (1, 2, 3, 4)],
-            number_of_seasons=4,
-        )
+    # A legacy unsplit row (the script's only remaining audience).
+    s = TVSeries(
+        id=str(uuid.uuid4()), title_cn="測試作品", content_type="tv",
+        external_id="wikipedia:123", external_source="wikipedia",
+        seasons=[{"season_number": n, "episode_count": 12} for n in (1, 2, 3, 4)],
+        number_of_seasons=4,
     )
+    db_session.add(s)
+    await db_session.flush()
     rep = {
         "ok": True,
         "guard_skip": True,

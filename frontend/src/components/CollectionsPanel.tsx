@@ -1,29 +1,31 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, Search } from 'lucide-react';
-import { Button, Space, Empty, Tag, Input, Spin, Typography } from 'antd';
+import { Empty, Tag, Spin, Typography } from 'antd';
 import { collectionsApi } from '../api/collections';
 import Pagination from './Pagination';
-import CollectionFormModal from './CollectionFormModal';
 import type { WorkCollection } from '../types';
 
 const PAGE_SIZE = 20;
 
 /** Collections browse list — rendered by WorksPage in 合集 view.
  * Row click navigates to the collection detail page (/collections/:id);
- * rename/delete/attach live on that page. */
-export default function CollectionsPanel() {
+ * rename/delete/attach live on that page. The search box and the create
+ * button live in the WorksPage header so every view shares the same frame. */
+export default function CollectionsPanel({
+  search,
+  refreshKey,
+}: {
+  search: string;
+  refreshKey: number;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [collections, setCollections] = useState<WorkCollection[]>([]);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-
-  const [formOpen, setFormOpen] = useState(false);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -38,47 +40,33 @@ export default function CollectionsPanel() {
     }
   }, [page, search]);
 
+  // A new search text restarts from page 1 (the parent header owns the input).
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
   useEffect(() => {
     const timeout = setTimeout(loadList, 300);
     return () => clearTimeout(timeout);
-  }, [loadList]);
+  }, [loadList, refreshKey]);
 
   const sourceTag = (c: WorkCollection) => {
     const src = c.external_source || 'manual';
-    const color = src === 'tmdb_collection' ? 'blue' : src === 'wikidata' ? 'purple' : 'default';
+    const color =
+      src === 'tmdb_collection'
+        ? 'blue'
+        : src === 'wikidata'
+          ? 'purple'
+          : src === 'series_group'
+            ? 'green'
+            : src === 'franchise_pack'
+              ? 'orange'
+              : 'default';
     return <Tag color={color}>{t(`collections.source_${src}`, src)}</Tag>;
   };
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <Space wrap>
-          <Input
-            prefix={<Search size={14} style={{ color: 'var(--rr-text-muted)' }} />}
-            placeholder={t('collections.searchPlaceholder')}
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            style={{ width: 220 }}
-            allowClear
-          />
-          <Button type="primary" icon={<Plus size={14} />} onClick={() => setFormOpen(true)}>
-            {t('collections.new')}
-          </Button>
-        </Space>
-      </div>
-
       {loading && collections.length === 0 ? (
         <Spin style={{ display: 'flex', justifyContent: 'center', padding: 48 }} />
       ) : collections.length === 0 ? (
@@ -129,13 +117,6 @@ export default function CollectionsPanel() {
           </div>
         </>
       )}
-
-      <CollectionFormModal
-        open={formOpen}
-        collection={null}
-        onClose={() => setFormOpen(false)}
-        onSaved={loadList}
-      />
     </div>
   );
 }

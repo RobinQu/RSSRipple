@@ -491,7 +491,7 @@ class UnifiedMetadataAgent:
         from sqlalchemy import select
 
         from app.models.file_resource import FileResource
-        from app.services.metadata_episode_reconcile import seasons_map_from_list
+        from app.services.metadata_episode_reconcile import seasons_map_for_work
 
         siblings = (await db.execute(
             select(FileResource).where(
@@ -507,7 +507,7 @@ class UnifiedMetadataAgent:
             f"\nPossible same-work series in the local library: {title} "
             f"(title similarity {ratio}%).",
         ]
-        seasons = seasons_map_from_list(series.seasons)
+        seasons = seasons_map_for_work(series)
         if seasons:
             parts.append(f"Per-season episode counts: {seasons}")
         if siblings:
@@ -630,35 +630,26 @@ class UnifiedMetadataAgent:
                 # reconciliation must run here: a new release of an already
                 # known work that numbers episodes absolutely across seasons
                 # ("... 第四季 - 89") would otherwise keep the absolute number
-                # forever. Uses the series' persisted per-season counts.
+                # forever. Uses the shared post-link reconcile (history
+                # convention → collection-member absolute locate → per-season
+                # arithmetic → verified season default from the work's own
+                # identity).
                 from app.models.series import TVSeries
-                from app.services.episode_history import apply_episode_history_reconcile
-                from app.services.metadata_episode_reconcile import (
-                    apply_episode_reconcile,
-                    resolve_missing_season,
-                    season_evidence_from_series,
-                    seasons_map_from_list,
+                from app.services.metadata_service import (
+                    reconcile_linked_series_resource,
                 )
                 series_row = await db.get(TVSeries, work_id)
                 if series_row is not None:
-                    seasons_map = seasons_map_from_list(series_row.seasons)
-                    changed = await apply_episode_history_reconcile(
-                        db, resource, seasons_map=seasons_map
+                    before = (resource.season, resource.episode)
+                    await reconcile_linked_series_resource(
+                        db, resource, series=series_row
                     )
-                    if not changed and seasons_map:
-                        changed = apply_episode_reconcile(resource, seasons_map)
-                    if changed:
+                    if (resource.season, resource.episode) != before:
                         logger.info(
                             "[metadata_agent] short-circuit reconciled %r -> S%sE%s (abs %s)",
                             raw_title[:60], resource.season, resource.episode,
                             resource.absolute_episode,
                         )
-                    # Same verified season rule as _apply_to_resource: after
-                    # reconciliation, a season-less resource gets season=1 only
-                    # for a provably single-season work, else 季号不确定.
-                    resolve_missing_season(
-                        resource, season_evidence_from_series(series_row)
-                    )
             resource.metadata_matched_at = utcnow()
             resource.metadata_attempts = int(
                 getattr(resource, "metadata_attempts", 0) or 0
@@ -805,10 +796,15 @@ class UnifiedMetadataAgent:
         data_source_type: str | None = None,
         *,
         fallback_sources: list[str] | None = None,
+        season_hint: int | None = None,
     ) -> ResourceMetadata:
         """Stateless, DB-free extraction for evaluation/testing.
 
         Does NOT read/write any DB entity. Returns ResourceMetadata directly.
+
+        ``season_hint`` carries the season number of the work being refreshed
+        (per-season works): the bangumi path uses it to keep its season-aware
+        auto-link / judge from pinning a season>1 work to the season-1 entry.
         """
         if not raw_title.strip():
             return ResourceMetadata(clean_title="", found=False, reason="Empty title")
@@ -832,8 +828,16 @@ class UnifiedMetadataAgent:
         elif source == "bangumi":
             from app.services.metadata_bangumi import run_bangumi_search_then_judge
 
+            hint_resource = None
+            if season_hint:
+                # Lightweight stand-in carrying only the season context — the
+                # bangumi flow reads every other attribute via getattr with a
+                # None default, so this matches passing no resource at all.
+                from types import SimpleNamespace
+
+                hint_resource = SimpleNamespace(season=season_hint)
             finalize_dict, search_info = await run_bangumi_search_then_judge(
-                self._model, raw_title,
+                self._model, raw_title, resource=hint_resource,
             )
             finalize_dict, search_info = await self._maybe_web_fallback(
                 finalize_dict, search_info, raw_title,

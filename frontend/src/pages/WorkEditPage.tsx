@@ -22,6 +22,7 @@ import useDocumentTitle from '../hooks/useDocumentTitle';
 import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
 import { GENRE_NAMES, genreSlug } from '../constants/genres';
+import { seasonLabel } from '../utils/season';
 import type { Movie, TVSeries } from '../types';
 
 const { Title } = Typography;
@@ -94,7 +95,6 @@ export default function WorkEditPage({ contentType }: { contentType: ContentType
     external_source: work.external_source ?? '',
     ...(contentType === 'tv'
       ? {
-          number_of_seasons: (work as TVSeries).number_of_seasons ?? null,
           number_of_episodes: (work as TVSeries).number_of_episodes ?? null,
           start_date: (work as TVSeries).start_date ? dayjs((work as TVSeries).start_date) : null,
           end_date: (work as TVSeries).end_date ? dayjs((work as TVSeries).end_date) : null,
@@ -144,9 +144,8 @@ export default function WorkEditPage({ contentType }: { contentType: ContentType
 
     if (contentType === 'tv') {
       const s = work as TVSeries;
-      if ((values.number_of_seasons ?? null) !== (s.number_of_seasons ?? null)) {
-        put('number_of_seasons', values.number_of_seasons ?? null);
-      }
+      // season_number is an identity attribute (a work IS one season) —
+      // read-only here; number_of_seasons is retired (legacy orphan column).
       if ((values.number_of_episodes ?? null) !== (s.number_of_episodes ?? null)) {
         put('number_of_episodes', values.number_of_episodes ?? null);
       }
@@ -262,8 +261,13 @@ export default function WorkEditPage({ contentType }: { contentType: ContentType
         <Card title={t('works.sectionAiring')} size="small" style={{ marginBottom: 16 }}>
           {contentType === 'tv' ? (
             <>
-              <Form.Item name="number_of_seasons" label={t('works.editSeasons')}>
-                <InputNumber min={0} style={{ width: '100%' }} />
+              {/* season_number is an identity attribute — display only. */}
+              <Form.Item label={t('works.seasonNumber')}>
+                <Typography.Text>
+                  {(work as TVSeries).season_number != null
+                    ? seasonLabel(t, (work as TVSeries).season_number)
+                    : t('common.unknown')}
+                </Typography.Text>
               </Form.Item>
               <Form.Item name="number_of_episodes" label={t('works.editEpisodes')}>
                 <InputNumber min={0} style={{ width: '100%' }} />

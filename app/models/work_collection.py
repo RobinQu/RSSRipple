@@ -19,7 +19,7 @@ pair is unique so upserts are idempotent.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, UniqueConstraint, func
+from sqlalchemy import JSON, DateTime, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -39,6 +39,17 @@ class WorkCollection(Base):
     )
     title_cn: Mapped[str] = mapped_column(String(512), nullable=False)
     title_en: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Alternative titles (season-qualified variants, translations) used by the
+    # two-level title fallback when matching series-level sources.
+    aliases: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Normalized search haystack (title_cn + title_en + aliases through
+    # ``normalize_title``), maintained by the ORM before_flush hook — same
+    # logic as the work tables, but collections are NOT mirrored into the
+    # Turso FTS sidecar (works only).
+    search_text: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    # Fields the user edited manually; automatic metadata scans skip these
+    # (same contract as TVSeries/Movie.manually_edited_fields).
+    manually_edited_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
     external_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Remote TMDB image URL (no local caching in phase 1).

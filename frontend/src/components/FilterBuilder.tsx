@@ -116,13 +116,17 @@ const SUBTITLE_LANG_OPTIONS = ['zh-CN', 'zh-TW', 'ja', 'en', 'multi'];
 const CLOSED_LIST_FIELDS: Set<FilterField> = new Set(['movie.genre', 'series.genre']);
 
 // Value options for a list field. subtitle_langs keeps open tag input;
-// closed-set fields (genre) only offer the canonical set.
+// closed-set fields (genre) only offer the canonical set; subtitle_groups is
+// a dynamic set (release groups), so no preset options — free tags input.
 const listFieldOptions = (field: FilterField, t: TFunction): { value: string; label: string }[] => {
   if (CLOSED_LIST_FIELDS.has(field)) {
     return GENRE_NAMES.map((v) => ({
       value: v,
       label: t(`genre.${genreSlug(v)}` as never, { defaultValue: v }),
     }));
+  }
+  if (field === 'subtitle_groups') {
+    return [];
   }
   return SUBTITLE_LANG_OPTIONS.map((v) => ({ value: v, label: v }));
 };
@@ -493,17 +497,33 @@ export function FieldConditionNode({
           status={errorStatus}
         />
       ) : fieldType === 'list' ? (
-        // Single-value operators on list field: use the same tags dropdown but
-        // pinned to one selection so we still get autocomplete on the fixed
-        // set of language codes.
+        // Single-value operators on list field: tags dropdown pinned to one
+        // selection for scalar values. Stored array values (eq/ne carry set
+        // semantics on list fields — see filter_engine LIST_STRING_FIELDS)
+        // render and edit as multi-tags instead of displaying empty.
         <Select
           showSearch
           allowClear
           mode="tags"
-          maxCount={1}
+          {...(Array.isArray(value.value) ? {} : { maxCount: 1 })}
           style={{ minWidth: 200, flex: 1 }}
-          value={typeof value.value === 'string' && value.value ? [value.value] : []}
-          onChange={(tags) => onChange({ ...value, value: Array.isArray(tags) ? (tags[tags.length - 1] ?? '') : (tags as string) })}
+          value={
+            Array.isArray(value.value)
+              ? (value.value as string[])
+              : typeof value.value === 'string' && value.value
+                ? [value.value]
+                : []
+          }
+          onChange={(tags) =>
+            onChange({
+              ...value,
+              value: Array.isArray(value.value)
+                ? tags
+                : Array.isArray(tags)
+                  ? (tags[tags.length - 1] ?? '')
+                  : (tags as string),
+            })
+          }
           size="small"
           options={listFieldOptions(value.field, t)}
           placeholder={t('filter.value')}

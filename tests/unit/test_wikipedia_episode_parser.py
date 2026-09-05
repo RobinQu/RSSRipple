@@ -17,6 +17,7 @@ from app.services.wikipedia_episode_parser import (
     _parse_episode_number,
     clean_text,
     parse_episode_list,
+    parse_season_air_dates,
     parse_seasons_from_infobox,
 )
 
@@ -265,6 +266,117 @@ class TestInfoboxVariants:
         wt = ("{{Infobox animanga/TVAnime\n| 話數 = 全24話\n}}"
               "{{Infobox animanga/TVAnime\n| 集數 = 全24話預定\n}}")
         assert parse_seasons_from_infobox(wt) is None
+
+
+class TestSeasonAirDates:
+    """播放開始/放送開始 broadcast dates in the TVAnime infobox."""
+
+    def test_bookworm_real_sample(self):
+        # zh 小書痴: per-season ranges + the plain end item (S3's, closed via
+        # the single-incomplete-season rule) + a sequel block's plain date
+        # (ignored).
+        assert parse_season_air_dates(TestZhBookwormRealSample.wt) == {
+            1: {"air_date": "2019-10-02", "end_date": "2019-12-25"},
+            2: {"air_date": "2020-04-05", "end_date": "2020-06-21"},
+            3: {"air_date": "2022-04-12", "end_date": "2022-06-14"},
+        }
+
+    def test_single_plain_block_reads_as_season_1(self):
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = 全14話\n"
+              "| 播放開始 = [[2026年日本動畫列表|2026年]]3月29日\n"
+              "| 播放結束 = 6月28日\n}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "2026-03-29", "end_date": "2026-06-28"},
+        }
+
+    def test_ja_month_only_and_ascii_range(self):
+        # 這いよれ: month-precision start, space-padded ASCII range misplaced
+        # into the end field, and the leading plain end item closes S1 (the
+        # only season still lacking an end).
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話数 = 第1期：全12話<br />第2期：全12話\n"
+              "| 放送開始 = 第1期：2012年4月\n"
+              "| 放送終了 = 6月<br />第2期：2013年4月 - 6月\n}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "2012-04-01", "end_date": "2012-06-30"},
+            2: {"air_date": "2013-04-01", "end_date": "2013-06-30"},
+        }
+
+    def test_year_only_degrades_to_year_precision(self):
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = 全26話\n"
+              "| 播放開始 = 1998年（1st Stage）\n"
+              "| 播放結束 = 2014年（Final Stage）\n}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "1998-01-01", "end_date": "2014-12-31"},
+        }
+
+    def test_new_year_rollover(self):
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = 全12話\n"
+              "| 播放開始 = 2025年10月5日－3月29日\n}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "2025-10-05", "end_date": "2026-03-29"},
+        }
+
+    def test_ubl_wrapped(self):
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = {{ubl|第1季：全12話|第2季：全12話}}\n"
+              "| 播放開始 = {{ubl|第1季：2023年10月8日|第2季：2025年1月12日}}\n}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "2023-10-08"},
+            2: {"air_date": "2025-01-12"},
+        }
+
+    def test_multiple_plain_blocks_ambiguous(self):
+        # Two plain-date TVAnime blocks are separate works - refuse to guess.
+        wt = ("{{Infobox animanga/TVAnime\n| 話數 = 全12話\n| 放送開始 = 2010年12月10日\n}}"
+              "{{Infobox animanga/TVAnime\n| 話數 = 全12話\n| 放送開始 = 2012年4月9日\n}}")
+        assert parse_season_air_dates(wt) is None
+
+    def test_split_cour_labels_on_own_lines(self):
+        # zh 無職転生(動畫): cour labels on their own <br /> lines, dates
+        # following unlabelled; same-season cours merge earliest start /
+        # latest end.
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = 第1季：全23話<br />第2季：全25話\n"
+              "| 播放開始 = 第1季上半：<br />2021年1月11日—3月22日<br />"
+              "第1季下半：<br />2021年10月4日—12月20日<br />"
+              "第2季上半：<br />2023年7月3日—9月25日<br />"
+              "第2季下半：<br />2024年4月8日—7月1日\n"
+              "}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "2021-01-11", "end_date": "2021-12-20"},
+            2: {"air_date": "2023-07-03", "end_date": "2024-07-01"},
+        }
+
+    def test_arc_suffix_labels_in_end_field(self):
+        # ja Re:Zero (アニメ): per-arc ranges all live in 放送終了, arc labels
+        # (前半クール/襲撃編/喪失編…) map to their season, an open trailing
+        # range (第4期奪還編：2026年8月12日 -) leaves the end open.
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話数 = 第1期：全25話<br />第2期：全25話<br />第3期：全16話<br />第4期：全19話\n"
+              "| 放送開始 = 第1期：2016年4月4日\n"
+              "| 放送終了 = 9月19日<br />第2期前半クール：2020年7月8日 - 9月30日<br />"
+              "第2期後半クール：2021年1月6日 - 3月24日<br />"
+              "第3期襲撃編：2024年10月2日 - 11月20日<br />"
+              "第3期反撃編：2025年2月5日 - 3月26日<br />"
+              "第4期喪失編：2026年4月8日 - 6月17日<br />"
+              "第4期奪還編：2026年8月12日 -\n"
+              "}}")
+        assert parse_season_air_dates(wt) == {
+            1: {"air_date": "2016-04-04", "end_date": "2016-09-19"},
+            2: {"air_date": "2020-07-08", "end_date": "2021-03-24"},
+            3: {"air_date": "2024-10-02", "end_date": "2025-03-26"},
+            4: {"air_date": "2026-04-08", "end_date": "2026-06-17"},
+        }
+
+    def test_no_tv_block_or_no_dates(self):
+        assert parse_season_air_dates("{{Infobox animanga/Novel\n| 話數 = 全677話\n| 播放開始 = 2019年\n}}") is None
+        assert parse_season_air_dates("{{Infobox animanga/TVAnime\n| 話數 = 全12話\n}}") is None
+        assert parse_season_air_dates(None) is None
+        assert parse_season_air_dates("") is None
 
 
 class TestEpisodeListVariants:

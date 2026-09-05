@@ -617,22 +617,21 @@ async def maybe_inspect_torrent(
             resource.episode_start = report.episode_start
             resource.episode_end = report.episode_end
             if resource.season is None and resource.series_id:
-                # 无季标记合集：linked 作品可验证为单季时补 season=1（与
-                # resolve_missing_season 同一 verified 证据规则，绝不猜测）；
+                # 无季标记合集：linked 作品可验证季号时补（与
+                # resolve_missing_work 同一 verified 证据规则，绝不猜测——
+                # 单季化作品的 season_number 即其身份）；
                 # 多季/未知保持 None，走 batch coverage 门禁。失败静默，
                 # 绝不阻断检测。
                 try:
                     from app.models.series import TVSeries
                     from app.services.metadata_episode_reconcile import (
-                        season_evidence_from_series,
-                        verified_season_count,
+                        work_verified_season,
                     )
 
                     series = await db.get(TVSeries, resource.series_id)
-                    if series is not None and verified_season_count(
-                        season_evidence_from_series(series)
-                    ) == 1:
-                        resource.season = 1
+                    verified = work_verified_season(series) if series is not None else None
+                    if verified is not None:
+                        resource.season = verified
                 except Exception:  # noqa: BLE001 — best-effort enrichment
                     pass
         elif report.scope == "multi_season":

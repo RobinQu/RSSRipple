@@ -90,7 +90,12 @@ class DeliveryOut(BaseModel):
 
 
 class NotificationWorkPayload(BaseModel):
-    """Work snapshot inside a notification payload (see build_payload)."""
+    """Work snapshot inside a notification payload (see build_payload).
+
+    Payload v2 (per-season works): a series work IS one season — ``seasons``
+    is gone, ``episodes[]`` items carry no season component, and
+    ``season_number`` / ``number_of_episodes`` describe the season itself.
+    """
 
     type: str | None = None  # "series" | "movie"
     series_id: str | None = None
@@ -105,7 +110,8 @@ class NotificationWorkPayload(BaseModel):
     collection: str | None = None
     # Closed TMDB genre set (canonical English names) — see GenreName.
     genre: list[GenreName] | None = None
-    seasons: list[dict[str, Any]] | None = None
+    season_number: int | None = None
+    number_of_episodes: int | None = None
     episodes: list[dict[str, Any]] | None = None
 
 
@@ -168,6 +174,8 @@ class NotificationPayload(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    # Snapshot contract version (absent/None = legacy v1 snapshot).
+    version: int | None = None
     notification_id: str | None = None
     agent: NotificationAgentPayload | None = None
     task: NotificationTaskPayload | None = None

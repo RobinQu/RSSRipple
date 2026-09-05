@@ -67,7 +67,8 @@ def _series_ns(**overrides):
         is_anime=True,
         collection=SimpleNamespace(display_name="Frieren"),
         genre=["Anime", "Fantasy"],  # "Anime" alias normalizes to "Animation"
-        seasons=[{"season_number": 1, "episode_count": 28}],
+        season_number=1,
+        number_of_episodes=28,
         episodes=[
             SimpleNamespace(season=1, episode=1, title="冒险的结束"),
             SimpleNamespace(season=1, episode=2, title="倒也不是魔法…"),
@@ -120,8 +121,13 @@ def test_build_payload_series():
     assert work["is_anime"] is True
     assert work["collection"] == "Frieren"
     assert work["genre"] == ["Animation", "Fantasy"]
-    assert work["seasons"] == [{"season_number": 1, "episode_count": 28}]
-    assert work["episodes"][0] == {"season": 1, "episode": 1, "title": "冒险的结束"}
+    # Payload v2 (per-season works): no seasons snapshot; episodes carry no
+    # season component; the work carries its own season_number.
+    assert payload["version"] == 2
+    assert "seasons" not in work
+    assert work["season_number"] == 1
+    assert work["number_of_episodes"] == 28
+    assert work["episodes"][0] == {"episode": 1, "title": "冒险的结束"}
     assert payload["files"] == [{"name": "ep05.mkv", "size": 100}]
 
 
@@ -296,8 +302,10 @@ async def test_create_notification_snapshots_and_pauses(db_session, seed):
     assert n.agent_id == seed.agent.id
     assert n.payload["notification_id"] == n.id
     assert n.payload["work"]["title_en"] == "Test Series"
+    assert n.payload["version"] == 2
+    assert n.payload["work"]["season_number"] == 1
     assert n.payload["work"]["episodes"] == [
-        {"season": 1, "episode": 5, "title": "第五集"}
+        {"episode": 5, "title": "第五集"}
     ]
     assert n.payload["files"] == [
         {"name": "Test.Series.S01", "size": 1_000_000_000}

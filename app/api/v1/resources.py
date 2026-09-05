@@ -605,9 +605,12 @@ async def correct_episode(
 
     # Derive the season from the absolute number when the caller did NOT
     # explicitly send a season: an absolute-across-seasons number plus the
-    # linked series' known per-season counts pins down (season, episode)
-    # exactly. Explicit values in the request always win — the derivation
-    # only fills fields the caller left out.
+    # known per-season counts pins down (season, episode) exactly. The
+    # per-season model locates the number along the linked work's COLLECTION
+    # members (and re-points the resource at the located season work); the
+    # legacy fallback uses the linked row's own per-season counts. Explicit
+    # values in the request always win — the derivation only fills fields the
+    # caller left out.
     if (
         "season" not in body.model_fields_set
         and resource.series_id
@@ -616,19 +619,30 @@ async def correct_episode(
         from app.models.series import TVSeries
         from app.services.metadata_episode_reconcile import (
             locate_absolute_episode,
-            seasons_map_from_list,
+            seasons_map_for_work,
+        )
+        from app.services.metadata_service import (
+            locate_absolute_episode_in_collection,
         )
         series_row = await db.get(TVSeries, resource.series_id)
-        seasons_map = (
-            seasons_map_from_list(series_row.seasons)
-            if series_row is not None and series_row.seasons
-            else {}
-        )
-        located = locate_absolute_episode(resource.absolute_episode, seasons_map)
-        if located is not None:
-            resource.season = located[0]
-            if "episode" not in body.model_fields_set:
-                resource.episode = located[1]
+        located_episode = None
+        if series_row is not None:
+            if series_row.collection_id:
+                found = await locate_absolute_episode_in_collection(
+                    db, series_row.collection_id, resource.absolute_episode
+                )
+                if found is not None:
+                    member, located_episode = found
+                    resource.series_id = member.id
+                    resource.season = member.season_number
+            if located_episode is None:
+                seasons_map = seasons_map_for_work(series_row)
+                located = locate_absolute_episode(resource.absolute_episode, seasons_map)
+                if located is not None:
+                    resource.season = located[0]
+                    located_episode = located[1]
+        if located_episode is not None and "episode" not in body.model_fields_set:
+            resource.episode = located_episode
 
     resource.episode_confidence = "manual"
 

@@ -33,6 +33,13 @@ class TVSeries(Base):
     status: Mapped[str | None] = mapped_column(String(100), nullable=True)
     number_of_episodes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     number_of_seasons: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Per-season work model (作品单季化): one TVSeries row = exactly one season
+    # of the IP. 0 = specials/SP (Plex Specials convention; resource_parser
+    # already emits season=0). The legacy ``seasons`` / ``number_of_seasons``
+    # columns stay in place as inert orphans.
+    season_number: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
     # Per-season episode counts as returned by TMDB/Wikipedia
     # ([{season_number, episode_count}, ...]). Drives cross-season episode
     # reconciliation for resources that link to this series without going

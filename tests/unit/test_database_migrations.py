@@ -209,3 +209,31 @@ async def test_stale_ambiguous_cleanup(db_engine, db_session):
     assert by_guid["m1"] is None
     assert by_guid["s1"] is None
     assert by_guid["t1"] == "ambiguous"
+
+
+async def test_per_season_work_columns_are_added(db_engine, db_session):
+    """作品单季化 P2: tv_series.season_number + work_collections
+    aliases/search_text/manually_edited_fields — idempotent, values
+    round-trip, and the ORM/server default lands on existing-shaped rows."""
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    for _ in range(2):  # idempotent
+        async with db_engine.begin() as conn:
+            await _apply_light_migrations(conn)
+            cols = (await conn.execute(text("PRAGMA table_info(tv_series)"))).fetchall()
+            assert "season_number" in {row[1] for row in cols}
+            cols = (await conn.execute(text("PRAGMA table_info(work_collections)"))).fetchall()
+            assert {"aliases", "search_text", "manually_edited_fields"} <= {
+                row[1] for row in cols
+            }
+
+    coll = WorkCollection(title_cn="某IP", aliases=["别名甲"])
+    s = TVSeries(title_cn="某IP 第一季", content_type="tv")
+    db_session.add_all([coll, s])
+    await db_session.commit()
+    await db_session.refresh(coll)
+    await db_session.refresh(s)
+    assert s.season_number == 1  # default, never NULL
+    assert coll.aliases == ["别名甲"]
+    assert coll.manually_edited_fields is None

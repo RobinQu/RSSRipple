@@ -20,6 +20,7 @@ from app.models.movie import Movie
 from app.models.organize_audit import OrganizeAuditEntry
 from app.models.organize_plan import OrganizePlan
 from app.models.pending_decision import PendingDecision
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.schemas.common import success_response
 from app.schemas.dashboard import DashboardTodoIgnoreRequest
@@ -165,6 +166,10 @@ async def _page_pending_confirmations(
         joinedload(FileResource.movie).joinedload(Movie.collection),
         joinedload(FileResource.audio_work),
         joinedload(FileResource.collection),
+        # Links-carried packs (terminal multi-season) clear the flat work FKs;
+        # the confirmation policy reads works off the link table instead.
+        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
     )
     page_start = (page - 1) * page_size
     page_end = page_start + page_size

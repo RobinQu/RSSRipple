@@ -534,8 +534,10 @@ class TestBatchRecycleMovedir:
             )
 
 
-def _multi_season_payload(seasons=None):
-    """多季包：season/episode_start/end 均为 NULL，batch_scope=multi_season。"""
+def _multi_season_payload():
+    """多季包 legacy 快照：season/episode_start/end 均为 NULL，
+    batch_scope=multi_season，无权威文件关联。payload v2 不携带逐季
+    seasons 数据，覆盖度只能由文件清单推导。"""
     payload = _batch_payload()
     payload["notification_id"] = "n-4"
     payload["resource"] = {
@@ -547,12 +549,6 @@ def _multi_season_payload(seasons=None):
     }
     payload["work"] = {
         **payload["work"],
-        "seasons": seasons
-        if seasons is not None
-        else [
-            {"season_number": 1, "episode_count": 2},
-            {"season_number": 2, "episode_count": 2},
-        ],
         "episodes": [],
     }
     return payload
@@ -580,19 +576,34 @@ class TestMultiSeasonBatch:
         assert "/Season 02/" in moves["/downloads/complete/gits/GITS.S02E02.1080p.mkv"]
 
     def test_missing_episode_in_one_season_rejected(self):
+        # 区间中间缺集（S02E02 缺失，S02E03 存在）→ 文件清单推导出不连续
+        # 区间，该季覆盖度不足拒绝。
         lib = _library()
         rule = _rule("tv", 10, lib.id, PRESET_TV)
-        files = _multi_season_files((1, 1), (1, 2), (2, 1))  # 缺 S02E02
+        files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 3))
         with pytest.raises(PlanError, match="第 2 季覆盖度不足"):
             build_plan(_multi_season_payload(), files, [rule], [lib])
 
-    def test_season_without_episode_data_skips_check(self, caplog):
-        # 逐季数据缺第 3 季 → 该季跳过覆盖度校验（warning），不整个拒绝。
+    def test_single_file_season_without_manifest_range_skips_check(self, caplog):
+        # Payload v2 不再有逐季 seasons 数据；legacy 无关联快照中某季只有
+        # 一个可解析文件时无法构成推导区间 → 跳过该季校验（warning），不整个
+        # 拒绝。终态下多季包经权威文件关联按季作品拆分逐作品校验，该路径的
+        # 缺口由修订向导的完整性校验（422）把守。
         lib = _library()
         rule = _rule("tv", 10, lib.id, PRESET_TV)
-        payload = _multi_season_payload(
-            seasons=[{"season_number": 1, "episode_count": 2}]
-        )
+        files = _multi_season_files((1, 1), (1, 2), (2, 1))  # S2 仅一集
+        with caplog.at_level("WARNING", logger="app.services.organize_planner"):
+            result = build_plan(_multi_season_payload(), files, [rule], [lib])
+        moves = {op.src: op.dst for op in result.ops if op.op_type == "move"}
+        assert "/Season 02/" in moves["/downloads/complete/gits/GITS.S02E01.1080p.mkv"]
+        assert any("跳过该季校验" in r.message for r in caplog.records)
+
+    def test_season_without_episode_data_skips_check(self, caplog):
+        # 第 3 季只有一个可解析文件，无法构成推导区间 → 该季跳过覆盖度
+        # 校验（warning），不整个拒绝。
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _multi_season_payload()
         files = _multi_season_files((1, 1), (1, 2), (3, 1))
         with caplog.at_level("WARNING", logger="app.services.organize_planner"):
             result = build_plan(payload, files, [rule], [lib])
@@ -615,11 +626,10 @@ class TestMultiSeasonBatch:
         assert "/downloads/complete/gits/特典.mkv" in keeps
 
     def test_season_range_derived_from_files(self):
-        # 逐季数据完全缺失 → 每季期望集由本地文件清单推导（min..max）。
+        # 每季期望集由本地文件清单推导（min..max）。
         lib = _library()
         rule = _rule("tv", 10, lib.id, PRESET_TV)
-        payload = _multi_season_payload(seasons=None)
-        payload["work"]["seasons"] = None
+        payload = _multi_season_payload()
         files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 2))
         result = build_plan(payload, files, [rule], [lib])
         moves = {op.src: op.dst for op in result.ops if op.op_type == "move"}
@@ -629,11 +639,112 @@ class TestMultiSeasonBatch:
         # 推导区间中间缺集（S02E02 缺失）→ 该季覆盖度不足拒绝。
         lib = _library()
         rule = _rule("tv", 10, lib.id, PRESET_TV)
-        payload = _multi_season_payload(seasons=None)
-        payload["work"]["seasons"] = None
+        payload = _multi_season_payload()
         files = _multi_season_files((1, 1), (1, 2), (2, 1), (2, 3))
         with pytest.raises(PlanError, match="第 2 季覆盖度不足"):
             build_plan(payload, files, [rule], [lib])
+
+
+class TestPerSeasonWorkPayload:
+    """Payload v2（作品单季化）：快照的 work 段携带 season_number /
+    number_of_episodes，episodes[] 无 season 分量；季号可由季作品身份兜底，
+    覆盖度期望集来自季作品自身。"""
+
+    @staticmethod
+    def _v2_work(**overrides):
+        work = {
+            **GITS_PAYLOAD["work"],
+            "season_number": 2,
+            "number_of_episodes": 3,
+            "episodes": [
+                {"episode": 1, "title": "第一集"},
+                {"episode": 2, "title": "第二集"},
+                {"episode": 3, "title": "第三集"},
+            ],
+        }
+        work.pop("seasons", None)
+        work.update(overrides)
+        return work
+
+    @staticmethod
+    def _s2_files(base="/downloads/complete/gits", count=3):
+        return [
+            DiskFile(
+                f"{base}/GITS.S02E{e:02d}.1080p.mkv",
+                300,
+                f"GITS.S02E{e:02d}.1080p.mkv",
+            )
+            for e in range(1, count + 1)
+        ]
+
+    def test_single_episode_season_falls_back_to_work(self):
+        """v2 快照：resource.season 缺失时由 work.season_number 兜底。"""
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = {
+            **GITS_PAYLOAD,
+            "version": 2,
+            "resource": {**GITS_PAYLOAD["resource"], "season": None},
+            "work": self._v2_work(),
+        }
+        files = [DiskFile("/d/GITS.E01.1080p.mkv", 300, "GITS.E01.1080p.mkv")]
+        result = build_plan(payload, files, [rule], [lib])
+        moves = [op for op in result.ops if op.op_type == "move"]
+        assert moves and "/Season 02/" in moves[0].dst
+
+    def test_batch_explicit_range_uses_work_season(self):
+        """合集显式 episode_start/end + 无 resource.season：季号由季作品供给。"""
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _batch_payload()
+        payload["version"] = 2
+        payload["resource"] = {**payload["resource"], "season": None}
+        payload["work"] = self._v2_work()
+        result = build_plan(payload, self._s2_files(), [rule], [lib])
+        moves = [op for op in result.ops if op.op_type == "move"]
+        assert len(moves) == 3
+        assert all("/Season 02/" in op.dst for op in moves)
+
+    def test_batch_coverage_from_work_episode_rows(self):
+        """无显式范围：期望集 = 季作品的 Episode 行（无 season 分量）；缺集拒绝。"""
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _batch_payload()
+        payload["version"] = 2
+        payload["resource"] = {
+            **payload["resource"],
+            "season": None, "episode_start": None, "episode_end": None,
+        }
+        payload["work"] = self._v2_work()
+        files = self._s2_files(count=2)  # 缺第三集
+        with pytest.raises(PlanError, match="缺 1 集"):
+            build_plan(payload, files, [rule], [lib])
+
+    def test_batch_coverage_from_number_of_episodes(self):
+        """无 Episode 行：期望集 = 1..number_of_episodes。"""
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _batch_payload()
+        payload["version"] = 2
+        payload["resource"] = {
+            **payload["resource"],
+            "season": None, "episode_start": None, "episode_end": None,
+        }
+        payload["work"] = self._v2_work(episodes=[])
+        result = build_plan(payload, self._s2_files(), [rule], [lib])
+        assert len([op for op in result.ops if op.op_type == "move"]) == 3
+
+    def test_batch_episode_title_without_season_component(self):
+        """v2 episodes[] 无 season 分量仍按集号命中集标题。"""
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        payload = _batch_payload()
+        payload["version"] = 2
+        payload["resource"] = {**payload["resource"], "season": None}
+        payload["work"] = self._v2_work()
+        result = build_plan(payload, self._s2_files(), [rule], [lib])
+        dsts = {op.dst for op in result.ops if op.op_type == "move"}
+        assert any("第一集" in path for path in dsts)
 
 
 class TestFranchiseBatch:

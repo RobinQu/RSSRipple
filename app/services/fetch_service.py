@@ -276,7 +276,7 @@ async def _process_resource_metadata(
                             apply_season_history_default,
                         )
                         from app.services.metadata_episode_reconcile import (
-                            seasons_map_from_list,
+                            seasons_map_for_work,
                         )
 
                         series_row = await task_db.get(TVSeries, resource.series_id)
@@ -284,7 +284,7 @@ async def _process_resource_metadata(
                             await apply_episode_history_reconcile(
                                 task_db,
                                 resource,
-                                seasons_map=seasons_map_from_list(series_row.seasons),
+                                seasons_map=seasons_map_for_work(series_row),
                             )
                             await apply_season_history_default(task_db, resource)
                     # Torrent inspection precedes metadata matching, so its
@@ -479,10 +479,11 @@ async def reconcile_stale_raw_episodes(
 ) -> int | list[str]:
     """Re-run history/arithmetic reconciliation for linked resources.
 
-    A resource linked while its series had no usable ``seasons`` data keeps
+    A resource linked while its work had no usable per-season counts keeps
     ``episode_confidence NULL/"raw"`` with a possibly-absolute episode number
-    forever (reconcile only runs on link paths). Once the series' seasons are
-    later filled (wikipedia/TMDB attach, backfill scripts), this sweep
+    forever (reconcile only runs on link paths). Once the work's counts are
+    later filled (per-season ``number_of_episodes`` at creation/refresh, or a
+    legacy row's inert ``seasons`` column via backfill scripts), this sweep
     converts the stale numbers via the shared
     :func:`apply_episode_reconcile` — same semantics as every link path.
 
@@ -497,7 +498,7 @@ async def reconcile_stale_raw_episodes(
     from app.services.metadata_episode_reconcile import (
         _RECONCILE_TOLERANCE,
         apply_episode_reconcile,
-        seasons_map_from_list,
+        seasons_map_for_work,
     )
 
     resources = (
@@ -522,7 +523,7 @@ async def reconcile_stale_raw_episodes(
             )
         )
     ).scalars().all()
-    maps = {s.id: seasons_map_from_list(s.seasons) for s in series_rows}
+    maps = {s.id: seasons_map_for_work(s) for s in series_rows}
     history_ranges: dict[tuple[str, str], tuple[int, int]] = {}
     for resource in resources:
         absolute = resource.absolute_episode or resource.episode

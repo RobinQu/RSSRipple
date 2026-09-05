@@ -28,6 +28,7 @@ from app.services.filter_engine import (
     loaded_relation,
     merge_filters,
 )
+from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
 from app.services.resource_confirmation import (
     LEGACY_CONFIRMATION_REASON_PREFIXES,
     inspect_resource_confirmation,
@@ -100,6 +101,20 @@ def _build_rule_set(agent: Agent) -> RuleSet:
     )
 
 
+def _linked_series_ids(resource: FileResource) -> list[str]:
+    """Series work ids carried on the multi-work link table.
+
+    Per-season works (作品单季化): terminal multi-season packs clear the
+    legacy work FKs and reference every linked season work through
+    ``resource_work_links``. Only the already-loaded relationship is read
+    (async sessions cannot lazy-load).
+    """
+    links = loaded_relation(resource, "work_links")
+    if not links:
+        return []
+    return sorted({link.series_id for link in links if link.series_id})
+
+
 def _resource_matches_rules(
     resource: FileResource, rules: RuleSet
 ) -> tuple[bool, Any]:
@@ -111,6 +126,9 @@ def _resource_matches_rules(
     merged effective filter. This is intentionally *not* a dispatch decision
     — dedup / ambiguous / conflict handling are runtime concerns layered on
     top in ``process_resources``.
+
+    Links-carried multi-season packs (no flat work FK) are in scope when ANY
+    linked season work is subscribed.
     """
     work = None
     if not rules.scope_channel_wide:
@@ -119,7 +137,12 @@ def _resource_matches_rules(
         elif resource.movie_id and resource.movie_id in rules.work_by_movie_id:
             work = rules.work_by_movie_id[resource.movie_id]
         else:
-            return False, None
+            for sid in _linked_series_ids(resource):
+                if sid in rules.work_by_series_id:
+                    work = rules.work_by_series_id[sid]
+                    break
+            if work is None:
+                return False, None
     effective = merge_filters(
         rules.filter_config, work.filter_overrides if work else None
     )
@@ -415,9 +438,12 @@ async def create_pending_decision(
     new candidate ids into the existing row instead of piling up duplicates
     (which used to cause the 76-rows-for-4-episodes explosion).
 
-    ``key`` is ``(type, target_id, season, episode)``; the legacy 3-element
-    ``(type, target_id, episode)`` shape is still accepted (season=None).
-    ``reason_override`` supplies a scope-aware message for batch conflicts.
+    ``key`` is ``(type, target_id, episode)`` for single-episode series
+    conflicts — the decision's season component is derived from the work's
+    own ``season_number`` (per-season works carry the season in their
+    identity) — or the explicit 4-element ``(type, target_id, season,
+    episode)`` shape used by batch-conflict decisions. ``reason_override``
+    supplies a scope-aware message for batch conflicts.
     """
     if len(key) == 4:
         type_, target_id, season, episode = key
@@ -431,6 +457,11 @@ async def create_pending_decision(
     if type_ == "series":
         s = await db.get(TVSeries, target_id) if target_id else None
         title = (s.title_cn or s.title_en or "") if s else ""
+        if season is None and s is not None:
+            # Per-season works: the decision's season component is the work's
+            # own season_number (the season lives in the work identity, not
+            # in the resource parse).
+            season = s.season_number
     else:
         m = await db.get(Movie, target_id) if target_id else None
         title = (m.title_cn or m.title_en or "") if m else ""
@@ -649,22 +680,34 @@ def _batch_coverage_key(resource: FileResource) -> tuple | None:
     """Content-coverage signature of a batch resource.
 
     - movie-linked batch → ``("movie",)`` (a movie pack covers the movie).
-    - season pack → ``("season", season)``; requires a known season (title
-      marker or torrent analysis) — the season number is never guessed.
-    - multi-season pack → ``("multi_season", tuple(sorted(seasons)))``;
-      requires ``batch_seasons`` from the torrent content analysis.
+    - season pack → ``("season", series_id)``: the per-season work IS the
+      season, so the work id alone identifies the coverage. Legacy unsplit
+      series-level rows (pre-migration) keep the resource's parsed season as
+      the distinguishing component.
+    - multi-season pack → ``("multi_season", ids)``: the sorted set of linked
+      season-work ids from ``resource_work_links`` (terminal shape clears the
+      flat FK); legacy FK-carrying rows fall back to ``batch_seasons``.
 
-    Returns None when the coverage is unknown: such resources keep the legacy
-    behavior (dispatched immediately, guarded only against re-dispatching the
-    same FileResource), since strict duplication cannot be proven. Franchise
-    packs never reach the batch branch (their work FKs are cleared).
+    Returns None when the coverage is unknown: such resources are stopped by
+    the Channel confirmation gate. Franchise packs never reach the batch
+    branch (their work FKs are cleared and they carry no season-work links).
     """
     if resource.movie_id:
         return ("movie",)
     scope = resource.batch_scope or "season"  # legacy title-marked packs
     if scope == "season":
-        return ("season", resource.season) if resource.season is not None else None
+        if resource.series_id is None:
+            return None
+        series = loaded_relation(resource, "series")
+        if series is not None and is_unsplit_legacy_series(series):
+            # Transition-only: unsplit legacy rows still need the parsed
+            # season to tell their season packs apart.
+            return ("season", resource.season) if resource.season is not None else None
+        return ("season", resource.series_id)
     if scope == "multi_season":
+        if not resource.series_id:
+            ids = _linked_series_ids(resource)
+            return ("multi_season", tuple(ids)) if ids else None
         seasons = tuple(sorted(resource.batch_seasons or []))
         return ("multi_season", seasons) if seasons else None
     return None
@@ -678,14 +721,9 @@ async def _find_existing_episode_task(
     """Existing active/completed task of this agent occupying the same
     episode slot.
 
-    Slot identity is *season-compatible* rather than season-exact: a task
-    whose resource has no season number matches its numbered sibling of the
-    same episode (and vice versa). Strict season equality let the same
-    episode download twice when two release variants were attributed
-    different seasons across runs — e.g. one linked before the work's
-    seasons data was known (season=None) and another after reconciliation
-    (S1): each variant formed its own single-candidate group, both were
-    dispatched directly, and pick preferences never got a chance to engage.
+    Slot identity is ``(series, episode)``: per-season works encode the
+    season in the work identity, so no season component is compared (the old
+    season-compatible matching was retired with the per-season model).
     """
     stmt = (
         select(DownloadTask)
@@ -696,13 +734,8 @@ async def _find_existing_episode_task(
             FileResource.series_id == resource.series_id,
             FileResource.episode == resource.episode,
         )
-        .options(selectinload(DownloadTask.file_resource))
     )
-    for task in (await db.execute(stmt)).scalars():
-        season = task.file_resource.season
-        if season is None or resource.season is None or season == resource.season:
-            return task
-    return None
+    return (await db.execute(stmt)).scalars().first()
 
 
 async def _find_active_batch_duplicate(
@@ -713,12 +746,18 @@ async def _find_active_batch_duplicate(
 ) -> DownloadTask | None:
     """Active/completed task of this agent whose batch resource covers exactly
     the same content as ``resource``. Compared in Python because the coverage
-    of multi-season packs lives in a JSON list (small N per agent+work)."""
-    work_filter = (
-        FileResource.movie_id == resource.movie_id
-        if resource.movie_id
-        else FileResource.series_id == resource.series_id
-    )
+    of multi-season packs lives in the link table / a JSON list (small N per
+    agent+work). Links-carried packs (no flat FK) match against the agent's
+    other FK-less batch resources."""
+    if resource.movie_id:
+        work_filter = FileResource.movie_id == resource.movie_id
+    elif resource.series_id:
+        work_filter = FileResource.series_id == resource.series_id
+    else:
+        work_filter = and_(
+            FileResource.series_id.is_(None),
+            FileResource.movie_id.is_(None),
+        )
     stmt = (
         select(DownloadTask)
         .join(FileResource, DownloadTask.file_resource_id == FileResource.id)
@@ -728,7 +767,10 @@ async def _find_active_batch_duplicate(
             FileResource.is_batch.is_(True),
             work_filter,
         )
-        .options(selectinload(DownloadTask.file_resource))
+        .options(
+            selectinload(DownloadTask.file_resource).selectinload(FileResource.work_links),
+            selectinload(DownloadTask.file_resource).selectinload(FileResource.series),
+        )
     )
     for task in (await db.execute(stmt)).scalars():
         if _batch_coverage_key(task.file_resource) == coverage:
@@ -740,9 +782,13 @@ def _batch_decision_key(key: tuple) -> tuple[tuple, str]:
     """Translate an internal batch candidate key ``("batch", target_id, cov)``
     into a ``create_pending_decision`` key + reason template.
 
-    Known limitation: multi-season packs of the same work share one
-    PendingDecision row even when their season sets differ — the
-    (series, season, episode) idempotency columns can't encode a season set.
+    The season component of a season-pack decision is filled in by
+    ``create_pending_decision`` from the work's own ``season_number``.
+
+    Known limitation: links-carried multi-season packs have no flat work FK,
+    so their decisions share one ``(series=NULL, season=NULL, episode=-1)``
+    idempotency slot per agent even when their linked work sets differ — the
+    (series, season, episode) idempotency columns can't encode a work-id set.
     """
     _, target_id, cov = key
     if cov[0] == "movie":
@@ -750,12 +796,11 @@ def _batch_decision_key(key: tuple) -> tuple[tuple, str]:
             "多个合集资源匹配电影 {title}，内容相同，请选择一个版本"
         )
     if cov[0] == "season":
-        return ("series", target_id, cov[1], _BATCH_EPISODE_SENTINEL), (
-            f"多个合集资源匹配 {{title}} 第{cov[1]}季，内容相同，请选择一个版本"
+        return ("series", target_id, None, _BATCH_EPISODE_SENTINEL), (
+            "多个合集资源匹配 {title}（同季包），内容相同，请选择一个版本"
         )
-    seasons = "/".join(str(s) for s in cov[1])
     return ("series", target_id, None, _BATCH_EPISODE_SENTINEL), (
-        f"多个合集资源匹配 {{title}}（第{seasons}季），内容相同，请选择一个版本"
+        "多个合集资源匹配 {title}（跨季包），内容相同，请选择一个版本"
     )
 
 
@@ -788,10 +833,17 @@ async def process_resources(
 
         # Metadata pre-check. Metadata completeness is owned by the resource's
         # Channel, not by an Agent decision. Unlinked resources therefore do
-        # not create AgentSuggestion/PendingDecision rows.
+        # not create AgentSuggestion/PendingDecision rows. Links-carried
+        # multi-season packs (per-season works: flat FK cleared, works on
+        # resource_work_links) are recognized through their link table.
         if not resource.series_id and not resource.movie_id:
-            result.unrecognized += 1
-            continue
+            if not (
+                getattr(resource, "is_batch", False)
+                and getattr(resource, "batch_scope", None) == "multi_season"
+                and _linked_series_ids(resource)
+            ):
+                result.unrecognized += 1
+                continue
 
         confirmation = inspect_resource_confirmation(
             resource, required_metadata_fields
@@ -809,13 +861,17 @@ async def process_resources(
                 rule_set.scope_channel_wide
                 or (resource.series_id and resource.series_id in rule_set.work_by_series_id)
                 or (resource.movie_id and resource.movie_id in rule_set.work_by_movie_id)
+                or any(
+                    sid in rule_set.work_by_series_id
+                    for sid in _linked_series_ids(resource)
+                )
             ):
                 result.filter_failed += 1
             continue
 
         # Batch (合集) resources dedup/conflict by *content coverage* (see
-        # _batch_coverage_key): strictly identical coverage (same work + same
-        # season / same season set) goes through the normal conflict
+        # _batch_coverage_key): strictly identical coverage (same season work /
+        # same linked season-work set) goes through the normal conflict
         # resolution; different coverage never conflicts. Coverage is a
         # **mandatory** field for downstream organize planning (覆盖度校验),
         # so unknown coverage is stopped by the Channel confirmation gate.
@@ -883,34 +939,14 @@ async def process_resources(
                 if existing:
                     result.duplicates_skipped += 1
                     continue
-            key = ("series", resource.series_id, resource.season, resource.episode)
+            # Per-season works: the season lives in the work identity, so the
+            # conflict slot is (series, episode); create_pending_decision
+            # fills the decision's season from the work's season_number.
+            key = ("series", resource.series_id, resource.episode)
 
         candidates_by_key.setdefault(key, []).append(resource)
         result.matched += 1
         result.matched_resource_ids.append(resource.id)
-
-    # Season-unknown singles share the conflict slot of their numbered
-    # sibling: ("series", sid, None, E5) merges into ("series", sid, S, E5)
-    # so both release variants reach preference/LLM/heuristic resolution
-    # instead of dispatching as two independent single-candidate groups
-    # (which downloaded the same episode twice). When several numbered
-    # seasons exist for the same episode the first match wins — upstream,
-    # season-less tv resources are ambiguous-flagged and routed to
-    # PendingDecision, so this only fires for legacy/unattributed rows.
-    for key in [
-        k for k in candidates_by_key if k[0] == "series" and k[2] is None
-    ]:
-        _, sid, _season, ep = key
-        twin = next(
-            (
-                k
-                for k in candidates_by_key
-                if k[0] == "series" and k[1] == sid and k[3] == ep and k[2] is not None
-            ),
-            None,
-        )
-        if twin is not None:
-            candidates_by_key[twin].extend(candidates_by_key.pop(key))
 
     for key, cands in candidates_by_key.items():
         try:

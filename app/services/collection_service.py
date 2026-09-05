@@ -141,7 +141,9 @@ async def link_movie_collection(
 async def collection_work_summaries(
     db: AsyncSession, collection_id: str, exclude: tuple[str, str] | None = None
 ) -> list[dict]:
-    """Summaries of works in a collection: ``{id, title, year, type}``.
+    """Summaries of works in a collection: ``{id, title, year, type}``;
+    series entries additionally carry ``season_number`` (per-season works —
+    a series work IS one season) so detail pages can offer a season switcher.
 
     ``exclude`` is a ``(work_type, work_id)`` pair to skip (the work whose
     detail page lists its siblings).
@@ -161,6 +163,7 @@ async def collection_work_summaries(
             "title": s.title_cn or s.title_en or s.original_title,
             "year": s.start_date.year if s.start_date else None,
             "type": "series",
+            "season_number": s.season_number,
         })
     movie_rows = (await db.execute(
         select(Movie).where(Movie.collection_id == collection_id)

@@ -188,11 +188,13 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 # The work's collection feeds the series.collection /
                 # movie.collection DSL fields, so chain-load it too; the
                 # resource's own collection feeds the resource-level
-                # ``collection`` field (franchise packs).
+                # ``collection`` field (franchise packs); work_links carry the
+                # works of links-only multi-season packs (per-season works).
                 .options(
                     selectinload(FileResource.series).selectinload(TVSeries.collection),
                     selectinload(FileResource.movie).selectinload(Movie.collection),
                     selectinload(FileResource.collection),
+                    selectinload(FileResource.work_links),
                 )
                 .order_by(FileResource.created_at.asc())
             )

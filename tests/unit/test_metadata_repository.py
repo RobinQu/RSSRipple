@@ -634,7 +634,9 @@ async def _apply_tv(meta: ResourceMetadata, resource, db_session) -> None:
 
 
 async def test_season_ambiguous_marks_resource_ambiguous(db_session):
-    """Multi-season work + no season marker → season None + ambiguous."""
+    """Multi-season work + no season marker → parked on the collection
+    (挂合集待确认): no season work is guessed, season stays None, and the
+    resource is marked ambiguous (per-season model, P3)."""
     meta = _meta(
         season_ambiguous=True,
         matched_entity={
@@ -646,7 +648,8 @@ async def test_season_ambiguous_marks_resource_ambiguous(db_session):
     resource = _season_uncertain_resource()
     await _apply_tv(meta, resource, db_session)
 
-    assert resource.series_id is not None
+    assert resource.series_id is None
+    assert resource.collection_id is not None
     assert resource.season is None
     assert resource.episode_confidence == "ambiguous"
 

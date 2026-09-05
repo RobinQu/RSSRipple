@@ -2,10 +2,14 @@
 single-LLM-judge (mirrors the wikipedia S3 path).
 
 Search hits are matched against the cleaned candidate queries; exactly one
-normalized-title-equal + year-guarded hit auto-links without the LLM.
-Otherwise ONE judge call picks the subject (or declares no match). The
-chosen subject is then expanded via the Bangumi details + episodes endpoints
-into a matched_entity that drops into the existing upsert path:
+normalized-title-equal + year-guarded hit auto-links without the LLM. The
+auto-link is season-aware: a resource (or refresh hint) carrying a season
+marker > 1 can only auto-link a candidate whose own title carries the same
+season marker — a Bangumi subject IS one season, so the base-named entry is
+always season 1. Otherwise ONE judge call picks the subject (or declares no
+match). The chosen subject is then expanded via the Bangumi details +
+episodes endpoints into a matched_entity that drops into the existing upsert
+path:
 
   * ``external_source`` "bangumi" — the upsert's identity evidence already
     marks such works ``is_anime=True`` (the search is restricted to the
@@ -37,6 +41,7 @@ from app.services.bangumi_client import (
 from app.services.metadata_prompts import _BANGUMI_JUDGE_SYSTEM_PROMPT
 from app.services.metadata_wiki_judge import _parse_finalize_json
 from app.services.metadata_wiki_query import _candidate_queries
+from app.services.resource_parser import season_from_title, strip_season_from_title
 
 logger = logging.getLogger(__name__)
 
@@ -63,21 +68,60 @@ def _subject_names(subj: dict) -> set[str]:
     } - {""}
 
 
+def _subject_season(subj: dict) -> int | None:
+    """Season marker carried by a Bangumi subject's titles, if unambiguous."""
+    markers = {
+        season_from_title(t) for t in (subj.get("name"), subj.get("name_cn")) if t
+    } - {None}
+    return markers.pop() if len(markers) == 1 else None
+
+
 def _autolink_subject(
-    candidates: list[dict], queries: list[str], title_year: int | None
+    candidates: list[dict],
+    queries: list[str],
+    title_year: int | None,
+    resource_season: int | None = None,
 ) -> dict | None:
     """Deterministic pick: exactly one candidate whose name/name_cn equals a
-    query (normalized) and passes the title_year guard (±1 year)."""
+    query (normalized) and passes the title_year guard (±1 year).
+
+    Season-aware: a Bangumi subject IS one season, so a resource carrying a
+    season marker > 1 must never auto-link the base-named (season-1) entry —
+    only a unique candidate carrying the same season marker (with a matching
+    base title) qualifies; anything else falls through to the LLM judge.
+    """
     norm_queries = {bangumi_normalize_title(q) for q in queries} - {""}
+
+    def _year_ok(subj: dict) -> bool:
+        if title_year is None:
+            return True
+        d = str(subj.get("date") or "")
+        sy = int(d[:4]) if d[:4].isdigit() else None
+        return sy is not None and abs(sy - title_year) <= 1
+
+    if resource_season is not None and resource_season > 1:
+        hits = [
+            subj
+            for subj in candidates
+            if _subject_season(subj) == resource_season
+            and (
+                {
+                    bangumi_normalize_title(strip_season_from_title(t))
+                    for t in (subj.get("name"), subj.get("name_cn"))
+                    if t
+                }
+                & norm_queries
+            )
+            and _year_ok(subj)
+        ]
+        return hits[0] if len(hits) == 1 else None
+
     hits: list[dict] = []
     for subj in candidates:
         if not (_subject_names(subj) & norm_queries):
             continue
-        if title_year is not None:
-            d = str(subj.get("date") or "")
-            sy = int(d[:4]) if d[:4].isdigit() else None
-            if sy is None or abs(sy - title_year) > 1:
-                continue
+        if not _year_ok(subj):
+            continue
         hits.append(subj)
     return hits[0] if len(hits) == 1 else None
 
@@ -275,7 +319,7 @@ async def run_bangumi_search_then_judge(
         resource_season = getattr(resource, "season", None) if resource else None
 
         # 2. Deterministic auto-link (no LLM) on an unambiguous exact match.
-        picked = _autolink_subject(candidates, queries, title_year)
+        picked = _autolink_subject(candidates, queries, title_year, resource_season)
         method = "bangumi_search_then_autolink"
         judge_dict: dict | None = None
         if picked is None:

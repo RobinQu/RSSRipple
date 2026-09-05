@@ -67,6 +67,8 @@ class TVSeriesResponse(BaseModel):
     status: str | None = None
     number_of_episodes: int | None = None
     number_of_seasons: int | None = None
+    # Per-season works: which season of the IP this work IS (0 = specials).
+    season_number: int = 1
     start_date: date | None = None
     end_date: date | None = None
     content_type: str | None = None

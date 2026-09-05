@@ -496,6 +496,18 @@ async def _apply_light_migrations(conn) -> None:
         ("channels", "metadata_refresh_interval_minutes", "INTEGER"),
         ("channels", "metadata_refresh_full_scope",
          "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
+        # Per-season works (作品单季化 P2): one TVSeries row = exactly one
+        # season of the IP; 0 = specials (Plex Specials convention). The
+        # legacy seasons/number_of_seasons columns stay as inert orphans. The
+        # partial unique index on (collection_id, season_number) is created
+        # by the data-migration script after convergence, not here.
+        ("tv_series", "season_number", "INTEGER NOT NULL DEFAULT 1"),
+        # WorkCollection upgraded to the series-level metadata carrier:
+        # alias list, normalized search haystack (before_flush hook only —
+        # never enqueued into fts_outbox), and the manual-edit guard list.
+        ("work_collections", "aliases", "TEXT" if is_turso else "JSONB"),
+        ("work_collections", "search_text", "TEXT"),
+        ("work_collections", "manually_edited_fields", "TEXT" if is_turso else "JSONB"),
     ]
 
     for table, column, ddl in additions:
@@ -786,6 +798,68 @@ async def _apply_light_migrations(conn) -> None:
             ), {"key": sentinel})
             if changed:
                 logger.info("[migrate] removed legacy title_en requirement from %d channels", changed)
+
+    # ── channels.required_metadata_fields per-season works convergence ─────
+    # 作品单季化：``season`` 从形态必填退役为可选（季号由作品身份承载），
+    # ``absolute_episode``/``episode_confidence`` 两键退役出目录。存量频道
+    # 声明里的这三个键一次性移除（否则 season 会因 add-only 策略永远锁住
+    # TV 行，另两键则不再通过目录校验）。哨兵保证只跑一次：用户此后可以
+    # 在 add-only 策略下显式重新加入 ``season``。
+    async with _best_effort(conn, "channels.required_fields per-season convergence"):
+        import json as _json
+
+        sentinel = "required_fields_per_season_v1"
+        retired = {"season", "absolute_episode", "episode_confidence"}
+        if is_turso:
+            await conn.execute(text(
+                "INSERT OR IGNORE INTO app_settings(key, value) "
+                "VALUES (:key, 'pending')"
+            ), {"key": sentinel})
+        elif is_postgres:
+            await conn.execute(text(
+                "INSERT INTO app_settings(key, value) VALUES (:key, 'pending') "
+                "ON CONFLICT (key) DO NOTHING"
+            ), {"key": sentinel})
+        marker = (await conn.execute(text(
+            "SELECT value FROM app_settings WHERE key = :key"
+        ), {"key": sentinel})).scalar_one_or_none()
+        if marker == "pending":
+            rows = await conn.execute(text(
+                "SELECT id, required_metadata_fields FROM channels"
+            ))
+            changed = 0
+            for row in rows:
+                raw = row.required_metadata_fields
+                if isinstance(raw, str):
+                    try:
+                        current = _json.loads(raw)
+                    except ValueError:
+                        current = []
+                else:
+                    current = list(raw or [])
+                updated = [key for key in current if key not in retired]
+                if updated == current:
+                    continue
+                payload = _json.dumps(updated)
+                if is_postgres:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = "
+                        "CAST(:val AS JSONB) WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                else:
+                    await conn.execute(text(
+                        "UPDATE channels SET required_metadata_fields = :val "
+                        "WHERE id = :id"
+                    ), {"val": payload, "id": row.id})
+                changed += 1
+            await conn.execute(text(
+                "UPDATE app_settings SET value = 'done' WHERE key = :key"
+            ), {"key": sentinel})
+            if changed:
+                logger.info(
+                    "[migrate] removed retired season/episode keys from %d channels",
+                    changed,
+                )
 
     async with _best_effort(conn, "channels.required_metadata_fields baseline"):
         import json as _json

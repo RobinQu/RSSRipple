@@ -16,10 +16,12 @@ from sqlalchemy import select
 from app.database import _apply_light_migrations
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 from app.services import metadata_service as ms
 from app.services.external_ids import (
     add_external_id,
+    delete_external_ids_for_work,
     find_work_by_external_id,
     list_external_ids,
     merge_external_id_bags,
@@ -126,7 +128,12 @@ async def test_find_work_by_external_id_ignores_wrong_type(db_session):
 async def test_upsert_converges_cross_source_via_bag(db_session):
     """Work created via wikipedia:pid; a later tmdb:id upsert for the same work
     (title-converged once) bags the tmdb id; any subsequent fetch carrying only
-    tmdb:id converges on the SAME row via the bag - no title luck involved."""
+    tmdb:id converges on the SAME row via the bag - no title luck involved.
+
+    Per-season model (P3): series-level ids (wikipedia/tmdb) are bagged on the
+    COLLECTION; the season work bags the synthetic ``{series_id}#s{N}``
+    identity. Convergence semantics are unchanged.
+    """
     poster = patch(
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
@@ -136,7 +143,11 @@ async def test_upsert_converges_cross_source_via_bag(db_session):
             "external_id": "wikipedia:7727654", "external_source": "wikipedia",
             "title_cn": "黃泉使者", "content_type": "tv",
         })
+        assert s1.collection_id is not None
         assert await _bag_pairs(db_session, "series", s1.id) == {
+            ("wikipedia", "wikipedia:7727654#s1")
+        }
+        assert await _bag_pairs(db_session, "collection", s1.collection_id) == {
             ("wikipedia", "wikipedia:7727654")
         }
 
@@ -146,12 +157,12 @@ async def test_upsert_converges_cross_source_via_bag(db_session):
             "title_cn": "黃泉使者", "content_type": "tv",
         })
         assert s2.id == s1.id
-        assert await _bag_pairs(db_session, "series", s1.id) == {
+        assert await _bag_pairs(db_session, "collection", s1.collection_id) == {
             ("wikipedia", "wikipedia:7727654"), ("tmdb", "tmdb:82684"),
         }
 
         # Later fetch: only the tmdb id, completely different title (would
-        # previously spawn a duplicate row) -> bag hit, same row.
+        # previously spawn a duplicate row) -> collection bag hit, same work.
         s3 = await ms.create_or_update_series_from_external(db_session, {
             "external_id": "tmdb:82684", "external_source": "tmdb",
             "title_cn": "完全不同的标题", "content_type": "tv",
@@ -164,7 +175,11 @@ async def test_upsert_converges_cross_source_via_bag(db_session):
 
 async def test_upsert_bags_alt_external_ids(db_session):
     """alt_external_ids (e.g. wikipedia langlink pageids) join the bag at
-    upsert; a later upsert carrying a langlink pageid converges via the bag."""
+    upsert; a later upsert carrying a langlink pageid converges via the bag.
+
+    Per-season model (P3): wikipedia ids are series-granular, so they bag on
+    the COLLECTION; the season work bags the synthetic per-season identity.
+    """
     poster = patch(
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
@@ -180,6 +195,9 @@ async def test_upsert_bags_alt_external_ids(db_session):
             ],
         })
         assert await _bag_pairs(db_session, "series", s1.id) == {
+            ("wikipedia", "wikipedia:100#s1"),
+        }
+        assert await _bag_pairs(db_session, "collection", s1.collection_id) == {
             ("wikipedia", "wikipedia:100"),
             ("wikipedia", "wikipedia:200"),
             ("wikipedia", "wikipedia:300"),
@@ -285,7 +303,12 @@ async def test_seed_migration_populates_bag_idempotently(db_engine, db_session):
 
 
 async def test_seed_migration_does_not_duplicate_upsert_bagged_ids(db_engine, db_session):
-    """An id already bagged by the upsert path is not re-seeded."""
+    """An id already bagged by the upsert path is not re-seeded.
+
+    Per-season model (P3): the series-level id bags on the COLLECTION and the
+    work's primary is the synthetic per-season identity (seeded onto the
+    work's bag raw, as stored) — neither is duplicated by the seed migration.
+    """
     poster = patch(
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
@@ -303,7 +326,11 @@ async def test_seed_migration_does_not_duplicate_upsert_bagged_ids(db_engine, db
     rows = (await db_session.execute(
         select(WorkExternalId).where(WorkExternalId.source == "wikipedia")
     )).scalars().all()
-    assert len(rows) == 1 and rows[0].work_id == s.id
+    got = {(r.work_type, r.work_id, r.external_id) for r in rows}
+    assert got == {
+        ("collection", s.collection_id, "wikipedia:1"),
+        ("series", s.id, "wikipedia:1#s1"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -478,3 +505,80 @@ async def test_merge_bags_dedups_wikipedia_by_pageid(db_session):
         ("wikipedia", "wikipedia:zh:7301786"),
         ("wikipedia", "wikipedia:en:65944845"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Collection identity bag (work_type="collection") — series-level source ids
+# live on the WorkCollection's bag in the per-season work model.
+# ---------------------------------------------------------------------------
+
+
+def _collection(**kw) -> WorkCollection:
+    defaults = dict(id=_uuid(), title_cn="某合集")
+    defaults.update(kw)
+    return WorkCollection(**defaults)
+
+
+async def test_collection_external_id_add_find_and_wrong_type(db_session):
+    c = _collection()
+    db_session.add(c)
+    await db_session.flush()
+
+    assert await add_external_id(db_session, "collection", c.id, "tmdb", "TMDB 82684") is True
+    assert await _bag_pairs(db_session, "collection", c.id) == {("tmdb", "tmdb:82684")}
+    # Idempotent re-add.
+    assert await add_external_id(db_session, "collection", c.id, "tmdb", "tmdb:82684") is False
+
+    found = await find_work_by_external_id(db_session, "collection", "tmdb", "82684")
+    assert isinstance(found, WorkCollection) and found.id == c.id
+    # The same id bagged for a collection must not leak into work lookups.
+    assert await find_work_by_external_id(db_session, "series", "tmdb", "tmdb:82684") is None
+    assert await find_work_by_external_id(db_session, "movie", "tmdb", "tmdb:82684") is None
+
+
+async def test_collection_external_id_never_stolen(db_session):
+    c1, c2 = _collection(title_cn="合集甲"), _collection(title_cn="合集乙")
+    db_session.add_all([c1, c2])
+    await db_session.flush()
+
+    assert await add_external_id(db_session, "collection", c1.id, "wikipedia", "wikipedia:zh:1") is True
+    # Already owned by c1 — adding for c2 keeps the existing mapping.
+    assert await add_external_id(db_session, "collection", c2.id, "wikipedia", "wikipedia:zh:1") is False
+    assert await list_external_ids(db_session, "collection", c2.id) == []
+    row = (await db_session.execute(select(WorkExternalId))).scalar_one()
+    assert row.work_type == "collection" and row.work_id == c1.id
+
+
+async def test_merge_external_id_bags_collection(db_session):
+    """Collection dedup merge: the duplicate's bag rows AND its primary column
+    id union into the survivor's bag (creator-wins primary untouched)."""
+    survivor = _collection(title_cn="留存合集")
+    dup = _collection(
+        title_cn="重复合集", external_source="tmdb", external_id="tmdb:131295",
+    )
+    db_session.add_all([survivor, dup])
+    await db_session.flush()
+    await add_external_id(db_session, "collection", survivor.id, "wikipedia", "wikipedia:zh:9")
+    await add_external_id(db_session, "collection", dup.id, "bangumi", "bangumi:555")
+
+    gained = await merge_external_id_bags(db_session, survivor, [dup])
+    assert gained == 2
+    assert await _bag_pairs(db_session, "collection", survivor.id) == {
+        ("wikipedia", "wikipedia:zh:9"),
+        ("bangumi", "bangumi:555"),
+        ("tmdb", "tmdb:131295"),
+    }
+    assert await list_external_ids(db_session, "collection", dup.id) == []
+    # Creator-wins: the survivor's primary columns stay untouched.
+    assert survivor.external_id is None and survivor.external_source is None
+
+
+async def test_delete_external_ids_for_collection(db_session):
+    c = _collection()
+    db_session.add(c)
+    await db_session.flush()
+    await add_external_id(db_session, "collection", c.id, "tmdb", "tmdb:1")
+
+    await delete_external_ids_for_work(db_session, "collection", c.id)
+    assert await list_external_ids(db_session, "collection", c.id) == []
+    assert await find_work_by_external_id(db_session, "collection", "tmdb", "tmdb:1") is None

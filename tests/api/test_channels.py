@@ -167,7 +167,8 @@ class TestChannelsCRUD:
         assert resource_collection["section"] == "pack"
         assert resource_collection["applies_to"] == ["franchise"]
         season = next(f for f in data["fields"] if f["key"] == "season")
-        assert season["lock"] == "tv"
+        # 作品单季化：季号由作品身份承载，season 退役为可选声明。
+        assert season["lock"] is None
         episode = next(f for f in data["fields"] if f["key"] == "episode")
         assert episode["lock"] == "tv_single"
         year = next(f for f in data["fields"] if f["key"] == "year")
@@ -176,7 +177,7 @@ class TestChannelsCRUD:
         locked_keys = {f["key"] for f in data["fields"] if f["locked"]}
         assert locked_keys == {
             "search_title", "content_type", "is_batch", "year", "is_anime",
-            "season", "episode", "episode_start", "episode_end",
+            "episode", "episode_start", "episode_end",
             "resource_collection",
         }
 

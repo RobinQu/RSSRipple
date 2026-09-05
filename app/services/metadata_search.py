@@ -21,7 +21,6 @@ from app.services.metadata_service import (
     download_and_cache_poster,
     manual_search_metadata,
     manually_edited_fields,
-    seasons_overwrite_allowed,
     upsert_episodes,
 )
 from app.services.metadata_source_registry import REGISTRY_SOURCES
@@ -37,7 +36,8 @@ _COMMON_FIELDS: tuple[tuple[str, str, Any], ...] = (
 )
 _TV_FIELDS: tuple[tuple[str, str, Any], ...] = (
     ("number_of_episodes", "number_of_episodes", _safe_int),
-    ("number_of_seasons", "number_of_seasons", _safe_int),
+    # ``number_of_seasons`` is an inert orphan column in the per-season work
+    # model — not filled here.
     ("start_date", "start_date", _parse_date),
     ("end_date", "end_date", _parse_date),
 )
@@ -185,14 +185,8 @@ async def preview_work_metadata(
         protected = field in manual and not override_manual_edits
         changes.append({"field": field, "current": current, "incoming": incoming,
                         "protected": protected, "action": "skip" if protected else "update"})
-    if content_type == "tv":
-        seasons = values.get("seasons")
-        current_seasons = getattr(work, "seasons", None)
-        if seasons and seasons != current_seasons and not (only_missing and current_seasons):
-            allowed = seasons_overwrite_allowed(current_seasons, seasons)
-            changes.append({"field": "seasons", "current": current_seasons,
-                            "incoming": seasons, "protected": not allowed,
-                            "action": "update" if allowed else "skip"})
+    # ``seasons`` / ``number_of_seasons`` are inert orphan columns in the
+    # per-season work model — never previewed or written here.
     return {"changes": changes, "warnings": []}
 
 
@@ -257,15 +251,8 @@ async def apply_work_metadata(
         if work.is_anime != previous_is_anime:
             applied.append("is_anime")
     if content_type == "tv":
-        seasons = values.get("seasons")
-        if (
-            seasons
-            and not (only_missing and getattr(work, "seasons", None))
-            and seasons != getattr(work, "seasons", None)
-            and seasons_overwrite_allowed(getattr(work, "seasons", None), seasons)
-        ):
-            work.seasons = seasons
-            applied.append("seasons")
+        # ``seasons`` is an inert orphan column (per-season work model) — not
+        # written. Episode rows still upsert, season-scoped by upsert_episodes.
         if values.get("episode_list"):
             await upsert_episodes(db, work, values["episode_list"])
     await db.commit()

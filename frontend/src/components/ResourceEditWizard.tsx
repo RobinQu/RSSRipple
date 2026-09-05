@@ -29,6 +29,7 @@ import { channelsApi, resourcesApi } from '../api/channels';
 import { seriesApi } from '../api/series';
 import { formatBytes } from '../utils/format';
 import { clientId } from '../utils/uuid';
+import { seasonLabel } from '../utils/season';
 import { DEFAULT_FALLBACK_SOURCES } from './channel-form/constants';
 import SeasonInput from './SeasonInput';
 import type {
@@ -108,14 +109,14 @@ interface ResourceEditWizardProps {
   onDone: (updated: FileResource | null) => void;
 }
 
-/** Five-step unified edit flow for a file resource:
- * ① works association (batch toggle + add/remove one-or-more works),
+/** Four-step unified edit flow for a file resource (per-season works):
+ * ① collection & works association (batch toggle; TV resources pick/create
+ *    the collection first, then season works among its members),
  * ② file mapping (left: selectable work list; right: shift-range multi-select
- *    files joined into the selected work with a season parameter, S/E
- *    prefilled from the deterministic name parses),
- * ③ collection association (search existing or create in place),
- * ④ generic media fields (dropdowns fed by system-observed values),
- * ⑤ confirmation review before the single PUT save. */
+ *    files joined into the selected work — the season comes from the work's
+ *    own season_number, S/E prefilled from the deterministic name parses),
+ * ③ generic media fields (dropdowns fed by system-observed values),
+ * ④ confirmation review before the single PUT save. */
 export default function ResourceEditWizard({
   resourceId,
   initialStep = 0,
@@ -133,14 +134,20 @@ export default function ResourceEditWizard({
   const [filesRetrying, setFilesRetrying] = useState(false);
   // Batch editing state for the expanded work's assignment rows (step 1).
   const [checkedAssign, setCheckedAssign] = useState<string[]>([]);
-  const [batchSeason, setBatchSeason] = useState<number | null>(null);
   const [batchEpStart, setBatchEpStart] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  // Server 422 (VALIDATION_ERROR) surfaced in-place: the message lists the
+  // per-work gaps; ``step`` is the wizard step that fixes it.
+  const [saveError, setSaveError] = useState<{ step: number; message: string } | null>(null);
 
   const [isBatch, setIsBatch] = useState(false);
   const [works, setWorks] = useState<AssociationWorkRef[]>([]);
   const [workTitles, setWorkTitles] = useState<Record<string, string>>({});
+  // Per-season works: a series work IS one season. The season applied to a
+  // file placement comes from the work itself; null = unknown (legacy rows
+  // and online candidates) and falls back to a per-work/manual input.
+  const [workSeasons, setWorkSeasons] = useState<Record<string, number | null>>({});
   const [placements, setPlacements] = useState<Record<string, Placement>>({});
   const [originalPlacements, setOriginalPlacements] = useState<Record<string, Placement>>({});
   const [collectionId, setCollectionId] = useState<string | null>(null);
@@ -190,8 +197,7 @@ export default function ResourceEditWizard({
   const dragModeRef = useRef<'add' | 'remove'>('add');
   const dragBaseRef = useRef<string[]>([]);
 
-  // Collection step (search + create-in-place).
-  const [collSearchQ, setCollSearchQ] = useState('');
+  // Collection search + create-in-place (step 0, batch resources).
   const [collSearching, setCollSearching] = useState(false);
   const [newCollTitle, setNewCollTitle] = useState('');
   const [creatingColl, setCreatingColl] = useState(false);
@@ -209,6 +215,7 @@ export default function ResourceEditWizard({
     setCheckedFiles([]);
     setSelectedWorkKey(null);
     setStep(initialStep);
+    setSaveError(null);
     worksDirtyRef.current = false;
     (async () => {
       const res = await resourcesApi.get(resourceId);
@@ -245,6 +252,22 @@ export default function ResourceEditWizard({
       }
       setWorks(nextWorks);
       setWorkTitles(titles);
+      // Season evidence per work: the series brief carries season_number;
+      // link-table works fall back to their existing file placements.
+      const nextWorkSeasons: Record<string, number | null> = {};
+      if (d.series_id) {
+        nextWorkSeasons[workKeyOf('series', d.series_id)] =
+          d.series?.season_number ?? null;
+      }
+      for (const a of d.file_assignments ?? []) {
+        const wt: WorkRefType | null = a.series_id ? 'series' : a.movie_id ? 'movie' : null;
+        if (!wt) continue;
+        const key = workKeyOf(wt, (a.series_id || a.movie_id)!);
+        if (nextWorkSeasons[key] == null && a.season != null) {
+          nextWorkSeasons[key] = a.season;
+        }
+      }
+      setWorkSeasons(nextWorkSeasons);
       // Default-expand the first work so existing file associations (the
       // season's mapping list) are visible without an extra click.
       if (nextWorks.length > 0) {
@@ -380,14 +403,38 @@ export default function ResourceEditWizard({
     return t('channels.batchFranchise');
   }, [isBatch, works, placements, detail, suggestion, t]);
 
-  const addWork = (ref: AssociationWorkRef, title: string) => {
+  const addWork = (
+    ref: AssociationWorkRef,
+    title: string,
+    meta?: { season?: number | null; collectionId?: string | null },
+  ) => {
     const key = workKeyOf(ref.work_type, ref.work_id);
     if (works.some((w) => workKeyOf(w.work_type, w.work_id) === key)) {
       return;
     }
     if (!ref.work_type) return;
+    // Two-level association (batch TV): a series work outside the selected
+    // collection is rejected server-side (422) — block it up front. Non-batch
+    // resources don't carry a collection_id, so the work pick alone binds it.
+    if (
+      isBatch &&
+      ref.work_type === 'series' &&
+      collectionId &&
+      meta?.collectionId &&
+      meta.collectionId !== collectionId
+    ) {
+      message.warning(t('resource.workNotInCollection'));
+      return;
+    }
     setWorks((ws) => [...ws, ref]);
     setWorkTitles((prev) => ({ ...prev, [key]: title }));
+    setWorkSeasons((prev) => ({ ...prev, [key]: meta?.season ?? null }));
+    // Adopt the picked work's collection when none is selected yet.
+    if (isBatch && ref.work_type === 'series' && !collectionId && meta?.collectionId) {
+      setCollectionId(meta.collectionId);
+      const name = collections.find((c) => c.id === meta.collectionId)?.name;
+      message.info(t('resource.collectionAdopted', { name: name ?? meta.collectionId }));
+    }
     if (!selectedWorkKey) setSelectedWorkKey(key);
     worksDirtyRef.current = true;
   };
@@ -398,6 +445,11 @@ export default function ResourceEditWizard({
     );
     if (idx < 0) return;
     setWorks((ws) => ws.filter((_, i) => i !== idx));
+    setWorkSeasons((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
     setPlacements((prev) => {
       const next: Record<string, Placement> = {};
       for (const [path, p] of Object.entries(prev)) {
@@ -443,18 +495,6 @@ export default function ResourceEditWizard({
       .filter(([, p]) => workKeyOf(p.workType, p.workId) === key)
       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
 
-  /** Batch-apply one season to every checked assignment row. */
-  const applyBatchSeason = () => {
-    if (batchSeason == null || checkedAssign.length === 0) return;
-    setPlacements((prev) => {
-      const next = { ...prev };
-      for (const path of checkedAssign) {
-        if (next[path]) next[path] = { ...next[path], season: batchSeason };
-      }
-      return next;
-    });
-  };
-
   /** Fill checked rows with ascending episode numbers (start, start+1, …) in
    * display order; each file becomes a single-episode mapping. */
   const applyBatchEpisodeIncrement = () => {
@@ -473,6 +513,11 @@ export default function ResourceEditWizard({
     });
   };
 
+  /** Season applied to files joining a work: the filename parse wins, then
+   * the work's own season_number, then the manual join-season fallback. */
+  const seasonForJoin = (workKey: string, parsedSeason: number | null | undefined): number | null =>
+    parsedSeason ?? workSeasons[workKey] ?? joinSeason;
+
   const joinChecked = () => {
     if (!selectedWorkKey || checkedFiles.length === 0) return;
     const sep = selectedWorkKey.indexOf(':');
@@ -483,7 +528,7 @@ export default function ResourceEditWizard({
       const next = { ...prev };
       for (const path of checkedFiles) {
         const parsed = detParses[path];
-        const season = parsed?.season ?? joinSeason;
+        const season = seasonForJoin(selectedWorkKey, parsed?.season);
         if (wt === 'series' && season == null) {
           missing.push(path);
           continue;
@@ -689,7 +734,7 @@ export default function ResourceEditWizard({
   };
 
   const gotoStep = (next: number) => {
-    if (next === 3) {
+    if (next === 2) {
       void loadMediaOptions();
     }
     setStep(next);
@@ -892,6 +937,7 @@ export default function ResourceEditWizard({
 
   const handleSave = async () => {
     if (!detail) return;
+    setSaveError(null);
     if (isBatch && !audioLinked) {
       const missing = Object.values(placements).filter(
         (p) => p.workType === 'series' && p.season == null,
@@ -900,6 +946,27 @@ export default function ResourceEditWizard({
         message.error(t('resource.tvSeasonRequired'));
         setStep(1);
         return;
+      }
+      // Multi-work pack completeness (client-side quick check; the server
+      // re-validates with the torrent listing and per-work episode ranges).
+      if (works.length > 1) {
+        const assignedKeys = new Set(
+          Object.values(placements).map((p) => workKeyOf(p.workType, p.workId)),
+        );
+        const unassigned = works
+          .map((w) => workKeyOf(w.work_type, w.work_id))
+          .filter((k) => !assignedKeys.has(k))
+          .map((k) => workTitles[k] || k);
+        if (unassigned.length > 0) {
+          setSaveError({
+            step: 1,
+            message: t('resource.multiWorkMissingAssignments', {
+              names: unassigned.join('、'),
+            }),
+          });
+          setStep(1);
+          return;
+        }
       }
     }
     const changes = computeChanges();
@@ -921,7 +988,15 @@ export default function ResourceEditWizard({
     try {
       const res = await resourcesApi.updateAssociations(resourceId, payload);
       if (!res.success) {
-        message.error(res.error?.message || t('resource.correctSaveFailed'));
+        // Server-side validation lists the per-work gaps in the message;
+        // route the user to the step that fixes them (collection/work
+        // mismatch → step 0, file-assignment coverage → step 1).
+        const msg = res.error?.message || t('resource.correctSaveFailed');
+        let target = 3;
+        if (/合集|作品集|collection/i.test(msg)) target = 0;
+        else if (/文件|指派|覆盖|区间|季/.test(msg)) target = 1;
+        setSaveError({ step: target, message: msg });
+        setStep(target);
         return;
       }
       const warnings = res.data.warnings ?? [];
@@ -951,14 +1026,27 @@ export default function ResourceEditWizard({
   }
 
   const stepsItems = [
-    { title: t('resource.wizardStepWorks') },
+    { title: t('resource.wizardStepAssociation') },
     { title: t('resource.wizardStepFiles') },
-    { title: t('resource.wizardStepCollection') },
     { title: t('resource.wizardStepMedia') },
     { title: t('resource.wizardStepConfirm') },
   ];
 
-  const changes = step === 4 ? computeChanges() : null;
+  const changes = step === 3 ? computeChanges() : null;
+
+  /** In-place server-validation error (422) pinned to the step that fixes
+   * it — the message lists the per-work gaps verbatim. */
+  const saveErrorAlert = (stepIdx: number) =>
+    saveError && saveError.step === stepIdx ? (
+      <Alert
+        type="error"
+        showIcon
+        closable
+        message={saveError.message}
+        style={{ marginBottom: 12 }}
+        onClose={() => setSaveError(null)}
+      />
+    ) : null;
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -984,8 +1072,10 @@ export default function ResourceEditWizard({
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: step === 1 ? 'hidden' : 'auto', padding: '4px 4px 12px' }}>
 
-      {/* Step 0 — works association */}
+      {/* Step 0 — collection & works association (two-level for TV: the
+          collection first, then season works among its members) */}
       <div style={panelStyle(step === 0)}>
+        {saveErrorAlert(0)}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <Text>{t('resource.isBatch')}</Text>
           <Switch
@@ -994,12 +1084,70 @@ export default function ResourceEditWizard({
             disabled={audioLinked}
           />
         </div>
+        {isBatch && (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: '8px 10px',
+              border: '1px solid var(--rr-border-soft)',
+              borderRadius: 6,
+            }}
+          >
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+              {t('resource.collectionFirstHint')}
+            </Text>
+            <Select
+              showSearch
+              allowClear
+              style={{ width: '100%' }}
+              placeholder={t('resource.collectionLabel')}
+              value={collectionId ?? undefined}
+              onSearch={(q) => {
+                void (async () => {
+                  setCollSearching(true);
+                  try {
+                    const res = await collectionsApi.list(1, 20, q || undefined);
+                    if (res.success) {
+                      setCollections(res.data.map((c) => ({ id: c.id, name: c.title_cn })));
+                    }
+                  } finally {
+                    setCollSearching(false);
+                  }
+                })();
+              }}
+              filterOption={false}
+              loading={collSearching}
+              notFoundContent={collSearching ? <Spin size="small" /> : null}
+              onChange={(v) => setCollectionId(v ?? null)}
+              options={collections.map((c) => ({ value: c.id, label: c.name }))}
+            />
+            <Divider plain style={{ margin: '8px 0' }}>{t('resource.or')}</Divider>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                value={newCollTitle}
+                onChange={(e) => setNewCollTitle(e.target.value)}
+                placeholder={t('resource.collectionCreatePlaceholder')}
+                onPressEnter={() => void createCollectionAndAttach()}
+              />
+              <Button
+                type="primary"
+                loading={creatingColl}
+                disabled={!newCollTitle.trim()}
+                onClick={() => void createCollectionAndAttach()}
+              >
+                {t('resource.collectionCreateBtn')}
+              </Button>
+            </Space.Compact>
+          </div>
+        )}
         <div style={{ marginBottom: 6 }}>
           <Text type="secondary" style={{ fontSize: 12 }}>{t('resource.stepWorkType')}</Text>
         </div>
         <Space wrap style={{ marginBottom: 8 }}>
           {works.map((w) => {
             const key = workKeyOf(w.work_type, w.work_id);
+            const sLabel =
+              w.work_type === 'series' ? seasonLabel(t, workSeasons[key]) : '';
             return (
               <Tag
                 key={key}
@@ -1008,6 +1156,7 @@ export default function ResourceEditWizard({
                 onClose={() => removeWork(key)}
               >
                 {workTitles[key] || w.work_id}
+                {sLabel ? ` · ${sLabel}` : ''}
               </Tag>
             );
           })}
@@ -1037,6 +1186,7 @@ export default function ResourceEditWizard({
 
       {/* Step 1 — file mapping (left: works, right: files) */}
       <div style={{ ...panelStyle(step === 1), height: '100%', minHeight: 0 }}>
+        {saveErrorAlert(1)}
         {audioLinked ? (
           <Alert type="info" showIcon message={t('resource.audioLinkHint')} />
         ) : !isBatch ? (
@@ -1122,6 +1272,25 @@ export default function ResourceEditWizard({
                             {w.work_type === 'series' ? t('works.tv') : t('works.movie')} · {count}
                           </Text>
                         </span>
+                        {/* Per-season works: the season comes from the work
+                            itself; only unknown seasons (candidates, legacy
+                            rows) get a per-work input. */}
+                        {w.work_type === 'series' &&
+                          (workSeasons[key] != null ? (
+                            <Tag style={{ fontSize: 11, margin: 0, flexShrink: 0 }}>
+                              {seasonLabel(t, workSeasons[key])}
+                            </Tag>
+                          ) : (
+                            <SeasonInput
+                              size="small"
+                              value={workSeasons[key] ?? null}
+                              onChange={(v) =>
+                                setWorkSeasons((prev) => ({ ...prev, [key]: v }))
+                              }
+                              placeholder={t('resource.workSeasonUnknown')}
+                              style={{ width: 96, flexShrink: 0 }}
+                            />
+                          ))}
                         <Button
                           size="small"
                           type="text"
@@ -1146,20 +1315,6 @@ export default function ResourceEditWizard({
                             }}
                           >
                             <Text type="secondary" style={{ fontSize: 11 }}>{t('resource.batchToolbarHint')}</Text>
-                            <SeasonInput
-                              size="small"
-                              value={batchSeason}
-                              onChange={setBatchSeason}
-                              style={{ width: 72 }}
-                              placeholder={t('resource.seasonLabel')}
-                            />
-                            <Button
-                              size="small"
-                              disabled={batchSeason == null || checkedHere.length === 0}
-                              onClick={applyBatchSeason}
-                            >
-                              {t('resource.applySeasonToSelected', { count: checkedHere.length })}
-                            </Button>
                             <InputNumber
                               size="small"
                               min={0}
@@ -1220,7 +1375,11 @@ export default function ResourceEditWizard({
                                 >
                                   {path.split('/').pop()}
                                 </span>
-                                <SeasonInput size="small" value={p.season} onChange={(v) => setPlacementField(path, { season: v })} style={{ width: 52, flexShrink: 0 }} />
+                                {/* Season is fixed by the target work
+                                    (per-season works) — read-only here. */}
+                                <span style={{ width: 52, flexShrink: 0, textAlign: 'center', fontSize: 11, marginTop: 3 }}>
+                                  {p.season != null ? `S${p.season}` : '—'}
+                                </span>
                                 <InputNumber size="small" min={0} value={p.epStart} onChange={(v) => setPlacementField(path, { epStart: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
                                 <InputNumber size="small" min={0} value={p.epEnd} onChange={(v) => setPlacementField(path, { epEnd: typeof v === 'number' ? v : null })} style={{ width: 52, flexShrink: 0 }} controls={false} />
                                 <Button size="small" type="text" icon={<X size={11} />} onClick={() => unassignPaths([path])} />
@@ -1255,13 +1414,19 @@ export default function ResourceEditWizard({
                   {t('resource.reanalyze')}
                 </Button>
                 <Divider type="vertical" />
-                <SeasonInput
-                  size="small"
-                  value={joinSeason}
-                  onChange={setJoinSeason}
-                  addonBefore={t('resource.seasonLabel')}
-                  style={{ width: 130 }}
-                />
+                {/* Season join fallback — only when the selected season
+                    work's season_number is unknown (candidate/legacy);
+                    otherwise the work itself carries the season. */}
+                {selectedWorkKey?.startsWith('series:') &&
+                  workSeasons[selectedWorkKey] == null && (
+                    <SeasonInput
+                      size="small"
+                      value={joinSeason}
+                      onChange={setJoinSeason}
+                      addonBefore={t('resource.seasonLabel')}
+                      style={{ width: 130 }}
+                    />
+                  )}
                 <Button
                   size="small"
                   type="primary"
@@ -1345,67 +1510,9 @@ export default function ResourceEditWizard({
         )}
       </div>
 
-      {/* Step 2 — collection association */}
+      {/* Step 2 — generic media fields */}
       <div style={panelStyle(step === 2)}>
-        {!isBatch ? (
-          <Alert type="info" showIcon message={t('resource.collectionOnlyBatch')} />
-        ) : (
-          <>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('resource.collectionSearchLabel')}</Text>
-              <Select
-                showSearch
-                allowClear
-                style={{ width: '100%', marginTop: 4 }}
-                placeholder={t('resource.collectionLabel')}
-                value={collectionId ?? undefined}
-                onSearch={(q) => {
-                  setCollSearchQ(q);
-                  void (async () => {
-                    setCollSearching(true);
-                    try {
-                      const res = await collectionsApi.list(1, 20, q || undefined);
-                      if (res.success) {
-                        setCollections(res.data.map((c) => ({ id: c.id, name: c.title_cn })));
-                      }
-                    } finally {
-                      setCollSearching(false);
-                    }
-                  })();
-                }}
-                filterOption={false}
-                loading={collSearching || collSearchQ.length > 0 === false ? collSearching : collSearching}
-                notFoundContent={collSearching ? <Spin size="small" /> : null}
-                onChange={(v) => setCollectionId(v ?? null)}
-                options={collections.map((c) => ({ value: c.id, label: c.name }))}
-              />
-            </div>
-            <Divider plain style={{ margin: '4px 0 12px' }}>{t('resource.or')}</Divider>
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>{t('resource.collectionCreateLabel')}</Text>
-              <Space.Compact style={{ width: '100%', marginTop: 4 }}>
-                <Input
-                  value={newCollTitle}
-                  onChange={(e) => setNewCollTitle(e.target.value)}
-                  placeholder={t('resource.collectionCreatePlaceholder')}
-                  onPressEnter={() => void createCollectionAndAttach()}
-                />
-                <Button
-                  type="primary"
-                  loading={creatingColl}
-                  disabled={!newCollTitle.trim()}
-                  onClick={() => void createCollectionAndAttach()}
-                >
-                  {t('resource.collectionCreateBtn')}
-                </Button>
-              </Space.Compact>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Step 3 — generic media fields */}
-      <div style={panelStyle(step === 3)}>
+        {saveErrorAlert(2)}
         {DIRECT_METADATA_FIELD_KEYS.filter((k) =>
           (detail.missing_fields ?? []).includes(k),
         ).map((k) => (
@@ -1458,8 +1565,9 @@ export default function ResourceEditWizard({
         </div>
       </div>
 
-      {/* Step 4 — confirmation review */}
-      <div style={panelStyle(step === 4)}>
+      {/* Step 3 — confirmation review */}
+      <div style={panelStyle(step === 3)}>
+        {saveErrorAlert(3)}
         {!changes ? (
           <Spin />
         ) : (
@@ -1471,12 +1579,12 @@ export default function ResourceEditWizard({
 
       <Space size={8} style={{ display: 'flex', justifyContent: 'flex-end', flexShrink: 0, padding: '12px 4px 4px', borderTop: '1px solid var(--rr-border-soft)' }}>
         {step > 0 && <Button disabled={analyzing} onClick={() => setStep((s) => s - 1)}>{t('resource.prevStep')}</Button>}
-        {step < 4 && (
+        {step < 3 && (
           <Button type="primary" disabled={analyzing} onClick={() => maybeAutoAnalyze(step + 1)}>
             {t('resource.nextStep')}
           </Button>
         )}
-        {step === 4 && (
+        {step === 3 && (
           <Button type="primary" loading={saving} onClick={() => void handleSave()}>
             {t('common.confirm')}
           </Button>
@@ -1486,11 +1594,12 @@ export default function ResourceEditWizard({
       <WorkPickerModal
         open={pickerOpen}
         existingKeys={new Set(works.map((w) => workKeyOf(w.work_type, w.work_id)))}
+        collectionId={collectionId}
         defaultMetadataSource={channelMetadataSource}
         defaultFallbackSources={channelFallbackSources}
         onClose={() => setPickerOpen(false)}
-        onPick={(ref, title) => {
-          addWork(ref, title);
+        onPick={(ref, title, meta) => {
+          addWork(ref, title, meta);
           setPickerOpen(false);
         }}
       />
@@ -1653,6 +1762,7 @@ function mediaLabelKey(k: MediaFieldKey | string): string {
 function WorkPickerModal({
   open,
   existingKeys,
+  collectionId,
   defaultMetadataSource,
   defaultFallbackSources,
   onClose,
@@ -1660,10 +1770,17 @@ function WorkPickerModal({
 }: {
   open: boolean;
   existingKeys: Set<string>;
+  /** Two-level association (per-season works): when set, the TV library tab
+   * lists this collection's season works; picks outside it are blocked. */
+  collectionId: string | null;
   defaultMetadataSource: MetadataSource;
   defaultFallbackSources: string[];
   onClose: () => void;
-  onPick: (ref: AssociationWorkRef, title: string) => void;
+  onPick: (
+    ref: AssociationWorkRef,
+    title: string,
+    meta?: { season?: number | null; collectionId?: string | null },
+  ) => void;
 }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -1674,7 +1791,9 @@ function WorkPickerModal({
   const [fallbackSources, setFallbackSources] = useState<string[]>(defaultFallbackSources);
   const [q, setQ] = useState('');
   const [searching, setSearching] = useState(false);
-  const [libResults, setLibResults] = useState<{ id: string; title: string; year: string | null }[]>([]);
+  const [libResults, setLibResults] = useState<
+    { id: string; title: string; year: string | null; seasonNumber: number | null; collectionId: string | null }[]
+  >([]);
   const [metaResults, setMetaResults] = useState<MetadataCandidate[]>([]);
 
   useEffect(() => {
@@ -1686,6 +1805,27 @@ function WorkPickerModal({
   const searchLibrary = async (query?: string) => {
     setSearching(true);
     try {
+      if (kind === 'tv' && collectionId) {
+        // Two-level association: browse the selected collection's season
+        // works (server returns them sorted by season_number).
+        const res = await collectionsApi.works(collectionId, 1, 100);
+        if (res.success) {
+          const needle = (query || '').trim().toLowerCase();
+          setLibResults(
+            res.data
+              .filter((row) => row.content_type === 'tv')
+              .map((row) => ({
+                id: row.id,
+                title: row.original_title || row.title_cn || row.title_en || row.id,
+                year: row.year != null ? String(row.year) : null,
+                seasonNumber: row.season_number ?? null,
+                collectionId,
+              }))
+              .filter((row) => !needle || row.title.toLowerCase().includes(needle)),
+          );
+        }
+        return;
+      }
       const fn = kind === 'tv' ? seriesApi.list : moviesApi.list;
       const res = await fn(1, 10, query || undefined);
       if (res.success) {
@@ -1697,6 +1837,10 @@ function WorkPickerModal({
               ((row as { start_date?: string | null }).start_date ||
                 (row as { release_date?: string | null }).release_date ||
                 '')?.slice(0, 4) || null,
+            seasonNumber:
+              kind === 'tv' ? ((row as { season_number?: number | null }).season_number ?? null) : null,
+            collectionId:
+              (row as { collection_id?: string | null }).collection_id ?? null,
           })),
         );
       }
@@ -1781,9 +1925,20 @@ function WorkPickerModal({
             ]}
             style={{ marginBottom: 10 }}
           />
+          {kind === 'tv' && collectionId && (
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+              {t('resource.pickSeasonWorkHint')}
+            </Text>
+          )}
           <div style={{ maxHeight: 320, overflowY: 'auto' }}>
             {libResults.map((row) => {
               const key = workKeyOf(kind === 'tv' ? 'series' : 'movie', row.id);
+              const outsideCollection =
+                kind === 'tv' &&
+                !!collectionId &&
+                !!row.collectionId &&
+                row.collectionId !== collectionId;
+              const disabled = existingKeys.has(key) || outsideCollection;
               return (
                 <div
                   key={row.id}
@@ -1791,16 +1946,38 @@ function WorkPickerModal({
                 >
                   <Space size={6}>
                     <Text style={{ fontSize: 13 }}>{row.title}</Text>
+                    {kind === 'tv' && row.seasonNumber != null && (
+                      <Tag style={{ fontSize: 10, margin: 0 }}>{seasonLabel(t, row.seasonNumber)}</Tag>
+                    )}
                     {row.year && <Text type="secondary" style={{ fontSize: 12 }}>{row.year}</Text>}
                   </Space>
-                  <Button size="small" type="primary" disabled={existingKeys.has(key)} onClick={() => onPick({ work_type: kind === 'tv' ? 'series' : 'movie', work_id: row.id }, row.title)}>
+                  <Button
+                    size="small"
+                    type="primary"
+                    disabled={disabled}
+                    title={outsideCollection ? t('resource.workNotInCollection') : undefined}
+                    onClick={() =>
+                      onPick(
+                        { work_type: kind === 'tv' ? 'series' : 'movie', work_id: row.id },
+                        row.title,
+                        { season: row.seasonNumber, collectionId: row.collectionId },
+                      )
+                    }
+                  >
                     {existingKeys.has(key) ? t('resource.workPicked') : t('works.select')}
                   </Button>
                 </div>
               );
             })}
             {!searching && libResults.length === 0 && (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('common.noResults')} />
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  kind === 'tv' && collectionId
+                    ? t('resource.noSeasonWorksInCollection')
+                    : t('common.noResults')
+                }
+              />
             )}
           </div>
         </>

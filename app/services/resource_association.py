@@ -14,6 +14,12 @@ pipelines rely on are enforced here:
   tv+movie or multi-tv → "franchise"; a single TV work → "season" when the
   season evidence is unambiguous else "multi_season"; no works → keep the
   current scope or fall back to "franchise".
+- Two-level association (per-season works): when a ``collection_id`` is
+  submitted, every associated series work must belong to that collection.
+- Multi-work packs (>1 associated work) must be complete: every work has at
+  least one file placement, every media file of the torrent listing is
+  assigned (when the listing is known), and each work's episode run covers
+  its expected range (whole-range misses are hard errors, gaps are warnings).
 - Every file placement must reference a work of the association set; TV
   placements require a season; episode runs within one (work, season) may
   not overlap (hard error) and gaps surface as warnings.
@@ -93,6 +99,10 @@ async def _resolve_works(
                 from app.services.metadata_service import create_or_update_series_from_external
 
                 obj = await create_or_update_series_from_external(db, data)
+                if obj is None:
+                    raise AssociationValidationError(
+                        "无法确定该剧集候选的季号，请先关联合集下的具体季作品"
+                    )
             else:
                 from app.services.metadata_service import create_or_update_movie_from_external
 
@@ -147,14 +157,24 @@ def _derive_batch_scope(
 def _validate_assignments(
     body: ResourceAssociationUpdateRequest,
     work_keys: set[tuple[str, str]],
+    works_map: dict[tuple[str, str], TVSeries | Movie] | None = None,
+    media_files: set[str] | None = None,
 ) -> list[str]:
     """Cross-check placements against the works set.
 
     Hard errors (422): duplicate paths, placement referencing a work outside
     the association set, a TV placement without a season, overlapping episode
     runs inside one (work, season). Soft warnings: gaps between runs.
+
+    Multi-work packs (>1 work) additionally enforce file-manifest
+    completeness (per docs/design/per-season-works.md): every associated work
+    has at least one placement; every media file of the torrent listing is
+    assigned (skipped with a warning when the listing is unavailable); each
+    series work's placements cover its ``number_of_episodes`` range — a
+    whole-range miss is a hard error, head/tail shortfalls are warnings.
     """
     result: list[str] = []
+    multi_work = len(work_keys) > 1
     seen_paths: set[str] = set()
     intervals: dict[tuple[str, str, int], list[tuple[int, int, str]]] = defaultdict(list)
 
@@ -192,6 +212,72 @@ def _validate_assignments(
                         f"（{ppath} → {path}）"
                     )
             prev = (lo, hi, path)
+
+    if not multi_work:
+        return result
+
+    def _work_label(key: tuple[str, str]) -> str:
+        work = (works_map or {}).get(key)
+        if work is None:
+            return f"{key[0]} {key[1]}"
+        return work.title_cn or work.title_en or work.original_title or key[1]
+
+    # 1) Every associated work has at least one placement.
+    assigned_works = {(a.work_type, a.work_id) for a in body.assignments}
+    unassigned = sorted(work_keys - assigned_works)
+    if unassigned:
+        listing = "、".join(_work_label(key) for key in unassigned)
+        raise AssociationValidationError(
+            f"多作品合集的每个关联作品都必须有文件指派，缺少：{listing}"
+        )
+
+    # 2) Every media file of the torrent listing is assigned (best-effort:
+    # skipped with a warning when no listing is available).
+    if media_files is None:
+        result.append("无法获取 torrent 文件清单，已跳过文件覆盖完整性校验")
+    else:
+        uncovered = sorted(media_files - seen_paths)
+        if uncovered:
+            listing = "、".join(uncovered[:5])
+            suffix = f" 等 {len(uncovered)} 个" if len(uncovered) > 5 else ""
+            raise AssociationValidationError(
+                f"多作品合集存在未指派的文件：{listing}{suffix}"
+            )
+
+    # 3) Each series work's placements cover its expected episode range
+    # (whole-range miss → hard error; head/tail shortfall → warning).
+    for key in sorted(work_keys):
+        if key[0] != "series":
+            continue
+        work = (works_map or {}).get(key)
+        total = getattr(work, "number_of_episodes", None) if work else None
+        if not isinstance(total, int) or total < 1:
+            continue
+        covered: set[int] = set()
+        for (wt, wid, _season), ivs in intervals.items():
+            if (wt, wid) != key:
+                continue
+            for lo, hi, _path in ivs:
+                covered.update(range(lo, hi + 1))
+        expected = set(range(1, total + 1))
+        label = _work_label(key)
+        if not covered:
+            raise AssociationValidationError(
+                f"作品「{label}」的指派区间完全未覆盖其应有集数（1-{total}）"
+            )
+        missing = sorted(expected - covered)
+        if len(missing) == total:
+            raise AssociationValidationError(
+                f"作品「{label}」的指派区间完全未覆盖其应有集数（1-{total}）"
+            )
+        head = [e for e in missing if e < min(covered)]
+        tail = [e for e in missing if e > max(covered)]
+        for group, where in ((head, "开头"), (tail, "结尾")):
+            if group:
+                desc = ", ".join(f"e{e:02d}" for e in group[:5])
+                result.append(
+                    f"作品「{label}」的指派区间缺少{where}集数：{desc}"
+                )
     return result
 
 
@@ -287,6 +373,52 @@ def _apply_work_links(
         ))
 
 
+async def _known_media_files(resource: FileResource) -> set[str] | None:
+    """Best-effort torrent media-file listing for the completeness check.
+
+    Only the local .torrent cache is consulted (PUT must stay fast — no live
+    fetch / downloader RPC here; the endpoint re-caches the torrent after
+    commit). Returns None when no listing is available.
+    """
+    cached = getattr(resource, "torrent_file", None)
+    if not cached:
+        return None
+    from pathlib import Path
+
+    if not Path(cached).exists():
+        return None
+    from app.services.torrent_inspect import analyze_torrent_files, parse_torrent_files
+
+    files = parse_torrent_files(cached)
+    if not files:
+        return None
+    return {row["path"] for row in analyze_torrent_files(files).file_parses}
+
+
+def _validate_collection_consistency(
+    body: ResourceAssociationUpdateRequest,
+    works_map: dict[tuple[str, str], TVSeries | Movie],
+) -> None:
+    """Two-level association (per-season works): when a ``collection_id`` is
+    submitted, every associated series work must belong to that collection
+    (the wizard picks the collection first, then season works within it)."""
+    if body.collection_id is None:
+        return
+    mismatched = [
+        work
+        for (work_type, _), work in works_map.items()
+        if work_type == "series" and work.collection_id != body.collection_id
+    ]
+    if mismatched:
+        listing = "、".join(
+            w.title_cn or w.title_en or w.original_title or w.id
+            for w in mismatched
+        )
+        raise AssociationValidationError(
+            f"剧集作品必须属于所选合集（collection_id 不一致）：{listing}"
+        )
+
+
 async def apply_association_update(
     db: AsyncSession,
     resource: FileResource,
@@ -308,8 +440,16 @@ async def apply_association_update(
     if body.is_batch and body.collection_id is not None:
         if await db.get(WorkCollection, body.collection_id) is None:
             raise AssociationValidationError("作品集不存在")
+    _validate_collection_consistency(body, works_map)
+    media_files: set[str] | None = None
+    if body.is_batch and len(work_keys) > 1:
+        media_files = await _known_media_files(resource)
     result = AssociationUpdateResult()
-    result.warnings.extend(_validate_assignments(body, work_keys))
+    result.warnings.extend(
+        _validate_assignments(
+            body, work_keys, works_map=works_map, media_files=media_files
+        )
+    )
 
     sent = body.model_fields_set
 

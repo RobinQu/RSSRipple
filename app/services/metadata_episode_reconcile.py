@@ -243,6 +243,75 @@ def season_evidence_from_series(series) -> dict:
     }
 
 
+def is_unsplit_legacy_series(series) -> bool:
+    """True for a pre-split series-level row whose legacy ``seasons`` /
+    ``number_of_seasons`` columns prove it covers MORE THAN ONE season.
+
+    Per-season works (作品单季化) never write those inert-orphan columns, so a
+    multi-season evidence read means the row is a legacy unsplit series-level
+    work awaiting the season-split migration.
+    """
+    if series is None:
+        return False
+    count = verified_season_count(
+        {
+            "number_of_seasons": getattr(series, "number_of_seasons", None),
+            "seasons": getattr(series, "seasons", None),
+        }
+    )
+    return count is not None and count > 1
+
+
+def work_verified_season(series) -> int | None:
+    """The season a work row verifiably represents, or None when unverifiable.
+
+    ``season_number`` values other than 1 only exist on post-split per-season
+    rows (legacy rows all carry the column default 1), so they are trusted
+    directly. ``season_number == 1`` is ambiguous between a genuine season-1
+    work and a legacy row, and is only trusted with single-season evidence
+    (legacy columns or a Bangumi entry identity). Unsplit legacy multi-season
+    rows never yield a value — their season must come from other evidence.
+    """
+    if series is None:
+        return None
+    n = getattr(series, "season_number", None)
+    if n is None:
+        n = 1  # column default (pre-P2 rows / attribute-less stand-ins)
+    if not isinstance(n, int) or isinstance(n, bool) or n < 0:
+        return None
+    if is_unsplit_legacy_series(series):
+        return None
+    if n != 1:
+        return n
+    if verified_season_count(season_evidence_from_series(series)) == 1:
+        return 1
+    return None
+
+
+def seasons_map_for_work(series) -> dict[int, int]:
+    """Per-season episode-count map for episode reconciliation.
+
+    Legacy unsplit rows keep using the inert ``seasons`` JSON column; a
+    per-season work contributes exactly its own season (``season_number`` →
+    ``number_of_episodes``) so single-season arithmetic still applies.
+    """
+    smap = seasons_map_from_list(getattr(series, "seasons", None))
+    if smap:
+        return smap
+    count = getattr(series, "number_of_episodes", None)
+    season = getattr(series, "season_number", None)
+    if (
+        isinstance(count, int)
+        and not isinstance(count, bool)
+        and count > 0
+        and isinstance(season, int)
+        and not isinstance(season, bool)
+        and season >= 1
+    ):
+        return {season: count}
+    return {}
+
+
 def apply_episode_reconcile(resource, seasons_map: dict[int, int]) -> bool:
     """Apply :func:`reconcile_episode` to a resource in place.
 
@@ -330,32 +399,34 @@ def seasons_map_from_list(seasons: list | None) -> dict[int, int]:
     return _seasons_map_from({"seasons": seasons})
 
 
-def resolve_missing_season(resource, entity: dict | None) -> str | None:
+def resolve_missing_work(resource, entity: dict | None, *, work=None) -> str | None:
     """Verified season default / season-uncertain marking (season never guessed).
 
+    Replaces the pre-split ``resolve_missing_season``: the season now comes
+    from the linked work's identity whenever the work verifiably represents
+    exactly one known season (:func:`work_verified_season` — post-split
+    per-season rows, Bangumi entry works, verified single-season legacy rows).
     Shared by every link path that bypasses ``_apply_to_resource`` — the
     metadata-agent known-work short-circuit, ``fetch_and_link_metadata``'s
-    agent-free ``_reconcile_with_series``, ``manual_link_metadata`` — and by
-    the season backfill script. Runs AFTER :func:`apply_episode_reconcile`:
-    reconcile may legitimately derive a season from ``absolute_episode``, so
-    only a resource whose ``season`` is STILL None is handled here. Exactly
-    one verified season (:func:`verified_season_count` on ``entity`` — a
-    matched_entity-style dict with ``number_of_seasons``/``seasons``) →
-    ``season = 1``; multi-season or unknown evidence →
+    agent-free reconcile, ``manual_link_metadata``. Runs AFTER
+    :func:`apply_episode_reconcile`: reconcile may legitimately derive a
+    season from ``absolute_episode``, so only a resource whose ``season`` is
+    STILL None is handled here. When no verified season exists
+    (multi-season/unknown evidence), the resource is marked
     ``episode_confidence = "ambiguous"`` (季号不确定, routed to a human
-    Channel resource confirmation downstream).
+    Channel resource confirmation downstream); the caller may additionally
+    park the resource on the work's collection (挂合集待确认).
 
     Batch resources (合集) only take the verified single-season default —
-    ``batch_scope`` None/``"season"`` with exactly one verified season →
-    ``season = 1`` — and are NEVER marked ``ambiguous``: per-episode
-    confidence has no meaning for a pack, whose uncertainty is gated by the
-    batch-coverage confirmation instead. Multi-season / franchise / movie
-    packs (``batch_scope`` in ``"multi_season"``/``"franchise"``/``"movies"``)
-    are a full no-op.
+    ``batch_scope`` None/``"season"`` with a verified season → that season —
+    and are NEVER marked ``ambiguous``: per-episode confidence has no meaning
+    for a pack, whose uncertainty is gated by the batch-coverage confirmation
+    instead. Multi-season / franchise / movie packs (``batch_scope`` in
+    ``"multi_season"``/``"franchise"``/``"movies"``) are a full no-op.
 
     No-op for resources whose season is already known and ``manual`` rows
-    (user-vetted). Returns ``"season-defaulted"`` / ``"marked-ambiguous"``
-    when it changed the resource, else ``None``.
+    (user-vetted). Returns ``"season-defaulted"`` / ``"season-title-inferred"``
+    / ``"marked-ambiguous"`` when it changed the resource, else ``None``.
     """
     if (
         getattr(resource, "season", None) is not None
@@ -368,6 +439,11 @@ def resolve_missing_season(resource, entity: dict | None) -> str | None:
         if not getattr(resource, "is_batch", False):
             resource.episode_confidence = "raw"
         return "season-title-inferred"
+    # The linked work's own identity is the strongest season evidence: a
+    # per-season work IS the season.
+    verified = work_verified_season(work)
+    if verified is None and verified_season_count(entity) == 1:
+        verified = 1
     if getattr(resource, "is_batch", False):
         # 合集：仅取 verified 单季默认值；多季/无证据直接不动，绝不标
         # ambiguous（合集待确认走 batch coverage 门禁）。
@@ -375,12 +451,50 @@ def resolve_missing_season(resource, entity: dict | None) -> str | None:
             "multi_season", "franchise", "movies",
         ):
             return None
-        if verified_season_count(entity) == 1:
-            resource.season = 1
+        if verified is not None:
+            resource.season = verified
             return "season-defaulted"
         return None
-    if verified_season_count(entity) == 1:
-        resource.season = 1
+    if verified is not None:
+        resource.season = verified
         return "season-defaulted"
     resource.episode_confidence = "ambiguous"
     return "marked-ambiguous"
+
+
+# Backwards-compatible alias for callers not yet migrated (scripts).
+resolve_missing_season = resolve_missing_work
+
+
+def resource_season_hint(resource, entity: dict | None) -> int | None:
+    """Season hint for the per-season upsert from the resource's own evidence.
+
+    The parsed season marker first; then the verified bilingual sequel-suffix
+    inference (both resource titles agree on a sequel number the entity's
+    season structure confirms). Never guesses.
+    """
+    hint = getattr(resource, "season", None)
+    if hint is None:
+        hint = infer_verified_title_season(resource, entity)
+    return hint
+
+
+def park_resource_on_collection(resource, collection) -> None:
+    """Hang a season-indeterminate TV resource on its collection (挂合集待确认).
+
+    Per-season model: when a series-level match resolves to a collection but
+    no season can be verified, the resource keeps the collection link and
+    drops the flat work FKs (same invariant as franchise packs). Non-batch
+    resources are marked ``episode_confidence="ambiguous"`` so the Channel
+    confirmation policy (``inspect_resource_confirmation``) surfaces them as
+    季号不确定; batches are never marked ambiguous (their gate is the
+    batch-coverage confirmation). ``manual`` rows are never touched.
+    """
+    resource.collection_id = collection.id
+    resource.series_id = None
+    resource.movie_id = None
+    if (
+        not getattr(resource, "is_batch", False)
+        and getattr(resource, "episode_confidence", None) != "manual"
+    ):
+        resource.episode_confidence = "ambiguous"

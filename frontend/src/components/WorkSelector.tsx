@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Alert,
@@ -15,6 +15,7 @@ import {
   Spin,
   App,
   Collapse,
+  Select,
 } from 'antd';
 import { PlusOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { Film, Tv, Headphones } from 'lucide-react';
@@ -22,6 +23,8 @@ import { Link } from 'react-router-dom';
 import { seriesApi } from '../api/series';
 import { moviesApi } from '../api/movies';
 import { audioWorksApi } from '../api/audioWorks';
+import { collectionsApi } from '../api/collections';
+import { seasonLabel } from '../utils/season';
 import Pagination from './Pagination';
 import FilterBuilder from './FilterBuilder';
 import {
@@ -64,7 +67,14 @@ function resolvePoster(work: AgentWork): string | null {
 
 function resolveTitle(work: AgentWork, t: TFunction): string {
   if (work.display_name_override) return work.display_name_override;
-  if (work.series) return work.series.title_cn || work.series.title_en || work.series.original_title || t('common.unknown');
+  if (work.series) {
+    const base =
+      work.series.title_cn || work.series.title_en || work.series.original_title || t('common.unknown');
+    // Per-season works: the base title equals the collection name, so the
+    // season label is what distinguishes one subscription from another.
+    const season = seasonLabel(t, work.series.season_number);
+    return season ? `${base} · ${season}` : base;
+  }
   if (work.movie) return work.movie.title_cn || work.movie.title_en || work.movie.original_title || t('common.unknown');
   return t('common.unknown');
 }
@@ -95,6 +105,46 @@ export default function WorkSelector({
   const [pages, setPages] = useState<Record<WorkTab, number>>({ tv: 1, movie: 1, audio: 1 });
   const [totals, setTotals] = useState<Record<WorkTab, number>>({ tv: 0, movie: 0, audio: 0 });
   const [loading, setLoading] = useState(false);
+  // Collection display names for grouping TV candidates (per-season works:
+  // subscription stays work-granular, but candidates group by collection so
+  // the user sees which season each work is).
+  const [collectionNames, setCollectionNames] = useState<Record<string, string>>({});
+  const collectionsLoadedRef = useRef(false);
+
+  // Sibling season works per collection, lazy-loaded the first time a season
+  // switcher dropdown opens (cached by collection id afterwards).
+  const [siblings, setSiblings] = useState<Record<string, TVSeries[]>>({});
+
+  const loadSiblings = useCallback(
+    async (collectionId: string) => {
+      if (siblings[collectionId]) return;
+      try {
+        const r = await collectionsApi.works(collectionId, 1, 100);
+        if (r.success) {
+          setSiblings((prev) => ({
+            ...prev,
+            [collectionId]: (r.data || []).filter((w) => w.content_type === 'tv') as unknown as TVSeries[],
+          }));
+        }
+      } catch {
+        // best-effort: the switcher just shows the current season only
+      }
+    },
+    [siblings],
+  );
+
+  /** In-place retarget of a subscription to another season work of the same
+      collection — filter overrides / dedup flag / display name carry over. */
+  const switchSeasonWork = (work: AgentWork, targetId: string) => {
+    const collId = work.series?.collection_id;
+    const target = (collId ? siblings[collId] : undefined)?.find((s) => s.id === targetId);
+    if (!target) return;
+    onChange(
+      works.map((w) =>
+        w.id === work.id ? { ...w, series_id: target.id, series: target } : w,
+      ),
+    );
+  };
 
   const existingIds = useMemo(() => {
     const s = new Set<string>();
@@ -137,6 +187,16 @@ export default function WorkSelector({
 
   useEffect(() => {
     if (!modalOpen) return;
+    if (!collectionsLoadedRef.current) {
+      collectionsLoadedRef.current = true;
+      void collectionsApi.list(1, 100).then((r) => {
+        if (r.success) {
+          setCollectionNames(
+            Object.fromEntries(r.data.map((c) => [c.id, c.title_cn || c.title_en || c.id])),
+          );
+        }
+      });
+    }
     // Tab / page / first-open changes fetch immediately; typed queries go
     // through a 300ms debounce to avoid hammering the API per keystroke.
     const delay = search.trim() ? 300 : 0;
@@ -214,84 +274,119 @@ export default function WorkSelector({
     } else if (items.length === 0) {
       return <Empty description={t('work.noResults')} />;
     }
+    const renderRow = (item: TVSeries | Movie) => {
+      const already = existingIds.has(`${type}:${item.id}`);
+      const title =
+        item.title_cn || item.title_en || item.original_title || t('common.unknown');
+      const sub =
+        item.title_en && item.title_en !== item.title_cn ? item.title_en : item.original_title;
+      // Per-season works: show which season this TV work IS.
+      const season = type === 'tv' ? ((item as TVSeries).season_number ?? null) : null;
+      return (
+        <div
+          key={item.id}
+          style={{
+            display: 'flex',
+            gap: 10,
+            padding: 10,
+            border: '1px solid var(--rr-border-soft)',
+            borderRadius: 8,
+            background: already ? 'var(--rr-success-soft)' : 'transparent',
+          }}
+        >
+          {item.poster_url ? (
+            <img
+              src={item.poster_url}
+              alt=""
+              style={{
+                width: 40,
+                height: 60,
+                objectFit: 'cover',
+                borderRadius: 4,
+                flexShrink: 0,
+                background: 'var(--rr-surface-card)',
+              }}
+              onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
+            />
+          ) : (
+            <div
+              style={{
+                width: 40,
+                height: 60,
+                borderRadius: 4,
+                background: 'var(--rr-surface-card)',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--rr-text-muted)',
+              }}
+            >
+              {type === 'tv' ? <Tv /> : <Film />}
+            </div>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Text strong style={{ fontSize: 13 }}>{title}</Text>
+            {season != null && (
+              <Tag color="blue" style={{ fontSize: 10, marginLeft: 6 }}>
+                {seasonLabel(t, season)}
+              </Tag>
+            )}
+            {sub && sub !== title && (
+              <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{sub}</Text>
+            )}
+            <Space size={4} style={{ marginTop: 4 }}>
+              {item.rating != null && (
+                <Text type="warning" style={{ fontSize: 11 }}>★ {item.rating}</Text>
+              )}
+              {item.status && (
+                <Tag style={{ fontSize: 10 }}>{item.status}</Tag>
+              )}
+            </Space>
+          </div>
+          <Button
+            htmlType="button"
+            type="primary"
+            size="small"
+            disabled={already}
+            onClick={() => addWork(type, item)}
+          >
+            {already ? t('work.added_btn') : t('work.add_btn')}
+          </Button>
+        </div>
+      );
+    };
+
+    // TV candidates group by collection (per-season works): the subscription
+    // target stays the season work, but grouping shows the series context.
+    let groups: [string, (TVSeries | Movie)[]][] = [['', items]];
+    if (type === 'tv') {
+      const byCollection = new Map<string, (TVSeries | Movie)[]>();
+      for (const item of items) {
+        const cid = (item as TVSeries).collection_id ?? null;
+        const label = cid
+          ? (collectionNames[cid] ?? cid)
+          : t('work.ungrouped');
+        const arr = byCollection.get(label) ?? [];
+        arr.push(item);
+        byCollection.set(label, arr);
+      }
+      groups = [...byCollection.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    }
+
     return (
       <>
         <div style={{ maxHeight: 440, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {items.map((item) => {
-            const already = existingIds.has(`${type}:${item.id}`);
-            const title =
-              item.title_cn || item.title_en || item.original_title || t('common.unknown');
-            const sub =
-              item.title_en && item.title_en !== item.title_cn ? item.title_en : item.original_title;
-            return (
-              <div
-                key={item.id}
-                style={{
-                  display: 'flex',
-                  gap: 10,
-                  padding: 10,
-                  border: '1px solid var(--rr-border-soft)',
-                  borderRadius: 8,
-                  background: already ? 'var(--rr-success-soft)' : 'transparent',
-                }}
-              >
-                {item.poster_url ? (
-                  <img
-                    src={item.poster_url}
-                    alt=""
-                    style={{
-                      width: 40,
-                      height: 60,
-                      objectFit: 'cover',
-                      borderRadius: 4,
-                      flexShrink: 0,
-                      background: 'var(--rr-surface-card)',
-                    }}
-                    onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: 40,
-                      height: 60,
-                      borderRadius: 4,
-                      background: 'var(--rr-surface-card)',
-                      flexShrink: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--rr-text-muted)',
-                    }}
-                  >
-                    {type === 'tv' ? <Tv /> : <Film />}
-                  </div>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ fontSize: 13 }}>{title}</Text>
-                  {sub && sub !== title && (
-                    <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>{sub}</Text>
-                  )}
-                  <Space size={4} style={{ marginTop: 4 }}>
-                    {item.rating != null && (
-                      <Text type="warning" style={{ fontSize: 11 }}>★ {item.rating}</Text>
-                    )}
-                    {item.status && (
-                      <Tag style={{ fontSize: 10 }}>{item.status}</Tag>
-                    )}
-                  </Space>
-                </div>
-                <Button
-                  htmlType="button"
-                  type="primary"
-                  size="small"
-                  disabled={already}
-                  onClick={() => addWork(type, item)}
-                >
-                  {already ? t('work.added_btn') : t('work.add_btn')}
-                </Button>
-              </div>
-            );
-          })}
+          {groups.map(([label, groupItems]) => (
+            <div key={label || '_'} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {label && (
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {t('works.colCollection')} · {label}
+                </Text>
+              )}
+              {groupItems.map(renderRow)}
+            </div>
+          ))}
         </div>
         {renderPagination(type)}
       </>
@@ -525,6 +620,28 @@ export default function WorkSelector({
                       <Tag color={isTv ? 'blue' : 'green'}>
                         {t(isTv ? 'work.series' : 'work.movie')}
                       </Tag>
+                      {isTv && work.series?.collection_id && (
+                        <Select
+                          size="small"
+                          // Season switcher: retarget the subscription to
+                          // another season work of the same collection.
+                          value={work.series_id ?? undefined}
+                          onDropdownVisibleChange={(open) => {
+                            if (open) loadSiblings(work.series!.collection_id!);
+                          }}
+                          onChange={(v) => switchSeasonWork(work, v)}
+                          options={(
+                            siblings[work.series.collection_id] ?? [work.series as TVSeries]
+                          )
+                            .slice()
+                            .sort((a, b) => (a.season_number ?? 1) - (b.season_number ?? 1))
+                            .map((s) => ({
+                              value: s.id,
+                              label: seasonLabel(t, s.season_number) || `S?`,
+                            }))}
+                          style={{ minWidth: 92 }}
+                        />
+                      )}
                       {isTv && work.latest_completed_episode != null && (
                         <Tag color="cyan">
                           {t('work.downloadedTo', {

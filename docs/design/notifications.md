@@ -109,10 +109,11 @@ pending --(2xx / mock)--> done
 
 ## 快照 payload（契约）
 
-创建时冻结，此后 metadata 变更不影响本条：
+创建时冻结，此后 metadata 变更不影响本条。**契约版本 `version: 2`**（作品单季化；无 `version` 键的历史快照为 v1）：
 
 ```json
 {
+  "version": 2,
   "notification_id": "...",
   "agent": {"id": "...", "name": "..."},
   "task": {"download_task_id": "...", "download_dir": "<daemon 视角绝对路径>",
@@ -126,15 +127,24 @@ pending --(2xx / mock)--> done
            "title_en": "...", "title_cn": "...", "original_title": "...",
            "year": 2023, "content_type": "anime | tv | movie | ...",
            "is_anime": true, "collection": "...", "genre": ["Animation", "Fantasy"],
-           "seasons": [...], "episodes": [{"season","episode","title"}]},
+           "season_number": 4, "number_of_episodes": 12,
+           "episodes": [{"episode","title"}]},
   "files": [{"name": "相对 torrent 根的路径", "size": 734003200}]
 }
 ```
 
+**v1 → v2 破坏性变更**（作品单季化，详见 per-season-works.md）：
+
+- `work.seasons`（逐季集数数组）**删除**——季作品即一季，无逐季结构；
+- `work.episodes[]` 条目**去 season 分量**（`{"season","episode","title"}` → `{"episode","title"}`）——所有行都属于 `work.season_number` 这一季；
+- `work` 新增 `season_number`（该作品是第几季，0=特典）与 `number_of_episodes`（本季集数）。
+
+**下游迁移指引**（vault-organizer 等外部 webhook 消费者）：按 `version` 分流——`2` 走新结构；缺失/`1` 走旧结构。目录层级中的季号改取 `work.season_number`（v1 取 `resource.season`/`episodes[].season`）；依赖 `work.seasons` 做覆盖度/缺集判断的消费者改为用 `number_of_episodes` + `episodes[]`（本季全集清单），或跟随 `file_associations`（`status=complete` 时逐文件映射已权威，无需自行判断）。存量 v1 通知经「重新生成」重建为 v2（拿到 torrent 文件清单时才重建，否则保留旧快照）。
+
 - `work.genre`：作品分类标签快照，取值为**封闭 TMDB 27 类英文 canonical 名**（快照时经 `normalize_genres` 归一化；完整枚举见 data-models.md「genre 取值约定」，API 侧 /docs 中 `NotificationWorkPayload.genre` 渲染同一枚举）。旧通知无此键，走"重新生成"后补齐。
 - `work.is_anime`：三态动漫标记快照（`true`/`false`/`null`，与 `content_type` 并列，创建时冻结；判定规则见 data-models.md「is_anime 判定约定」，schema 见 `app/schemas/notification.py` 的 `NotificationWorkPayload`）。旧通知无此键，走"重新生成"后补齐。
 - `torrent_name` + `files` 来自下载器 RPC（`get_torrent_files`，统一客户端接口的一部分）；RPC 失败降级为不带 `files` 入队，消费者退回扫描 `download_dir`。
-- 电影无 `seasons`/`episodes`（null）；`collection` 为 WorkCollection 显示名或 null。
+- 电影无 `season_number`/`number_of_episodes`/`episodes`（null）；`collection` 为 WorkCollection 显示名或 null。
 - `task.download_task_id` 是消费者后续操作任务的句柄（见"下游清理"）。
 
 ## 投递与退避

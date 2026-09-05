@@ -47,8 +47,19 @@ function buildMenuItems(t: (k: string) => string): MenuProps['items'] {
   ];
 }
 
+// Detail routes that belong to a nav section but don't share its path
+// prefix — map them to their menu key explicitly (prefix, menu key).
+const PATH_ALIASES: [string, string][] = [
+  ['/series', '/works'],
+  ['/movies', '/works'],
+  ['/audio-works', '/works'],
+  ['/collections', '/works'],
+];
+
 function useSelectedKey(menuItems: MenuProps['items']): string {
   const location = useLocation();
+  const alias = PATH_ALIASES.find(([prefix]) => location.pathname.startsWith(prefix));
+  if (alias) return alias[1];
   const selected = (menuItems as { key: string }[])?.find((item) => {
     const key = item.key;
     if (key === '/') return location.pathname === '/';

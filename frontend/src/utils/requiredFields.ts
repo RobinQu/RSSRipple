@@ -12,7 +12,6 @@ import type { FileResource } from '../types';
 export type RowShape = 'tv_single' | 'tv_season_batch' | 'tv_multi_season' | 'franchise' | 'movie' | 'audio' | 'unknown';
 
 const WORK_SHAPES: RowShape[] = ['tv_single', 'tv_season_batch', 'tv_multi_season', 'movie'];
-const TV_SHAPES: RowShape[] = ['tv_single', 'tv_season_batch', 'tv_multi_season'];
 
 /** Derive the row's shape from which work/collection FKs it carries. */
 export function resourceShape(r: FileResource): RowShape {
@@ -46,13 +45,14 @@ const APPLICABILITY: Record<string, RowShape[] | undefined> = {
   is_batch: undefined,
   year: WORK_SHAPES,
   is_anime: WORK_SHAPES,
-  // TV 集数字段：按单集/合集区分
+  // TV 集数字段：按单集/合集区分。Per-season works: the season number is
+  // carried by the work identity, so ``season`` is optional (declarable);
+  // ``absolute_episode`` / ``episode_confidence`` are retired catalog keys
+  // (the fields still exist on the resource model and in the Filter DSL).
   season: ['tv_single', 'tv_season_batch'],
   episode: ['tv_single'],
   episode_start: ['tv_season_batch'],
   episode_end: ['tv_season_batch'],
-  absolute_episode: TV_SHAPES,
-  episode_confidence: TV_SHAPES,
   // 多作品合集（franchise 包）专属
   resource_collection: ['franchise'],
   // 其余作品级字段需链接作品
@@ -80,17 +80,18 @@ const GROUP_RANK: Record<string, number> = {
   episode: 1,
   episode_start: 1,
   episode_end: 1,
-  episode_confidence: 1,
   resource_collection: 2,
 };
 
 // Canonical catalog order (mirrors app/services/required_fields.py) for the
-// rank-3 tail and tie-breaking inside each group.
+// rank-3 tail and tie-breaking inside each group. ``absolute_episode`` /
+// ``episode_confidence`` are retired catalog keys (per-season works) and no
+// longer appear here; legacy channel declarations carrying them are dropped
+// from the column pool by the known-key filter.
 const CATALOG_ORDER: string[] = [
   'title_cn', 'title_en', 'search_title',
   'content_type', 'is_batch', 'year', 'is_anime',
   'season', 'episode', 'episode_start', 'episode_end',
-  'absolute_episode', 'episode_confidence',
   'resource_collection',
   'subtitle_group', 'resolution', 'source', 'video_codec', 'audio_codec',
   'subtitle_type', 'subtitle_langs', 'container', 'file_size',

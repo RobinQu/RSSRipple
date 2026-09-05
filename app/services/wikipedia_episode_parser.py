@@ -18,6 +18,11 @@ Supported page conventions (confirmed against real pages, 2026-08):
   (``<br />``-separated instead of ``{{ubl|...}}``) and kanji-numeral
   ``Number = 第一話`` rows. Pages without a 各話リスト section (e.g.
   攻殻機動隊 STAND ALONE COMPLEX) simply yield ``None``.
+- broadcast dates come from the TVAnime infobox itself
+  (``播放開始``/``放送開始`` + ``播放結束``/``放送終了``), per-season when
+  labelled ``第N季``/``第N期`` (小書痴 ``第一季：2019年10月2日－12月25日``);
+  month-only and year-only fragments degrade to the first/last day of the
+  period so the work still gets a release year.
 
 Episode numbering: within a chapter, rows keep their printed number UNLESS
 the chapter's first row starts above 1 (absolute numbering continuing across
@@ -28,6 +33,7 @@ episode).
 
 from __future__ import annotations
 
+import calendar
 import re
 
 # Episode-list template family. zh uses 劇集列表 (traditional) / 剧集列表
@@ -359,6 +365,20 @@ def has_animanga_film_infobox(wikitext: str | None) -> bool:
     return bool(_ANIMANGA_FILM_RE.search(wikitext))
 
 
+def _tvanime_blocks(wikitext: str) -> list[str]:
+    """Slice every ``{{Infobox animanga/TVAnime}}`` block (opening marker to
+    the next animanga sub-template, or end of page)."""
+    markers = [m.start() for m in _ANIMANGA_BLOCK_RE.finditer(wikitext)]
+    blocks: list[str] = []
+    for start in markers:
+        if not re.match(r"\{\{\s*Infobox\s+animanga/TVAnime", wikitext[start:], flags=re.IGNORECASE):
+            continue
+        following = [p for p in markers if p > start]
+        end = following[0] if following else len(wikitext)
+        blocks.append(wikitext[start:end])
+    return blocks
+
+
 def parse_seasons_from_infobox(wikitext: str | None) -> list[dict] | None:
     """Extract ``[{season_number, episode_count}]`` from the TV-anime infobox
     block ONLY.
@@ -382,21 +402,13 @@ def parse_seasons_from_infobox(wikitext: str | None) -> list[dict] | None:
     """
     if not wikitext:
         return None
-    markers = [m.start() for m in _ANIMANGA_BLOCK_RE.finditer(wikitext)]
-    tv_starts = [
-        pos for pos in markers
-        if re.match(r"\{\{\s*Infobox\s+animanga/TVAnime", wikitext[pos:], flags=re.IGNORECASE)
-    ]
-    if not tv_starts:
+    tv_blocks = _tvanime_blocks(wikitext)
+    if not tv_blocks:
         return None
-    block_fields: list[list[str]] = []
-    for i, start in enumerate(tv_starts):
-        following = [p for p in markers if p > start]
-        end = following[0] if following else len(wikitext)
-        block = wikitext[start:end]
-        block_fields.append(
-            re.findall(r"^\|\s*(?:[話话][數数]|集[數数])\s*=\s*(.+)$", block, flags=re.MULTILINE)
-        )
+    block_fields: list[list[str]] = [
+        re.findall(r"^\|[ \t]*(?:[話话][數数]|集[數数])[ \t]*=[ \t]*(.+)$", block, flags=re.MULTILINE)
+        for block in tv_blocks
+    ]
     seasons: list[dict] = []
     seen: set[int] = set()
     plain_blocks: list[int] = []  # first plain count per block that has one
@@ -436,6 +448,229 @@ def parse_seasons_from_infobox(wikitext: str | None) -> list[dict] | None:
     # blocks are separate works - too ambiguous to model.
     if len(plain_blocks) == 1:
         return [{"season_number": 1, "episode_count": plain_blocks[0]}]
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Broadcast dates (播放開始/放送開始 …)
+# ---------------------------------------------------------------------------
+
+# zh 播放開始/播放結束 (+simplified), ja 放送開始/放送終了. The value must
+# stay on the field's own line - ``[ \t]`` instead of ``\s`` so an empty
+# value never slurps the next line.
+_AIR_START_FIELD_RE = re.compile(r"^\|[ \t]*(?:播放开始|播放開始|放送開始)[ \t]*=[ \t]*(.+)$", re.MULTILINE)
+_AIR_END_FIELD_RE = re.compile(r"^\|[ \t]*(?:播放结束|播放結束|放送終了|放送结束)[ \t]*=[ \t]*(.+)$", re.MULTILINE)
+
+# ``第N季：`` / ``第N期:`` item prefix (digit or kanji ordinal), optionally
+# carrying a split-cour / arc suffix before the colon (第1季上半, 第2期前半
+# クール, 第4期喪失編 …) which still maps to the same season.
+_SEASON_LABEL_RE = re.compile(
+    r"第\s*([0-9]+|[一二三四五六七八九十]+)\s*[季期]\s*"
+    r"(?:[^\d：:]{0,8}?(?:クール|編|上半|下半|前半|後半|后半|前篇|後篇|后篇))?\s*[：:]\s*"
+)
+
+# Range separator between start and end dates inside one item (CJK dashes,
+# or an ASCII hyphen only when space-padded - bare ``-`` would collide with
+# ISO-style dates).
+_RANGE_SPLIT_RE = re.compile(r"\s*[－–—~〜]\s*|\s+-\s+")
+
+_MONTH_ONLY_RE = re.compile(r"([0-9]{1,2})\s*月")
+
+
+def _parse_broadcast_fragment(
+    frag: str,
+    default_year: int | None,
+    *,
+    is_end: bool,
+    start_month: int | None = None,
+) -> str | None:
+    """Parse one broadcast-date fragment to an ISO date.
+
+    ``2019年10月2日`` parses exactly; ``2012年4月`` degrades to the first
+    (last, for end dates) day of the month; a bare ``1998年`` degrades to
+    Jan 1 / Dec 31 - the day is a documented precision placeholder so the
+    work still gets a release YEAR. A fragment without a year (``12月25日``,
+    ``6月``) inherits ``default_year``; for end dates a month lower than
+    ``start_month`` rolls over into the next year (``10月－3月`` spans New
+    Year).
+    """
+    m_year = _YEAR_RE.search(frag)
+    year = int(m_year.group(1)) if m_year else None
+    m_md = _MONTH_DAY_RE.search(frag)
+    if m_md:
+        month, day = int(m_md.group(1)), int(m_md.group(2))
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return None
+        if year is None:
+            if default_year is None:
+                return None
+            year = default_year
+            if is_end and start_month is not None and month < start_month:
+                year += 1
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    m_month = _MONTH_ONLY_RE.search(frag)
+    if m_month:
+        month = int(m_month.group(1))
+        if not 1 <= month <= 12:
+            return None
+        if year is None:
+            if default_year is None:
+                return None
+            year = default_year
+            if is_end and start_month is not None and month < start_month:
+                year += 1
+        day = calendar.monthrange(year, month)[1] if is_end else 1
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    if year is not None:
+        return f"{year:04d}-{'12-31' if is_end else '01-01'}"
+    return None
+
+
+def _merge_date(target: dict[str, str], key: str, iso: str) -> None:
+    """air_date keeps the earliest, end_date the latest - split cours of one
+    season (上半/下半) each contribute their own range."""
+    existing = target.get(key)
+    if existing is None or (key == "air_date") == (iso < existing):
+        target[key] = iso
+
+
+def _has_date(text: str) -> bool:
+    return bool(
+        _YEAR_RE.search(text) or _MONTH_DAY_RE.search(text) or _MONTH_ONLY_RE.search(text)
+    )
+
+
+def _parse_air_field_items(
+    field_values: list[str],
+    *,
+    is_end: bool,
+    marked: dict[int, dict[str, str]],
+    plain: dict[str, str],
+) -> None:
+    """Fold one date field's items into ``marked`` / ``plain`` in place.
+
+    Start fields may carry the whole range (``第一季：2019年10月2日－12月25日``);
+    end fields supply the second half separately and inherit the season's
+    already-known start year for month/day-only fragments (``6月28日``).
+    A label-only item (``第1季上半：`` with its date on the NEXT ``<br />``
+    line) sets the pending season for following unlabelled items.
+    """
+    pending: int | None = None
+    for value in field_values:
+        value = _strip_refs(value)
+        m_ubl = re.match(r"^\s*\{\{\s*(?:ubl|unbulleted list|vlist)\s*\|(.*)\}\}\s*$",
+                         value, flags=re.DOTALL | re.IGNORECASE)
+        items = [p for p in _split_segments(m_ubl.group(1))] if m_ubl else re.split(r"<br\s*/?>", value)
+        for item in items:
+            text = _normalize_digits(clean_text(item) or "")
+            if not text:
+                continue
+            label_season: int | None = None
+            m_label = _SEASON_LABEL_RE.search(text)
+            if m_label:
+                token = m_label.group(1)
+                label_season = int(token) if token.isdigit() else _kanji_to_int(token)
+                text = text[m_label.end():]
+            if label_season is not None and not _has_date(text):
+                pending = label_season
+                continue
+            if label_season is not None:
+                season = label_season
+                pending = label_season
+            elif pending is not None and _has_date(text):
+                season = pending
+            else:
+                season = None
+            if season is None and is_end:
+                # Cross-field continuation: an unlabelled end item closes the
+                # season whose start came from the start field - unambiguous
+                # only when exactly one marked season still lacks an end
+                # (Re:Zero ``放送終了 = 9月19日<br />第2期前半クール：…``).
+                incomplete = [
+                    n for n, e in marked.items() if e.get("air_date") and not e.get("end_date")
+                ]
+                if len(incomplete) == 1:
+                    season = incomplete[0]
+            # Parse into a scratch entry first so unparseable fragments never
+            # leave an empty marked/plain entry behind.
+            entry: dict[str, str] = {}
+            # A dangling range separator marks an OPEN range (奪還編
+            # ``2026年8月12日 -``) - its date is a start, not an end.
+            open_range = bool(re.search(r"(?:[－–—~〜]|\s-)\s*$", text))
+            parts = _RANGE_SPLIT_RE.split(text, maxsplit=1)
+            if is_end and not open_range:
+                if len(parts) > 1:
+                    # A range misplaced into the end field (這いよれ
+                    # ``放送終了 = …第2期：2013年4月 - 6月``) still carries
+                    # the season's own start.
+                    start_iso = _parse_broadcast_fragment(parts[0], None, is_end=False)
+                    if start_iso:
+                        _merge_date(entry, "air_date", start_iso)
+                        end_iso = _parse_broadcast_fragment(
+                            parts[1], int(start_iso[:4]), is_end=True, start_month=int(start_iso[5:7])
+                        )
+                        if end_iso:
+                            _merge_date(entry, "end_date", end_iso)
+                else:
+                    ref = marked.get(season, {}) if season is not None else plain
+                    ref_start = ref.get("air_date")
+                    end_iso = _parse_broadcast_fragment(
+                        parts[0],
+                        int(ref_start[:4]) if ref_start else None,
+                        is_end=True,
+                        start_month=int(ref_start[5:7]) if ref_start else None,
+                    )
+                    if end_iso:
+                        _merge_date(entry, "end_date", end_iso)
+            else:
+                start_iso = _parse_broadcast_fragment(parts[0], None, is_end=False)
+                if start_iso:
+                    _merge_date(entry, "air_date", start_iso)
+                    if len(parts) > 1:
+                        end_iso = _parse_broadcast_fragment(
+                            parts[1], int(start_iso[:4]), is_end=True, start_month=int(start_iso[5:7])
+                        )
+                        if end_iso:
+                            _merge_date(entry, "end_date", end_iso)
+            if not entry:
+                continue
+            target = marked.setdefault(season, {}) if season is not None else plain
+            for k, v in entry.items():
+                _merge_date(target, k, v)
+
+
+def parse_season_air_dates(wikitext: str | None) -> dict[int, dict[str, str]] | None:
+    """Extract per-season broadcast dates from the TVAnime infobox blocks.
+
+    Returns ``{season_number: {"air_date": ISO, "end_date": ISO}}`` (either
+    key may be absent) or ``None`` when no usable date exists. The
+    ``air_date`` key mirrors what ``_work_start_date`` reads from a
+    ``seasons`` entry, so callers can overlay the result directly onto the
+    parsed season list.
+
+    Season attribution mirrors :func:`parse_seasons_from_infobox`: items
+    labelled ``第N季``/``第N期`` map to that season; unlabelled dates belong
+    to season 1 ONLY when no block carries season labels and exactly one
+    TVAnime block has a plain date - several plain-date blocks are separate
+    works (e.g. 小書痴's 領主的養女 sequel block) and stay ambiguous.
+    """
+    if not wikitext:
+        return None
+    tv_blocks = _tvanime_blocks(wikitext)
+    if not tv_blocks:
+        return None
+    marked: dict[int, dict[str, str]] = {}
+    plain_blocks: list[dict[str, str]] = []
+    for block in tv_blocks:
+        plain: dict[str, str] = {}
+        _parse_air_field_items(_AIR_START_FIELD_RE.findall(block), is_end=False, marked=marked, plain=plain)
+        _parse_air_field_items(_AIR_END_FIELD_RE.findall(block), is_end=True, marked=marked, plain=plain)
+        if plain:
+            plain_blocks.append(plain)
+    if marked:
+        return marked
+    if len(plain_blocks) == 1:
+        return {1: plain_blocks[0]}
     return None
 
 

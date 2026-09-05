@@ -72,6 +72,15 @@ class SourceSpec:
     # link_template: "{id}" is the extracted id, "{seg}" is tmdb's tv/movie
     # path segment (content-type aware).
     link_template: str | None = None
+    # Identity granularity for TV-form entities (作品单季化):
+    #   "series" — one id covers every season (wikipedia/tmdb/imdb); such ids
+    #              are bagged on the WorkCollection and season works carry a
+    #              synthetic ``{series_id}#s{N}`` identity.
+    #   "season" — one entry = one season (bangumi/mal/anilist/douban); such
+    #              ids are bagged directly on the per-season TVSeries work.
+    #   "movie"  — used only via ``granularity_of(source, "movie")`` for the
+    #              tmdb/douban movie forms.
+    granularity: str = "series"
     extra: dict = field(default_factory=dict)
 
 
@@ -103,6 +112,7 @@ _SOURCE_SPECS: tuple[SourceSpec, ...] = (
         host_pattern=r"(^|\.)(bangumi|bgm)\.tv$",
         id_pattern=re.compile(r"/subject/(?P<id>\d+)"),
         link_template="https://bangumi.tv/subject/{id}",
+        granularity="season",
     ),
     SourceSpec(
         name="mal",
@@ -111,6 +121,7 @@ _SOURCE_SPECS: tuple[SourceSpec, ...] = (
         host_pattern=r"(^|\.)myanimelist\.net$",
         id_pattern=re.compile(r"/anime/(?P<id>\d+)"),
         link_template="https://myanimelist.net/anime/{id}",
+        granularity="season",
     ),
     SourceSpec(
         name="anilist",
@@ -119,6 +130,7 @@ _SOURCE_SPECS: tuple[SourceSpec, ...] = (
         host_pattern=r"(^|\.)anilist\.co$",
         id_pattern=re.compile(r"/anime/(?P<id>\d+)"),
         link_template="https://anilist.co/anime/{id}",
+        granularity="season",
     ),
     SourceSpec(
         name="imdb",
@@ -135,6 +147,7 @@ _SOURCE_SPECS: tuple[SourceSpec, ...] = (
         host_pattern=r"(^|\.)douban\.com$",
         id_pattern=re.compile(r"/subject/(?P<id>\d+)"),
         link_template="https://movie.douban.com/subject/{id}/",
+        granularity="season",
     ),
 )
 
@@ -142,6 +155,59 @@ REGISTRY: dict[str, SourceSpec] = {s.name: s for s in _SOURCE_SPECS}
 # Names of the 7 authoritative sites (validation set for channel fallback
 # whitelists and any other "registry source" checks).
 REGISTRY_SOURCES: frozenset[str] = frozenset(REGISTRY)
+
+# Sources whose MOVIE-form idents are movie-granular (their series-form
+# granularity is declared on the spec).
+_MOVIE_GRANULARITY_SOURCES: frozenset[str] = frozenset({"tmdb", "douban"})
+
+
+def granularity_of(source: str | None, content_type: str | None = None) -> str | None:
+    """Identity granularity of a registry source: ``"series" | "season" | "movie"``.
+
+    ``content_type="movie"`` overrides the spec's TV-form granularity for the
+    sources whose movie entries are movie-granular (tmdb/douban). Returns None
+    for unknown/non-registry sources.
+    """
+    spec = REGISTRY.get((source or "").strip().lower())
+    if spec is None:
+        return None
+    if (content_type or "").strip().lower() == "movie" and spec.name in _MOVIE_GRANULARITY_SOURCES:
+        return "movie"
+    return spec.granularity
+
+
+# ---------------------------------------------------------------------------
+# Synthetic per-season identities (作品单季化)
+#
+# A series-level id (``tmdb:82684``, ``wikipedia:zh:8498329``) is bagged on the
+# WorkCollection; each per-season work additionally bags the synthetic form
+# ``{series_id}#s{N}`` (e.g. ``tmdb:82684#s3``) so a repeat match of the same
+# series+season converges through the identity bag without title luck.
+# ---------------------------------------------------------------------------
+
+_SEASON_IDENTITY_SUFFIX_RE = re.compile(r"#s(\d{1,3})\s*$", re.IGNORECASE)
+
+
+def make_season_identity(series_id: str, season: int) -> str:
+    """Compose the synthetic per-season identity ``{series_id}#s{N}``."""
+    return f"{series_id}#s{season}"
+
+
+def split_season_identity(external_id: str | None) -> tuple[str, int] | None:
+    """Split a synthetic ``{series_id}#s{N}`` identity into ``(series_id, N)``.
+
+    Returns None for plain (non-synthetic) ids.
+    """
+    if not external_id:
+        return None
+    s = str(external_id).strip()
+    m = _SEASON_IDENTITY_SUFFIX_RE.search(s)
+    if not m:
+        return None
+    base = s[: m.start()]
+    if not base:
+        return None
+    return base, int(m.group(1))
 
 
 def _link_for(spec: SourceSpec, raw_id: str, content_type: str | None) -> str | None:
@@ -258,6 +324,10 @@ def canonicalize_external_id(
     """Return a stable canonical form of ``raw_id`` for upsert matching.
 
     Rules:
+      * Synthetic per-season identities (``{series_id}#s{N}``) pass through:
+        the suffix is lifted before normalization and re-appended afterwards,
+        so the ``/ season N`` clutter rule and the tmdb digit collapse never
+        destroy it.
       * Any string containing ``tmdb`` and digits → ``tmdb:{digits}``.
       * ``source == "tmdb"`` combined with a pure-digit id → ``tmdb:{digits}``.
       * IMDb ids (``tt`` + digits) → ``imdb:{tt…}``.
@@ -274,6 +344,16 @@ def canonicalize_external_id(
     if not s:
         return None
 
+    # Lift a synthetic per-season suffix ("#s3") before any other rule; it is
+    # re-appended to whichever canonical base the rules below produce.
+    season_suffix = ""
+    m = _SEASON_IDENTITY_SUFFIX_RE.search(s)
+    if m:
+        season_suffix = f"#s{int(m.group(1))}"
+        s = s[: m.start()].strip()
+        if not s:
+            return None
+
     # Strip trailing "/ season N" or similar decoration.
     s_clean = re.sub(r"[\s/,;|]+season[\s#:_-]*\d+\s*$", "", s, flags=re.IGNORECASE)
     s_clean = re.sub(r"\s+", " ", s_clean).strip()
@@ -283,21 +363,21 @@ def canonicalize_external_id(
     if "tmdb" in lower:
         m = _TMDB_DIGITS_RE.search(lower)
         if m:
-            return f"tmdb:{m.group(1)}"
+            return f"tmdb:{m.group(1)}{season_suffix}"
     if (source or "").strip().lower() == "tmdb":
         m = _LEADING_DIGITS_RE.match(lower)
         if m:
-            return f"tmdb:{m.group(1)}"
+            return f"tmdb:{m.group(1)}{season_suffix}"
         m = re.search(r"(\d{2,10})", lower)
         if m:
-            return f"tmdb:{m.group(1)}"
+            return f"tmdb:{m.group(1)}{season_suffix}"
 
     # IMDb ids
     m = re.match(r"^(tt\d{5,})$", lower)
     if m:
-        return f"imdb:{m.group(1)}"
+        return f"imdb:{m.group(1)}{season_suffix}"
 
-    return lower or None
+    return (lower + season_suffix) if lower else None
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +469,11 @@ def build_source_links(
             token = part.strip()
             if not token:
                 continue
+            # Synthetic per-season identities (``{id}#s{N}``) display the
+            # series-level link.
+            split = split_season_identity(token)
+            if split is not None:
+                token = split[0]
             # Legacy explicit forms: tmdb / imdb / wikipedia prefixes.
             m = re.search(r"tmdb[:：\s]*(\d+)", token, flags=re.IGNORECASE)
             if m:
@@ -435,6 +520,9 @@ def build_source_links(
     # dedupe removes any repeat of the primary link.
     for token in (extra_ids or []):
         token = token.strip()
+        split = split_season_identity(token)
+        if split is not None:
+            token = split[0]
         if token.lower().startswith(("wikipedia:", "wikipedia：")):
             link = _wikipedia_link(token.lower().replace("：", ":"))
             if link:
@@ -471,8 +559,11 @@ __all__ = [
     "build_source_links",
     "canonicalize_external_id",
     "domains_for_sources",
+    "granularity_of",
+    "make_season_identity",
     "parse_wikipedia_id",
     "qualify_wikipedia_id",
     "source_and_id_from_url",
+    "split_season_identity",
     "wikipedia_match_keys",
 ]

@@ -17,6 +17,7 @@ import CreateTaskModal from '../components/CreateTaskModal';
 import CollectionSiblingsCard from '../components/CollectionSiblingsCard';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import WorkMetadataRefreshModal from '../components/WorkMetadataRefreshModal';
+import { seasonWorkInfo } from '../utils/season';
 
 const { Title, Text, Link: AntdLink } = Typography;
 
@@ -102,8 +103,9 @@ export default function SeriesDetail() {
     });
   };
 
+  // Per-season works: every episode row belongs to THIS season, so the
+  // season column would be constant — dropped.
   const episodeColumns: TableColumnsType<Episode> = [
-    { title: t('series.season'), dataIndex: 'season', key: 'season', width: 60 },
     { title: t('series.episode'), dataIndex: 'episode', key: 'episode', width: 60 },
     { title: t('series.name'), dataIndex: 'title', key: 'title', render: (v: string | null) => v || '—' },
     { title: t('series.airDate'), dataIndex: 'air_date', key: 'air_date', width: 130, render: (v: string | null) => v || '—' },
@@ -217,7 +219,7 @@ export default function SeriesDetail() {
                   : '—'}
               </Descriptions.Item>
               <Descriptions.Item label={t('series.seasonsEpisodes')}>
-                {series.number_of_seasons ? `${series.number_of_seasons}${t('series.season')} ${series.number_of_episodes || '?'}${t('series.episode')}` : '—'}
+                {seasonWorkInfo(t, series.season_number ?? null, series.number_of_episodes) || '—'}
               </Descriptions.Item>
               <Descriptions.Item label={t('series.startDate')}>{series.start_date || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('series.endDate')}>{series.end_date || '—'}</Descriptions.Item>

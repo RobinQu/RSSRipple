@@ -18,7 +18,7 @@ from app.services.metadata_audio import AUDIO_CONTENT_TYPES
 from app.services.metadata_episode_reconcile import (
     _seasons_map_from,
     apply_episode_reconcile,
-    seasons_map_from_list,
+    resource_season_hint,
 )
 from app.services.metadata_resource_meta import ResourceMetadata
 from app.services.metadata_sources import normalize_metadata_source_type
@@ -281,10 +281,19 @@ async def _apply_to_resource(
                         (meta.matched_entity.get("title_cn") or meta.matched_entity.get("title_en") or "")[:60],
                         meta.matched_entity.get("external_id"),
                     )
-                    series = await create_or_update_series_from_external(db, meta.matched_entity)
-                    resource.series_id = series.id
-                    resource.movie_id = None
-                    resource.audio_work_id = None
+                    series = await create_or_update_series_from_external(
+                        db, meta.matched_entity,
+                        season_hint=resource_season_hint(resource, meta.matched_entity),
+                    )
+                    if series is not None:
+                        resource.series_id = series.id
+                        resource.movie_id = None
+                        resource.audio_work_id = None
+                    else:
+                        # Season indeterminate: link the known owner row.
+                        resource.series_id = existing_series.id
+                        resource.movie_id = None
+                        resource.audio_work_id = None
             else:
                 movie = await create_or_update_movie_from_external(db, meta.matched_entity)
                 resource.movie_id = movie.id
@@ -311,38 +320,41 @@ async def _apply_to_resource(
                 from app.services.collection_service import link_movie_collection
                 await link_movie_collection(db, movie)
             else:
-                series = await create_or_update_series_from_external(db, meta.matched_entity)
-                resource.series_id = series.id
-                resource.movie_id = None
-                resource.audio_work_id = None
+                series = await create_or_update_series_from_external(
+                    db, meta.matched_entity,
+                    season_hint=resource_season_hint(resource, meta.matched_entity),
+                )
+                if series is not None:
+                    resource.series_id = series.id
+                    resource.movie_id = None
+                    resource.audio_work_id = None
+                else:
+                    # Season indeterminate over a collection: park the
+                    # resource on the collection for Channel confirmation
+                    # (挂合集待确认), never guess a season work.
+                    from app.services.metadata_episode_reconcile import (
+                        park_resource_on_collection,
+                    )
+                    from app.services.metadata_service import (
+                        find_collection_for_entity,
+                    )
+                    collection = await find_collection_for_entity(db, meta.matched_entity)
+                    if collection is not None:
+                        park_resource_on_collection(resource, collection)
 
-        # Fallback reconciliation: the agent's own search result may carry no
-        # usable seasons list, but the (already known) series may have
-        # per-season counts persisted from an earlier upsert.
-        if (
-            resource.series_id
-            and getattr(resource, "episode_confidence", None) is None
-        ):
-            from app.models.series import TVSeries
-            series_row = await db.get(TVSeries, resource.series_id)
-            if series_row is not None and series_row.seasons:
-                apply_episode_reconcile(resource, seasons_map_from_list(series_row.seasons))
-
-        # Season-uncertain marking. Runs AFTER both reconciliations above:
-        # reconcile may legitimately derive a season from absolute_episode,
-        # and only a resource whose season is STILL None afterwards is routed
-        # to a human ("季号不确定" Channel confirmation downstream). Batch
-        # resources are excluded — a 合集 intentionally bypasses per-episode
-        # flow and doesn't need a verified single season number to dispatch.
-        if (
-            meta.season_ambiguous
-            and resource.series_id
-            and resource.season is None
-            and not getattr(resource, "is_batch", False)
-            and getattr(resource, "episode_confidence", None) != "manual"
-        ):
-            from app.services.metadata_episode_reconcile import resolve_missing_season
-            resolve_missing_season(resource, meta.matched_entity)
+        # Post-link reconciliation + season-uncertain marking (P3): shared
+        # helper — history-backed convention, collection-member absolute
+        # locate, per-season arithmetic, then the verified-season default
+        # (resolve_missing_work with the linked work's identity). Runs AFTER
+        # the upsert so a season-less resource whose season can't be verified
+        # is routed to a human ("季号不确定" Channel confirmation downstream).
+        if resource.series_id:
+            from app.services.metadata_service import (
+                reconcile_linked_series_resource,
+            )
+            await reconcile_linked_series_resource(
+                db, resource, entity=meta.matched_entity
+            )
 
         resource.metadata_matched_at = utcnow()
 

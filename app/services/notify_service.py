@@ -58,6 +58,12 @@ def backoff_delay(attempt_count: int) -> timedelta:
 
 
 def _series_payload(series: TVSeries) -> dict:
+    """Per-season work snapshot (payload v2).
+
+    The work IS one season: ``seasons`` is gone, ``episodes[]`` carries no
+    season component (all rows belong to ``season_number``), and
+    ``season_number``/``number_of_episodes`` describe the season itself.
+    """
     return {
         "type": "series", "series_id": series.id,
         "title_en": series.title_en, "title_cn": series.title_cn,
@@ -65,9 +71,11 @@ def _series_payload(series: TVSeries) -> dict:
         "year": series.start_date.year if series.start_date else None,
         "content_type": series.content_type, "is_anime": series.is_anime,
         "collection": series.collection.display_name if series.collection else None,
-        "genre": normalize_genres(series.genre), "seasons": series.seasons,
+        "genre": normalize_genres(series.genre),
+        "season_number": series.season_number,
+        "number_of_episodes": series.number_of_episodes,
         "episodes": [
-            {"season": ep.season, "episode": ep.episode, "title": ep.title}
+            {"episode": ep.episode, "title": ep.title}
             for ep in series.episodes
         ],
     }
@@ -81,7 +89,8 @@ def _movie_payload(movie: Movie) -> dict:
         "year": movie.release_date.year if movie.release_date else None,
         "content_type": movie.content_type, "is_anime": movie.is_anime,
         "collection": movie.collection.display_name if movie.collection else None,
-        "genre": normalize_genres(movie.genre), "seasons": None, "episodes": None,
+        "genre": normalize_genres(movie.genre),
+        "season_number": None, "number_of_episodes": None, "episodes": None,
     }
 
 
@@ -150,6 +159,11 @@ def build_payload(
         association_status = "unavailable"
 
     payload = {
+        # Payload contract version. v2 (per-season works): work.seasons
+        # removed, work.episodes[] carries no season component, work gains
+        # season_number / number_of_episodes. Breaking change for webhook
+        # consumers (vault-organizer) — see docs/design/per-season-works.md.
+        "version": 2,
         "notification_id": notification_id,
         "agent": {"id": agent.id, "name": agent.name} if agent else None,
         "task": {

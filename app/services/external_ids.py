@@ -3,7 +3,9 @@
 The bag (:class:`app.models.work_external_id.WorkExternalId`) reverse-maps
 any known ``(source, external_id)`` pair to the work that owns it, so upserts
 converge deterministically across sources/languages instead of relying on
-title luck.
+title luck. ``work_type`` is one of ``"series"`` / ``"movie"`` /
+``"collection"`` — series-level source ids live on the WorkCollection's bag
+while per-season source ids stay on the TVSeries bag.
 
 Conventions (see the model docstring):
   * ``source`` is a registry source name; non-registry sources are skipped.
@@ -28,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 from app.services.metadata_source_registry import (
     REGISTRY_SOURCES,
@@ -38,7 +41,18 @@ from app.services.metadata_source_registry import (
 
 logger = logging.getLogger(__name__)
 
-_WORK_MODELS = {"series": TVSeries, "movie": Movie}
+_WORK_MODELS = {"series": TVSeries, "movie": Movie, "collection": WorkCollection}
+
+_WorkT = TVSeries | Movie | WorkCollection
+
+
+def _work_type_of(work: _WorkT) -> str:
+    """Bag ``work_type`` discriminator for a work/collection row."""
+    if isinstance(work, TVSeries):
+        return "series"
+    if isinstance(work, Movie):
+        return "movie"
+    return "collection"
 
 
 def _canonical(source: str | None, external_id: str | None) -> tuple[str, str] | None:
@@ -142,7 +156,7 @@ async def find_work_by_external_id(
     work_type: str,
     source: str | None,
     external_id: str | None,
-) -> TVSeries | Movie | None:
+) -> _WorkT | None:
     """Bag reverse-lookup: canonicalize (source, id) and return the owning work.
 
     Only looks up ids bagged for the SAME ``work_type`` — a bag hit of the
@@ -183,8 +197,8 @@ async def list_external_ids(
 
 async def merge_external_id_bags(
     db: AsyncSession,
-    survivor: TVSeries | Movie,
-    duplicates: list[TVSeries | Movie],
+    survivor: _WorkT,
+    duplicates: list[_WorkT],
 ) -> int:
     """Union the duplicates' bag rows into the survivor's bag (dedup merge).
 
@@ -195,7 +209,7 @@ async def merge_external_id_bags(
     survivor remains reachable by every id any merged row was ever known under.
     Returns the number of bag rows gained by the survivor.
     """
-    work_type = "series" if isinstance(survivor, TVSeries) else "movie"
+    work_type = _work_type_of(survivor)
     gained = 0
     survivor_ids = {
         (r.source, r.external_id)
@@ -226,7 +240,7 @@ async def merge_external_id_bags(
             gained += 1
 
     for dup in duplicates:
-        dup_type = "series" if isinstance(dup, TVSeries) else "movie"
+        dup_type = _work_type_of(dup)
         # The duplicate's primary id joins the survivor's bag.
         await _claim(dup.external_source, dup.external_id)
         # Re-point (or drop, on collision) the duplicate's own bag rows.

@@ -18,6 +18,7 @@ from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.agent_service import (
     RuleSet,
@@ -620,8 +621,13 @@ class TestProcessResources:
     async def test_episode_dedup_is_season_aware(
         self, db_session, channel, downloader, series
     ):
-        """S1E3 and S4E3 of the same series must NOT dedup against each
-        other; same (series, season, episode) must still dedup."""
+        """Per-season works: S1E3 and S4E3 live on DIFFERENT season works and
+        must NOT dedup against each other; same (work, episode) still dedups."""
+        series_s4 = TVSeries(
+            id=_uuid(), title_cn="剧集A", title_en="Series A",
+            content_type="tv", season_number=4,
+        )
+        db_session.add(series_s4)
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True
         )
@@ -637,10 +643,10 @@ class TestProcessResources:
         db_session.add(task)
         await db_session.flush()
 
-        # Different season, same episode → not a duplicate.
-        r_s4 = _make_resource(channel.id, series_id=series.id,
+        # Different season work, same episode → not a duplicate.
+        r_s4 = _make_resource(channel.id, series_id=series_s4.id,
                               season=4, episode=3, guid=_uuid())
-        # Same season + episode → duplicate.
+        # Same season work + episode → duplicate.
         r_s1_dup = _make_resource(channel.id, series_id=series.id,
                                   season=1, episode=3, guid=_uuid())
         db_session.add_all([r_s4, r_s1_dup])
@@ -679,10 +685,10 @@ class TestProcessResources:
     async def test_episode_dedup_matches_numbered_sibling_for_seasonless(
         self, db_session, channel, downloader, series
     ):
-        """Season-compatibility: a completed S1E3 task blocks a season-less
-        E3 variant of the same series. Regression for the same episode
-        downloading twice when release variants were attributed different
-        seasons across runs (S1 vs unknown)."""
+        """A completed S1E3 task blocks a season-less E3 variant of the same
+        (per-season) work: the dedup slot is (series, episode) — the season
+        lives in the work identity, so release variants with/without a parsed
+        season marker still share one slot."""
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True
         )
@@ -789,10 +795,10 @@ class TestProcessResources:
         self, db_session, channel, downloader, series
     ):
         """Same episode with mismatched season attribution (S1 vs unknown)
-        lands in ONE conflict group and the subtitle-language preference
-        picks 简体 — instead of two independent single-candidate groups
-        downloading both variants (regression for 攻壳 E05 简/繁 double
-        download)."""
+        lands in ONE conflict group — the conflict slot is (series, episode)
+        since the per-season work identity carries the season — and the
+        subtitle-language preference picks 简体 (regression for 攻壳 E05
+        简/繁 double download)."""
         agent = await self._make_agent(
             db_session, channel, downloader,
             scope_channel_wide=True, conflict_resolution="auto",
@@ -1175,8 +1181,13 @@ class TestProcessResources:
     async def test_batch_different_seasons_do_not_conflict(
         self, db_session, channel, downloader, series
     ):
-        """S1 pack vs S2 pack: different coverage → both dispatch, no
-        PendingDecision."""
+        """S1 pack vs S2 pack (different season WORKS): different coverage →
+        both dispatch, no PendingDecision."""
+        series_s2 = TVSeries(
+            id=_uuid(), title_cn="剧集A", title_en="Series A",
+            content_type="tv", season_number=2,
+        )
+        db_session.add(series_s2)
         agent = await self._make_agent(
             db_session, channel, downloader,
             scope_channel_wide=True, conflict_resolution="ask",
@@ -1186,7 +1197,7 @@ class TestProcessResources:
             is_batch=True, batch_scope="season", guid=_uuid(),
         )
         r2 = _make_resource(
-            channel.id, series_id=series.id, episode=None, season=2,
+            channel.id, series_id=series_s2.id, episode=None, season=2,
             is_batch=True, batch_scope="season", guid=_uuid(),
         )
         db_session.add_all([r1, r2])
@@ -1378,7 +1389,13 @@ class TestProcessResources:
     async def test_batch_cross_run_different_coverage_dispatches(
         self, db_session, channel, downloader, series
     ):
-        """An S2 pack is NOT blocked by a completed S1 pack task."""
+        """An S2 pack (on its own season work) is NOT blocked by a completed
+        S1 pack task."""
+        series_s2 = TVSeries(
+            id=_uuid(), title_cn="剧集A", title_en="Series A",
+            content_type="tv", season_number=2,
+        )
+        db_session.add(series_s2)
         agent = await self._make_agent(
             db_session, channel, downloader, scope_channel_wide=True,
         )
@@ -1394,7 +1411,7 @@ class TestProcessResources:
             status="completed",
         ))
         new = _make_resource(
-            channel.id, series_id=series.id, episode=None, season=2,
+            channel.id, series_id=series_s2.id, episode=None, season=2,
             is_batch=True, batch_scope="season", guid=_uuid(),
         )
         db_session.add(new)
@@ -1541,6 +1558,165 @@ class TestProcessResources:
         assert result.dispatched == 1
 
 
+class TestLinksOnlyMultiSeasonPack:
+    """Per-season works (作品单季化): terminal multi-season packs clear the
+    flat work FKs and carry their season works on ``resource_work_links``.
+    Dispatch scope = any linked work subscribed (or channel-wide); coverage
+    key = the sorted linked work id set."""
+
+    async def _make_agent(
+        self, db_session, channel, downloader, *,
+        scope_channel_wide=False, conflict_resolution="ask", works=None,
+    ):
+        agent = Agent(
+            id=_uuid(), name="agent", channel_id=channel.id,
+            downloader_id=downloader.id, status="active",
+            scope_channel_wide=scope_channel_wide,
+            conflict_resolution=conflict_resolution,
+        )
+        db_session.add(agent)
+        await db_session.flush()
+        for w in works or []:
+            db_session.add(AgentWork(agent_id=agent.id, content_type="tv", **w))
+        await db_session.flush()
+        await db_session.refresh(agent)
+        return agent
+
+    @pytest.fixture(autouse=True)
+    def patch_transmission(self):
+        client_cls = MagicMock()
+        client_instance = MagicMock()
+        client_instance.add_torrent = MagicMock(
+            return_value=SimpleNamespace(id=1, name="x", hashString="h")
+        )
+        client_cls.return_value = client_instance
+        with patch("transmission_rpc.Client", client_cls):
+            yield client_instance
+
+    async def _make_season_works(self, db_session):
+        """S1/S2 per-season works of one IP (batch_seasons 派生一致)。"""
+        s1 = TVSeries(
+            id=_uuid(), title_cn="剧集A", title_en="Series A",
+            content_type="tv", season_number=1,
+        )
+        s2 = TVSeries(
+            id=_uuid(), title_cn="剧集A", title_en="Series A",
+            content_type="tv", season_number=2,
+        )
+        db_session.add_all([s1, s2])
+        await db_session.flush()
+        return s1, s2
+
+    def _pack(self, channel_id, work_ids, batch_seasons=(1, 2), guid=None):
+        res = _make_resource(
+            channel_id, series_id=None, movie_id=None, episode=None,
+            season=None, is_batch=True, batch_scope="multi_season",
+            batch_seasons=list(batch_seasons), guid=guid or _uuid(),
+        )
+        res.work_links = [
+            ResourceWorkLink(
+                id=_uuid(), resource_id=res.id, series_id=wid, source="auto",
+            )
+            for wid in work_ids
+        ]
+        return res
+
+    async def test_dispatches_when_a_linked_work_is_subscribed(
+        self, db_session, channel, downloader
+    ):
+        s1, s2 = await self._make_season_works(db_session)
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            works=[{"series_id": s2.id}],
+        )
+        pack = self._pack(channel.id, [s1.id, s2.id])
+        db_session.add(pack)
+        await db_session.flush()
+        result = await process_resources(agent, [pack], db_session)
+        assert result.dispatched == 1
+        assert result.unrecognized == 0
+
+    async def test_out_of_scope_when_no_linked_work_subscribed(
+        self, db_session, channel, downloader
+    ):
+        s1, s2 = await self._make_season_works(db_session)
+        agent = await self._make_agent(
+            db_session, channel, downloader, works=[],
+        )
+        pack = self._pack(channel.id, [s1.id, s2.id])
+        db_session.add(pack)
+        await db_session.flush()
+        result = await process_resources(agent, [pack], db_session)
+        assert result.dispatched == 0
+        assert result.matched == 0
+        assert result.unrecognized == 0  # linked via links, just out of scope
+
+    async def test_same_link_set_conflicts_different_set_dispatches(
+        self, db_session, channel, downloader
+    ):
+        s1, s2 = await self._make_season_works(db_session)
+        s3 = TVSeries(
+            id=_uuid(), title_cn="剧集A", title_en="Series A",
+            content_type="tv", season_number=3,
+        )
+        db_session.add(s3)
+        agent = await self._make_agent(
+            db_session, channel, downloader,
+            scope_channel_wide=True, conflict_resolution="ask",
+        )
+        r1 = self._pack(channel.id, [s1.id, s2.id])
+        r2 = self._pack(channel.id, [s2.id, s1.id])  # order-independent
+        r3 = self._pack(
+            channel.id, [s1.id, s3.id], batch_seasons=(1, 3),
+        )
+        db_session.add_all([r1, r2, r3])
+        await db_session.flush()
+        result = await process_resources(agent, [r1, r2, r3], db_session)
+        assert result.pending_decisions == 1
+        assert result.dispatched == 1
+        pd = (await db_session.execute(
+            select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+        )).scalar_one()
+        assert pd.series_id is None  # no flat work FK on links-carried packs
+        assert pd.episode == -1  # batch sentinel
+        assert sorted(pd.candidates) == sorted([r1.id, r2.id])
+
+    async def test_cross_run_same_link_set_skipped(
+        self, db_session, channel, downloader
+    ):
+        s1, s2 = await self._make_season_works(db_session)
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        old = self._pack(channel.id, [s1.id, s2.id])
+        db_session.add(old)
+        await db_session.flush()
+        db_session.add(DownloadTask(
+            id=_uuid(), agent_id=agent.id, file_resource_id=old.id,
+            downloader_id=downloader.id, download_dir="/downloads/rssripple",
+            status="completed",
+        ))
+        new = self._pack(channel.id, [s1.id, s2.id])
+        db_session.add(new)
+        await db_session.flush()
+        result = await process_resources(agent, [new], db_session)
+        assert result.dispatched == 0
+        assert result.duplicates_skipped == 1
+
+    async def test_empty_links_stay_unrecognized(
+        self, db_session, channel, downloader
+    ):
+        agent = await self._make_agent(
+            db_session, channel, downloader, scope_channel_wide=True,
+        )
+        pack = self._pack(channel.id, [])
+        db_session.add(pack)
+        await db_session.flush()
+        result = await process_resources(agent, [pack], db_session)
+        assert result.unrecognized == 1
+        assert result.dispatched == 0
+
+
 # ---------------------------------------------------------------------------
 # create_pending_decision
 # ---------------------------------------------------------------------------
@@ -1676,7 +1852,9 @@ async def test_create_pending_decision_season_aware_key(db_session, channel, dow
 
 
 async def test_create_pending_decision_legacy_3tuple_key(db_session, channel, downloader, series):
-    """The legacy (type, id, episode) key shape is still accepted → season=None."""
+    """The (type, id, episode) key shape derives the season component from
+    the work's own ``season_number`` (per-season works carry the season in
+    their identity); an explicit None-season 4-tuple resolves identically."""
     agent = Agent(
         id=_uuid(), name="a", channel_id=channel.id,
         downloader_id=downloader.id, scope_channel_wide=True,
@@ -1688,7 +1866,7 @@ async def test_create_pending_decision_legacy_3tuple_key(db_session, channel, do
     await db_session.flush()
     pd1 = await create_pending_decision(agent, ("series", series.id, 7), [r], db_session)
     pd2 = await create_pending_decision(agent, ("series", series.id, None, 7), [r], db_session)
-    assert pd1.season is None
+    assert pd1.season == series.season_number
     assert pd1.id == pd2.id
 
 

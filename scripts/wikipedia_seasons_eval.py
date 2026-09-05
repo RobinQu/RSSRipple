@@ -7,8 +7,9 @@ number_of_episodes are OVERWRITTEN (wikipedia is the content source for
 wikipedia-primary works) and Episode rows are upserted idempotently via
 ``upsert_episodes`` (additive, keyed by (series_id, season, episode)).
 Anti-regression guard: parsed data with FEWER seasons than the existing row
-is reported ``[guard-skip]`` and never applied (same rule as
-``metadata_service.seasons_overwrite_allowed``).
+is reported ``[guard-skip]`` and never applied (the rule formerly known as
+``metadata_service.seasons_overwrite_allowed``, retired with the per-season
+work model and inlined here).
 
 With ``--apply`` this supersedes ``series_seasons_backfill.py`` phase 1 for
 wikipedia-primary works (that script fills seasons from TMDB regardless of
@@ -31,7 +32,7 @@ from sqlalchemy import or_, select
 
 from app.database import async_session_factory
 from app.models.series import TVSeries
-from app.services.metadata_service import seasons_overwrite_allowed, upsert_episodes
+from app.services.metadata_service import upsert_episodes
 from app.services.metadata_wikipedia_client import (
     _WIKIPEDIA_USER_AGENT,
     fetch_wikipedia_wikitext,
@@ -42,6 +43,20 @@ from app.services.wikipedia_episode_parser import (
 )
 
 APPLY_BATCH_SIZE = 20
+
+
+def seasons_overwrite_allowed(
+    existing_seasons: list | None,
+    existing_number_of_seasons: int | None,
+    incoming_seasons: list | None,
+) -> bool:
+    """Anti-regression guard (inlined; retired from metadata_service with the
+    per-season work model): overwrite allowed when no structure exists yet or
+    the incoming data has at least as many seasons as the existing row."""
+    existing_count = len(existing_seasons or []) or (existing_number_of_seasons or 0)
+    if existing_count == 0:
+        return True
+    return len(incoming_seasons or []) >= existing_count
 
 
 async def select_wikipedia_series(db) -> list[TVSeries]:

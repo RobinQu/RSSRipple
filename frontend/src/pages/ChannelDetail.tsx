@@ -45,6 +45,7 @@ import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import ColumnSettings from '../components/ColumnSettings';
 import { timeAgo, formatBytes } from '../utils/format';
+import { seasonLabel, seasonWorkInfo } from '../utils/season';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import {
   fieldApplicable,
@@ -275,10 +276,11 @@ function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null; isSeri
   if (work.rating != null) rows.push({ label: t('works.colRating'), value: work.rating.toFixed(1) });
   if (work.genre && work.genre.length > 0) rows.push({ label: t('works.colGenre'), value: work.genre.join(' · ') });
   if (work.status) rows.push({ label: t('works.colStatus'), value: work.status });
-  if (isSeries && (work.number_of_seasons != null || work.number_of_episodes != null)) {
+  if (isSeries && (work.season_number != null || work.number_of_episodes != null)) {
     rows.push({
       label: t('series.seasonsEpisodes'),
-      value: `${work.number_of_seasons ?? '—'} / ${work.number_of_episodes ?? '—'}`,
+      // Per-season works: a series work IS one season.
+      value: seasonWorkInfo(t, work.season_number ?? null, work.number_of_episodes ?? null) || '—',
     });
   }
   if (rows.length === 0 && !work.description) return null;
@@ -820,11 +822,21 @@ export default function ChannelDetail() {
                             : r.movie_id
                               ? `/movies/${r.movie_id}`
                               : null;
-                          const workTitle =
-                            (work && (work.original_title || work.title_cn || work.title_en)) ||
-                            r.title_cn ||
-                            r.search_title ||
-                            r.title_raw;
+                          const workTitle = (() => {
+                            const base =
+                              (work && (work.original_title || work.title_cn || work.title_en)) ||
+                              r.title_cn ||
+                              r.search_title ||
+                              r.title_raw;
+                            // Per-season works: the base title equals the
+                            // collection name — the season label is what makes
+                            // the linked work identifiable.
+                            if (r.series_id && work) {
+                              const s = seasonLabel(t, work.season_number ?? null);
+                              return s ? `${base} · ${s}` : base;
+                            }
+                            return base;
+                          })();
                           return (
                             <tr
                               key={r.id}
@@ -957,7 +969,14 @@ export default function ChannelDetail() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
               <div>
                 <Space size={6}>
-                  <Text strong>{g.title}</Text>
+                  <Text strong>
+                    {g.title}
+                    {g.type === 'series' &&
+                      (() => {
+                        const s = seasonLabel(t, g.resources[0]?.series?.season_number ?? null);
+                        return s ? ` · ${s}` : '';
+                      })()}
+                  </Text>
                   <WorkInfoIcon
                     work={g.resources[0]?.series ?? g.resources[0]?.movie ?? null}
                     isSeries={g.type === 'series'}

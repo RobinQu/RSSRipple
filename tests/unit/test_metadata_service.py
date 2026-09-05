@@ -656,7 +656,12 @@ async def test_create_or_update_series_dedups_by_canonical_external_id(db_sessio
         await db_session.flush()
 
     assert s1.id == s2.id == s3.id
-    assert s3.external_id == "tmdb:82684"  # canonicalized
+    # Per-season work model: the season work's primary is the synthetic
+    # per-season identity; the series-level tmdb id lives on the collection's
+    # identity bag.
+    assert s3.external_id == "tmdb:82684#s4"  # canonicalized + season-tagged
+    assert s3.season_number == 4
+    assert s3.collection_id is not None
 
 
 async def test_create_or_update_series_dedups_by_title_fallback(db_session):
@@ -1143,8 +1148,9 @@ async def test_manual_bangumi_link_uses_entry_scoped_season_default(
 
 
 async def test_manual_link_marks_season_uncertain(db_session, channel):
-    """Manual link to a multi-season series marks a season-less resource
-    季号不确定 instead of guessing a season."""
+    """Manual link to a multi-season series cannot pin a season: the resource
+    is parked on the matched collection (挂合集待确认) and marked 季号不确定
+    instead of guessing a season work (作品单季化 P3)."""
     res = _resource(channel.id, title_raw="[G] Multi Show - 03 [1080p]",
                     season=None, episode=3)
     db_session.add(res)
@@ -1162,7 +1168,10 @@ async def test_manual_link_marks_season_uncertain(db_session, channel):
         new_callable=AsyncMock, return_value=None,
     ):
         entity = await ms.manual_link_metadata(db_session, res, channel, selected)
-    assert res.series_id == entity.id
+    # No season work is materialized for an indeterminate season.
+    assert entity is None
+    assert res.series_id is None
+    assert res.collection_id is not None
     assert res.season is None
     assert res.episode_confidence == "ambiguous"
 
@@ -1284,6 +1293,140 @@ async def test_refresh_work_metadata_skips_manually_edited_fields(db_session):
     assert "genre" in result2["filled"]
     assert work.rating == 9.0
     assert work.genre == ["Animation"]
+
+
+async def test_refresh_work_metadata_season_scoped_dates(db_session):
+    """Per-season works: refresh passes the work's season to the source search
+    and fills only season-scoped dates — a series-level entity's premiere
+    belongs to season 1 and must not land on a later-season work."""
+    from datetime import date
+
+    work = TVSeries(
+        id=_uuid(), title_cn="女性向遊戲世界對路人角色很不友好",
+        content_type="tv", season_number=2,
+    )
+    db_session.add(work)
+    await db_session.flush()
+    candidate = {
+        "title_cn": "恋爱游戏世界对路人角色很不友好 第二季",
+        "content_type": "tv",
+        "external_id": "bangumi:412144", "external_source": "bangumi",
+        "start_date": "2026-07-08",
+    }
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[candidate],
+    ) as search, patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result = await ms.refresh_work_metadata(db_session, work.id, "tv", "bangumi")
+    # Season-granularity entity: its own date is the season premiere, and the
+    # search received the work's season as a hint.
+    assert search.await_args.kwargs["season_hint"] == 2
+    assert work.start_date == date(2026, 7, 8)
+    assert "start_date" in result["filled"]
+    assert work.external_id == "bangumi:412144"
+    assert work.external_source == "bangumi"
+
+    series_entity = {
+        "title_en": "Multi Season Show", "content_type": "tv",
+        "external_id": "wikipedia:en:42", "external_source": "wikipedia",
+        "start_date": "2020-01-01", "end_date": "2023-06-30",
+    }
+    # Series-level entity without per-season evidence → no date fill on a
+    # season-2 work (previously the S1 premiere was stuffed into it).
+    work2 = TVSeries(
+        id=_uuid(), title_en="Multi Season Show", content_type="tv",
+        season_number=2,
+    )
+    db_session.add(work2)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[series_entity],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result2 = await ms.refresh_work_metadata(db_session, work2.id, "tv", "wikipedia")
+    assert work2.start_date is None
+    assert "start_date" not in result2["filled"]
+
+    # With per-season evidence the season's own air date is filled.
+    work3 = TVSeries(
+        id=_uuid(), title_en="Multi Season Show", content_type="tv",
+        season_number=2,
+    )
+    db_session.add(work3)
+    await db_session.flush()
+    entity_with_seasons = {
+        **series_entity,
+        "seasons": [
+            {"season_number": 1, "air_date": "2020-01-01"},
+            {"season_number": 2, "air_date": "2022-04-01"},
+        ],
+    }
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[entity_with_seasons],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms.refresh_work_metadata(db_session, work3.id, "tv", "wikipedia")
+    assert work3.start_date == date(2022, 4, 1)
+
+
+async def test_refresh_work_metadata_skips_season0_specials(db_session):
+    """Season-0 works are specials placeholders: refresh must not match the
+    main entry and stuff series-level data (dates/counts/identity) into them."""
+    work = TVSeries(
+        id=_uuid(), title_cn="某作品 OVA", content_type="tv", season_number=0,
+    )
+    db_session.add(work)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock,
+    ) as search:
+        result = await ms.refresh_work_metadata(db_session, work.id, "tv", "bangumi")
+    assert result["filled"] == []
+    assert "season-0" in result["message"]
+    search.assert_not_awaited()
+
+
+async def test_refresh_work_metadata_never_steals_identity(db_session):
+    """A candidate identity already owned by another work (column or bag) is
+    skipped, not grabbed — season-blind matches must not create duplicates."""
+    owner = TVSeries(
+        id=_uuid(), title_cn="Owned Show", content_type="tv", season_number=1,
+        external_id="wikipedia:en:10380", external_source="wikipedia",
+    )
+    work = TVSeries(
+        id=_uuid(), title_cn="Owned Show", content_type="tv", season_number=2,
+    )
+    db_session.add_all([owner, work])
+    await db_session.flush()
+    candidate = {
+        "title_cn": "Owned Show", "content_type": "tv",
+        "external_id": "wikipedia:en:10380", "external_source": "wikipedia",
+        "start_date": "2011-04-06",
+    }
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=[candidate],
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        result = await ms.refresh_work_metadata(db_session, work.id, "tv", "bangumi")
+    assert work.external_id is None
+    assert "external_id" not in result["filled"]
+    assert "external_source" not in result["filled"]
+    # Non-identity fields from the entry still fill (season-scoped: the S1
+    # premiere must not land on the season-2 work).
+    assert work.start_date is None
 
 
 async def test_upsert_skips_manually_edited_fields(db_session):

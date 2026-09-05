@@ -1,6 +1,7 @@
 """Tests for required_fields: catalog validation, normalization, shape-aware
 requirement tiers, allowed-field computation, and filter-tree gating."""
 
+from datetime import date
 from types import SimpleNamespace
 
 from app.services.filter_engine import ALL_FIELDS
@@ -25,11 +26,14 @@ from app.services.required_fields import (
 
 
 def test_catalog_covers_every_dsl_field():
-    """Every Filter DSL field must be selectable as a required field."""
+    """Every Filter DSL field must be selectable as a required field —
+    except the retired ``absolute_episode``/``episode_confidence`` keys
+    (per-season works: the fields stay on the resource/DSL but are no
+    longer required-field catalog entries)."""
     covered = {
         f for entry in REQUIRED_FIELD_CATALOG.values() for f in entry["dsl_fields"]
     }
-    assert covered == set(ALL_FIELDS)
+    assert covered == set(ALL_FIELDS) - {"absolute_episode", "episode_confidence"}
 
 
 def test_base_tier_is_five_always_required_fields():
@@ -45,14 +49,13 @@ def test_base_tier_is_five_always_required_fields():
 
 
 def test_shape_scoped_locks():
-    """TV 单集必填 season+episode；TV 合集另需起止集；多作品合集必填关联。"""
-    assert SHAPE_REQUIRED_FIELDS["tv_single"] == ("season", "episode")
-    # season (LOCK_TV) precedes the batch-specific range keys.
-    assert SHAPE_REQUIRED_FIELDS["tv_batch"] == (
-        "season", "episode_start", "episode_end",
-    )
+    """TV 单集必填 episode；TV 合集需起止集；多作品合集必填关联。季号由
+    作品身份承载（作品单季化），``season`` 退役为可选声明。"""
+    assert SHAPE_REQUIRED_FIELDS["tv_single"] == ("episode",)
+    assert SHAPE_REQUIRED_FIELDS["tv_batch"] == ("episode_start", "episode_end")
     assert SHAPE_REQUIRED_FIELDS["franchise"] == ("resource_collection",)
     assert SHAPE_REQUIRED_FIELDS.get("movie", ()) == ()
+    assert REQUIRED_FIELD_CATALOG["season"]["lock"] is None
     # Shape-scoped keys carry the matching applies_to restriction.
     for entry in REQUIRED_FIELD_CATALOG.values():
         if entry["lock"] not in (None, "always"):
@@ -73,7 +76,7 @@ def test_required_keys_per_shape_respects_applies_to():
     """year/is_anime need a linked work — franchise packs don't require them."""
     tv_single = required_keys_for_shape("tv_single")
     assert BASE_REQUIRED_FIELDS <= tv_single | set()
-    assert {"season", "episode"} <= tv_single
+    assert {"episode"} <= tv_single
     # year/is_anime are work-scoped base fields; unlinked rows can't have them.
     franchise = required_keys_for_shape("franchise")
     assert "resource_collection" in franchise
@@ -112,6 +115,39 @@ def test_missing_required_fields_uses_resource_shape_and_false_is_present():
     assert "is_anime" not in missing
     assert "season" not in missing
     assert "episode" not in missing
+
+
+def test_links_only_multi_season_shape_and_work_fields():
+    """终态 multi_season 包（清 FK、works 在 links 上）：形态为
+    tv_multi_season；year/is_anime/content_type 经首个关联作品解析。"""
+    from app.services.required_fields import resource_shape
+
+    work = SimpleNamespace(
+        start_date=date(2026, 4, 1),
+        is_anime=True,
+        rating=None,
+        genre=None,
+        collection=None,
+    )
+    resource = SimpleNamespace(
+        series_id=None,
+        movie_id=None,
+        audio_work_id=None,
+        collection_id=None,
+        series=None,
+        is_batch=True,
+        batch_scope="multi_season",
+        search_title="title",
+        work_links=[SimpleNamespace(series_id="s-1", movie_id=None, series=work)],
+    )
+    assert resource_shape(resource) == "tv_multi_season"
+    missing = missing_required_fields(
+        resource, ["year", "is_anime", "content_type", "is_batch"]
+    )
+    assert missing == []
+
+    missing = missing_required_fields(resource, ["rating"])
+    assert missing == ["rating"]
 
 
 def test_sections_order_work_type_first_then_semantic():
@@ -185,8 +221,13 @@ def test_normalize_preserves_legacy_title_cn_when_already_saved():
 
 def test_normalize_includes_year_is_anime_and_tv_machinery():
     baseline = normalize_required_fields([])
-    assert {"year", "is_anime", "season", "episode",
+    assert {"year", "is_anime", "episode",
             "episode_start", "episode_end", "resource_collection"} <= set(baseline)
+    # season / absolute_episode / episode_confidence retired from the
+    # baseline (per-season works carry the season in the work identity).
+    assert "season" not in baseline
+    assert "absolute_episode" not in baseline
+    assert "episode_confidence" not in baseline
 
 
 def test_normalize_drops_unknown_keys_defensively():

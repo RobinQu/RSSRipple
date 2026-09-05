@@ -32,17 +32,31 @@ from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.episode import Episode
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 from app.services import fts as fts_service
 from app.services.anime_signals import apply_is_anime
 from app.services.external_ids import add_external_id, find_work_by_external_id
 from app.services.genre_registry import normalize_genres
+from app.services.metadata_episode_reconcile import (
+    _RECONCILE_TOLERANCE,
+    apply_episode_reconcile,
+    is_unsplit_legacy_series,
+    resolve_missing_work,
+    season_evidence_from_series,
+    seasons_map_for_work,
+    verified_season_count,
+)
 from app.services.metadata_source_registry import (
+    REGISTRY_SOURCES,
     canonicalize_external_id,  # noqa: F401
+    granularity_of,
+    make_season_identity,
     parse_wikipedia_id,
     qualify_wikipedia_id,
+    split_season_identity,
     wikipedia_match_keys,
 )
-from app.services.resource_parser import strip_season_from_title
+from app.services.resource_parser import season_from_title, strip_season_from_title
 from app.services.text_normalizer import normalize_title, similarity_score
 from app.utils.time import utcnow
 
@@ -512,12 +526,18 @@ async def search_metadata_via_llm(
     title: str,
     data_source_type: str | None = None,
     fallback_sources: list[str] | None = None,
+    *,
+    season_hint: int | None = None,
 ) -> list[dict]:
     """Search for metadata using the unified metadata agent.
 
     Delegates to ``UnifiedMetadataAgent.process_title_only()`` for title cleaning
     and metadata search via one selected source.
     Returns a list of candidate dicts (same shape as before) so callers work unchanged.
+
+    ``season_hint`` is the season number of the work being refreshed; it keeps
+    season-granular sources (bangumi) from matching the season-1 entry for a
+    season>1 work.
     """
     from app.services.metadata_agent import get_agent
 
@@ -527,7 +547,8 @@ async def search_metadata_via_llm(
             title[:160], data_source_type,
         )
         result = await get_agent().process_title_only(
-            title, data_source_type, fallback_sources=fallback_sources
+            title, data_source_type,
+            fallback_sources=fallback_sources, season_hint=season_hint,
         )
     except Exception as e:
         logger.warning("[metadata] Agent search failed for %r: %s", title[:60], e)
@@ -682,7 +703,17 @@ def _merge_primary_external_id(existing: str | None, incoming: str) -> str:
     between them on alternate upserts would destabilize the display link, so
     the creator's primary is kept (the incoming id still joins the identity
     bag). The same pageid upgrades the legacy bare form to the qualified one.
+
+    A synthetic per-season primary (``{series_id}#s{N}``) keeps its season:
+    a series-level or different-season incoming id never replaces it (the
+    series-level id lives on the collection's bag instead).
     """
+    ex_split = split_season_identity(existing)
+    if ex_split is not None:
+        in_split = split_season_identity(incoming)
+        if in_split is None or in_split[1] != ex_split[1]:
+            return existing
+        return incoming
     ex_lang, ex_pid = parse_wikipedia_id(existing)
     in_lang, in_pid = parse_wikipedia_id(incoming)
     if ex_pid and in_pid:
@@ -692,26 +723,13 @@ def _merge_primary_external_id(existing: str | None, incoming: str) -> str:
     return incoming
 
 
-def seasons_overwrite_allowed(
-    existing_seasons: list | None,
-    existing_number_of_seasons: int | None,
-    incoming_seasons: list | None,
-) -> bool:
-    """P2 anti-regression guard for the wikipedia seasons override.
-
-    Overwrite is allowed when (a) no season structure exists yet, (b) the
-    incoming data has MORE seasons than existing, or (c) the count is equal
-    (structure refresh). It is BLOCKED when the incoming data has FEWER
-    seasons than existing - e.g. a zh page whose infobox models the work
-    merged ({1: 51}) must not regress a verified 4-season row.
-    """
-    existing_count = len(existing_seasons or []) or (existing_number_of_seasons or 0)
-    if existing_count == 0:
-        return True
-    return len(incoming_seasons or []) >= existing_count
-
-
-async def upsert_episodes(db: AsyncSession, series: TVSeries, episode_list: list[dict]) -> int:
+async def upsert_episodes(
+    db: AsyncSession,
+    series: TVSeries,
+    episode_list: list[dict],
+    *,
+    entity_granularity: str = "series",
+) -> int:
     """Idempotently upsert Episode rows from a parsed Wikipedia episode_list.
 
     Keyed by (series_id, season, episode); existing rows get their title /
@@ -719,11 +737,26 @@ async def upsert_episodes(db: AsyncSession, series: TVSeries, episode_list: list
     are inserted. Additive only - extra rows (e.g. manually curated or from
     a source no longer listing them) are never deleted this phase. Returns
     the number of episode entries processed.
+
+    Per-season model (作品单季化): an unsplit legacy row (multi-season
+    ``seasons`` evidence on the inert columns) still absorbs every season's
+    entries; a per-season work only takes its own season's entries from a
+    series-level entity, and re-tags a season-granularity entity's entries to
+    its ``season_number`` (a Bangumi subject IS one season; its entries may
+    carry the resource's parsed marker or a default 1).
     """
     items = [
         e for e in (episode_list or [])
         if e.get("season") is not None and e.get("episode") is not None
     ]
+    if not items:
+        return 0
+    if not is_unsplit_legacy_series(series):
+        season = getattr(series, "season_number", None) or 1
+        if entity_granularity == "season":
+            items = [{**e, "season": season} for e in items]
+        else:
+            items = [e for e in items if int(e["season"]) == season]
     if not items:
         return 0
     result = await db.execute(select(Episode).where(Episode.series_id == series.id))
@@ -769,181 +802,408 @@ async def _bag_matched_entity_ids(
         await add_external_id(db, work_type, work_id, alt.get("source"), alt.get("id"))
 
 
-async def create_or_update_series_from_external(db: AsyncSession, data: dict) -> TVSeries:
-    """Upsert a TVSeries by identity-bag, canonical external_id, then exact title.
+# ---------------------------------------------------------------------------
+# Per-season work upsert helpers (作品单季化 P3)
+# ---------------------------------------------------------------------------
 
-    Lookup order (P3):
-      1. Identity-bag reverse lookup — any id ever bagged for the work
-         (langlink pageids, web-fallback ids, ...) converges deterministically.
-      2. Legacy ``external_id`` column lookup (canonical + raw shapes) — kept
-         for rows written before canonicalization/the bag existed.
-      3. Exact case-sensitive match on ``title_cn`` / ``title_en`` /
-         ``original_title`` / alt_titles — the strong signal that a fresh
-         Exa response describes an already-known work.
 
-    On every successful upsert the incoming id(s) are written into the bag;
-    the primary column keeps its creator-wins semantics.
+def _identity_granularity(
+    raw_source: str | None, canonical_id: str | None
+) -> tuple[str, str | None, int | None]:
+    """Classify an incoming TV identity by registry granularity.
+
+    Returns ``(granularity, series_level_id, synthetic_season)``:
+    a synthetic ``{id}#s{N}`` form is a per-season identity wrapping a
+    series-level id; otherwise the canonical registry prefix decides (a
+    non-registry source — ``exa``/``llm_search``/``exa_web`` — defaults to
+    ``"series"``: open-web pages are series-level in practice).
     """
-    raw_external_id = _qualify_incoming_wikipedia_id(data)
-    raw_source = data.get("external_source")
-    content_type = data.get("content_type")
-    canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
+    if canonical_id:
+        split = split_season_identity(canonical_id)
+        if split is not None:
+            return "season", split[0], split[1]
+        if ":" in canonical_id:
+            prefix = canonical_id.split(":", 1)[0]
+            gran = granularity_of(prefix, "tv")
+            if gran is not None:
+                # A season-granularity id IS the per-season identity — no
+                # series-level id to derive a synthetic form from.
+                if gran == "season":
+                    return "season", None, None
+                return "series", canonical_id, None
+    gran = granularity_of(raw_source, "tv")
+    if gran == "season":
+        return "season", None, None
+    return "series", canonical_id, None
 
-    # (1) Identity bag — deterministic cross-source/cross-language convergence.
-    series: TVSeries | None = None
-    if raw_external_id:
-        series = await find_work_by_external_id(db, "series", raw_source, raw_external_id)
 
-    # (2) Legacy column lookup — canonical id preferred, but keep matching
-    # legacy rows written before canonicalization existed. ``llm_search`` is a
-    # legacy source label kept for compatibility.
-    lookup_ids = {i for i in (canonical_id, raw_external_id) if i}
-    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+def _title_season_from_entity(data: dict) -> int | None:
+    """Season marker from the matched entity's own titles, if any.
 
-    if series is None and lookup_ids:
-        stmt = select(TVSeries).where(_external_id_match(TVSeries.external_id, lookup_ids))
-        if lookup_sources:
-            stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
-        result = await db.execute(stmt)
-        series = result.scalars().first()
+    Direct suffixes (``第N季`` / ``Season N`` / ``S04``) are trusted as-is.
+    Sequel-number forms (``X 3`` / ``無職転生Ⅲ``) are only trusted when the
+    entity's own season structure confirms that season exists — a trailing
+    number alone is too ambiguous (年份 / 标题本身含数字).
+    """
+    titles = [
+        t for t in (
+            data.get("title_cn"),
+            data.get("title_en"),
+            data.get("original_title"),
+            *(data.get("alt_titles") or []),
+        ) if t
+    ]
+    for t in titles:
+        n = season_from_title(t)
+        if n is not None:
+            return n
+    from app.services.metadata_episode_reconcile import _trailing_sequel_number
 
-    # (3) Fallback: same work returned with a fresh external_id shape. Match by
-    # any of the canonical title columns (case-sensitive; titles are already
-    # normalized by upstream extraction). Include season-stripped forms too:
-    # stored series titles are base (season-stripped at write time), so an
-    # incoming season-suffixed title (e.g. "X 第二季") must be stripped to
-    # match the existing base-title row - this is what lets wikipedia/tmdb/exa
-    # converge on one series row across sources.
-    if series is None:
-        raw_candidates = [
-            t for t in (
-                data.get("title_cn"),
-                data.get("title_en"),
-                data.get("original_title"),
-                # Cross-language page titles from Wikipedia langlinks - the
-                # same work's zh/en pages must converge on one row.
-                *(data.get("alt_titles") or []),
-            ) if t
-        ]
-        title_candidates = list({
-            t for c in raw_candidates for t in (c, strip_season_from_title(c)) if t
-        })
-        if title_candidates:
-            title_result = await db.execute(
-                select(TVSeries).where(
-                    or_(
-                        TVSeries.title_cn.in_(title_candidates),
-                        TVSeries.title_en.in_(title_candidates),
-                        TVSeries.original_title.in_(title_candidates),
-                    )
-                )
+    available = {
+        s["season_number"]
+        for s in data.get("seasons") or []
+        if isinstance(s, dict) and isinstance(s.get("season_number"), int)
+    }
+    if not available:
+        count = data.get("number_of_seasons")
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 1:
+            available = set(range(1, count + 1))
+    if not available:
+        return None
+    candidates = {_trailing_sequel_number(t) for t in titles} - {None}
+    if len(candidates) == 1:
+        n = next(iter(candidates))
+        if n in available:
+            return n
+    return None
+
+
+def _season_entry(data: dict, season: int | None) -> dict | None:
+    """The entity's ``seasons`` entry for one season number, if present."""
+    if season is None:
+        return None
+    for s in data.get("seasons") or []:
+        if isinstance(s, dict) and s.get("season_number") == season:
+            return s
+    return None
+
+
+def _season_episode_subset(data: dict, season: int | None) -> list[dict]:
+    """The entity's ``episode_list`` entries belonging to one season."""
+    if season is None:
+        return []
+    return [
+        e
+        for e in data.get("episode_list") or []
+        if isinstance(e, dict) and e.get("season") == season
+    ]
+
+
+def _work_episode_count(data: dict, season: int, granularity: str) -> int | None:
+    """Season-scoped episode count for a per-season work.
+
+    Never the series total: season-granularity entities (bangumi …) carry the
+    season's own count; series-level entities contribute the season's
+    ``seasons`` entry / ``episode_list`` subset; a verified single-season
+    entity's total is the season count by definition.
+    """
+    if granularity == "season":
+        return data.get("number_of_episodes")
+    entry = _season_entry(data, season)
+    if entry and isinstance(entry.get("episode_count"), int):
+        return entry["episode_count"]
+    subset = _season_episode_subset(data, season)
+    if subset:
+        return len(subset)
+    if verified_season_count(data) == 1:
+        return data.get("number_of_episodes")
+    return None
+
+
+def _work_start_date(data: dict, season: int, granularity: str):
+    """Season premiere: the parent entry's per-season data, else None."""
+    if granularity == "season":
+        return _parse_date(data.get("start_date"))
+    entry = _season_entry(data, season)
+    if entry:
+        d = _parse_date(entry.get("air_date"))
+        if d:
+            return d
+    dates = sorted(
+        e["air_date"] for e in _season_episode_subset(data, season) if e.get("air_date")
+    )
+    if dates:
+        return _parse_date(dates[0])
+    if season == 1 or verified_season_count(data) == 1:
+        return _parse_date(data.get("start_date"))
+    return None
+
+
+def _work_end_date(data: dict, season: int, granularity: str):
+    """Season finale: per-season evidence only (series end-date is S-last's)."""
+    if granularity == "season":
+        return _parse_date(data.get("end_date"))
+    entry = _season_entry(data, season)
+    if entry:
+        d = _parse_date(entry.get("end_date"))
+        if d:
+            return d
+    dates = sorted(
+        e["air_date"] for e in _season_episode_subset(data, season) if e.get("air_date")
+    )
+    if dates:
+        return _parse_date(dates[-1])
+    if verified_season_count(data) == 1:
+        return _parse_date(data.get("end_date"))
+    return None
+
+
+async def _collection_members(db: AsyncSession, collection_id: str) -> list[TVSeries]:
+    """Season works of a collection, ordered by season number."""
+    return list(
+        (
+            await db.execute(
+                select(TVSeries)
+                .where(TVSeries.collection_id == collection_id)
+                .order_by(TVSeries.season_number, TVSeries.created_at)
             )
-            series = title_result.scalars().first()
+        )
+        .scalars()
+        .all()
+    )
 
-    if series:
-        # Migrate legacy/inconsistent identifiers to the canonical form so the
-        # next upsert converges even faster. Wikipedia primaries are the
-        # exception: different pageids are per-edition pages of the same work,
-        # so the creator's primary is kept (incoming ids join the bag).
-        if canonical_id and not field_manually_edited(series, "external_id"):
-            series.external_id = _merge_primary_external_id(series.external_id, canonical_id)
-        if raw_source and raw_source != "llm_search" and not field_manually_edited(series, "external_source"):
-            series.external_source = raw_source
-        if not series.wikipedia_url and data.get("wikipedia_url"):
-            series.wikipedia_url = data["wikipedia_url"]
-        if not field_manually_edited(series, "description"):
-            series.description = data.get("description") or series.description
-        if not field_manually_edited(series, "rating") and data.get("rating") is not None:
-            series.rating = data.get("rating")
-        if not field_manually_edited(series, "original_title"):
-            series.original_title = data.get("original_title") or series.original_title
-        if not field_manually_edited(series, "status"):
-            series.status = data.get("status") or series.status
-        # P2 anti-regression guard (wikipedia source only): never overwrite a
-        # richer existing season structure with a poorer one (e.g. a merged/
-        # manga-modeled zh infobox yielding {1: 51} over a verified 4-season
-        # row). tmdb/exa paths are unaffected. number_of_episodes is gated
-        # together with seasons because the parser derives it from the same
-        # (suspect) season counts.
-        seasons_override = True
-        if raw_source == "wikipedia" and data.get("seasons"):
-            seasons_override = seasons_overwrite_allowed(
-                series.seasons, series.number_of_seasons, data["seasons"]
+
+async def _find_collection_by_titles(
+    db: AsyncSession, titles: list[str]
+) -> WorkCollection | None:
+    """Two-level title fallback, level 1: base title → collection match.
+
+    Normalized comparison over the collection's titles and aliases (same
+    Python-side scan pattern as the franchise-pack get-or-create — the
+    collection table is small).
+    """
+    norms = {n for t in titles if t for n in [normalize_title(t)] if n}
+    if not norms:
+        return None
+    rows = (await db.execute(select(WorkCollection))).scalars().all()
+    for coll in rows:
+        candidates = [coll.title_cn, coll.title_en, *(coll.aliases or [])]
+        if any(normalize_title(c) in norms for c in candidates if c):
+            return coll
+    return None
+
+
+def _merge_collection_aliases(collection: WorkCollection, data: dict) -> None:
+    """Merge a matched entity's titles (raw + base forms) into collection aliases."""
+    if field_manually_edited(collection, "aliases"):
+        return
+    existing = {
+        t for t in [collection.title_cn, collection.title_en, *(collection.aliases or [])] if t
+    }
+    new_aliases = list(collection.aliases or [])
+    for t in (
+        data.get("title_cn"),
+        data.get("title_en"),
+        data.get("original_title"),
+        *(data.get("alt_titles") or []),
+    ):
+        for cand in (t, strip_season_from_title(t)):
+            if cand and cand not in existing and cand not in new_aliases:
+                new_aliases.append(cand)
+                existing.add(cand)
+    collection.aliases = new_aliases or None
+
+
+async def _create_series_collection(db: AsyncSession, data: dict) -> WorkCollection:
+    """Create the shell collection for a freshly-matched series-level entity."""
+    raw_cn = data.get("title_cn")
+    raw_en = data.get("title_en") or data.get("original_title")
+    base_cn = strip_season_from_title(raw_cn)
+    base_en = strip_season_from_title(raw_en)
+    aliases: list[str] = []
+    for t in (
+        raw_cn,
+        raw_en,
+        data.get("original_title"),
+        base_cn,
+        base_en,
+        *(data.get("alt_titles") or []),
+    ):
+        if t and t not in aliases:
+            aliases.append(t)
+    collection = WorkCollection(
+        title_cn=(base_cn or base_en or data.get("original_title") or "未命名系列")[:512],
+        title_en=base_en,
+        aliases=aliases or None,
+        external_id=None,
+        external_source="series_group",
+        poster_url=data.get("poster_url"),
+        description=data.get("description"),
+    )
+    db.add(collection)
+    await db.flush()
+    return collection
+
+
+async def _bag_entity_ids_by_granularity(
+    db: AsyncSession,
+    *,
+    work: TVSeries | None,
+    collection: WorkCollection | None,
+    data: dict,
+    series_level_id: str | None,
+) -> None:
+    """Bag every id a matched entity carries at its registry granularity.
+
+    Season-granularity ids (bangumi/mal/anilist/douban + synthetic
+    ``{id}#s{N}``) go to the season work's bag; series-level ids
+    (wikipedia/tmdb/imdb) go to the COLLECTION's bag. The season work
+    additionally bags the synthetic ``{series_level_id}#s{season_number}``
+    identity so a repeat match of the same series+season hits the bag
+    directly. ``work=None`` (season-indeterminate parking) bags only the
+    collection-level ids.
+    """
+    pairs = [(data.get("external_source"), data.get("external_id"))]
+    for alt in data.get("alt_external_ids") or []:
+        if isinstance(alt, dict):
+            pairs.append((alt.get("source"), alt.get("id")))
+    for source, eid in pairs:
+        canon = canonicalize_external_id(eid, source)
+        if not canon:
+            continue
+        if split_season_identity(canon) is not None:
+            gran = "season"
+        else:
+            prefix = canon.split(":", 1)[0] if ":" in canon else None
+            gran = granularity_of(prefix, "tv") or granularity_of(source, "tv") or "series"
+        if gran == "season" or collection is None:
+            if work is not None:
+                await add_external_id(db, "series", work.id, source, eid)
+        else:
+            await add_external_id(db, "collection", collection.id, source, eid)
+    if work is not None and collection is not None and series_level_id:
+        prefix = series_level_id.split(":", 1)[0] if ":" in series_level_id else None
+        if prefix in REGISTRY_SOURCES:
+            await add_external_id(
+                db,
+                "series",
+                work.id,
+                prefix,
+                make_season_identity(series_level_id, work.season_number),
             )
-            if not seasons_override:
-                logger.warning(
-                    "[metadata] wikipedia seasons guard: series %s keeps existing "
-                    "%d-season structure; incoming wikipedia seasons=%s rejected",
-                    series.id,
-                    len(series.seasons or []) or (series.number_of_seasons or 0),
-                    data["seasons"],
-                )
-        if (
-            data.get("number_of_episodes") is not None
-            and seasons_override
-            and not field_manually_edited(series, "number_of_episodes")
+
+
+async def _update_series_from_entity(
+    db: AsyncSession,
+    series: TVSeries,
+    data: dict,
+    *,
+    raw_source: str | None,
+    canonical_id: str | None,
+    granularity: str,
+) -> None:
+    """Apply a matched entity onto an existing TVSeries work.
+
+    Same field semantics as the pre-split upsert (manual-edit protection,
+    creator-wins primary, alias merge, poster caching, genre clamp,
+    ``apply_is_anime``) with the per-season changes: the inert-orphan
+    ``seasons``/``number_of_seasons`` columns are never written, and
+    ``number_of_episodes``/``start_date``/``end_date``/``episode_list`` are
+    season-scoped for per-season works (legacy unsplit rows keep the old
+    series-total semantics until the season-split migration).
+    """
+    # Migrate legacy/inconsistent identifiers to the canonical form so the
+    # next upsert converges even faster. Wikipedia primaries are the
+    # exception: different pageids are per-edition pages of the same work,
+    # so the creator's primary is kept (incoming ids join the bag).
+    if canonical_id and not field_manually_edited(series, "external_id"):
+        series.external_id = _merge_primary_external_id(series.external_id, canonical_id)
+    if raw_source and raw_source != "llm_search" and not field_manually_edited(series, "external_source"):
+        series.external_source = raw_source
+    if not series.wikipedia_url and data.get("wikipedia_url"):
+        series.wikipedia_url = data["wikipedia_url"]
+    if not field_manually_edited(series, "description"):
+        series.description = data.get("description") or series.description
+    if not field_manually_edited(series, "rating") and data.get("rating") is not None:
+        series.rating = data.get("rating")
+    if not field_manually_edited(series, "original_title"):
+        series.original_title = data.get("original_title") or series.original_title
+    if not field_manually_edited(series, "status"):
+        series.status = data.get("status") or series.status
+    if is_unsplit_legacy_series(series):
+        # Legacy series-level row: keep the pre-split series-total semantics.
+        episode_count = data.get("number_of_episodes")
+        start = _parse_date(data.get("start_date"))
+        end = _parse_date(data.get("end_date"))
+    else:
+        episode_count = _work_episode_count(data, series.season_number, granularity)
+        start = _work_start_date(data, series.season_number, granularity)
+        end = _work_end_date(data, series.season_number, granularity)
+    if episode_count is not None and not field_manually_edited(series, "number_of_episodes"):
+        series.number_of_episodes = episode_count
+    if not field_manually_edited(series, "start_date"):
+        if start:
+            series.start_date = start
+    if not field_manually_edited(series, "end_date"):
+        if end:
+            series.end_date = end
+    if not field_manually_edited(series, "genre"):
+        genres = normalize_genres(data.get("genre"))
+        if genres:
+            series.genre = genres
+    if not field_manually_edited(series, "title_cn"):
+        if data.get("title_cn"):
+            series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
+    if not field_manually_edited(series, "title_en"):
+        if data.get("title_en"):
+            series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
+
+    if not field_manually_edited(series, "aliases"):
+        existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
+        new_aliases = list(series.aliases or [])
+        for t in (
+            data.get("title_cn"),
+            data.get("title_en"),
+            data.get("original_title"),
+            *(data.get("alt_titles") or []),
         ):
-            series.number_of_episodes = data.get("number_of_episodes")
-        if (
-            data.get("number_of_seasons") is not None
-            and seasons_override
-            and not field_manually_edited(series, "number_of_seasons")
-        ):
-            series.number_of_seasons = data.get("number_of_seasons")
-        # ``seasons`` (per-season episode counts) is system-managed — always
-        # writable, it is not part of MANUAL_EDITABLE_FIELDS.
-        if data.get("seasons") and seasons_override:
-            series.seasons = data["seasons"]
-        if not field_manually_edited(series, "start_date"):
-            sd = _parse_date(data.get("start_date"))
-            if sd:
-                series.start_date = sd
-        if not field_manually_edited(series, "end_date"):
-            ed = _parse_date(data.get("end_date"))
-            if ed:
-                series.end_date = ed
-        if not field_manually_edited(series, "genre"):
-            genres = normalize_genres(data.get("genre"))
-            if genres:
-                series.genre = genres
-        if not field_manually_edited(series, "title_cn"):
-            if data.get("title_cn"):
-                series.title_cn = series.title_cn or strip_season_from_title(data.get("title_cn"))
-        if not field_manually_edited(series, "title_en"):
-            if data.get("title_en"):
-                series.title_en = series.title_en or strip_season_from_title(data.get("title_en"))
+            if t and t not in existing_titles and t not in new_aliases:
+                new_aliases.append(t)
+                existing_titles.add(t)
+        series.aliases = new_aliases or None
 
-        if not field_manually_edited(series, "aliases"):
-            existing_titles = {t for t in [series.title_cn, series.title_en, *(series.aliases or [])] if t}
-            new_aliases = list(series.aliases or [])
-            for t in (
-                data.get("title_cn"),
-                data.get("title_en"),
-                data.get("original_title"),
-                *(data.get("alt_titles") or []),
-            ):
-                if t and t not in existing_titles and t not in new_aliases:
-                    new_aliases.append(t)
-                    existing_titles.add(t)
-            series.aliases = new_aliases or None
+    if not field_manually_edited(series, "poster_url"):
+        remote_poster = data.get("poster_url")
+        if remote_poster and not (series.poster_url or "").startswith("/posters/"):
+            local_url = await download_and_cache_poster(remote_poster)
+            series.poster_url = local_url or remote_poster
+    if not field_manually_edited(series, "content_type"):
+        series.content_type = "tv"
+    apply_is_anime(series, data)
+    if data.get("episode_list"):
+        await upsert_episodes(db, series, data["episode_list"], entity_granularity=granularity)
 
-        if not field_manually_edited(series, "poster_url"):
-            remote_poster = data.get("poster_url")
-            if remote_poster and not (series.poster_url or "").startswith("/posters/"):
-                local_url = await download_and_cache_poster(remote_poster)
-                series.poster_url = local_url or remote_poster
-        if not field_manually_edited(series, "content_type"):
-            series.content_type = "tv"
-        apply_is_anime(series, data)
-        # P2: wikipedia-sourced episode_list populates Episode rows (additive
-        # upsert; seasons/number_of_seasons were already overwritten above).
-        if data.get("episode_list"):
-            await upsert_episodes(db, series, data["episode_list"])
-        # P3: bag every id this entity carries (primary + alt_external_ids).
-        await _bag_matched_entity_ids(db, "series", series.id, data)
-        return series
 
-    # Create
+async def _create_season_work(
+    db: AsyncSession,
+    data: dict,
+    collection: WorkCollection,
+    season: int,
+    *,
+    raw_source: str | None,
+    raw_external_id: str | None,
+    canonical_id: str | None,
+    granularity: str,
+    series_level_id: str | None,
+) -> TVSeries:
+    """Lazily create the per-season work for one collection member.
+
+    Only the season the match asked for is materialized. Titles keep the
+    base (season-stripped) convention with the season-qualified variants in
+    ``aliases``; the primary id is the season-granularity canonical id or —
+    for series-level entities — the synthetic ``{series_id}#s{N}`` identity
+    (when the id has a registry prefix; unregistry-shaped ids stay as-is).
+    """
     remote_poster = data.get("poster_url")
     local_url = await download_and_cache_poster(remote_poster)
     raw_cn = data.get("title_cn")
@@ -964,12 +1224,22 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
     ):
         if t and t not in aliases:
             aliases.append(t)
-    series = TVSeries(
+    if granularity == "season":
+        primary_id = canonical_id or raw_external_id
+    elif (
+        series_level_id
+        and ":" in series_level_id
+        and series_level_id.split(":", 1)[0] in REGISTRY_SOURCES
+    ):
+        primary_id = make_season_identity(series_level_id, season)
+    else:
+        primary_id = canonical_id or raw_external_id
+    work = TVSeries(
         title_cn=title_cn,
         title_en=title_en,
         original_title=data.get("original_title"),
         aliases=aliases or None,
-        external_id=canonical_id or raw_external_id,
+        external_id=primary_id,
         external_source=data.get("external_source", "llm_search"),
         wikipedia_url=data.get("wikipedia_url"),
         description=data.get("description"),
@@ -977,21 +1247,434 @@ async def create_or_update_series_from_external(db: AsyncSession, data: dict) ->
         rating=data.get("rating"),
         genre=normalize_genres(data.get("genre")),
         status=data.get("status"),
-        number_of_episodes=data.get("number_of_episodes"),
-        number_of_seasons=data.get("number_of_seasons"),
-        seasons=data.get("seasons") or None,
-        start_date=_parse_date(data.get("start_date")),
-        end_date=_parse_date(data.get("end_date")),
+        number_of_episodes=_work_episode_count(data, season, granularity),
+        start_date=_work_start_date(data, season, granularity),
+        end_date=_work_end_date(data, season, granularity),
         content_type="tv",
+        season_number=season,
+        collection_id=collection.id,
     )
-    apply_is_anime(series, data)
-    db.add(series)
+    apply_is_anime(work, data)
+    db.add(work)
     await db.flush()
     if data.get("episode_list"):
-        await upsert_episodes(db, series, data["episode_list"])
-    # P3: bag every id this entity carries (primary + alt_external_ids).
-    await _bag_matched_entity_ids(db, "series", series.id, data)
-    return series
+        await upsert_episodes(db, work, data["episode_list"], entity_granularity=granularity)
+    await _bag_entity_ids_by_granularity(
+        db, work=work, collection=collection, data=data, series_level_id=series_level_id,
+    )
+    return work
+
+
+async def _resolve_collection_member(
+    db: AsyncSession,
+    data: dict,
+    collection: WorkCollection,
+    season: int | None,
+    *,
+    raw_source: str | None,
+    canonical_id: str | None,
+    granularity: str,
+    series_level_id: str | None,
+) -> TVSeries | None:
+    """Select (or lazily create) the collection member for the target season.
+
+    Season unknown: a single-member collection is verifiably single-season →
+    its member; a multi-member collection (or a multi-season entity over an
+    empty collection) cannot be pinned — the series-level ids are bagged on
+    the collection and None is returned so the caller parks the resource on
+    the collection for Channel confirmation (挂合集待确认).
+    """
+    _merge_collection_aliases(collection, data)
+    members = await _collection_members(db, collection.id)
+    work: TVSeries | None = None
+    if season is None:
+        if len(members) == 1:
+            work = members[0]
+        elif len(members) >= 2 or (verified_season_count(data) or 0) > 1:
+            await _bag_entity_ids_by_granularity(
+                db, work=None, collection=collection, data=data,
+                series_level_id=series_level_id,
+            )
+            return None
+        else:
+            season = 1
+    if work is None:
+        work = next((m for m in members if m.season_number == season), None)
+    if work is None:
+        return await _create_season_work(
+            db, data, collection, season,
+            raw_source=raw_source,
+            raw_external_id=data.get("external_id"),
+            canonical_id=canonical_id,
+            granularity=granularity,
+            series_level_id=series_level_id,
+        )
+    await _update_series_from_entity(
+        db, work, data,
+        raw_source=raw_source, canonical_id=canonical_id, granularity=granularity,
+    )
+    await _bag_entity_ids_by_granularity(
+        db, work=work, collection=collection, data=data, series_level_id=series_level_id,
+    )
+    return work
+
+
+async def create_or_update_series_from_external(
+    db: AsyncSession, data: dict, *, season_hint: int | None = None
+) -> TVSeries | None:
+    """Upsert a per-season TVSeries work from a matched entity (作品单季化 P3).
+
+    Lookup order:
+      1. Per-season identity (synthetic ``{id}#s{N}`` or a season-granularity
+         source id: bangumi/mal/anilist/douban) → work identity bag.
+      2. Series-level identity (wikipedia/tmdb/imdb) → COLLECTION identity
+         bag → member selection by ``(collection_id, season_number)``; a
+         missing member is lazily created from the entity's per-season data
+         (``seasons``/``episode_list``). Seasons the match did not ask for
+         are never materialized.
+      3. Legacy compat: ids still bagged on / listed as the primary of a
+         pre-split TVSeries row converge on that row unchanged (the
+         season-split migration re-homes them).
+      4. Two-level title fallback: base title (season-stripped) → collection
+         (normalized titles + aliases) → member by season; then a
+         season-aware work-title match (a season-known match never lands on
+         a different season's work — the pre-split fallback's bug); only
+         when both miss, create a fresh collection + season work.
+
+    The target season comes from ``season_hint`` (resource parse context),
+    then a synthetic id's ``#s{N}``, then a season marker in the entity
+    titles, then verified single-season entity evidence. When the identity /
+    title resolves to a collection whose season cannot be determined, the
+    ids are bagged on the collection and None is returned — the caller parks
+    the resource on the collection for Channel confirmation (挂合集待确认)
+    instead of guessing a season.
+
+    On every successful upsert the incoming id(s) are written into the bag
+    at their registry granularity; the primary column keeps its creator-wins
+    semantics.
+    """
+    raw_external_id = _qualify_incoming_wikipedia_id(data)
+    raw_source = data.get("external_source")
+    content_type = data.get("content_type")
+    canonical_id = canonicalize_external_id(raw_external_id, raw_source, content_type)
+    granularity, series_level_id, synth_season = _identity_granularity(
+        raw_source, canonical_id
+    )
+
+    season = season_hint or synth_season or _title_season_from_entity(data)
+    if season is None and verified_season_count(data) == 1:
+        season = 1
+
+    # (1) Per-season identity → work identity bag.
+    series: TVSeries | None = None
+    if canonical_id and granularity == "season":
+        series = await find_work_by_external_id(db, "series", raw_source, raw_external_id)
+
+    # (2) Series-level identity → collection bag → member selection; falling
+    # that, the synthetic per-season identity may already be bagged on a work
+    # (repeat match of the same series+season).
+    if series is None and granularity != "season" and series_level_id:
+        collection = await find_work_by_external_id(
+            db, "collection", raw_source, raw_external_id
+        )
+        if collection is not None:
+            return await _resolve_collection_member(
+                db, data, collection, season,
+                raw_source=raw_source, canonical_id=canonical_id,
+                granularity=granularity, series_level_id=series_level_id,
+            )
+        if season is not None:
+            series = await find_work_by_external_id(
+                db, "series", raw_source, make_season_identity(series_level_id, season)
+            )
+
+    # (3) Legacy compat: canonical + raw id shapes against the TVSeries
+    # primary column (and ids bagged on pre-split rows). ``llm_search`` is a
+    # legacy source label kept for compatibility.
+    lookup_ids = {i for i in (canonical_id, series_level_id, raw_external_id) if i}
+    lookup_sources = {s for s in (raw_source, "llm_search") if s}
+
+    if series is None and lookup_ids:
+        stmt = select(TVSeries).where(_external_id_match(TVSeries.external_id, lookup_ids))
+        if lookup_sources:
+            stmt = stmt.where(TVSeries.external_source.in_(lookup_sources))
+        result = await db.execute(stmt)
+        series = result.scalars().first()
+
+    if series is not None:
+        await _update_series_from_entity(
+            db, series, data,
+            raw_source=raw_source, canonical_id=canonical_id, granularity=granularity,
+        )
+        coll = (
+            await db.get(WorkCollection, series.collection_id)
+            if series.collection_id
+            else None
+        )
+        await _bag_entity_ids_by_granularity(
+            db, work=series, collection=coll, data=data, series_level_id=series_level_id,
+        )
+        return series
+
+    # (4) Two-level title fallback: base (season-stripped) titles match a
+    # collection first, then — season-aware — individual works.
+    raw_candidates = [
+        t for t in (
+            data.get("title_cn"),
+            data.get("title_en"),
+            data.get("original_title"),
+            # Cross-language page titles from Wikipedia langlinks - the
+            # same work's zh/en pages must converge on one row.
+            *(data.get("alt_titles") or []),
+        ) if t
+    ]
+    base_titles = list({
+        b for c in raw_candidates for b in [strip_season_from_title(c)] if b
+    })
+    collection = await _find_collection_by_titles(db, [*base_titles, *raw_candidates])
+    if collection is not None:
+        return await _resolve_collection_member(
+            db, data, collection, season,
+            raw_source=raw_source, canonical_id=canonical_id,
+            granularity=granularity, series_level_id=series_level_id,
+        )
+
+    title_candidates = list({
+        t for c in raw_candidates for t in (c, strip_season_from_title(c)) if t
+    })
+    candidates: list[TVSeries] = []
+    if title_candidates:
+        title_result = await db.execute(
+            select(TVSeries)
+            .where(
+                or_(
+                    TVSeries.title_cn.in_(title_candidates),
+                    TVSeries.title_en.in_(title_candidates),
+                    TVSeries.original_title.in_(title_candidates),
+                )
+            )
+            .order_by(TVSeries.created_at)
+        )
+        candidates = list(title_result.scalars().all())
+    if candidates:
+        if season is not None:
+            exact = [c for c in candidates if (c.season_number or 1) == season]
+            if exact:
+                series = exact[0]
+                await _update_series_from_entity(
+                    db, series, data,
+                    raw_source=raw_source, canonical_id=canonical_id,
+                    granularity=granularity,
+                )
+                coll = (
+                    await db.get(WorkCollection, series.collection_id)
+                    if series.collection_id
+                    else None
+                )
+                await _bag_entity_ids_by_granularity(
+                    db, work=series, collection=coll, data=data,
+                    series_level_id=series_level_id,
+                )
+                return series
+            # Season-known but no member with that season: create it under
+            # the candidates' collection (never collapse onto another
+            # season's work — the pre-split fallback's bug).
+            coll_id = next((c.collection_id for c in candidates if c.collection_id), None)
+            collection = (
+                await db.get(WorkCollection, coll_id)
+                if coll_id
+                else await _create_series_collection(db, data)
+            )
+            return await _create_season_work(
+                db, data, collection, season,
+                raw_source=raw_source, raw_external_id=raw_external_id,
+                canonical_id=canonical_id, granularity=granularity,
+                series_level_id=series_level_id,
+            )
+        # Season unknown: single candidate (or all-season-1 legacy rows)
+        # keeps the old behavior; a multi-season candidate set parks on its
+        # shared collection for Channel confirmation instead of guessing.
+        seasons_present = {c.season_number or 1 for c in candidates}
+        if len(candidates) == 1 or seasons_present == {1}:
+            series = candidates[0]
+            await _update_series_from_entity(
+                db, series, data,
+                raw_source=raw_source, canonical_id=canonical_id,
+                granularity=granularity,
+            )
+            coll = (
+                await db.get(WorkCollection, series.collection_id)
+                if series.collection_id
+                else None
+            )
+            await _bag_entity_ids_by_granularity(
+                db, work=series, collection=coll, data=data,
+                series_level_id=series_level_id,
+            )
+            return series
+        coll_ids = {c.collection_id for c in candidates if c.collection_id}
+        if len(coll_ids) == 1:
+            collection = await db.get(WorkCollection, next(iter(coll_ids)))
+            if collection is not None:
+                _merge_collection_aliases(collection, data)
+                await _bag_entity_ids_by_granularity(
+                    db, work=None, collection=collection, data=data,
+                    series_level_id=series_level_id,
+                )
+                return None
+        return candidates[0]
+
+    # (5) Fresh match: create the shell collection + the season work. A
+    # multi-season entity whose season cannot be determined is parked on the
+    # new collection (ids bagged) without materializing a guessed season.
+    collection = await _create_series_collection(db, data)
+    if season is None:
+        if (verified_season_count(data) or 0) > 1:
+            await _bag_entity_ids_by_granularity(
+                db, work=None, collection=collection, data=data,
+                series_level_id=series_level_id,
+            )
+            return None
+        season = 1
+    return await _create_season_work(
+        db, data, collection, season,
+        raw_source=raw_source, raw_external_id=raw_external_id,
+        canonical_id=canonical_id, granularity=granularity,
+        series_level_id=series_level_id,
+    )
+
+
+async def find_collection_for_entity(db: AsyncSession, data: dict) -> WorkCollection | None:
+    """Re-resolve the collection a matched entity belongs to (never creates).
+
+    Used when :func:`create_or_update_series_from_external` returned None
+    (season indeterminate): the upsert already bagged the series-level ids on
+    the collection, so this is a deterministic re-lookup — collection bag
+    first, then the two-level title fallback's collection level.
+    """
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    canonical_id = canonicalize_external_id(raw_external_id, raw_source, data.get("content_type"))
+    if canonical_id and split_season_identity(canonical_id) is None:
+        collection = await find_work_by_external_id(db, "collection", raw_source, raw_external_id)
+        if collection is not None:
+            return collection
+    titles = [
+        t for t in (
+            data.get("title_cn"),
+            data.get("title_en"),
+            data.get("original_title"),
+            *(data.get("alt_titles") or []),
+        ) if t
+    ]
+    return await _find_collection_by_titles(db, titles)
+
+
+async def locate_absolute_episode_in_collection(
+    db: AsyncSession, collection_id: str, absolute: int | None
+) -> tuple[TVSeries, int] | None:
+    """Locate an absolute-across-seasons episode along the collection members.
+
+    Replaces the pre-split cross-season arithmetic: members are walked in
+    ``season_number`` order accumulating ``number_of_episodes``; the walk
+    aborts (None) when a member's count is unknown — cumulative arithmetic is
+    impossible without it. The final member gets the reconcile tolerance
+    headroom. Returns ``(member_work, per_season_episode)``.
+    """
+    if absolute is None or absolute < 1:
+        return None
+    members = [
+        m for m in await _collection_members(db, collection_id)
+        if isinstance(m.season_number, int) and m.season_number >= 1
+    ]
+    remaining = absolute
+    for index, member in enumerate(members):
+        count = member.number_of_episodes
+        if not count:
+            return None
+        if remaining <= count:
+            return member, remaining
+        if index == len(members) - 1 and remaining <= count + _RECONCILE_TOLERANCE:
+            return member, remaining
+        remaining -= count
+    return None
+
+
+def pre_reconcile_with_entity(resource: Any, entity: dict | None) -> None:
+    """Derive season/episode from a season-less absolute number using the
+    matched entity's own per-season counts, BEFORE the upsert — the derived
+    season then becomes the upsert's season hint, so an absolute-numbered
+    release ("第四季 - 89") still lands on the right per-season work even
+    though new works no longer persist a multi-season ``seasons`` column.
+    Manual rows are never touched."""
+    from app.services.metadata_episode_reconcile import _seasons_map_from
+
+    seasons_map = _seasons_map_from(entity)
+    if seasons_map and getattr(resource, "episode_confidence", None) != "manual":
+        apply_episode_reconcile(resource, seasons_map)
+
+
+async def reconcile_linked_series_resource(
+    db: AsyncSession,
+    resource: Any,
+    *,
+    series: TVSeries | None = None,
+    entity: dict | None = None,
+) -> None:
+    """Post-link season/episode reconciliation for a TV-linked resource (P3).
+
+    Shared by every link path (known-work short-circuit, mapping/fuzzy
+    auto-link, manual link, repository write-back). Order:
+
+      1. history-backed sibling convention (DB evidence);
+      2. a season-less resource with an ``absolute_episode`` is located along
+         the linked work's collection members (per-season model) and
+         re-pointed at the located member;
+      3. single-season arithmetic via the work's own episode counts
+         (legacy rows: the inert ``seasons`` column);
+      4. the verified-season default (:func:`resolve_missing_work` with the
+         linked work's identity as evidence).
+    """
+    if not getattr(resource, "series_id", None):
+        return
+    if series is None:
+        series = await db.get(TVSeries, resource.series_id)
+    if series is None:
+        return
+    from app.services.episode_history import apply_episode_history_reconcile
+
+    resolved = False
+    if getattr(resource, "channel_id", None) and getattr(resource, "id", None):
+        # History needs channel + id context; attribute-light stand-ins skip it.
+        resolved = await apply_episode_history_reconcile(
+            db, resource, seasons_map=seasons_map_for_work(series)
+        )
+    if (
+        not resolved
+        and getattr(resource, "season", None) is None
+        and getattr(resource, "absolute_episode", None) is not None
+        and series.collection_id
+    ):
+        located = await locate_absolute_episode_in_collection(
+            db, series.collection_id, resource.absolute_episode
+        )
+        if located is not None:
+            member, episode = located
+            resource.series_id = member.id
+            resource.season = member.season_number
+            resource.episode = episode
+            resource.episode_confidence = "reconciled"
+            series = member
+            resolved = True
+    if not resolved:
+        seasons_map = seasons_map_for_work(series)
+        if seasons_map:
+            apply_episode_reconcile(resource, seasons_map)
+    resolve_missing_work(
+        resource,
+        entity if entity is not None else season_evidence_from_series(series),
+        work=series,
+    )
 
 
 async def create_or_update_movie_from_external(db: AsyncSession, data: dict) -> Movie:
@@ -1308,6 +1991,17 @@ async def refresh_work_metadata(
     if not work:
         return {"found": False, "filled": [], "source": source, "message": "work not found"}
 
+    # Season-0 works are specials/SP placeholders: searching by the series
+    # title would match the MAIN entry and stuff its series-level data
+    # (premiere date, episode count, identity) into the specials work.
+    if not is_movie and getattr(work, "season_number", None) == 0:
+        return {
+            "found": True,
+            "filled": [],
+            "source": source,
+            "message": "season-0 specials work — refresh skipped",
+        }
+
     manual = manually_edited_fields(work)
 
     search_title = _first_present(work.title_en, work.title_cn, work.original_title)
@@ -1319,7 +2013,10 @@ async def refresh_work_metadata(
             "message": "no title available to search",
         }
 
-    candidates = await search_metadata_via_llm(search_title, source)
+    candidates = await search_metadata_via_llm(
+        search_title, source,
+        season_hint=None if is_movie else work.season_number,
+    )
     if not candidates:
         return {
             "found": True,
@@ -1378,9 +2075,28 @@ async def refresh_work_metadata(
         fill("runtime", "runtime", _safe_int)
     else:
         fill("number_of_episodes", "number_of_episodes", _safe_int)
-        fill("number_of_seasons", "number_of_seasons", _safe_int)
-        fill("start_date", "start_date", _parse_date)
-        fill("end_date", "end_date", _parse_date)
+        # ``number_of_seasons`` is an inert orphan column in the per-season
+        # work model — never written. Dates are season-scoped (same semantics
+        # as the upsert path): a series-level entity's premiere/finale belongs
+        # to season 1 and must not be filled into a later-season work.
+        granularity = granularity_of(best.get("external_source"), "tv") or "series"
+        season = work.season_number or 1
+        start = _work_start_date(best, season, granularity)
+        end = _work_end_date(best, season, granularity)
+        if (
+            (override_manual_edits or "start_date" not in manual)
+            and not work.start_date
+            and start
+        ):
+            work.start_date = start
+            filled.append("start_date")
+        if (
+            (override_manual_edits or "end_date" not in manual)
+            and not work.end_date
+            and end
+        ):
+            work.end_date = end
+            filled.append("end_date")
 
     # Poster: download + cache, like the initial ingestion path.
     if override_manual_edits or "poster_url" not in manual:
@@ -1390,11 +2106,33 @@ async def refresh_work_metadata(
             work.poster_url = local_url or remote_poster
             filled.append("poster_url")
 
+    identity_rejected = False
     if (override_manual_edits or "external_id" not in manual) and not work.external_id and best.get("external_id"):
-        work.external_id = best["external_id"]
-        filled.append("external_id")
+        # Identity uniqueness: never grab an id another work already owns
+        # (primary column or identity bag) — skip with a warning instead of
+        # creating a duplicate (e.g. an S0 special refreshed onto the S1
+        # entry's bangumi id).
+        new_id = best["external_id"]
+        model = Movie if is_movie else TVSeries
+        column_taken = (await db.execute(
+            select(model.id).where(model.external_id == new_id, model.id != work.id)
+        )).first()
+        bag_owner = await find_work_by_external_id(
+            db, "movie" if is_movie else "series",
+            best.get("external_source"), new_id,
+        )
+        if column_taken or (bag_owner is not None and bag_owner.id != work.id):
+            identity_rejected = True
+            logger.warning(
+                "[refresh] skip external_id %r for work %s: owned by another work",
+                new_id, work.id,
+            )
+        else:
+            work.external_id = new_id
+            filled.append("external_id")
     if (
-        (override_manual_edits or "external_source" not in manual)
+        not identity_rejected
+        and (override_manual_edits or "external_source" not in manual)
         and not work.external_source
         and best.get("external_source")
     ):
@@ -1438,7 +2176,8 @@ _SERIES_HAS_GAP = or_(
     TVSeries.genre.is_(None),
     TVSeries.poster_url.is_(None), TVSeries.poster_url == "",
     TVSeries.number_of_episodes.is_(None),
-    TVSeries.number_of_seasons.is_(None),
+    # number_of_seasons 是作品单季化的惰性孤儿列（per-season 作品恒 NULL），
+    # 不再是可填充缺口——留在判定里会让每部季作品永远命中门控。
     TVSeries.start_date.is_(None),
     TVSeries.end_date.is_(None),
     TVSeries.external_id.is_(None), TVSeries.external_id == "",
@@ -1591,45 +2330,10 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
 
     Implements the 4-layer matching strategy from AGENTS.md.
     """
-    async def _reconcile_with_series() -> None:
-        """Episode reconciliation for agent-free link paths: uses the linked
-        series' persisted per-season counts (absolute-numbered releases like
-        "第四季 - 89" would otherwise never be converted).
-
-        Verified season default (never guess): after reconciliation, a linked
-        resource whose season is still unknown is handled by the shared
-        ``resolve_missing_season`` helper — set to 1 ONLY when the series
-        provably has a single season; a multi-season (or unknown) series means
-        the season can't be verified — the resource is marked season-uncertain
-        (``episode_confidence="ambiguous"``) and routed to a "季号不确定"
-        Channel resource confirmation downstream. Batch resources are excluded (a 合集
-        doesn't need a verified single season number to dispatch), and
-        movie-linked resources are untouched."""
-        if not resource.series_id:
-            return
-        from app.models.series import TVSeries
-        from app.services.episode_history import apply_episode_history_reconcile
-        from app.services.metadata_episode_reconcile import (
-            apply_episode_reconcile,
-            resolve_missing_season,
-            season_evidence_from_series,
-            seasons_map_from_list,
-        )
-        series_row = await db.get(TVSeries, resource.series_id)
-        if series_row is None:
-            return
-        seasons_map = seasons_map_from_list(series_row.seasons)
-        history_applied = await apply_episode_history_reconcile(
-            db, resource, seasons_map=seasons_map
-        )
-        if seasons_map and not history_applied:
-            apply_episode_reconcile(resource, seasons_map)
-        resolve_missing_season(resource, season_evidence_from_series(series_row))
-
     # Layer 1: already linked.  Reconciliation still has work to do here:
     # older linked rows may gain a trusted sibling correction later.
     if resource.series_id or resource.movie_id:
-        await _reconcile_with_series()
+        await reconcile_linked_series_resource(db, resource)
         return
 
     # Layer 2: ChannelRawTitleMapping
@@ -1663,7 +2367,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
         if mapping.search_title_override:
             resource.search_title = mapping.search_title_override
         resource.metadata_matched_at = utcnow()
-        await _reconcile_with_series()
+        await reconcile_linked_series_resource(db, resource)
         await classify_is_anime_post_link(db, channel, resource)
         return
 
@@ -1700,7 +2404,7 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             resource.metadata_matched_at = utcnow()
             if not series.poster_url or not (series.poster_url or "").startswith("/posters/"):
                 pass  # poster already handled if set
-            await _reconcile_with_series()
+            await reconcile_linked_series_resource(db, resource)
             await classify_is_anime_post_link(db, channel, resource)
             return
     if movie and m_ratio >= AUTO_LINK_THRESHOLD and (series is None or m_ratio > s_ratio):
@@ -1748,12 +2452,34 @@ async def fetch_and_link_metadata(db: AsyncSession, resource: Any, channel: Any)
             resource.series_id = None
             from app.services.collection_service import link_movie_collection
             await link_movie_collection(db, movie_entity)
+            resource.metadata_matched_at = utcnow()
         else:
-            series_entity = await create_or_update_series_from_external(db, best)
-            resource.series_id = series_entity.id
-            resource.movie_id = None
-        resource.metadata_matched_at = utcnow()
-        await _reconcile_with_series()
+            # Derive the season from a season-less absolute number using the
+            # entity's own per-season counts before the upsert (the derived
+            # season becomes the season hint).
+            pre_reconcile_with_entity(resource, best)
+            from app.services.metadata_episode_reconcile import resource_season_hint
+            series_entity = await create_or_update_series_from_external(
+                db, best, season_hint=resource_season_hint(resource, best)
+            )
+            if series_entity is not None:
+                resource.series_id = series_entity.id
+                resource.movie_id = None
+                resource.metadata_matched_at = utcnow()
+            else:
+                # Season indeterminate over a collection: park the resource
+                # on the collection for Channel confirmation (挂合集待确认).
+                from app.services.metadata_episode_reconcile import (
+                    park_resource_on_collection,
+                )
+                collection = await find_collection_for_entity(db, best)
+                if collection is not None:
+                    park_resource_on_collection(resource, collection)
+                    resource.metadata_matched_at = utcnow()
+                else:
+                    _record_unmatched_attempt(resource, "not_found")
+                    return
+        await reconcile_linked_series_resource(db, resource)
         await classify_is_anime_post_link(db, channel, resource)
     except Exception as e:
         logger.warning("[metadata] Failed to link via LLM for %r: %s", search_title[:60], e)
@@ -1922,11 +2648,14 @@ async def manual_link_metadata(
     resource: Any,
     channel: Any,
     selected_result: dict,
-) -> TVSeries | Movie:
+) -> TVSeries | Movie | None:
     """Manually link a resource to user-selected metadata.
 
     Creates/updates the entity, sets resource FKs, upserts the
     ChannelRawTitleMapping so future identical titles auto-link.
+    Returns None when a tv selection resolves to a collection whose season
+    cannot be determined — the resource is parked on the collection for
+    Channel confirmation instead of being bound to a guessed season work.
     """
     if selected_result.get("content_type") == "movie":
         entity = await create_or_update_movie_from_external(db, selected_result)
@@ -1942,40 +2671,50 @@ async def manual_link_metadata(
         if getattr(resource, "episode_confidence", None) == "ambiguous":
             resource.episode_confidence = None
     else:
-        entity = await create_or_update_series_from_external(db, selected_result)
-        resource.series_id = entity.id
-        resource.movie_id = None
-        series_id = entity.id
-        movie_id = None
+        # Derive the season from a season-less absolute number using the
+        # selected entity's own per-season counts before the upsert — the
+        # derived season selects/creates the right per-season work.
+        pre_reconcile_with_entity(resource, selected_result)
+        from app.services.metadata_episode_reconcile import resource_season_hint
+        entity = await create_or_update_series_from_external(
+            db, selected_result, season_hint=resource_season_hint(resource, selected_result)
+        )
         content_type = "tv"
-        # Manual relink bypasses _apply_to_resource: run the same episode
-        # reconciliation + verified season rule (resolve_missing_season)
-        # against the freshly-upserted series' seasons evidence, so a
-        # season-less resource doesn't keep a guessed/empty season.
-        from app.services.episode_history import apply_episode_history_reconcile
-        from app.services.metadata_episode_reconcile import (
-            apply_episode_reconcile,
-            resolve_missing_season,
-            season_evidence_from_series,
-            seasons_map_from_list,
-        )
-        seasons_map = seasons_map_from_list(entity.seasons)
-        history_applied = await apply_episode_history_reconcile(
-            db, resource, seasons_map=seasons_map
-        )
-        if seasons_map and not history_applied:
-            apply_episode_reconcile(resource, seasons_map)
-        season_evidence = season_evidence_from_series(entity)
-        if selected_result.get("single_season_entry") is True:
-            season_evidence["single_season_entry"] = True
-        resolve_missing_season(resource, season_evidence)
+        movie_id = None
+        if entity is None:
+            # Season indeterminate over a collection: park the resource on
+            # the collection for Channel confirmation; no per-work mapping is
+            # written (there is no work to point it at).
+            from app.services.metadata_episode_reconcile import (
+                park_resource_on_collection,
+            )
+            collection = await find_collection_for_entity(db, selected_result)
+            if collection is not None:
+                park_resource_on_collection(resource, collection)
+            series_id = None
+        else:
+            resource.series_id = entity.id
+            resource.movie_id = None
+            series_id = entity.id
+            # Manual relink bypasses _apply_to_resource: run the same episode
+            # reconciliation + verified season rule (resolve_missing_work)
+            # against the freshly-upserted work, so a season-less resource
+            # doesn't keep a guessed/empty season.
+            await reconcile_linked_series_resource(
+                db, resource, series=entity, entity=selected_result
+            )
 
     resource.metadata_matched_at = utcnow()
 
     # Upsert ChannelRawTitleMapping
     # Use search_title_key so future resources from the same work (different
-    # episode/resolution) also auto-link.
-    search_key = normalize_title(extract_search_title(resource))
+    # episode/resolution) also auto-link. Skipped when the link parked on a
+    # collection without a work (a mapping needs a work FK).
+    search_key = (
+        normalize_title(extract_search_title(resource))
+        if series_id or movie_id
+        else None
+    )
     if search_key:
         existing = await db.execute(
             select(ChannelRawTitleMapping).where(

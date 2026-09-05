@@ -104,3 +104,75 @@ def test_franchise_collection_has_no_single_content_type_requirement():
         required_metadata_fields=["content_type", "resource_collection"],
     )
     assert result.kinds == ()
+
+
+# ---------------------------------------------------------------------------
+# Links-carried multi-season packs (per-season works)
+# ---------------------------------------------------------------------------
+
+
+def _links_only_pack(*, links, batch_seasons):
+    """Terminal multi_season pack: flat work FKs cleared, works on links."""
+    return _resource(
+        series_id=None,
+        series=None,
+        is_batch=True,
+        batch_scope="multi_season",
+        season=None,
+        batch_seasons=batch_seasons,
+        work_links=links,
+    )
+
+
+def test_links_only_multi_season_pack_is_linked_and_covered():
+    links = [
+        SimpleNamespace(series_id="s-1", movie_id=None, series=SimpleNamespace(season_number=1)),
+        SimpleNamespace(series_id="s-2", movie_id=None, series=SimpleNamespace(season_number=2)),
+    ]
+    result = inspect_resource_confirmation(
+        _links_only_pack(links=links, batch_seasons=[1, 2]),
+        required_metadata_fields=None,
+    )
+    assert result.kinds == ()
+
+
+def test_links_only_multi_season_pack_without_links_is_unknown_coverage():
+    result = inspect_resource_confirmation(
+        _links_only_pack(links=[], batch_seasons=[1, 2]),
+        required_metadata_fields=None,
+    )
+    assert "metadata_unlinked" in result.kinds
+    assert "batch_coverage_unknown" in result.kinds
+
+
+def test_links_only_multi_season_pack_requires_derived_batch_seasons():
+    links = [
+        SimpleNamespace(series_id="s-1", movie_id=None, series=SimpleNamespace(season_number=1)),
+    ]
+    # batch_seasons 缺失 → 覆盖度未知。
+    result = inspect_resource_confirmation(
+        _links_only_pack(links=links, batch_seasons=None),
+        required_metadata_fields=None,
+    )
+    assert result.kinds == ("batch_coverage_unknown",)
+    # batch_seasons 与关联作品 season_number 派生不一致 → 覆盖度未知。
+    result = inspect_resource_confirmation(
+        _links_only_pack(links=links, batch_seasons=[2]),
+        required_metadata_fields=None,
+    )
+    assert result.kinds == ("batch_coverage_unknown",)
+
+
+def test_links_only_pack_unloaded_link_table_is_not_judged():
+    """Link table not loaded (list endpoints): coverage can't be judged here."""
+    result = inspect_resource_confirmation(
+        _resource(
+            series_id=None, series=None, collection_id=None,
+            is_batch=True, batch_scope="multi_season",
+            season=None, batch_seasons=[1, 2],
+        ),
+        required_metadata_fields=None,
+    )
+    # No work_links attribute → loaded_relation yields None → no
+    # links-based verdict; still unlinked at the flat-FK level.
+    assert result.kinds == ("metadata_unlinked",)
