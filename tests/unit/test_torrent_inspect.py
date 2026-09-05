@@ -188,6 +188,44 @@ def test_analyze_flat_same_season():
     assert report.seasons == []
 
 
+def test_analyze_single_season_plus_sp_is_season():
+    # Season 0 (specials) is not a real season: one real season + SP extras
+    # stays a season pack, and SP episode numbers never enter the range.
+    files = [
+        _f(f"Shigatsu S01/Shigatsu wa Kimi no Uso S01E{ep:02d}.mkv")
+        for ep in range(1, 23)
+    ]
+    files.append(_f("Shigatsu S01/Shigatsu wa Kimi no Uso S00E01.mkv"))
+    report = analyze_torrent_files(files)
+    assert report.scope == "season"
+    assert report.is_batch is True
+    assert report.episode_start == 1 and report.episode_end == 22
+    # The SP parse is preserved for downstream file assignments.
+    assert report.seasons == [0, 1]
+    sp = next(p for p in report.file_parses if "S00E01" in p["path"])
+    assert sp["season"] == 0 and sp["episode"] == 1
+
+
+def test_analyze_multi_season_with_sp_keeps_zero_in_coverage():
+    files = [_f(f"Show/S01/Show S01E{ep:02d}.mkv") for ep in range(1, 13)]
+    files += [_f(f"Show/S02/Show S02E{ep:02d}.mkv") for ep in range(1, 13)]
+    files.append(_f("Show/Show S00E01.mkv"))
+    report = analyze_torrent_files(files)
+    assert report.scope == "multi_season"
+    assert report.is_batch is True
+    assert report.episode_start is None and report.episode_end is None
+    assert report.seasons == [0, 1, 2]
+
+
+def test_analyze_sp_only_pack_is_season():
+    files = [_f(f"Show/Show S00E{ep:02d}.mkv") for ep in range(1, 4)]
+    report = analyze_torrent_files(files)
+    assert report.scope == "season"
+    assert report.is_batch is True
+    assert report.episode_start == 1 and report.episode_end == 3
+    assert report.seasons == [0]
+
+
 def test_analyze_franchise_clusters():
     files = [_f(f"作品X TV/作品X - {ep:02d}.mkv") for ep in range(1, 13)]
     files += [_f("作品X 剧场版/作品X 剧场版.mkv", 2 * 1024 * MB)]

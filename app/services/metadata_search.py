@@ -16,6 +16,7 @@ from app.services.anime_signals import apply_is_anime
 from app.services.external_ids import add_external_id, find_work_by_external_id
 from app.services.genre_registry import normalize_genres
 from app.services.metadata_service import (
+    _collection_fallback_start_date,
     _parse_date,
     _work_end_date,
     _work_start_date,
@@ -333,8 +334,25 @@ async def refresh_work_by_source(
         return {"found": False, "applied": [], "message": "work not found"}
     season = getattr(work, "season_number", None) if content_type == "tv" else None
     if season == 0:
+        # No network search for specials (a title search would match the main
+        # entry), but a NULL start_date still converges deterministically from
+        # the collection's regular seasons — the periodic channel refresh then
+        # repairs existing specials works over time.
+        applied: list[str] = []
+        if (
+            getattr(work, "collection_id", None)
+            and work.start_date is None
+            and "start_date" not in manually_edited_fields(work)
+        ):
+            fallback = await _collection_fallback_start_date(
+                db, work.collection_id, work.id
+            )
+            if fallback:
+                work.start_date = fallback
+                await db.commit()
+                applied.append("start_date")
         return {
-            "found": True, "applied": [],
+            "found": True, "applied": applied,
             "message": "season-0 specials work — refresh skipped",
         }
     query = next((value for value in (

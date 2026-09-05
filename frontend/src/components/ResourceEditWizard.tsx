@@ -36,6 +36,7 @@ import type {
   AssociationUpdatePayload,
   AssociationWorkRef,
   BatchSuggestion,
+  BatchSuggestionWork,
   FileResource,
   FileResourceDetail,
   MetadataCandidate,
@@ -259,6 +260,12 @@ export default function ResourceEditWizard({
         nextWorkSeasons[workKeyOf('series', d.series_id)] =
           d.series?.season_number ?? null;
       }
+      for (const l of d.work_links ?? []) {
+        if (l.series_id) {
+          nextWorkSeasons[workKeyOf('series', l.series_id)] =
+            l.season_number ?? null;
+        }
+      }
       for (const a of d.file_assignments ?? []) {
         const wt: WorkRefType | null = a.series_id ? 'series' : a.movie_id ? 'movie' : null;
         if (!wt) continue;
@@ -287,7 +294,24 @@ export default function ResourceEditWizard({
       }
       setPlacements(nextPlacements);
       setOriginalPlacements({ ...nextPlacements });
-      setCollectionId(d.collection_id);
+      // Collection preselection: season packs don't persist collection_id —
+      // when it's null but every linked/FK work resolves to one and the same
+      // collection, adopt it (mirrors the addWork adoption path).
+      let nextCollectionId = d.collection_id ?? null;
+      if (!nextCollectionId) {
+        const ids = new Set<string>();
+        for (const l of d.work_links ?? []) {
+          if (l.collection_id) ids.add(l.collection_id);
+        }
+        if (d.series_id && d.series?.collection_id) {
+          ids.add(d.series.collection_id);
+        }
+        if (d.movie_id && d.movie?.collection_id) {
+          ids.add(d.movie.collection_id);
+        }
+        if (ids.size === 1) nextCollectionId = [...ids][0];
+      }
+      setCollectionId(nextCollectionId);
       setEpSeason(d.season ?? null);
       setEpEpisode(d.episode ?? null);
       setEpAbsolute(d.absolute_episode ?? null);
@@ -649,8 +673,55 @@ export default function ResourceEditWizard({
     };
   }, []);
 
+  /** Season evidence of a suggested work cluster: the most frequent non-null
+   * season across its files (LLM season first, deterministic filename parse
+   * as fallback). */
+  const clusterSeasonOf = (
+    w: BatchSuggestionWork,
+    detSeason: Map<string, number | null>,
+  ): number | null => {
+    const counts = new Map<number, number>();
+    for (const f of w.files) {
+      const s = f.season ?? detSeason.get(f.path) ?? null;
+      if (s == null) continue;
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    let best: number | null = null;
+    let bestCount = 0;
+    for (const [s, c] of counts) {
+      if (c > bestCount) {
+        best = s;
+        bestCount = c;
+      }
+    }
+    return best;
+  };
+
+  /** Pick among same-title works by season evidence: an exact season_number
+   * match wins (an SP cluster, hint 0, prefers the season-0 special work); a
+   * TV cluster (hint >= 1) never lands on a season-0 special; anything
+   * ambiguous keeps the first match (legacy behaviour). */
+  const pickWorkMatch = (
+    candidates: AssociationWorkRef[],
+    seasonHint: number | null,
+  ): AssociationWorkRef => {
+    if (candidates.length === 1 || seasonHint == null) return candidates[0];
+    const seasonOf = (w: AssociationWorkRef) =>
+      workSeasons[workKeyOf(w.work_type, w.work_id)] ?? null;
+    const exact = candidates.filter((w) => seasonOf(w) === seasonHint);
+    if (exact.length > 0) return exact[0];
+    if (seasonHint >= 1) {
+      const nonSpecial = candidates.filter((w) => seasonOf(w) !== 0);
+      if (nonSpecial.length > 0) return nonSpecial[0];
+    }
+    return candidates[0];
+  };
+
   const applyAnalysisSuggestion = (sug: BatchSuggestion) => {
     setSuggestion(sug);
+    const detSeason = new Map<string, number | null>(
+      sug.deterministic.files.map((f) => [f.path, f.season]),
+    );
     const soleSeries = works.length === 1 && works[0].work_type === 'series'
       ? works[0]
       : null;
@@ -667,13 +738,20 @@ export default function ResourceEditWizard({
       }
     }
     for (const w of sug.works) {
-      const target = works.find((knownWork) => (
-        w.candidate_key === workKeyOf(knownWork.work_type, knownWork.work_id)
-      )) ?? works.find((knownWork) => {
-        const known = normTitle(workTitles[workKeyOf(knownWork.work_type, knownWork.work_id)]);
-        const want = normTitle(w.title);
-        return known === want || (!!known && (known.includes(want) || want.includes(known)));
-      });
+      const target =
+        works.find((knownWork) => (
+          w.candidate_key === workKeyOf(knownWork.work_type, knownWork.work_id)
+        )) ??
+        (() => {
+          const titleMatches = works.filter((knownWork) => {
+            const known = normTitle(workTitles[workKeyOf(knownWork.work_type, knownWork.work_id)]);
+            const want = normTitle(w.title);
+            return known === want || (!!known && (known.includes(want) || want.includes(known)));
+          });
+          return titleMatches.length > 0
+            ? pickWorkMatch(titleMatches, clusterSeasonOf(w, detSeason))
+            : undefined;
+        })();
       if (!target) continue;
       for (const f of w.files) {
         next[f.path] = {

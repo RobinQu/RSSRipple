@@ -719,13 +719,24 @@ export default function Dashboard() {
                             />
                             <div className="pending-resource-summary">
                               <div className="pending-resource-work-line">
-                            {r.series_id || r.movie_id ? (
-                              <Link to={r.series_id ? `/series/${r.series_id}` : `/movies/${r.movie_id}`}>
-                                <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
-                              </Link>
-                            ) : (
-                              <Text strong>{item.work_title || r.title_cn || r.title_raw}</Text>
-                            )}
+                            {(() => {
+                              const ref = item.work_ref;
+                              const href = ref
+                                ? ref.kind === 'series'
+                                  ? `/series/${ref.id}`
+                                  : ref.kind === 'movie'
+                                    ? `/movies/${ref.id}`
+                                    : `/collections/${ref.id}`
+                                : null;
+                              const label = item.work_title || r.title_cn || r.title_raw;
+                              return href ? (
+                                <Link to={href}>
+                                  <Text strong>{label}</Text>
+                                </Link>
+                              ) : (
+                                <Text strong>{label}</Text>
+                              );
+                            })()}
                                 <Tag color="orange" bordered={false} style={{ margin: 0 }}>
                                   {t('channels.episodeAmbiguousTag')}
                                 </Tag>

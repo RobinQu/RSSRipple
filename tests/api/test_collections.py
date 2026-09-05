@@ -5,9 +5,12 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, patch
 
+from sqlalchemy import select
+
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.models.work_external_id import WorkExternalId
 
 
 def _uuid() -> str:
@@ -150,6 +153,81 @@ class TestCollectionAttach:
             params={"work_type": "series"},
         )
         assert res.status_code == 404
+
+
+class TestCollectionAttachShellAbsorb:
+    """Move semantics: a work in a single-member ``series_group`` shell is
+    absorbed into the attach target instead of refused with 409."""
+
+    async def test_attach_absorbs_single_member_shell(self, client, db_session):
+        shell = WorkCollection(
+            id=_uuid(),
+            title_cn="某剧（壳）",
+            external_source="series_group",
+            aliases=["壳别名"],
+        )
+        work = TVSeries(
+            id=_uuid(), title_cn="某剧 第二季", content_type="tv",
+            season_number=2, collection_id=shell.id,
+        )
+        target = WorkCollection(id=_uuid(), title_cn="某剧（系列）", aliases=["已有别名"])
+        bag = WorkExternalId(
+            id=_uuid(), work_type="collection", work_id=shell.id,
+            source="wikipedia", external_id="wikipedia:zh:12345",
+        )
+        db_session.add_all([shell, work, target, bag])
+        await db_session.commit()
+        shell_id, work_id, target_id = shell.id, work.id, target.id
+
+        res = await client.post(f"/api/v1/collections/{target_id}/works", json={
+            "work_type": "series", "work_id": work_id,
+        })
+        assert res.status_code == 201
+
+        db_session.expire_all()  # the API ran in its own session
+        await db_session.refresh(work)
+        assert work.collection_id == target_id
+        # The empty shell is deleted.
+        assert (await db_session.execute(
+            select(WorkCollection).where(WorkCollection.id == shell_id)
+        )).scalars().first() is None
+        # Shell aliases merge into the target (deduped, target values win).
+        await db_session.refresh(target)
+        assert target.aliases == ["已有别名", "壳别名"]
+        # The shell's identity-bag rows move to the target.
+        rows = (await db_session.execute(
+            select(WorkExternalId).where(
+                WorkExternalId.external_id == "wikipedia:zh:12345"
+            )
+        )).scalars().all()
+        assert [(r.work_type, r.work_id) for r in rows] == [("collection", target_id)]
+
+    async def test_attach_multi_member_shell_still_409(self, client, db_session):
+        shell = WorkCollection(
+            id=_uuid(), title_cn="某剧（壳）", external_source="series_group",
+        )
+        w1 = TVSeries(
+            id=_uuid(), title_cn="某剧 第一季", content_type="tv",
+            season_number=1, collection_id=shell.id,
+        )
+        w2 = TVSeries(
+            id=_uuid(), title_cn="某剧 第二季", content_type="tv",
+            season_number=2, collection_id=shell.id,
+        )
+        target = WorkCollection(id=_uuid(), title_cn="目标合集")
+        db_session.add_all([shell, w1, w2, target])
+        await db_session.commit()
+
+        res = await client.post(f"/api/v1/collections/{target.id}/works", json={
+            "work_type": "series", "work_id": w1.id,
+        })
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "DUPLICATE_SUBMISSION"
+        await db_session.refresh(w1)
+        assert w1.collection_id == shell.id
+        assert (await db_session.execute(
+            select(WorkCollection).where(WorkCollection.id == shell.id)
+        )).scalars().first() is not None
 
 
 class TestCollectionWorksPagination:

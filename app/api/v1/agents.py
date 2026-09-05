@@ -13,6 +13,7 @@ from app.models.agent_work import AgentWork
 from app.models.channel import Channel
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.schemas.agent import (
     AgentCreate,
@@ -683,11 +684,15 @@ async def test_filters(
         base_q = base_q.order_by(FileResource.published_at.desc()).limit(50)
     # Work-namespaced DSL fields (movie.rating, series.collection …) resolve
     # via these relations; the resource-level ``collection`` field (franchise
-    # packs) resolves via the resource's own collection relation.
+    # packs) resolves via the resource's own collection relation; work_links
+    # carry the works of links-only multi-season packs (chain-load the works
+    # so the DSL year fields can aggregate across them).
     base_q = base_q.options(
         selectinload(FileResource.series).selectinload(TVSeries.collection),
         selectinload(FileResource.movie).selectinload(Movie.collection),
         selectinload(FileResource.collection),
+        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
     )
     result = await db.execute(base_q)
     resources = result.scalars().all()
@@ -756,11 +761,13 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
             # Work-namespaced DSL fields (movie.rating, series.collection …)
             # resolve via these; the resource-level ``collection`` field
             # (franchise packs) via the resource's own collection relation;
-            # work_links carry the works of links-only multi-season packs.
+            # work_links carry the works of links-only multi-season packs
+            # (chain-load the works so the DSL year fields can aggregate).
             selectinload(FileResource.series).selectinload(TVSeries.collection),
             selectinload(FileResource.movie).selectinload(Movie.collection),
             selectinload(FileResource.collection),
-            selectinload(FileResource.work_links),
+            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+            selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
         )
     )).scalars().all()
     diff = await compute_rule_diff(old, new, list(resources), db)

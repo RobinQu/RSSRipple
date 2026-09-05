@@ -490,15 +490,25 @@ def analyze_torrent_files(files: list[dict]) -> TorrentReport:
 
     seasons = sorted({s for _, s, _ in parsed if s is not None})
     base.seasons = seasons
-    if len(seasons) >= 2:
+    # Season 0 is specials/SP, not a real season: a pack of one real season
+    # plus SP extras is still a single-season pack. ``seasons`` itself keeps
+    # the 0 — it reports the full covered set including specials.
+    real_seasons = [s for s in seasons if s != 0]
+    if len(real_seasons) >= 2:
         base.scope = "multi_season"
         base.is_batch = True
         return base
 
     # Single season: all parsed files share one season group (explicit season
     # number, or None for a flat unlabeled run) with >= 2 distinct episodes.
-    episodes = [e for _, _, e in parsed if e is not None]
-    season_groups = {s for _, s, e in parsed if e is not None}
+    # SP files are excluded from the episode range when a real season exists;
+    # an SP-only pack keeps the season-0 files as its episode source.
+    if real_seasons:
+        scoped = [(f, s, e) for f, s, e in parsed if s != 0]
+    else:
+        scoped = parsed
+    episodes = [e for _, _, e in scoped if e is not None]
+    season_groups = {s for _, s, e in scoped if e is not None}
     if len(season_groups) == 1 and len(set(episodes)) >= 2:
         base.scope = "season"
         base.is_batch = True
@@ -538,7 +548,9 @@ async def maybe_inspect_torrent(
       ``episode=None``, ``episode_start/end`` from the report.
     - ``multi_season``: ``is_batch=True``, ``batch_scope="multi_season"``,
       ``episode=None``, ``season=None``, ``episode_start/end=None``,
-      ``batch_seasons`` from the report.
+      ``batch_seasons`` from the report. Two or more *real* seasons are
+      required — season 0 (specials/SP) never counts towards multi_season,
+      though it stays in the reported ``batch_seasons`` coverage set.
     - ``franchise``: ``is_batch=True``, ``batch_scope="franchise"``,
       ``episode=None``, ``batch_seasons`` from the report. When the LLM
       refinement proves a pure-movie pack (scope upgraded to ``"movies"``)

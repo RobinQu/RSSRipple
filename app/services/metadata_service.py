@@ -973,6 +973,25 @@ async def _collection_members(db: AsyncSession, collection_id: str) -> list[TVSe
     )
 
 
+async def _collection_fallback_start_date(
+    db: AsyncSession, collection_id: str, exclude_series_id: str | None
+) -> date | None:
+    """Earliest premiere among the collection's NON-specials members.
+
+    Fallback for season works whose own start_date cannot be derived from any
+    source (season-0 specials never carry one): they borrow the earliest
+    start_date of the collection's regular seasons (season_number != 0).
+    ``exclude_series_id`` keeps a work from borrowing from itself.
+    """
+    members = await _collection_members(db, collection_id)
+    dates = [
+        m.start_date
+        for m in members
+        if m.season_number != 0 and m.id != exclude_series_id and m.start_date
+    ]
+    return min(dates) if dates else None
+
+
 async def _find_collection_by_titles(
     db: AsyncSession, titles: list[str]
 ) -> WorkCollection | None:
@@ -1144,6 +1163,14 @@ async def _update_series_from_entity(
     if not field_manually_edited(series, "start_date"):
         if start:
             series.start_date = start
+        elif series.start_date is None and series.collection_id:
+            # No season date of its own (specials never carry one) — borrow
+            # the earliest premiere of the collection's regular seasons.
+            fallback = await _collection_fallback_start_date(
+                db, series.collection_id, series.id
+            )
+            if fallback:
+                series.start_date = fallback
     if not field_manually_edited(series, "end_date"):
         if end:
             series.end_date = end
@@ -1234,6 +1261,11 @@ async def _create_season_work(
         primary_id = make_season_identity(series_level_id, season)
     else:
         primary_id = canonical_id or raw_external_id
+    start = _work_start_date(data, season, granularity)
+    if start is None:
+        # No season date of its own (specials never carry one) — borrow the
+        # earliest premiere of the collection's regular seasons.
+        start = await _collection_fallback_start_date(db, collection.id, None)
     work = TVSeries(
         title_cn=title_cn,
         title_en=title_en,
@@ -1248,7 +1280,7 @@ async def _create_season_work(
         genre=normalize_genres(data.get("genre")),
         status=data.get("status"),
         number_of_episodes=_work_episode_count(data, season, granularity),
-        start_date=_work_start_date(data, season, granularity),
+        start_date=start,
         end_date=_work_end_date(data, season, granularity),
         content_type="tv",
         season_number=season,

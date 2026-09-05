@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -14,6 +14,7 @@ from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 from app.services import metadata_service as ms
 
 
@@ -1439,3 +1440,127 @@ async def test_upsert_preserves_manually_edited_content_type(db_session):
     assert updated.content_type == "movie"  # manual edit preserved
 
 
+
+
+# ---------------------------------------------------------------------------
+# Collection fallback start_date (specials / missing-date season works)
+# ---------------------------------------------------------------------------
+
+
+async def _mk_collection(db_session) -> WorkCollection:
+    coll = WorkCollection(
+        id=_uuid(), title_cn="合集X", external_source="series_group",
+    )
+    db_session.add(coll)
+    await db_session.flush()
+    return coll
+
+
+def _season_work(collection_id, season, **overrides):
+    base = dict(
+        id=_uuid(), title_cn="剧集X", content_type="tv",
+        season_number=season, collection_id=collection_id,
+    )
+    base.update(overrides)
+    return TVSeries(**base)
+
+
+async def _create_specials_work(db_session, collection, data=None):
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        return await ms._create_season_work(
+            db_session,
+            data or {"content_type": "tv", "title_cn": "剧集X"},
+            collection,
+            0,
+            raw_source=None, raw_external_id=None, canonical_id=None,
+            granularity="series", series_level_id=None,
+        )
+
+
+async def test_create_season_work_borrows_earliest_regular_sibling_date(db_session):
+    """A season-0 specials work never carries its own date — it borrows the
+    earliest start_date of the collection's non-specials members."""
+    coll = await _mk_collection(db_session)
+    db_session.add_all([
+        _season_work(coll.id, 2, start_date=date(2022, 4, 1)),
+        _season_work(coll.id, 1, start_date=date(2020, 1, 1)),
+    ])
+    await db_session.flush()
+    sp = await _create_specials_work(db_session, coll)
+    assert sp.start_date == date(2020, 1, 1)
+
+
+async def test_create_season_work_without_dated_regular_sibling_stays_null(db_session):
+    """No dated non-specials member → no fallback: specials' own dates are
+    never borrowed, and undated siblings contribute nothing."""
+    coll = await _mk_collection(db_session)
+    db_session.add_all([
+        _season_work(coll.id, 1),  # no date
+        _season_work(coll.id, 0, start_date=date(2019, 6, 1)),  # specials date
+    ])
+    await db_session.flush()
+    sp = await _create_specials_work(db_session, coll)
+    assert sp.start_date is None
+
+
+async def test_create_season_work_prefers_own_date_over_fallback(db_session):
+    """An entity carrying per-season evidence keeps its own date."""
+    coll = await _mk_collection(db_session)
+    db_session.add(_season_work(coll.id, 1, start_date=date(2020, 1, 1)))
+    await db_session.flush()
+    data = {
+        "content_type": "tv", "title_cn": "剧集X",
+        "seasons": [{"season_number": 2, "air_date": "2022-04-01"}],
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        s2 = await ms._create_season_work(
+            db_session, data, coll, 2,
+            raw_source=None, raw_external_id=None, canonical_id=None,
+            granularity="series", series_level_id=None,
+        )
+    assert s2.start_date == date(2022, 4, 1)
+
+
+async def test_update_series_fills_null_start_date_from_sibling(db_session):
+    coll = await _mk_collection(db_session)
+    db_session.add(_season_work(coll.id, 1, start_date=date(2020, 1, 1)))
+    sp = _season_work(coll.id, 0)
+    db_session.add(sp)
+    await db_session.flush()
+    await ms._update_series_from_entity(
+        db_session, sp, {"content_type": "tv"},
+        raw_source=None, canonical_id=None, granularity="series",
+    )
+    assert sp.start_date == date(2020, 1, 1)
+
+
+async def test_update_series_never_overwrites_existing_start_date(db_session):
+    coll = await _mk_collection(db_session)
+    db_session.add(_season_work(coll.id, 1, start_date=date(2020, 1, 1)))
+    sp = _season_work(coll.id, 0, start_date=date(2019, 6, 1))
+    db_session.add(sp)
+    await db_session.flush()
+    await ms._update_series_from_entity(
+        db_session, sp, {"content_type": "tv"},
+        raw_source=None, canonical_id=None, granularity="series",
+    )
+    assert sp.start_date == date(2019, 6, 1)
+
+
+async def test_update_series_respects_manually_edited_start_date(db_session):
+    coll = await _mk_collection(db_session)
+    db_session.add(_season_work(coll.id, 1, start_date=date(2020, 1, 1)))
+    sp = _season_work(coll.id, 0, manually_edited_fields=["start_date"])
+    db_session.add(sp)
+    await db_session.flush()
+    await ms._update_series_from_entity(
+        db_session, sp, {"content_type": "tv"},
+        raw_source=None, canonical_id=None, granularity="series",
+    )
+    assert sp.start_date is None

@@ -162,10 +162,26 @@ def build_filter_context(
     work = payload.work
     resource = payload.resource
     work_type = work.type if work else None
+    is_batch = bool(resource.is_batch) if resource else False
+
+    def _min_work_year(kind: str) -> int | None:
+        """Earliest year across the snapshot's ``works`` of one kind — a
+        batch pack's release window opens with its oldest work."""
+        years = [
+            w.year
+            for key, w in payload.works.items()
+            if key.startswith(f"{kind}:") and w.year
+        ]
+        return min(years) if years else None
 
     def _work_ns(kind: str) -> SimpleNamespace:
         assert work is not None
-        d = date(work.year, 1, 1) if work.year else None
+        year = work.year
+        if is_batch:
+            agg = _min_work_year(kind)
+            if agg is not None:
+                year = agg
+        d = date(year, 1, 1) if year else None
         collection_ns = (
             SimpleNamespace(title_cn=work.collection, title_en=None)
             if work.collection

@@ -45,7 +45,7 @@ FieldCondition 也被 **Agent 优选偏好**（`pick_preferences`）复用：一
   - 数字字段（`file_size`, `episode`, `season`, `episode_start`, `episode_end`, `absolute_episode`）支持：`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `in`。
   - 关联作品字段（`movie.rating`, `movie.year`, `series.rating`, `series.year`）是带命名空间的数字字段，取值来自资源关联的 Movie/TVSeries，支持的操作符同数字字段：
     - `rating`：作品评分，0-10 量程（TMDB `vote_average` 等来源，见 data-models.md）。
-    - `year`：作品年份，由 `Movie.release_date` / `TVSeries.start_date` 取年份派生。
+    - `year`：作品年份，由 `Movie.release_date` / `TVSeries.start_date` 取年份派生。links-carried 合集包（终态 multi_season，互斥 FK 全清、作品在 `resource_work_links` 上）无单一关联作品，`year` 回退聚合全部已加载 link 作品的**最早**年份（min）；links 或其作品未 eager-load 时按空值处理（求值点须链式 `selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series/movie)`）。频道必填 `year` 键同口径跨 links 取最早；其余作品字段（rating/is_anime/genre 等）在 links 形态下仍取首个 link 作品。
     - 资源未关联作品（或关联关系未加载）时字段值为空，适用空值语义：`gte 7` 不通过、`ne 7` 通过、可用 `is_empty`/`is_not_empty` 显式匹配。
     - 求值路径（rules-preview、test-filter、Agent 运行、回填提交）查询 FileResource 时必须 `selectinload` `series`/`movie` 关系，异步会话禁止触发 lazy load；未加载的关系按"无关联作品"处理。
   - 合集字段（`movie.collection`, `series.collection`）是带命名空间的字符串字段，取值为作品所属 WorkCollection 的显示名（`title_cn or title_en`），支持字符串字段操作符：

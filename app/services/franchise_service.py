@@ -40,10 +40,11 @@ import logging
 import re
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.services.collection_service import try_absorb_shell_collection
 from app.services.resource_parser import extract_compilation_work_title
 from app.services.text_normalizer import normalize_title
 
@@ -240,28 +241,8 @@ async def link_franchise_pack(
             # shell contains ONLY this work, the franchise pack's collection
             # is the stronger IP grouping — absorb it (bag rows move over,
             # the empty shell is removed) instead of refusing the attach.
-            existing = await db.get(WorkCollection, work.collection_id)
-            if existing is not None and existing.external_source == "series_group":
-                from app.models.movie import Movie as _Movie
-                from app.services.external_ids import merge_external_id_bags
-
-                member_count = int((await db.execute(
-                    select(func.count()).select_from(TVSeries).where(
-                        TVSeries.collection_id == existing.id
-                    )
-                )).scalar_one() or 0) + int((await db.execute(
-                    select(func.count()).select_from(_Movie).where(
-                        _Movie.collection_id == existing.id
-                    )
-                )).scalar_one() or 0)
-                if member_count <= 1:
-                    await merge_external_id_bags(db, collection, [existing])
-                    # Delete the shell BEFORE re-pointing the work: the ORM
-                    # nullifies a deleted collection's member FKs at flush.
-                    await db.delete(existing)
-                    await db.flush()
-                    work.collection_id = collection.id
-                    continue
+            if await try_absorb_shell_collection(db, collection, work):
+                continue
             logger.warning(
                 "[franchise] work %s already belongs to collection %s; "
                 "not re-attaching to %s",

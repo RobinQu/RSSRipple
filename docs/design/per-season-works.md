@@ -33,7 +33,7 @@
 2. 每部 series 作品必须属于一个 `WorkCollection`（单季作品也套一个壳合集，保证匹配/关联代码只有一条路径）；Movie 的 `collection_id` 维持可空（电影合集逻辑不变）。
 3. 合集内 `(collection_id, season_number)` 应用层唯一，数据迁移收敛后加部分唯一索引（`WHERE collection_id IS NOT NULL`）。
 4. 季作品的 `title_cn/title_en/original_title` 存**基础剧名**（剥季号，维持 `strip_season_from_title` 写入约定）；季限定标题变体（「无职转生 第三季」「無職転生Ⅲ …」）进 `aliases`；展示名 = 基础名 + 季后缀（合集成员 >1 时拼「 第N季」/「Season N」）。
-5. 作品 `seasons` JSON / `number_of_seasons` 两列退役（季作品只有一个季），不删列，改惰性孤儿（项目既有惯例，如 path_map/plex_section）；`number_of_episodes` = 本季集数；`start_date` = 本季首播（逐季源天然给出；系列级源经 TMDB season 端点或留 NULL 待刷新）。
+5. 作品 `seasons` JSON / `number_of_seasons` 两列退役（季作品只有一个季），不删列，改惰性孤儿（项目既有惯例，如 path_map/plex_section）；`number_of_episodes` = 本季集数；`start_date` = 本季首播（逐季源天然给出；系列级源经 TMDB season 端点或留 NULL 待刷新；仍 NULL 的季作品——含日期恒不可考的特典——兜底取同合集其他**非特典**季作品的最早 start_date：`_collection_fallback_start_date`，只填 NULL、不覆盖、尊重 `manually_edited_fields`，注入 upsert 新建/更新与 refresh season-0 跳过分支，存量回填 `scripts/specials_airdate_backfill.py`）。
 6. `Episode` 保留 `(series_id, season, episode)` 结构与唯一键，`season` 恒等于所属作品的 `season_number`（去规范化，全部既有查询零改动）。
 
 ## 三、身份体系
@@ -74,8 +74,8 @@
 
 - **退役**：`metadata_episode_reconcile.py` 的跨季换算（`reconcile_episode`/`locate_absolute_episode`/`apply_episode_reconcile` 的绝对集号分支）；`resolve_missing_season` 由「resolve_missing_work」取代（代码保留同名别名兼容存量脚本调用）；`seasons_overwrite_allowed` 防退化 guard；`single_season_entry` 匹配期标记（变为固有粒度）；Agent 季兼容槽位（agent_service.py:703, 900-913）；`_batch_coverage_key` 的 multi_season 形态；organize `_check_multi_season_coverage`（organize_planner.py:865-922，由 `_check_multi_season_coverage_from_files` 取代——仅服务无权威文件关联的 legacy 快照）；必填字段 `season` 键与 `absolute_episode`/`episode_confidence` 键（required_fields.py:128-169）及 `tv_multi_season` 形态。
 - **保留改造**：`absolute_episode` 字段保留为解析证据；绝对集号→季的定位改为沿合集成员（按 season_number 排序、各作品 `number_of_episodes` 累加）换算，仅服务于「无季标记但有绝对集号」的存量/新资源路由。
-- **资源字段**：`FileResource.season` 保留（解析证据 + DSL 字段）；`batch_seasons`/`season_ranges` 保留为从关联季作品派生的冗余缓存（写入点在 links/assignments 变更处镜像，类似现有 season_ranges 派生）。
-- **multi_season 包**：不再是「一个作品的多季」，而是「一个资源挂多个季作品」——落到现成的 `resource_work_links` 多作品关联（合集恰一作品镜像 FK、多作品清 FK 的既有不变量天然适配）。`batch_scope` 值保留 `multi_season`，覆盖度 key = 关联季作品 id 集合。
+- **资源字段**：`FileResource.season` 保留（解析证据 + DSL 字段）；`batch_seasons`/`season_ranges` 保留为从关联季作品派生的冗余缓存（写入点在 links/assignments 变更处镜像，类似现有 season_ranges 派生）。`FileResource.collection_id` 对 `batch_scope ∈ {NULL, season, multi_season}` 的资源由 `sync_resource_collection` 在 links/FK 变更处（`bind_single_work_assignments`、PUT associations）沉淀：全部关联作品同属一个合集才写入、跨合集置空、无关联作品不动（保 park 状态）、franchise/movies 包不碰；`bind_single_work_assignments` 单作品绑定时顺带清理指向其他作品的孤儿 `source="auto"` link（manual/llm 永不动）。
+- **multi_season 包**：不再是「一个作品的多季」，而是「一个资源挂多个季作品」——落到现成的 `resource_work_links` 多作品关联（合集恰一作品镜像 FK、多作品清 FK 的既有不变量天然适配）。`batch_scope` 值保留 `multi_season`，覆盖度 key = 关联季作品 id 集合。scope 判定统一把 season 0（特典/SP）排除在「季数」计数外：`analyze_torrent_files` 仅在 ≥2 个**非零**季时判 multi_season（单季+SP 仍判 season，episode 范围只取真季集号；覆盖季集合保留 0），PUT associations 的 `_derive_batch_scope` 作品身份感知（多 series 作品跨合集→franchise，同合集按非零季集合→season/multi_season）。存量误判（`batch_seasons` 含 0）走 `scripts/batch_sp_rescan.py`（dry-run 默认 + `--apply`，torrent 缓存离线重析重写 scope/范围/assignments）。
 
 ### Agent 订阅与派发
 

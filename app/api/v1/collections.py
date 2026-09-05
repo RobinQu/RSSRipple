@@ -2,7 +2,9 @@
 
 One work belongs to at most one collection, enforced by the single nullable
 ``collection_id`` FK on TVSeries/Movie: attaching a work that is already in
-another collection returns 409 DUPLICATE_SUBMISSION instead of moving it.
+another collection returns 409 DUPLICATE_SUBMISSION instead of moving it —
+except when the current collection is a single-member ``series_group`` shell
+(an upsert artifact), which is absorbed into the target instead.
 """
 
 from fastapi import APIRouter, Depends, Query
@@ -31,6 +33,7 @@ from app.services.collection_service import (
     fetch_tmdb_collection_parts,
     filter_untracked_parts,
     tracked_movie_tmdb_ids,
+    try_absorb_shell_collection,
 )
 
 router = APIRouter()
@@ -252,6 +255,14 @@ async def attach_work(
         # Already a member of THIS collection — idempotent attach.
         return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
     if work.collection_id is not None:
+        # Per-season model: a single-member ``series_group`` shell is an
+        # upsert artifact, not a deliberate grouping — absorb it (bag rows +
+        # aliases merge into the target, the empty shell is deleted) so a
+        # "same series, two shells" state is fixable from the UI. Multi-
+        # member or non-shell collections still refuse the move with 409.
+        if await try_absorb_shell_collection(db, collection, work):
+            await db.flush()
+            return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
         return JSONResponse(
             status_code=409,
             content={

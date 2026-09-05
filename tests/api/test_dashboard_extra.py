@@ -221,6 +221,7 @@ class TestDashboardPopulated:
         assert "season_ambiguous" in c["kinds"]
         assert c["channel_name"] == sample_channel.name
         assert c["work_title"] == sample_series.title_cn
+        assert c["work_ref"] == {"kind": "series", "id": sample_series.id}
 
         ignored = await client.post(
             "/api/v1/dashboard/todos/ignore",
@@ -287,6 +288,7 @@ class TestDashboardPopulated:
             ])
             await s.commit()
             full_id, noyear_id = full.id, noyear.id
+            undated_id = undated.id
 
         res = await client.get("/api/v1/dashboard")
         assert res.status_code == 200
@@ -298,6 +300,40 @@ class TestDashboardPopulated:
         entry = next(c for c in confs if c["resource"]["id"] == noyear_id)
         assert entry["kinds"] == ["required_fields_missing"]
         assert entry["missing_fields"] == ["year"]
+        # FK-less packs still expose a clickable work target via the links.
+        assert entry["work_title"] == "古见同学有交流障碍"
+        assert entry["work_ref"] == {"kind": "series", "id": undated_id}
+
+    async def test_dashboard_pending_confirmations_parked_on_collection(
+        self, client, db_session_factory, sample_channel,
+    ):
+        """Resources parked on a collection (series-level identity resolved,
+        season undecidable) clear the work FKs but keep ``collection_id``;
+        the dashboard title must stay clickable via the collection."""
+        from app.models.file_resource import FileResource
+        from app.models.work_collection import WorkCollection
+
+        async with db_session_factory() as s:
+            collection = WorkCollection(id=_uuid(), title_cn="日常")
+            s.add(collection)
+            await s.flush()
+            resource = FileResource(
+                id=_uuid(), channel_id=sample_channel.id, guid="parked",
+                title_raw="[G] Nichijou - 01", torrent_url="magnet:?xt=urn:btih:pk",
+                collection_id=collection.id,
+                episode_confidence="ambiguous",
+            )
+            s.add(resource)
+            await s.commit()
+            rid, cid = resource.id, collection.id
+
+        res = await client.get("/api/v1/dashboard")
+        assert res.status_code == 200
+        confs = res.json()["data"]["pending_confirmations"]
+        entry = next(c for c in confs if c["resource"]["id"] == rid)
+        assert "season_ambiguous" in entry["kinds"]
+        assert entry["work_title"] == "日常"
+        assert entry["work_ref"] == {"kind": "collection", "id": cid}
 
     async def test_dashboard_can_batch_ignore_decisions(
         self, client, setup_with_task_and_decision, db_session_factory,

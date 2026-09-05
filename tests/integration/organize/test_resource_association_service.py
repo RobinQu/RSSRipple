@@ -34,11 +34,11 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
-def _series(title: str = "攻壳机动队") -> TVSeries:
+def _series(title: str = "攻壳机动队", **kw) -> TVSeries:
     return TVSeries(
         id=_uuid(), title_cn=title, title_en=title,
         original_title=title, content_type="tv", is_anime=True,
-        start_date=date(2026, 4, 1),
+        start_date=date(2026, 4, 1), **kw,
     )
 
 
@@ -50,8 +50,8 @@ def _movie(title: str = "哈姆奈特") -> Movie:
     )
 
 
-async def _seed_series(db_session, title: str = "攻壳机动队") -> TVSeries:
-    series = _series(title)
+async def _seed_series(db_session, title: str = "攻壳机动队", **kw) -> TVSeries:
+    series = _series(title, **kw)
     db_session.add(series)
     await db_session.flush()
     return series
@@ -260,19 +260,26 @@ async def test_batch_single_tv_mirrors_fk_and_derives_season(db_session):
     assert len(links) == 1 and links[0].series_id == series.id
 
 
-async def test_batch_multi_tv_derives_franchise_and_clears_fk(db_session):
-    s1, s2 = await _seed_series(db_session, "A"), await _seed_series(db_session, "B")
+async def _seed_collection(db_session, title: str = "合集") -> WorkCollection:
     collection = WorkCollection(
-        id=_uuid(), title_cn="A+B 合集", external_source="tmdb_collection",
-        external_id="42",
+        id=_uuid(), title_cn=title, external_source="series_group",
+        external_id=_uuid(),
     )
     db_session.add(collection)
-    resource = await _seed_resource(db_session, series_id=s1.id)
     await db_session.flush()
+    return collection
+
+
+async def test_batch_multi_tv_derives_franchise_and_clears_fk(db_session):
+    # 两个 series 作品分属不同合集 → franchise；合集身份无法沉淀 → 置空
+    c1 = await _seed_collection(db_session, "A 合集")
+    c2 = await _seed_collection(db_session, "B 合集")
+    s1 = await _seed_series(db_session, "A", season_number=1, collection_id=c1.id)
+    s2 = await _seed_series(db_session, "B", season_number=1, collection_id=c2.id)
+    resource = await _seed_resource(db_session, series_id=s1.id)
     body = ResourceAssociationUpdateRequest(
         is_batch=True,
         works=[_ref(s1), _ref(s2)],
-        collection_id=collection.id,
         assignments=[
             _asg("a.mkv", s1, season=1, episode_start=1, episode_end=1),
             _asg("b.mkv", s2, season=1, episode_start=1, episode_end=1),
@@ -282,8 +289,59 @@ async def test_batch_multi_tv_derives_franchise_and_clears_fk(db_session):
     await db_session.flush()
     assert resource.batch_scope == "franchise"
     assert resource.series_id is None and resource.movie_id is None
-    assert resource.collection_id == collection.id
+    assert resource.collection_id is None
     assert sorted(ln.series_id for ln in resource.work_links) == sorted([s1.id, s2.id])
+
+
+async def test_batch_same_collection_special_and_season_derives_season(db_session):
+    """同合集 S0 特典 + S1 两作品 → season（特典不抬升 multi_season），
+    合集身份从作品沉淀到资源。"""
+    collection = await _seed_collection(db_session, "四月是你的谎言")
+    sp = await _seed_series(
+        db_session, "四月是你的谎言 SP", season_number=0,
+        collection_id=collection.id,
+    )
+    s1 = await _seed_series(
+        db_session, "四月是你的谎言", season_number=1,
+        collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True,
+        works=[_ref(sp), _ref(s1)],
+        assignments=[
+            _asg("sp.mkv", sp, season=0, episode_start=1, episode_end=1),
+            _asg("e01.mkv", s1, season=1, episode_start=1, episode_end=1),
+        ],
+    )
+    await apply_association_update(db_session, resource, body)
+    await db_session.flush()
+    assert resource.batch_scope == "season"
+    assert resource.collection_id == collection.id
+
+
+async def test_batch_same_collection_two_seasons_derives_multi_season(db_session):
+    """同合集 S1 + S2 两作品 → multi_season，合集身份同样沉淀。"""
+    collection = await _seed_collection(db_session, "某系列")
+    s1 = await _seed_series(
+        db_session, "某系列 S1", season_number=1, collection_id=collection.id,
+    )
+    s2 = await _seed_series(
+        db_session, "某系列 S2", season_number=2, collection_id=collection.id,
+    )
+    resource = await _seed_resource(db_session)
+    body = ResourceAssociationUpdateRequest(
+        is_batch=True,
+        works=[_ref(s1), _ref(s2)],
+        assignments=[
+            _asg("s1.mkv", s1, season=1, episode_start=1, episode_end=1),
+            _asg("s2.mkv", s2, season=2, episode_start=1, episode_end=1),
+        ],
+    )
+    await apply_association_update(db_session, resource, body)
+    await db_session.flush()
+    assert resource.batch_scope == "multi_season"
+    assert resource.collection_id == collection.id
 
 
 async def test_batch_all_movies_derives_movies_scope(db_session):

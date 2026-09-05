@@ -41,16 +41,48 @@ _CONFIRMATION_SCAN_BATCH_SIZE = 200
 def _serialize_confirmation(
     resource: FileResource, confirmation: ResourceConfirmation,
 ) -> dict:
+    # Resources whose flat work FKs are cleared still resolve to library
+    # works: parked-on-collection rows keep ``collection_id``, links-carried
+    # packs carry works on the link table. Surface the best link target so
+    # the UI can make the work title clickable in every linked shape.
+    work_title: str | None = None
+    work_ref: dict | None = None
+    if resource.series_id:
+        work_ref = {"kind": "series", "id": resource.series_id}
+        if resource.series:
+            work_title = resource.series.title_cn or resource.series.title_en
+    elif resource.movie_id:
+        work_ref = {"kind": "movie", "id": resource.movie_id}
+        if resource.movie:
+            work_title = resource.movie.title_cn or resource.movie.title_en
+    elif resource.collection_id:
+        work_ref = {"kind": "collection", "id": resource.collection_id}
+        if resource.collection is not None:
+            work_title = (
+                resource.collection.title_cn or resource.collection.title_en
+            )
+    else:
+        for link in resource.work_links or []:
+            entity = (
+                link.series if link.series_id
+                else link.movie if link.movie_id
+                else None
+            )
+            if entity is None:
+                continue
+            work_ref = {
+                "kind": "series" if link.series_id else "movie",
+                "id": link.series_id or link.movie_id,
+            }
+            work_title = (
+                entity.title_cn or entity.title_en or entity.original_title
+            )
+            break
     return {
         "resource": FileResourceResponse.model_validate(resource).model_dump(),
         "channel_name": resource.channel.name if resource.channel else None,
-        "work_title": (
-            (resource.series.title_cn or resource.series.title_en)
-            if resource.series_id and resource.series
-            else (resource.movie.title_cn or resource.movie.title_en)
-            if resource.movie_id and resource.movie
-            else None
-        ),
+        "work_title": work_title,
+        "work_ref": work_ref,
         "kinds": list(confirmation.kinds),
         "missing_fields": list(confirmation.missing_fields),
     }

@@ -366,7 +366,9 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
     Torrent inspection intentionally runs before metadata matching.  This
     second pass closes that ordering gap without guessing: it only acts when
     the resource FK identifies exactly one series or movie, and never
-    overwrites manual/LLM provenance.
+    overwrites manual/LLM provenance.  Stale ``auto`` links pointing at
+    other works (left behind when the FK was re-pointed) are removed, and
+    the derived collection identity is settled onto the resource.
     """
     work_type = "series" if resource.series_id else "movie" if resource.movie_id else None
     work_id = resource.series_id or resource.movie_id
@@ -408,23 +410,75 @@ async def bind_single_work_assignments(db: AsyncSession, resource: FileResource)
             placement_changed = True
     if special_changed or placement_changed:
         resource.season_ranges = compute_season_ranges(resource)
-    if changed:
-        links = (await db.execute(
-            select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
-        )).scalars().all()
-        found = any(
+    links = (await db.execute(
+        select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+    )).scalars().all()
+    found = False
+    for link in links:
+        matches = (
             (work_type == "series" and link.series_id == work_id)
             or (work_type == "movie" and link.movie_id == work_id)
-            for link in links
         )
-        if not found:
-            db.add(ResourceWorkLink(
-                resource_id=resource.id,
-                series_id=work_id if work_type == "series" else None,
-                movie_id=work_id if work_type == "movie" else None,
-                source="auto",
-            ))
+        if matches:
+            found = True
+        elif link.source == "auto":
+            # The FK was re-pointed (manual relink / absolute-episode
+            # relocation): a stale auto link to the previous work is an
+            # orphan. manual/llm provenance is never touched.
+            await db.delete(link)
+    if changed and not found:
+        db.add(ResourceWorkLink(
+            resource_id=resource.id,
+            series_id=work_id if work_type == "series" else None,
+            movie_id=work_id if work_type == "movie" else None,
+            source="auto",
+        ))
+    await sync_resource_collection(db, resource)
     return changed
+
+
+async def sync_resource_collection(db: AsyncSession, resource: FileResource) -> None:
+    """Settle ``resource.collection_id`` from the associated works.
+
+    Only season-flavored scopes carry an implicit collection identity
+    (franchise packs own their collection semantics and movie packs have
+    none, so both are left alone):
+
+    - every associated work (legacy FK + work links) agrees on one non-null
+      collection → write it onto the resource;
+    - works disagree (spanning collections, or a null next to a non-null
+      one) → clear the resource's collection;
+    - no associated works at all → leave the column untouched (a parked
+      resource keeps its park state).
+    """
+    if resource.batch_scope not in (None, "season", "multi_season"):
+        return
+    work_refs: set[tuple[str, str]] = set()
+    if resource.series_id:
+        work_refs.add(("series", resource.series_id))
+    if resource.movie_id:
+        work_refs.add(("movie", resource.movie_id))
+    links = (await db.execute(
+        select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource.id)
+    )).scalars().all()
+    for link in links:
+        if link.series_id:
+            work_refs.add(("series", link.series_id))
+        elif link.movie_id:
+            work_refs.add(("movie", link.movie_id))
+    if not work_refs:
+        return
+    collection_ids: set[str | None] = set()
+    for work_type, work_id in work_refs:
+        work = await db.get(
+            TVSeries if work_type == "series" else Movie, work_id
+        )
+        if work is not None:
+            collection_ids.add(work.collection_id)
+    if len(collection_ids) > 1:
+        resource.collection_id = None
+    elif collection_ids and None not in collection_ids:
+        resource.collection_id = collection_ids.pop()
 
 
 _FRACTIONAL_SPECIAL_RE = re.compile(

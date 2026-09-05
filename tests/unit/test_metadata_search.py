@@ -13,6 +13,7 @@ from datetime import date
 from unittest.mock import AsyncMock, patch
 
 from app.models.series import TVSeries
+from app.models.work_collection import WorkCollection
 from app.services.external_ids import find_work_by_external_id
 from app.services.metadata_search import refresh_work_by_source
 
@@ -181,6 +182,38 @@ async def test_refresh_skips_season0_specials(db_session):
     search.assert_not_awaited()
 
 
+async def test_refresh_season0_fills_start_date_from_sibling(db_session):
+    """The season-0 skip still converges a NULL start_date deterministically
+    from the collection's non-specials members — without any network search,
+    and respecting manually_edited_fields."""
+    coll = WorkCollection(
+        id=_uuid(), title_cn="某作品", external_source="series_group",
+    )
+    s1 = TVSeries(
+        id=_uuid(), title_cn="某作品", content_type="tv", season_number=1,
+        collection_id=coll.id, start_date=date(2020, 1, 1),
+    )
+    work = TVSeries(
+        id=_uuid(), title_cn="某作品 OVA", content_type="tv", season_number=0,
+        collection_id=coll.id,
+    )
+    manual = TVSeries(
+        id=_uuid(), title_cn="某作品 SP2", content_type="tv", season_number=0,
+        collection_id=coll.id, manually_edited_fields=["start_date"],
+    )
+    db_session.add_all([coll, s1, work, manual])
+    await db_session.flush()
+    with patch(_SEARCH, new_callable=AsyncMock) as search:
+        result = await refresh_work_by_source(db_session, work, "tv", "bangumi")
+        result2 = await refresh_work_by_source(db_session, manual, "tv", "bangumi")
+    assert result["applied"] == ["start_date"]
+    assert work.start_date == date(2020, 1, 1)
+    assert "season-0" in result["message"]
+    assert result2["applied"] == []
+    assert manual.start_date is None
+    search.assert_not_awaited()
+
+
 async def test_refresh_never_steals_identity(db_session):
     """A candidate identity already owned by another work (column or bag) is
     skipped, not grabbed — season-blind matches must not create duplicates."""
@@ -225,7 +258,7 @@ async def test_refresh_identity_is_bag_only_even_with_override(db_session):
     }
     patches = _patch_search([candidate])
     with patches[0], patches[1], patches[2]:
-        result = await refresh_work_by_source(db_session, work, "tv", "tmdb")
+        await refresh_work_by_source(db_session, work, "tv", "tmdb")
     assert work.external_id is None
     assert work.external_source is None
     owner = await find_work_by_external_id(db_session, "series", "tmdb", "tmdb:555")

@@ -965,6 +965,36 @@ class TestFilterContext:
             {"field": "season", "operator": "eq", "value": 1}, ctx
         )
 
+    def test_batch_year_aggregates_earliest_across_works(self):
+        """合集快照含多 works 时 series.year 取各关联作品年份的最小值。"""
+        from app.services.filter_engine import evaluate_filter_config
+
+        payload = _batch_payload()
+        payload["works"] = {
+            "series:s-1": {**payload["work"], "year": 2026},
+            "series:s-0": {**payload["work"], "series_id": "s-0", "year": 2019},
+        }
+        ctx = build_filter_context(payload)
+        assert evaluate_filter_config(
+            {"field": "series.year", "operator": "eq", "value": 2019}, ctx
+        )
+
+    def test_non_batch_keeps_single_work_year(self):
+        """非合集快照不做 works 聚合——series.year 仍取主 work 自身年份。"""
+        from app.services.filter_engine import evaluate_filter_config
+
+        payload = {
+            **GITS_PAYLOAD,
+            "works": {
+                "series:s-1": {**GITS_PAYLOAD["work"], "year": 2026},
+                "series:s-0": {**GITS_PAYLOAD["work"], "series_id": "s-0", "year": 2019},
+            },
+        }
+        ctx = build_filter_context(payload)
+        assert evaluate_filter_config(
+            {"field": "series.year", "operator": "eq", "value": 2026}, ctx
+        )
+
 
 class TestContentTypeRuleMatching:
     """Regression: build_filter_context must populate the mutually-exclusive

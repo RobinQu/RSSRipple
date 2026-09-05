@@ -722,7 +722,9 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
     ANY component — directory or filename. Episode numbers are only trusted
     from the filename component: directory names frequently carry batch
     ranges (``01-12``) that would otherwise be misread as episode 12.
-    ``SxxEyy`` is recognized anywhere and yields both values. The filename
+    ``SxxEyy`` is recognized anywhere and yields both values — an explicit
+    ``SxxEyy`` in the filename overrides a season inherited from a directory
+    component. The filename
     episode forms cover ``[NN]``, ``- NN``, ``第N话`` and the BD-folder bare
     leading number (``S01/01 Title.mkv``). Either side of the returned pair
     may be None; both are None when nothing matches.
@@ -746,6 +748,13 @@ def extract_season_episode_from_path(path: str) -> tuple[int | None, int | None]
             season = _season_marker(comp)
 
     filename = components[-1]
+    # An explicit ``SxxEyy`` in the filename outranks a season inherited from
+    # a directory component: "Show S01/Show S00E01.mkv" is a special, not
+    # S01E01. ``_SPECIAL_EPISODE_RE`` below still wins over both.
+    m = _SXXEXX_RE.search(filename)
+    if m:
+        season = int(m.group(1))
+        episode = int(m.group(2))
     # Explicit special numbering is already a media-library canonical index,
     # so it is safe to map directly to Plex's Specials season.
     special = _SPECIAL_EPISODE_RE.search(filename)

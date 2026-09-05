@@ -398,12 +398,33 @@ def loaded_relation(resource: Any, rel_name: str) -> Any:
         return None
 
 
+def _links_year(resource: Any, rel_name: str) -> int | None:
+    """Earliest work year across the loaded link table.
+
+    Only already-loaded relationships are consulted; unloaded links/works and
+    works without a date contribute nothing, so the result is None and the
+    usual empty-value semantics apply.
+    """
+    date_attr = "release_date" if rel_name == "movie" else "start_date"
+    years: list[int] = []
+    for link in loaded_relation(resource, "work_links") or []:
+        work = loaded_relation(link, rel_name)
+        if work is None:
+            continue
+        d = getattr(work, date_attr, None)
+        if d:
+            years.append(d.year)
+    return min(years) if years else None
+
+
 def get_field_value(resource: Any, field: str) -> Any:
     """Get attribute from resource, supporting common ORM object access.
 
     Namespaced work fields (``movie.rating``, ``series.year`` …) resolve
     through the linked Movie/TVSeries; ``year`` derives from the work's
-    date field (Movie.release_date / TVSeries.start_date).
+    date field (Movie.release_date / TVSeries.start_date). When the flat
+    work FK is empty (links-carried packs), ``series.year``/``movie.year``
+    fall back to the earliest year across the loaded ``work_links`` works.
     """
     if field == "subtitle_groups":
         from app.services.subtitle_groups import subtitle_groups_for_resource
@@ -432,6 +453,11 @@ def get_field_value(resource: Any, field: str) -> Any:
         rel_name, attr = field.split(".", 1)
         related = loaded_relation(resource, rel_name)
         if related is None:
+            if attr == "year" and rel_name in ("series", "movie"):
+                # Links-carried packs (terminal multi-season) clear the flat
+                # work FKs and carry their works in ``resource_work_links``:
+                # fall back to the earliest year across all loaded link works.
+                return _links_year(resource, rel_name)
             return None
         if attr == "year":
             date_attr = "release_date" if rel_name == "movie" else "start_date"

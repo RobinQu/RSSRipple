@@ -20,11 +20,13 @@ import logging
 import re
 import time
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.movie import Movie
+from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.services.external_ids import merge_external_id_bags
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
@@ -136,6 +138,54 @@ async def link_movie_collection(
         movie.id, collection.title_cn, collection.external_id,
     )
     return collection
+
+
+async def try_absorb_shell_collection(
+    db: AsyncSession, collection: WorkCollection, work: TVSeries | Movie
+) -> bool:
+    """Absorb a single-member ``series_group`` shell collection into ``collection``.
+
+    Per-season model: a TV work upsert auto-creates a ``series_group`` shell
+    collection for its series, so two works of the same series can end up in
+    two separate shells. When ``work`` currently sits in such a single-member
+    shell and ``collection`` is the stronger/intended grouping, the shell is
+    absorbed instead of refusing the move: its identity-bag rows and aliases
+    merge into ``collection`` (deduped, the target's existing values win),
+    the empty shell is deleted, and ``work`` is re-pointed.
+
+    Returns True when the shell was absorbed; False when ``work``'s current
+    collection is not an absorbable shell (multi-member, or a non-
+    ``series_group`` source) — the caller decides the refusal semantics.
+    """
+    if not work.collection_id or work.collection_id == collection.id:
+        return False
+    shell = await db.get(WorkCollection, work.collection_id)
+    if shell is None or shell.external_source != "series_group":
+        return False
+    member_count = int((await db.execute(
+        select(func.count()).select_from(TVSeries).where(
+            TVSeries.collection_id == shell.id
+        )
+    )).scalar_one() or 0) + int((await db.execute(
+        select(func.count()).select_from(Movie).where(
+            Movie.collection_id == shell.id
+        )
+    )).scalar_one() or 0)
+    if member_count > 1:
+        return False
+    await merge_external_id_bags(db, collection, [shell])
+    aliases = list(collection.aliases or [])
+    for alias in shell.aliases or []:
+        if alias not in aliases:
+            aliases.append(alias)
+    if aliases:
+        collection.aliases = aliases
+    # Delete the shell BEFORE re-pointing the work: the ORM nullifies a
+    # deleted collection's member FKs at flush.
+    await db.delete(shell)
+    await db.flush()
+    work.collection_id = collection.id
+    return True
 
 
 async def collection_work_summaries(

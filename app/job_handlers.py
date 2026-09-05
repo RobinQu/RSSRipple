@@ -64,6 +64,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from app.models.agent_run import AgentRun
     from app.models.file_resource import FileResource
     from app.models.movie import Movie
+    from app.models.resource_work_link import ResourceWorkLink
     from app.models.series import TVSeries
     from app.services.agent_service import process_resources
     from app.utils.time import utcnow
@@ -189,12 +190,15 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 # movie.collection DSL fields, so chain-load it too; the
                 # resource's own collection feeds the resource-level
                 # ``collection`` field (franchise packs); work_links carry the
-                # works of links-only multi-season packs (per-season works).
+                # works of links-only multi-season packs (per-season works) —
+                # chain-load the works so the DSL year fields can aggregate
+                # across them.
                 .options(
                     selectinload(FileResource.series).selectinload(TVSeries.collection),
                     selectinload(FileResource.movie).selectinload(Movie.collection),
                     selectinload(FileResource.collection),
-                    selectinload(FileResource.work_links),
+                    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+                    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
                 )
                 .order_by(FileResource.created_at.asc())
             )

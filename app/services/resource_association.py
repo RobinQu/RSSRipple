@@ -11,9 +11,11 @@ pipelines rely on are enforced here:
   agent dedup coverage key reads that column); multi-work packs clear the
   legacy FKs and carry associations in ``resource_work_links`` only.
 - ``batch_scope`` is derived automatically: all-movie → "movies"; mixed
-  tv+movie or multi-tv → "franchise"; a single TV work → "season" when the
-  season evidence is unambiguous else "multi_season"; no works → keep the
-  current scope or fall back to "franchise".
+  tv+movie or series works spanning different collections → "franchise";
+  series works of one collection → "season" when the (non-special) season
+  evidence is unambiguous else "multi_season"; no works → keep the current
+  scope or fall back to "franchise". The collection identity is then settled
+  onto the resource from the linked works (season/multi_season scopes only).
 - Two-level association (per-season works): when a ``collection_id`` is
   submitted, every associated series work must belong to that collection.
 - Multi-work packs (>1 associated work) must be complete: every work has at
@@ -133,8 +135,15 @@ def _derive_batch_scope(
     resource: FileResource,
     work_keys: set[tuple[str, str]],
     assignments: list,
+    works_map: dict[tuple[str, str], TVSeries | Movie],
 ) -> str | None:
-    """Auto-derive ``batch_scope`` from the final works/placement state."""
+    """Auto-derive ``batch_scope`` from the final works/placement state.
+
+    Work-identity aware (per-season works): several series works spanning
+    different collections are a "franchise" pack; within one collection the
+    season set (member ``season_number`` ∪ placement/batch seasons, specials
+    season 0 excluded) decides "multi_season" (≥2 seasons) vs "season".
+    """
     if not resource.is_batch:
         return None
     types = {wt for wt, _ in work_keys}
@@ -142,13 +151,20 @@ def _derive_batch_scope(
         return resource.batch_scope or "franchise"
     if types == {"movie"}:
         return "movies"
-    if types == {"series"} and len(work_keys) == 1:
+    if types == {"series"}:
+        series_works = [works_map[key] for key in work_keys]
+        if len({w.collection_id for w in series_works}) > 1:
+            return "franchise"
         seasons: set[int] = set()
+        if len(work_keys) > 1:
+            for work in series_works:
+                if work.season_number:
+                    seasons.add(work.season_number)
         for a in assignments:
-            if a.season is not None:
+            if a.season:
                 seasons.add(a.season)
-        seasons.update(resource.batch_seasons or [])
-        if resource.season is not None:
+        seasons.update(s for s in (resource.batch_seasons or []) if s)
+        if resource.season:
             seasons.add(resource.season)
         return "multi_season" if len(seasons) >= 2 else "season"
     return "franchise"
@@ -455,7 +471,9 @@ async def apply_association_update(
 
     # 2) Resource-level flags + association tables.
     resource.is_batch = body.is_batch
-    resource.batch_scope = _derive_batch_scope(resource, work_keys, body.assignments)
+    resource.batch_scope = _derive_batch_scope(
+        resource, work_keys, body.assignments, works_map
+    )
 
     if body.is_batch:
         resource.episode = None
@@ -478,9 +496,16 @@ async def apply_association_update(
         # human-curated, so provenance becomes 'manual'.
         _apply_work_links(resource, work_keys)
 
-        _apply_assignments(db, resource, body)
+        from app.services.batch_content_analysis import (
+            compute_season_ranges,
+            sync_resource_collection,
+        )
 
-        from app.services.batch_content_analysis import compute_season_ranges
+        # Settle the derived collection identity from the linked works
+        # (may refine the submitted value; franchise/movies packs untouched).
+        await sync_resource_collection(db, resource)
+
+        _apply_assignments(db, resource, body)
 
         resource.season_ranges = compute_season_ranges(resource)
         if resource.batch_scope == "season":

@@ -74,6 +74,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 三个 `*_total` 均为对应待办的真实全量数，不受当前页 `page_size` 限制；三个页码相互独立，切换其中一个列表不会改变另两个列表的页位。Agent 决策总数与分页结果只计入候选数至少为 2 的有效多选一决策；文件资源确认总数与分页结果统一调用 Channel 确认策略计算，并排除 `confirmation_ignored_at` 非空的资源。
 
+`pending_confirmations` 条目结构 `{resource, channel_name, work_title, work_ref, kinds, missing_fields}`：`work_title`/`work_ref` 为标题展示与跳转目标，按 互斥作品 FK（series/movie）→ 挂载合集（`collection_id`，对应 `/collections/:id`）→ 合集包 `resource_work_links` 首个关联作品 的优先级取首个可用者，全空（未识别）则为 null（标题不可点击）。
+
 `untracked` 组：对每个下载器调用 `list_torrents`，筛选 `status ∈ {downloading, download pending}` 且 `is_finished=false` 且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name`；计入 `active_download_count`。
 
 ### Channels
@@ -456,7 +458,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 
 ### WorkCollections（作品合集）
 
-大 IP 系列分组（CRUD-lite）。一个作品至多属于一个合集；挂载已属其他合集的作品返回 409 DUPLICATE_SUBMISSION。
+大 IP 系列分组（CRUD-lite）。一个作品至多属于一个合集；挂载已属其他合集的作品返回 409 DUPLICATE_SUBMISSION——**例外**：当前合集为单成员 `external_source="series_group"` 壳合集（季作品 upsert 的自动产物）时，attach 直接吸收该壳（身份袋与 aliases 去重并入目标、目标已有值优先、删除空壳、作品重挂目标），多成员壳或其他 source 的合集仍 409。
 
 | Method | Path | 说明 |
 |--------|------|------|

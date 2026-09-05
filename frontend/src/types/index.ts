@@ -93,6 +93,9 @@ export interface ResourceWorkRef {
   description?: string | null;
   // Work-collection brief, present when the list query eager-loads it.
   collection?: { title_cn?: string | null; title_en?: string | null } | null;
+  // Serialized straight from the ORM object, so the column flows through
+  // (series: always set; movie: nullable).
+  collection_id?: string | null;
 }
 
 // FileResource
@@ -221,6 +224,10 @@ export interface ResourceWorkLinkItem {
   source: 'auto' | 'llm' | 'manual';
   work_title: string | null;
   poster_url: string | null;
+  // Resolved server-side from the linked work entity: its collection id and,
+  // for series works, the season the work IS (0 = specials).
+  collection_id: string | null;
+  season_number: number | null;
 }
 
 // resource_file_assignments row — per-file work/season/episode mapping.
@@ -1077,6 +1084,9 @@ export interface DashboardConfirmationItem {
   resource: FileResource;
   channel_name: string | null;
   work_title: string | null;
+  // Best library link target for the title: flat work FK first, then the
+  // parked collection, then the first work-link carried by a batch pack.
+  work_ref: { kind: 'series' | 'movie' | 'collection'; id: string } | null;
   kinds: ResourceConfirmationKind[];
   missing_fields: string[];
 }

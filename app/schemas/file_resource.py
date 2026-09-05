@@ -109,6 +109,12 @@ class ResourceWorkLinkItem(BaseModel):
     movie: Any | None = Field(default=None, exclude=True)
     work_title: str | None = None
     poster_url: str | None = None
+    # Resolved from the linked work entity: its work-collection id (series
+    # always have one; a movie's is nullable) and, for per-season series
+    # works, the season the work IS (0 = specials). Both feed the edit
+    # wizard's collection preselection and same-title season disambiguation.
+    collection_id: str | None = None
+    season_number: int | None = None
 
     @model_validator(mode="after")
     def _fill_work_display(self) -> "ResourceWorkLinkItem":
@@ -122,6 +128,8 @@ class ResourceWorkLinkItem(BaseModel):
                 entity.original_title or entity.title_cn or entity.title_en
             )
             self.poster_url = entity.poster_url
+            self.collection_id = getattr(entity, "collection_id", None)
+            self.season_number = getattr(entity, "season_number", None)
         return self
 
 

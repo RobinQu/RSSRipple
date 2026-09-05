@@ -5,12 +5,28 @@
 filter_overrides / enable_episode_dedup）。两边对同一批频道资源各跑一遍
 ``process_resources``（会话内 rollback，不落库）。
 
-已刻画并钉住的分歧（P6 发现）：迁移后非锚点季作品 ``start_date`` 为 NULL
-（规格：仅 S1 保留原值，其余待刷新），Channel 必选字段 ``year`` 门禁会把
-这些季的资源拦进待确认。迁移脚本已尽力离线推导（本季 Episode 最早
-air_date）；仍无证据的作品进入 pinned 集合 G——断言 G 中每条资源的门禁原因
-恰好只有 ``('year',)`` 且其季作品 start_date 为 NULL、迁移前并未被拦。
-剔除 G 后两边决策集合必须完全一致（计数器 / matched / dispatched /
+已刻画并钉住的分歧一（P6 发现，pinned 集合 G）：迁移后部分非锚点季作品
+``start_date`` 仍为 NULL（离线推导（本季 Episode 最早 air_date）与创建期
+兄弟日期兜底（同合集非特典成员最早 start_date）后仍无证据的季；规格：
+仅 S1 保留原值，其余待刷新），Channel 必选字段 ``year`` 门禁会把这些季
+的资源拦进待确认。G 由 ``_year_gated_resources`` 动态计算——断言 G 中每条
+资源的门禁原因恰好只有 ``('year',)`` 且其季作品 start_date 为 NULL、
+迁移前并未被拦。
+
+已刻画并钉住的分歧二（pinned 集合 G2）：订阅重指向的设计性范围损失。
+迁移把有完成下载历史的订阅从锚点季重指向到实际追更的季
+（``subscriptions_retargeted``，由该 Agent 完成下载最多的季胜出），被迁出
+的锚点季按迁移脚本设计**刻意不**回补订建议
+（scripts/season_split_migration.py:1089-1092 —— “suggesting it back
+would be noise”），runbook 补订阅后该季作品不再被 Agent 订阅。迁移按解析
+季号把资源重路由到对应季作品；仍挂在被迁出锚点作品上的频道资源
+（season-1 等无对应新季作品可路由的）迁移前在订阅范围内（filter 不命中
+则计 ``filter_failed``），迁移后 out-of-scope 静默跳过——两侧都不派发，
+仅计数口径不同。G2 由 ``_retarget_gap_resources`` 按迁移报告确定性计算，
+逐条钉证据（重指向季号、pre/post 订阅状态、pre filter 不命中、锚点季日期
+pre/post 一致——与特典日期兜底无关）。
+
+剔除 G 与 G2 后两边决策集合必须完全一致（计数器 / matched / dispatched /
 PendingDecision 键）；全量口径下迁移后不得出现迁移前不存在的新冲突
 （无新冲突误报）。
 
@@ -40,6 +56,7 @@ from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
 from app.models.series import TVSeries
 from app.services.agent_service import process_resources
+from app.services.filter_engine import evaluate_filter_config, merge_filters
 from app.services.organize_planner import DiskFile, PlanError, build_plan
 
 from .conftest import open_fixture_db, run_full_migration
@@ -88,7 +105,7 @@ def _transmission_patches():
 async def _run_dispatch(factory, *, exclude: set[str] | None = None) -> dict:
     """一次 agent 全量运行的可对比记录（会话整体 rollback，不落库）。
 
-    ``exclude``：从输入中剔除的资源 id（pinned year-门禁集合 G），用于
+    ``exclude``：从输入中剔除的资源 id（pinned 分歧集合 G/G2），用于
     迁移前后同口径对比。
     """
     async with factory() as db:
@@ -266,6 +283,103 @@ async def _year_gated_resources(post) -> dict[str, dict]:
         return gated
 
 
+async def _retarget_gap_resources(pre, post, reports) -> dict[str, dict]:
+    """pinned 集合 G2：订阅重指向的设计性范围损失（见文件头 docstring）。
+
+    返回 {资源 id: 证据 dict}。成员按 **post 库**确定：迁移把资源按解析季号
+    重路由到对应季作品，只有仍挂在被迁出锚点作品（``report.series_id``，
+    锚点按约定继承 legacy id）上的频道资源才真正失去订阅覆盖。pre/post
+    两侧的订阅、过滤与作品日期证据分别补齐。
+    """
+    retargeted = {
+        report.series_id: retarget
+        for report in reports
+        for retarget in report.subscriptions_retargeted
+        if retarget["agent_id"] == AGENT_ID
+    }
+    if not retargeted:
+        return {}
+    entries: dict[str, dict] = {}
+    async with post.factory() as db:
+        agent = await db.get(Agent, AGENT_ID, options=[selectinload(Agent.channel)])
+        channel_id = agent.channel_id
+        post_subs = set(
+            (
+                await db.execute(
+                    select(AgentWork.series_id).where(AgentWork.agent_id == AGENT_ID)
+                )
+            ).scalars().all()
+        )
+        resources = list(
+            (
+                await db.execute(
+                    select(FileResource)
+                    .where(
+                        FileResource.channel_id == channel_id,
+                        FileResource.series_id.in_(retargeted),
+                    )
+                    .options(selectinload(FileResource.series))
+                )
+            ).scalars().all()
+        )
+        for r in resources:
+            work = r.series
+            siblings = (
+                (
+                    await db.execute(
+                        select(TVSeries).where(
+                            TVSeries.collection_id == work.collection_id
+                        )
+                    )
+                ).scalars().all()
+                if work
+                else []
+            )
+            entries[r.id] = {
+                "title_raw": r.title_raw,
+                "work_id": r.series_id,
+                "retarget": retargeted[r.series_id],
+                "post_subscribed": r.series_id in post_subs,
+                "post_work_season": work.season_number if work else None,
+                "post_work_start_date": (
+                    work.start_date.isoformat() if work and work.start_date else None
+                ),
+                "collection_subscribed_seasons": sorted(
+                    w.season_number for w in siblings if w.id in post_subs
+                ),
+            }
+    async with pre.factory() as db:
+        agent = await db.get(Agent, AGENT_ID, options=[selectinload(Agent.channel)])
+        pre_aw = {
+            aw.series_id: aw
+            for aw in (
+                await db.execute(
+                    select(AgentWork).where(AgentWork.agent_id == AGENT_ID)
+                )
+            ).scalars().all()
+        }
+        for rid, entry in entries.items():
+            r = await db.get(
+                FileResource,
+                rid,
+                options=[
+                    selectinload(FileResource.series).selectinload(TVSeries.collection),
+                    selectinload(FileResource.movie).selectinload(Movie.collection),
+                    selectinload(FileResource.collection),
+                    selectinload(FileResource.work_links),
+                ],
+            )
+            aw = pre_aw.get(entry["work_id"])
+            effective = merge_filters(
+                agent.filter_config, aw.filter_overrides if aw else None
+            )
+            entry["pre_subscribed"] = aw is not None
+            entry["pre_filter_passed"] = (
+                evaluate_filter_config(effective, r) if effective else True
+            )
+    return entries
+
+
 def _disk_files(payload: dict) -> list[DiskFile]:
     """从快照的 files 清单合成磁盘文件（planner 为纯函数，不读盘）。"""
     task = payload.get("task") or {}
@@ -310,7 +424,7 @@ async def _completed_notifications(db) -> dict[str, dict]:
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def world(tmp_path_factory):
-    """pre/post 双库世界：迁移前基线 + 迁移后重放 + pinned 门禁集合 G。"""
+    """pre/post 双库世界：迁移前基线 + 迁移后重放 + pinned 分歧集合 G/G2。"""
     async with open_fixture_db(
         tmp_path_factory.mktemp("pre") / "fixture.db"
     ) as pre:
@@ -326,11 +440,12 @@ async def world(tmp_path_factory):
             reports = await run_full_migration()
             subs_added = await _clone_suggested_subscriptions(post, reports)
             gated = await _year_gated_resources(post)
+            gaps = await _retarget_gap_resources(pre, post, reports)
 
-            g = set(gated)
-            pre_reduced = await _run_dispatch(pre.factory, exclude=g)
+            excluded = set(gated) | set(gaps)
+            pre_reduced = await _run_dispatch(pre.factory, exclude=excluded)
             post_full = await _run_dispatch(post.factory)
-            post_reduced = await _run_dispatch(post.factory, exclude=g)
+            post_reduced = await _run_dispatch(post.factory, exclude=excluded)
 
             # 通知重生成：mock RPC 回放各任务冻结快照里的文件清单（不降级）。
             async with post.factory() as db:
@@ -388,6 +503,7 @@ async def world(tmp_path_factory):
                 post_full=post_full,
                 post_reduced=post_reduced,
                 gated=gated,
+                gaps=gaps,
                 subs_added=subs_added,
                 regen_stats=regen_stats,
                 pre_plans=pre_plans,
@@ -398,7 +514,8 @@ async def world(tmp_path_factory):
 
 async def test_year_gate_divergence_is_fully_characterized(world):
     """pinned 集合 G：每条恰好只因缺 year 被拦、季作品 start_date 为 NULL、
-    且迁移前并未被拦（纯迁移产物，非存量问题）。"""
+    且迁移前并未被拦（纯迁移产物，非存量问题）。G 动态计算——离线推导与
+    创建期兄弟日期兜底之后仍无日期证据的作品才进入。"""
     assert world.gated, "预期存在 year 门禁分歧（start_date 待刷新的季作品）"
     for rid, evidence in world.gated.items():
         assert evidence["work_id"] is not None
@@ -411,8 +528,34 @@ async def test_year_gate_divergence_is_fully_characterized(world):
     )
 
 
+async def test_retarget_scope_gap_is_fully_characterized(world):
+    """pinned 集合 G2：订阅重指向的设计性范围损失。每条都是「被重指向迁出
+    的锚点季」上的资源——pre 口径在订阅范围内但 filter 不命中（计
+    filter_failed），post 口径该季作品不再被订阅（out-of-scope 静默跳过，
+    两侧都不派发）。这是迁移脚本的设计语义（重指向由下载历史驱动、被迁出
+    的季刻意不回建议），非回归。"""
+    assert set(world.gaps) == {"e18ddf27-d85c-492d-b0eb-5bde61afb7f7"}
+    entry = world.gaps["e18ddf27-d85c-492d-b0eb-5bde61afb7f7"]
+    # 重指向证据：锚点 S1 → S3（该 Agent 的完成下载落在 S3）。
+    assert entry["work_id"] == "cea6a72d-5892-400e-995b-9c63f0cdc56f"
+    assert entry["retarget"]["from_season"] == 1
+    assert entry["retarget"]["to_season"] == 3
+    assert entry["retarget"]["completed_downloads"] >= 1
+    # pre 口径：legacy 订阅覆盖该作品（在 scope）但 filter 不命中——恰是
+    # filter_failed 197 vs 196 的那一条。
+    assert entry["pre_subscribed"] is True
+    assert entry["pre_filter_passed"] is False
+    # post 口径：合集其他季都被订阅（S3 重指向 + S2 runbook 补订），只有
+    # 被迁出的锚点季失去订阅 → out-of-scope。
+    assert entry["post_subscribed"] is False
+    assert entry["post_work_season"] == 1
+    assert entry["collection_subscribed_seasons"] == [2, 3]
+    # 与特典日期兜底无关：锚点季保留原始首播日期，pre/post 一致。
+    assert entry["post_work_start_date"] == "2023-10-08"
+
+
 async def test_dispatch_equivalent_after_runbook_steps(world):
-    """剔除 G 后（同口径）：计数器 / matched / dispatched / 决策集合全等。"""
+    """剔除 G 与 G2 后（同口径）：计数器 / matched / dispatched / 决策集合全等。"""
     assert world.post_reduced["errors"] == world.pre_reduced["errors"] == []
     assert world.post_reduced["counters"] == world.pre_reduced["counters"]
     assert world.post_reduced["matched_ids"] == world.pre_reduced["matched_ids"]

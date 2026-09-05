@@ -843,6 +843,56 @@ class TestWorkFieldEvaluation:
         assert get_field_value(res, "movie.year") == 2018
         assert get_field_value(res, "series.rating") is None
 
+    def test_links_carried_pack_year_aggregates_min(self):
+        """Links-carried 合集包（FK 全清，works 在 links 上）：series.year
+        取全部已加载 link 作品的最早年份。"""
+        import datetime as _dt
+
+        links = [
+            SimpleNamespace(series_id="s-0", movie_id=None,
+                            series=_work(start_date=None)),
+            SimpleNamespace(series_id="s-2", movie_id=None,
+                            series=_work(start_date=_dt.date(2024, 1, 1))),
+            SimpleNamespace(series_id="s-1", movie_id=None,
+                            series=_work(start_date=_dt.date(2020, 4, 1))),
+        ]
+        res = _res(series=None, movie=None, work_links=links)
+        assert get_field_value(res, "series.year") == 2020
+        assert evaluate_field_condition(
+            {"field": "series.year", "operator": "eq", "value": 2020}, res) is True
+        assert evaluate_field_condition(
+            {"field": "series.year", "operator": "gte", "value": 2021}, res) is False
+
+    def test_links_carried_pack_movie_year_aggregates_min(self):
+        import datetime as _dt
+
+        links = [
+            SimpleNamespace(series_id=None, movie_id="m-2",
+                            movie=_work(release_date=_dt.date(2023, 1, 1))),
+            SimpleNamespace(series_id=None, movie_id="m-1",
+                            movie=_work(release_date=_dt.date(2019, 1, 1))),
+        ]
+        res = _res(work_links=links)
+        assert get_field_value(res, "movie.year") == 2019
+
+    def test_links_unloaded_year_is_empty(self):
+        # FK cleared and the link table not loaded → None → the usual
+        # empty-value semantics (positive ops fail, is_empty matches).
+        res = _res()
+        assert get_field_value(res, "series.year") is None
+        assert evaluate_field_condition(
+            {"field": "series.year", "operator": "is_empty"}, res) is True
+        assert evaluate_field_condition(
+            {"field": "series.year", "operator": "eq", "value": 2020}, res) is False
+
+    def test_links_without_dates_year_is_none(self):
+        links = [
+            SimpleNamespace(series_id="s-0", movie_id=None,
+                            series=_work(start_date=None)),
+        ]
+        res = _res(work_links=links)
+        assert get_field_value(res, "series.year") is None
+
 
 # ---------------------------------------------------------------------------
 # Batch 3: series.collection / movie.collection DSL fields

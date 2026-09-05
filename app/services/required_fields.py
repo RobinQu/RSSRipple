@@ -335,6 +335,18 @@ def _linked_work(resource: Any) -> tuple[str | None, Any | None]:
     return None, None
 
 
+def _linked_works_year(resource: Any) -> int | None:
+    """Earliest year across ALL loaded link works (not just the first) — a
+    links-carried pack's release window opens with its oldest work."""
+    ns = SimpleNamespace(work_links=loaded_relation(resource, "work_links") or [])
+    years = [
+        y
+        for y in (get_field_value(ns, "series.year"), get_field_value(ns, "movie.year"))
+        if y is not None
+    ]
+    return min(years) if years else None
+
+
 def _semantic_field_value(resource: Any, key: str) -> Any:
     """Resolve one catalog key to the value relevant to this resource."""
     fields = REQUIRED_FIELD_CATALOG[key]["dsl_fields"]
@@ -353,7 +365,14 @@ def _semantic_field_value(resource: Any, key: str) -> Any:
         field = next((f for f in fields if f.startswith("movie.")), fields[0])
         return get_field_value(resource, field)
     kind, work = _linked_work(resource)
-    if kind is None or work is None:
+    if kind is None:
+        return None
+    if key == "year":
+        # Aggregate across every link work, not just the first — the first
+        # link may carry a date-less work (e.g. a specials season) while a
+        # later one carries the year.
+        return _linked_works_year(resource)
+    if work is None:
         return None
     field = next((f for f in fields if f.startswith(f"{kind}.")), fields[0])
     return get_field_value(SimpleNamespace(**{kind: work}), field)

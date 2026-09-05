@@ -812,3 +812,25 @@ def test_normalize_does_not_override_title_year():
         {"title_year": 1995},
     )
     assert out["title_year"] == 1995
+
+
+# =============================================================================
+# extract_season_episode_from_path: filename SxxEyy outranks directory season
+# =============================================================================
+
+def test_filename_sxxexx_overrides_directory_season():
+    from app.services.resource_parser import extract_season_episode_from_path
+    # Downloader-RPC shape: root directory carries S01, the filename's
+    # explicit S00E01 marks a special — it must not be swallowed into S01E01.
+    assert extract_season_episode_from_path(
+        "[BDrip] Show S01 [Group]/Show 2014 S00E01-x.mkv"
+    ) == (0, 1)
+
+
+def test_directory_season_inherited_without_filename_marker():
+    from app.services.resource_parser import extract_season_episode_from_path
+    # Regression: no explicit SxxEyy in the filename keeps the directory
+    # season inheritance unchanged.
+    assert extract_season_episode_from_path(
+        "[BDrip] Show S02 [Group]/Show 2014 - 07.mkv"
+    ) == (2, 7)
