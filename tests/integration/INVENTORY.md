@@ -57,7 +57,6 @@ tests/integration/
   external/                        # 直连 Python + 真实外部 API（无需 docker 栈，只需 API key）
     __init__.py
     test_metadata_agent_accuracy.py     # MetadataAgent.process_title_only 对 ground_truth_v1 准确率（LLM）
-    test_metadata_search_agent.py       # search_metadata 多源（22 标题）+ _search_tmdb TMDB-only（17 CBC 标题）合并
   organize/                        # organize 子系统进程内集成测试（无需 docker 栈；CI 的 test-runner 一并收集）
     __init__.py
     conftest.py                    # 复用 tests/unit/conftest.py 的 DB fixtures + 共享卷/RPC/Plex mock fixtures
@@ -127,7 +126,6 @@ tests/integration/
 | http/test_notifications_api_coverage.py | 8 |
 | http/test_misc_coverage.py | 11 |
 | external/test_metadata_agent_accuracy.py | 5 |
-| external/test_metadata_search_agent.py | 6 |
 | organize/test_organize_pipeline.py | 6 |
 | organize/test_notify_service_coverage.py | 14 |
 | organize/test_scheduler_coverage.py | 7 |
@@ -137,7 +135,7 @@ tests/integration/
 | metadata/test_auth_service_coverage.py | 5 |
 | test_metadata_core_integration.py | 85 |
 | eval/test_api.py | 31 |
-| **合计** | **268** |
+| **合计** | **262** |
 
 ## 3. 重组做了什么
 
@@ -151,7 +149,6 @@ tests/integration/
 - `test_metadata_search_agent_integration.py::test_tmdb_chinese_title_spirited_away`（1）：在 22 标题数据集内。
 
 ### 合并 / 拆分 / 重命名
-- `test_metadata_search_agent_integration.py` + `test_tmdb_dataset.py` -> `external/test_metadata_search_agent.py`（多源 + TMDB-only 合并）。
 - `test_metadata_pipeline.py` -> `http/test_metadata_api.py`（改名，反映其只测 metadata API）。
 
 ### Helper 去重

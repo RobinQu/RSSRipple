@@ -64,7 +64,6 @@ pytest_add_cli_args_test_selection = ["tests/unit"]
 also_copy = ["scripts", ".coveragerc"]
 only_mutate = [
     "app/services/text_normalizer.py",
-    "app/services/url_tools.py",
     "app/services/anime_signals.py",
     "app/services/wikipedia_episode_parser.py",
     "app/services/metadata_wiki_classify.py",

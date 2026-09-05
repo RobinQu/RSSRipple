@@ -6,6 +6,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.movie import Movie
@@ -16,15 +17,29 @@ from app.services.external_ids import add_external_id, find_work_by_external_id
 from app.services.genre_registry import normalize_genres
 from app.services.metadata_service import (
     _parse_date,
-    _safe_float,
-    _safe_int,
+    _work_end_date,
+    _work_start_date,
     download_and_cache_poster,
     manual_search_metadata,
     manually_edited_fields,
     upsert_episodes,
 )
-from app.services.metadata_source_registry import REGISTRY_SOURCES
+from app.services.metadata_source_registry import REGISTRY_SOURCES, granularity_of
 from app.services.metadata_sources import is_metadata_source_available
+
+
+def _safe_float(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(v: Any) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 _COMMON_FIELDS: tuple[tuple[str, str, Any], ...] = (
     ("title_cn", "title_cn", str),
@@ -97,9 +112,15 @@ def _candidate_from_result(
 
 
 async def search_metadata_candidates(
-    db: AsyncSession, request: MetadataSearchRequest
+    db: AsyncSession, request: MetadataSearchRequest, *, season_hint: int | None = None
 ) -> list[MetadataCandidate]:
-    """Search one local or external source without mutating application data."""
+    """Search one local or external source without mutating application data.
+
+    ``season_hint`` is the season number of the work being refreshed (the
+    batch/periodic refresh passes the target work's own ``season_number``) —
+    it keeps season-granular sources (bangumi) from matching the season-1
+    entry for a season>1 work.
+    """
     if request.mode == "online" and not is_metadata_source_available(request.source or ""):
         raise HTTPException(status_code=400, detail="metadata source is not available")
     source = "local" if request.mode == "local" else request.source
@@ -109,6 +130,7 @@ async def search_metadata_candidates(
         request.content_type,
         source,
         request.trusted_sites,
+        season_hint=season_hint,
     )
     # Manual search historically returned another type when no preferred
     # candidate existed. The public boundary is now strict.
@@ -147,6 +169,14 @@ async def preview_work_metadata(
     if work is None:
         raise HTTPException(status_code=404, detail="work not found")
     values = _candidate_values(candidate)
+    if content_type == "tv":
+        # Season-scoped dates (same semantics as the upsert path): a
+        # series-level entity's premiere/finale belongs to season 1 and must
+        # never be written into a later-season work.
+        season = getattr(work, "season_number", None) or 1
+        granularity = granularity_of(candidate.identity_source, "tv") or "series"
+        values["start_date"] = _work_start_date(values, season, granularity)
+        values["end_date"] = _work_end_date(values, season, granularity)
     manual = manually_edited_fields(work)
     fields = _COMMON_FIELDS + (_MOVIE_FIELDS if content_type == "movie" else _TV_FIELDS)
     changes: list[dict[str, Any]] = []
@@ -185,6 +215,10 @@ async def preview_work_metadata(
         protected = field in manual and not override_manual_edits
         changes.append({"field": field, "current": current, "incoming": incoming,
                         "protected": protected, "action": "skip" if protected else "update"})
+    # Identity is creator-wins and bag-only: the candidate's
+    # external_id/external_source go to the WorkExternalId bag in
+    # apply_work_metadata, NEVER onto the primary columns (even when empty) —
+    # so they are deliberately not previewed here.
     # ``seasons`` / ``number_of_seasons`` are inert orphan columns in the
     # per-season work model — never previewed or written here.
     return {"changes": changes, "warnings": []}
@@ -207,6 +241,19 @@ async def apply_work_metadata(
     )
     if owner is not None and owner.id != work.id:
         raise HTTPException(status_code=409, detail="external identity belongs to another work")
+    if candidate.external_id:
+        # The bag lookup above misses ids only held in another work's PRIMARY
+        # column (never bagged) — check the column too before filling it.
+        model = Movie if work_type == "movie" else TVSeries
+        column_taken = (await db.execute(
+            select(model.id).where(
+                model.external_id == candidate.external_id, model.id != work.id,
+            )
+        )).first()
+        if column_taken:
+            raise HTTPException(
+                status_code=409, detail="external identity belongs to another work",
+            )
     other_type = "series" if work_type == "movie" else "movie"
     if await find_work_by_external_id(
         db, other_type, candidate.identity_source, candidate.external_id
@@ -257,3 +304,81 @@ async def apply_work_metadata(
             await upsert_episodes(db, work, values["episode_list"])
     await db.commit()
     return {"applied": applied, "skipped": [c["field"] for c in preview["changes"] if c["action"] == "skip"]}
+
+
+async def refresh_work_by_source(
+    db: AsyncSession,
+    work: TVSeries | Movie | None,
+    content_type: str,
+    source: str,
+    *,
+    trusted_sites: list[str] | None = None,
+    override_manual_edits: bool = False,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Re-search one work against ``source`` and apply the best candidate.
+
+    This is THE single refresh execution path: the manual batch endpoint and
+    the per-channel periodic refresh (both via ``_refresh_works_batch``) and
+    maintenance scripts all funnel through here. Season works are searched
+    with their own ``season_number`` as ``season_hint`` (bangumi season-aware
+    auto-link/judge picks the right season's entry) and dates are written
+    back with season-level semantics inside ``preview_work_metadata`` — a
+    series-level entity's premiere belongs to season 1 and never lands on a
+    later-season work. Season-0 specials works are skipped: a title search
+    would match the MAIN entry and stuff its series-level data (premiere,
+    episode count, identity) into the specials work.
+    """
+    if work is None:
+        return {"found": False, "applied": [], "message": "work not found"}
+    season = getattr(work, "season_number", None) if content_type == "tv" else None
+    if season == 0:
+        return {
+            "found": True, "applied": [],
+            "message": "season-0 specials work — refresh skipped",
+        }
+    query = next((value for value in (
+        getattr(work, "title_en", None), getattr(work, "title_cn", None),
+        getattr(work, "original_title", None),
+    ) if value), None)
+    if not query:
+        return {"found": False, "applied": [], "message": "no title available to search"}
+    candidates = await search_metadata_candidates(
+        db,
+        MetadataSearchRequest(
+            query=query, content_type=content_type, mode="online",
+            source=source, trusted_sites=trusted_sites,
+        ),
+        season_hint=season,
+    )
+    candidate = next(
+        (c for c in candidates if c.selectable and not c.metadata.get("ambiguous")), None
+    )
+    if candidate is None:
+        return {"found": False, "applied": [], "message": "no deterministic candidate"}
+    echo = {
+        "title_cn": candidate.title_cn,
+        "title_en": candidate.title_en,
+        "external_id": candidate.external_id,
+        "external_source": candidate.identity_source,
+    }
+    try:
+        applied = await apply_work_metadata(
+            db, work.id, content_type, candidate,
+            override_manual_edits=override_manual_edits, only_missing=only_missing,
+        )
+    except HTTPException as e:
+        if e.status_code == 409:
+            # The matched identity belongs to another work — never steal it;
+            # the pair is a dedup candidate (merge via POST /works/merge).
+            return {
+                "found": True, "applied": [], "identity_conflict": True,
+                "message": str(e.detail), "candidate": echo,
+            }
+        raise
+    label = candidate.title_cn or candidate.title_en or candidate.original_title or ""
+    return {
+        "found": True, **applied,
+        "message": f"matched: {label}" if label else "matched",
+        "candidate": echo,
+    }

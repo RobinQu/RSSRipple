@@ -73,7 +73,6 @@ from app.services.text_normalizer import (
     partial_similarity_score,
     similarity_score,
 )
-from app.services.url_tools import keep_k_per_hostname, normalize_url
 from app.services.wikidata_collection import (
     _entity_titles,
     _normalize_title,
@@ -418,30 +417,6 @@ class TestWikiClassify:
             matched_entity={"external_source": "tmdb", "external_id": "tmdb:1"},
         )
         assert _validate_matched_entity_kind(meta2).found is True
-
-
-# ---------------------------------------------------------------------------
-# url_tools
-# ---------------------------------------------------------------------------
-
-
-class TestUrlTools:
-    def test_normalize_url(self):
-        assert normalize_url("http://Example.com/Path/?utm_source=x&a=1") == "https://example.com/Path?a=1"
-        assert normalize_url("https://example.com/path/") == "https://example.com/path"
-        assert normalize_url("not-a-url") is None
-        assert normalize_url("") is None
-
-    def test_keep_k_per_hostname(self):
-        items = [
-            {"url": "https://a.example/1"},
-            {"url": "https://a.example/2"},
-            {"url": "https://a.example/3"},
-            {"url": "https://b.example/1"},
-        ]
-        assert [i["url"] for i in keep_k_per_hostname(items, 2)] == [
-            "https://a.example/1", "https://a.example/2", "https://b.example/1",
-        ]
 
 
 # ---------------------------------------------------------------------------

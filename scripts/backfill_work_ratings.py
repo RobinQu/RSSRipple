@@ -4,8 +4,8 @@ Unlike the other one-off scripts this one does NOT open the database
 directly: the embedded-Turso backend takes a single-process exclusive file
 lock, and the dev server (uvicorn) already holds it. Instead it drives the
 running server's REST API, so all metadata fetching still goes through the
-project's own ``refresh_work_metadata`` service (TMDB/Exa/Jina/Wikipedia
-search agents) — no direct calls to external APIs from here.
+project's own search → apply pipeline (``POST /metadata/search`` →
+``POST /works/metadata/apply``) — no direct calls to external APIs from here.
 
 Flow:
   1. Resolve the channel (id or case-insensitive name substring).
@@ -13,8 +13,9 @@ Flow:
      ``movie_id``s (also reports unlinked / series-linked counts).
   3. Page through ``GET /works?content_type=movie`` and pick the linked
      movies whose ``rating`` or ``release_date`` is empty.
-  4. For each target, ``POST /works/refresh-metadata`` (fills only empty
-     fields — idempotent, existing values are preserved).
+  4. For each target, search online and apply the first selectable candidate
+     (apply fills every non-manual field the candidate carries; existing
+     manually edited values are preserved).
   5. Re-read the works and print a before/after summary.
 
 Dry-run by default; pass --apply to execute the refreshes.
@@ -127,15 +128,26 @@ def main() -> None:
     todo = targets[: args.limit] if args.limit > 0 else targets
     ok, failed = 0, []
     for i, w in enumerate(todo, 1):
+        title = w["title_en"] or w["title_cn"] or w.get("original_title") or w["id"]
         try:
-            d = _post(base, "/works/refresh-metadata", {
-                "id": w["id"], "content_type": "movie", "source": args.source,
+            searched = _post(base, "/metadata/search", {
+                "query": title, "content_type": "movie",
+                "mode": "online", "source": args.source,
             })["data"]
-            filled = d.get("filled", [])
-            print(f"[{i}/{len(todo)}] {w['title_en'] or w['title_cn']!r}: filled={filled} ({d.get('message')})")
+            candidate = next(
+                (c for c in searched.get("candidates", []) if c.get("selectable")), None,
+            )
+            if candidate is None:
+                print(f"[{i}/{len(todo)}] {title!r}: no selectable candidate")
+                failed.append((w["id"], "no selectable candidate"))
+                continue
+            d = _post(base, "/works/metadata/apply", {
+                "id": w["id"], "content_type": "movie", "candidate": candidate,
+            })["data"]
+            print(f"[{i}/{len(todo)}] {title!r}: applied={d.get('applied')} ({d.get('message', 'applied')})")
             ok += 1
         except (urllib.error.URLError, RuntimeError, TimeoutError) as e:
-            print(f"[{i}/{len(todo)}] {w['title_en'] or w['title_cn']!r}: FAILED {e}")
+            print(f"[{i}/{len(todo)}] {title!r}: FAILED {e}")
             failed.append((w["id"], str(e)))
 
     works_after = {w["id"]: w for w in _paged(base, "/works", content_type="movie")}

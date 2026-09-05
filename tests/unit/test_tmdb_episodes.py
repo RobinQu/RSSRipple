@@ -345,13 +345,19 @@ async def test_tmdb_title_only_uses_default_fallback_order(monkeypatch):
     assert meta.found is True
 
 
-async def test_non_tmdb_sources_do_not_use_fallback(monkeypatch):
+async def test_legacy_channel_source_normalizes_to_wikipedia(monkeypatch):
+    """Deprecated channel sources (jina/exa/local) are normalized to wikipedia
+    by ``resolve_metadata_source``: the resource goes through the wikipedia
+    search-then-judge path — never ReAct, and no agent-level web fallback on
+    top (the wiki judge runs its own fallback internally)."""
     fb = AsyncMock(return_value=_FB_FOUND)
     monkeypatch.setattr(ma, "web_fallback_judge", fb)
     agent = _patched_agent()
-    agent._run_react.return_value = _react_not_found()
+    agent._run_search_then_judge = AsyncMock(return_value=_react_not_found())
     channel = SimpleNamespace(id="ch", metadata_source="jina", name="c", metadata_fallback_sources=None)
     await agent.process(_ns_resource(), channel, MagicMock())
+    agent._run_search_then_judge.assert_awaited_once()
+    agent._run_react.assert_not_awaited()
     fb.assert_not_awaited()
 
 

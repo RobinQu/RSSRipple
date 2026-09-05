@@ -2,7 +2,7 @@
 
 Pure leaf module - no DB, no LLM, no LangGraph. Extracted verbatim from
 metadata_agent.py (Phase 0 leaf extraction): the ReAct system prompt that
-drives TMDB/Jina resolution, and the single-LLM-judge system prompts used
+drives TMDB/Wikipedia resolution, and the single-LLM-judge system prompts used
 by the Wikipedia search-first path and the web-search fallback.
 """
 from __future__ import annotations
@@ -295,7 +295,7 @@ matching this schema:
   "resolution": "string|null",
   "matched_entity": {
     "external_id": "string|null",
-    "external_source": "bangumi|tmdb|mal|anilist|imdb|baidu_baike|douban|eiga|wikipedia|exa_web",
+    "external_source": "wikipedia|tmdb|bangumi|mal|anilist|imdb|douban|exa_web",
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "wikipedia_url": "...", "url": "...",
     "genre": ["<from the ## genre list below>", ...],

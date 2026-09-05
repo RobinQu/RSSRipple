@@ -1,9 +1,7 @@
-"""Single-source metadata search helpers.
+"""TMDB metadata search helpers.
 
-TMDB is exposed as an independent data source. Callers choose one source explicitly;
-this module no longer performs layered fallback search.
-
-All sources produce a uniform ``MetadataCandidate`` dict that drops into the
+Callers choose one source explicitly; this module performs no layered
+fallback search. Results are uniform candidate dicts that drop into the
 existing ``create_or_update_*_from_external()`` functions unchanged.
 """
 
@@ -12,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from functools import lru_cache
-from typing import Any, TypedDict
+from typing import Any
 
 import httpx
 from httpx import HTTPStatusError, TimeoutException
@@ -22,32 +20,6 @@ from app.services.genre_registry import TMDB_ID_TO_NAME
 from app.services.runtime_config import runtime_config
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# TypedDict
-# ---------------------------------------------------------------------------
-
-
-class MetadataCandidate(TypedDict, total=False):
-    content_type: str  # "tv" | "movie"
-    title_cn: str | None
-    title_en: str | None
-    original_title: str | None
-    description: str | None
-    poster_url: str | None
-    year: int | None
-    rating: float | None
-    genre: list[str]
-    status: str | None
-    external_id: str
-    external_source: str
-    number_of_episodes: int | None
-    number_of_seasons: int | None
-    start_date: str | None
-    end_date: str | None
-    release_date: str | None
-    runtime: int | None
-    is_anime: bool | None  # deterministic TMDB verdict (see anime_signals)
 
 
 # ---------------------------------------------------------------------------
@@ -367,134 +339,8 @@ async def _search_tmdb(title: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _to_plain_obj(value: Any) -> Any:
-    """Convert Pydantic/SDK objects into plain JSON-like values for logs/parsing."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        return [_to_plain_obj(v) for v in value]
-    if isinstance(value, tuple):
-        return [_to_plain_obj(v) for v in value]
-    if isinstance(value, dict):
-        return {str(k): _to_plain_obj(v) for k, v in value.items()}
-    model_dump = getattr(value, "model_dump", None)
-    if callable(model_dump):
-        try:
-            return model_dump(by_alias=True, exclude_none=True)
-        except TypeError:
-            return model_dump()
-    if hasattr(value, "__dict__"):
-        return {
-            k: _to_plain_obj(v)
-            for k, v in vars(value).items()
-            if not k.startswith("_")
-        }
-    return repr(value)
-
-
-def _compact_obj(value: Any, max_len: int = 800) -> str:
-    """Render a compact, bounded JSON-ish string for verbose eval logs."""
-    import json
-
-    try:
-        text = json.dumps(_to_plain_obj(value), ensure_ascii=False, default=str)
-    except TypeError:
-        text = repr(value)
-    if len(text) > max_len:
-        return text[:max_len] + "...<truncated>"
-    return text
-
-
 def _validate_candidate(c: dict[str, Any]) -> bool:
     """Return True if the candidate has enough information to be useful."""
     has_title = bool(c.get("title_cn") or c.get("title_en") or c.get("original_title"))
     has_content_type = c.get("content_type") in ("tv", "movie")
     return has_title and has_content_type
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _parse_year(value: object) -> int | None:
-    if not value:
-        return None
-    s = str(value).strip()
-    if len(s) >= 4 and s[:4].isdigit():
-        return int(s[:4])
-    return None
-
-
-def _fmt_date(value: object) -> str | None:
-    if not value:
-        return None
-    s = str(value).strip()
-    if len(s) >= 10 and s[4] == "-":
-        return s[:10]
-    if len(s) == 4 and s.isdigit():
-        return f"{s}-01-01"
-    return None
-
-
-async def _validate_poster_url(url: str | None, max_retries: int = 3) -> str | None:
-    """Validate a poster URL is a real, accessible image. Returns URL or None."""
-    if not url:
-        return None
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.head(url, follow_redirects=True)
-                if resp.status_code == 200:
-                    ct = resp.headers.get("content-type", "")
-                    if ct.startswith("image/"):
-                        return url
-                elif resp.status_code in (403, 405):
-                    resp2 = await client.get(url, headers={"Range": "bytes=0-0"}, follow_redirects=True)
-                    if resp2.status_code in (200, 206):
-                        ct = resp2.headers.get("content-type", "")
-                        if ct.startswith("image/"):
-                            return url
-        except Exception:
-            if attempt == max_retries - 1:
-                return None
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-
-async def search_metadata(
-    title: str,
-    data_source_type: str = "tmdb",
-) -> list[dict[str, Any]]:
-    """Search one selected metadata source.
-
-    Returns a list of candidate dicts (same shape as legacy ``search_metadata_via_llm``)
-    so callers in ``metadata_service`` work unchanged.
-    """
-    if not title or not title.strip():
-        return []
-
-    source = (data_source_type or "tmdb").strip().lower()
-    if source == "combined":
-        source = "tmdb"
-
-    if source == "tmdb":
-        try:
-            merged = await _search_tmdb(title)
-        except Exception as e:
-            logger.warning("[metadata_agent] TMDB search exception: %s", e)
-            return []
-
-        def _sort_key(c: dict) -> float:
-            r = c.get("rating")
-            return float(r) if r is not None else 0.0
-
-        merged.sort(key=_sort_key, reverse=True)
-        return merged
-
-    logger.warning("[metadata_agent] unsupported metadata_search_agent source=%s", source)
-    return []

@@ -60,8 +60,8 @@ def _cache_source_key(data_source_type: str | None) -> str:
 
     The cache is keyed by ``(title, source)`` where ``source`` carries both the
     cache type and the data source, e.g. ``"metadata_agent:tmdb"``. This keeps
-    results from one source (e.g. wigolo) from being returned for a channel
-    configured with another (e.g. Jina) - switching a channel's source no
+    results from one source (e.g. tmdb) from being returned for a channel
+    configured with another (e.g. bangumi) - switching a channel's source no
     longer serves stale results from the old source.
     """
     ns = normalize_metadata_source_type(data_source_type)

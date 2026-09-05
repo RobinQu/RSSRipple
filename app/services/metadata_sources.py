@@ -59,10 +59,10 @@ def get_metadata_source_catalog(channel_only: bool = False) -> list[dict[str, An
     """Return external metadata sources with their availability flags.
 
     Each entry: ``{value, label, description, enabled, configured, available}``.
-    With ``channel_only=True`` the result is restricted to the channel
-    architecture (wikipedia/tmdb/bangumi); the full catalog is still used by
-    the works-page refresh config, where the legacy manual sources remain
-    selectable.
+    The catalog only carries the three primary sources
+    (wikipedia/tmdb/bangumi); ``channel_only`` is kept for the channel-config
+    endpoint and filters against ``SUPPORTED_CHANNEL_METADATA_SOURCES``
+    (currently the same set, so it is a no-op safeguard).
     """
     catalog: list[dict[str, Any]] = []
     for d in _EXTERNAL_SOURCE_DEFS:

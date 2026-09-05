@@ -846,6 +846,253 @@ async def test_process_routes_wikipedia_to_search_then_judge(db_session, sample_
 
 
 # ---------------------------------------------------------------------------
+# Bangumi routing + web-fallback wiring
+# ---------------------------------------------------------------------------
+
+
+def _bangumi_found():
+    return (
+        {
+            "found": True, "clean_title": "葬送的芙莉莲", "content_type": "tv",
+            "matched_entity": {
+                "external_id": "bangumi:400602", "external_source": "bangumi",
+                "title_cn": "葬送的芙莉莲", "is_anime": True,
+                "single_season_entry": True,
+            },
+        },
+        {"method": "bangumi_search_then_autolink",
+         "data_sources_used": ["bangumi"], "source_errors": {}, "error": None},
+    )
+
+
+def _bangumi_not_found():
+    return (
+        {"found": False, "clean_title": "Show", "content_type": "tv",
+         "reason": "no credible match on Bangumi"},
+        {"method": "bangumi_search_then_judge",
+         "data_sources_used": ["bangumi"], "source_errors": {}, "error": None},
+    )
+
+
+def _bangumi_not_configured():
+    # Missing Bangumi token -> transient miss (mirrors metadata_bangumi's
+    # not-configured shape; the marker keeps it out of the cache and must NOT
+    # trigger the web fallback).
+    return (
+        {"found": False, "clean_title": "Show", "content_type": "tv",
+         "reason": "Bangumi API key not configured"},
+        {"method": "bangumi", "data_sources_used": ["bangumi"],
+         "source_errors": {}, "error": "Bangumi: api key not configured"},
+    )
+
+
+_FB_FOUND = (
+    {"found": True, "content_type": "tv",
+     "matched_entity": {"external_id": "tmdb:9", "external_source": "tmdb"}},
+    {"method": "search_then_web_fallback", "data_sources_used": ["wigolo"],
+     "source_errors": {}, "error": None},
+)
+
+
+def _stub_agent() -> UnifiedMetadataAgent:
+    agent = UnifiedMetadataAgent()
+    agent._get_cache = AsyncMock(return_value=None)
+    agent._set_cache = AsyncMock()
+    agent._apply_to_resource = AsyncMock()
+    agent._run_search_then_judge = AsyncMock()
+    agent._run_react = AsyncMock()
+    agent._find_known_work = AsyncMock(return_value=None)  # no S1 short-circuit
+    return agent
+
+
+async def _bangumi_resource(db_session, channel):
+    import uuid
+
+    from app.models.file_resource import FileResource
+
+    resource = FileResource(
+        id=str(uuid.uuid4()), channel_id=channel.id, guid="g1",
+        title_raw="[G] Show - 01 [1080p]", title_cn="Show",
+        torrent_url="magnet:?xt=urn:btih:bgmroute",
+    )
+    db_session.add(resource)
+    await db_session.commit()
+    return resource
+
+
+async def test_process_routes_bangumi_to_bangumi_search_then_judge(
+    db_session, sample_channel, monkeypatch,
+):
+    """A bangumi-source channel dispatches to run_bangumi_search_then_judge
+    (never _run_search_then_judge/_run_react) and its result passes through."""
+    from app.services import metadata_bangumi as mb
+
+    sample_channel.metadata_source = "bangumi"
+    resource = await _bangumi_resource(db_session, sample_channel)
+
+    run_bangumi = AsyncMock(return_value=_bangumi_found())
+    monkeypatch.setattr(mb, "run_bangumi_search_then_judge", run_bangumi)
+    agent = _stub_agent()
+
+    meta = await agent.process(resource, sample_channel, db_session)
+
+    run_bangumi.assert_awaited_once()
+    assert run_bangumi.await_args.kwargs["resource"] is resource
+    agent._run_search_then_judge.assert_not_called()
+    agent._run_react.assert_not_called()
+    assert meta.found is True
+    assert meta.clean_title == "葬送的芙莉莲"
+    assert meta.matched_entity["external_id"] == "bangumi:400602"
+    assert meta.search_method == "bangumi_search_then_autolink"
+    assert meta.data_sources_used == ["bangumi"]
+
+
+async def test_process_bangumi_not_found_invokes_web_fallback(
+    db_session, sample_channel, monkeypatch,
+):
+    """Bangumi found=False (non-transient) -> _maybe_web_fallback fires with
+    the channel's ordered whitelist and its result is adopted."""
+    from app.services import metadata_bangumi as mb
+
+    sample_channel.metadata_source = "bangumi"
+    sample_channel.metadata_fallback_sources = ["bangumi", "tmdb"]
+    resource = await _bangumi_resource(db_session, sample_channel)
+
+    monkeypatch.setattr(
+        mb, "run_bangumi_search_then_judge",
+        AsyncMock(return_value=_bangumi_not_found()),
+    )
+    fb = AsyncMock(return_value=_FB_FOUND)
+    monkeypatch.setattr("app.services.metadata_agent.web_fallback_judge", fb)
+    agent = _stub_agent()
+
+    meta = await agent.process(resource, sample_channel, db_session)
+
+    fb.assert_awaited_once()
+    assert fb.await_args.kwargs["fallback_sources"] == ["bangumi", "tmdb"]
+    assert fb.await_args.kwargs["resource"] is resource
+    assert meta.found is True
+    assert meta.matched_entity["external_id"] == "tmdb:9"
+    assert meta.search_method == "react_then_web_fallback"
+    assert set(meta.data_sources_used) == {"bangumi", "wigolo"}
+
+
+async def test_process_bangumi_transient_miss_skips_web_fallback(
+    db_session, sample_channel, monkeypatch,
+):
+    """Bangumi not-configured (transient) -> no fallback, no cache, and the
+    resource keeps the transient failure marker for the backfill to retry."""
+    from app.services import metadata_bangumi as mb
+
+    sample_channel.metadata_source = "bangumi"
+    resource = await _bangumi_resource(db_session, sample_channel)
+
+    monkeypatch.setattr(
+        mb, "run_bangumi_search_then_judge",
+        AsyncMock(return_value=_bangumi_not_configured()),
+    )
+    fb = AsyncMock(return_value=_FB_FOUND)
+    monkeypatch.setattr("app.services.metadata_agent.web_fallback_judge", fb)
+    agent = _stub_agent()
+
+    meta = await agent.process(resource, sample_channel, db_session)
+
+    fb.assert_not_awaited()
+    assert resource.metadata_failure_type == "transient"
+    agent._set_cache.assert_not_called()
+    assert meta.found is False
+    assert meta.reason == "Bangumi API key not configured"
+
+
+async def test_process_bangumi_found_skips_web_fallback(
+    db_session, sample_channel, monkeypatch,
+):
+    """A direct bangumi hit never touches the web fallback."""
+    from app.services import metadata_bangumi as mb
+
+    sample_channel.metadata_source = "bangumi"
+    resource = await _bangumi_resource(db_session, sample_channel)
+
+    monkeypatch.setattr(
+        mb, "run_bangumi_search_then_judge", AsyncMock(return_value=_bangumi_found())
+    )
+    fb = AsyncMock(return_value=_FB_FOUND)
+    monkeypatch.setattr("app.services.metadata_agent.web_fallback_judge", fb)
+    agent = _stub_agent()
+
+    meta = await agent.process(resource, sample_channel, db_session)
+
+    fb.assert_not_awaited()
+    assert meta.found is True
+    assert meta.matched_entity["external_id"] == "bangumi:400602"
+
+
+def _title_only_agent(monkeypatch) -> UnifiedMetadataAgent:
+    from app.services import runtime_config as _rc
+
+    monkeypatch.setitem(_rc._overrides, "llm_api_key", "k")
+    return UnifiedMetadataAgent()
+
+
+async def test_title_only_bangumi_not_found_invokes_web_fallback(monkeypatch):
+    """Title-only bangumi miss -> fallback fires with resource=None and the
+    caller's fallback_sources (None = default order)."""
+    from app.services import metadata_bangumi as mb
+
+    monkeypatch.setattr(
+        mb, "run_bangumi_search_then_judge",
+        AsyncMock(return_value=_bangumi_not_found()),
+    )
+    fb = AsyncMock(return_value=_FB_FOUND)
+    monkeypatch.setattr("app.services.metadata_agent.web_fallback_judge", fb)
+    agent = _title_only_agent(monkeypatch)
+
+    meta = await agent.process_title_only("Show - 01", "bangumi")
+
+    fb.assert_awaited_once()
+    assert fb.await_args.kwargs["fallback_sources"] is None
+    assert fb.await_args.kwargs["resource"] is None
+    assert meta.found is True
+    assert meta.matched_entity["external_id"] == "tmdb:9"
+
+
+async def test_title_only_bangumi_transient_miss_skips_web_fallback(monkeypatch):
+    """Title-only bangumi not-configured (transient) -> fallback not called."""
+    from app.services import metadata_bangumi as mb
+
+    monkeypatch.setattr(
+        mb, "run_bangumi_search_then_judge",
+        AsyncMock(return_value=_bangumi_not_configured()),
+    )
+    fb = AsyncMock(return_value=_FB_FOUND)
+    monkeypatch.setattr("app.services.metadata_agent.web_fallback_judge", fb)
+    agent = _title_only_agent(monkeypatch)
+
+    meta = await agent.process_title_only("Show - 01", "bangumi")
+
+    fb.assert_not_awaited()
+    assert meta.found is False
+    assert meta.reason == "Bangumi API key not configured"
+
+
+async def test_title_only_bangumi_found_skips_web_fallback(monkeypatch):
+    """Title-only bangumi hit -> fallback not called."""
+    from app.services import metadata_bangumi as mb
+
+    monkeypatch.setattr(
+        mb, "run_bangumi_search_then_judge", AsyncMock(return_value=_bangumi_found())
+    )
+    fb = AsyncMock(return_value=_FB_FOUND)
+    monkeypatch.setattr("app.services.metadata_agent.web_fallback_judge", fb)
+    agent = _title_only_agent(monkeypatch)
+
+    meta = await agent.process_title_only("Show - 01", "bangumi")
+
+    fb.assert_not_awaited()
+    assert meta.found is True
+
+
+# ---------------------------------------------------------------------------
 # Source-scoped cache key + upsert
 # ---------------------------------------------------------------------------
 

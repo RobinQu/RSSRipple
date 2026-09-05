@@ -354,7 +354,10 @@ async def run_bangumi_search_then_judge(
             "found": True,
             "clean_title": (
                 (judge_dict or {}).get("clean_title")
-                or (resource.search_title if resource is not None else None)
+                # ``resource`` may be a bare season-hint stand-in
+                # (SimpleNamespace(season=...)) from process_title_only —
+                # every attribute must be read via getattr.
+                or getattr(resource, "search_title", None)
                 or raw_title
             ),
             "content_type": content_type,

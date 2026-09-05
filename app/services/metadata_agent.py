@@ -380,12 +380,15 @@ class UnifiedMetadataAgent:
         self._title_index_store = WorkTitleIndex()
 
     def _tools_for_source(self, data_source_type: str) -> list[Any]:
-        """Return the exact tool surface for one metadata data source."""
+        """Return the exact tool surface for one metadata data source.
+
+        ``normalize_metadata_source_type`` already collapses every legacy
+        value onto wikipedia, and bangumi runs search-then-judge instead of
+        ReAct, so only tmdb needs a distinct tool set here.
+        """
         source = normalize_metadata_source_type(data_source_type)
         if source == "tmdb":
             return [search_tmdb, get_tmdb_details, finalize]
-        if source == "wikipedia":
-            return [search_wikipedia, get_wikipedia_page, finalize]
         return [search_wikipedia, get_wikipedia_page, finalize]
 
     def _agent_for_source(self, data_source_type: str) -> Any:
@@ -577,7 +580,7 @@ class UnifiedMetadataAgent:
             return None
 
         # Resolve the channel's data source up front so the cache lookup is
-        # source-scoped (a Jina channel must not hit a stale wikipedia cache entry).
+        # source-scoped (a bangumi channel must not hit a stale wikipedia cache entry).
         data_source_type = resolve_metadata_source(getattr(channel, "metadata_source", None))
 
         # 0. Cache check — skipped on force_refresh. Legacy cache rows that
@@ -712,7 +715,7 @@ class UnifiedMetadataAgent:
         # 1. Build context - if the chosen source's credentials are
         # missing/disabled, we still run its graph (the per-source search helper
         # no-ops on missing keys) but log a warning so it is debuggable.
-        if not is_metadata_source_available(data_source_type) and data_source_type != "local":
+        if not is_metadata_source_available(data_source_type):
             logger.warning(
                 "[metadata_agent] channel %s source=%r is not available (disabled or "
                 "missing credentials); search will return no external candidates",
@@ -818,7 +821,6 @@ class UnifiedMetadataAgent:
 
         source = normalize_metadata_source_type(data_source_type)
         logger.info("[metadata_agent] process_title_only source=%s title=%r", source, raw_title[:200])
-        message = self._build_title_only_message(raw_title, source)
         # S3: search-first + single-LLM-judge for wikipedia; bangumi runs the
         # same shape against the Bangumi subject API; ReAct otherwise.
         if source == "wikipedia":
@@ -844,6 +846,7 @@ class UnifiedMetadataAgent:
                 fallback_sources=fallback_sources,
             )
         else:
+            message = self._build_title_only_message(raw_title, source)
             finalize_dict, search_info = await self._run_react(message, source)
             if source == "tmdb":
                 # P4: same fallback as the wikipedia path (default order here,
@@ -874,6 +877,9 @@ class UnifiedMetadataAgent:
         raw_title: str,
         data_source_type: str | None = None,
     ) -> str:
+        # Only the ReAct sources reach this builder (tmdb via
+        # process_title_only, wikipedia via the judge's ReAct fallback);
+        # bangumi runs search-then-judge and never builds a ReAct message.
         source = normalize_metadata_source_type(data_source_type)
         source_guidance = {
             "tmdb": (
@@ -882,10 +888,7 @@ class UnifiedMetadataAgent:
             "wikipedia": (
                 "Source mode: Wikipedia Search. Use Wikipedia metadata only."
             ),
-            "bangumi": (
-                "Source mode: Bangumi Search. Use Bangumi subject metadata only."
-            ),
-        }[source]
+        }[source if source in ("tmdb", "wikipedia") else "wikipedia"]
         message = f"{source_guidance}\n\nAnalyze this RSS entry title:\n\n{raw_title}"
         year = extract_title_year(raw_title)
         if year is not None:

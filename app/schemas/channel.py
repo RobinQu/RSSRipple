@@ -158,8 +158,8 @@ def _clamp_refresh_interval_minutes(v: int | None) -> int | None:
 def _normalize_source(value: str | None) -> str | None:
     """Lowercase + validate a channel metadata source. Empty/None passes through.
 
-    Channel config is restricted to the two-source architecture
-    (wikipedia/tmdb); legacy exa/jina/local/combined values are rejected.
+    Channel config is restricted to the three-source architecture
+    (wikipedia/tmdb/bangumi); legacy exa/jina/local/combined values are rejected.
     """
     from app.services.metadata_sources import SUPPORTED_CHANNEL_METADATA_SOURCES
 

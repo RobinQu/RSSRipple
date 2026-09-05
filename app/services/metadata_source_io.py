@@ -1,10 +1,10 @@
-"""TMDB / Exa / Jina source I/O primitives.
+"""TMDB source I/O primitives.
 
 Pure leaf module - no DB, no LLM. Extracted verbatim from metadata_agent.py
 (Phase 1): the ``_execute_*`` HTTP wrappers that the LangGraph @tool layer
-and the audio resolver call. TMDB genre/season resolution and Exa/Jina search
-delegate to metadata_search_agent; TMDB details hit the TMDB API directly
-using the configured api key.
+and the audio resolver call. TMDB search and genre resolution delegate to
+metadata_search_agent; TMDB details hit the TMDB API directly using the
+configured api key.
 """
 from __future__ import annotations
 

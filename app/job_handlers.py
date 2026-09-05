@@ -269,14 +269,15 @@ async def _refresh_works_batch(
 
     The manual batch endpoint and the per-channel periodic refresh both run
     through here — there is exactly one refresh execution path underneath:
-    ``refresh_work_metadata`` (which funnels into ``process_title_only`` with
-    ``source`` as the only branch parameter). One short transaction per work;
-    a single hung external search cannot stall the whole batch.
+    ``refresh_work_by_source`` (which funnels into
+    ``search_metadata_candidates`` → ``apply_work_metadata`` →
+    ``process_title_only`` with ``source`` as the only branch parameter).
+    One short transaction per work; a single hung external search cannot
+    stall the whole batch.
     """
     from app.models.movie import Movie
     from app.models.series import TVSeries
-    from app.schemas.metadata_search import MetadataSearchRequest
-    from app.services.metadata_search import apply_work_metadata, search_metadata_candidates
+    from app.services.metadata_search import refresh_work_by_source
 
     results: list[dict] = []
     for item in items:
@@ -285,29 +286,17 @@ async def _refresh_works_batch(
         try:
             async with committed_session() as session:
                 work = await session.get(Movie if content_type == "movie" else TVSeries, work_id)
-                query = next((value for value in (
-                    getattr(work, "title_en", None), getattr(work, "title_cn", None),
-                    getattr(work, "original_title", None),
-                ) if value), None) if work else None
-                if not query:
+                if work is None:
                     r = {"found": False, "applied": [], "message": "work/title not found"}
                 else:
-                    candidates = await asyncio.wait_for(
-                        search_metadata_candidates(session, MetadataSearchRequest(
-                            query=query, content_type=content_type, mode="online",
-                            source=source, trusted_sites=trusted_sites,
-                        )), timeout=_REFRESH_WORK_TIMEOUT,
-                    )
-                    candidate = next((c for c in candidates if c.selectable and not c.metadata.get("ambiguous")), None)
-                    if candidate is None:
-                        r = {"found": False, "applied": [], "message": "no deterministic candidate"}
-                    else:
-                        applied = await apply_work_metadata(
-                            session, work_id, content_type, candidate,
+                    r = await asyncio.wait_for(
+                        refresh_work_by_source(
+                            session, work, content_type, source,
+                            trusted_sites=trusted_sites,
                             override_manual_edits=override_manual_edits,
                             only_missing=strategy == "fill_missing",
-                        )
-                        r = {"found": True, **applied}
+                        ), timeout=_REFRESH_WORK_TIMEOUT,
+                    )
             results.append({"id": work_id, "content_type": content_type, **r})
         except TimeoutError:
             logger.warning(
@@ -327,7 +316,7 @@ async def _refresh_works_batch(
     return results
 
 
-async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no cover
+async def _handle_refresh_works_metadata(payload: dict) -> dict:
     """Background job (manual batch refresh): refresh a batch of works."""
     await _refresh_runtime_config()
     items: list[dict] = payload.get("items", []) or []
@@ -342,11 +331,11 @@ async def _handle_refresh_works_metadata(payload: dict) -> dict:  # pragma: no c
     return {"status": "done", "processed": len(results), "results": results}
 
 
-async def _handle_refresh_channel_works(payload: dict) -> dict:  # pragma: no cover
+async def _handle_refresh_channel_works(payload: dict) -> dict:
     """Background job: periodic work-metadata refresh scoped to one channel.
 
     Parameter derivation only — the fetch itself is the shared
-    ``refresh_work_metadata`` pipeline:
+    ``search_metadata_candidates`` → ``apply_work_metadata`` pipeline:
 
     * ``source`` ← the channel's own ``metadata_source`` (resolved);
     * ``override_manual_edits`` is always False (manual edits are protected);

@@ -26,7 +26,7 @@ router = APIRouter()
 # There is no global default source anymore: every manual refresh names its
 # source explicitly and the per-channel periodic refresh uses the channel's
 # own ``metadata_source``. All of them share the single
-# ``refresh_work_metadata`` pipeline underneath.
+# ``refresh_work_by_source`` pipeline underneath.
 # ---------------------------------------------------------------------------
 
 

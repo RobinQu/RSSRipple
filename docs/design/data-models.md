@@ -53,7 +53,7 @@ class Channel(Base):
                                          # clamp 30..10080（schemas + 调度两侧）
     metadata_refresh_full_scope: bool    # 「刷新全量作品」：NOT NULL DEFAULT FALSE。False = 仅刷新
                                          # 确有待填空字段的作品（缺失门控，选集谓词与
-                                         # refresh_work_metadata 的 fill 清单一致）；True = 每次刷
+                                         # metadata_search 刷新管线的 fill 字段表一致）；True = 每次刷
                                          # 全部关联作品
     last_fetched_at: datetime | None     # 上次抓取完成时间
     last_fetch_status: str | None        # 上次抓取状态: "success" | "failed"
@@ -241,7 +241,7 @@ class TVSeries(Base):
     manually_edited_fields: list[str] | None  # 人工编辑保护：用户经作品详情页「编辑」表单改过的字段名列表
                                          # （JSON 数组，取值 ⊂ MANUAL_EDITABLE_FIELDS，见 metadata_service）；
                                          # 自动扫描（upsert / apply_is_anime / 频道默认标记 / bangumi 验证）
-                                         # 跳过其中的字段；refresh_work_metadata 默认同样跳过，
+                                         # 跳过其中的字段；刷新管线（apply_work_metadata）默认同样跳过，
                                          # 仅当刷新对话框勾选「覆盖所有人工编辑字段」时才覆盖。
     canonical_name: str | None           # 规范化名称（跨数据源消歧/搜索用的标准名）
     wikipedia_url: str | None            # 维基百科条目 URL
@@ -330,8 +330,8 @@ class Movie(Base):
 - **可编辑 vs 系统托管**：仅 `MANUAL_EDITABLE_FIELDS` 中的字段可在编辑页修改（`content_type` 限 `tv`/`movie`）；`canonical_name`/`wikipedia_url`/`wikipedia_page_id`/`seasons`/`collection_id`/`search_text`/时间戳为系统托管，不可编辑。
 - **记录时机**：`PUT /series/{id}` / `PUT /movies/{id}` 按 `exclude_unset` 后的显式发送字段（含显式 null）与 `MANUAL_EDITABLE_FIELDS` 求交，并入 `manually_edited_fields`（`mark_manually_edited`，去重排序）。
 - **身份变更入袋**：PUT 显式发送 `external_id`/`external_source` 且 `(external_source, external_id)` 实际变化时，先把旧身份对幂等写入 `WorkExternalId` 身份袋（`add_external_id`；id 已被其他作品占用则冲突不抢、仅记 warning），再覆盖主列——作品在旧身份下仍可反查。
-- **自动扫描跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写任一字段前检查 `field_manually_edited`，命中即不改写该字段（新建作品无该列表，不受影响）；`content_type`/`external_id`/`external_source` 三字段在 upsert 与 `refresh_work_metadata` 中同样受此守卫（`override_manual_edits=true` 时可覆盖）。
-- **刷新元数据**：`refresh_work_metadata` 默认跳过 `manually_edited_fields` 中的字段；仅当请求带 `override_manual_edits=true`（作品模块刷新对话框「覆盖所有人工编辑字段」）时才覆盖。批量/周期刷新不传该 flag，恒为默认（不覆盖）。
+- **自动扫描跳过**：`create_or_update_*_from_external` 更新分支、`apply_is_anime`、`apply_channel_default_is_anime`、`maybe_verify_is_anime_via_bangumi` 在写任一字段前检查 `field_manually_edited`，命中即不改写该字段（新建作品无该列表，不受影响）；`content_type`/`external_id`/`external_source` 三字段在 upsert 与刷新管线（`apply_work_metadata`）中同样受此守卫（`override_manual_edits=true` 时可覆盖）。
+- **刷新元数据**：刷新管线（`refresh_work_by_source` → `preview/apply_work_metadata`）默认跳过 `manually_edited_fields` 中的字段；仅当请求带 `override_manual_edits=true`（作品模块刷新对话框「覆盖所有人工编辑字段」，`POST /works/metadata/apply`）时才覆盖。批量/周期刷新不传该 flag，恒为默认（不覆盖）。
 
 ### WorkExternalId（作品外部身份袋 - Phase P3）
 

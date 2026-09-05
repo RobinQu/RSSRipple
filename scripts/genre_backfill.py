@@ -6,13 +6,13 @@ non-canonical values, maps TMDB ids / aliases / case variants onto the
 canonical English names. Idempotent.
 
 Mode B (``--refresh-empty``): works whose genre is still empty after
-mode A get a full metadata refresh via ``refresh_work_metadata`` (the cache
-generation bump to 3 forces a re-run, and the updated judge/ReAct prompts
-now emit genre). The refresh source is the work's own identity source when
-it is wikipedia/tmdb, otherwise wikipedia (works identified only via
-``exa_web``/manual rows are refreshed by title). AudioWork is not covered
-by ``refresh_work_metadata``. This mode makes network + LLM calls per
-work — use --limit/--delay to pace it.
+mode A get a full metadata refresh via ``refresh_work_by_source`` (the
+shared search → apply pipeline fills only empty fields). The refresh
+source is the work's own identity source when it is wikipedia/tmdb,
+otherwise wikipedia (works identified only via ``exa_web``/manual rows
+are refreshed by title). AudioWork is not covered by the refresh
+pipeline. This mode makes network + LLM calls per work — use
+--limit/--delay to pace it.
 
 NOTE on locking: the embedded-Turso backend holds a single-process exclusive
 file lock, so STOP the app (``docker compose stop app``) before running this
@@ -35,7 +35,7 @@ from app.models.audio_work import AudioWork
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.services.genre_registry import normalize_genres
-from app.services.metadata_service import refresh_work_metadata
+from app.services.metadata_search import refresh_work_by_source
 
 APPLY_BATCH_SIZE = 20
 _REFRESH_SOURCES = {"wikipedia", "tmdb"}
@@ -112,15 +112,16 @@ async def main(apply: bool, limit: int | None, delay: float, refresh_empty: bool
                 print(f"[{i}/{len(empty_rows)}] -- [{kind}] {title!r} ({w.external_source} -> {src})")
                 continue
             try:
-                result = await refresh_work_metadata(
-                    session, w.id, "movie" if kind == "movie" else "tv", src,
+                result = await refresh_work_by_source(
+                    session, w, "movie" if kind == "movie" else "tv", src,
+                    only_missing=True,
                 )
             except Exception as exc:  # keep going; one bad work must not kill the run
                 failed += 1
                 print(f"[{i}/{len(empty_rows)}] FAIL [{kind}] {title!r}: {exc}")
                 await session.rollback()
                 continue
-            if "genre" in (result.get("filled") or []):
+            if "genre" in (result.get("applied") or []):
                 ok += 1
                 print(f"[{i}/{len(empty_rows)}] OK [{kind}] {title!r}: genre filled")
             else:

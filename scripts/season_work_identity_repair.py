@@ -15,7 +15,7 @@ distinct damage shapes result:
 2. **Missing season premiere** — season works with ``start_date IS NULL``
    (typ. lazily created shells) never resolve the channel-required ``year``
    field. Phase 2 (``--backfill``, network + LLM) re-runs
-   ``refresh_work_metadata`` per work; the refresh now carries the work's
+   ``refresh_work_by_source`` per work; the refresh now carries the work's
    ``season_number`` as ``season_hint`` so season-granular sources (bangumi)
    pick the correct season's entry and series-level sources only fill
    season-scoped dates.
@@ -40,7 +40,7 @@ from sqlalchemy import select
 from app.database import async_session_factory
 from app.models.series import TVSeries
 from app.models.work_external_id import WorkExternalId
-from app.services.metadata_service import refresh_work_metadata
+from app.services.metadata_search import refresh_work_by_source
 from app.services.runtime_config import load_runtime_config
 
 logger = logging.getLogger("season_work_identity_repair")
@@ -197,10 +197,13 @@ async def main(apply: bool, backfill: bool, limit: int | None, delay: float) -> 
                 done += 1
                 continue
             try:
-                result = await refresh_work_metadata(db, t["id"], "tv", t["source"])
+                work = await db.get(TVSeries, t["id"])
+                result = await refresh_work_by_source(
+                    db, work, "tv", t["source"], only_missing=True,
+                )
                 logger.info(
-                    "[phase2]     -> found=%s filled=%s (%s)",
-                    result.get("found"), result.get("filled"), result.get("message"),
+                    "[phase2]     -> found=%s applied=%s (%s)",
+                    result.get("found"), result.get("applied"), result.get("message"),
                 )
             except Exception as e:  # noqa: BLE001 — one failure never aborts the run
                 logger.warning("[phase2]     -> failed: %s", e)

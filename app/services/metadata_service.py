@@ -1940,232 +1940,15 @@ async def create_or_update_audio_work_from_external(db: AsyncSession, data: dict
 
 
 # ---------------------------------------------------------------------------
-# Work metadata refresh (works-page "fill missing fields" action)
-# ---------------------------------------------------------------------------
-
-
-def _first_present(*values: Any) -> Any:
-    """Return the first value that is not None/empty, else None."""
-    for v in values:
-        if v not in (None, "", [], ()):
-            return v
-    return None
-
-
-def _safe_float(v: Any) -> float | None:
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def _safe_int(v: Any) -> int | None:
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return None
-
-
-async def refresh_work_metadata(
-    db: AsyncSession,
-    work_id: str,
-    content_type: str,
-    source: str | None,
-    override_manual_edits: bool = False,
-) -> dict:
-    """Re-search metadata for an existing TVSeries/Movie and fill missing fields.
-
-    Uses the work's existing titles as the search query against *source* (one
-    of the external metadata sources). Only fields that are currently empty on
-    the work are filled — existing user/agent values are preserved. Posters are
-    downloaded and cached locally like the initial ingestion path.
-
-    Fields the user edited manually (``manually_edited_fields``) are skipped
-    unless ``override_manual_edits`` is True — that flag is the explicit
-    "覆盖所有人工编辑字段" opt-in offered by the work-detail refresh dialog.
-
-    Returns a summary dict: ``{found, filled, source, message}``.
-    """
-    is_movie = (content_type or "").lower() == "movie"
-    work = await db.get(Movie if is_movie else TVSeries, work_id)
-    if not work:
-        return {"found": False, "filled": [], "source": source, "message": "work not found"}
-
-    # Season-0 works are specials/SP placeholders: searching by the series
-    # title would match the MAIN entry and stuff its series-level data
-    # (premiere date, episode count, identity) into the specials work.
-    if not is_movie and getattr(work, "season_number", None) == 0:
-        return {
-            "found": True,
-            "filled": [],
-            "source": source,
-            "message": "season-0 specials work — refresh skipped",
-        }
-
-    manual = manually_edited_fields(work)
-
-    search_title = _first_present(work.title_en, work.title_cn, work.original_title)
-    if not search_title:
-        return {
-            "found": True,
-            "filled": [],
-            "source": source,
-            "message": "no title available to search",
-        }
-
-    candidates = await search_metadata_via_llm(
-        search_title, source,
-        season_hint=None if is_movie else work.season_number,
-    )
-    if not candidates:
-        return {
-            "found": True,
-            "filled": [],
-            "source": source,
-            "message": "no candidates returned by source",
-        }
-
-    # LLM variance: the candidates list may carry season-ambiguity entries
-    # ({"season": n}) or stray non-dict items — neither is a work candidate.
-    candidates = [
-        c for c in candidates
-        if isinstance(c, dict)
-        and any(c.get(k) for k in ("title_cn", "title_en", "original_title", "canonical_name"))
-    ]
-    if not candidates:
-        return {
-            "found": True,
-            "filled": [],
-            "source": source,
-            "message": "no usable work candidates returned by source",
-        }
-
-    # Prefer a candidate whose content_type matches the work.
-    best = next((c for c in candidates if c.get("content_type") == content_type), None)
-    if best is None:
-        best = candidates[0]
-
-    filled: list[str] = []
-
-    def fill(attr: str, key: str, cast: Any = lambda x: x) -> None:
-        if not override_manual_edits and attr in manual:
-            return
-        cur = getattr(work, attr)
-        if cur in (None, "", [], ()):
-            val = best.get(key)
-            if val not in (None, ""):
-                setattr(work, attr, cast(val))
-                filled.append(attr)
-
-    fill("description", "description")
-    fill("rating", "rating", _safe_float)
-    fill("status", "status")
-    fill("original_title", "original_title")
-    fill("title_cn", "title_cn")
-    fill("title_en", "title_en")
-
-    if (override_manual_edits or "genre" not in manual) and not work.genre:
-        g = normalize_genres(best.get("genre"))
-        if g:
-            work.genre = g
-            filled.append("genre")
-
-    if is_movie:
-        fill("release_date", "release_date", _parse_date)
-        fill("runtime", "runtime", _safe_int)
-    else:
-        fill("number_of_episodes", "number_of_episodes", _safe_int)
-        # ``number_of_seasons`` is an inert orphan column in the per-season
-        # work model — never written. Dates are season-scoped (same semantics
-        # as the upsert path): a series-level entity's premiere/finale belongs
-        # to season 1 and must not be filled into a later-season work.
-        granularity = granularity_of(best.get("external_source"), "tv") or "series"
-        season = work.season_number or 1
-        start = _work_start_date(best, season, granularity)
-        end = _work_end_date(best, season, granularity)
-        if (
-            (override_manual_edits or "start_date" not in manual)
-            and not work.start_date
-            and start
-        ):
-            work.start_date = start
-            filled.append("start_date")
-        if (
-            (override_manual_edits or "end_date" not in manual)
-            and not work.end_date
-            and end
-        ):
-            work.end_date = end
-            filled.append("end_date")
-
-    # Poster: download + cache, like the initial ingestion path.
-    if override_manual_edits or "poster_url" not in manual:
-        remote_poster = best.get("poster_url")
-        if remote_poster and not (work.poster_url or "").startswith("/posters/"):
-            local_url = await download_and_cache_poster(remote_poster)
-            work.poster_url = local_url or remote_poster
-            filled.append("poster_url")
-
-    identity_rejected = False
-    if (override_manual_edits or "external_id" not in manual) and not work.external_id and best.get("external_id"):
-        # Identity uniqueness: never grab an id another work already owns
-        # (primary column or identity bag) — skip with a warning instead of
-        # creating a duplicate (e.g. an S0 special refreshed onto the S1
-        # entry's bangumi id).
-        new_id = best["external_id"]
-        model = Movie if is_movie else TVSeries
-        column_taken = (await db.execute(
-            select(model.id).where(model.external_id == new_id, model.id != work.id)
-        )).first()
-        bag_owner = await find_work_by_external_id(
-            db, "movie" if is_movie else "series",
-            best.get("external_source"), new_id,
-        )
-        if column_taken or (bag_owner is not None and bag_owner.id != work.id):
-            identity_rejected = True
-            logger.warning(
-                "[refresh] skip external_id %r for work %s: owned by another work",
-                new_id, work.id,
-            )
-        else:
-            work.external_id = new_id
-            filled.append("external_id")
-    if (
-        not identity_rejected
-        and (override_manual_edits or "external_source" not in manual)
-        and not work.external_source
-        and best.get("external_source")
-    ):
-        work.external_source = best["external_source"]
-        filled.append("external_source")
-
-    await db.flush()
-    await db.commit()
-
-    label = best.get("title_cn") or best.get("title_en") or best.get("original_title") or ""
-    return {
-        "found": True,
-        "filled": filled,
-        "source": source,
-        "message": f"matched: {label}" if label else "matched",
-        "candidate": {
-            "title_cn": best.get("title_cn"),
-            "title_en": best.get("title_en"),
-            "external_id": best.get("external_id"),
-            "external_source": best.get("external_source"),
-        },
-    }
-
-
-# ---------------------------------------------------------------------------
 # Channel-scoped refresh work selection
 # ---------------------------------------------------------------------------
 
-# The fillable-field predicates mirror ``refresh_work_metadata``'s fill list
-# (plus the poster/external-id fills): a work matching NONE of them has
-# nothing the pipeline could write and is skipped by the periodic
-# channel-refresh gate. This is a *selection* filter only — the refresh
-# pipeline itself is shared with the manual actions.
+# The fillable-field predicates mirror the refresh pipeline's fill list
+# (``metadata_search._COMMON_FIELDS/_TV_FIELDS/_MOVIE_FIELDS``, plus the
+# poster/external-id fills): a work matching NONE of them has nothing the
+# pipeline could write and is skipped by the periodic channel-refresh gate.
+# This is a *selection* filter only — the refresh pipeline itself is shared
+# with the manual actions.
 _SERIES_HAS_GAP = or_(
     TVSeries.title_cn.is_(None), TVSeries.title_cn == "",
     TVSeries.title_en.is_(None), TVSeries.title_en == "",
@@ -2492,12 +2275,18 @@ async def manual_search_metadata(
     content_type: str,
     data_source_type: str | None = None,
     fallback_sources: list[str] | None = None,
+    *,
+    season_hint: int | None = None,
 ) -> list[dict]:
     """Search for metadata candidates. No persistence.
 
     When ``data_source_type == "local"``, searches the local TVSeries/Movie
     library via FTS5 instead of calling the LLM agent. This allows users to
     match resources against already-known works without external API calls.
+
+    ``season_hint`` is the season number of the work being refreshed — it
+    keeps season-granular sources (bangumi) from matching the season-1 entry
+    for a season>1 work.
     """
     logger.info(
         "[metadata] manual_search start title=%r content_type=%s data_source_type=%s",
@@ -2514,10 +2303,15 @@ async def manual_search_metadata(
         return results
 
     results = await search_metadata_via_llm(
-        search_title, data_source_type, fallback_sources
+        search_title, data_source_type, fallback_sources, season_hint=season_hint
     )
     normalized: list[dict] = []
     for result in results:
+        # LLM variance: the candidates list may carry season-ambiguity dicts
+        # ({"season": n}) or stray non-dict items — neither is a work
+        # candidate; skip them instead of 500ing.
+        if not isinstance(result, dict):
+            continue
         item = dict(result)
         if item.get("content_type") not in ("tv", "movie"):
             item["content_type"] = content_type if content_type in ("tv", "movie") else "tv"

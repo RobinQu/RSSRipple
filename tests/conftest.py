@@ -25,7 +25,7 @@ import pytest
 # exercise the actual LLM / TMDB / Exa providers. Skip the blanking there —
 # those tests assert against real provider responses, not the no-key default.
 if not os.environ.get("TEST_SERVER_URL"):
-    for _key in ("LLM_API_KEY", "TMDB_API_KEY", "JINA_API_KEY", "EXA_API_KEY"):
+    for _key in ("LLM_API_KEY", "TMDB_API_KEY", "JINA_API_KEY"):
         os.environ[_key] = ""
 
 # The repo-root data/ dir may be owned by root after docker runs; point the

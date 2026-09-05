@@ -73,7 +73,7 @@ class Channel(Base):
     )
     # ── Periodic work-metadata refresh (per-channel) ──
     # When enabled, a scheduler job periodically re-runs the shared
-    # ``refresh_work_metadata`` pipeline (missing-fields-only fill, manual
+    # ``refresh_work_by_source`` pipeline (missing-fields-only fill, manual
     # edits never overridden) for the works linked to this channel's
     # resources, using this channel's own ``metadata_source``. NULL interval
     # → DEFAULT_METADATA_REFRESH_INTERVAL_MINUTES.

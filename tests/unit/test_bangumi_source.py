@@ -197,6 +197,31 @@ async def test_run_bangumi_autolink_builds_entity():
     assert me["single_season_entry"] is True
 
 
+async def test_run_bangumi_autolink_with_season_hint_stand_in():
+    """Regression: process_title_only passes a bare SimpleNamespace(season=...)
+    as the resource stand-in. The auto-link path must not touch attributes it
+    does not have (search_title crashed the whole search with AttributeError,
+    surfacing as a NO MATCH for every season-hinted refresh that auto-links)."""
+    subject = _frieren_subject()
+    with (
+        patch.object(mb, "search_subjects", AsyncMock(return_value=[subject])),
+        patch.object(mb, "get_subject", AsyncMock(return_value=subject)),
+        patch.object(
+            mb, "get_subject_episodes",
+            AsyncMock(return_value=[{"sort": i, "name_cn": f"第{i}话"} for i in range(1, 29)]),
+        ),
+        patch.object(mb, "bangumi_configured", return_value=True),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            AsyncMock(), "葬送的芙莉莲", resource=SimpleNamespace(season=1)
+        )
+    assert info["method"] == "bangumi_search_then_autolink"
+    assert finalize["found"] is True
+    # No judge and no search_title on the stand-in → raw title is the label.
+    assert finalize["clean_title"] == "葬送的芙莉莲"
+    assert finalize["matched_entity"]["external_id"] == "bangumi:400602"
+
+
 async def test_run_bangumi_autolink_respects_resource_season():
     """A season-2 resource must auto-link the season-2 subject, not the
     base-named season-1 entry (a Bangumi subject IS one season)."""
@@ -310,6 +335,41 @@ async def test_run_bangumi_judge_path_picks_subject():
     # Season tag comes from the resource's parsed season marker.
     assert me["episode_list"][0]["season"] == 2
     assert finalize["inferred_season"] == 2
+
+
+async def test_run_bangumi_judge_not_found_returns_miss_shape():
+    """Judge explicitly answers found=false: the verdict passes through with
+    clean_title/content_type defaults filled in, method recorded, and NO
+    error marker — a genuine non-transient miss, so the web fallback may
+    still fire downstream."""
+    s1 = _frieren_subject()
+    s2 = {**_frieren_subject(), "id": 111}  # duplicate titles → judge path
+    judge_json = '{"found": false, "reason": "none of the candidates match"}'
+    model = AsyncMock()
+    model.ainvoke = AsyncMock(return_value=SimpleNamespace(content=judge_json))
+    resource = SimpleNamespace(
+        search_title="葬送的芙莉莲", title_cn=None, title_en=None,
+        season=None, episode=1, title_year=None,
+    )
+    with (
+        patch.object(mb, "search_subjects", AsyncMock(return_value=[s1, s2])),
+        patch.object(mb, "get_subject", AsyncMock()) as get_subject,
+        patch.object(mb, "bangumi_configured", return_value=True),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            model, "[G] 葬送的芙莉莲 - 01", resource=resource
+        )
+    assert info["method"] == "bangumi_search_then_judge"
+    assert finalize["found"] is False
+    assert finalize["reason"] == "none of the candidates match"
+    # Defaults filled for the keys the judge omitted.
+    assert finalize["clean_title"] == "[G] 葬送的芙莉莲 - 01"
+    assert finalize["content_type"] == "tv"
+    # No infra failure → error stays None (not transient).
+    assert info["error"] is None
+    # No subject was picked → never expanded into an entity.
+    get_subject.assert_not_called()
+    model.ainvoke.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
