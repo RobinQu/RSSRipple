@@ -262,7 +262,7 @@ def index_files(root: Path) -> dict:
     return {"unique_torrents": len(listings), "files": sum(len(files) for files in listings.values())}
 
 
-def audit(root: Path = ROOT) -> dict:
+def audit(root: Path = ROOT, *, output: Path | None = None) -> dict:
     manifest, corpus, reviews = load_corpus(root)
     issues = Counter()
     statuses = Counter()
@@ -296,7 +296,7 @@ def audit(root: Path = ROOT) -> dict:
         "duplicate_collection_seasons": [ids for (collection, _), ids in seasons.items() if collection and len(ids) > 1],
         "scenario_count": len(manifest["scenarios"]),
     }
-    write_json(root / "audit.json", report)
+    write_json(output if output is not None else root / "audit.json", report)
     return {key: value for key, value in report.items() if key != "case_issues"}
 
 

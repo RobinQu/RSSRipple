@@ -20,6 +20,21 @@
 #   docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 # ==============================================================================
 services:
+  # Dedicated corpus database: never seed/clear the HTTP integration app DB.
+  corpus-postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=corpus
+      - POSTGRES_PASSWORD=corpus
+      - POSTGRES_DB=metadata_corpus_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U corpus -d metadata_corpus_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
   # ── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
@@ -140,12 +155,17 @@ services:
       - DATABASE_URL=postgresql+asyncpg://rssripple:rssripple@postgres:5432/rssripple_test
       - TEST_SERVER_URL=http://test-server:8080
       - RSSRIPPLE_URL=http://app-1:9001
+      - CORPUS_TEST_DATABASE_URL=postgresql+asyncpg://corpus:corpus@corpus-postgres:5432/metadata_corpus_test
+      - CORPUS_REPORT_DIR=/app/data/metadata-corpus
       # REDIS_APP_URL intentionally unset: app-2 is a worker without HTTP, so
       # test_task_queue.py falls back to the single web URL (see header).
     volumes:
       - ./.env:/app/.env:ro
       - ./tests:/app/tests:ro
+      - ./data/metadata-corpus:/app/data/metadata-corpus
     depends_on:
+      corpus-postgres:
+        condition: service_healthy
       app-1:
         condition: service_healthy
       app-2:
@@ -155,7 +175,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py -v --tb=short"
+      - "uv sync --frozen && uv run pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -v --tb=short"
 
   # ── Transmission (torrent lifecycle tests only) ────────────────────────────
   transmission:

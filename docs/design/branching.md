@@ -72,6 +72,8 @@ feature/issue-123-new-login
 
 ### CI/CD 与发布
 
+生产 Metadata 验收统一位于 `tests/integration/metadata_corpus/`：Fast Gate 与 Docker Publish 的现有测试 job 执行离线子集，Strict Gate 两套 Compose 的默认集成收集执行同一组用例。单节点为临时 Turso，分布式为独立 `corpus-postgres` 测试服务（禁止复用 app 库）；单节点进程内覆盖率合入原 test-runner 统计。JUnit、审核覆盖率与逐场景语义差异在失败时同样上传，Compose 的报告目录为 `data/metadata-corpus/`。不再维护独立 Metadata corpus workflow；真实 LLM 三轮质量评测仍是显式 CLI，不混入离线门禁。详见 [验收说明](../../tests/metadata_corpus/README.md)。
+
 - **CI Fast Gate**（`.github/workflows/ci-fast.yml`）：开发分支（`feature/`、`fix/`、`ai/` 等）及其 PR 的快速门禁——lint + 单元/API 测试（pytest-cov 覆盖率门禁：`app/` ≥ 80%）。
 - **CI Strict Gate**（`.github/workflows/ci-strict.yml`）：`develop`、`release/**` 分支及其 PR 的严格门禁——lint + 单元/API（覆盖率 ≥ 80%）+ 集成测试（单节点 `docker-compose.test.yml` 的 app 服务在 coverage 下运行，测试后 `stop app` 落盘并由 `coverage-report` 服务校验 `app/` ≥ 75%；分布式 `docker-compose.test-distributed.yml` 以 `--scale test-runner=0` 启动，避免与显式 `run --rm test-runner` 双跑互相污染）。`main` 不在 push 触发范围内，但支持 `workflow_dispatch` 手动对任意分支运行。
 - **Docker Publish**（`.github/workflows/docker-publish.yml`）：推送到 `main` 或打 `v*` 标签时触发，构建 **linux/amd64 + linux/arm64** 双架构镜像并发布到 GHCR 项目命名空间 `ghcr.io/robinqu/rssripple`。构建前以 lint + 单元/API 测试作为门禁（`build-and-push` 依赖 `test`）。

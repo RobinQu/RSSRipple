@@ -73,7 +73,7 @@ class Cassette:
     """
 
     def __init__(self, path: Path, *, mode="replay", source_hosts=(), llm_host="", local_assets=None,
-                 database_address=None, seed=None):
+                 database_address=None, database_addresses=(), seed=None):
         if mode not in {"replay", "record", "record-llm", "llm"}:
             raise ValueError("invalid cassette mode")
         if mode in {"record", "record-llm"} and path.exists():
@@ -85,7 +85,9 @@ class Cassette:
         self.errors: list[str] = []
         self.calls = Counter()
         self.consumed = Counter()
-        self.database_address = database_address
+        self.database_addresses = set(database_addresses)
+        if database_address is not None:
+            self.database_addresses.add(database_address)
         self.lock = threading.Lock()
         self.stack = ExitStack()
 
@@ -202,12 +204,12 @@ class Cassette:
         original_connect = socket.socket.connect
         original_connect_ex = socket.socket.connect_ex
         def connect(sock, address):
-            if not _PERMITTED_TRANSPORT.get() and address != self.database_address:
+            if not _PERMITTED_TRANSPORT.get() and address not in self.database_addresses:
                 self._fail("unrecorded non-HTTP network connection")
             return original_connect(sock, address)
         self.stack.enter_context(patch.object(socket.socket, "connect", connect))
         def connect_ex(sock, address):
-            if not _PERMITTED_TRANSPORT.get() and address != self.database_address:
+            if not _PERMITTED_TRANSPORT.get() and address not in self.database_addresses:
                 self._fail("unrecorded non-HTTP network connection")
             return original_connect_ex(sock, address)
         self.stack.enter_context(patch.object(socket.socket, "connect_ex", connect_ex))

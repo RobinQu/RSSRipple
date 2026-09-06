@@ -113,6 +113,14 @@ compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热�
 
 ## 测试
 
+**生产 Metadata 离线验收**已纳入两套集成 Compose 的默认收集，也进入 Fast Gate 和发布前门禁。单独运行：
+
+```bash
+CORPUS_REPORT_DIR=/tmp/metadata-corpus uv run pytest tests/integration/metadata_corpus -q --junitxml=/tmp/metadata-corpus/integration.xml
+```
+
+不需要外部 API key：torrent、源响应和模型响应均冻结。报告将待审核样本与已核验语义场景分开，不能把 torrent 清单通过率当作作品识别正确率。数据集更新、独立审核与真实 LLM 三轮评测见 [验收说明](tests/metadata_corpus/README.md)。
+
 **单元 & API 测试**（快速，本地 Turso）：
 
 ```bash

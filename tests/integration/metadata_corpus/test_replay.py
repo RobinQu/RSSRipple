@@ -1,4 +1,4 @@
-"""Failures at the I/O boundary must stay failures even if production catches them."""
+"""Integration replay failures must remain failures even if production catches them."""
 
 import asyncio
 import base64

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import time
 import uuid
 from contextlib import ExitStack, asynccontextmanager
@@ -18,6 +19,24 @@ from sqlalchemy.orm import selectinload
 
 from .dataset import FIELDS, asset, load_corpus, resource_answer, validate_review
 from .replay import Cassette
+
+
+def database_socket_addresses(url: str) -> set[tuple]:
+    """Resolve only the isolated PG endpoint before installing the socket guard.
+
+    Docker service names and localhost are resolved to numeric socket addresses;
+    permit those exact addresses/ports, not every socket to a database host.
+    """
+    parsed = make_url(url)
+    if not parsed.drivername.startswith("postgresql"):
+        return set()
+    if parsed.database != "metadata_corpus_test":
+        raise ValueError("PostgreSQL database must be named metadata_corpus_test")
+    if not parsed.host:
+        raise ValueError("PostgreSQL corpus URL requires an explicit TCP host")
+    port = parsed.port or 5432
+    addresses = {row[4] for row in socket.getaddrinfo(parsed.host, port, type=socket.SOCK_STREAM)}
+    return addresses | {(parsed.host, port)}
 
 
 async def verify_dispatch(db, resource, required_fields, temporary):
@@ -117,6 +136,7 @@ def compare(expected, actual, path="") -> list[dict]:
 
 
 async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="replay") -> dict:
+    from app.clients import mock_downloader
     from app.config import settings
     from app.models.channel import Channel
     from app.models.file_resource import FileResource
@@ -144,7 +164,7 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
               for c in selected if c["evidence"]["torrent"]}
     cassette = Cassette(asset(root, scenario["cassette"]), mode=mode,
                         source_hosts=scenario["source_hosts"], llm_host=scenario["llm_host"], local_assets=assets,
-                        database_address=(make_url(database_url).host, make_url(database_url).port or 5432),
+                        database_addresses=database_socket_addresses(database_url),
                         seed=asset(root, scenario["seed"]) if mode == "record-llm" else None)
     started = time.monotonic()
     differences = []
@@ -152,6 +172,14 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
     # Temporary local caches, never the production data directory.
     import tempfile
     with tempfile.TemporaryDirectory(prefix="metadata-corpus-assets-") as temporary, ExitStack() as stack:
+        stack.enter_context(patch.object(mock_downloader, "_STATE", {}))
+        stack.enter_context(patch.object(metadata_search_agent, "_cache", {}))
+        stack.enter_context(patch.object(metadata_search_agent, "_TMDB_GENRE_MAP", None))
+        # Also unwind on a missing cassette/DB error, so a failed corpus run
+        # cannot leak a title index or cache into the next integration module.
+        stack.callback(reset_metadata_agent)
+        stack.callback(_wikipedia_client.cache_clear)
+        stack.callback(metadata_search_agent._tmdb_image_base.cache_clear)
         stack.enter_context(patch.object(settings, "torrent_cache_dir", temporary))
         stack.enter_context(patch.object(settings, "poster_cache_dir", temporary))
         stack.enter_context(patch.object(task_queue, "enqueue", AsyncMock()))
@@ -172,9 +200,7 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
             if name.startswith("app.") and getattr(module, "utcnow", None) is utcnow:
                 stack.enter_context(patch.object(module, "utcnow", lambda: frozen))
         reset_metadata_agent()
-        metadata_search_agent._cache.clear()
         metadata_search_agent._tmdb_image_base.cache_clear()
-        metadata_search_agent._TMDB_GENRE_MAP = None
         _wikipedia_client.cache_clear()
         async with isolated_database(database_url) as factory:
             with cassette:
@@ -230,8 +256,6 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
                         differences.extend(compare(expected, actual, case["id"]))
                         rows.append({"case_id": case["id"], "actual": actual})
                 cassette.assert_complete()
-        reset_metadata_agent()
-        _wikipedia_client.cache_clear()
     return {"scenario": scenario["id"], "mode": mode, "model": scenario["model"], "passed": not differences,
             "differences": differences, "results": rows, "calls": dict(cassette.calls),
             "elapsed_seconds": round(time.monotonic() - started, 3)}

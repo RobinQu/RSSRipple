@@ -1,0 +1,174 @@
+{
+  "calls": {
+    "127.0.0.1": 1,
+    "api.bgm.tv": 6
+  },
+  "case_id": "shigatsu-special",
+  "elapsed_seconds": 10.969,
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "[7³ACG] 四月是你的谎言/Shigatsu wa Kimi no Uso S01 | 01-22+SPx1 [简繁字幕] BDrip 1080p AV1 OPUS 2.0",
+    "confidence": 0.9,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": true,
+    "is_batch": false,
+    "matched_entity": {
+      "description": "　　有马公生的母亲一心想把有马培育成举世闻名的钢琴家，而有马也不负母亲的期望，在念小学时就赢得许多钢琴比赛的大奖。11岁的秋天，有马的母亲过世，从此他再也听不见自己弹奏的钢琴声，沮丧的他也只好放弃演奏，但在14岁那年，经由儿时玩伴的介绍，有马认识了小提琴手宫园薰，并被薰的自由奔放吸引，没想到薰竟开口邀请公生在比赛时担任她的伴奏… ",
+      "episode_list": [
+        {
+          "episode": 1,
+          "season": 1,
+          "title": "单调·多彩"
+        },
+        {
+          "episode": 2,
+          "season": 1,
+          "title": "友人A"
+        },
+        {
+          "episode": 3,
+          "season": 1,
+          "title": "春光里"
+        },
+        {
+          "episode": 4,
+          "season": 1,
+          "title": "启程"
+        },
+        {
+          "episode": 5,
+          "season": 1,
+          "title": "阴云密布"
+        },
+        {
+          "episode": 6,
+          "season": 1,
+          "title": "归途"
+        },
+        {
+          "episode": 7,
+          "season": 1,
+          "title": "暗影低语"
+        },
+        {
+          "episode": 8,
+          "season": 1,
+          "title": "回响"
+        },
+        {
+          "episode": 9,
+          "season": 1,
+          "title": "共鸣"
+        },
+        {
+          "episode": 10,
+          "season": 1,
+          "title": "与你共赏的景色"
+        },
+        {
+          "episode": 11,
+          "season": 1,
+          "title": "生命之光"
+        },
+        {
+          "episode": 12,
+          "season": 1,
+          "title": "闪耀的小星星"
+        },
+        {
+          "episode": 13,
+          "season": 1,
+          "title": "爱的忧伤"
+        },
+        {
+          "episode": 14,
+          "season": 1,
+          "title": "足迹"
+        },
+        {
+          "episode": 15,
+          "season": 1,
+          "title": "骗子"
+        },
+        {
+          "episode": 16,
+          "season": 1,
+          "title": "相似的人"
+        },
+        {
+          "episode": 17,
+          "season": 1,
+          "title": "暮光"
+        },
+        {
+          "episode": 18,
+          "season": 1,
+          "title": "心心相印"
+        },
+        {
+          "episode": 19,
+          "season": 1,
+          "title": "再见了 英雄"
+        },
+        {
+          "episode": 20,
+          "season": 1,
+          "title": "手与手"
+        },
+        {
+          "episode": 21,
+          "season": 1,
+          "title": "雪"
+        },
+        {
+          "episode": 22,
+          "season": 1,
+          "title": "春风"
+        }
+      ],
+      "external_id": "bangumi:100444",
+      "external_source": "bangumi",
+      "genre": [
+        "Drama",
+        "Music",
+        "Romance"
+      ],
+      "is_anime": true,
+      "number_of_episodes": 22,
+      "original_title": "四月は君の嘘",
+      "poster_url": "https://lain.bgm.tv/pic/cover/l/ec/c7/100444_96r3J.jpg",
+      "rating": 8,
+      "single_season_entry": true,
+      "start_date": "2014-10-09",
+      "title_cn": "四月是你的谎言"
+    },
+    "reason": "auto-linked bangumi subject (normalized title match)",
+    "resolution": null,
+    "search_error": null,
+    "search_method": "bangumi_search_then_autolink",
+    "season": 1,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {},
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": "四月是你的谎言",
+    "title_en": null,
+    "video_codec": null
+  },
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T05:51:42.147680+00:00"
+}

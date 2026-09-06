@@ -1,0 +1,2865 @@
+{
+  "cases": [
+    {
+      "category": "specials_missing_count",
+      "fields": [
+        "special_release_date",
+        "special_episode_count"
+      ],
+      "files": [
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S00E01-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 437709578
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E01-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 645026966
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E02-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 595042202
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E03-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 525275919
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E04-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 675819761
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E05-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 994147316
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E06-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 647779286
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E07-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 490977759
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E08-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 493587004
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E09-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 806508336
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E10-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 520197980
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E11-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 514120447
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E12-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 703366488
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E13-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 697875444
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E14-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 1390152096
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E15-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 601449335
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E16-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 849220336
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E17-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 623216572
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E18-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 682503447
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E19-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 649029530
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E20-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 629522451
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E21-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 674074836
+        },
+        {
+          "name": "Shigatsu wa Kimi no Uso 2014 S01E22-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 719858341
+        }
+      ],
+      "id": "shigatsu-special",
+      "primary_source": "bangumi",
+      "queries": [
+        "四月は君の嘘 OAD 特典 発売日 話数",
+        "四月は君の嘘 原作 第11巻 OAD 公式"
+      ],
+      "raw_title": "[7³ACG] 四月是你的谎言/Shigatsu wa Kimi no Uso S01 | 01-22+SPx1 [简繁字幕] BDrip 1080p AV1 OPUS 2.0",
+      "resource_id": "38df15fe-d937-4c1e-90a2-07143dd62db4",
+      "scope": "特典 OAD；不是22集TV正片；核实特典发行日期和总集数，列出条目",
+      "snapshot_candidate_not_gold": {
+        "assignments": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S00E01-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 0,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E01-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 2,
+            "episode_start": 2,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E02-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 3,
+            "episode_start": 3,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E03-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 4,
+            "episode_start": 4,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E04-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 5,
+            "episode_start": 5,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E05-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 6,
+            "episode_start": 6,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E06-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 7,
+            "episode_start": 7,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E07-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 8,
+            "episode_start": 8,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E08-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 9,
+            "episode_start": 9,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E09-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 10,
+            "episode_start": 10,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E10-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 11,
+            "episode_start": 11,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E11-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 12,
+            "episode_start": 12,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E12-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 13,
+            "episode_start": 13,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E13-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 14,
+            "episode_start": 14,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E14-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 15,
+            "episode_start": 15,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E15-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 16,
+            "episode_start": 16,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E16-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 17,
+            "episode_start": 17,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E17-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 18,
+            "episode_start": 18,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E18-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 19,
+            "episode_start": 19,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E19-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 20,
+            "episode_start": 20,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E20-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 21,
+            "episode_start": 21,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E21-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          },
+          {
+            "episode_end": 22,
+            "episode_start": 22,
+            "file_path": "Shigatsu wa Kimi no Uso 2014 S01E22-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:100444:s1"
+          }
+        ],
+        "batch_scope": "season",
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": 22,
+        "episode_start": 1,
+        "is_batch": true,
+        "season": 1,
+        "season_ranges": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "season": 0
+          },
+          {
+            "episode_end": 22,
+            "episode_start": 1,
+            "season": 1
+          }
+        ],
+        "work_details": {
+          "series:bangumi:bangumi:100444:s1": {
+            "collection": "collection:title:四月是你的谎言",
+            "is_anime": true,
+            "number_of_episodes": 22,
+            "season_number": 1,
+            "start_date": "2014-10-09"
+          },
+          "series:title:四月是你的谎言:s0": {
+            "collection": "collection:title:四月是你的谎言",
+            "is_anime": true,
+            "number_of_episodes": null,
+            "season_number": 0,
+            "start_date": "2014-10-09"
+          }
+        },
+        "works": [
+          "series:bangumi:bangumi:100444:s1",
+          "series:title:四月是你的谎言:s0"
+        ]
+      },
+      "title": "四月は君の嘘 / 四月是你的谎言",
+      "torrent": "torrents/dbbda9702466724381fb41027ad84c2fc1b37da4bcc22e56996cb364e3fe55da.torrent"
+    },
+    {
+      "category": "specials_missing_count",
+      "fields": [
+        "special_release_date",
+        "special_episode_count"
+      ],
+      "files": [
+        {
+          "name": "Nichijou 2011 S00E01-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 285141591
+        },
+        {
+          "name": "Nichijou 2011 S01E01-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 510416877
+        },
+        {
+          "name": "Nichijou 2011 S01E02-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 540246331
+        },
+        {
+          "name": "Nichijou 2011 S01E03-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 432015937
+        },
+        {
+          "name": "Nichijou 2011 S01E04-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 411285561
+        },
+        {
+          "name": "Nichijou 2011 S01E05-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 492173391
+        },
+        {
+          "name": "Nichijou 2011 S01E06-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 571706276
+        },
+        {
+          "name": "Nichijou 2011 S01E07-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 439157874
+        },
+        {
+          "name": "Nichijou 2011 S01E08-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 444846655
+        },
+        {
+          "name": "Nichijou 2011 S01E09-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 487627105
+        },
+        {
+          "name": "Nichijou 2011 S01E10-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 539721220
+        },
+        {
+          "name": "Nichijou 2011 S01E11-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 467469887
+        },
+        {
+          "name": "Nichijou 2011 S01E12-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 554748476
+        },
+        {
+          "name": "Nichijou 2011 S01E13-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 400708607
+        },
+        {
+          "name": "Nichijou 2011 S01E14-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 635871817
+        },
+        {
+          "name": "Nichijou 2011 S01E15-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 557238413
+        },
+        {
+          "name": "Nichijou 2011 S01E16-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 578323975
+        },
+        {
+          "name": "Nichijou 2011 S01E17-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 517113600
+        },
+        {
+          "name": "Nichijou 2011 S01E18-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 548948717
+        },
+        {
+          "name": "Nichijou 2011 S01E19-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 1122492622
+        },
+        {
+          "name": "Nichijou 2011 S01E20-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 763020655
+        },
+        {
+          "name": "Nichijou 2011 S01E21-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 595866986
+        },
+        {
+          "name": "Nichijou 2011 S01E22-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 601207962
+        },
+        {
+          "name": "Nichijou 2011 S01E23-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 638548391
+        },
+        {
+          "name": "Nichijou 2011 S01E24-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 581767924
+        },
+        {
+          "name": "Nichijou 2011 S01E25-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 710352778
+        },
+        {
+          "name": "Nichijou 2011 S01E26-[1080p][BDRIP][AV1.OPUS].mkv",
+          "size": 474102686
+        }
+      ],
+      "id": "nichijou-special",
+      "primary_source": "bangumi",
+      "queries": [
+        "日常 アニメ OAD 発売日 話数",
+        "日常 OAD コミックス 限定版 公式"
+      ],
+      "raw_title": "[7³ACG] 日常/Nichijou S01 | 01-26+SPx1 [简繁字幕] BDrip 1080p AV1 OPUS 2.0",
+      "resource_id": "4d08a16c-0f87-4073-9081-0eda824aaaf8",
+      "scope": "torrent中的S00特典与TV正片分开；核实OAD发行日期和总集数，不将BD附赠短片混为同一个OAD",
+      "snapshot_candidate_not_gold": {
+        "assignments": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "Nichijou 2011 S00E01-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 0,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "Nichijou 2011 S01E01-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 2,
+            "episode_start": 2,
+            "file_path": "Nichijou 2011 S01E02-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 3,
+            "episode_start": 3,
+            "file_path": "Nichijou 2011 S01E03-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 4,
+            "episode_start": 4,
+            "file_path": "Nichijou 2011 S01E04-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 5,
+            "episode_start": 5,
+            "file_path": "Nichijou 2011 S01E05-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 6,
+            "episode_start": 6,
+            "file_path": "Nichijou 2011 S01E06-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 7,
+            "episode_start": 7,
+            "file_path": "Nichijou 2011 S01E07-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 8,
+            "episode_start": 8,
+            "file_path": "Nichijou 2011 S01E08-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 9,
+            "episode_start": 9,
+            "file_path": "Nichijou 2011 S01E09-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 10,
+            "episode_start": 10,
+            "file_path": "Nichijou 2011 S01E10-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 11,
+            "episode_start": 11,
+            "file_path": "Nichijou 2011 S01E11-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 12,
+            "episode_start": 12,
+            "file_path": "Nichijou 2011 S01E12-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 13,
+            "episode_start": 13,
+            "file_path": "Nichijou 2011 S01E13-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 14,
+            "episode_start": 14,
+            "file_path": "Nichijou 2011 S01E14-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 15,
+            "episode_start": 15,
+            "file_path": "Nichijou 2011 S01E15-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 16,
+            "episode_start": 16,
+            "file_path": "Nichijou 2011 S01E16-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 17,
+            "episode_start": 17,
+            "file_path": "Nichijou 2011 S01E17-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 18,
+            "episode_start": 18,
+            "file_path": "Nichijou 2011 S01E18-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 19,
+            "episode_start": 19,
+            "file_path": "Nichijou 2011 S01E19-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 20,
+            "episode_start": 20,
+            "file_path": "Nichijou 2011 S01E20-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 21,
+            "episode_start": 21,
+            "file_path": "Nichijou 2011 S01E21-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 22,
+            "episode_start": 22,
+            "file_path": "Nichijou 2011 S01E22-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 23,
+            "episode_start": 23,
+            "file_path": "Nichijou 2011 S01E23-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 24,
+            "episode_start": 24,
+            "file_path": "Nichijou 2011 S01E24-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 25,
+            "episode_start": 25,
+            "file_path": "Nichijou 2011 S01E25-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          },
+          {
+            "episode_end": 26,
+            "episode_start": 26,
+            "file_path": "Nichijou 2011 S01E26-[1080p][BDRIP][AV1.OPUS].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:9912:s1"
+          }
+        ],
+        "batch_scope": "season",
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": 26,
+        "episode_start": 1,
+        "is_batch": true,
+        "season": null,
+        "season_ranges": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "season": 0
+          },
+          {
+            "episode_end": 26,
+            "episode_start": 1,
+            "season": 1
+          }
+        ],
+        "work_details": {
+          "series:bangumi:bangumi:9912:s1": {
+            "collection": "collection:title:日常",
+            "is_anime": true,
+            "number_of_episodes": 26,
+            "season_number": 1,
+            "start_date": "2011-04-02"
+          },
+          "series:title:日常:s0": {
+            "collection": "collection:title:日常",
+            "is_anime": true,
+            "number_of_episodes": null,
+            "season_number": 0,
+            "start_date": "2011-04-02"
+          }
+        },
+        "works": [
+          "series:bangumi:bangumi:9912:s1",
+          "series:title:日常:s0"
+        ]
+      },
+      "title": "日常 / Nichijou",
+      "torrent": "torrents/5a612af72fba9b693c5fa3d06fd23692e08429b9b22447d27cf2638d0c86c38a.torrent"
+    },
+    {
+      "category": "linked_movie_missing_date",
+      "fields": [
+        "us_theatrical_release_date"
+      ],
+      "files": [],
+      "id": "shazam-date",
+      "primary_source": "tmdb",
+      "queries": [
+        "Shazam 2019 United States theatrical release date Warner Bros",
+        "Shazam 2019 film release date April official"
+      ],
+      "raw_title": "Shazam! (2019) 2160p 4K UHD HDR10 DV Blu-ray REMUX Dual Audio Hin+Eng ~ RemuxDoc",
+      "resource_id": "9d1b2f40-4b80-4da1-b5b8-6cd4bba3653c",
+      "scope": "2019电影，美国院线公映日期；不是首映礼、其他国家上映或蓝光发售",
+      "snapshot_candidate_not_gold": {
+        "assignments": [],
+        "batch_scope": null,
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": null,
+        "episode_start": null,
+        "is_batch": false,
+        "season": null,
+        "season_ranges": null,
+        "work_details": {
+          "movie:wikipedia:wikipedia:en:43613050": {
+            "collection": null,
+            "is_anime": false,
+            "release_date": null
+          }
+        },
+        "works": [
+          "movie:wikipedia:wikipedia:en:43613050"
+        ]
+      },
+      "title": "Shazam! (2019)",
+      "torrent": null
+    },
+    {
+      "category": "edition_identity_trap",
+      "fields": [
+        "commentary_release_date"
+      ],
+      "files": [],
+      "id": "rifftrax-date",
+      "primary_source": "tmdb",
+      "queries": [
+        "RiffTrax Ice Cream Man release date",
+        "site:rifftrax.com Ice Cream Man"
+      ],
+      "raw_title": "Rifftrax - Ice Cream Man (1995) 2160p HDR Ai Upscale 2.0 MKV -Mesc",
+      "resource_id": "2efb1d85-e4ea-4ba6-8573-460ce446e792",
+      "scope": "RiffTrax解说版本的发行日期，不是1995原电影日期；没有解说版证据必须未知",
+      "snapshot_candidate_not_gold": {
+        "assignments": [],
+        "batch_scope": null,
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": null,
+        "episode_start": null,
+        "is_batch": false,
+        "season": null,
+        "season_ranges": null,
+        "work_details": {
+          "movie:tmdb:tmdb:1746948": {
+            "collection": null,
+            "is_anime": false,
+            "release_date": null
+          }
+        },
+        "works": [
+          "movie:tmdb:tmdb:1746948"
+        ]
+      },
+      "title": "RiffTrax: Ice Cream Man",
+      "torrent": null
+    },
+    {
+      "category": "wrong_primary_media_category",
+      "fields": [
+        "first_japan_video_release_date",
+        "episode_count",
+        "is_anime"
+      ],
+      "files": [
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][03][生物四重奏][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1495187287
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][02][抓住凯姆拉的尾巴][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1439814782
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][01][执行M78的任务][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1021497677
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][04][黑暗往事][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1097123406
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][05][巨大的灾难][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1303219727
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][06][父亲的爱][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1079093093
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][07][烈焰之下][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1299884788
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][08][达达效应][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1270308371
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][09][地穴之中的长尾][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1305140882
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][10][致命海星][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1138695183
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][11][史前巨兽再临][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1301130585
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][12][流星带来的灾难][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 1128841826
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][13][最终决战][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+          "size": 957419046
+        },
+        {
+          "name": "[晨曦制作][奥特曼：终极英雄][JPG].jpg",
+          "size": 1115847
+        }
+      ],
+      "id": "ultraman-powered",
+      "primary_source": "bangumi",
+      "queries": [
+        "ウルトラマンパワード ビデオ 発売日 全話 円谷",
+        "Ultraman The Ultimate Hero original release 13 episodes"
+      ],
+      "raw_title": "[晨曦制作][奥特曼：终极英雄][TV01-13Fin][BDrip][HEVC Main10P DTS MKV][美版]",
+      "resource_id": "7a584dda-1a41-41d3-a4eb-3ae1ec567b04",
+      "scope": "美国制作的真人特摄；首次日本影像发行日期与后来日本电视首播日期分开；核实总集数和是否日本动画",
+      "snapshot_candidate_not_gold": {
+        "assignments": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][01][执行M78的任务][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 2,
+            "episode_start": 2,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][02][抓住凯姆拉的尾巴][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 3,
+            "episode_start": 3,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][03][生物四重奏][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 4,
+            "episode_start": 4,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][04][黑暗往事][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 5,
+            "episode_start": 5,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][05][巨大的灾难][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 6,
+            "episode_start": 6,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][06][父亲的爱][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 7,
+            "episode_start": 7,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][07][烈焰之下][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 8,
+            "episode_start": 8,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][08][达达效应][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 9,
+            "episode_start": 9,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][09][地穴之中的长尾][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 10,
+            "episode_start": 10,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][10][致命海星][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 11,
+            "episode_start": 11,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][11][史前巨兽再临][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 12,
+            "episode_start": 12,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][12][流星带来的灾难][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 13,
+            "episode_start": 13,
+            "file_path": "[晨曦制作][奥特曼：终极英雄][13][最终决战][BDrip][HEVC Main10P DTS MKV][美版].mkv",
+            "season": null,
+            "work": null
+          }
+        ],
+        "batch_scope": "season",
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": 13,
+        "episode_start": 1,
+        "is_batch": true,
+        "season": null,
+        "season_ranges": null,
+        "work_details": {},
+        "works": []
+      },
+      "title": "奥特曼：终极英雄 / Ultraman: The Ultimate Hero / ウルトラマンパワード",
+      "torrent": "torrents/c317fd3c639fccaa5688f9a5aaf8407416463d27df7713121cd3c364519b6062.torrent"
+    },
+    {
+      "category": "multi_season_control",
+      "fields": [
+        "episodes_per_season"
+      ],
+      "files": [
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 01 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2897368421
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 02 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2899848532
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 03 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2907295337
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 04 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2905516484
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 05 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2895050914
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 06 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2900563757
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 07 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2897440913
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 08 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2897073574
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 09 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2902057368
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 10 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2907375160
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 11 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2905244931
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 12 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2900061141
+        },
+        {
+          "name": "S1/[LinRip] Kaitou Joker - 13 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2897878512
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 14 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2905050691
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 15 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2901935461
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 16 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2905863179
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 17 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2902865656
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 18 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2896800075
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 19 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2903584535
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 20 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2899561139
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 21 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2898293850
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 22 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2904216015
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 23 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2901986107
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 24 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2905233929
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 25 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2902526553
+        },
+        {
+          "name": "S2/[LinRip] Kaitou Joker - 26 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2901535052
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 27 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2907153221
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 28 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2900037305
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 29 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2898710438
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 30 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2902484014
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 31 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2904912806
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 32 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2899459996
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 33 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2903444160
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 34 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2904595063
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 35 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2900342224
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 36 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2901362264
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 37 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2909495125
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 38 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2911051472
+        },
+        {
+          "name": "S3/[LinRip] Kaitou Joker - 39 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2913398500
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 40 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2905702480
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 41 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2906572299
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 42 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2899306265
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 43 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2897304726
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 44 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2914406471
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 45 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2902774579
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 46 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2901852987
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 47 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2899515636
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 48 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2900383962
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 49 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2903575008
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 50 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2898670220
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 51 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2898849154
+        },
+        {
+          "name": "S4/[LinRip] Kaitou Joker - 52 [BDRemux 1080p AVC FLAC].mkv",
+          "size": 2845025969
+        }
+      ],
+      "id": "joker-four-seasons",
+      "primary_source": "bangumi",
+      "queries": [
+        "怪盗ジョーカー シーズン1 シーズン2 シーズン3 シーズン4 話数",
+        "怪盗ジョーカー 公式 各話 シーズン4"
+      ],
+      "raw_title": "[LinRip] 怪盗Joker ／ Kaitou Joker S1-S4 [BDRemux 1080p AVC FLAC][简繁日内封]",
+      "resource_id": "3254d1a4-2ea1-434c-868e-e9d3072222ab",
+      "scope": "标题明确S1-S4；输出四季各自集数，不将总集数写入第一季",
+      "snapshot_candidate_not_gold": {
+        "assignments": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "S1/[LinRip] Kaitou Joker - 01 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 2,
+            "episode_start": 2,
+            "file_path": "S1/[LinRip] Kaitou Joker - 02 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 3,
+            "episode_start": 3,
+            "file_path": "S1/[LinRip] Kaitou Joker - 03 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 4,
+            "episode_start": 4,
+            "file_path": "S1/[LinRip] Kaitou Joker - 04 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 5,
+            "episode_start": 5,
+            "file_path": "S1/[LinRip] Kaitou Joker - 05 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 6,
+            "episode_start": 6,
+            "file_path": "S1/[LinRip] Kaitou Joker - 06 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 7,
+            "episode_start": 7,
+            "file_path": "S1/[LinRip] Kaitou Joker - 07 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 8,
+            "episode_start": 8,
+            "file_path": "S1/[LinRip] Kaitou Joker - 08 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 9,
+            "episode_start": 9,
+            "file_path": "S1/[LinRip] Kaitou Joker - 09 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 10,
+            "episode_start": 10,
+            "file_path": "S1/[LinRip] Kaitou Joker - 10 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 11,
+            "episode_start": 11,
+            "file_path": "S1/[LinRip] Kaitou Joker - 11 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 12,
+            "episode_start": 12,
+            "file_path": "S1/[LinRip] Kaitou Joker - 12 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 13,
+            "episode_start": 13,
+            "file_path": "S1/[LinRip] Kaitou Joker - 13 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 1,
+            "work": "series:bangumi:bangumi:107186:s1"
+          },
+          {
+            "episode_end": 14,
+            "episode_start": 14,
+            "file_path": "S2/[LinRip] Kaitou Joker - 14 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 15,
+            "episode_start": 15,
+            "file_path": "S2/[LinRip] Kaitou Joker - 15 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 16,
+            "episode_start": 16,
+            "file_path": "S2/[LinRip] Kaitou Joker - 16 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 17,
+            "episode_start": 17,
+            "file_path": "S2/[LinRip] Kaitou Joker - 17 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 18,
+            "episode_start": 18,
+            "file_path": "S2/[LinRip] Kaitou Joker - 18 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 19,
+            "episode_start": 19,
+            "file_path": "S2/[LinRip] Kaitou Joker - 19 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 20,
+            "episode_start": 20,
+            "file_path": "S2/[LinRip] Kaitou Joker - 20 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 21,
+            "episode_start": 21,
+            "file_path": "S2/[LinRip] Kaitou Joker - 21 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 22,
+            "episode_start": 22,
+            "file_path": "S2/[LinRip] Kaitou Joker - 22 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 23,
+            "episode_start": 23,
+            "file_path": "S2/[LinRip] Kaitou Joker - 23 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 24,
+            "episode_start": 24,
+            "file_path": "S2/[LinRip] Kaitou Joker - 24 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 25,
+            "episode_start": 25,
+            "file_path": "S2/[LinRip] Kaitou Joker - 25 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 26,
+            "episode_start": 26,
+            "file_path": "S2/[LinRip] Kaitou Joker - 26 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 2,
+            "work": "series:bangumi:bangumi:122864:s2"
+          },
+          {
+            "episode_end": 27,
+            "episode_start": 27,
+            "file_path": "S3/[LinRip] Kaitou Joker - 27 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 28,
+            "episode_start": 28,
+            "file_path": "S3/[LinRip] Kaitou Joker - 28 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 29,
+            "episode_start": 29,
+            "file_path": "S3/[LinRip] Kaitou Joker - 29 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 30,
+            "episode_start": 30,
+            "file_path": "S3/[LinRip] Kaitou Joker - 30 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 31,
+            "episode_start": 31,
+            "file_path": "S3/[LinRip] Kaitou Joker - 31 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 32,
+            "episode_start": 32,
+            "file_path": "S3/[LinRip] Kaitou Joker - 32 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 33,
+            "episode_start": 33,
+            "file_path": "S3/[LinRip] Kaitou Joker - 33 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 34,
+            "episode_start": 34,
+            "file_path": "S3/[LinRip] Kaitou Joker - 34 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 35,
+            "episode_start": 35,
+            "file_path": "S3/[LinRip] Kaitou Joker - 35 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 36,
+            "episode_start": 36,
+            "file_path": "S3/[LinRip] Kaitou Joker - 36 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 37,
+            "episode_start": 37,
+            "file_path": "S3/[LinRip] Kaitou Joker - 37 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 38,
+            "episode_start": 38,
+            "file_path": "S3/[LinRip] Kaitou Joker - 38 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 39,
+            "episode_start": 39,
+            "file_path": "S3/[LinRip] Kaitou Joker - 39 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 3,
+            "work": "series:bangumi:bangumi:147085:s3"
+          },
+          {
+            "episode_end": 40,
+            "episode_start": 40,
+            "file_path": "S4/[LinRip] Kaitou Joker - 40 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 41,
+            "episode_start": 41,
+            "file_path": "S4/[LinRip] Kaitou Joker - 41 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 42,
+            "episode_start": 42,
+            "file_path": "S4/[LinRip] Kaitou Joker - 42 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 43,
+            "episode_start": 43,
+            "file_path": "S4/[LinRip] Kaitou Joker - 43 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 44,
+            "episode_start": 44,
+            "file_path": "S4/[LinRip] Kaitou Joker - 44 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 45,
+            "episode_start": 45,
+            "file_path": "S4/[LinRip] Kaitou Joker - 45 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 46,
+            "episode_start": 46,
+            "file_path": "S4/[LinRip] Kaitou Joker - 46 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 47,
+            "episode_start": 47,
+            "file_path": "S4/[LinRip] Kaitou Joker - 47 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 48,
+            "episode_start": 48,
+            "file_path": "S4/[LinRip] Kaitou Joker - 48 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 49,
+            "episode_start": 49,
+            "file_path": "S4/[LinRip] Kaitou Joker - 49 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 50,
+            "episode_start": 50,
+            "file_path": "S4/[LinRip] Kaitou Joker - 50 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 51,
+            "episode_start": 51,
+            "file_path": "S4/[LinRip] Kaitou Joker - 51 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          },
+          {
+            "episode_end": 52,
+            "episode_start": 52,
+            "file_path": "S4/[LinRip] Kaitou Joker - 52 [BDRemux 1080p AVC FLAC].mkv",
+            "season": 4,
+            "work": "series:bangumi:bangumi:185825:s4"
+          }
+        ],
+        "batch_scope": "multi_season",
+        "batch_seasons": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "collection": null,
+        "episode": null,
+        "episode_end": null,
+        "episode_start": null,
+        "is_batch": true,
+        "season": 1,
+        "season_ranges": [
+          {
+            "episode_end": 13,
+            "episode_start": 1,
+            "season": 1
+          },
+          {
+            "episode_end": 26,
+            "episode_start": 14,
+            "season": 2
+          },
+          {
+            "episode_end": 39,
+            "episode_start": 27,
+            "season": 3
+          },
+          {
+            "episode_end": 52,
+            "episode_start": 40,
+            "season": 4
+          }
+        ],
+        "work_details": {
+          "series:bangumi:bangumi:107186:s1": {
+            "collection": "collection:title:怪盗Joker",
+            "is_anime": true,
+            "number_of_episodes": 13,
+            "season_number": 1,
+            "start_date": "2014-10-06"
+          },
+          "series:bangumi:bangumi:122864:s2": {
+            "collection": "collection:title:怪盗Joker",
+            "is_anime": true,
+            "number_of_episodes": 13,
+            "season_number": 2,
+            "start_date": "2015-04-06"
+          },
+          "series:bangumi:bangumi:147085:s3": {
+            "collection": "collection:title:怪盗Joker",
+            "is_anime": true,
+            "number_of_episodes": 13,
+            "season_number": 3,
+            "start_date": "2016-04-04"
+          },
+          "series:bangumi:bangumi:185825:s4": {
+            "collection": "collection:title:怪盗Joker",
+            "is_anime": true,
+            "number_of_episodes": 13,
+            "season_number": 4,
+            "start_date": "2016-10-03"
+          }
+        },
+        "works": [
+          "series:bangumi:bangumi:107186:s1",
+          "series:bangumi:bangumi:122864:s2",
+          "series:bangumi:bangumi:147085:s3",
+          "series:bangumi:bangumi:185825:s4"
+        ]
+      },
+      "title": "怪盗ジョーカー / 怪盗Joker / Kaitou Joker",
+      "torrent": "torrents/ee391d2ec3a1db010822eb74d5caa602705a142e1105cc34622b6a823f0e8f9f.torrent"
+    },
+    {
+      "category": "season_and_movie_ambiguity",
+      "fields": [
+        "season2_start_date",
+        "season2_total_episodes"
+      ],
+      "files": [
+        {
+          "name": "076-暑假啦！.mp4",
+          "size": 40824983
+        },
+        {
+          "name": "74-等我长大啦.mp4",
+          "size": 29350024
+        },
+        {
+          "name": "075-小花朵.mp4",
+          "size": 31562034
+        },
+        {
+          "name": "73-下雨也很开心.mp4",
+          "size": 38532600
+        },
+        {
+          "name": "077-夏天的特训！.mp4",
+          "size": 37274849
+        },
+        {
+          "name": "078-金黄小奶蛙.mp4",
+          "size": 40507763
+        },
+        {
+          "name": "079-盂兰盆节.mp4",
+          "size": 39881219
+        },
+        {
+          "name": "080-蓝色的刨冰.mp4",
+          "size": 31210803
+        },
+        {
+          "name": "081-明年再见.mp4",
+          "size": 36070070
+        }
+      ],
+      "id": "kozame-season2",
+      "primary_source": "bangumi",
+      "queries": [
+        "おでかけ子ザメ シーズン2 配信開始 全話",
+        "おでかけ子ザメ 第2期 総話数 公式"
+      ],
+      "raw_title": "【咪路fans制作组】[小鲨鱼去郊游 第二季／Odekake Kozame S2／おでかけ子ザメ S2][13-21][MP4][1080P][GB]",
+      "resource_id": "eb1737c6-0a36-4f66-9b02-088a88eaaef1",
+      "scope": "第二季网络/TV系列；不是第一季或剧场版；起始日期和已确认的第二季总集数；未公布总集数不得猜测",
+      "snapshot_candidate_not_gold": {
+        "assignments": [],
+        "batch_scope": "season",
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": 21,
+        "episode_start": 13,
+        "is_batch": true,
+        "season": 2,
+        "season_ranges": null,
+        "work_details": {},
+        "works": []
+      },
+      "title": "おでかけ子ザメ / 小鲨鱼去郊游 / Odekake Kozame",
+      "torrent": "torrents/b60315b1774080f51288f8ad50c6880bdd231c8eec9189e809895ef86668528c.torrent"
+    },
+    {
+      "category": "release_title_not_authority",
+      "fields": [
+        "total_episodes",
+        "is_anime"
+      ],
+      "files": [
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][01][1080P][AMZN][CHS].ass",
+          "size": 23660
+        },
+        {
+          "name": "_____padding_file_0_____",
+          "size": 16753556
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][01][1080P][AMZN][CHS].mkv",
+          "size": 1619576328
+        },
+        {
+          "name": "_____padding_file_1_____",
+          "size": 7813624
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][02][1080P][AMZN][CHS][V2].ass",
+          "size": 28162
+        },
+        {
+          "name": "_____padding_file_2_____",
+          "size": 16749054
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][02][1080P][AMZN][CHS][V2].mkv",
+          "size": 1688585790
+        },
+        {
+          "name": "_____padding_file_3_____",
+          "size": 5913026
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][03][1080P][AMZN][CHS][V2].ass",
+          "size": 22924
+        },
+        {
+          "name": "_____padding_file_4_____",
+          "size": 16754292
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][03][1080P][AMZN][CHS][V2].mkv",
+          "size": 1593831013
+        },
+        {
+          "name": "_____padding_file_5_____",
+          "size": 4507
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][04][1080P][AMZN][CHS][V2].ass",
+          "size": 86679
+        },
+        {
+          "name": "_____padding_file_6_____",
+          "size": 16690537
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][04][1080P][AMZN][CHS][V2].mkv",
+          "size": 1635781574
+        },
+        {
+          "name": "_____padding_file_7_____",
+          "size": 8385594
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][05][1080P][AMZN][CHS].ass",
+          "size": 25448
+        },
+        {
+          "name": "_____padding_file_8_____",
+          "size": 16751768
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][05][1080P][AMZN][CHS].mkv",
+          "size": 1642179753
+        },
+        {
+          "name": "_____padding_file_9_____",
+          "size": 1987415
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][06][1080P][AMZN][CHS].ass",
+          "size": 32809
+        },
+        {
+          "name": "_____padding_file_10_____",
+          "size": 16744407
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][06][1080P][AMZN][CHS].mkv",
+          "size": 1684264171
+        },
+        {
+          "name": "_____padding_file_11_____",
+          "size": 10234645
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][07][1080P][AMZN][CHS].ass",
+          "size": 26412
+        },
+        {
+          "name": "_____padding_file_12_____",
+          "size": 16750804
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][07][1080P][AMZN][CHS].mkv",
+          "size": 1663321585
+        },
+        {
+          "name": "_____padding_file_13_____",
+          "size": 14400015
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][08][1080P][AMZN][CHS].ass",
+          "size": 26896
+        },
+        {
+          "name": "_____padding_file_14_____",
+          "size": 16750320
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][08][1080P][AMZN][CHS].mkv",
+          "size": 1690228606
+        },
+        {
+          "name": "_____padding_file_15_____",
+          "size": 4270210
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][09][1080P][AMZN][CHS][V2].ass",
+          "size": 24216
+        },
+        {
+          "name": "_____padding_file_16_____",
+          "size": 16753000
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][09][1080P][AMZN][CHS][V2].mkv",
+          "size": 1679353340
+        },
+        {
+          "name": "_____padding_file_17_____",
+          "size": 15145476
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][10][1080P][AMZN][CHS][V2].ass",
+          "size": 35046
+        },
+        {
+          "name": "_____padding_file_18_____",
+          "size": 16742170
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][10][1080P][AMZN][CHS][V2].mkv",
+          "size": 1662856393
+        },
+        {
+          "name": "_____padding_file_19_____",
+          "size": 14865207
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][11][1080P][AMZN][CHS][V2].ass",
+          "size": 27528
+        },
+        {
+          "name": "_____padding_file_20_____",
+          "size": 16749688
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][11][1080P][AMZN][CHS][V2].mkv",
+          "size": 1662526795
+        },
+        {
+          "name": "_____padding_file_21_____",
+          "size": 15194805
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][12][1080P][AMZN][CHS].ass",
+          "size": 27827
+        },
+        {
+          "name": "_____padding_file_22_____",
+          "size": 16749389
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][12][1080P][AMZN][CHS].mkv",
+          "size": 1658160849
+        },
+        {
+          "name": "_____padding_file_23_____",
+          "size": 2783535
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][13][1080P][AMZN][CHS].ass",
+          "size": 23074
+        },
+        {
+          "name": "_____padding_file_24_____",
+          "size": 16754142
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][13][1080P][AMZN][CHS].mkv",
+          "size": 1683251066
+        },
+        {
+          "name": "_____padding_file_25_____",
+          "size": 11247750
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][14][1080P][AMZN][CHS].ass",
+          "size": 21351
+        },
+        {
+          "name": "_____padding_file_26_____",
+          "size": 16755865
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][14][1080P][AMZN][CHS].mkv",
+          "size": 1630628667
+        },
+        {
+          "name": "_____padding_file_27_____",
+          "size": 13538501
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][15][1080P][AMZN][CHS].ass",
+          "size": 20067
+        },
+        {
+          "name": "_____padding_file_28_____",
+          "size": 16757149
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][15][1080P][AMZN][CHS].mkv",
+          "size": 1585119810
+        },
+        {
+          "name": "_____padding_file_29_____",
+          "size": 8715710
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][16][1080P][AMZN][CHS].ass",
+          "size": 26787
+        },
+        {
+          "name": "_____padding_file_30_____",
+          "size": 16750429
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][16][1080P][AMZN][CHS].mkv",
+          "size": 1671768474
+        },
+        {
+          "name": "_____padding_file_31_____",
+          "size": 5953126
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][17][1080P][AMZN][CHS][V2].ass",
+          "size": 23390
+        },
+        {
+          "name": "_____padding_file_32_____",
+          "size": 16753826
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][17][1080P][AMZN][CHS][V2].mkv",
+          "size": 1672146007
+        },
+        {
+          "name": "_____padding_file_33_____",
+          "size": 5575593
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][18][1080P][AMZN][CHS].ass",
+          "size": 23252
+        },
+        {
+          "name": "_____padding_file_34_____",
+          "size": 16753964
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][18][1080P][AMZN][CHS].mkv",
+          "size": 1587437124
+        },
+        {
+          "name": "_____padding_file_35_____",
+          "size": 6398396
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][19][1080P][AMZN][CHS].ass",
+          "size": 23221
+        },
+        {
+          "name": "_____padding_file_36_____",
+          "size": 16753995
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][19][1080P][AMZN][CHS].mkv",
+          "size": 1592011490
+        },
+        {
+          "name": "_____padding_file_37_____",
+          "size": 1824030
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][20][1080P][AMZN][CHS].ass",
+          "size": 53613
+        },
+        {
+          "name": "_____padding_file_38_____",
+          "size": 16723603
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][20][1080P][AMZN][CHS].mkv",
+          "size": 1698222798
+        },
+        {
+          "name": "_____padding_file_39_____",
+          "size": 13053234
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][21][1080P][AMZN][CHS].ass",
+          "size": 24311
+        },
+        {
+          "name": "_____padding_file_40_____",
+          "size": 16752905
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][21][1080P][AMZN][CHS].mkv",
+          "size": 1660794463
+        },
+        {
+          "name": "_____padding_file_41_____",
+          "size": 149921
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][22][1080P][AMZN][CHS].ass",
+          "size": 22498
+        },
+        {
+          "name": "_____padding_file_42_____",
+          "size": 16754718
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][22][1080P][AMZN][CHS].mkv",
+          "size": 1651862630
+        },
+        {
+          "name": "_____padding_file_43_____",
+          "size": 9081754
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][23][1080P][AMZN][CHS].ass",
+          "size": 21346
+        },
+        {
+          "name": "_____padding_file_44_____",
+          "size": 16755870
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][23][1080P][AMZN][CHS].mkv",
+          "size": 1594900317
+        },
+        {
+          "name": "_____padding_file_45_____",
+          "size": 15712419
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][24][1080P][AMZN][CHS].ass",
+          "size": 22793
+        },
+        {
+          "name": "_____padding_file_46_____",
+          "size": 16754423
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][24][1080P][AMZN][CHS].mkv",
+          "size": 1649480953
+        },
+        {
+          "name": "_____padding_file_47_____",
+          "size": 11463431
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][25][1080P][AMZN][CHS].ass",
+          "size": 26093
+        },
+        {
+          "name": "_____padding_file_48_____",
+          "size": 16751123
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][25][1080P][AMZN][CHS].mkv",
+          "size": 1613379337
+        },
+        {
+          "name": "_____padding_file_49_____",
+          "size": 14010615
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][26][1080P][AMZN][CHS].ass",
+          "size": 153753
+        },
+        {
+          "name": "_____padding_file_50_____",
+          "size": 16623463
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][26][1080P][AMZN][CHS].mkv",
+          "size": 1656370246
+        },
+        {
+          "name": "_____padding_file_51_____",
+          "size": 4574138
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][27][1080P][AMZN][CHS].ass",
+          "size": 173333
+        },
+        {
+          "name": "_____padding_file_52_____",
+          "size": 16603883
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][27][1080P][AMZN][CHS].mkv",
+          "size": 1629131299
+        },
+        {
+          "name": "_____padding_file_53_____",
+          "size": 15035869
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][28][1080P][AMZN][CHS].ass",
+          "size": 153316
+        },
+        {
+          "name": "_____padding_file_54_____",
+          "size": 16623900
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][28][1080P][AMZN][CHS].mkv",
+          "size": 1688009986
+        },
+        {
+          "name": "_____padding_file_55_____",
+          "size": 6488830
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][29][1080P][AMZN][CHS].ass",
+          "size": 150334
+        },
+        {
+          "name": "_____padding_file_56_____",
+          "size": 16626882
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][29][1080P][AMZN][CHS].mkv",
+          "size": 1685762102
+        },
+        {
+          "name": "_____padding_file_57_____",
+          "size": 8736714
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][30][1080P][AMZN][CHS].ass",
+          "size": 153008
+        },
+        {
+          "name": "_____padding_file_58_____",
+          "size": 16624208
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][30][1080P][AMZN][CHS].mkv",
+          "size": 1680080364
+        },
+        {
+          "name": "_____padding_file_59_____",
+          "size": 14418452
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][31][1080P][AMZN][CHS].ass",
+          "size": 151504
+        },
+        {
+          "name": "_____padding_file_60_____",
+          "size": 16625712
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][31][1080P][AMZN][CHS].mkv",
+          "size": 1650053393
+        },
+        {
+          "name": "_____padding_file_61_____",
+          "size": 10890991
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][32][1080P][AMZN][CHS].ass",
+          "size": 150210
+        },
+        {
+          "name": "_____padding_file_62_____",
+          "size": 16627006
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][32][1080P][AMZN][CHS].mkv",
+          "size": 1622697786
+        },
+        {
+          "name": "_____padding_file_63_____",
+          "size": 4692166
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][33][1080P][AMZN][CHS].ass",
+          "size": 147577
+        },
+        {
+          "name": "_____padding_file_64_____",
+          "size": 16629639
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][33][1080P][AMZN][CHS].mkv",
+          "size": 1589672806
+        },
+        {
+          "name": "_____padding_file_65_____",
+          "size": 4162714
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][34][1080P][AMZN][CHS].ass",
+          "size": 153448
+        },
+        {
+          "name": "_____padding_file_66_____",
+          "size": 16623768
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][34][1080P][AMZN][CHS].mkv",
+          "size": 1660172309
+        },
+        {
+          "name": "_____padding_file_67_____",
+          "size": 772075
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][35][1080P][AMZN][CHS].ass",
+          "size": 151916
+        },
+        {
+          "name": "_____padding_file_68_____",
+          "size": 16625300
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][35][1080P][AMZN][CHS].mkv",
+          "size": 1682152636
+        },
+        {
+          "name": "_____padding_file_69_____",
+          "size": 12346180
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][36][1080P][AMZN][CHS].ass",
+          "size": 152580
+        },
+        {
+          "name": "_____padding_file_70_____",
+          "size": 16624636
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][36][1080P][AMZN][CHS].mkv",
+          "size": 1720529004
+        },
+        {
+          "name": "_____padding_file_71_____",
+          "size": 7524244
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][37][1080P][AMZN][CHS].ass",
+          "size": 155338
+        },
+        {
+          "name": "_____padding_file_72_____",
+          "size": 16621878
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][37][1080P][AMZN][CHS].mkv",
+          "size": 1660509515
+        },
+        {
+          "name": "_____padding_file_73_____",
+          "size": 434869
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][38][1080P][AMZN][CHS].ass",
+          "size": 150244
+        },
+        {
+          "name": "_____padding_file_74_____",
+          "size": 16626972
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][38][1080P][AMZN][CHS].mkv",
+          "size": 1684627237
+        },
+        {
+          "name": "_____padding_file_75_____",
+          "size": 9871579
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][39][1080P][AMZN][CHS].ass",
+          "size": 155333
+        },
+        {
+          "name": "_____padding_file_76_____",
+          "size": 16621883
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][39][1080P][AMZN][CHS].mkv",
+          "size": 1726686111
+        },
+        {
+          "name": "_____padding_file_77_____",
+          "size": 1367137
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][40][1080P][AMZN][CHS].ass",
+          "size": 152011
+        },
+        {
+          "name": "_____padding_file_78_____",
+          "size": 16625205
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][40][1080P][AMZN][CHS].mkv",
+          "size": 1731796066
+        },
+        {
+          "name": "_____padding_file_79_____",
+          "size": 13034398
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][41][1080P][AMZN][CHS].ass",
+          "size": 150291
+        },
+        {
+          "name": "_____padding_file_80_____",
+          "size": 16626925
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][41][1080P][AMZN][CHS].mkv",
+          "size": 1697820286
+        },
+        {
+          "name": "_____padding_file_81_____",
+          "size": 13455746
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][42][1080P][AMZN][CHS].ass",
+          "size": 150879
+        },
+        {
+          "name": "_____padding_file_82_____",
+          "size": 16626337
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][42][1080P][AMZN][CHS].mkv",
+          "size": 1717377302
+        },
+        {
+          "name": "_____padding_file_83_____",
+          "size": 10675946
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][43][1080P][AMZN][CHS].ass",
+          "size": 149005
+        },
+        {
+          "name": "_____padding_file_84_____",
+          "size": 16628211
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][43][1080P][AMZN][CHS].mkv",
+          "size": 1643351962
+        },
+        {
+          "name": "_____padding_file_85_____",
+          "size": 815206
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][44][1080P][AMZN][CHS].ass",
+          "size": 152847
+        },
+        {
+          "name": "_____padding_file_86_____",
+          "size": 16624369
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][44][1080P][AMZN][CHS].mkv",
+          "size": 1481801882
+        },
+        {
+          "name": "_____padding_file_87_____",
+          "size": 11370342
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][45][1080P][AMZN][CHS].ass",
+          "size": 148864
+        },
+        {
+          "name": "_____padding_file_88_____",
+          "size": 16628352
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][45][1080P][AMZN][CHS].mkv",
+          "size": 1570676446
+        },
+        {
+          "name": "_____padding_file_89_____",
+          "size": 6381858
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][46][1080P][AMZN][CHS].ass",
+          "size": 148896
+        },
+        {
+          "name": "_____padding_file_90_____",
+          "size": 16628320
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][46][1080P][AMZN][CHS].mkv",
+          "size": 1626866574
+        },
+        {
+          "name": "_____padding_file_91_____",
+          "size": 523378
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][47][1080P][AMZN][CHS].ass",
+          "size": 149886
+        },
+        {
+          "name": "_____padding_file_92_____",
+          "size": 16627330
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][47][1080P][AMZN][CHS].mkv",
+          "size": 1671244841
+        },
+        {
+          "name": "_____padding_file_93_____",
+          "size": 6476759
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][48][1080P][AMZN][CHS].ass",
+          "size": 151829
+        },
+        {
+          "name": "_____padding_file_94_____",
+          "size": 16625387
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][48][1080P][AMZN][CHS].mkv",
+          "size": 1640387702
+        },
+        {
+          "name": "_____padding_file_95_____",
+          "size": 3779466
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][49][1080P][AMZN][CHS].ass",
+          "size": 150112
+        },
+        {
+          "name": "_____padding_file_96_____",
+          "size": 16627104
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][49][1080P][AMZN][CHS].mkv",
+          "size": 1578267196
+        },
+        {
+          "name": "_____padding_file_97_____",
+          "size": 15568324
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][50][1080P][AMZN][CHS].ass",
+          "size": 22712
+        },
+        {
+          "name": "_____padding_file_98_____",
+          "size": 16754504
+        },
+        {
+          "name": "[KRSUB][Kamen Rider Zeztz][50][1080P][AMZN][CHS].mkv",
+          "size": 1664582554
+        }
+      ],
+      "id": "zeztz-count",
+      "primary_source": "bangumi",
+      "queries": [
+        "仮面ライダーゼッツ 全何話 最終回 公式",
+        "site:tv-asahi.co.jp/zeztz ストーリー"
+      ],
+      "raw_title": "[KRSUB][假面骑士Zeztz][01-50][WEB-DL][AMZN][1080P][官方中文]",
+      "resource_id": "f648e670-c1b7-4f8b-9d92-8da6f5cc8ad4",
+      "scope": "真人特摄；核实官方已确定的整部总集数，标题01-50不是总集数证据；未完结且未公布则未知",
+      "snapshot_candidate_not_gold": {
+        "assignments": [
+          {
+            "episode_end": 1,
+            "episode_start": 1,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][01][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 2,
+            "episode_start": 2,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][02][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 3,
+            "episode_start": 3,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][03][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 4,
+            "episode_start": 4,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][04][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 5,
+            "episode_start": 5,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][05][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 6,
+            "episode_start": 6,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][06][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 7,
+            "episode_start": 7,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][07][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 8,
+            "episode_start": 8,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][08][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 9,
+            "episode_start": 9,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][09][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 10,
+            "episode_start": 10,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][10][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 11,
+            "episode_start": 11,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][11][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 12,
+            "episode_start": 12,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][12][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 13,
+            "episode_start": 13,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][13][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 14,
+            "episode_start": 14,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][14][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 15,
+            "episode_start": 15,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][15][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 16,
+            "episode_start": 16,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][16][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 17,
+            "episode_start": 17,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][17][1080P][AMZN][CHS][V2].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 18,
+            "episode_start": 18,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][18][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 19,
+            "episode_start": 19,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][19][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 20,
+            "episode_start": 20,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][20][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 21,
+            "episode_start": 21,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][21][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 22,
+            "episode_start": 22,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][22][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 23,
+            "episode_start": 23,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][23][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 24,
+            "episode_start": 24,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][24][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 25,
+            "episode_start": 25,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][25][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 26,
+            "episode_start": 26,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][26][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 27,
+            "episode_start": 27,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][27][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 28,
+            "episode_start": 28,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][28][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 29,
+            "episode_start": 29,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][29][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 30,
+            "episode_start": 30,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][30][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 31,
+            "episode_start": 31,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][31][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 32,
+            "episode_start": 32,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][32][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 33,
+            "episode_start": 33,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][33][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 34,
+            "episode_start": 34,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][34][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 35,
+            "episode_start": 35,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][35][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 36,
+            "episode_start": 36,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][36][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 37,
+            "episode_start": 37,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][37][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 38,
+            "episode_start": 38,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][38][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 39,
+            "episode_start": 39,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][39][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 40,
+            "episode_start": 40,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][40][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 41,
+            "episode_start": 41,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][41][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 42,
+            "episode_start": 42,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][42][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 43,
+            "episode_start": 43,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][43][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 44,
+            "episode_start": 44,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][44][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 45,
+            "episode_start": 45,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][45][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 46,
+            "episode_start": 46,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][46][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 47,
+            "episode_start": 47,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][47][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 48,
+            "episode_start": 48,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][48][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 49,
+            "episode_start": 49,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][49][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          },
+          {
+            "episode_end": 50,
+            "episode_start": 50,
+            "file_path": "[KRSUB][Kamen Rider Zeztz][50][1080P][AMZN][CHS].mkv",
+            "season": null,
+            "work": null
+          }
+        ],
+        "batch_scope": "season",
+        "batch_seasons": null,
+        "collection": null,
+        "episode": null,
+        "episode_end": 50,
+        "episode_start": 1,
+        "is_batch": true,
+        "season": null,
+        "season_ranges": null,
+        "work_details": {},
+        "works": []
+      },
+      "title": "仮面ライダーゼッツ / 假面骑士Zeztz / Kamen Rider Zeztz",
+      "torrent": "torrents/8e59da364ee4608599ecfb0c434b716ab0dbc0848048196c9f906963cf66a5dc.torrent"
+    }
+  ],
+  "corpus_sha256": "9253d922569e3ec10d89ae7b3b9d6ae5a8ca2bc12ecf9ca7d7056ac63ed0aecf",
+  "selected_at": "2026-09-06T05:16:45.638404+00:00",
+  "selection": "purposive difficult cases, not random"
+}

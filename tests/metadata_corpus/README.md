@@ -1,6 +1,6 @@
 # Metadata corpus 回归测试
 
-目标是用作品库与实际 torrent 重建作品、季、合集、文件指派及下载门禁，且不把生产库当前结果直接当作正确答案。入口为 `scripts/metadata_corpus.py`。
+目标是用作品库与实际 torrent 重建作品、季、合集、文件指派及下载门禁，且不把生产库当前结果直接当作正确答案。CLI 入口为 `scripts/metadata_corpus.py`；验收用例在 `tests/integration/metadata_corpus/`，本目录仅保留共享导出/回放工具，不重复收集用例。
 
 ## 已有覆盖与边界
 
@@ -11,7 +11,7 @@ v1 收录 1,372 条真实资源的脱敏快照，846 条具有 torrent 证据（
 ## 日常离线验证
 
 ```bash
-.venv/bin/pytest tests/metadata_corpus -q
+.venv/bin/pytest tests/integration/metadata_corpus -q
 .venv/bin/python scripts/metadata_corpus.py run --report /tmp/metadata-corpus.json
 ```
 
@@ -19,11 +19,22 @@ v1 收录 1,372 条真实资源的脱敏快照，846 条具有 torrent 证据（
 
 ```bash
 docker compose -p rssripple-corpus -f docker-compose.corpus.yml up -d --wait
-CORPUS_TEST_DATABASE_URL=postgresql+asyncpg://corpus:corpus@127.0.0.1:55439/metadata_corpus_test .venv/bin/pytest tests/metadata_corpus -q
+CORPUS_TEST_DATABASE_URL=postgresql+asyncpg://corpus:corpus@127.0.0.1:55439/metadata_corpus_test .venv/bin/pytest tests/integration/metadata_corpus -q
 docker compose -p rssripple-corpus -f docker-compose.corpus.yml down
 ```
 
-PostgreSQL 必须名为 `metadata_corpus_test`，每轮创建/删除随机 schema；拒绝连接生产数据库名。runner 使用真实 `fetch_channel_resources`、metadata 搜索/解析/upsert/确认门禁和下载服务，队列不实际投递，下载器为 mock。原始 RSS 未保存，输入明确标记 `title_and_torrent`，不宣称验证历史 RSS 字段映射；每轮也暂停自动 backfill，防止混入未列入场景的工作。
+PostgreSQL 必须名为 `metadata_corpus_test`，每轮创建/删除随机 schema；拒绝连接生产数据库名。Docker 服务名或 localhost 在安装网络守卫之前解析为精确 IP/端口白名单。runner 使用真实 `fetch_channel_resources`、metadata 搜索/解析/upsert/确认门禁和下载服务，队列不实际投递，下载器为 mock。原始 RSS 未保存，输入明确标记 `title_and_torrent`，不宣称验证历史 RSS 字段映射；每轮也暂停自动 backfill，防止混入未列入场景的工作。
+
+## 集成测试与 CI
+
+现有两套 Compose 的 `pytest tests/integration/` 默认收集本验收集，无需另加命令或开启开关：
+
+- 单节点：临时 Turso，与 HTTP app 数据库隔离，覆盖率并入现有 test-runner 统计。
+- 分布式：独立 tmpfs `corpus-postgres` 服务，数据库名 `metadata_corpus_test`，不读写 app 的 `rssripple_test` 库。这里只验证 PostgreSQL 上的进程内重建，不冒充 Redis/worker 全链路验收。
+- Fast Gate 与 Docker Publish 的已有测试 job 也执行这组离线验收；不再维护独立的 `metadata-corpus.yml` 工作流。
+- Compose 输出到宿主机 `data/metadata-corpus/`：整个集成套件的 `integration.xml`、实时生成的 `audit.json`、逐场景 `scenario-<hash>.json`（含语义差异或执行异常）。Strict Gate 无论测试成败都上传该目录。Fast/Publish 使用 `/tmp/metadata-corpus/` 并上传。
+
+本地可通过 `CORPUS_REPORT_DIR=/tmp/my-corpus-reports` 指定报告目录；未指定时使用 pytest 临时目录。测试不会回写只读 fixture 中的 audit。收集期异常可能仅有 JUnit 报告；审核状态必须与测试结果分开阅读，不能以用例数量代替已核验资源数量。
 
 HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变化、未消费证据及旁路 socket 连接都使测试失败，即使业务代码吞掉异常也不能通过。指纹包含完整模型请求（消息、工具 schema、模型参数），因此 prompt 修改必须经显式重新录制和审核，不能用旧结果掩盖变化。
 
@@ -51,6 +62,6 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 .venv/bin/python scripts/metadata_corpus.py llm --scenario bangumi_single --report /tmp/metadata-corpus-llm.json
 ```
 
-该命令不属于离线 CI：源响应仍冻结，只允许配置的 LLM host 联网，每个场景在新数据库执行三轮。每轮必须实际调用模型；HTTP 错误/传输失败不能算模型质量通过。报告包含模型、语义差异、请求次数及耗时；它不是全模型能力或全数据集正确率。
+该命令不属于离线 CI：源响应仍冻结，只允许配置的 LLM host 联网，每个场景在新数据库执行三轮。每轮必须实际调用模型；HTTP 错误/传输失败不能算模型质量通过。报告包含模型、语义差异、请求次数及耗时；它不是全模型能力或全数据集正确率。当前 Bangumi 场景的身份命中为确定性 auto-link，真实 LLM 只参与 genre 分类，而现有期望答案未断言 genre；因此三轮通过仅说明已断言的结果不受该调用影响，不代表 LLM 身份判别或分类准确率已验证。
 
 `record-llm` 用于在已有源证据上另录模型响应，需要场景 manifest 的 `seed` 指向原始 cassette、`cassette` 指向不存在的新文件。v1 的 `bangumi_single.json.gz` 是源证据种子，`bangumi_complete.json.gz` 是完整回放；无需重新请求外部源。

@@ -1,4 +1,4 @@
-"""Every captured torrent must retain its complete original file listing."""
+"""Default integration acceptance covers every captured torrent's file listing."""
 
 import pytest
 

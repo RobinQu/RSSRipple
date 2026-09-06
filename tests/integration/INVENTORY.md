@@ -5,6 +5,12 @@
 
 ## 1. 目录结构
 
+### 2026-09 生产 Metadata 验收接入
+
+新增 `metadata_corpus/`，将既有生产作品库/torrent 验收纳入两套 Compose 默认收集；共享工具仍在 `tests/metadata_corpus/`，数据位于 `tests/fixtures/metadata_corpus_v1/`。当前 871 项用例包含 843 个 torrent 清单回归、完整性/回放/报告护栏及一个完整语义场景（一个已审核资源重复入库）。不是 871 个作品样本通过；1,371 条资源仍待审核、526 条缺 torrent。
+
+单节点使用临时 Turso；分布式使用独立 `corpus-postgres`（`metadata_corpus_test` + 每轮随机 schema），不复用 HTTP app 数据库。两者均严格离线回放，不启动真实 LLM/搜索质量评测，且不会继承 `http/` 的 test-server 播种 fixture。`data/metadata-corpus/` 保存 JUnit、审核报告与逐场景差异，现有 CI 上传为 artifact。用法与覆盖限制见 [验收说明](../metadata_corpus/README.md)。下方原目录/计数保留为历史清单，不作为当前总数。
+
 ```
 tests/integration/
   __init__.py
@@ -74,6 +80,12 @@ tests/integration/
     test_feed_analyzer_coverage.py   # feed_analyzer 进程内覆盖：JSON 解析变体（含 \\[ 合法转义对修复）、
                                       # validate/confidence、analyze_feed 成功/无 key/重试/限流、stream 路径
     test_auth_service_coverage.py    # auth_service 进程内覆盖：cookie 签名/校验/过期、TOTP 校验、密钥 get-or-create
+  metadata_corpus/                 # 真实生产样本离线验收（独立数据库与回放，不依赖 HTTP fixtures）
+    conftest.py                    # audit 输出到可写 CORPUS_REPORT_DIR，不改只读 fixture
+    test_dataset.py                # 输入/答案分离、校验和、数据库护栏、失败报告
+    test_replay.py                 # 精确请求回放、凭证保护、网络隔离、次数与 LLM 失败断言
+    test_torrent_files.py          # 全部冻结 torrent 的原始文件清单
+    test_scenarios.py              # 冷库重建与重复入库、作品/集合/文件指派/门禁/派发
   magnet/                          # magnet 元数据解析进程内集成测试（复用 tests/unit/conftest.py；fixture 为生产
     __init__.py                    #   PriateBay-4K-Movies 频道真实磁力数据 tests/fixtures/magnet_feed.xml + magnet_links.json）
     conftest.py                    # 复用 tests/unit/conftest.py 的 db_engine/db_session fixtures

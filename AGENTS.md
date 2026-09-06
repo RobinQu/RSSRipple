@@ -95,5 +95,5 @@
 ### 分支与 CI（详见 branching.md）
 
 - 遵循 Conventional Branch v1.1.0：`<type>/<description>`，全小写 + 连字符；前缀 `feature|bugfix|hotfix|release|chore|ai|copilot|cursor|claude|codex`。
-- CI：开发分支走 ci-fast（lint + 单元/API，覆盖率 ≥80%），`develop`/`release/**` 走 ci-strict（另含集成测试，覆盖率 ≥75%）；推送 `main` 或 `v*` 标签触发 GHCR 双架构镜像发布。
+- CI：开发分支走 ci-fast（lint + 单元/API，覆盖率 ≥80%），`develop`/`release/**` 走 ci-strict（另含集成测试，覆盖率 ≥75%）；推送 `main` 或 `v*` 标签触发 GHCR 双架构镜像发布。生产 Metadata 离线验收统一在 `tests/integration/metadata_corpus/`：Fast/发布门禁执行同一子集，Strict 两套 Compose 默认收集（单节点临时 Turso，分布式独立 corpus-postgres），失败同样上传审核/语义差异/JUnit；真实 LLM 三轮评测仍为显式 CLI，详见 tests/metadata_corpus/README.md。
 - 本地 pre-commit：`git config core.hooksPath githooks` 启用 `uv run ruff check .` 门禁。

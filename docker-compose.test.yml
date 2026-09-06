@@ -126,6 +126,9 @@ services:
       # Second app instance wired to the mock LLM (tests/integration/http/
       # test_llm_mock.py); skipped automatically when unset.
       - RSSRIPPLE_LLM_URL=http://app-llm:9001
+      # Production-derived corpus runs in-process with its own temporary Turso DB.
+      - CORPUS_TEST_DATABASE_URL=
+      - CORPUS_REPORT_DIR=/app/data/metadata-corpus
       # REDIS_APP_URL intentionally omitted — test_task_queue.py runs
       # MemoryQueue-only mode and skips Redis-specific dedup tests.
     volumes:
@@ -147,7 +150,7 @@ services:
     command:
       - "sh"
       - "-c"
-      - "uv sync --frozen && uv run coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.test-runner -m pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py -v --tb=short"
+      - "uv sync --frozen && uv run coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.test-runner -m pytest tests/integration/ --ignore=tests/integration/eval --ignore=tests/integration/external --ignore=tests/integration/http/test_fetch_with_real_feed.py --junitxml=/app/data/metadata-corpus/integration.xml -v --tb=short"
 
   # ── Integration coverage report ──────────────────────────────────────────
   # Combines up to four data files (identical /app/app source paths):

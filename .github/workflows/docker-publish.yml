@@ -33,6 +33,18 @@ jobs:
       - name: Run unit and API tests
         run: uv run pytest tests/unit tests/api -v --tb=short
 
+      - name: Offline production metadata acceptance
+        env:
+          CORPUS_REPORT_DIR: /tmp/metadata-corpus
+        run: uv run pytest tests/integration/metadata_corpus -q --junitxml=/tmp/metadata-corpus/integration.xml
+
+      - name: Upload corpus acceptance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-metadata-corpus
+          path: /tmp/metadata-corpus/
+
   build-and-push:
     needs: test
     runs-on: ubuntu-latest

@@ -1,0 +1,194 @@
+{
+  "calls": {
+    "127.0.0.1": 1,
+    "api.bgm.tv": 6
+  },
+  "case_id": "nichijou-special",
+  "elapsed_seconds": 8.26,
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "[7³ACG] 日常/Nichijou S01 | 01-26+SPx1 [简繁字幕] BDrip 1080p AV1 OPUS 2.0",
+    "confidence": 0.9,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": true,
+    "is_batch": false,
+    "matched_entity": {
+      "description": "故事的主角机器人——东云名乃，一直憧憬成为一名普通的女生，却因为背上的发条而感到自卑，在被自称为博士的8岁萝莉胡乱改造之后，每次都无可奈何地感到自己与“普通女生”的距离越来越远了。除了萝莉博士外，故事还出现了很多非日常角色，如年龄为20岁且戴上博士制作的项圈能说话的黑猫、活泼且天然呆的吐槽女、擅长绘画的腐女、黑发眼镜女、外表看似不良少年实质很乖巧的男生、热爱麻糬的爆炸头男、被枪或火箭炮打到都不会死的演剧社社长等等。",
+      "episode_list": [
+        {
+          "episode": 1,
+          "season": 1,
+          "title": "日常の第一話"
+        },
+        {
+          "episode": 2,
+          "season": 1,
+          "title": "日常の第二話"
+        },
+        {
+          "episode": 3,
+          "season": 1,
+          "title": "日常の第三話"
+        },
+        {
+          "episode": 4,
+          "season": 1,
+          "title": "日常の第四話"
+        },
+        {
+          "episode": 5,
+          "season": 1,
+          "title": "日常の第五話"
+        },
+        {
+          "episode": 6,
+          "season": 1,
+          "title": "日常の第六話"
+        },
+        {
+          "episode": 7,
+          "season": 1,
+          "title": "日常の第七話"
+        },
+        {
+          "episode": 8,
+          "season": 1,
+          "title": "日常の第八話"
+        },
+        {
+          "episode": 9,
+          "season": 1,
+          "title": "日常の第九話"
+        },
+        {
+          "episode": 10,
+          "season": 1,
+          "title": "日常の第十話"
+        },
+        {
+          "episode": 11,
+          "season": 1,
+          "title": "日常の第十一話"
+        },
+        {
+          "episode": 12,
+          "season": 1,
+          "title": "日常の第十二話"
+        },
+        {
+          "episode": 13,
+          "season": 1,
+          "title": "日常の第十三話"
+        },
+        {
+          "episode": 14,
+          "season": 1,
+          "title": "日常の第十四話"
+        },
+        {
+          "episode": 15,
+          "season": 1,
+          "title": "日常の第十五話"
+        },
+        {
+          "episode": 16,
+          "season": 1,
+          "title": "日常の第十六話"
+        },
+        {
+          "episode": 17,
+          "season": 1,
+          "title": "日常の第十七話"
+        },
+        {
+          "episode": 18,
+          "season": 1,
+          "title": "日常の第十八話"
+        },
+        {
+          "episode": 19,
+          "season": 1,
+          "title": "日常の第十九話"
+        },
+        {
+          "episode": 20,
+          "season": 1,
+          "title": "日常の第二十話"
+        },
+        {
+          "episode": 21,
+          "season": 1,
+          "title": "日常の第二十一話"
+        },
+        {
+          "episode": 22,
+          "season": 1,
+          "title": "日常の第二十二話"
+        },
+        {
+          "episode": 23,
+          "season": 1,
+          "title": "日常の第二十三話"
+        },
+        {
+          "episode": 24,
+          "season": 1,
+          "title": "日常の第二十四話"
+        },
+        {
+          "episode": 25,
+          "season": 1,
+          "title": "日常の第二十五話"
+        },
+        {
+          "episode": 26,
+          "season": 1,
+          "title": "日常の最終話"
+        }
+      ],
+      "external_id": "bangumi:9912",
+      "external_source": "bangumi",
+      "genre": [
+        "Animation",
+        "Comedy",
+        "Family"
+      ],
+      "is_anime": true,
+      "number_of_episodes": 26,
+      "original_title": "日常",
+      "poster_url": "https://lain.bgm.tv/pic/cover/l/0e/14/9912_vHEd6.jpg",
+      "rating": 8.5,
+      "single_season_entry": true,
+      "start_date": "2011-04-02",
+      "title_cn": "日常"
+    },
+    "reason": "auto-linked bangumi subject (normalized title match)",
+    "resolution": null,
+    "search_error": null,
+    "search_method": "bangumi_search_then_autolink",
+    "season": 1,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {},
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": "日常",
+    "title_en": null,
+    "video_codec": null
+  },
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T05:51:53.117076+00:00"
+}
