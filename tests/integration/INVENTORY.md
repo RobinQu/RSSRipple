@@ -1,13 +1,27 @@
 # 集成测试清单（重组后）
 
 > 重组完成于 2026-07-24 ｜ 分支 `refactor/integration-tests`
-> 范围：`tests/integration/` ｜ **15 个测试文件 / 150 个测试用例**（重组前 16 文件 / 166 用例，去重 17 个；后增通知链路 1 文件 / 1 用例）
+> 范围：`tests/integration/` ｜ 最新验收（2026-09-06）：**82 个测试文件 / 单节点 2352 passed + 16 skipped**（历史计数：重组前 16 文件 / 166 用例，重组去重 17 个）
 
 ## 1. 目录结构
+
+### 2026-09 集成覆盖率 ≥80% 批次（验收完成）
+
+2026-09-06 完成集成测试验收并将覆盖率门禁从 75% 提升到 **80%**（`docker-compose.test.yml` 的 coverage-report `--fail-under=80`，ci-strict 步骤名与 docs/design/branching.md 同步）。为此新增 28 个测试文件 / 约 890 用例（全部进程内或打测试栈 HTTP，离线可跑）：
+
+- `http/test_api_coverage2.py`（70）+ `http/test_api_coverage2_llm.py`（19，打 app-llm）：resources/organize/dashboard/queue/agents API 面的修订、associations、analyze-batch、files、magnet-resolve、计划生命周期等分支；两文件带完整 module 级 teardown（登记-删除/还原），不残留实体污染后续套件。
+- `metadata/`：`test_batch_content_analysis_coverage.py`（37）、`test_torrent_inspect_coverage.py`（47）、`test_fts_coverage.py`（28）、`test_metadata_dedup_coverage.py`（17）、`test_filter_engine_coverage.py`（45）、`test_metadata_repository_coverage.py`（19）、`test_metadata_source_io_coverage.py`（13）、`test_episode_history_coverage.py`（26）、`test_metadata_wiki_judge_coverage.py`（21）、`test_metadata_agent_coverage.py`（49）、`test_metadata_search_agent_coverage.py`（17）、`test_feed_analyzer_providers_coverage.py`（21）、`test_metadata_bangumi_coverage.py`（34）、`test_metadata_audio_resolver_coverage.py`（11）、`test_fetch_service_coverage.py`（46）、`test_agent_service_coverage.py`（44）、`test_job_handlers_coverage.py`（17）、`test_misc_services_coverage.py`（59，required_fields/resource_confirmation/settings/volume/text_normalizer）、`test_wikidata_collection_coverage.py`（30）、`test_wikipedia_episode_parser_coverage.py`（33）、`test_download_paths_coverage.py`（24）。
+- `organize/`：`test_organize_service_coverage2.py`（45）、`test_organize_template_coverage.py`（27）、`test_organize_parser_coverage.py`（17）、`test_task_cleanup_coverage.py`（12）。
+- `magnet/test_magnet_resolve_coverage.py`（62，fake libtorrent/httpx）。
+
+`test_fetch_service_coverage.py` 带 autouse 隔离 fixture（清 `runtime_config._overrides`、`fetch_service._WORK_METADATA_LOCKS`、`metadata_search_agent` 进程级缓存），对跨文件全局残留免疫。
+
+验收结果（2026-09-06，本机 Docker）：单节点干净库全量 **2352 passed / 16 skipped / 0 failed**（28 分钟），coverage-report 合并 app + app-llm + test-runner + dedup 脚本四份数据后 **TOTAL 91%**，`--fail-under=80` 通过；分布式套件结果见第 4 节。期间修复一个真实测试缺陷：`test_metadata_local.py::test_relink_same_external_id_updates` 的 `alt_titles: ["Honzuki S4"]` 在作品单季化语义下被解析为第 4 季标记而新建季作品，改为无季标记别名后恢复「同 external_id 幂等更新」语义。
 
 ### 2026-09 生产 Metadata 验收接入
 
 2026-09-06 补齐 `metadata_corpus/test_deepsearch_corpus.py`：51 项默认离线回归消费独立夹具 `tests/fixtures/deepsearch_corpus_v1.json.gz`，覆盖 8 个真实困难场景的 48 个模型观察值及生产候选边界；已知错误为负向契约回归，非新增语义金标。目录合计 939 项；来源、审核边界与报告说明见下方验收文档。
+
 后续 DeepSearch 隔离实验新增 `metadata_corpus/test_deepsearch_eval.py`：17 项纯离线护栏测试，覆盖引用存在性与蕴含判断的区别、字段类型、未知值、答案防泄漏、公共读页 URL 限制及续跑来源一致性；不执行真实搜索/模型。真实困难样本、实验结果与未获准重构的原因见 [DeepSearch 验证方案](../../docs/plans/metadata-deepsearch-validation/README.md)。
 
 新增 `metadata_corpus/`，将既有生产作品库/torrent 验收纳入两套 Compose 默认收集；共享工具仍在 `tests/metadata_corpus/`，数据位于 `tests/fixtures/metadata_corpus_v1/`。当前 871 项用例包含 843 个 torrent 清单回归、完整性/回放/报告护栏及一个完整语义场景（一个已审核资源重复入库）。不是 871 个作品样本通过；1,371 条资源仍待审核、526 条缺 torrent。
@@ -191,14 +205,15 @@ tests/integration/
 
 ## 4. 验证状态
 
+2026-09-06 全量验收（本机 Docker，隔离 project 名避免与 dev 栈冲突）：
+
 | 检查 | 结果 |
 |---|---|
 | `ruff check tests/integration/` | ✅ All checks passed |
-| `pytest --collect-only tests/integration/` | ✅ 165 tests collected (含参数化展开), 0 error |
-| `pytest --collect-only tests/integration/external/` | ✅ 27 tests, 独立收集（无 test-server 依赖） |
-| `docker compose -f docker-compose.test.yml config` | ✅ 语法有效 |
-| 运行时冒烟（`test_torrent_lifecycle` + `test_rss_subscription`，9 用例，对运行中的 dev 栈） | ✅ 9 passed in 23s -- 验证 http/conftest 的 `setup_test_environment`、迁移后 import、env-URL 修复、去重后的 rss_subscription 均运行时正常 |
-| **完整 compose 套件**（`docker compose -f docker-compose.test.yml run --rm test-runner`，`SCHEDULER_ENABLED=false`） | ⏳ 建议合并前执行；冒烟未覆盖涉及 fetch/scheduler/queue 的 channel/agent/e2e/task_queue/downloader/metadata_api（对开了 scheduler 的 dev 栈跑可能假失败） |
+| 单节点套件（`docker-compose.test.yml`，干净库全量） | ✅ **2352 passed / 16 skipped / 0 failed**（28 min），含 metadata_corpus 离线验收与全部覆盖率补充批次 |
+| 单节点覆盖率门禁 | ✅ coverage-report 合并 app + app-llm + test-runner + dedup 脚本四份数据：**TOTAL 91%**，`--fail-under=80` 通过（门禁已由 75% 提升至 80%） |
+| 分布式套件（`docker-compose.test-distributed.yml`，PostgreSQL+Redis，干净库全量） | ✅ **2306 passed / 62 skipped / 0 failed**（20 min；skip 为无 app-llm 实例与 Turso 专属用例的预期跳过） |
+| 双后端回归 | ✅ `test_fts_coverage.py` 3 个主库 Turso 假设用例加 `requires_turso_main` skip 守卫；`test_api_coverage2.py::TestQueueApi::test_overview` 改为后端感知断言（memory/all/since_restart vs redis/web/last_24h） |
 
 ## 5. 已知遗留 / 延后
 

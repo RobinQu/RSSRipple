@@ -428,7 +428,10 @@ class TestManualSearchLink:
                     "title_en": "Honzuki no Gekokujou",
                     "external_id": "manual-honzuki-1",
                     "external_source": "tmdb",
-                    "alt_titles": ["Honzuki S4"],
+                    # No season marker here: entity title season markers
+                    # (作品单季化) would legitimately resolve a different
+                    # season work instead of updating the existing one.
+                    "alt_titles": ["Honzuki Alias"],
                 }
             },
         )
@@ -439,7 +442,7 @@ class TestManualSearchLink:
         r = _api(f"/api/v1/series/{TestManualSearchLink.series_id}")
         assert r.status_code == 200
         aliases = r.json()["data"].get("aliases") or []
-        assert "Honzuki S4" in aliases
+        assert "Honzuki Alias" in aliases
 
     def test_title_fallback_dedup(self, _unlinked_channel):
         """Link with a new external_id but same title → title fallback hits."""
