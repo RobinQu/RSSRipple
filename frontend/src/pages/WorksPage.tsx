@@ -388,24 +388,33 @@ export default function WorksPage() {
                             <Checkbox checked={isSelected} onChange={() => handleCardClick(w)} />
                           </td>
                         )}
-                        <td style={{ padding: '8px', whiteSpace: 'nowrap' }} data-label={t('works.colType')}>
-                          <Tag
-                            color={
-                              isAudio ? 'purple' : w.content_type === 'movie' ? 'green' : 'blue'
-                            }
-                            style={{ margin: 0 }}
+                        <td style={{ padding: '8px' }} data-label={t('works.colType')}>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 4,
+                              alignItems: 'center',
+                            }}
                           >
-                            {isAudio
-                              ? t(`works.audioType.${w.content_type}`, String(w.content_type))
-                              : w.content_type === 'movie'
-                                ? t('works.movie')
-                                : t('works.tv')}
-                          </Tag>
-                          {w.is_anime === true && (
-                            <Tag color="magenta" style={{ margin: 0, marginLeft: 4 }}>
-                              {t('works.anime')}
+                            <Tag
+                              color={
+                                isAudio ? 'purple' : w.content_type === 'movie' ? 'green' : 'blue'
+                              }
+                              style={{ margin: 0, marginInlineEnd: 0 }}
+                            >
+                              {isAudio
+                                ? t(`works.audioType.${w.content_type}`, String(w.content_type))
+                                : w.content_type === 'movie'
+                                  ? t('works.movie')
+                                  : t('works.tv')}
                             </Tag>
-                          )}
+                            {w.is_anime === true && (
+                              <Tag color="magenta" style={{ margin: 0, marginInlineEnd: 0 }}>
+                                {t('works.anime')}
+                              </Tag>
+                            )}
+                          </div>
                         </td>
                         <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
                           <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>
