@@ -336,18 +336,27 @@ export default function WorksPage() {
                 <colgroup>
                   {selectMode && <col style={{ width: 40 }} />}
                   <col style={{ width: 120 }} />
-                  <col />
-                  <col style={{ width: 140 }} />
+                  <col style={{ width: 300 }} />
+                  <col style={{ width: 220 }} />
                   <col style={{ width: 84 }} />
-                  <col style={{ width: 96 }} />
-                  <col style={{ width: 116 }} />
-                  <col style={{ width: 200 }} />
+                  <col style={{ width: 112 }} />
+                  <col style={{ width: 144 }} />
+                  <col style={{ width: 240 }} />
                 </colgroup>
                 <thead>
                   <tr style={{ color: 'var(--rr-text-muted)', fontSize: 12 }}>
-                    {selectMode && <th style={{ textAlign: 'left', padding: '8px' }} />}
-                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colType')}</th>
-                    <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colTitle')}</th>
+                    {selectMode && (
+                      <th
+                        className="cell-sticky cell-sticky-check"
+                        style={{ textAlign: 'left', padding: '8px' }}
+                      />
+                    )}
+                    <th className="cell-sticky cell-sticky-type" style={{ textAlign: 'left', padding: '8px' }}>
+                      {t('works.colType')}
+                    </th>
+                    <th className="cell-sticky cell-sticky-title" style={{ textAlign: 'left', padding: '8px' }}>
+                      {t('works.colTitle')}
+                    </th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colCollection')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colRating')}</th>
                     <th style={{ textAlign: 'left', padding: '8px' }}>{t('works.colReleaseDate')}</th>
@@ -381,14 +390,14 @@ export default function WorksPage() {
                       >
                         {selectMode && (
                           <td
-                            className="resource-check-cell"
+                            className="resource-check-cell cell-sticky cell-sticky-check"
                             style={{ padding: '8px' }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <Checkbox checked={isSelected} onChange={() => handleCardClick(w)} />
                           </td>
                         )}
-                        <td style={{ padding: '8px' }} data-label={t('works.colType')}>
+                        <td className="cell-sticky cell-sticky-type" style={{ padding: '8px' }} data-label={t('works.colType')}>
                           <div
                             style={{
                               display: 'flex',
@@ -416,7 +425,7 @@ export default function WorksPage() {
                             )}
                           </div>
                         </td>
-                        <td className="resource-title-cell" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
+                        <td className="resource-title-cell cell-sticky cell-sticky-title" style={{ padding: '8px' }} data-label={t('works.colTitle')}>
                           <Text ellipsis={{ tooltip: displayTitle }} style={{ fontWeight: 600 }}>
                             {displayTitle}
                           </Text>
@@ -425,7 +434,15 @@ export default function WorksPage() {
                           {w.collection_name ? (
                             <Tag
                               color="blue"
-                              style={{ margin: 0, cursor: 'pointer' }}
+                              title={w.collection_name}
+                              style={{
+                                margin: 0,
+                                cursor: 'pointer',
+                                maxWidth: '100%',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 if (w.collection_id) navigate(`/collections/${w.collection_id}`);

@@ -464,6 +464,39 @@ a:hover {
   background: color-mix(in srgb, var(--rr-primary) 16%, transparent);
 }
 
+/* Fixed leading columns (check + Type + Title); the rest scroll
+   horizontally beneath them. */
+.works-table .cell-sticky-type {
+  left: 0;
+}
+
+.works-table .cell-sticky-title {
+  left: 120px;
+  box-shadow: 6px 0 8px -6px rgba(0, 0, 0, 0.18);
+}
+
+.works-table.selectable .cell-sticky-type {
+  left: 40px;
+}
+
+.works-table.selectable .cell-sticky-title {
+  left: 160px;
+}
+
+/* Fixed layout clips cell content instead of letting it bleed into the
+   next column. */
+.works-table td {
+  overflow: hidden;
+}
+
+.works-table .works-row.selected .cell-sticky {
+  background: color-mix(in srgb, var(--rr-primary) 10%, var(--rr-surface));
+}
+
+.works-table .works-row.selected:hover .cell-sticky {
+  background: color-mix(in srgb, var(--rr-primary) 16%, var(--rr-surface));
+}
+
 @media (max-width: 760px) {
   .works-table tr.resource-row {
     padding-left: 12px;
