@@ -1,0 +1,76 @@
+{
+  "agent_code_sha256": "4836df0518c275906745891f49fac07f499d1955fef4bd8b520b2b63d11215e6",
+  "calls": {
+    "127.0.0.1": 5,
+    "api.themoviedb.org": 8
+  },
+  "case_id": "shazam-date",
+  "elapsed_seconds": 29.436,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "input_sha256": "b39935999856e95ca2641ef54bfcf0fde68d41937a4b3dcb52b93ec3b26b94cf",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "Shazam!",
+    "confidence": 0.98,
+    "container": null,
+    "content_type": "movie",
+    "data_sources_used": [
+      "tmdb"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": true,
+    "is_batch": false,
+    "matched_entity": {
+      "canonical_name": "Shazam!",
+      "description": "因儿时与母亲失散，少年比利辗转多个家庭，却执着地要回到妈妈身边。当他再度栖身一个由养子养女的大家庭时，却阴差阳错来到某个未知的领域，并且成为古老巫师的继承人。当他喊出“沙赞”时，便会瞬间变成拥有强壮成年人身体的超级英雄雷霆沙赞。",
+      "external_id": "tmdb:287947",
+      "external_source": "tmdb",
+      "genre": [
+        "Action",
+        "Comedy",
+        "Fantasy"
+      ],
+      "is_anime": false,
+      "number_of_episodes": null,
+      "number_of_seasons": null,
+      "original_title": "Shazam!",
+      "poster_url": "https://image.tmdb.org/t/p/w500/cSo0rX3eGZGRg76D3VDl3V3ZAht.jpg",
+      "rating": 6.97,
+      "release_date": "2019-03-29",
+      "seasons": [],
+      "start_date": "2019-03-29",
+      "status": "Released",
+      "title_cn": "雷霆沙赞！",
+      "title_en": "Shazam!",
+      "wikipedia_url": null
+    },
+    "reason": "Title 'Shazam! (2019)' matches the 2019 DC film 'Shazam!' (tmdb:287947, released 2019-03-29) exactly, including the year hint. It is a movie, so no episode/season applies. Release is a 2160p 4K UHD HDR10 DV Blu-ray REMUX with dual Hindi+English audio by RemuxDoc; no subtitle markers present.",
+    "resolution": "2160p",
+    "search_error": "TMDB: no results",
+    "search_method": "tmdb",
+    "season": null,
+    "season_ambiguous": false,
+    "source": "Blu-ray REMUX",
+    "source_errors": {
+      "tmdb": "no results"
+    },
+    "subtitle_group": null,
+    "subtitle_groups": [
+      "RemuxDoc"
+    ],
+    "subtitle_langs": [],
+    "subtitle_type": null,
+    "title_cn": "雷霆沙赞！",
+    "title_en": "Shazam!",
+    "video_codec": null
+  },
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "primary_source": "tmdb",
+  "recorded_at": "2026-09-06T06:20:53.327974+00:00"
+}

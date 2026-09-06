@@ -1,0 +1,1 @@
+import{c as e,n as t}from"./client-BsHGRirm.js";import{t as n}from"./typography-DyBNlbsi.js";var r=t(),{Text:i}=n;function a({text:t,danger:n}){return(0,r.jsx)(e,{title:t,placement:`topLeft`,children:(0,r.jsx)(i,{type:n?`danger`:void 0,style:{fontSize:13,display:`block`,maxWidth:`100%`,overflow:`hidden`,textOverflow:`ellipsis`,whiteSpace:`nowrap`},children:t})})}export{a as t};

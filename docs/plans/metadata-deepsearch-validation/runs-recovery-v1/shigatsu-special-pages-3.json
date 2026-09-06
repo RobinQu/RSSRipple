@@ -1,0 +1,57 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [
+          {
+            "quote": "第23話 MOMENTS",
+            "url": "https://raw.anibk.com/bk/3683"
+          },
+          {
+            "quote": "原作コミックス11巻限定版に収録された第23話の全23話を収録",
+            "url": "https://www.new-akiba.com/news/185267"
+          }
+        ],
+        "reason": "The sources identify the special content as a single episode titled '#23 MOMENTS' (or 'MOMENTS'), which serves as the 23rd episode in the complete collection, distinct from the 22 TV episodes.",
+        "status": "resolved",
+        "value": 1
+      },
+      "special_release_date": {
+        "evidence": [
+          {
+            "quote": "2015年5月15日に発売のコミックス最終11巻限定版に同梱!",
+            "url": "https://raw.anibk.com/bk/3683"
+          }
+        ],
+        "reason": "The OAD 'MOMENTS' was released as a bonus for the limited edition of Volume 11 of the manga on May 15, 2015. While it was later included in the BD-BOX on 2020-04-01, the initial release date of the special episode itself is 2015-05-15.",
+        "status": "resolved",
+        "value": "2015-05-15"
+      }
+    },
+    "identity_notes": "The target scope is the OAD (Original Animation DVD) titled '#23 MOMENTS'. It is not part of the 22-episode TV series but was released with the limited edition of Manga Volume 11. The BD-BOX released in 2020 includes this OAD, but the OAD's own release date is tied to the manga volume."
+  },
+  "arm": "pages",
+  "case_id": "shigatsu-special",
+  "contract_issues": [],
+  "elapsed_seconds": 7.501,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "fcf89dbe7f71566cabcf63137f9fbf0d50e715c52743e6be4a13ccdebb89f77e",
+  "finish_reason": "stop",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "db6b1705ac00cda4604ad1b6e59d3840556622b8a0255807b522d6dd2d4e37b7",
+  "raw": "{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2015-05-15\",\n      \"evidence\": [\n        {\n          \"url\": \"https://raw.anibk.com/bk/3683\",\n          \"quote\": \"2015年5月15日に発売のコミックス最終11巻限定版に同梱!\"\n        }\n      ],\n      \"reason\": \"The OAD 'MOMENTS' was released as a bonus for the limited edition of Volume 11 of the manga on May 15, 2015. While it was later included in the BD-BOX on 2020-04-01, the initial release date of the special episode itself is 2015-05-15.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"resolved\",\n      \"value\": 1,\n      \"evidence\": [\n        {\n          \"url\": \"https://raw.anibk.com/bk/3683\",\n          \"quote\": \"第23話 MOMENTS\"\n        },\n        {\n          \"url\": \"https://www.new-akiba.com/news/185267\",\n          \"quote\": \"原作コミックス11巻限定版に収録された第23話の全23話を収録\"\n        }\n      ],\n      \"reason\": \"The sources identify the special content as a single episode titled '#23 MOMENTS' (or 'MOMENTS'), which serves as the 23rd episode in the complete collection, distinct from the 22 TV episodes.\"\n    }\n  },\n  \"identity_notes\": \"The target scope is the OAD (Original Animation DVD) titled '#23 MOMENTS'. It is not part of the 22-episode TV series but was released with the limited edition of Manga Volume 11. The BD-BOX released in 2020 includes this OAD, but the OAD's own release date is tied to the manga volume.\"\n}",
+  "recorded_at": "2026-09-06T06:20:32.017653+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 475,
+    "completion_tokens_details": null,
+    "prompt_tokens": 18453,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 18928
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "arm": "pages",
+  "case_id": "nichijou-special",
+  "elapsed_seconds": 0.003,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 1,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "7b5edc2b1d01ec855cc513bb73fd246b2a130fff7e06296cb25dbdfe40c0259c",
+  "recorded_at": "2026-09-06T05:56:11.472266+00:00"
+}

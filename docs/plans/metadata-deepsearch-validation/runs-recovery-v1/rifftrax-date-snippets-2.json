@@ -1,0 +1,42 @@
+{
+  "answer": {
+    "fields": {
+      "commentary_release_date": {
+        "evidence": [
+          {
+            "quote": "Rifftrax: Ice Cream Man was released on August 17, 2018.",
+            "url": "https://watch.plex.tv/movie/rifftrax-ice-cream-man"
+          }
+        ],
+        "reason": "The Plex source explicitly states the release date of the RiffTrax commentary version as August 17, 2018. The RiffTrax Wiki confirms the month and year (August 2018), supporting the specific date provided by Plex.",
+        "status": "resolved",
+        "value": "2018-08-17"
+      }
+    },
+    "identity_notes": "The target is the RiffTrax commentary release, not the original 1995 film. Evidence from Plex and RiffTrax Wiki confirms the 2018 release date for the commentary track."
+  },
+  "arm": "snippets",
+  "case_id": "rifftrax-date",
+  "contract_issues": [],
+  "elapsed_seconds": 3.492,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "571f46d910870127f1c31cd3bbe2b32385bf54c1db00ebeea3c2e71167f526b7",
+  "finish_reason": "stop",
+  "iteration": 2,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "b516b7cd6bf1b9a98748340692ba5e39de75fa2f48aad19fb30bd2e08a0352bd",
+  "raw": "{\n  \"fields\": {\n    \"commentary_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2018-08-17\",\n      \"evidence\": [\n        {\n          \"url\": \"https://watch.plex.tv/movie/rifftrax-ice-cream-man\",\n          \"quote\": \"Rifftrax: Ice Cream Man was released on August 17, 2018.\"\n        }\n      ],\n      \"reason\": \"The Plex source explicitly states the release date of the RiffTrax commentary version as August 17, 2018. The RiffTrax Wiki confirms the month and year (August 2018), supporting the specific date provided by Plex.\"\n    }\n  },\n  \"identity_notes\": \"The target is the RiffTrax commentary release, not the original 1995 film. Evidence from Plex and RiffTrax Wiki confirms the 2018 release date for the commentary track.\"\n}",
+  "recorded_at": "2026-09-06T06:20:43.686948+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 229,
+    "completion_tokens_details": null,
+    "prompt_tokens": 1422,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 1651
+  }
+}

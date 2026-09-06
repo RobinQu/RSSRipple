@@ -1,0 +1,61 @@
+{
+  "answer": {
+    "fields": {
+      "is_anime": {
+        "evidence": [
+          {
+            "quote": "©2026 石森プロ・テレビ朝日･ADK EM･東映",
+            "url": "https://www.kamen-rider-official.com/zeztz/"
+          },
+          {
+            "quote": "テレビ朝日「仮面ライダーゼッツ」番組サイト。新時代の仮面ライダー、目覚める。",
+            "url": "https://www.tv-asahi.co.jp/zeztz/"
+          }
+        ],
+        "reason": "Kamen Rider is a tokusatsu (live-action special effects) series, not Japanese animation (anime). The scope explicitly identifies it as '真人特摄' (live-action tokusatsu).",
+        "status": "resolved",
+        "value": false
+      },
+      "total_episodes": {
+        "evidence": [
+          {
+            "quote": "最終回は2026年8月30日予定で全50話前後",
+            "url": "https://hakumeri.com/kamenrider-zeztz-airdate/"
+          },
+          {
+            "quote": "Last Case. 2026年08月30日. 想う. Case49.",
+            "url": "https://www.kamen-rider-official.com/zeztz/"
+          }
+        ],
+        "reason": "The official site lists 'Last Case' as Case 49, while a third-party source states 'around 50 episodes' (全50話前後). The scope explicitly notes that titles 01-50 are not evidence of total count and that if not finalized/announced, it is unknown. The discrepancy between 'Last Case' being 49 and the estimate of 50, combined with the lack of a definitive official statement confirming the exact total number (e.g., 'Total 50 episodes'), leaves the value unresolved.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The work is Kamen Rider Zeztz, a live-action tokusatsu series. The total episode count is currently ambiguous between 49 (based on the 'Last Case' label on the official site) and 50 (based on third-party estimates and the scope's warning about title numbering). Therefore, it is marked as unresolved."
+  },
+  "arm": "pages",
+  "case_id": "zeztz-count",
+  "contract_issues": [],
+  "elapsed_seconds": 9.278,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "aa59524b2cae1d387954d76c7a8c9879214d7c80f9a11d8bb8ed0f7dd65d7876",
+  "finish_reason": "stop",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "b1bf989233f0b00d738e57e854d3e03f6eb30647fbcf8bcfbf75a60202a9e84f",
+  "raw": "{\n  \"fields\": {\n    \"total_episodes\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [\n        {\n          \"url\": \"https://hakumeri.com/kamenrider-zeztz-airdate/\",\n          \"quote\": \"最終回は2026年8月30日予定で全50話前後\"\n        },\n        {\n          \"url\": \"https://www.kamen-rider-official.com/zeztz/\",\n          \"quote\": \"Last Case. 2026年08月30日. 想う. Case49.\"\n        }\n      ],\n      \"reason\": \"The official site lists 'Last Case' as Case 49, while a third-party source states 'around 50 episodes' (全50話前後). The scope explicitly notes that titles 01-50 are not evidence of total count and that if not finalized/announced, it is unknown. The discrepancy between 'Last Case' being 49 and the estimate of 50, combined with the lack of a definitive official statement confirming the exact total number (e.g., 'Total 50 episodes'), leaves the value unresolved.\"\n    },\n    \"is_anime\": {\n      \"status\": \"resolved\",\n      \"value\": false,\n      \"evidence\": [\n        {\n          \"url\": \"https://www.kamen-rider-official.com/zeztz/\",\n          \"quote\": \"©2026 石森プロ・テレビ朝日･ADK EM･東映\"\n        },\n        {\n          \"url\": \"https://www.tv-asahi.co.jp/zeztz/\",\n          \"quote\": \"テレビ朝日「仮面ライダーゼッツ」番組サイト。新時代の仮面ライダー、目覚める。\"\n        }\n      ],\n      \"reason\": \"Kamen Rider is a tokusatsu (live-action special effects) series, not Japanese animation (anime). The scope explicitly identifies it as '真人特摄' (live-action tokusatsu).\"\n    }\n  },\n  \"identity_notes\": \"The work is Kamen Rider Zeztz, a live-action tokusatsu series. The total episode count is currently ambiguous between 49 (based on the 'Last Case' label on the official site) and 50 (based on third-party estimates and the scope's warning about title numbering). Therefore, it is marked as unresolved.\"\n}",
+  "recorded_at": "2026-09-06T06:22:44.638216+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 549,
+    "completion_tokens_details": null,
+    "prompt_tokens": 3156,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 3705
+  }
+}

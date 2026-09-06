@@ -1,0 +1,59 @@
+{
+  "answer": {
+    "fields": {
+      "is_anime": {
+        "evidence": [
+          {
+            "quote": "テレビ朝日「仮面ライダーゼッツ」番組サイト",
+            "url": "https://www.tv-asahi.co.jp/zeztz/"
+          }
+        ],
+        "reason": "Kamen Rider is a tokusatsu (live-action special effects) series, not Japanese animation (anime). The scope explicitly identifies it as '真人特摄' (live-action tokusatsu).",
+        "status": "resolved",
+        "value": false
+      },
+      "total_episodes": {
+        "evidence": [
+          {
+            "quote": "2026年8月30日『仮面ライダーゼッツ』Case50「想う」",
+            "url": "https://terukosan.com/kamen-rider-zeztz-last-case-omou-2026-0830/"
+          },
+          {
+            "quote": "Extra Mission: 最終回を終えて",
+            "url": "https://www.kamen-rider-official.com/zeztz/finish/"
+          }
+        ],
+        "reason": "The official site confirms the series has concluded with a 'Final Episode' (最終回). A specific source identifies the final episode as 'Case50', confirming the total count is 50. The scope note that '01-50 is not evidence' is addressed by using the explicit 'Case50' label for the final episode rather than just a range.",
+        "status": "resolved",
+        "value": 50
+      }
+    },
+    "identity_notes": "The series is Kamen Rider Zeztz, a live-action tokusatsu series. The total episode count is confirmed as 50 based on the final episode being labeled 'Case50' and the official confirmation of the series ending."
+  },
+  "arm": "snippets",
+  "case_id": "zeztz-count",
+  "contract_issues": [
+    "total_episodes:invalid_quote"
+  ],
+  "elapsed_seconds": 6.669,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "aa59524b2cae1d387954d76c7a8c9879214d7c80f9a11d8bb8ed0f7dd65d7876",
+  "finish_reason": "stop",
+  "iteration": 2,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "b31423f54401d78cdd08a4534c510f9afcd1533f050165058e52cfc71395639d",
+  "raw": "{\n  \"fields\": {\n    \"total_episodes\": {\n      \"status\": \"resolved\",\n      \"value\": 50,\n      \"evidence\": [\n        {\n          \"url\": \"https://terukosan.com/kamen-rider-zeztz-last-case-omou-2026-0830/\",\n          \"quote\": \"2026年8月30日『仮面ライダーゼッツ』Case50「想う」\"\n        },\n        {\n          \"url\": \"https://www.kamen-rider-official.com/zeztz/finish/\",\n          \"quote\": \"Extra Mission: 最終回を終えて\"\n        }\n      ],\n      \"reason\": \"The official site confirms the series has concluded with a 'Final Episode' (最終回). A specific source identifies the final episode as 'Case50', confirming the total count is 50. The scope note that '01-50 is not evidence' is addressed by using the explicit 'Case50' label for the final episode rather than just a range.\"\n    },\n    \"is_anime\": {\n      \"status\": \"resolved\",\n      \"value\": false,\n      \"evidence\": [\n        {\n          \"url\": \"https://www.tv-asahi.co.jp/zeztz/\",\n          \"quote\": \"テレビ朝日「仮面ライダーゼッツ」番組サイト\"\n        }\n      ],\n      \"reason\": \"Kamen Rider is a tokusatsu (live-action special effects) series, not Japanese animation (anime). The scope explicitly identifies it as '真人特摄' (live-action tokusatsu).\"\n    }\n  },\n  \"identity_notes\": \"The series is Kamen Rider Zeztz, a live-action tokusatsu series. The total episode count is confirmed as 50 based on the final episode being labeled 'Case50' and the official confirmation of the series ending.\"\n}",
+  "recorded_at": "2026-09-06T06:22:15.880693+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 431,
+    "completion_tokens_details": null,
+    "prompt_tokens": 2258,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 2689
+  }
+}

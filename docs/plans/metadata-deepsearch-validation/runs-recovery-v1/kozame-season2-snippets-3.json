@@ -1,0 +1,54 @@
+{
+  "answer": {
+    "fields": {
+      "season2_start_date": {
+        "evidence": [
+          {
+            "quote": "アニメ『おでかけ子ザメ』シーズン2が、2026年4⽉12⽇(⽇)あさ7時からテレ東系6局ネット「アニもり! 」内にて放送がスタートします。",
+            "url": "https://eeo.today/media/2026/03/31/330636/"
+          },
+          {
+            "quote": "アニメ『おでかけ子ザメ』シーズン2が4月12日 (日)より放送&配信開始!",
+            "url": "https://www.youtube.com/watch?v=YPQ4GAjQHc8"
+          }
+        ],
+        "reason": "Multiple sources confirm the start date of Season 2 as April 12, 2026.",
+        "status": "resolved",
+        "value": "2026-04-12"
+      },
+      "season2_total_episodes": {
+        "evidence": [],
+        "reason": "The provided sources confirm the start date and broadcast schedule but do not state the total number of episodes for Season 2. No evidence of a complete enumeration is available.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The target is specifically Season 2 of 'Odekake Kozame'. The sources distinguish this from the movie (released August 2025) and Season 1. The start date is consistently cited as 2026-04-12. The total episode count is not mentioned in the provided text."
+  },
+  "arm": "snippets",
+  "case_id": "kozame-season2",
+  "contract_issues": [
+    "season2_start_date:invalid_quote"
+  ],
+  "elapsed_seconds": 5.919,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "0d2748ceaa3cf86f955edfaf811db71f0c9f42442714cd602e82cbcf0296e467",
+  "finish_reason": "stop",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "bd6c3ced6840740ab2f8ff90844d051361d804e99bb229cc423306200ad59537",
+  "raw": "{\n  \"fields\": {\n    \"season2_start_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2026-04-12\",\n      \"evidence\": [\n        {\n          \"url\": \"https://eeo.today/media/2026/03/31/330636/\",\n          \"quote\": \"アニメ『おでかけ子ザメ』シーズン2が、2026年4⽉12⽇(⽇)あさ7時からテレ東系6局ネット「アニもり! 」内にて放送がスタートします。\"\n        },\n        {\n          \"url\": \"https://www.youtube.com/watch?v=YPQ4GAjQHc8\",\n          \"quote\": \"アニメ『おでかけ子ザメ』シーズン2が4月12日 (日)より放送&配信開始!\"\n        }\n      ],\n      \"reason\": \"Multiple sources confirm the start date of Season 2 as April 12, 2026.\"\n    },\n    \"season2_total_episodes\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources confirm the start date and broadcast schedule but do not state the total number of episodes for Season 2. No evidence of a complete enumeration is available.\"\n    }\n  },\n  \"identity_notes\": \"The target is specifically Season 2 of 'Odekake Kozame'. The sources distinguish this from the movie (released August 2025) and Season 1. The start date is consistently cited as 2026-04-12. The total episode count is not mentioned in the provided text.\"\n}",
+  "recorded_at": "2026-09-06T06:22:11.575679+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 396,
+    "completion_tokens_details": null,
+    "prompt_tokens": 1786,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 2182
+  }
+}

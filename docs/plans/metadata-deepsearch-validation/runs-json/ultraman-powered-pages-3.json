@@ -1,0 +1,12 @@
+{
+  "arm": "pages",
+  "case_id": "ultraman-powered",
+  "elapsed_seconds": 0.003,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "0898a6e9bc918eefce94a110a7f09338dee0a55a9564a1b982312344c4db9c6e",
+  "recorded_at": "2026-09-06T05:56:11.561544+00:00"
+}

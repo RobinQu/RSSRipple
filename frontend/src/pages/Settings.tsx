@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
-import { Typography, Card, Spin, Input, Switch, Button, Tag, Space, App, Alert } from 'antd';
+import { Typography, Card, Spin, Input, Switch, Button, Tabs, Tag, Space, App, Alert } from 'antd';
 import { Sparkles, Database, Save, RotateCcw, HardDrive } from 'lucide-react';
 import { settingsApi, type SystemSettings, type SystemSettingsUpdate } from '../api/settings';
+import useUrlTab from '../hooks/useUrlTab';
 import ApiKeysCard from '../components/ApiKeysCard';
+import QueuePanel from '../components/QueuePanel';
 import VolumesPanel from '../components/VolumesPanel';
 
 const { Title, Text } = Typography;
@@ -22,6 +24,7 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   useDocumentTitle(t('settings.title'));
   const { message } = App.useApp();
+  const [tab, setTab] = useUrlTab('deps', ['deps', 'volumes', 'apiKeys', 'queue'] as const);
 
   const [data, setData] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,21 +139,13 @@ export default function SettingsPage() {
     marginBottom: 4,
   };
 
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ maxWidth: 880, margin: '0 auto' }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <Title level={3} style={{ margin: 0 }}>{t('settings.title')}</Title>
-          <Text type="secondary" style={{ fontSize: 13 }}>{t('settings.desc')}</Text>
-        </div>
+  const depsTab = loading ? (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: 80 }}>
+      <Spin size="large" />
+    </div>
+  ) : (
+    <>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
         <Space>
           <Button icon={<RotateCcw size={14} />} onClick={load} disabled={saving}>
             {t('settings.reset')}
@@ -304,25 +299,44 @@ export default function SettingsPage() {
         />
       </Card>
 
-      {/* Storage volumes */}
-      <Card
-        size="small"
-        style={{ marginBottom: 16 }}
-        title={
-          <Space>
-            <HardDrive size={16} style={{ color: 'var(--rr-primary)' }} />
-            <span>{t('settings.volumes.title')}</span>
-          </Space>
-        }
-      >
-        <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
-          {t('settings.volumes.desc')}
-        </Text>
-        <VolumesPanel />
-      </Card>
+    </>
+  );
 
-      {/* Personal API keys */}
-      <ApiKeysCard />
+  const volumesTab = (
+    <Card
+      size="small"
+      style={{ marginBottom: 16 }}
+      title={
+        <Space>
+          <HardDrive size={16} style={{ color: 'var(--rr-primary)' }} />
+          <span>{t('settings.volumes.title')}</span>
+        </Space>
+      }
+    >
+      <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+        {t('settings.volumes.desc')}
+      </Text>
+      <VolumesPanel />
+    </Card>
+  );
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={3} style={{ margin: 0 }}>{t('settings.title')}</Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>{t('settings.desc')}</Text>
+      </div>
+
+      <Tabs
+        activeKey={tab}
+        onChange={(k) => setTab(k as 'deps' | 'volumes' | 'apiKeys' | 'queue')}
+        items={[
+          { key: 'deps', label: t('settings.tabDeps'), children: depsTab },
+          { key: 'volumes', label: t('settings.tabVolumes'), children: volumesTab },
+          { key: 'apiKeys', label: t('settings.tabApiKeys'), children: <ApiKeysCard /> },
+          { key: 'queue', label: t('settings.tabQueue'), children: <QueuePanel /> },
+        ]}
+      />
     </div>
   );
 }

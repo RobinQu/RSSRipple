@@ -1,0 +1,64 @@
+{
+  "answer": {
+    "fields": {
+      "episode_count": {
+        "evidence": [
+          {
+            "quote": "全13話、7巻。",
+            "url": "https://ja.wikid.org/%E3%82%A6%E3%83%AB%E3%83%88%E3%83%A9%E3%83%9E%E3%83%B3%E3%83%91%E3%83%AF%E3%83%BC%E3%83%89"
+          }
+        ],
+        "reason": "The source explicitly states the total number of episodes is 13.",
+        "status": "resolved",
+        "value": 13
+      },
+      "first_japan_video_release_date": {
+        "evidence": [
+          {
+            "quote": "1993年 12月5日 - 1994年 8月25日 ビデオ発売。",
+            "url": "https://ja.wikid.org/%E3%82%A6%E3%83%AB%E3%83%88%E3%83%A9%E3%83%9E%E3%83%B3%E3%83%91%E3%83%AF%E3%83%BC%E3%83%89"
+          }
+        ],
+        "reason": "The source explicitly states the video release period in Japan started on December 5, 1993.",
+        "status": "resolved",
+        "value": "1993-12-05"
+      },
+      "is_anime": {
+        "evidence": [
+          {
+            "quote": "円谷プロダクション が アメリカ で制作した 特撮 作品",
+            "url": "https://ja.wikid.org/%E3%82%A6%E3%83%AB%E3%83%88%E3%83%A9%E3%83%9E%E3%83%B3%E3%83%91%E3%83%AF%E3%83%BC%E3%83%89"
+          }
+        ],
+        "reason": "The source identifies the work as a 'tokusatsu' (special effects) production, which is live-action, not Japanese animation (anime).",
+        "status": "resolved",
+        "value": false
+      }
+    },
+    "identity_notes": "The work is identified as 'Ultraman Powered' (Japanese) / 'Ultraman: The Ultimate Hero' (English). It is a tokusatsu series produced in the US by Tsuburaya Productions and Major Havoc Entertainment. The first Japanese video release was in 1993, while the Japanese TV broadcast began in 1995."
+  },
+  "arm": "pages",
+  "case_id": "ultraman-powered",
+  "contract_issues": [],
+  "elapsed_seconds": 9.949,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "d406f98729566fc47368df495a80994d9f12eec908bf3b7abf406bea97889b6e",
+  "finish_reason": "stop",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "0898a6e9bc918eefce94a110a7f09338dee0a55a9564a1b982312344c4db9c6e",
+  "raw": "{\n  \"fields\": {\n    \"first_japan_video_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"1993-12-05\",\n      \"evidence\": [\n        {\n          \"url\": \"https://ja.wikid.org/%E3%82%A6%E3%83%AB%E3%83%88%E3%83%A9%E3%83%9E%E3%83%B3%E3%83%91%E3%83%AF%E3%83%BC%E3%83%89\",\n          \"quote\": \"1993年 12月5日 - 1994年 8月25日 ビデオ発売。\"\n        }\n      ],\n      \"reason\": \"The source explicitly states the video release period in Japan started on December 5, 1993.\"\n    },\n    \"episode_count\": {\n      \"status\": \"resolved\",\n      \"value\": 13,\n      \"evidence\": [\n        {\n          \"url\": \"https://ja.wikid.org/%E3%82%A6%E3%83%AB%E3%83%88%E3%83%A9%E3%83%9E%E3%83%B3%E3%83%91%E3%83%AF%E3%83%BC%E3%83%89\",\n          \"quote\": \"全13話、7巻。\"\n        }\n      ],\n      \"reason\": \"The source explicitly states the total number of episodes is 13.\"\n    },\n    \"is_anime\": {\n      \"status\": \"resolved\",\n      \"value\": false,\n      \"evidence\": [\n        {\n          \"url\": \"https://ja.wikid.org/%E3%82%A6%E3%83%AB%E3%83%88%E3%83%A9%E3%83%9E%E3%83%B3%E3%83%91%E3%83%AF%E3%83%BC%E3%83%89\",\n          \"quote\": \"円谷プロダクション が アメリカ で制作した 特撮 作品\"\n        }\n      ],\n      \"reason\": \"The source identifies the work as a 'tokusatsu' (special effects) production, which is live-action, not Japanese animation (anime).\"\n    }\n  },\n  \"identity_notes\": \"The work is identified as 'Ultraman Powered' (Japanese) / 'Ultraman: The Ultimate Hero' (English). It is a tokusatsu series produced in the US by Tsuburaya Productions and Major Havoc Entertainment. The first Japanese video release was in 1993, while the Japanese TV broadcast began in 1995.\"\n}",
+  "recorded_at": "2026-09-06T06:21:58.468566+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 655,
+    "completion_tokens_details": null,
+    "prompt_tokens": 13456,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 14111
+  }
+}

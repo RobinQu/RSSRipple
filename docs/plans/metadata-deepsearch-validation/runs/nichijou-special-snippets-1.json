@@ -1,0 +1,36 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "No supplied source enumerates OAD/S00 special episodes or confirms a complete episode count.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "The supplied sources concern the manga/comic series and do not provide an anime OAD/S00 special release date.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The provided URLs identify the manga/comic work Nichijou, not the anime OAD/S00 special; there is no evidence to separate BD bonus shorts from an OAD or to establish release date and episode count."
+  },
+  "arm": "snippets",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 14.553,
+  "iteration": 1,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "8020dd6a5d86ab73a56735c73de9aeb5e4ca79d2f90e3f1ffd86db6911ebf4c8",
+  "raw": "\n\n{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The supplied sources concern the manga/comic series and do not provide an anime OAD/S00 special release date.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"No supplied source enumerates OAD/S00 special episodes or confirms a complete episode count.\"\n    }\n  },\n  \"identity_notes\": \"The provided URLs identify the manga/comic work Nichijou, not the anime OAD/S00 special; there is no evidence to separate BD bonus shorts from an OAD or to establish release date and episode count.\"\n}",
+  "recorded_at": "2026-09-06T05:52:15.692252+00:00",
+  "usage": {
+    "completion_tokens": 736,
+    "completion_tokens_details": null,
+    "prompt_tokens": 944,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 547,
+    "total_tokens": 1680
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "arm": "pages",
+  "case_id": "rifftrax-date",
+  "elapsed_seconds": 0.015,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "9e9709d81779e27834ed4213968fbaae5506bdf5e2fc73e4f33b244025315e13",
+  "recorded_at": "2026-09-06T05:56:11.520281+00:00"
+}

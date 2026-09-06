@@ -1,0 +1,46 @@
+{
+  "answer": {
+    "fields": {
+      "episodes_per_season": {
+        "evidence": [
+          {
+            "quote": "TVアニメ「怪盗ジョーカー」全4シーズン（全52話）",
+            "url": "https://www.fwinc.co.jp/bd_dvd/96210/"
+          },
+          {
+            "quote": "全4シーズンを、シーズン毎にBlu-ray Disc1枚でパッケージ（各巻13話収録）",
+            "url": "https://www.fwinc.co.jp/bd_dvd/48480/"
+          }
+        ],
+        "reason": "The provided sources state a total of 52 episodes across 4 seasons and mention a packaging format of '13 episodes per volume' for a specific 4-disc set. However, the text does not explicitly confirm that each of the four seasons contains exactly 13 episodes, nor does it provide a per-season breakdown. The '13 episodes per volume' quote refers to the physical media packaging structure, not necessarily the canonical episode count per season, and 52/4=13 is an inference not explicitly stated as the season length in the text. Therefore, the specific count for each season is not definitively resolved by the evidence.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The target is the anime series 'Kaitou Joker'. The sources confirm 4 seasons and a total of 52 episodes. One source mentions a 4-disc box set with 13 episodes per disc, which aligns with 13 episodes per season, but does not explicitly state the episode count per season as a factual catalog entry, only as a packaging detail. Thus, the per-season counts are unresolved."
+  },
+  "arm": "snippets",
+  "case_id": "joker-four-seasons",
+  "contract_issues": [],
+  "elapsed_seconds": 8.619,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "6b3ab70966fa32e3104437522940fed95f3ab4f5b3987f49494cc87c37850c2b",
+  "finish_reason": "stop",
+  "iteration": 1,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "db25a76c58b48382e12b87b157149a16de05200b8decf2ef2dbf2297b3ebf030",
+  "raw": "{\n  \"fields\": {\n    \"episodes_per_season\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [\n        {\n          \"url\": \"https://www.fwinc.co.jp/bd_dvd/96210/\",\n          \"quote\": \"TVアニメ「怪盗ジョーカー」全4シーズン（全52話）\"\n        },\n        {\n          \"url\": \"https://www.fwinc.co.jp/bd_dvd/48480/\",\n          \"quote\": \"全4シーズンを、シーズン毎にBlu-ray Disc1枚でパッケージ（各巻13話収録）\"\n        }\n      ],\n      \"reason\": \"The provided sources state a total of 52 episodes across 4 seasons and mention a packaging format of '13 episodes per volume' for a specific 4-disc set. However, the text does not explicitly confirm that each of the four seasons contains exactly 13 episodes, nor does it provide a per-season breakdown. The '13 episodes per volume' quote refers to the physical media packaging structure, not necessarily the canonical episode count per season, and 52/4=13 is an inference not explicitly stated as the season length in the text. Therefore, the specific count for each season is not definitively resolved by the evidence.\"\n    }\n  },\n  \"identity_notes\": \"The target is the anime series 'Kaitou Joker'. The sources confirm 4 seasons and a total of 52 episodes. One source mentions a 4-disc box set with 13 episodes per disc, which aligns with 13 episodes per season, but does not explicitly state the episode count per season as a factual catalog entry, only as a packaging detail. Thus, the per-season counts are unresolved.\"\n}",
+  "recorded_at": "2026-09-06T06:21:06.407129+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 398,
+    "completion_tokens_details": null,
+    "prompt_tokens": 1787,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 2185
+  }
+}

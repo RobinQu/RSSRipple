@@ -1,0 +1,15 @@
+{
+  "observed_date_utc": "2026-09-06",
+  "container": "sglang-qwen-3.8-27b-mtp",
+  "state_observed": "Exited (0)",
+  "log_error_time_utc": "2026-09-06T05:56:06Z",
+  "error_signatures": [
+    "torch.distributed.DistBackendError: NCCL error",
+    "ncclSystemError: System call or external library call failed or device error",
+    "nvmlInit_v2() failed: Unknown Error",
+    "POST /v1/chat/completions HTTP/1.1 500 Internal Server Error"
+  ],
+  "root_cause": "not established; infrastructure failure, not a measured metadata quality outcome",
+  "action_taken": "read-only container status/error-log inspection; no restart, GPU reset or production change",
+  "resume_requirement": "user-approved recovery or supplied available model endpoint; new experiment name"
+}

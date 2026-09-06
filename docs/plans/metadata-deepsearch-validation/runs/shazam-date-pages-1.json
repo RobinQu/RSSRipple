@@ -1,0 +1,35 @@
+{
+  "answer": {
+    "fields": {
+      "us_theatrical_release_date": {
+        "evidence": [
+          {
+            "quote": "Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.",
+            "url": "https://warnerbros.fandom.com/wiki/Shazam!"
+          }
+        ],
+        "reason": "The source explicitly states the United States theatrical release date as April 5, 2019, matching the requested US theatrical scope and excluding advance/premiere or other-territory dates.",
+        "status": "resolved",
+        "value": "2019-04-05"
+      }
+    },
+    "identity_notes": "Target is the 2019 live-action film Shazam!, not a TV season, OAD, commentary edition, or other release format."
+  },
+  "arm": "pages",
+  "case_id": "shazam-date",
+  "contract_issues": [],
+  "elapsed_seconds": 24.783,
+  "iteration": 1,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "1f3b56f5a82752ab3929d07f973cec7c7c144cf63c9a6aaaffb9608724a8c0f6",
+  "raw": "\n\n{\n  \"fields\": {\n    \"us_theatrical_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2019-04-05\",\n      \"evidence\": [\n        {\n          \"url\": \"https://warnerbros.fandom.com/wiki/Shazam!\",\n          \"quote\": \"Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.\"\n        }\n      ],\n      \"reason\": \"The source explicitly states the United States theatrical release date as April 5, 2019, matching the requested US theatrical scope and excluding advance/premiere or other-territory dates.\"\n    }\n  },\n  \"identity_notes\": \"Target is the 2019 live-action film Shazam!, not a TV season, OAD, commentary edition, or other release format.\"\n}",
+  "recorded_at": "2026-09-06T05:55:06.218360+00:00",
+  "usage": {
+    "completion_tokens": 1371,
+    "completion_tokens_details": null,
+    "prompt_tokens": 4703,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 1144,
+    "total_tokens": 6074
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "answer": {
+    "fields": {
+      "us_theatrical_release_date": {
+        "evidence": [
+          {
+            "quote": "Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.",
+            "url": "https://warnerbros.fandom.com/wiki/Shazam!"
+          },
+          {
+            "quote": "Shazam! was released nationwide on Friday, April 5, 2019.",
+            "url": "https://www.movieinsider.com/m763/shazam"
+          }
+        ],
+        "reason": "The supplied sources state that the film was released in the United States/nationwide on April 5, 2019, matching the requested US theatrical release date.",
+        "status": "resolved",
+        "value": "2019-04-05"
+      }
+    },
+    "identity_notes": "Scope is the 2019 Shazam! film's US theatrical release, not premieres, foreign releases, or home video."
+  },
+  "arm": "snippets",
+  "case_id": "shazam-date",
+  "contract_issues": [],
+  "elapsed_seconds": 40.419,
+  "iteration": 1,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "491e3e7eebc7335af48a68e010b9e1b62959cb2c66fdd193f5ac3ba551582b74",
+  "raw": "\n\n{\n  \"fields\": {\n    \"us_theatrical_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2019-04-05\",\n      \"evidence\": [\n        {\n          \"url\": \"https://warnerbros.fandom.com/wiki/Shazam!\",\n          \"quote\": \"Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.\"\n        },\n        {\n          \"url\": \"https://www.movieinsider.com/m763/shazam\",\n          \"quote\": \"Shazam! was released nationwide on Friday, April 5, 2019.\"\n        }\n      ],\n      \"reason\": \"The supplied sources state that the film was released in the United States/nationwide on April 5, 2019, matching the requested US theatrical release date.\"\n    }\n  },\n  \"identity_notes\": \"Scope is the 2019 Shazam! film's US theatrical release, not premieres, foreign releases, or home video.\"\n}",
+  "recorded_at": "2026-09-06T05:53:56.889950+00:00",
+  "usage": {
+    "completion_tokens": 1862,
+    "completion_tokens_details": null,
+    "prompt_tokens": 1622,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 1589,
+    "total_tokens": 3484
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "status": "provisional_evidence_review_not_production_gold",
+  "method": "Independent reviewer inspected frozen evidence and task scope without reading model runs or baseline; snapshot candidates were excluded as answers. No human approval implied.",
+  "cases": {
+    "shigatsu-special": {
+      "special_release_date": {"value": "2015-05-15", "auto_apply_safe": false, "reason": "Only anibk snippet provides this date; 2020-04-01 is the reissued BD-box date, not original OAD release.", "urls": ["https://raw.anibk.com/bk/3683", "https://www.kodansha.co.jp/comic/products/0000039956"]},
+      "special_episode_count": {"value": 1, "auto_apply_safe": true, "reason": "22 broadcast episodes plus the single manga-volume-11 OAD episode; count only the OAD, not all S00 bonus clips.", "urls": ["https://www.new-akiba.com/news/185267", "https://www.kodansha.co.jp/comic/products/0000039956"]}
+    },
+    "nichijou-special": {
+      "special_release_date": {"value": null, "auto_apply_safe": false, "reason": "Frozen official book page does not identify the OAD release; manga dates are not evidence.", "urls": ["https://shinonome-lab.com/goods/book_index.html"]},
+      "special_episode_count": {"value": null, "auto_apply_safe": false, "reason": "No complete OAD enumeration in frozen evidence; exclude TV and BD bonus shorts.", "urls": ["https://shinonome-lab.com/goods/book_index.html"]}
+    },
+    "shazam-date": {
+      "us_theatrical_release_date": {"value": "2019-04-05", "auto_apply_safe": true, "reason": "TMDB release table explicitly labels US theatrical; not global earliest release or advance screening. This field is a prospective scope-control, not a current required-field gap after baseline refresh.", "urls": ["https://www.themoviedb.org/movie/287947-shazam/releases", "https://www.warnerbros.co.uk/movies/shazam"]}
+    },
+    "rifftrax-date": {
+      "commentary_release_date": {"value": "2018-08-17", "auto_apply_safe": false, "reason": "Plex explicitly names the RiffTrax edition. Third-party-only; obtain RiffTrax release evidence before unattended writes.", "urls": ["https://watch.plex.tv/movie/rifftrax-ice-cream-man"]}
+    },
+    "ultraman-powered": {
+      "first_japan_video_release_date": {"value": "1993-12-05", "auto_apply_safe": false, "reason": "Wikipedia mirror says video release, separate from 1995 TV airing; authoritative page not captured.", "urls": ["https://ja.wikid.org/ウルトラマンパワード"]},
+      "episode_count": {"value": 13, "auto_apply_safe": false, "reason": "Mirror and snippets agree, but require primary catalog capture for unattended application.", "urls": ["https://ja.wikid.org/ウルトラマンパワード", "https://tsuburaya-prod.com/business/titlelist/3596"]},
+      "is_anime": {"value": false, "auto_apply_safe": false, "reason": "Tokusatsu, not Japanese animation; medium is clear in mirror, primary evidence still desirable.", "urls": ["https://ja.wikid.org/ウルトラマンパワード"]}
+    },
+    "joker-four-seasons": {
+      "episodes_per_season": {"value": {"1": 13, "2": 13, "3": 13, "4": 13}, "auto_apply_safe": false, "reason": "Official Frontier Works snippets specify 13 per season and 52 overall. Body retrieval failed; strict policy awaits body capture. Existing production snapshot already has four correct season members, so this is a no-regression control, not a gain.", "urls": ["https://www.fwinc.co.jp/bd_dvd/48480/", "https://www.fwinc.co.jp/bd_dvd/96210/"]}
+    },
+    "kozame-season2": {
+      "season2_start_date": {"value": "2026-04-12", "auto_apply_safe": false, "reason": "Official YouTube result and press snippets agree; primary body not captured.", "urls": ["https://www.youtube.com/watch?v=YPQ4GAjQHc8", "https://www.tv-tokyo.co.jp/anime/odekake-kozame/", "https://eeo.today/media/2026/03/31/330636/"]},
+      "season2_total_episodes": {"value": null, "auto_apply_safe": false, "reason": "All episodes will stream is not an announced numeric total; release range 13-21 is not total.", "urls": ["https://www.tv-tokyo.co.jp/anime/odekake-kozame/"]}
+    },
+    "zeztz-count": {
+      "total_episodes": {"value": null, "auto_apply_safe": false, "reason": "Official extraction says Last Case and Case49 but does not explicitly number final as 50; third-party about-50 claims fail the strict officially-determined-total target.", "urls": ["https://www.kamen-rider-official.com/zeztz/"]},
+      "is_anime": {"value": false, "auto_apply_safe": false, "reason": "Live-action franchise identity supports false, but frozen official page lacks explicit medium wording; do not treat franchise name alone as production proof.", "urls": ["https://www.kamen-rider-official.com/zeztz/"]}
+    }
+  }
+}

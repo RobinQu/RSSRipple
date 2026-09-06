@@ -1,0 +1,43 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "The provided sources do not list the number of episodes in the Nichijou OAD or clarify the distinction between OADs and BD bonus content.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "The provided sources discuss the manga serialization, official site news, and general merchandise, but do not contain specific release dates for the Nichijou OAD (Original Animation DVD) or distinguish between BD bonus shorts and the OAD.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The target scope requires verifying OAD release dates and episode counts for 'Nichijou' (日常), specifically distinguishing OADs from BD bonus shorts. The supplied sources are primarily related to the manga serialization (Shonen Ace), the official website's general news (focusing on the 2023 OP theme and manga volumes), and general Kadokawa store links. None of the provided text snippets contain specific data regarding the anime's OAD release schedule or episode enumeration."
+  },
+  "arm": "pages",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 7.781,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "cc1ef935e123acc1f4d579d2ade5f498f08c8d3fd5d0007a71df9f89b552ed54",
+  "finish_reason": "stop",
+  "iteration": 1,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "7b5edc2b1d01ec855cc513bb73fd246b2a130fff7e06296cb25dbdfe40c0259c",
+  "raw": "{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources discuss the manga serialization, official site news, and general merchandise, but do not contain specific release dates for the Nichijou OAD (Original Animation DVD) or distinguish between BD bonus shorts and the OAD.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources do not list the number of episodes in the Nichijou OAD or clarify the distinction between OADs and BD bonus content.\"\n    }\n  },\n  \"identity_notes\": \"The target scope requires verifying OAD release dates and episode counts for 'Nichijou' (日常), specifically distinguishing OADs from BD bonus shorts. The supplied sources are primarily related to the manga serialization (Shonen Ace), the official website's general news (focusing on the 2023 OP theme and manga volumes), and general Kadokawa store links. None of the provided text snippets contain specific data regarding the anime's OAD release schedule or episode enumeration.\"\n}",
+  "recorded_at": "2026-09-06T06:19:55.626455+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 273,
+    "completion_tokens_details": null,
+    "prompt_tokens": 8365,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 8638
+  }
+}

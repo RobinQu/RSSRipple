@@ -1,0 +1,274 @@
+{
+  "baseline": [
+    {
+      "case_id": "joker-four-seasons",
+      "elapsed_seconds": 12.966,
+      "error_type": null,
+      "found": true,
+      "source_error": null
+    },
+    {
+      "case_id": "kozame-season2",
+      "elapsed_seconds": 23.253,
+      "error_type": "ReplayError",
+      "found": false,
+      "source_error": "web fallback judge returned unparseable JSON"
+    },
+    {
+      "case_id": "nichijou-special",
+      "elapsed_seconds": 8.26,
+      "error_type": null,
+      "found": true,
+      "source_error": null
+    },
+    {
+      "case_id": "rifftrax-date",
+      "elapsed_seconds": 59.85,
+      "error_type": null,
+      "found": true,
+      "source_error": "TMDB: no results"
+    },
+    {
+      "case_id": "shazam-date",
+      "elapsed_seconds": 30.289,
+      "error_type": null,
+      "found": true,
+      "source_error": "TMDB: no results"
+    },
+    {
+      "case_id": "shigatsu-special",
+      "elapsed_seconds": 10.969,
+      "error_type": null,
+      "found": true,
+      "source_error": null
+    },
+    {
+      "case_id": "ultraman-powered",
+      "elapsed_seconds": 136.956,
+      "error_type": "ReplayError",
+      "found": false,
+      "source_error": "Bangumi: judge call failed"
+    },
+    {
+      "case_id": "zeztz-count",
+      "elapsed_seconds": 11.846,
+      "error_type": null,
+      "found": false,
+      "source_error": "web fallback judge returned unparseable JSON"
+    }
+  ],
+  "case_count": 8,
+  "evidence": {
+    "cases": 8,
+    "nonempty_pages": 14,
+    "page_attempts": 40,
+    "search_requests": 16
+  },
+  "experiments": {
+    "runs": {
+      "complete_without_execution_errors": false,
+      "completion_tokens": 21081,
+      "expected_request_results": 48,
+      "field_results": [
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_episode_count",
+          "iteration": 1,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_release_date",
+          "iteration": 1,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_episode_count",
+          "iteration": 2,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_release_date",
+          "iteration": 2,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_episode_count",
+          "iteration": 3,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_release_date",
+          "iteration": 3,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_episode_count",
+          "iteration": 1,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_release_date",
+          "iteration": 1,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_episode_count",
+          "iteration": 2,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_release_date",
+          "iteration": 2,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_episode_count",
+          "iteration": 3,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": false,
+          "case_id": "nichijou-special",
+          "field": "special_release_date",
+          "iteration": 3,
+          "matches_provisional_value": false,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "unresolved",
+          "value": null
+        },
+        {
+          "arm": "pages",
+          "auto_apply_candidate_only": true,
+          "case_id": "shazam-date",
+          "field": "us_theatrical_release_date",
+          "iteration": 1,
+          "matches_provisional_value": true,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "resolved",
+          "value": "2019-04-05"
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": true,
+          "case_id": "shazam-date",
+          "field": "us_theatrical_release_date",
+          "iteration": 1,
+          "matches_provisional_value": true,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "resolved",
+          "value": "2019-04-05"
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": true,
+          "case_id": "shazam-date",
+          "field": "us_theatrical_release_date",
+          "iteration": 2,
+          "matches_provisional_value": true,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "resolved",
+          "value": "2019-04-05"
+        },
+        {
+          "arm": "snippets",
+          "auto_apply_candidate_only": true,
+          "case_id": "shazam-date",
+          "field": "us_theatrical_release_date",
+          "iteration": 3,
+          "matches_provisional_value": true,
+          "note": "Value/quote checks do not replace per-answer entailment review.",
+          "status": "resolved",
+          "value": "2019-04-05"
+        }
+      ],
+      "prompt_tokens": 82211,
+      "recorded_request_results": 15,
+      "status_counts": {
+        "JSONDecodeError": 5,
+        "parsed": 10
+      },
+      "sum_request_elapsed_seconds": 408.278
+    },
+    "runs-json": {
+      "complete_without_execution_errors": false,
+      "completion_tokens": 0,
+      "expected_request_results": 48,
+      "field_results": [],
+      "prompt_tokens": 0,
+      "recorded_request_results": 48,
+      "status_counts": {
+        "APIConnectionError": 46,
+        "InternalServerError": 2
+      },
+      "sum_request_elapsed_seconds": 12.476
+    }
+  },
+  "field_count": 14,
+  "overall_refactor_gate": "NOT_EVALUATED: requires complete paired runs, independent per-answer review and holdout pipeline validation"
+}

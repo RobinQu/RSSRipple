@@ -107,6 +107,15 @@ class BaseQueue(ABC):
         """Return the latest job state for *key*, or None if no job ever queued."""
 
     @abstractmethod
+    async def list_jobs(self) -> list[dict]:
+        """Return a snapshot of every job state known to the backend.
+
+        Same dict shape as ``status()``. This is a live, best-effort view:
+        MemoryQueue covers jobs since process start, RedisQueue covers jobs
+        whose state hash has not expired yet (``JOB_TTL_SECONDS``).
+        """
+
+    @abstractmethod
     async def clear(self, key: str) -> None:
         """Drop any stored job state for *key*.
 
@@ -218,6 +227,9 @@ class MemoryQueue(BaseQueue):
     async def status(self, key: str) -> dict | None:
         job = self._jobs_by_key.get(key)
         return job.to_dict() if job else None
+
+    async def list_jobs(self) -> list[dict]:
+        return [job.to_dict() for job in self._jobs_by_key.values()]
 
     async def clear(self, key: str) -> None:
         self._jobs_by_key.pop(key, None)
@@ -396,6 +408,30 @@ class RedisQueue(BaseQueue):
     async def status(self, key: str) -> dict | None:
         raw = await self._redis.hgetall(f"{_JOB_PFX}{key}")
         return self._deserialize(raw) if raw else None
+
+    async def list_jobs(self) -> list[dict]:
+        # Collect keys first, then fetch all hashes in one pipeline —
+        # sequential HGETALLs cost one round trip per key, which gets slow
+        # once per-entity keys (magnet:<id>, refresh_works:<uuid>, …)
+        # accumulate within the TTL window.
+        redis_keys = [
+            key async for key in self._redis.scan_iter(f"{_JOB_PFX}*", count=500)
+        ]
+        if not redis_keys:
+            return []
+        async with self._redis.pipeline(transaction=False) as pipe:
+            for redis_key in redis_keys:
+                pipe.hgetall(redis_key)
+            raws = await pipe.execute()
+        jobs: list[dict] = []
+        for redis_key, raw in zip(redis_keys, raws):
+            try:
+                if raw:
+                    jobs.append(self._deserialize(raw))
+            except Exception as exc:
+                # One malformed hash must not sink the whole snapshot.
+                logger.warning("Skipping malformed job state %s: %s", redis_key, exc)
+        return jobs
 
     async def clear(self, key: str) -> None:
         redis_key = f"{_JOB_PFX}{key}"

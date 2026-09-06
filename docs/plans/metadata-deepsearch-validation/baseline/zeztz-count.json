@@ -1,0 +1,49 @@
+{
+  "calls": {
+    "127.0.0.1": 8,
+    "api.bgm.tv": 5,
+    "flash-aio": 1
+  },
+  "case_id": "zeztz-count",
+  "elapsed_seconds": 11.846,
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "[KRSUB][假面骑士Zeztz][01-50][WEB-DL][AMZN][1080P][官方中文]",
+    "confidence": 0.0,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi",
+      "wigolo"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": false,
+    "is_batch": false,
+    "matched_entity": null,
+    "reason": "web fallback judge returned unparseable JSON",
+    "resolution": null,
+    "search_error": "web fallback judge returned unparseable JSON",
+    "search_method": "react_then_web_fallback",
+    "season": null,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {
+      "wigolo": "web fallback judge returned unparseable JSON"
+    },
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": null,
+    "title_en": null,
+    "video_codec": null
+  },
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T05:56:24.694306+00:00"
+}

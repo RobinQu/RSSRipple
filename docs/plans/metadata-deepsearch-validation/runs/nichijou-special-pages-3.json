@@ -1,0 +1,36 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "No supplied source states the total number of OAD episodes or confirms a complete enumeration; there is also no evidence distinguishing OADs from BD bonus shorts.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "No supplied source states the OAD release date; the provided texts concern manga volumes, anime guidebooks, OP PV/news, or unrelated shop pages.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The supplied evidence does not identify the OAD as separate from the TV series or BD bonus shorts, nor provide an OAD release date or episode count. Manga/comics release dates and anime guidebook information are not evidence for the requested OAD fields."
+  },
+  "arm": "pages",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 18.347,
+  "iteration": 3,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "7b5edc2b1d01ec855cc513bb73fd246b2a130fff7e06296cb25dbdfe40c0259c",
+  "raw": "\n\n{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"No supplied source states the OAD release date; the provided texts concern manga volumes, anime guidebooks, OP PV/news, or unrelated shop pages.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"No supplied source states the total number of OAD episodes or confirms a complete enumeration; there is also no evidence distinguishing OADs from BD bonus shorts.\"\n    }\n  },\n  \"identity_notes\": \"The supplied evidence does not identify the OAD as separate from the TV series or BD bonus shorts, nor provide an OAD release date or episode count. Manga/comics release dates and anime guidebook information are not evidence for the requested OAD fields.\"\n}",
+  "recorded_at": "2026-09-06T05:53:38.512035+00:00",
+  "usage": {
+    "completion_tokens": 1005,
+    "completion_tokens_details": null,
+    "prompt_tokens": 8401,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 792,
+    "total_tokens": 9406
+  }
+}

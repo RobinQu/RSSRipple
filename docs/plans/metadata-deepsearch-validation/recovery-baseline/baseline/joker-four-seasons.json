@@ -1,0 +1,133 @@
+{
+  "agent_code_sha256": "4836df0518c275906745891f49fac07f499d1955fef4bd8b520b2b63d11215e6",
+  "calls": {
+    "127.0.0.1": 1,
+    "api.bgm.tv": 5
+  },
+  "case_id": "joker-four-seasons",
+  "elapsed_seconds": 39.62,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "input_sha256": "a12c605e2c97bc08af3f6983f9dab2041a2edbc007c410d98c318a8dba0f3cec",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "[LinRip] 怪盗Joker ／ Kaitou Joker S1-S4 [BDRemux 1080p AVC FLAC][简繁日内封]",
+    "confidence": 0.9,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": true,
+    "is_batch": false,
+    "matched_entity": {
+      "description": "　　拥有华丽欺诈、奇迹般神出鬼没的怪盗小丑（Joker），在于执拗的警部、敌人的斗智斗勇下，一次次华丽地这下各种陷阱、圈套，将名画、珠宝等成功盗出！",
+      "episode_list": [
+        {
+          "episode": 1,
+          "season": 1,
+          "title": "奇迹的怪盗（Miracle Maker）现身！"
+        },
+        {
+          "episode": 2,
+          "season": 1,
+          "title": "艺术之都（巴黎）与百年金库"
+        },
+        {
+          "episode": 3,
+          "season": 1,
+          "title": "美人鱼（Mermaid）和虚假的船"
+        },
+        {
+          "episode": 4,
+          "season": 1,
+          "title": "冰与火的勇者们"
+        },
+        {
+          "episode": 5,
+          "season": 1,
+          "title": "启程前往闪耀的夜晚"
+        },
+        {
+          "episode": 6,
+          "season": 1,
+          "title": "影子飞舞而下"
+        },
+        {
+          "episode": 7,
+          "season": 1,
+          "title": "深红的邪神岛"
+        },
+        {
+          "episode": 8,
+          "season": 1,
+          "title": "钻石与哭泣的女王 前篇"
+        },
+        {
+          "episode": 9,
+          "season": 1,
+          "title": "钻石与哭泣的女王 后篇"
+        },
+        {
+          "episode": 10,
+          "season": 1,
+          "title": "华丽的黄金特急列车"
+        },
+        {
+          "episode": 11,
+          "season": 1,
+          "title": "满月下嚎叫的野兽"
+        },
+        {
+          "episode": 12,
+          "season": 1,
+          "title": "激斗！暗之忍者军团"
+        },
+        {
+          "episode": 13,
+          "season": 1,
+          "title": "镜与影的迷宫（Labyrinth）"
+        }
+      ],
+      "external_id": "bangumi:107186",
+      "external_source": "bangumi",
+      "genre": [
+        "Animation",
+        "Action & Adventure",
+        "Comedy"
+      ],
+      "is_anime": true,
+      "number_of_episodes": 13,
+      "original_title": "怪盗ジョーカー",
+      "poster_url": "https://lain.bgm.tv/pic/cover/l/cb/9e/107186_GHZ4g.jpg",
+      "rating": 7.1,
+      "single_season_entry": true,
+      "start_date": "2014-10-06",
+      "title_cn": "怪盗Joker"
+    },
+    "reason": "auto-linked bangumi subject (normalized title match)",
+    "resolution": null,
+    "search_error": null,
+    "search_method": "bangumi_search_then_autolink",
+    "season": 1,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {},
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": "怪盗Joker",
+    "title_en": null,
+    "video_codec": null
+  },
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T06:23:52.137247+00:00"
+}

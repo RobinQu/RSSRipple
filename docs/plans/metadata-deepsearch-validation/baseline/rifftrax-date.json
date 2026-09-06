@@ -1,0 +1,69 @@
+{
+  "calls": {
+    "127.0.0.1": 5,
+    "api.themoviedb.org": 6
+  },
+  "case_id": "rifftrax-date",
+  "elapsed_seconds": 59.85,
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "Rifftrax - Ice Cream Man",
+    "confidence": 0.9,
+    "container": "MKV",
+    "content_type": "movie",
+    "data_sources_used": [
+      "tmdb"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": true,
+    "is_batch": false,
+    "matched_entity": {
+      "canonical_name": "Rifftrax: Ice Cream Man",
+      "description": "The RiffTrax guys riff on a gross and goofy film about a creepy ice cream man, who might be a murderer who mixes human parts into his cold treats",
+      "external_id": "tmdb:1746948",
+      "external_source": "tmdb",
+      "genre": [
+        "Comedy"
+      ],
+      "is_anime": false,
+      "number_of_episodes": null,
+      "number_of_seasons": null,
+      "original_title": "Rifftrax: Ice Cream Man",
+      "poster_url": null,
+      "rating": 0.0,
+      "seasons": [],
+      "start_date": null,
+      "status": "Released",
+      "title_cn": "Rifftrax: Ice Cream Man",
+      "title_en": "Rifftrax: Ice Cream Man",
+      "wikipedia_url": null
+    },
+    "reason": "Title explicitly names the RiffTrax commentary version of Ice Cream Man; TMDB has a dedicated entry 'Rifftrax: Ice Cream Man' (tmdb:1746948) which is an exact title match. The '(1995)' in the title refers to the original film (tmdb:44470, released 1995-05-09) being riffed on, not a conflicting release year for the RiffTrax entry. Single movie release, no episode/season markers. Quality tags: 2160p HDR AI Upscale, MKV container, release group Mesc.",
+    "resolution": "2160p",
+    "search_error": "TMDB: no results",
+    "search_method": "tmdb",
+    "season": null,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {
+      "tmdb": "no results"
+    },
+    "subtitle_group": null,
+    "subtitle_groups": [
+      "Mesc"
+    ],
+    "subtitle_langs": [],
+    "subtitle_type": null,
+    "title_cn": "Rifftrax: Ice Cream Man",
+    "title_en": "Rifftrax: Ice Cream Man",
+    "video_codec": null
+  },
+  "primary_source": "tmdb",
+  "recorded_at": "2026-09-06T05:52:31.667172+00:00"
+}

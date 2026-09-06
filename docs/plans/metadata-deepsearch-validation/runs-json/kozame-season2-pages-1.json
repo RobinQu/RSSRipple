@@ -1,0 +1,12 @@
+{
+  "arm": "pages",
+  "case_id": "kozame-season2",
+  "elapsed_seconds": 0.002,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 1,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "bd6c3ced6840740ab2f8ff90844d051361d804e99bb229cc423306200ad59537",
+  "recorded_at": "2026-09-06T05:56:11.598050+00:00"
+}

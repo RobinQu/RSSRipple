@@ -7,6 +7,8 @@
 
 ### 2026-09 生产 Metadata 验收接入
 
+后续 DeepSearch 隔离实验新增 `metadata_corpus/test_deepsearch_eval.py`：17 项纯离线护栏测试，覆盖引用存在性与蕴含判断的区别、字段类型、未知值、答案防泄漏、公共读页 URL 限制及续跑来源一致性；不执行真实搜索/模型。真实困难样本、实验结果与未获准重构的原因见 [DeepSearch 验证方案](../../docs/plans/metadata-deepsearch-validation/README.md)。
+
 新增 `metadata_corpus/`，将既有生产作品库/torrent 验收纳入两套 Compose 默认收集；共享工具仍在 `tests/metadata_corpus/`，数据位于 `tests/fixtures/metadata_corpus_v1/`。当前 871 项用例包含 843 个 torrent 清单回归、完整性/回放/报告护栏及一个完整语义场景（一个已审核资源重复入库）。不是 871 个作品样本通过；1,371 条资源仍待审核、526 条缺 torrent。
 
 单节点使用临时 Turso；分布式使用独立 `corpus-postgres`（`metadata_corpus_test` + 每轮随机 schema），不复用 HTTP app 数据库。两者均严格离线回放，不启动真实 LLM/搜索质量评测，且不会继承 `http/` 的 test-server 播种 fixture。`data/metadata-corpus/` 保存 JUnit、审核报告与逐场景差异，现有 CI 上传为 artifact。用法与覆盖限制见 [验收说明](../metadata_corpus/README.md)。下方原目录/计数保留为历史清单，不作为当前总数。

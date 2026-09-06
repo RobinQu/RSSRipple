@@ -1,0 +1,19 @@
+{
+  "arm": "pages",
+  "case_id": "shigatsu-special",
+  "elapsed_seconds": 39.989,
+  "error_type": "JSONDecodeError",
+  "iteration": 2,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "db6b1705ac00cda4604ad1b6e59d3840556622b8a0255807b522d6dd2d4e37b7",
+  "raw": "",
+  "recorded_at": "2026-09-06T05:55:08.610768+00:00",
+  "usage": {
+    "completion_tokens": 2200,
+    "completion_tokens_details": null,
+    "prompt_tokens": 18489,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 2200,
+    "total_tokens": 20689
+  }
+}

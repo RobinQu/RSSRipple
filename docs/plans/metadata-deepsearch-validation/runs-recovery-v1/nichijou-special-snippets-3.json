@@ -1,0 +1,43 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "The provided sources do not list the number of episodes for the OAD or distinguish between OADs and BD bonus shorts.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "The provided sources discuss the manga release (2015-12-26) and general news, but contain no information regarding the release date of the Nichijou OAD or BD extras.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The target scope requires specific metadata for the 'Nichijou' OAD (special release date and episode count). The supplied sources are primarily related to the manga publication (Volume 10 release date) and general news, lacking any specific data on the anime's OAD or BD extras."
+  },
+  "arm": "snippets",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 3.489,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "cc1ef935e123acc1f4d579d2ade5f498f08c8d3fd5d0007a71df9f89b552ed54",
+  "finish_reason": "stop",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "8020dd6a5d86ab73a56735c73de9aeb5e4ca79d2f90e3f1ffd86db6911ebf4c8",
+  "raw": "{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources discuss the manga release (2015-12-26) and general news, but contain no information regarding the release date of the Nichijou OAD or BD extras.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources do not list the number of episodes for the OAD or distinguish between OADs and BD bonus shorts.\"\n    }\n  },\n  \"identity_notes\": \"The target scope requires specific metadata for the 'Nichijou' OAD (special release date and episode count). The supplied sources are primarily related to the manga publication (Volume 10 release date) and general news, lacking any specific data on the anime's OAD or BD extras.\"\n}",
+  "recorded_at": "2026-09-06T06:19:52.137358+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 226,
+    "completion_tokens_details": null,
+    "prompt_tokens": 908,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 1134
+  }
+}

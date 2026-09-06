@@ -1,0 +1,46 @@
+{
+  "answer": {
+    "fields": {
+      "us_theatrical_release_date": {
+        "evidence": [
+          {
+            "quote": "Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.",
+            "url": "https://warnerbros.fandom.com/wiki/Shazam!"
+          },
+          {
+            "quote": "Shazam! was released nationwide on Friday, April 5, 2019.",
+            "url": "https://www.movieinsider.com/m763/shazam"
+          }
+        ],
+        "reason": "Multiple sources confirm the US theatrical release date as April 5, 2019.",
+        "status": "resolved",
+        "value": "2019-04-05"
+      }
+    },
+    "identity_notes": "The target is the 2019 live-action film 'Shazam!'. The sources consistently identify the US theatrical release date as April 5, 2019."
+  },
+  "arm": "snippets",
+  "case_id": "shazam-date",
+  "contract_issues": [],
+  "elapsed_seconds": 4.283,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "c121a619c71d89fec675307a0a6f597130994b0459fa8f2882c31cd2b1606909",
+  "finish_reason": "stop",
+  "iteration": 1,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "491e3e7eebc7335af48a68e010b9e1b62959cb2c66fdd193f5ac3ba551582b74",
+  "raw": "{\n  \"fields\": {\n    \"us_theatrical_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2019-04-05\",\n      \"evidence\": [\n        {\n          \"url\": \"https://warnerbros.fandom.com/wiki/Shazam!\",\n          \"quote\": \"Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.\"\n        },\n        {\n          \"url\": \"https://www.movieinsider.com/m763/shazam\",\n          \"quote\": \"Shazam! was released nationwide on Friday, April 5, 2019.\"\n        }\n      ],\n      \"reason\": \"Multiple sources confirm the US theatrical release date as April 5, 2019.\"\n    }\n  },\n  \"identity_notes\": \"The target is the 2019 live-action film 'Shazam!'. The sources consistently identify the US theatrical release date as April 5, 2019.\"\n}",
+  "recorded_at": "2026-09-06T06:20:18.074390+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 265,
+    "completion_tokens_details": null,
+    "prompt_tokens": 1586,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 1851
+  }
+}

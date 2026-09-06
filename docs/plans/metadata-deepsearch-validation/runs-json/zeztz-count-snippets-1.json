@@ -1,0 +1,12 @@
+{
+  "arm": "snippets",
+  "case_id": "zeztz-count",
+  "elapsed_seconds": 0.003,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 1,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "b31423f54401d78cdd08a4534c510f9afcd1533f050165058e52cfc71395639d",
+  "recorded_at": "2026-09-06T05:56:11.590425+00:00"
+}

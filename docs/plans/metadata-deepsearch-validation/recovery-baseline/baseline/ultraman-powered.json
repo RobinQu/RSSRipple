@@ -1,0 +1,73 @@
+{
+  "agent_code_sha256": "4836df0518c275906745891f49fac07f499d1955fef4bd8b520b2b63d11215e6",
+  "calls": {
+    "127.0.0.1": 2,
+    "api.bgm.tv": 5
+  },
+  "case_id": "ultraman-powered",
+  "elapsed_seconds": 105.092,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "input_sha256": "6b9b2841ccb911c3aee76c67ee5c7e27ef11120f60a9bf58360db03360162bca",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "奥特曼：终极英雄",
+    "confidence": 0.8,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi"
+    ],
+    "episode": null,
+    "episode_end": 13,
+    "episode_start": 1,
+    "found": true,
+    "is_batch": true,
+    "matched_entity": {
+      "description": "本作最早于1987年在美国的电视台播放，曾经获得该时期儿童影视节目收视率第三名的佳绩。日本则是在1989年4月的时候才在戏院上映。这部作品原本是预定要推出TV版的试播版本，可惜因为众多因素影响无法顺利在美国当地上映。 这部作品虽然是美国出品，实际上负责制作的还是日本的スタジオ・ザイン与苇プロダクション两家动画制作公司负责作品制作，同时也是继1979年《The_Ultraman》结束10年后再次出现的动画版奥特曼，同时该作品在海外的佳绩，也导致后续两部海外作品《葛雷·奥特曼》和《帕瓦特·奥特曼》的诞生。\r\n\r\n来自M78星云阿尔塔拉星，共为二男一女的三人小队，为了追击来到地球的怪兽行星索金ソーキン・モンスター而来到了地球，并意外与美军飞行部队“Flying Angels”的3位飞官一体化，共同追击索金怪兽的下落，及迎战降临世界各处的外星怪兽，并维护世界的和平。",
+      "episode_list": [
+        {
+          "episode": 1,
+          "season": 1,
+          "title": null
+        }
+      ],
+      "external_id": "bangumi:273886",
+      "external_source": "bangumi",
+      "genre": [
+        "Animation",
+        "Action & Adventure",
+        "Sci-Fi & Fantasy"
+      ],
+      "is_anime": true,
+      "number_of_episodes": 1,
+      "original_title": "Ultraman: The Adventure Begins",
+      "poster_url": "https://lain.bgm.tv/pic/cover/l/53/9f/273886_dqBe1.jpg",
+      "rating": 5.4,
+      "single_season_entry": true,
+      "start_date": "1987-10-12",
+      "title_cn": "奥特曼USA"
+    },
+    "reason": "bangumi judge pick",
+    "resolution": null,
+    "search_error": null,
+    "search_method": "bangumi_search_then_judge",
+    "season": 1,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {},
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": "奥特曼USA",
+    "title_en": null,
+    "video_codec": null
+  },
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T06:22:07.044204+00:00"
+}

@@ -267,6 +267,26 @@ class TestMemoryQueue:
 
         assert len(counts) == 5
 
+    async def test_list_jobs_snapshot(self, queue):
+        async def handler(payload):
+            return {"ok": True}
+
+        queue.register("echo", handler)
+        await queue.start()
+        await queue.enqueue("echo", "lj1", {})
+        await queue.enqueue("echo", "lj2", {})
+        await _wait_done(queue, "lj1")
+        await _wait_done(queue, "lj2")
+
+        jobs = await queue.list_jobs()
+        assert {job["key"] for job in jobs} == {"lj1", "lj2"}
+        assert all(job["status"] == JobStatus.DONE for job in jobs)
+        assert all(job["queued_at"] and job["finished_at"] for job in jobs)
+
+        await queue.clear("lj1")
+        jobs = await queue.list_jobs()
+        assert [job["key"] for job in jobs] == ["lj2"]
+
 
 # ---------------------------------------------------------------------------
 # RedisQueue
@@ -347,6 +367,37 @@ class TestRedisQueue:
     async def test_status_before_enqueue(self, queue):
         await queue.start()
         assert await queue.status("never") is None
+
+    async def test_list_jobs_scans_state_hashes(self, queue, redis_client):
+        async def handler(payload):
+            return {"ok": True}
+
+        queue.register("echo", handler)
+        await queue.start()
+        await queue.enqueue("echo", "rlj1", {})
+        state = await _wait_done(queue, "rlj1")
+        assert state["status"] == JobStatus.DONE
+
+        jobs = await queue.list_jobs()
+        assert [job["key"] for job in jobs] == ["rlj1"]
+        assert jobs[0]["job_type"] == "echo"
+        assert jobs[0]["status"] == JobStatus.DONE
+
+        # A malformed hash is skipped instead of sinking the whole snapshot.
+        await redis_client.hset("rssripple:job:broken", mapping={"garbage": "1"})
+        original = RedisQueue._deserialize
+
+        def flaky_deserialize(raw):
+            if raw.get("garbage"):
+                raise ValueError("bad hash")
+            return original(raw)
+
+        queue._deserialize = flaky_deserialize
+        try:
+            jobs = await queue.list_jobs()
+        finally:
+            queue._deserialize = original
+        assert [job["key"] for job in jobs] == ["rlj1"]
 
     async def test_update_progress_is_shared_in_redis(self, queue):
         await queue.start(consume=False)

@@ -1,0 +1,36 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "No supplied source enumerates the OAD/special episode count or confirms that the enumeration is complete, so the total count cannot be resolved.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "The supplied sources do not state a release date for the Nichijou OAD/special; they mainly cover manga volumes, official site book/goods pages, and unrelated publisher news.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The requested scope requires separating S00 bonus/OAD material from the TV main series and avoiding conflation of BD bonus shorts with a single OAD. The provided evidence does not contain OAD release-date or episode-count metadata."
+  },
+  "arm": "pages",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 25.741,
+  "iteration": 2,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "7b5edc2b1d01ec855cc513bb73fd246b2a130fff7e06296cb25dbdfe40c0259c",
+  "raw": "\n\n{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The supplied sources do not state a release date for the Nichijou OAD/special; they mainly cover manga volumes, official site book/goods pages, and unrelated publisher news.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"No supplied source enumerates the OAD/special episode count or confirms that the enumeration is complete, so the total count cannot be resolved.\"\n    }\n  },\n  \"identity_notes\": \"The requested scope requires separating S00 bonus/OAD material from the TV main series and avoiding conflation of BD bonus shorts with a single OAD. The provided evidence does not contain OAD release-date or episode-count metadata.\"\n}",
+  "recorded_at": "2026-09-06T05:53:12.770153+00:00",
+  "usage": {
+    "completion_tokens": 1334,
+    "completion_tokens_details": null,
+    "prompt_tokens": 8401,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 1122,
+    "total_tokens": 9735
+  }
+}

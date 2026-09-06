@@ -1,0 +1,43 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "The provided sources do not list the number of OAD episodes or distinguish between BD extras and standalone OADs.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "The provided sources discuss the manga release (2015-12-26) and general news, but do not contain specific release dates for the Nichijou OADs or BD extras.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The provided sources primarily reference the manga 'Nichijou' and its final volume release, or general news from Shonen Sunday. They do not provide specific metadata regarding the anime's OAD release dates or episode counts."
+  },
+  "arm": "snippets",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 4.46,
+  "enable_thinking": false,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "evidence_sha256": "cc1ef935e123acc1f4d579d2ade5f498f08c8d3fd5d0007a71df9f89b552ed54",
+  "finish_reason": "stop",
+  "iteration": 2,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "8020dd6a5d86ab73a56735c73de9aeb5e4ca79d2f90e3f1ffd86db6911ebf4c8",
+  "raw": "{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources discuss the manga release (2015-12-26) and general news, but do not contain specific release dates for the Nichijou OADs or BD extras.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"The provided sources do not list the number of OAD episodes or distinguish between BD extras and standalone OADs.\"\n    }\n  },\n  \"identity_notes\": \"The provided sources primarily reference the manga 'Nichijou' and its final volume release, or general news from Shonen Sunday. They do not provide specific metadata regarding the anime's OAD release dates or episode counts.\"\n}",
+  "recorded_at": "2026-09-06T06:19:47.676930+00:00",
+  "response_format": "json_object",
+  "temperature": 0.1,
+  "usage": {
+    "completion_tokens": 209,
+    "completion_tokens_details": null,
+    "prompt_tokens": 908,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 0,
+    "total_tokens": 1117
+  }
+}

@@ -31,7 +31,7 @@ Dashboard 数据刷新分为两条互不阻塞的路径：`/dashboard/overview` 
 | `/movies` | MovieList | 电影列表 |
 | `/movies/:id` | MovieDetail | 电影详情，资源列表操作列同样可打开文件清单 Drawer；「动漫判定」行为只读展示，统一「编辑」按钮跳转 `/movies/:id/edit` 编辑页；「刷新元数据」对话框同 SeriesDetail（数据源下拉 + 「覆盖所有人工编辑字段」Checkbox） |
 | `/movies/:id/edit` | WorkEditPage(movie) | 电影完整编辑页：同 `/series/:id/edit`（WorkEditPage 复用，`contentType="movie"`；含外部身份分区），保存走 `PUT /movies/{id}` |
-| `/settings` | SettingsPage | 设置页；含 **API Keys 卡片**（全局 API key 管理：列表展示名称/prefix/创建时间，创建弹窗仅需名称 → 明文 key 在后续一次性弹窗展示（可复制，仅此一次），删除需 Popconfirm 确认；走 `GET/POST/DELETE /api-keys`）；数据源设置含 **Bangumi API Token**（secret）输入（供 Bangumi 数据源与 is_anime 第一层验证使用，token 即启用） |
+| `/settings` | SettingsPage | 设置页，多 Tab 结构（`?tab=`，内容区全宽自适应）：「外部依赖」Tab 为 LLM/数据源设置表单（含 Reset/Save；数据源设置含 **Bangumi API Token**（secret）输入——供 Bangumi 数据源与 is_anime 第一层验证使用，token 即启用）；「存储卷」Tab 为 VolumesPanel；「API 密钥」Tab 为 ApiKeysCard——全局 API key 管理：列表展示名称/prefix/创建时间，创建弹窗仅需名称 → 明文 key 在后续一次性弹窗展示（可复制，仅此一次），删除需 Popconfirm 确认；走 `GET/POST/DELETE /api-keys`；「任务队列」Tab（QueuePanel）为队列监控：顶部刷新控件（自动刷新开关 + 手动刷新按钮 + 上次更新时间）、概览 Statistic（running/queued/done/failed + 统计范围说明，memory 后端 web 角色显示入队侧提示）、按任务类型成功率表、调度器任务表（未启用显示空状态）、任务列表（状态/类型筛选 + 服务端分页），自动刷新开启时有活跃任务 5s 轮询、否则 30s |
 
 ### 关键交互说明
 

@@ -1,0 +1,50 @@
+{
+  "calls": {
+    "127.0.0.1": 8,
+    "api.bgm.tv": 4,
+    "flash-aio": 3
+  },
+  "case_id": "kozame-season2",
+  "elapsed_seconds": 23.253,
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "error_type": "ReplayError",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "【咪路fans制作组】[小鲨鱼去郊游 第二季／Odekake Kozame S2／おでかけ子ザメ S2][13-21][MP4][1080P][GB]",
+    "confidence": 0.0,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi",
+      "wigolo"
+    ],
+    "episode": null,
+    "episode_end": null,
+    "episode_start": null,
+    "found": false,
+    "is_batch": false,
+    "matched_entity": null,
+    "reason": "web fallback judge returned unparseable JSON",
+    "resolution": null,
+    "search_error": "web fallback judge returned unparseable JSON",
+    "search_method": "react_then_web_fallback",
+    "season": null,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {
+      "wigolo": "web fallback judge returned unparseable JSON"
+    },
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": null,
+    "title_en": null,
+    "video_codec": null
+  },
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T05:56:01.440989+00:00"
+}

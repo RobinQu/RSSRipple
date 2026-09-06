@@ -1,0 +1,12 @@
+{
+  "arm": "pages",
+  "case_id": "joker-four-seasons",
+  "elapsed_seconds": 0.015,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "db25a76c58b48382e12b87b157149a16de05200b8decf2ef2dbf2297b3ebf030",
+  "recorded_at": "2026-09-06T05:56:11.562798+00:00"
+}

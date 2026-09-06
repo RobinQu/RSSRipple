@@ -1,0 +1,12 @@
+{
+  "arm": "snippets",
+  "case_id": "shigatsu-special",
+  "elapsed_seconds": 0.002,
+  "enable_thinking": false,
+  "error_type": "APIConnectionError",
+  "iteration": 3,
+  "max_tokens": 4096,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "fd23f8b9bd3c314c389a711c4e464467fb7367c86328ab2b6a536ba8395c7101",
+  "recorded_at": "2026-09-06T05:56:11.468081+00:00"
+}

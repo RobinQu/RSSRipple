@@ -1,0 +1,35 @@
+{
+  "answer": {
+    "fields": {
+      "us_theatrical_release_date": {
+        "evidence": [
+          {
+            "quote": "Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.",
+            "url": "https://warnerbros.fandom.com/wiki/Shazam!"
+          }
+        ],
+        "reason": "The source explicitly states the United States theatrical release date as April 5, 2019.",
+        "status": "resolved",
+        "value": "2019-04-05"
+      }
+    },
+    "identity_notes": "Target scope is the 2019 film's U.S. theatrical release date, not premiere, international release, or home media."
+  },
+  "arm": "snippets",
+  "case_id": "shazam-date",
+  "contract_issues": [],
+  "elapsed_seconds": 16.741,
+  "iteration": 2,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "491e3e7eebc7335af48a68e010b9e1b62959cb2c66fdd193f5ac3ba551582b74",
+  "raw": "\n\n{\n  \"fields\": {\n    \"us_theatrical_release_date\": {\n      \"status\": \"resolved\",\n      \"value\": \"2019-04-05\",\n      \"evidence\": [\n        {\n          \"url\": \"https://warnerbros.fandom.com/wiki/Shazam!\",\n          \"quote\": \"Shazam! was released in the United States by Warner Bros. Pictures in RealD 3D, Dolby Cinema, IMAX 3D, 4DX and ScreenX on April 5, 2019.\"\n        }\n      ],\n      \"reason\": \"The source explicitly states the United States theatrical release date as April 5, 2019.\"\n    }\n  },\n  \"identity_notes\": \"Target scope is the 2019 film's U.S. theatrical release date, not premiere, international release, or home media.\"\n}",
+  "recorded_at": "2026-09-06T05:54:37.309986+00:00",
+  "usage": {
+    "completion_tokens": 955,
+    "completion_tokens_details": null,
+    "prompt_tokens": 1622,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 750,
+    "total_tokens": 2577
+  }
+}

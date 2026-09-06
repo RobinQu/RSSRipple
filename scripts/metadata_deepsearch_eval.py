@@ -17,7 +17,7 @@ import socket
 import sys
 import time
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -30,6 +30,27 @@ from tests.metadata_corpus.dataset import ROOT, load_corpus, read_json, write_js
 from tests.metadata_corpus.replay import clean_url  # noqa: E402
 
 DEFAULT_OUTPUT = Path("docs/plans/metadata-deepsearch-validation")
+
+
+def fingerprint(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def reuse_artifact(path, expected):
+    """Fail closed on corrupt, legacy, failed, or incompatible resume artifacts."""
+    if not path.exists():
+        return False
+    try:
+        saved = read_json(path)
+        if not isinstance(saved, dict) or any(saved.get(k) != v for k, v in expected.items()):
+            raise ValueError("artifact provenance mismatch")
+        if saved.get("error_type"):
+            raise ValueError("previous attempt failed")
+    except Exception as error:
+        raise ValueError(f"Cannot resume {path}; preserve it and choose a new output/run directory") from error
+    return True
+
+
 SELECTION = [
     ("shigatsu-special", "38df15fe-d937-4c1e-90a2-07143dd62db4", "specials_missing_count",
      "四月は君の嘘 / 四月是你的谎言", "特典 OAD；不是22集TV正片；核实特典发行日期和总集数，列出条目",
@@ -155,10 +176,12 @@ async def fetch_page(client, url):
 async def collect(case, output):
     from app.config import settings
     path = output / "evidence" / f"{case['id']}.json.gz"
-    if path.exists():
+    provenance = {"case_id": case["id"], "input_sha256": fingerprint(case),
+                  "collector_version": 2}
+    if reuse_artifact(path, provenance):
         return
     started = time.monotonic()
-    searches, hits = [], {}
+    searches, hits, fetch_urls = [], {}, {}
     async with httpx.AsyncClient(timeout=90, trust_env=False) as client:
         for query in case["queries"]:
             try:
@@ -172,6 +195,9 @@ async def collect(case, output):
                 for hit in data.get("results", []):
                     url = clean_url(hit.get("url", ""))
                     if url:
+                        # Redaction must not change the actual retrieval URL
+                        # (e.g. a public catalog may use a semantic `key` query).
+                        fetch_urls.setdefault(url, hit["url"])
                         hits.setdefault(url, {"url": url, "title": hit.get("title", ""),
                                               "snippet": hit.get("snippet", "")})
             except Exception as error:
@@ -179,8 +205,8 @@ async def collect(case, output):
     # Fixed budget: read at most five distinct hits, preserving search rank.
     async with httpx.AsyncClient(timeout=25, trust_env=False, follow_redirects=False,
                                  headers={"User-Agent": "RSSRipple-metadata-eval/1.0"}) as client:
-        pages = await asyncio.gather(*(fetch_page(client, url) for url in list(hits)[:5]))
-    evidence = {"case_id": case["id"], "collected_at": datetime.now(UTC).isoformat(),
+        pages = await asyncio.gather(*(fetch_page(client, fetch_urls[url]) for url in list(hits)[:5]))
+    evidence = {**provenance, "collected_at": datetime.now(UTC).isoformat(),
                 "searches": searches, "hits": list(hits.values()), "pages": pages,
                 "elapsed_seconds": round(time.monotonic() - started, 3)}
     write_json(path, evidence)
@@ -220,6 +246,8 @@ def parse_answer(text):
 
 def validate_claims(answer, payload):
     issues = []
+    if not isinstance(answer, dict) or not isinstance(answer.get("fields"), dict):
+        return ["invalid_answer_shape"]
     fields = answer.get("fields", {})
     sources = {s["url"]: s["text"] for s in payload["sources"]}
     if set(fields) != set(payload["fields"]):
@@ -232,6 +260,26 @@ def validate_claims(answer, payload):
             evidence = field.get("evidence") or []
             if field.get("value") is None or not evidence:
                 issues.append(f"{name}:unsupported_resolution")
+            value = field.get("value")
+            try:
+                if name.endswith("date"):
+                    if not isinstance(value, str) or date.fromisoformat(value).isoformat() != value:
+                        raise ValueError("invalid date")
+                elif name == "is_anime":
+                    if not isinstance(value, bool):
+                        raise ValueError("invalid boolean")
+                elif name == "episodes_per_season":
+                    if not isinstance(value, dict) or set(value) != {"1", "2", "3", "4"}:
+                        raise ValueError("invalid seasons")
+                    if any(type(v) is not int or v < 1 for v in value.values()):
+                        raise ValueError("invalid count")
+                elif type(value) is not int or value < 1:
+                    raise ValueError("invalid count")
+            except (ValueError, TypeError):
+                issues.append(f"{name}:invalid_value_type")
+            if not isinstance(evidence, list) or any(not isinstance(item, dict) for item in evidence):
+                issues.append(f"{name}:invalid_evidence_shape")
+                continue
             for item in evidence:
                 quote, url = item.get("quote"), item.get("url")
                 if not quote or url not in sources or " ".join(quote.split()) not in " ".join(sources[url].split()):
@@ -241,7 +289,7 @@ def validate_claims(answer, payload):
     return issues
 
 
-async def judge(case, output, llm_url, rounds):
+async def judge(case, output, llm_url, rounds, run_name):
     from openai import AsyncOpenAI
 
     from app.config import settings
@@ -251,29 +299,41 @@ async def judge(case, output, llm_url, rounds):
         for arm in ("snippets", "pages"):
             payload = evidence_input(case, evidence, arm)
             for iteration in range(1, rounds + 1):
-                path = output / "runs" / f"{case['id']}-{arm}-{iteration}.json"
-                if path.exists():
-                    continue
+                path = output / run_name / f"{case['id']}-{arm}-{iteration}.json"
                 started = time.monotonic()
                 result = {"case_id": case["id"], "arm": arm, "iteration": iteration,
-                          "model": settings.llm_model, "recorded_at": datetime.now(UTC).isoformat(),
+                          "model": settings.llm_model,
+                          "endpoint_sha256": fingerprint(llm_url or settings.llm_base_url),
+                          "temperature": 0.1, "response_format": "json_object",
+                          "max_tokens": 4096, "enable_thinking": False,
+                          "evidence_sha256": hashlib.sha256(
+                              (output / "evidence" / f"{case['id']}.json.gz").read_bytes()).hexdigest(),
                           "prompt_sha256": hashlib.sha256(
                               (SYSTEM + json.dumps(payload, ensure_ascii=False)).encode()).hexdigest()}
+                if reuse_artifact(path, result):
+                    continue
+                result["recorded_at"] = datetime.now(UTC).isoformat()
                 try:
                     response = await model.chat.completions.create(model=settings.llm_model, temperature=0.1,
-                        max_tokens=2200, messages=[{"role": "system", "content": SYSTEM},
+                        max_tokens=4096, response_format={"type": "json_object"},
+                        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                        messages=[{"role": "system", "content": SYSTEM},
                             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}])
                     raw = response.choices[0].message.content or ""
                     result["raw"] = raw
+                    result["finish_reason"] = response.choices[0].finish_reason
                     result["usage"] = response.usage.model_dump() if response.usage else None
                     result["answer"] = parse_answer(raw)
                     result["contract_issues"] = validate_claims(result["answer"], payload)
                 except Exception as error:
                     result["error_type"] = type(error).__name__
+                    result["http_status"] = getattr(error, "status_code", None)
                 result["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 write_json(path, result)
                 print(json.dumps({k: result[k] for k in (
                     "case_id", "arm", "iteration", "elapsed_seconds")}), flush=True)
+                if result.get("error_type") in {"APIConnectionError", "APITimeoutError", "InternalServerError"}:
+                    raise RuntimeError("model service failed; stop batch and use a new run-name after recovery")
 
 
 async def baseline(case, output, llm_url):
@@ -282,12 +342,17 @@ async def baseline(case, output, llm_url):
     from app.services.runtime_config import runtime_config
     from tests.metadata_corpus.replay import Cassette
     path = output / "baseline" / f"{case['id']}.json"
-    if path.exists():
-        return
     if llm_url:
         runtime_module._overrides["llm_base_url"] = llm_url
+    provenance = {"case_id": case["id"], "input_sha256": fingerprint(case),
+                  "model": runtime_config.llm_model,
+                  "endpoint_sha256": fingerprint(llm_url or runtime_config.llm_base_url),
+                  "agent_code_sha256": hashlib.sha256(
+                      Path("app/services/metadata_agent.py").read_bytes()).hexdigest()}
+    if reuse_artifact(path, provenance):
+        return
     started = time.monotonic()
-    result = {"case_id": case["id"], "entrypoint": "UnifiedMetadataAgent.process_title_only",
+    result = {**provenance, "entrypoint": "UnifiedMetadataAgent.process_title_only",
               "primary_source": case["primary_source"], "recorded_at": datetime.now(UTC).isoformat()}
     cassette_path = output / "baseline" / f"{case['id']}.http.json.gz"
     hosts = ["api.bgm.tv", "api.themoviedb.org", "image.tmdb.org", "lain.bgm.tv",
@@ -303,6 +368,7 @@ async def baseline(case, output, llm_url):
             cassette.assert_complete()
     except Exception as error:
         result["error_type"] = type(error).__name__
+        result["transport_errors"] = list(cassette.errors) if "cassette" in locals() else []
     result["elapsed_seconds"] = round(time.monotonic() - started, 3)
     write_json(path, result)
     print(json.dumps({"baseline": case["id"], "error": result.get("error_type")}), flush=True)
@@ -316,6 +382,7 @@ async def main():
     parser.add_argument("--online", action="store_true", help="Explicitly permit searches/model calls")
     parser.add_argument("--llm-base-url")
     parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--run-name", default="runs-json", help="New directory name for a changed/recovered experiment")
     args = parser.parse_args()
     if args.command == "extract":
         if (args.output / "cases.json").exists():
@@ -324,6 +391,8 @@ async def main():
         return
     if not args.online:
         parser.error("network commands require --online")
+    if not args.run_name.replace("-", "").replace("_", "").isalnum() or not 1 <= args.rounds <= 3:
+        parser.error("run-name must be alphanumeric/hyphen/underscore; rounds must be 1..3")
     cases = read_json(args.output / "cases.json")["cases"]
     if args.case:
         if not set(args.case) <= {c["id"] for c in cases}:
@@ -341,7 +410,7 @@ async def main():
             if args.command == "collect":
                 await collect(case, args.output)
             else:
-                await judge(case, args.output, args.llm_base_url, args.rounds)
+                await judge(case, args.output, args.llm_base_url, args.rounds, args.run_name)
     await asyncio.gather(*(run(case) for case in cases))
 
 

@@ -78,6 +78,30 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `untracked` 组：对每个下载器调用 `list_torrents`，筛选 `status ∈ {downloading, download pending}` 且 `is_finished=false` 且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name`；计入 `active_download_count`。
 
+### Queue（队列监控）
+
+只读实时快照，无数据库表、无持久化：数据全部来自任务队列后端（`BaseQueue.list_jobs()`）与 APScheduler 内存状态。统计范围由后端决定——memory 后端为进程重启以来（`stats_scope="since_restart"`），redis 后端为状态 hash 未过期窗口（`stats_scope="last_24h"`，对应 `JOB_TTL_SECONDS=86400`）。
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/queue/overview` | 队列聚总：`backend`/`app_role`/`stats_scope`/`total` + 按状态计数 `counts`（`{queued, running, done, failed}`）+ 按 `job_type` 聚合 `by_type`。每个 by_type 条目 `{job_type, total, queued, running, done, failed, success_rate, avg_duration_seconds}`：`success_rate = done/(done+failed)`，分母为 0 时 null；`avg_duration_seconds` 为同时具备 `started_at`/`finished_at` 的终态任务的平均耗时秒数，无样本时 null。by_type 按 total 降序、job_type 升序 |
+| GET | `/queue/jobs` | 任务明细列表（内存过滤/排序/分页）。Query：`status`、`job_type`（均可选精确匹配）、`page`（默认 1）、`page_size`（默认 50，最大 100）。排序：running → queued → 终态按 `queued_at` 降序（缺 `queued_at` 的排在各组最后）。条目为任务状态字典 `{job_id, job_type, key, status, result, error, queued_at, started_at, finished_at}`；分页信息走统一 `meta` |
+| GET | `/queue/scheduler` | 调度器快照。调度器未初始化（`APP_ROLE=web` 或 `SCHEDULER_ENABLED=false`）时返回 `{enabled: false, jobs: []}`（200，非 500）；否则 `{enabled: true, jobs: [{id, trigger, next_run_time}]}`，`next_run_time` 为 ISO 8601 字符串或 null |
+
+`GET /queue/overview` 的 `data` 结构示例：
+```json
+{
+  "backend": "memory",
+  "app_role": "all",
+  "stats_scope": "since_restart",
+  "total": 4,
+  "counts": { "queued": 1, "running": 1, "done": 1, "failed": 1 },
+  "by_type": [
+    { "job_type": "run_agent", "total": 3, "queued": 1, "running": 1, "done": 1, "failed": 0, "success_rate": 1.0, "avg_duration_seconds": 12.4 }
+  ]
+}
+```
+
 ### Channels
 
 > 兼容变更：新建频道的代码基线为 `search_title/content_type/is_batch/year/is_anime` 五件套；`title_cn` 与 `title_en` 均可选。启动轻迁移会一次性移除历史基线遗留的 `title_cn`/`title_en`；用户此后主动勾选的字段仍遵循只增不减。

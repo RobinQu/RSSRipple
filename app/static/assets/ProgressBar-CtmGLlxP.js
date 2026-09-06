@@ -1,0 +1,1 @@
+import{n as e}from"./client-BsHGRirm.js";import{t}from"./progress-Wmm4eKEH.js";var n=e();function r({progress:e}){return(0,n.jsx)(t,{percent:Math.min(100,Math.max(0,e*100)),size:`small`,strokeColor:`var(--rr-primary)`,trailColor:`var(--rr-border)`,format:e=>`${e?.toFixed(2)}%`})}export{r as t};

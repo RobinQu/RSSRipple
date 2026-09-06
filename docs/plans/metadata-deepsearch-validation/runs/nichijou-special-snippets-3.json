@@ -1,0 +1,36 @@
+{
+  "answer": {
+    "fields": {
+      "special_episode_count": {
+        "evidence": [],
+        "reason": "Supplied sources do not provide a complete enumeration or total count of OAD/special episodes.",
+        "status": "unresolved",
+        "value": null
+      },
+      "special_release_date": {
+        "evidence": [],
+        "reason": "Supplied sources do not provide an OAD/special release date for the anime; they concern the manga/comic series or general official site content.",
+        "status": "unresolved",
+        "value": null
+      }
+    },
+    "identity_notes": "The provided evidence is limited to manga/comic publication information and general official site/news pages. It does not establish the anime OAD release date, total OAD episode count, or distinguish OADs from BD bonus shorts."
+  },
+  "arm": "snippets",
+  "case_id": "nichijou-special",
+  "contract_issues": [],
+  "elapsed_seconds": 10.969,
+  "iteration": 3,
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "prompt_sha256": "8020dd6a5d86ab73a56735c73de9aeb5e4ca79d2f90e3f1ffd86db6911ebf4c8",
+  "raw": "\n\n{\n  \"fields\": {\n    \"special_release_date\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"Supplied sources do not provide an OAD/special release date for the anime; they concern the manga/comic series or general official site content.\"\n    },\n    \"special_episode_count\": {\n      \"status\": \"unresolved\",\n      \"value\": null,\n      \"evidence\": [],\n      \"reason\": \"Supplied sources do not provide a complete enumeration or total count of OAD/special episodes.\"\n    }\n  },\n  \"identity_notes\": \"The provided evidence is limited to manga/comic publication information and general official site/news pages. It does not establish the anime OAD release date, total OAD episode count, or distinguish OADs from BD bonus shorts.\"\n}",
+  "recorded_at": "2026-09-06T05:52:44.661166+00:00",
+  "usage": {
+    "completion_tokens": 611,
+    "completion_tokens_details": null,
+    "prompt_tokens": 944,
+    "prompt_tokens_details": null,
+    "reasoning_tokens": 416,
+    "total_tokens": 1555
+  }
+}
