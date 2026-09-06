@@ -55,23 +55,71 @@ _BATCH_ANALYSIS_SOURCE = "batch_file_analysis:v4"
 async def _latest_task_status_by_resource(
     db: AsyncSession, resources: list[FileResource]
 ) -> dict[str, str]:
-    """Return the latest DownloadTask status per resource, in one query."""
+    """Return the effective dispatch outcome per resource, in two queries.
+
+    The raw task status lies about completion: organize cleanup
+    (``task_cleanup.delete_task_after_organize``) flips a *completed* task to
+    ``cancelled`` after moving its files into the library, and the progress
+    sync does the same when the torrent leaves the daemon. ``completed_at``
+    is the reliable completion marker (same semantics as
+    ``_task_occupies_download_slot`` in agent_service). Effective outcomes:
+
+    - ``organized`` — latest task completed and its OrganizePlan is done
+    - ``completed`` — completed, plan missing/not done
+    - ``cancelled`` — only when ``completed_at`` is NULL (genuine cancel)
+    - anything else passes through (pending/queued/downloading/paused/error)
+    """
     resource_ids = [resource.id for resource in resources]
     if not resource_ids:
         return {}
     rows = (await db.execute(
         select(
+            DownloadTask.id,
             DownloadTask.file_resource_id,
             DownloadTask.status,
+            DownloadTask.completed_at,
             DownloadTask.created_at,
         ).where(DownloadTask.file_resource_id.in_(resource_ids))
     )).all()
-    latest: dict[str, tuple[object, str]] = {}
-    for resource_id, status, created_at in rows:
+    latest: dict[str, tuple[object, str, str, object]] = {}
+    for task_id, resource_id, status, completed_at, created_at in rows:
         current = latest.get(resource_id)
         if current is None or created_at > current[0]:
-            latest[resource_id] = (created_at, status)
-    return {rid: status for rid, (_, status) in latest.items()}
+            latest[resource_id] = (created_at, task_id, status, completed_at)
+
+    # Second query: organize-plan state for the completed latest tasks.
+    completed_task_ids = [
+        task_id
+        for _, task_id, _status, completed_at in latest.values()
+        if completed_at is not None
+    ]
+    plan_status_by_task: dict[str, str | None] = {}
+    if completed_task_ids:
+        from app.models.download_notification import DownloadNotification
+        from app.models.organize_plan import OrganizePlan
+
+        plan_rows = (await db.execute(
+            select(DownloadNotification.download_task_id, OrganizePlan.status)
+            .select_from(DownloadNotification)
+            .outerjoin(
+                OrganizePlan,
+                OrganizePlan.notification_id == DownloadNotification.id,
+            )
+            .where(DownloadNotification.download_task_id.in_(completed_task_ids))
+        )).all()
+        plan_status_by_task = {task_id: plan_status for task_id, plan_status in plan_rows}
+
+    outcome: dict[str, str] = {}
+    for resource_id, (_created, task_id, status, completed_at) in latest.items():
+        if completed_at is not None:
+            outcome[resource_id] = (
+                "organized"
+                if plan_status_by_task.get(task_id) == "done"
+                else "completed"
+            )
+        else:
+            outcome[resource_id] = status
+    return outcome
 
 
 async def _pending_decision_resource_ids(

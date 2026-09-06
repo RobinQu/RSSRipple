@@ -138,6 +138,71 @@ class TestResourceList:
         assert by_id[candidate]["pending_decision"] is True
         assert by_id[multi]["pending_decision"] is False
 
+    async def test_list_effective_status_distinguishes_organized_cancel(
+        self, client, sample_channel, sample_downloader, db_session_factory
+    ):
+        """Organize cleanup flips completed tasks to cancelled — the effective
+        status must follow completed_at and the organize plan, not the raw
+        status."""
+        from datetime import UTC, datetime
+
+        from app.models.download_notification import DownloadNotification
+        from app.models.download_task import DownloadTask
+        from app.models.organize_plan import OrganizePlan
+
+        organized = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="organized"
+        )
+        completed_no_plan = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="completed-no-plan"
+        )
+        genuine_cancel = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="genuine-cancel"
+        )
+        now = datetime.now(UTC)
+        organized_task_id = _uuid()
+        async with db_session_factory() as session:
+            session.add_all([
+                # completed, organized (move), then cleanup flipped cancelled
+                DownloadTask(
+                    id=organized_task_id, agent_id=None,
+                    file_resource_id=organized,
+                    downloader_id=sample_downloader.id, download_dir="/d",
+                    status="cancelled", completed_at=now, created_at=now,
+                ),
+                # completed, cleanup flipped cancelled, plan failed/absent
+                DownloadTask(
+                    id=_uuid(), agent_id=None, file_resource_id=completed_no_plan,
+                    downloader_id=sample_downloader.id, download_dir="/d",
+                    status="cancelled", completed_at=now, created_at=now,
+                ),
+                # never completed — a real cancellation
+                DownloadTask(
+                    id=_uuid(), agent_id=None, file_resource_id=genuine_cancel,
+                    downloader_id=sample_downloader.id, download_dir="/d",
+                    status="cancelled", created_at=now,
+                ),
+            ])
+            await session.commit()
+        async with db_session_factory() as session:
+            notification = DownloadNotification(
+                id=_uuid(), download_task_id=organized_task_id, payload={},
+            )
+            session.add(notification)
+            await session.flush()
+            session.add(OrganizePlan(
+                id=_uuid(), notification_id=notification.id,
+                status="done", payload={},
+            ))
+            await session.commit()
+
+        res = await client.get(f"/api/v1/channels/{sample_channel.id}/resources")
+        assert res.status_code == 200
+        by_id = {r["id"]: r for r in res.json()["data"]}
+        assert by_id[organized]["download_status"] == "organized"
+        assert by_id[completed_no_plan]["download_status"] == "completed"
+        assert by_id[genuine_cancel]["download_status"] == "cancelled"
+
     async def test_get_resource(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="Rget")
         res = await client.get(f"/api/v1/resources/{rid}")

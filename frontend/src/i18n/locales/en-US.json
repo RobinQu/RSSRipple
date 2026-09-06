@@ -1187,6 +1187,7 @@
     "paused": "Paused",
     "completed": "Completed",
     "cancelled": "Cancelled",
+    "organized": "Organized",
     "connected": "Connected",
     "disconnected": "Disconnected",
     "success": "Success",

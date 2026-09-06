@@ -145,8 +145,10 @@ export interface FileResource {
   // Any task ever created for this resource, regardless of origin/status.
   has_download_task: boolean;
   // Status of the most recent download task (null when never dispatched);
-  // drives the dispatch-outcome tag in the resource list.
-  download_status?: TaskStatus | null;
+  // drives the dispatch-outcome tag in the resource list. "organized" =
+  // completed and its organize plan is done; "cancelled" only when the task
+  // never completed (organize cleanup flips completed tasks to cancelled).
+  download_status?: TaskStatus | 'organized' | null;
   // True while the resource is a candidate of a pending PendingDecision.
   pending_decision?: boolean;
   // Seasons covered by a multi_season/franchise pack (from torrent content

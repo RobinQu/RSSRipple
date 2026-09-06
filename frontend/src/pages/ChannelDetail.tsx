@@ -80,6 +80,7 @@ function groupColor(type: GroupedResource['type']) {
 
 /** Tag color per latest download-task status (dispatch outcome). */
 const DOWNLOAD_STATUS_TAG_COLORS: Record<string, string> = {
+  organized: 'green',
   completed: 'green',
   downloading: 'cyan',
   queued: 'blue',

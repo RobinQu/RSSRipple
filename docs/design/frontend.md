@@ -2,7 +2,7 @@
 
 > **移动端适配**：视口 < lg（992px）时侧边栏替换为顶部栏 + 汉堡菜单抽屉导航（`MobileNav`），内容区 padding 缩小；各页头部/工具栏（标题 + 操作按钮）统一 flex-wrap 换行，详情页标题 `flex: 1 1 200px` 防挤压；剧集/电影/音频详情页的海报 + Descriptions 窄屏换行为上下堆叠；统计卡片栅格使用 `xs={24} sm={8/12}`；宽抽屉（如运行匹配资源 680px）< 768px 时退化为 100% 宽。**antd 表格移动端堆叠**：表格加 `className="stack-table"` 并用 `withMobileLabels()`（`utils/table.ts`，把列标题注入 td 的 `data-label`）包裹 columns，< 760px 时每行变为卡片式垂直堆叠（每格一行、前置列名标签，空单元格隐藏，文本格可多行换行）；已接入：Agent 列表、Agent 详情任务表/运行记录表、频道列表、下载器列表、下载器详情双表、剧集/电影/音频详情资源表。
 
-频道详情平铺资源行的作品分类标签区除“剧集/电影”“合集”外，按资源实际派发结果显示状态标签：资源有下载任务时按**最新任务状态**（`download_status`）渲染逐状态标签（已完成/下载中/排队中/等待中/暂停/已取消/失败，文案复用 `status.*` i18n）；资源是本频道任一 Agent 当前 pending 决策候选（`pending_decision`）时另显“待决策”橙色标签。AgentDetail 运行记录的匹配资源抽屉中，被实际派发过的条目（`matched_resources[].dispatched`）显“已派发”标签。
+频道详情平铺资源行的作品分类标签区除“剧集/电影”“合集”外，按资源实际派发结果显示状态标签：资源有下载任务时按**最新任务的有效派发结果**（`download_status`）渲染逐状态标签（已整理/已完成/下载中/排队中/等待中/暂停/已取消/失败，文案复用 `status.*` i18n；已整理=下载完成且整理计划执行成功，已取消仅指从未完成的真实取消——organize 清理会把已完成任务置 cancelled，不以此为准）；资源是本频道任一 Agent 当前 pending 决策候选（`pending_decision`）时另显“待决策”橙色标签。AgentDetail 运行记录的匹配资源抽屉中，被实际派发过的条目（`matched_resources[].dispatched`）显“已派发”标签。
 
 Dashboard 数据刷新分为两条互不阻塞的路径：`/dashboard/overview` 首次加载、翻页/操作后立即刷新并每 30 秒轮询；`/dashboard/downloads` 首次加载并每 3 秒轮询。页面隐藏时暂停、恢复可见时立即刷新，同类异步轮询完成后才安排下一次，禁止请求重叠。Top4 Agent 随 overview 返回，媒体库仅在打开整理计划 Drawer 时按需加载。非首页路由与 Dashboard 重型 Drawer/Modal 均使用动态 import，首屏不加载；路由 Suspense 边界位于 `AppLayout` 内容区，页面 chunk 加载时 Sidebar/MobileNav 与外层布局保持挂载，仅内容区显示加载状态；字体仅使用本地系统字体栈。
 

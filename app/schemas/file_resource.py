@@ -77,8 +77,10 @@ class FileResourceResponse(BaseModel):
     # True once any DownloadTask has ever been created for this resource,
     # regardless of task origin or current status.
     has_download_task: bool = False
-    # Status of the most recent DownloadTask for this resource (None when
-    # never dispatched). Drives the per-resource dispatch-outcome tag.
+    # Effective dispatch outcome of the most recent DownloadTask (None when
+    # never dispatched). "organized" = completed and its OrganizePlan is done;
+    # "cancelled" only when the task never completed (organize cleanup flips
+    # completed tasks to cancelled — completed_at is the real marker).
     download_status: str | None = None
     # True while the resource is a candidate of any pending PendingDecision.
     pending_decision: bool = False
