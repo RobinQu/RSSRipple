@@ -40,7 +40,9 @@ from app.database import Base
 #   4 — genre prompt becomes best-effort: the judge/ReAct instruction now
 #       requires inferring at least one genre from the synopsis when the
 #       source lists none, so genre-less verdicts should not reappear.
-METADATA_CACHE_GENERATION = 5
+#   6 — bind web fallback identities to shown candidates; filter before query
+#       early-stop and reject ungrounded identity/episode-list payloads.
+METADATA_CACHE_GENERATION = 6
 
 
 class MetadataCache(Base):

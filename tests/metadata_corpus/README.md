@@ -38,6 +38,14 @@ PostgreSQL 必须名为 `metadata_corpus_test`，每轮创建/删除随机 schem
 
 HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变化、未消费证据及旁路 socket 连接都使测试失败，即使业务代码吞掉异常也不能通过。指纹包含完整模型请求（消息、工具 schema、模型参数），因此 prompt 修改必须经显式重新录制和审核，不能用旧结果掩盖变化。
 
+### DeepSearch 真实困难场景（默认收集）
+
+`tests/fixtures/deepsearch_corpus_v1.json.gz` 将先前方案目录中的 8 个真实资源场景、48 个已完成 B/C 回答及其实际输入证据独立冻结，含源文件 SHA-256；容器只需既有 `tests/` 与 `scripts/`，不依赖未打包的 `docs/`。导出入口 `scripts/freeze_deepsearch_corpus.py` 拒绝覆盖已有版本。
+
+`tests/integration/metadata_corpus/test_deepsearch_corpus.py` 新增 51 项默认离线用例：完整性/真实资源 UUID 关联、48 次真实回答的字段/引用契约，以及实际 AniList 命中与越界候选的生产 fallback 边界。6 个已知引文契约失败保留为**负向回归**，不是把错误回答标成语义金标。测试封锁外连；不调用真实 LLM，不将旧模型回答当作新 prompt 的质量验证。`deepsearch-audit.json` 随原有报告上传，仅报告库存和已知失败数，执行成败看 JUnit。
+
+当前整个 corpus 子目录为 **939 项**（原 871 项＋17 项通用 DeepSearch 护栏＋51 项冻结数据回归）。完整作品/集合语义金标仍只有原来的 1 个独立资源；新增测试没有改变 1,371 条 pending 的审核状态。
+
 ## 扩充与审核
 
 ```bash

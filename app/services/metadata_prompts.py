@@ -295,7 +295,7 @@ matching this schema:
   "resolution": "string|null",
   "matched_entity": {
     "external_id": "string|null",
-    "external_source": "wikipedia|tmdb|bangumi|mal|anilist|imdb|douban|exa_web",
+    "external_source": "wikipedia|tmdb|bangumi|mal|anilist|imdb|douban",
     "title_cn": "...", "title_en": "...", "original_title": "...",
     "description": "...", "wikipedia_url": "...", "url": "...",
     "genre": ["<from the ## genre list below>", ...],
@@ -318,15 +318,13 @@ Rules:
   production companies/studios, brands, people (voice actors/directors/writers),
   disambiguation pages, single episodes, or soundtrack albums/songs.
 - Content type: "tv" for series/anime, "movie" for films.
-- Prefer candidates from authoritative media databases (bangumi, tmdb, mal,
-  anilist, imdb, baidu_baike, douban, eiga, wikipedia) over news blogs or fan
-  pages. When a stable canonical id is shown in the evidence, prefer to use it
-  as external_id; otherwise leave external_id null and set
-  external_source="exa_web".
-- Include the chosen candidate's URL in matched_entity as either "url" or
-  "wikipedia_url". If the candidate is a Wikipedia page, include page_id in
-  external_id as "wikipedia:<lang>:<page_id>" if known (lang = the page's
-  language edition, e.g. zh/en/ja).
+- Select ONLY a candidate actually shown in the evidence. Copy its URL,
+  external_source and canonical external_id exactly; never invent or substitute
+  another page, id, or language edition. If none matches, return found=false.
+- Include the chosen candidate's URL as "url"; use "wikipedia_url" only for
+  that same Wikipedia candidate. Do not supply unrelated links or alternate ids.
+- Do not output work episode lists, season counts, total episode counts, or
+  single_season_entry: this fallback resolves identity, not catalog coverage.
 - Infer episode/season from title markers (S04E11, "- 14", "第二季", etc.).
   When the title has NO season marker, never guess: if the chosen work clearly
   has only one season, inferred_season=1; otherwise leave it null and set

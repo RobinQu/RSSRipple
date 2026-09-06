@@ -1,0 +1,66 @@
+{
+  "agent_code_sha256": "4836df0518c275906745891f49fac07f499d1955fef4bd8b520b2b63d11215e6",
+  "calls": {
+    "127.0.0.1": 2,
+    "api.bgm.tv": 4,
+    "flash-aio": 2
+  },
+  "case_id": "kozame-season2",
+  "elapsed_seconds": 75.864,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "input_sha256": "76f8503aea5133ca88e3214b2d6b5e26952f99f832e4576ad065660d2bada213",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "小鲨鱼去郊游 第二季",
+    "confidence": 0.98,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi",
+      "wigolo"
+    ],
+    "episode": null,
+    "episode_end": 21,
+    "episode_start": 13,
+    "found": true,
+    "is_batch": true,
+    "matched_entity": {
+      "description": "Second season of Odekake Kozame, a Japanese animated series about a little shark going out.",
+      "external_id": "anilist:204269",
+      "external_source": "anilist",
+      "genre": [
+        "Animation",
+        "Family",
+        "Comedy"
+      ],
+      "is_anime": true,
+      "original_title": "おでかけ子ザメ シーズン2",
+      "title_cn": "小鲨鱼去郊游 第二季",
+      "title_en": "Odekake Kozame Season 2",
+      "url": "https://anilist.co/anime/204269/Odekake-Kozame-Season-2/",
+      "wikipedia_url": null
+    },
+    "reason": "The RSS title explicitly names 小鲨鱼去郊游 第二季 / Odekake Kozame S2 / おでかけ子ザメ S2, and the AniList result is the same work's Season 2 page. The release is a batch of episodes 13-21 at 1080P.",
+    "resolution": "1080P",
+    "search_error": null,
+    "search_method": "react_then_web_fallback",
+    "season": 2,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {},
+    "subtitle_group": null,
+    "subtitle_groups": null,
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": "小鲨鱼去郊游 第二季",
+    "title_en": "Odekake Kozame Season 2",
+    "video_codec": null
+  },
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T11:25:28.143661+00:00"
+}

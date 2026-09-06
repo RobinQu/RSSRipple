@@ -19,7 +19,7 @@ Unlike the neural search it replaces, wigolo's keyword engines cannot digest
 raw release titles ("[Group] 标题 S01E05 [1080p]"), so queries go through the
 shared ``_candidate_queries`` cleaner (same variants the wikipedia/bangumi
 sources search with): up to 3 cleaned work-name candidates are tried in order,
-stopping at the first variant that yields hits.
+stopping at the first variant that yields whitelisted identity hits.
 
 The fallback supplies identity/links only: content (seasons / episode counts)
 always follows the primary source, so any such fields the LLM emits are
@@ -199,6 +199,40 @@ def _fallback_queries(raw_title: str, resource: Any | None) -> list[str]:
     return queries
 
 
+def _bind_selected_entity(entity: dict, hits: list[dict]) -> dict | None:
+    """Bind a verdict to evidence actually shown, never an invented URL/id.
+
+    Explicit URLs must match a shown URL. Without a URL, a unique exact
+    source/id pair is required. The registry, not the model, owns identity.
+    """
+    urls = [entity.get(k) for k in ("url", "wikipedia_url") if entity.get(k)]
+    if not urls:
+        description_url = _guess_url_from_description(entity.get("description") or "")
+        if description_url:
+            urls = [description_url]
+    if urls:
+        if any(not isinstance(url, str) for url in urls):
+            return None
+        matches = [h for h in hits if all(unquote(url) == h["url"] for url in urls)]
+    else:
+        matches = [h for h in hits if h.get("external_id") and
+                   (h["external_source"], h["external_id"]) ==
+                   (entity.get("external_source"), entity.get("external_id"))]
+    if len(matches) != 1:
+        return None
+    hit = matches[0]
+    if any(entity.get(k) not in (None, "", hit[k]) for k in ("external_source", "external_id")):
+        return None
+    bound = {**entity, "external_source": hit["external_source"],
+             "external_id": hit["external_id"], "url": hit["url"]}
+    # These can bypass the scalar episode-count guard or introduce identities
+    # never present in the selected evidence.
+    for key in ("seasons", "number_of_seasons", "number_of_episodes", "episode_list",
+                "single_season_entry", "alt_external_ids"):
+        bound.pop(key, None)
+    return bound
+
+
 # ---------------------------------------------------------------------------
 # Public fallback entry
 # ---------------------------------------------------------------------------
@@ -249,22 +283,16 @@ async def web_fallback_judge(
     try:
         merged: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
-        last_error: Exception | None = None
         for q in _fallback_queries(raw_title, resource):
-            try:
-                variant_hits = await searcher(q)
-            except Exception as e:
-                # A first-variant failure is transient infra; later-variant
-                # failures after earlier successes are tolerable misses.
-                last_error = e
-                if not merged:
-                    raise
-                continue
+            variant_hits = await searcher(q)
             for h in variant_hits:
-                url = h.get("url") or ""
+                url = unquote(h.get("url") or "")
+                source, ext_id = _source_and_id_from_url(url)
+                if source not in whitelist:
+                    continue
                 if url and url not in seen_urls:
                     seen_urls.add(url)
-                    merged.append(h)
+                    merged.append({**h, "url": url, "external_source": source, "external_id": ext_id})
             if merged:
                 break  # keyword engines: first productive candidate wins
     except Exception as e:
@@ -279,7 +307,6 @@ async def web_fallback_judge(
                 "error": err,
             },
         )
-    del last_error
 
     # Hard whitelist filter + ordered preference: keep only whitelisted
     # identity sites, earlier-listed sources first (stable sort).
@@ -287,7 +314,7 @@ async def web_fallback_judge(
     hits = sorted(
         (h for h in merged if h.get("external_source") in rank),
         key=lambda h: rank[h["external_source"]],
-    )
+    )[:5]
 
     if not hits:
         return (
@@ -319,29 +346,19 @@ async def web_fallback_judge(
     finalize_dict.setdefault("clean_title", raw_title)
     finalize_dict.setdefault("content_type", "tv")
 
-    # If the judge picked a matched_entity, parse its URL for a stable id if
-    # one wasn't already supplied. The judge may set wikipedia_url or the URL
-    # may live in the description; prefer the explicit external_id.
-    me = finalize_dict.get("matched_entity") or {}
-    if me:
-        chosen_url = (
-            me.get("wikipedia_url") or me.get("url") or _guess_url_from_description(me.get("description") or "")
-        )
-        if chosen_url:
-            source, ext_id = _source_and_id_from_url(chosen_url)
-            if not me.get("external_source"):
-                me["external_source"] = source
-            if not me.get("external_id"):
-                me["external_id"] = ext_id
-        # If the judge still produced no id, keep source="exa_web" and let the
-        # title-based upsert handle convergence.
-        if not me.get("external_source"):
-            me["external_source"] = "exa_web"
-        # Identity-only fallback: content (seasons / episode counts) follows
-        # the primary source, so strip any such fields the LLM emitted.
-        for key in ("seasons", "number_of_seasons", "number_of_episodes"):
-            me.pop(key, None)
-        finalize_dict["matched_entity"] = me
+    me = finalize_dict.get("matched_entity")
+    if finalize_dict.get("found"):
+        bound = _bind_selected_entity(me, hits) if isinstance(me, dict) else None
+        if bound is None:
+            # A model/evidence contract violation is retryable, not a cached
+            # assertion that the work does not exist.
+            err = "web fallback judge returned ungrounded identity"
+            return ({"found": False, "clean_title": raw_title, "content_type": "tv", "reason": err},
+                    {"method": "search_then_web_fallback", "data_sources_used": ["wigolo"],
+                     "source_errors": {"wigolo": err}, "error": err})
+        finalize_dict["matched_entity"] = bound
+    else:
+        finalize_dict.pop("matched_entity", None)
 
     return finalize_dict, {
         "method": "search_then_web_fallback",

@@ -780,7 +780,7 @@ class MetadataCache(Base):
     updated_at: datetime
 ```
 
-**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 2；gen 2 = P1 回退身份语义 + P2 wikipedia seasons 附着 + P3 身份袋/`alt_external_ids`）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。
+**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 6；gen 6 = web fallback 白名单前置、输出身份绑定可见候选及季集/身份袋字段出口保护）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。缓存失效不等于修复已有作品身份，不触发存量作品批量重绑。
 
 ### FtsOutbox（全文检索变更日志 - 仅 Turso 使用）
 

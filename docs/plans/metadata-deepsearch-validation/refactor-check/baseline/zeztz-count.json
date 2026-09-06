@@ -1,0 +1,53 @@
+{
+  "agent_code_sha256": "4836df0518c275906745891f49fac07f499d1955fef4bd8b520b2b63d11215e6",
+  "calls": {
+    "127.0.0.1": 2,
+    "api.bgm.tv": 5,
+    "flash-aio": 1
+  },
+  "case_id": "zeztz-count",
+  "elapsed_seconds": 34.783,
+  "endpoint_sha256": "3283e22b75fde01b19633ecbb33e3cd6b23b21af503440c573764ec414fe9b8d",
+  "entrypoint": "UnifiedMetadataAgent.process_title_only",
+  "input_sha256": "66f9c92df64575c83d93e5fa8dddea7b98b440dd2d0b42155c3089b1ad2488a0",
+  "metadata": {
+    "ambiguous": false,
+    "ambiguous_candidates": [],
+    "audio_codec": null,
+    "batch_scope": null,
+    "clean_title": "假面骑士Zeztz",
+    "confidence": 0.1,
+    "container": null,
+    "content_type": "tv",
+    "data_sources_used": [
+      "bangumi",
+      "wigolo"
+    ],
+    "episode": null,
+    "episode_end": 50,
+    "episode_start": 1,
+    "found": false,
+    "is_batch": true,
+    "matched_entity": null,
+    "reason": "The provided search results are about KRS-One, Krsna, and other unrelated people; none is the Kamen Rider work named in the RSS title.",
+    "resolution": "1080P",
+    "search_error": null,
+    "search_method": "react_then_web_fallback",
+    "season": null,
+    "season_ambiguous": false,
+    "source": null,
+    "source_errors": {},
+    "subtitle_group": null,
+    "subtitle_groups": [
+      "KRSUB"
+    ],
+    "subtitle_langs": null,
+    "subtitle_type": null,
+    "title_cn": "假面骑士Zeztz",
+    "title_en": "Kamen Rider Zeztz",
+    "video_codec": null
+  },
+  "model": "Qwen/Qwen3.8-27B-FP8",
+  "primary_source": "bangumi",
+  "recorded_at": "2026-09-06T11:26:44.008594+00:00"
+}

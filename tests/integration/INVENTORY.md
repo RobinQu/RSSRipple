@@ -7,6 +7,7 @@
 
 ### 2026-09 生产 Metadata 验收接入
 
+2026-09-06 补齐 `metadata_corpus/test_deepsearch_corpus.py`：51 项默认离线回归消费独立夹具 `tests/fixtures/deepsearch_corpus_v1.json.gz`，覆盖 8 个真实困难场景的 48 个模型观察值及生产候选边界；已知错误为负向契约回归，非新增语义金标。目录合计 939 项；来源、审核边界与报告说明见下方验收文档。
 后续 DeepSearch 隔离实验新增 `metadata_corpus/test_deepsearch_eval.py`：17 项纯离线护栏测试，覆盖引用存在性与蕴含判断的区别、字段类型、未知值、答案防泄漏、公共读页 URL 限制及续跑来源一致性；不执行真实搜索/模型。真实困难样本、实验结果与未获准重构的原因见 [DeepSearch 验证方案](../../docs/plans/metadata-deepsearch-validation/README.md)。
 
 新增 `metadata_corpus/`，将既有生产作品库/torrent 验收纳入两套 Compose 默认收集；共享工具仍在 `tests/metadata_corpus/`，数据位于 `tests/fixtures/metadata_corpus_v1/`。当前 871 项用例包含 843 个 torrent 清单回归、完整性/回放/报告护栏及一个完整语义场景（一个已审核资源重复入库）。不是 871 个作品样本通过；1,371 条资源仍待审核、526 条缺 torrent。

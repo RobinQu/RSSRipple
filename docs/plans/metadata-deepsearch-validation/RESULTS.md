@@ -1,5 +1,7 @@
 # 真实困难样本结果
 
+> 本文保留服务恢复前的探索与故障记录。2026-09-06 已完成全部 48 次 B/C 请求和 8 个基线重跑，最新逐字段结论见 [RECOVERY.md](RECOVERY.md)。下文“未完成/待恢复”均指历史阶段，不是当前阻塞。
+
 ## 1. 如何选样
 
 输入来自 `tests/fixtures/metadata_corpus_v1/candidates.json.gz`，源快照 hash 保存在 `cases.json`。不是重新导出当前生产库，也没有删除不利样本。挑选依据是缺日期、特典字段缺失、无作品身份、跨季和版本歧义；身份统计同时检查 FK 与 `resource_work_links`，不能把 links-only 合集误报为未识别。

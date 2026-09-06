@@ -286,7 +286,7 @@ async def test_fallback_unparseable_judge_json_is_transient():
 
 
 async def test_fallback_found_parses_id_from_matched_entity_url():
-    searcher = AsyncMock(return_value=_HITS)
+    searcher = AsyncMock(return_value=[{"url": "https://bangumi.tv/subject/99"}])
     model = AsyncMock()
     model.ainvoke.return_value = SimpleNamespace(
         content=(
@@ -304,7 +304,7 @@ async def test_fallback_found_parses_id_from_matched_entity_url():
 
 
 async def test_fallback_entity_url_encoded_still_parses_id():
-    searcher = AsyncMock(return_value=_HITS)
+    searcher = AsyncMock(return_value=[{"url": "https://www.themoviedb.org/tv/99"}])
     model = AsyncMock()
     model.ainvoke.return_value = SimpleNamespace(
         content=('{"found": true, "matched_entity": {"url": "https://www.themoviedb.org/tv/%39%39"}}')
@@ -316,7 +316,7 @@ async def test_fallback_entity_url_encoded_still_parses_id():
 
 
 async def test_fallback_entity_url_from_description():
-    searcher = AsyncMock(return_value=_HITS)
+    searcher = AsyncMock(return_value=[{"url": "https://www.themoviedb.org/tv/55"}])
     model = AsyncMock()
     model.ainvoke.return_value = SimpleNamespace(
         content=(
@@ -329,12 +329,13 @@ async def test_fallback_entity_url_from_description():
     assert me["external_id"] == "tmdb:55"
 
 
-async def test_fallback_entity_without_url_keeps_exa_web_source():
+async def test_fallback_entity_without_url_or_identity_is_rejected():
     searcher = AsyncMock(return_value=_HITS)
     model = AsyncMock()
     model.ainvoke.return_value = SimpleNamespace(content='{"found": true, "matched_entity": {"title_cn": "X"}}')
-    finalize, _ = await web_fallback_judge(model, "X", web_searcher=searcher)
-    assert finalize["matched_entity"]["external_source"] == "exa_web"
+    finalize, info = await web_fallback_judge(model, "X", web_searcher=searcher)
+    assert finalize["found"] is False
+    assert "ungrounded identity" in info["error"]
 
 
 async def test_fallback_multi_candidate_queries_stop_at_first_hit():
@@ -451,7 +452,7 @@ async def test_fallback_default_searcher_pushes_whitelist_domains():
 
 
 async def test_fallback_matched_entity_is_identity_only():
-    searcher = AsyncMock(return_value=_HITS)
+    searcher = AsyncMock(return_value=[{"url": "https://bangumi.tv/subject/9"}])
     model = AsyncMock()
     model.ainvoke.return_value = SimpleNamespace(
         content=(
