@@ -11,6 +11,7 @@ import type {
   FileResourceDetail,
   FilterSuggestionResponse,
   GroupedResource,
+  MagnetResolveState,
   MetadataSource,
   Movie,
   PreviewEntry,
@@ -210,6 +211,14 @@ export const resourcesApi = {
     body: { episode: number | null; season?: number | null; absolute_episode?: number | null; note?: string },
   ) => api.patch<FileResource>(`/resources/${id}/episode`, body),
   getFiles: (id: string) => api.get<ResourceFilesResponse>(`/resources/${id}/files`),
+  // Manual retry for magnet metadata resolution (resets attempts, re-enqueues).
+  // ``trackers`` undefined → key omitted (stored trackers cleared server-side);
+  // pass the stored/custom list to keep or replace it.
+  resolveMagnet: (id: string, trackers?: string[] | null) =>
+    api.post<{ magnet_resolve: MagnetResolveState }>(
+      `/resources/${id}/magnet-resolve`,
+      trackers === undefined ? {} : { trackers },
+    ),
   correctParseFields: (id: string, body: ResourceCorrectionBody) =>
     api.patch<FileResource>(`/resources/${id}`, body),
   // Edit wizard write path: full association state (works set, collection,

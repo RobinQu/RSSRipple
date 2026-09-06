@@ -1,0 +1,46 @@
+{
+  "_comment": "Real magnet URIs harvested from the production ThePirateBay channel 'PriateBay-4K-Movies' (file_resources, 2026-09-05). The live integration test (RSSRIPPLE_LIVE_MAGNET=1) resolves 'live_default' against the real swarm via libtorrent/DHT.",
+  "live_default": "Mufasa The Lion King 2024 2160p DSNP WEB-DL MULTi Atmos DV HDR10+ H265-SomniWare",
+  "entries": [
+    {
+      "title": "Mufasa The Lion King 2024 2160p DSNP WEB-DL MULTi Atmos DV HDR10+ H265-SomniWare",
+      "infohash": "6D8205C10E4E907A80E6B1DA7754BCEEF2B769FC",
+      "magnet": "magnet:?xt=urn:btih:6D8205C10E4E907A80E6B1DA7754BCEEF2B769FC&dn=Mufasa+The+Lion+King+2024+2160p+DSNP+WEB-DL+MULTi+Atmos+DV+HDR10%2B+H265-SomniWare"
+    },
+    {
+      "title": "Horrible Bosses 2011 Extended AI Upscaled BluRay 60fps H265 10Bit DTS_Marjenbo",
+      "infohash": "B1FC147B37890EA3C5E7A99279F04A1E9E225012",
+      "magnet": "magnet:?xt=urn:btih:B1FC147B37890EA3C5E7A99279F04A1E9E225012&dn=Horrible+Bosses+2011+Extended+AI+Upscaled+BluRay+60fps+H265+10Bit+DTS_Marjenbo"
+    },
+    {
+      "title": "Atomic Blonde 2017 2160p AI Upscaled BluRay 60fps H265 10Bit SDR DTS7.1_Marjenbo",
+      "infohash": "5BE163406EC33739B8F0943DAE5C21A094189F0C",
+      "magnet": "magnet:?xt=urn:btih:5BE163406EC33739B8F0943DAE5C21A094189F0C&dn=Atomic+Blonde+2017+2160p+AI+Upscaled+BluRay+60fps+H265+10Bit+SDR+DTS7.1_Marjenbo"
+    },
+    {
+      "title": "Fuze 2026 MULTi VFQ 2160p SDR WEB-DL H265-Slay3R",
+      "infohash": "AFB6E26CA9546CA626D6E01563187EA1B902D177",
+      "magnet": "magnet:?xt=urn:btih:AFB6E26CA9546CA626D6E01563187EA1B902D177&dn=Fuze+2026+MULTi+VFQ+2160p+SDR+WEB-DL+H265-Slay3R"
+    },
+    {
+      "title": "Damnation.1988.2160p.UHD.Blu-ray.Remux.SDR.HEVC.FLAC.1.0-CiNEPHiLES",
+      "infohash": "65AED062BB5052A5A832E0CC74B13C4D78B67F95",
+      "magnet": "magnet:?xt=urn:btih:65AED062BB5052A5A832E0CC74B13C4D78B67F95&dn=Damnation.1988.2160p.UHD.Blu-ray.Remux.SDR.HEVC.FLAC.1.0-CiNEPHiLES"
+    },
+    {
+      "title": "Naked.Lunch.1991.Repack.2160p.UHD.Blu-ray.Remux.HEVC.DV.HDR.DTS-HD.MA.5.1-AV",
+      "infohash": "3CB71F7878441C371DBEFECD7EAA510608B1A1C1",
+      "magnet": "magnet:?xt=urn:btih:3CB71F7878441C371DBEFECD7EAA510608B1A1C1&dn=Naked.Lunch.1991.Repack.2160p.UHD.Blu-ray.Remux.HEVC.DV.HDR.DTS-HD.MA.5.1-AV"
+    },
+    {
+      "title": "The.Running.Man.1987.2160p.BDRip.AVC.SDR.DDP5.1-Asmo",
+      "infohash": "A29BACAAB3F09F675670CEF176088EAF21AEBB86",
+      "magnet": "magnet:?xt=urn:btih:A29BACAAB3F09F675670CEF176088EAF21AEBB86&dn=The.Running.Man.1987.2160p.BDRip.AVC.SDR.DDP5.1-Asmo"
+    },
+    {
+      "title": "The Texas Chainsaw Massacre (2003) 4320p HDR Ai 7.1+5.1+2.0 MultiSub MKV -Mesc",
+      "infohash": "4B6D82531B326C9887A71124FE208E5AACCBAEC4",
+      "magnet": "magnet:?xt=urn:btih:4B6D82531B326C9887A71124FE208E5AACCBAEC4&dn=The+Texas+Chainsaw+Massacre+%282003%29+4320p+HDR+Ai+7.1%2B5.1%2B2.0+MultiSub+MKV+-Mesc"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "candidate_file": "candidates.json.gz",
+  "candidate_sha256": "9253d922569e3ec10d89ae7b3b9d6ae5a8ca2bc12ecf9ca7d7056ac63ed0aecf",
+  "captured_at": "2026-09-05T23:17:12.165205+00:00",
+  "case_count": 1372,
+  "counts": {
+    "audio_works": 5,
+    "channels": 3,
+    "file_resources": 1372,
+    "movies": 420,
+    "resource_file_assignments": 5192,
+    "resource_work_links": 520,
+    "tv_series": 162,
+    "work_collections": 244,
+    "work_external_ids": 1002
+  },
+  "file_list_file": "file_lists.json.gz",
+  "file_list_sha256": "0f12a44c68295e96095df2d6228876043c76ff34f2168fd6819eada8f335b44c",
+  "input_limitation": "Historical RSS bodies were not persisted; title/torrent inputs do not claim RSS mapping coverage.",
+  "review_file": "reviews.json",
+  "scenarios": [
+    {
+      "case_ids": [
+        "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+        "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      ],
+      "cassette": "http/bangumi_complete.json.gz",
+      "id": "bangumi_single",
+      "llm_base_url": "http://127.0.0.1:8000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "seed": "http/bangumi_single.json.gz",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    }
+  ],
+  "version": 1
+}

@@ -47,6 +47,43 @@ fetch_channel_resources(channel, db)
   │     │     #   process_title_only 匹配落库 → get-or-create franchise_pack
   │     │     #   来源 WorkCollection → 资源挂 collection_id、作品 FK 全清）。
   │     │     #   通道 B（下载后 RPC 修正）为保留优化项未实现。
+  │     │     # ③ magnet 元数据解析：magnet: 链接无 .torrent 可缓存——
+  │     │     #   enqueue_resolution 入队 resolve_magnet_torrent 后台任务
+  │     │     #   （app/services/magnet_resolve.py，libtorrent upload_mode
+  │     │     #   仅取元数据不下载 payload，超时默认 900s），由分离 worker 池
+  │     │     #   （信号量并发 MAGNET_RESOLVE_CONCURRENCY，不占队列槽位）
+  │     │     #   重建标准 .torrent 进同一缓存目录并写回 torrent_file，
+  │     │     #   成功后经同一 maybe_inspect_torrent 跑通道 A；失败按
+  │     │     #   MAGNET_RESOLVE_MAX_ATTEMPTS 自动重试（60s 间隔），状态/
+  │     │     #   错误/次数落 FileResource.magnet_resolve_* 四列；
+  │     │     #   每小时 sweep（magnet_resolve_sweep，双后端均注册）先回收
+  │     │     #   卡死行（pending/running 且 updated_at 超过
+  │     │     #   (1+max_attempts)*timeout + max_attempts*60s + 600s 安全
+  │     │     #   余量——worker 崩溃/重启后分离任务随之消亡，认领 UPDATE 与
+  │     │     #   手动重试又都排除 pending/running，不回收将永久卡死；
+  │     │     #   回收置 NULL/清计数/记中断错误），再补扫 status IS NULL
+  │     │     #   的存量 magnet 资源（单次 ≤50，含刚回收行）；手动重试
+  │     │     #   POST /resources/{id}/magnet-resolve（重置计数再入队，
+  │     │     #   pending/running 中 409，非 magnet/无 libtorrent/功能关闭
+  │     │     #   422）。tracker 注入：抓取的 TPB magnet 无 tr= 参数（解析
+  │     │     #   只剩 DHT），每次尝试合并 magnet 自带 + 手动重试自定义
+  │     │     #   （严格校验 udp/http(s)+host，存 magnet_resolve_trackers，
+  │     │     #   done 清空、failed 保留供下次预填）+ 默认公共 tracker 清单
+  │     │     #   （MAGNET_RESOLVE_DEFAULT_TRACKERS，去重保序，trackers 与
+  │     │     #   tracker_tiers 同步赋值；默认清单以
+  │     │     #   http://tracker.opentrackr.org:1337/announce 打头占 tier 0——
+  │     │     #   DHT 与 udp:// tracker 均依赖 UDP 出网（防火墙常封），
+  │     │     #   http 形式走 TCP，UDP 被封锁的部署也能解析）。
+  │     │     #   infohash 缓存镜像快速路径（P2P 之前的 step 0）：
+  │     │     #   MAGNET_RESOLVE_CACHE_MIRRORS（默认 itorrents.org，空列表
+  │     │     #   关闭）按 {infohash} 模板 HTTPS GET 缓存的 .torrent
+  │     │     #   （15s 短超时，秒级 vs P2P 最长 15min；base32/v2-only
+  │     │     #   magnet 无 v1 hash 静默跳过）；镜像对未知 hash 会 200 返回
+  │     │     #   无关 torrent，故必须结构校验 + 重算 v1 infohash 比对
+  │     │     #   （sha1(bencode(info))，bencodepy 输出即规范序）不符即弃；
+  │     │     #   全部镜像失败静默回退 P2P，快速路径永不抛错。
+  │     │     #   libtorrent 为运行时可选依赖：import 守卫，缺失时
+  │     │     #   只记一次日志、状态永不迁移。失败静默，绝不阻塞抓取。
   │     ├─ e. 统一 Metadata Agent（通过 LangGraph ReAct 循环，单次调用完成标题清洗 + 单数据源 metadata 搜索）
   │     │     agent = UnifiedMetadataAgent()
   │     │     await agent.process(resource, channel, db)
@@ -617,6 +654,10 @@ sync_download_progress():
 通过统一工厂 `app.clients.downloader.get_downloader_client(downloader)` 根据 `downloader.type` 分派到 `TransmissionWrapper` 或 `MockDownloaderWrapper`；两者共享同一异步接口（`test_connection` / `add_torrent` / `list_torrents` / `get_torrent` / `get_torrent_files` / `pause_torrent` / `resume_torrent` / `remove_torrent` / `free_space`），所有 Agent / scheduler / API 调用点均无需感知具体类型。`get_torrent_files` 返回 `{name, files: [{name, size}]}`，供下载通知快照锁定 torrent 内文件清单（mock 默认单文件，测试可向 `_TorrentState.files` 注入多文件）。
 
 Mock downloader 面向本地开发和自动化测试；生产环境应使用 `transmission` 类型。
+
+### Metadata 生产样本离线回归
+
+`tests/metadata_corpus` 与 `scripts/metadata_corpus.py` 提供版本化作品库/torrent 测试集：原始输入、源证据、生产候选答案和独立审核答案分离，禁止把生产关联直接注入冷库。传输层冻结外部源与 LLM 响应，严格校验请求指纹/消费次数并禁止未录制联网；真实 LLM 三轮评测单独执行，外部 metadata 源仍冻结。重建走真实抓取与匹配服务，核验季作品/合集/文件指派/Channel 门禁及可选下载派发，数据库与缓存全部隔离。CI 同时检查全量可用 torrent 的冻结清单与已审核语义场景；待审核或缺证据资源不冒充通过。当前覆盖范围、录制审核流程与限制见 [测试说明](../../tests/metadata_corpus/README.md)。
 
 ### Torrent 文件关联的抓取期收敛与遗留回填
 

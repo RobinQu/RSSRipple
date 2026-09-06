@@ -31,6 +31,7 @@ dependencies = [
     "pyturso==0.8.0rc2",
     "pyotp>=2.9.0",
     "bencodepy>=0.9.5",
+    "libtorrent>=2.0",
 ]
 
 [dependency-groups]

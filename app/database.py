@@ -508,6 +508,15 @@ async def _apply_light_migrations(conn) -> None:
         ("work_collections", "aliases", "TEXT" if is_turso else "JSONB"),
         ("work_collections", "search_text", "TEXT"),
         ("work_collections", "manually_edited_fields", "TEXT" if is_turso else "JSONB"),
+        # Magnet metadata resolution state on FileResource: NULL status =
+        # never attempted; the worker claims rows via a guarded UPDATE so
+        # only one process resolves a given magnet at a time.
+        ("file_resources", "magnet_resolve_status", "VARCHAR(16)"),
+        ("file_resources", "magnet_resolve_error", "TEXT"),
+        ("file_resources", "magnet_resolve_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("file_resources", "magnet_resolve_updated_at", "DATETIME" if is_turso else "TIMESTAMP"),
+        # Custom tracker list for resolution attempts (NULL = defaults only).
+        ("file_resources", "magnet_resolve_trackers", "TEXT" if is_turso else "JSONB"),
     ]
 
     for table, column, ddl in additions:

@@ -31,6 +31,7 @@ from app.schemas.file_resource import (
     EpisodeCorrectionRequest,
     FileResourceDetailResponse,
     FileResourceResponse,
+    MagnetResolveRetryRequest,
     ResourceAssociationUpdateRequest,
     ResourceFilesResponse,
     ResourceParseCorrectionRequest,
@@ -777,9 +778,106 @@ async def get_resource_files(resource_id: str, db: AsyncSession = Depends(get_db
         )
 
     files, source = await _resolve_resource_files(db, resource)
+    magnet_state = None
+    if not files and (resource.torrent_url or "").startswith("magnet:"):
+        magnet_state = {
+            "status": resource.magnet_resolve_status,
+            "error": resource.magnet_resolve_error,
+            "attempts": resource.magnet_resolve_attempts,
+            "updated_at": resource.magnet_resolve_updated_at,
+            "trackers": resource.magnet_resolve_trackers,
+        }
     return success_response(
-        ResourceFilesResponse(files=files, source=source).model_dump()
+        ResourceFilesResponse(
+            files=files, source=source, magnet_resolve=magnet_state
+        ).model_dump(mode="json")
     )
+
+
+@router.post("/resources/{resource_id}/magnet-resolve")
+async def resolve_magnet_metadata(
+    resource_id: str,
+    body: MagnetResolveRetryRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Manual retry for magnet metadata resolution.
+
+    Resets the failure state (attempts, error) and re-enqueues the background
+    resolution job. Rejected with 422 when the resource is not a magnet link,
+    libtorrent is unavailable, or the feature is disabled; 409 while a
+    resolution is already pending/running.
+
+    Optional body ``{"trackers": [...]}``: a validated custom tracker list
+    persisted for the resolution attempt(s) (kept on failure, cleared on
+    done); omitted/null/empty clears the stored list (defaults only).
+    """
+    from app.config import settings
+    from app.services import magnet_resolve
+
+    resource = await db.get(FileResource, resource_id)
+    if not resource:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "data": None,
+                     "error": {"code": "NOT_FOUND", "message": "Resource not found"}},
+        )
+    if not (resource.torrent_url or "").startswith("magnet:"):
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "data": None,
+                     "error": {"code": "VALIDATION_ERROR",
+                               "message": "Resource is not a magnet link"}},
+        )
+    if magnet_resolve.lt is None:
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "data": None,
+                     "error": {"code": "VALIDATION_ERROR",
+                               "message": "libtorrent is not installed on this server"}},
+        )
+    if not settings.magnet_resolve_enabled:
+        return JSONResponse(
+            status_code=422,
+            content={"success": False, "data": None,
+                     "error": {"code": "VALIDATION_ERROR",
+                               "message": "Magnet metadata resolution is disabled"}},
+        )
+    if resource.magnet_resolve_status in ("pending", "running"):
+        return JSONResponse(
+            status_code=409,
+            content={"success": False, "data": None,
+                     "error": {"code": "INVALID_STATE",
+                               "message": "Magnet resolution already in progress"}},
+        )
+
+    custom_trackers = None
+    if body is not None and body.trackers:
+        try:
+            custom_trackers = magnet_resolve.validate_tracker_urls(body.trackers)
+        except ValueError as e:
+            return JSONResponse(
+                status_code=422,
+                content={"success": False, "data": None,
+                         "error": {"code": "VALIDATION_ERROR", "message": str(e)}},
+            )
+
+    resource.magnet_resolve_trackers = custom_trackers
+    resource.magnet_resolve_attempts = 0
+    resource.magnet_resolve_error = None
+    # Commit BEFORE enqueuing: the job's status claim runs in its own session
+    # and must see the reset counters.
+    await db.commit()
+    await magnet_resolve.enqueue_resolution(resource.id)
+
+    return success_response({
+        "magnet_resolve": {
+            "status": "pending",
+            "error": None,
+            "attempts": 0,
+            "updated_at": resource.magnet_resolve_updated_at,
+            "trackers": resource.magnet_resolve_trackers,
+        }
+    })
 
 
 @router.put("/resources/{resource_id}/associations")

@@ -119,6 +119,16 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         replace_existing=True,
         next_run_time=utcnow() + timedelta(minutes=1),
     )
+    # Magnet metadata resolution sweep (both backends — not Turso-specific):
+    # picks up magnet: resources never attempted yet (pre-feature rows) that
+    # the fetch path no longer revisits.
+    _scheduler.add_job(
+        _enqueue_magnet_resolve_sweep,
+        trigger=IntervalTrigger(hours=1),
+        id="magnet_resolve_sweep",
+        replace_existing=True,
+        next_run_time=utcnow() + timedelta(minutes=3),
+    )
     _scheduler.start()
     logger.info("Scheduler started")
 
@@ -267,6 +277,7 @@ _PERIODIC_THROTTLE_TTL = {
     "fts_drain": 25,
     "fts_reconcile": 3540,
     "check_downloaders": 3540,
+    "magnet_resolve_sweep": 3540,
     "daily_cleanup": 86340,
     "daily_dedup": 86340,
 }
@@ -311,6 +322,10 @@ async def _enqueue_fts_reconcile() -> None:
 
 async def _enqueue_download_notifications() -> None:
     await _enqueue_periodic_job("download_notifications")
+
+
+async def _enqueue_magnet_resolve_sweep() -> None:
+    await _enqueue_periodic_job("magnet_resolve_sweep")
 
 
 async def _run_channel_works_refresh(channel_id: str) -> None:  # pragma: no cover - wiring only

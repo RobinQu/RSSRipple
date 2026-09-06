@@ -229,6 +229,18 @@ async def _process_resource_metadata(
                 # Cache the .torrent for every resource (http(s) direct links
                 # only) so later file-listing lookups never re-download.
                 await ensure_torrent_cached(resource)
+                # magnet: links have no .torrent to fetch — kick off background
+                # metadata resolution (libtorrent, metadata-only) so the torrent
+                # cache / Channel A inspection can work later. Never blocks fetch.
+                if (resource.torrent_url or "").startswith("magnet:"):
+                    try:
+                        from app.services import magnet_resolve
+
+                        await magnet_resolve.enqueue_resolution(resource.id)
+                    except Exception:  # noqa: BLE001 — best-effort, never block fetch
+                        logger.debug(
+                            "[magnet] enqueue failed for %s", resource.id, exc_info=True
+                        )
                 # Channel A torrent inspection: deterministic .torrent
                 # file-listing analysis may reclassify the resource as a
                 # batch the title regexes missed. Runs before metadata

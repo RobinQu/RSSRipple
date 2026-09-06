@@ -185,9 +185,21 @@ export type ResourceFilesSource =
   | 'notification'
   | 'none';
 
+export interface MagnetResolveState {
+  status: 'pending' | 'running' | 'done' | 'failed' | null;
+  error: string | null;
+  attempts: number;
+  updated_at: string | null;
+  // Stored custom tracker list for resolution attempts; null = defaults only.
+  trackers: string[] | null;
+}
+
 export interface ResourceFilesResponse {
   files: ResourceFileItem[];
   source: ResourceFilesSource;
+  // Present only for magnet: resources without a listing — background
+  // metadata-resolution state (libtorrent); status null = never attempted yet.
+  magnet_resolve?: MagnetResolveState | null;
 }
 
 // PATCH /resources/{id} — manual correction of the parsed episode/batch

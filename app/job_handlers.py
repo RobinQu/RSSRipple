@@ -645,6 +645,102 @@ async def _handle_refresh_resource_organize(payload: dict) -> dict:
         return await regenerate_resource_notifications(session, payload["resource_id"])
 
 
+async def _handle_resolve_magnet_torrent(payload: dict) -> dict:
+    """Claim a magnet resource and spawn its detached resolution task.
+
+    The queue slot is released immediately — the long metadata wait (default
+    15 min) lives in the detached worker pool inside ``magnet_resolve``, so
+    it never occupies one of the queue's few concurrency slots.
+    """
+    from app.services import magnet_resolve
+
+    await _refresh_runtime_config()
+    accepted = await magnet_resolve.launch_resolution(payload["resource_id"])
+    return {"accepted": accepted}
+
+
+async def _handle_magnet_resolve_sweep(payload: dict) -> dict:
+    """Hourly: enqueue resolution for magnet resources never attempted yet.
+
+    Catches rows created before the feature existed (status NULL) that the
+    fetch path no longer revisits. Bounded per sweep; the next tick picks up
+    the remainder.
+
+    Before the NULL-status scan, stale claimed rows are reclaimed: a worker
+    crash/restart kills the detached resolution task but leaves the row in
+    "pending"/"running" forever (the claim UPDATE and the manual-retry
+    endpoint both exclude those states). The staleness bound is the
+    worst-case legit attempt duration — (1 + max_attempts) * timeout +
+    max_attempts * 60s backoff + a 600s safety margin — which a live attempt
+    can never exceed, so reclaiming is safe. Reclaimed rows land on status
+    NULL and are picked up by the scan below in the same sweep.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import select, update
+
+    from app.config import settings
+    from app.models.file_resource import FileResource
+    from app.services import magnet_resolve
+    from app.utils.time import utcnow
+
+    await _refresh_runtime_config()
+
+    stale_before = utcnow() - timedelta(
+        seconds=(
+            (1 + settings.magnet_resolve_max_attempts)
+            * settings.magnet_resolve_timeout_seconds
+            + settings.magnet_resolve_max_attempts * 60
+            + 600
+        )
+    )
+    async with committed_session() as session:
+        reclaimed = (
+            await session.execute(
+                update(FileResource)
+                .where(
+                    FileResource.torrent_url.like("magnet:%"),
+                    FileResource.magnet_resolve_status.in_(("pending", "running")),
+                    FileResource.magnet_resolve_updated_at < stale_before,
+                )
+                .values(
+                    magnet_resolve_status=None,
+                    magnet_resolve_attempts=0,
+                    magnet_resolve_error=(
+                        "previous attempt interrupted (worker restarted)"
+                    ),
+                    magnet_resolve_updated_at=utcnow(),
+                )
+            )
+        ).rowcount or 0
+    if reclaimed:
+        logger.info("[magnet] sweep reclaimed %d stuck rows", reclaimed)
+
+    async with committed_session() as session:
+        rows = (
+            await session.execute(
+                select(FileResource.id)
+                .where(
+                    FileResource.torrent_url.like("magnet:%"),
+                    FileResource.magnet_resolve_status.is_(None),
+                )
+                .limit(50)
+            )
+        ).scalars().all()
+    enqueued = 0
+    for resource_id in rows:
+        try:
+            await magnet_resolve.enqueue_resolution(resource_id)
+            enqueued += 1
+        except Exception as e:  # noqa: BLE001 — one bad row must not stop the sweep
+            logger.warning(
+                "[magnet] sweep enqueue failed for %s: %s", resource_id, e
+            )
+    if enqueued:
+        logger.info("[magnet] sweep enqueued %d resolutions", enqueued)
+    return {"status": "done", "enqueued": enqueued, "reclaimed": reclaimed}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -670,3 +766,5 @@ def register_all_handlers(queue) -> None:
     queue.register("fts_reconcile", _handle_fts_reconcile)
     queue.register("download_notifications", _handle_download_notifications)
     queue.register("refresh_resource_organize", _handle_refresh_resource_organize)
+    queue.register("resolve_magnet_torrent", _handle_resolve_magnet_torrent)
+    queue.register("magnet_resolve_sweep", _handle_magnet_resolve_sweep)

@@ -57,6 +57,49 @@ class Settings(BaseSettings):
     # ``<resource_id>.torrent``. Env var: TORRENT_CACHE_DIR.
     torrent_cache_dir: str = "data/torrents"
 
+    # Magnet metadata resolution — magnet: links carry no .torrent file, so a
+    # background worker fetches the torrent *metadata only* via libtorrent
+    # (upload_mode, no payload) and rebuilds a standard .torrent into the
+    # cache dir above. Env vars: MAGNET_RESOLVE_ENABLED,
+    # MAGNET_RESOLVE_TIMEOUT_SECONDS, MAGNET_RESOLVE_CONCURRENCY,
+    # MAGNET_RESOLVE_MAX_ATTEMPTS.
+    magnet_resolve_enabled: bool = True
+    # Overall budget for one resolution attempt (metadata fetch over the
+    # swarm can take a long time on quiet magnets).
+    magnet_resolve_timeout_seconds: int = 900
+    # Max concurrent libtorrent resolutions (semaphore in the worker pool).
+    magnet_resolve_concurrency: int = 4
+    # Automatic retries after the first failure (manual retry is unlimited).
+    magnet_resolve_max_attempts: int = 1
+    # Default public trackers injected into every resolution attempt, on top of
+    # whatever trackers the magnet itself carries — harvested magnets (e.g.
+    # ThePirateBay) carry no ``tr=`` params, leaving DHT as the only peer
+    # source. The http:// opentrackr entry comes first on purpose: it works in
+    # UDP-blocked networks (DHT and udp:// trackers all need UDP outbound,
+    # frequently blocked by firewalls), and each tracker gets its own tier so
+    # libtorrent tries it before timing out on the UDP entries. Env var:
+    # MAGNET_RESOLVE_DEFAULT_TRACKERS (JSON list).
+    magnet_resolve_default_trackers: list[str] = [
+        "http://tracker.opentrackr.org:1337/announce",
+        "udp://tracker.opentrackr.org:1337/announce",
+        "udp://open.tracker.cl:1337/announce",
+        "udp://tracker.openbittorrent.com:6969/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "udp://tracker.torrent.eu.org:451/announce",
+        "udp://open.demonii.com:1337/announce",
+    ]
+    # Infohash-cache mirror fast path — HTTPS GET of a cached .torrent by v1
+    # SHA-1 infohash, resolving in seconds instead of up to 15 minutes of P2P
+    # metadata wait. Each entry is a URL template with the literal
+    # ``{infohash}`` placeholder (replaced with the lowercase 40-hex hash).
+    # Empty list disables the fast path. WARNING: mirrors can return an
+    # unrelated valid torrent for hashes they do not have — every response is
+    # re-verified against the requested infohash before use. Env var:
+    # MAGNET_RESOLVE_CACHE_MIRRORS (JSON list).
+    magnet_resolve_cache_mirrors: list[str] = [
+        "https://itorrents.org/torrent/{infohash}.torrent",
+    ]
+
     # Process role for web/worker separation: "all" (default, standalone —
     # HTTP + scheduler + queue consumer in one process), "web" (HTTP API +
     # enqueue only; no scheduler, no queue consumption), "worker" (scheduler +

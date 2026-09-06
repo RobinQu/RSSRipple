@@ -74,6 +74,12 @@ tests/integration/
     test_feed_analyzer_coverage.py   # feed_analyzer 进程内覆盖：JSON 解析变体（含 \\[ 合法转义对修复）、
                                       # validate/confidence、analyze_feed 成功/无 key/重试/限流、stream 路径
     test_auth_service_coverage.py    # auth_service 进程内覆盖：cookie 签名/校验/过期、TOTP 校验、密钥 get-or-create
+  magnet/                          # magnet 元数据解析进程内集成测试（复用 tests/unit/conftest.py；fixture 为生产
+    __init__.py                    #   PriateBay-4K-Movies 频道真实磁力数据 tests/fixtures/magnet_feed.xml + magnet_links.json）
+    conftest.py                    # 复用 tests/unit/conftest.py 的 db_engine/db_session fixtures
+    test_magnet_resolve_e2e.py     # 抓取→解析 E2E：fixture feed 抓取 → magnet 资源落库 + 入队 → handler 认领 →
+                                   #   重建 .torrent 缓存 → Channel A → files 链（fake libtorrent，CI 安全）；
+                                   #   live 层 RSSRIPPLE_LIVE_MAGNET=1 才跑（真实 libtorrent/DHT，需 UDP 出网）
   test_metadata_core_integration.py  # 顶层纯函数覆盖率批次：wikipedia 剧集解析、集号 reconciliation、
                                      # anime 信号、wiki classify/query、url/parser/text 归一化、Filter DSL、
                                      # metadata_dedup 纯 helper、genre 注册表、failure 分类、wikidata 纯 helper

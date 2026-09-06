@@ -684,7 +684,15 @@ class TestResourceFiles:
         )
         res = await client.get(f"/api/v1/resources/{rid}/files")
         assert res.status_code == 200
-        assert res.json()["data"] == {"files": [], "source": "none"}
+        # Magnet resource without a listing carries the resolve-state block.
+        assert res.json()["data"] == {
+            "files": [],
+            "source": "none",
+            "magnet_resolve": {
+                "status": None, "error": None, "attempts": 0, "updated_at": None,
+                "trackers": None,
+            },
+        }
 
     async def test_notification_snapshot_fallback(
         self, client, sample_channel, sample_downloader, db_session_factory,
@@ -716,7 +724,162 @@ class TestResourceFiles:
         rid = await _make_resource(db_session_factory, sample_channel.id)  # magnet, no task
         res = await client.get(f"/api/v1/resources/{rid}/files")
         assert res.status_code == 200
-        assert res.json()["data"] == {"files": [], "source": "none"}
+        assert res.json()["data"] == {
+            "files": [],
+            "source": "none",
+            "magnet_resolve": {
+                "status": None, "error": None, "attempts": 0, "updated_at": None,
+                "trackers": None,
+            },
+        }
+
+    async def test_magnet_resolve_block_reflects_columns(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            magnet_resolve_status="failed", magnet_resolve_error="boom",
+            magnet_resolve_attempts=2,
+            magnet_resolve_trackers=["udp://tried:1/announce"],
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        d = res.json()["data"]
+        assert d["files"] == [] and d["source"] == "none"
+        assert d["magnet_resolve"] == {
+            "status": "failed", "error": "boom", "attempts": 2, "updated_at": None,
+            "trackers": ["udp://tried:1/announce"],
+        }
+
+    async def test_magnet_resolve_block_absent_when_listing_found(
+        self, client, sample_channel, db_session_factory, tmp_path,
+    ):
+        path = _write_torrent(tmp_path, [(["a.mkv"], 100)])
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, torrent_file=path,
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/files")
+        assert res.status_code == 200
+        assert res.json()["data"]["magnet_resolve"] is None
+
+
+class TestMagnetResolve:
+    """POST /resources/{id}/magnet-resolve — manual retry."""
+
+    async def test_404(self, client):
+        res = await client.post("/api/v1/resources/nope/magnet-resolve")
+        assert res.status_code == 404
+        assert res.json()["error"]["code"] == "NOT_FOUND"
+
+    async def test_422_for_non_magnet(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, torrent_url="https://x/r.torrent",
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_409_while_running(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        monkeypatch.setattr("app.services.magnet_resolve.lt", object())
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, magnet_resolve_status="running",
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "INVALID_STATE"
+
+    async def test_422_when_libtorrent_unavailable(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        monkeypatch.setattr("app.services.magnet_resolve.lt", None)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_happy_path_resets_and_enqueues(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        monkeypatch.setattr("app.services.magnet_resolve.lt", object())
+        enqueue = AsyncMock()
+        monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            magnet_resolve_status="failed", magnet_resolve_error="boom",
+            magnet_resolve_attempts=3,
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
+        assert res.status_code == 200
+        d = res.json()["data"]["magnet_resolve"]
+        assert d["status"] == "pending"
+        assert d["error"] is None
+        assert d["attempts"] == 0
+        enqueue.assert_awaited_once_with(rid)
+        from app.models.file_resource import FileResource
+        async with db_session_factory() as s:
+            r = await s.get(FileResource, rid)
+            assert r.magnet_resolve_attempts == 0
+            assert r.magnet_resolve_error is None
+
+    async def test_custom_trackers_persisted_and_echoed(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        monkeypatch.setattr("app.services.magnet_resolve.lt", object())
+        enqueue = AsyncMock()
+        monkeypatch.setattr("app.services.magnet_resolve.enqueue_resolution", enqueue)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, magnet_resolve_status="failed",
+        )
+        res = await client.post(
+            f"/api/v1/resources/{rid}/magnet-resolve",
+            json={"trackers": ["udp://tr.example:1337/announce"]},
+        )
+        assert res.status_code == 200
+        d = res.json()["data"]["magnet_resolve"]
+        assert d["trackers"] == ["udp://tr.example:1337/announce"]
+        from app.models.file_resource import FileResource
+        async with db_session_factory() as s:
+            r = await s.get(FileResource, rid)
+            assert r.magnet_resolve_trackers == ["udp://tr.example:1337/announce"]
+
+    async def test_invalid_tracker_422_names_url(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        monkeypatch.setattr("app.services.magnet_resolve.lt", object())
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, magnet_resolve_status="failed",
+        )
+        res = await client.post(
+            f"/api/v1/resources/{rid}/magnet-resolve",
+            json={"trackers": ["ftp://bad/announce"]},
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert "ftp://bad/announce" in res.json()["error"]["message"]
+
+    async def test_omitted_body_clears_trackers(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        monkeypatch.setattr("app.services.magnet_resolve.lt", object())
+        monkeypatch.setattr(
+            "app.services.magnet_resolve.enqueue_resolution", AsyncMock()
+        )
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            magnet_resolve_status="failed",
+            magnet_resolve_trackers=["udp://old:1/announce"],
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
+        assert res.status_code == 200
+        assert res.json()["data"]["magnet_resolve"]["trackers"] is None
+        from app.models.file_resource import FileResource
+        async with db_session_factory() as s:
+            r = await s.get(FileResource, rid)
+            assert r.magnet_resolve_trackers is None
 
 
 class TestParseCorrection:

@@ -1,0 +1,51 @@
+{
+  "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b": {
+    "evidence_note": "Reviewed against frozen Bangumi subject 538760 (猫と竜/猫与龙, TV, type 2, 2026-07-04), twelve type-0 integer episodes and the original torrent S01E10 media filename. Production episode count 9 is stale; resource collection NULL is a legacy gap. Cold reconstruction must create the single-season shell and map the file to S1E10.",
+    "expected": {
+      "dispatch": {"dispatched": 1, "repeat_dispatched": 0, "task_count": 1, "error_tasks": 0},
+      "assignments": [
+        {
+          "episode_end": 10,
+          "episode_start": 10,
+          "file_path": "[Nix-Raws] Neko to Ryuu S01E10 [CR WEB-DL 1080p AVC AAC][SC_TC].mkv",
+          "season": 1,
+          "work": "series:bangumi:bangumi:538760:s1"
+        }
+      ],
+      "batch_scope": null,
+      "batch_seasons": null,
+      "collection": "collection:title:猫与龙",
+      "confirmation": {
+        "kinds": [],
+        "missing_fields": []
+      },
+      "episode": 10,
+      "episode_end": null,
+      "episode_start": null,
+      "is_batch": false,
+      "season": 1,
+      "season_ranges": [
+        {
+          "episode_end": 10,
+          "episode_start": 10,
+          "season": 1
+        }
+      ],
+      "work_details": {
+        "series:bangumi:bangumi:538760:s1": {
+          "episodes": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+          "episode_seasons": [1],
+          "collection": "collection:title:猫与龙",
+          "is_anime": true,
+          "number_of_episodes": 12,
+          "season_number": 1,
+          "start_date": "2026-07-04"
+        }
+      },
+      "works": [
+        "series:bangumi:bangumi:538760:s1"
+      ]
+    },
+    "status": "confirmed"
+  }
+}

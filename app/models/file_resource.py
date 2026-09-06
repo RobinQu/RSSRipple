@@ -3,7 +3,19 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -105,6 +117,25 @@ class FileResource(Base):
     # content detection P1). The bytes are cached on disk only — never stored
     # in the DB. NULL = not (yet) fetched.
     torrent_file: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # ── Magnet metadata resolution ──
+    # magnet: links have no .torrent to cache; a background worker fetches the
+    # torrent metadata via libtorrent (upload_mode, no payload) and rebuilds
+    # a .torrent into the cache. ``magnet_resolve_status``:
+    #   NULL       – never attempted (pre-feature rows / not yet enqueued).
+    #   "pending"  – claimed, waiting for a worker slot.
+    #   "running"  – a resolution attempt is in flight.
+    #   "done"     – .torrent rebuilt and cached (torrent_file set).
+    #   "failed"   – attempts exhausted; manual retry resets the state.
+    magnet_resolve_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    magnet_resolve_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    magnet_resolve_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    magnet_resolve_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Custom tracker list for resolution attempts (set by the manual-retry
+    # endpoint; NULL = defaults only). Cleared on "done", kept on failure so
+    # the UI can show what was tried and prefill the next retry.
+    magnet_resolve_trackers: Mapped[list | None] = mapped_column(JSON, nullable=True)
     detail_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

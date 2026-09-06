@@ -330,15 +330,46 @@ class ResourceFileEntry(BaseModel):
     size: int
 
 
+class ResourceMagnetResolveState(BaseModel):
+    """Magnet metadata-resolution state (see app.services.magnet_resolve).
+
+    ``status`` is NULL for magnet resources never attempted yet (treated as
+    queued-by-default in the UI); "pending"/"running"/"done"/"failed"
+    otherwise. ``trackers`` is the stored custom tracker list for resolution
+    attempts (NULL = defaults only; cleared on "done").
+    """
+
+    status: Literal["pending", "running", "done", "failed"] | None = None
+    error: str | None = None
+    attempts: int = 0
+    updated_at: datetime | None = None
+    trackers: list[str] | None = None
+
+
+class MagnetResolveRetryRequest(BaseModel):
+    """Optional body for POST /resources/{id}/magnet-resolve.
+
+    ``trackers`` omitted / null / empty list → clear the stored custom
+    trackers (defaults only); non-empty → validated and persisted.
+    """
+
+    trackers: list[str] | None = None
+
+
 class ResourceFilesResponse(BaseModel):
     """Payload for GET /resources/{id}/files — the torrent's file listing.
 
     ``source`` records where the listing came from: the local .torrent cache,
     a live .torrent fetch, the downloader RPC, a frozen download-notification
     snapshot, or "none" when no source could produce one.
+
+    ``magnet_resolve`` is present only for magnet: resources without a
+    listing — it carries the background metadata-resolution state so the UI
+    can show progress / failure + retry instead of a bare empty state.
     """
 
     files: list[ResourceFileEntry] = []
     source: Literal[
         "torrent_cache", "torrent_fetch", "downloader", "notification", "none"
     ] = "none"
+    magnet_resolve: ResourceMagnetResolveState | None = None

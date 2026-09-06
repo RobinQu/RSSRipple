@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Fixture RSS feed built from REAL data harvested from the production
+  ThePirateBay channel ("PriateBay-4K-Movies") on 2026-09-05: titles and
+  magnet URIs are verbatim rows from file_resources. Used by
+  tests/integration/magnet for the fetch → magnet-resolution E2E.
+  feedparser.parse() accepts a plain filesystem path, so channels in tests
+  point their url directly at this file.
+-->
+<rss version="2.0">
+  <channel>
+    <title>PriateBay-4K-Movies fixture</title>
+    <link>https://thepiratebay.example/</link>
+    <description>Harvested magnet entries for integration tests</description>
+    <item>
+      <title>Mufasa The Lion King 2024 2160p DSNP WEB-DL MULTi Atmos DV HDR10+ H265-SomniWare</title>
+      <link>magnet:?xt=urn:btih:6D8205C10E4E907A80E6B1DA7754BCEEF2B769FC&amp;dn=Mufasa+The+Lion+King+2024+2160p+DSNP+WEB-DL+MULTi+Atmos+DV+HDR10%2B+H265-SomniWare</link>
+      <guid>magnet:?xt=urn:btih:6D8205C10E4E907A80E6B1DA7754BCEEF2B769FC</guid>
+      <pubDate>Fri, 05 Sep 2026 08:12:00 +0000</pubDate>
+      <category>Movies / 4K</category>
+    </item>
+    <item>
+      <title>Horrible Bosses 2011 Extended AI Upscaled BluRay 60fps H265 10Bit DTS_Marjenbo</title>
+      <link>magnet:?xt=urn:btih:B1FC147B37890EA3C5E7A99279F04A1E9E225012&amp;dn=Horrible+Bosses+2011+Extended+AI+Upscaled+BluRay+60fps+H265+10Bit+DTS_Marjenbo</link>
+      <guid>magnet:?xt=urn:btih:B1FC147B37890EA3C5E7A99279F04A1E9E225012</guid>
+      <pubDate>Fri, 05 Sep 2026 08:11:00 +0000</pubDate>
+      <category>Movies / 4K</category>
+    </item>
+    <item>
+      <title>Atomic Blonde 2017 2160p AI Upscaled BluRay 60fps H265 10Bit SDR DTS7.1_Marjenbo</title>
+      <link>magnet:?xt=urn:btih:5BE163406EC33739B8F0943DAE5C21A094189F0C&amp;dn=Atomic+Blonde+2017+2160p+AI+Upscaled+BluRay+60fps+H265+10Bit+SDR+DTS7.1_Marjenbo</link>
+      <guid>magnet:?xt=urn:btih:5BE163406EC33739B8F0943DAE5C21A094189F0C</guid>
+      <pubDate>Fri, 05 Sep 2026 08:10:00 +0000</pubDate>
+      <category>Movies / 4K</category>
+    </item>
+  </channel>
+</rss>

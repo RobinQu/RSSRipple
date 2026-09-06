@@ -266,9 +266,12 @@ class TestFetchChannelResources:
         with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
              patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
             await fs.fetch_channel_resources(channel, db_session)
-        assert q.enqueue.await_count == 1
-        args = q.enqueue.await_args.args
-        assert args[0] == "run_agent"
+        # The magnet entry additionally enqueues a resolve_magnet_torrent job
+        # (when libtorrent is available); only the run_agent fan-out is
+        # asserted here.
+        agent_calls = [c for c in q.enqueue.await_args_list if c.args[0] == "run_agent"]
+        assert len(agent_calls) == 1
+        args = agent_calls[0].args
         assert args[2]["agent_id"] == agent.id
 
     async def test_no_download_url_entry_skipped(self, db_session, channel, fake_queue):

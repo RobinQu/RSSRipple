@@ -25,6 +25,7 @@
   - `WEB_FALLBACK_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：来源启用开关；`WEB_FALLBACK_ENABLED` 只控制受可信站点约束的 Wigolo 网络搜索回退。
   - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
   - `TORRENT_CACHE_DIR`：通道 A 下载缓存的 .torrent 文件目录（默认 `./data/torrents`，文件名 `<resource_id>.torrent`；写盘前必须完成 bencode/info 清单校验，已有缓存读取前同样校验，HTML/损坏等无效缓存会删除并允许重新获取；`FileResource.torrent_file` 记有效路径，任务创建时本地推送字节）。
+  - `MAGNET_RESOLVE_ENABLED`（默认 `true`）/ `MAGNET_RESOLVE_TIMEOUT_SECONDS`（默认 `900`）/ `MAGNET_RESOLVE_CONCURRENCY`（默认 `4`）/ `MAGNET_RESOLVE_MAX_ATTEMPTS`（默认 `1`，首次失败后的自动重试次数，手动重试不限）：magnet 元数据解析（libtorrent 仅取元数据重建 .torrent 进同一缓存目录，状态落 `FileResource.magnet_resolve_*` 列）。`MAGNET_RESOLVE_DEFAULT_TRACKERS`（JSON 字符串列表）：注入每次解析尝试的默认公共 tracker（TPB 等抓取的 magnet 无 `tr=` 参数，否则只靠 DHT）；默认清单以 `http://tracker.opentrackr.org:1337/announce` 打头（tier 0 优先尝试）——DHT 与 udp:// tracker 均需 UDP 出网（防火墙常封），http 形式走 TCP，UDP 被封锁的部署也能解析。`MAGNET_RESOLVE_CACHE_MIRRORS`（JSON 字符串列表，默认 `["https://itorrents.org/torrent/{infohash}.torrent"]`，空列表关闭）：infohash 缓存镜像快速路径——按 `{infohash}` 模板（小写 40 位十六进制 v1 SHA-1）HTTPS GET 缓存的 .torrent，秒级解析；**镜像对未知 hash 会 200 返回无关 torrent，响应使用前一律重算 v1 infohash 比对**。
   - `DEFAULT_FETCH_INTERVAL`：频道默认抓取间隔（秒，默认 `1800`）。
   - `TRANSMISSION_TIMEOUT`：Transmission RPC 超时。
   - `MAX_RETRY_COUNT`：失败下载最大重试次数（默认 `3`）。
