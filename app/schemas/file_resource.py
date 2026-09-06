@@ -77,6 +77,11 @@ class FileResourceResponse(BaseModel):
     # True once any DownloadTask has ever been created for this resource,
     # regardless of task origin or current status.
     has_download_task: bool = False
+    # Status of the most recent DownloadTask for this resource (None when
+    # never dispatched). Drives the per-resource dispatch-outcome tag.
+    download_status: str | None = None
+    # True while the resource is a candidate of any pending PendingDecision.
+    pending_decision: bool = False
     created_at: datetime
     updated_at: datetime
 

@@ -605,6 +605,19 @@ async def list_agent_runs(
     for pd in pending_rows:
         pending_resource_ids.update(pd.candidates or [])
 
+    # Mark which matched resources were actually dispatched (any DownloadTask
+    # ever created). Answers "matched 3 — which one won the conflict?" at a
+    # glance in the run drawer.
+    from app.models.download_task import DownloadTask
+
+    dispatched_resource_ids: set[str] = set()
+    if res_ids:
+        dispatched_resource_ids = set((await db.scalars(
+            select(DownloadTask.file_resource_id)
+            .where(DownloadTask.file_resource_id.in_(res_ids))
+            .distinct()
+        )).all())
+
     items = []
     for r in rows:
         data = AgentRunResponse.model_validate(r).model_dump()
@@ -620,6 +633,7 @@ async def list_agent_runs(
             {
                 **RulesPreviewResource.model_validate(res_by_id[rid]).model_dump(),
                 "pending_decision": rid in pending_resource_ids,
+                "dispatched": rid in dispatched_resource_ids,
             }
             for rid in (r.matched_resource_ids or [])
             if rid in res_by_id

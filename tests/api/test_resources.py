@@ -81,7 +81,62 @@ class TestResourceList:
             ] if suffix else items
             by_id = {resource["id"]: resource for resource in resources}
             assert by_id[with_task]["has_download_task"] is True
+            assert by_id[with_task]["download_status"] == "pending"
+            assert by_id[with_task]["pending_decision"] is False
             assert by_id[without_task]["has_download_task"] is False
+            assert by_id[without_task]["download_status"] is None
+
+    async def test_list_reports_latest_task_status_and_pending_decision(
+        self, client, sample_channel, sample_downloader, db_session_factory
+    ):
+        """With multiple tasks the latest one wins; pending-decision
+        candidates of the channel's agents are flagged."""
+        from datetime import UTC, datetime, timedelta
+
+        from app.models.agent import Agent
+        from app.models.download_task import DownloadTask
+        from app.models.pending_decision import PendingDecision
+
+        multi = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="multi-task"
+        )
+        candidate = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="pd-candidate"
+        )
+        now = datetime.now(UTC)
+        agent_id = _uuid()
+        async with db_session_factory() as session:
+            session.add_all([
+                DownloadTask(
+                    id=_uuid(), agent_id=None, file_resource_id=multi,
+                    downloader_id=sample_downloader.id, download_dir="/d",
+                    status="cancelled", created_at=now - timedelta(days=1),
+                ),
+                DownloadTask(
+                    id=_uuid(), agent_id=None, file_resource_id=multi,
+                    downloader_id=sample_downloader.id, download_dir="/d",
+                    status="completed", created_at=now,
+                ),
+                Agent(
+                    id=agent_id, name="A", channel_id=sample_channel.id,
+                    downloader_id=sample_downloader.id,
+                ),
+            ])
+            await session.commit()
+        async with db_session_factory() as session:
+            session.add(PendingDecision(
+                agent_id=agent_id, status="pending",
+                candidates=[candidate], reason="冲突",
+            ))
+            await session.commit()
+
+        res = await client.get(f"/api/v1/channels/{sample_channel.id}/resources")
+        assert res.status_code == 200
+        by_id = {r["id"]: r for r in res.json()["data"]}
+        assert by_id[multi]["download_status"] == "completed"
+        assert by_id[candidate]["download_status"] is None
+        assert by_id[candidate]["pending_decision"] is True
+        assert by_id[multi]["pending_decision"] is False
 
     async def test_get_resource(self, client, sample_channel, db_session_factory):
         rid = await _make_resource(db_session_factory, sample_channel.id, title_raw="Rget")

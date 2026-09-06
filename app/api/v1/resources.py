@@ -52,26 +52,66 @@ logger = logging.getLogger(__name__)
 _BATCH_ANALYSIS_SOURCE = "batch_file_analysis:v4"
 
 
-async def _resource_ids_with_tasks(
+async def _latest_task_status_by_resource(
     db: AsyncSession, resources: list[FileResource]
-) -> set[str]:
-    """Return resources that have ever had a download task, in one query."""
+) -> dict[str, str]:
+    """Return the latest DownloadTask status per resource, in one query."""
     resource_ids = [resource.id for resource in resources]
     if not resource_ids:
+        return {}
+    rows = (await db.execute(
+        select(
+            DownloadTask.file_resource_id,
+            DownloadTask.status,
+            DownloadTask.created_at,
+        ).where(DownloadTask.file_resource_id.in_(resource_ids))
+    )).all()
+    latest: dict[str, tuple[object, str]] = {}
+    for resource_id, status, created_at in rows:
+        current = latest.get(resource_id)
+        if current is None or created_at > current[0]:
+            latest[resource_id] = (created_at, status)
+    return {rid: status for rid, (_, status) in latest.items()}
+
+
+async def _pending_decision_resource_ids(
+    db: AsyncSession, channel_id: str, resources: list[FileResource]
+) -> set[str]:
+    """Return page resources that are candidates of a pending PendingDecision
+    of any agent on this channel."""
+    resource_ids = {resource.id for resource in resources}
+    if not resource_ids:
         return set()
-    return set((await db.scalars(
-        select(DownloadTask.file_resource_id)
-        .where(DownloadTask.file_resource_id.in_(resource_ids))
-        .distinct()
-    )).all())
+    from app.models.agent import Agent
+    from app.models.pending_decision import PendingDecision
+
+    pending_rows = (await db.execute(
+        select(PendingDecision.candidates).where(
+            PendingDecision.status == "pending",
+            PendingDecision.agent_id.in_(
+                select(Agent.id).where(Agent.channel_id == channel_id).scalar_subquery()
+            ),
+        )
+    )).scalars().all()
+    candidate_ids: set[str] = set()
+    for candidates in pending_rows:
+        candidate_ids.update(candidates or [])
+    return resource_ids & candidate_ids
 
 
 def _serialize_list_resource(
-    resource: FileResource, task_resource_ids: set[str]
+    resource: FileResource,
+    task_status_by_id: dict[str, str],
+    pending_decision_ids: set[str],
 ) -> dict:
     payload = FileResourceResponse.model_validate(resource)
+    status = task_status_by_id.get(resource.id)
     return payload.model_copy(
-        update={"has_download_task": resource.id in task_resource_ids}
+        update={
+            "has_download_task": status is not None,
+            "download_status": status,
+            "pending_decision": resource.id in pending_decision_ids,
+        }
     ).model_dump()
 
 
@@ -311,7 +351,8 @@ async def list_resources(
             for resources in buckets
             for resource in resources
         ]
-        task_resource_ids = await _resource_ids_with_tasks(db, page_resources)
+        task_status_by_id = await _latest_task_status_by_resource(db, page_resources)
+        pending_decision_ids = await _pending_decision_resource_ids(db, channel_id, page_resources)
 
         def _iso(ts) -> str | None:
             return ts.isoformat() if ts is not None else None
@@ -329,7 +370,7 @@ async def list_resources(
                     "title": (s.original_title or s.title_cn or s.title_en or tid) if s else tid,
                     "poster_url": s.poster_url if s else None,
                     "last_update": _iso(last_ts),
-                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in items],
+                    "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             elif typ == "movie":
                 items = resource_by_movie.get(tid, [])
@@ -342,7 +383,7 @@ async def list_resources(
                     "title": (m.original_title or m.title_cn or m.title_en or tid) if m else tid,
                     "poster_url": m.poster_url if m else None,
                     "last_update": _iso(last_ts),
-                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in items],
+                    "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             elif typ == "audio":
                 items = resource_by_audio.get(tid, [])
@@ -355,7 +396,7 @@ async def list_resources(
                     "title": (a.original_title or a.title_cn or a.title_en or tid) if a else tid,
                     "poster_url": a.poster_url if a else None,
                     "last_update": _iso(last_ts),
-                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in items],
+                    "resources": [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in items],
                 })
             else:  # unknown
                 out.append({
@@ -364,7 +405,10 @@ async def list_resources(
                     "title": "未识别",
                     "poster_url": None,
                     "last_update": _iso(last_ts),
-                    "resources": [_serialize_list_resource(r, task_resource_ids) for r in unknown_resources],
+                    "resources": [
+                        _serialize_list_resource(r, task_status_by_id, pending_decision_ids)
+                        for r in unknown_resources
+                    ],
                 })
 
         return success_response(
@@ -386,9 +430,10 @@ async def list_resources(
         .offset(offset).limit(page_size)
     )
     resources = result.scalars().all()
-    task_resource_ids = await _resource_ids_with_tasks(db, resources)
+    task_status_by_id = await _latest_task_status_by_resource(db, resources)
+    pending_decision_ids = await _pending_decision_resource_ids(db, channel_id, resources)
     return paginated_response(
-        [_serialize_list_resource(r, task_resource_ids) for r in resources],
+        [_serialize_list_resource(r, task_status_by_id, pending_decision_ids) for r in resources],
         total=total, page=page, page_size=page_size,
     )
 

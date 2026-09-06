@@ -103,7 +103,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为网络搜索回退（wigolo）的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
 
-频道资源列表响应额外返回 `has_download_task`：只要该资源曾创建过任意 `DownloadTask`（下载 Agent 或手动、任意当前状态）即为 true，供频道页标记“已下载”。
+频道资源列表响应额外返回派发结果三字段：`has_download_task`（该资源曾创建过任意 `DownloadTask` 即为 true，任意当前状态）；`download_status`（该资源**最新**一条 DownloadTask 的 status，从未派发为 null，多任务按 `created_at` 取最新），供频道页渲染逐状态标签（已完成/下载中/排队中/暂停/已取消/失败）；`pending_decision`（该资源是本频道任一 Agent 当前 pending 的 PendingDecision 候选时为 true），供打「待决策」标。
 
 `required_metadata_fields`（必填元数据字段清单，权威目录 `app/services/required_fields.py`）：**强制且创建后只增不删**。Create 省略时默认为代码强制基线（永不可清除，不存在"不限制"状态）＝**基础必选五件套**（`search_title/content_type/is_batch/year/is_anime`）∪ **形态必填**（TV 单集→`episode`；TV 单季合集→`episode_start`+`episode_end`；跨季合集不要求单值 season/range，仅校验 `batch_seasons`（links-only 形态校验关联季作品 links 与派生缓存一致）；多作品合集→`resource_collection`）；`title_cn`/`title_en` 均为可选目录字段；显式 `null` 一律 422；未知目录键 422；重复键去重、结果按目录规范序重排并强制并入基线。PUT 提交的数组若缺失任何已保存键 → 422 VALIDATION_ERROR。**作品单季化目录变更**：`season` 键从形态必填退役为**可选**（季号由季作品身份承载，DSL 字段保留），`absolute_episode`/`episode_confidence` 两键退役出目录（字段仍在资源模型与 DSL）；存量频道声明里的这三键由启动轻迁移一次性移除（哨兵 `required_fields_per_season_v1`），此后用户可在只增不删策略下重新加入 `season`。Agent 运行前按资源形态检查这些字段的实际值，缺失资源进入 Channel 文件资源待确认并阻止派发；AudioWork 不进入 TV 合集范围检查；`pick_preferences` 可引用目录外字段，空值只是不命中偏好。
 
@@ -142,7 +142,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | GET | `/agents/{id}/run-status` | 轮询处理状态 |
 | POST | `/agents/{id}/test-filters` | 给定资源或全部资源测试 filter_config 匹配情况，返回匹配结果明细 |
 | GET | `/agents/{id}/suggestions` | 读取持久化的未识别资源建议分组，供用户一键添加为订阅作品 |
-| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表、`scan_since`（指定起始时间运行的扫描下界；null=增量/定向，`1970-01-01`=全量）；`non_empty=true` 时仅返回"非空"运行（dispatched>0 或 pending_decisions>0 或 status 为 running/failed），隐藏无产出的例行空跑。读时修正：AgentRun 的 status/pending_decisions 是运行结束时的快照，若该 agent 当前已无 pending 决策，响应中 `status="pending_decisions"` 的 run 改写为 `"success"` 返回（不回写 DB，历史计数保留）；`matched_resources` 每条目附 `pending_decision: bool`——该资源仍是当前 pending 决策候选时为 true，供前端打「待决策」标 |
+| GET | `/agents/{id}/runs` | 运行历史（分页）：每次 run 一条记录，含计数、状态、匹配资源 ID 列表、`scan_since`（指定起始时间运行的扫描下界；null=增量/定向，`1970-01-01`=全量）；`non_empty=true` 时仅返回"非空"运行（dispatched>0 或 pending_decisions>0 或 status 为 running/failed），隐藏无产出的例行空跑。读时修正：AgentRun 的 status/pending_decisions 是运行结束时的快照，若该 agent 当前已无 pending 决策，响应中 `status="pending_decisions"` 的 run 改写为 `"success"` 返回（不回写 DB，历史计数保留）；`matched_resources` 每条目附 `pending_decision: bool`——该资源仍是当前 pending 决策候选时为 true，供前端打「待决策」标；另附 `dispatched: bool`——该资源曾创建过 DownloadTask（即冲突解决中被实际派发）时为 true，供前端打「已派发」标 |
 | POST | `/agents/rules-preview` | 提交拟变更的订阅规则，预览匹配差异（新增匹配 / 不再匹配 / 已在队列跳过），供用户选择回填资源 |
 
 `POST /agents` 请求体示例：

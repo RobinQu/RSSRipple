@@ -144,6 +144,11 @@ export interface FileResource {
   created_at: string;
   // Any task ever created for this resource, regardless of origin/status.
   has_download_task: boolean;
+  // Status of the most recent download task (null when never dispatched);
+  // drives the dispatch-outcome tag in the resource list.
+  download_status?: TaskStatus | null;
+  // True while the resource is a candidate of a pending PendingDecision.
+  pending_decision?: boolean;
   // Seasons covered by a multi_season/franchise pack (from torrent content
   // analysis); drives strict content-coverage dedup server-side.
   batch_seasons?: number[] | null;
@@ -729,6 +734,9 @@ export interface RulesPreviewResource {
   // Only populated on AgentRun.matched_resources entries: true while the
   // resource still has an unresolved pending decision.
   pending_decision?: boolean;
+  // Only populated on AgentRun.matched_resources entries: true when the run
+  // dispatched this resource (a DownloadTask exists for it).
+  dispatched?: boolean;
 }
 
 export interface RulesPreviewResponse {

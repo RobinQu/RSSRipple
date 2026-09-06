@@ -1476,6 +1476,9 @@ export default function AgentDetail() {
                       </Tooltip>
                     </div>
                     <Space size={4} wrap style={{ fontSize: 11, color: 'var(--rr-text-secondary)', marginTop: 4 }}>
+                      {r.dispatched && (
+                        <Tag color="success" style={{ margin: 0 }}>{t('agents.tagDispatched')}</Tag>
+                      )}
                       {r.pending_decision && (
                         <Tag color="warning" style={{ margin: 0 }}>{t('agents.pendingDecisionAction')}</Tag>
                       )}

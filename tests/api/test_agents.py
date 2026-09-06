@@ -476,6 +476,7 @@ class TestAgentsCRUD:
         """GET /agents/{id}/runs returns persisted run records with matched
         resource summaries."""
         from app.models.agent_run import AgentRun
+        from app.models.download_task import DownloadTask
         from app.models.file_resource import FileResource
 
         ch_id, dl_id = channel_and_dl
@@ -488,21 +489,31 @@ class TestAgentsCRUD:
             id=_uuid(), channel_id=ch_id, guid=_uuid(),
             title_raw="[G] R - 01", torrent_url="magnet:?xt=urn:btih:r",
         )
-        db_session.add(r)
+        r2 = FileResource(
+            id=_uuid(), channel_id=ch_id, guid=_uuid(),
+            title_raw="[G] R - 01 v2", torrent_url="magnet:?xt=urn:btih:r2",
+        )
+        db_session.add_all([r, r2])
         await db_session.commit()
         async with db_session.begin():
             db_session.add(AgentRun(
                 agent_id=aid, status="success", started_at=datetime.now(UTC),
-                finished_at=datetime.now(UTC), total_resources=1, matched=1,
-                dispatched=1, matched_resource_ids=[r.id],
+                finished_at=datetime.now(UTC), total_resources=2, matched=2,
+                dispatched=1, matched_resource_ids=[r.id, r2.id],
+            ))
+            db_session.add(DownloadTask(
+                id=_uuid(), agent_id=aid, file_resource_id=r.id,
+                downloader_id=dl_id, download_dir="/d", status="completed",
             ))
         res = await client.get(f"/api/v1/agents/{aid}/runs")
         assert res.status_code == 200
         data = res.json()["data"]
         assert len(data) == 1
         assert data[0]["status"] == "success"
-        assert data[0]["matched_resource_ids"] == [r.id]
+        assert data[0]["matched_resource_ids"] == [r.id, r2.id]
         assert data[0]["matched_resources"][0]["id"] == r.id
+        dispatched_by_id = {m["id"]: m["dispatched"] for m in data[0]["matched_resources"]}
+        assert dispatched_by_id == {r.id: True, r2.id: False}
 
     async def test_list_agent_runs_non_empty_filter(self, client, channel_and_dl, db_session):
         """GET /agents/{id}/runs?non_empty=true hides routine no-op runs."""

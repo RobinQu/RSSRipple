@@ -78,6 +78,17 @@ function groupColor(type: GroupedResource['type']) {
   return 'default';
 }
 
+/** Tag color per latest download-task status (dispatch outcome). */
+const DOWNLOAD_STATUS_TAG_COLORS: Record<string, string> = {
+  completed: 'green',
+  downloading: 'cyan',
+  queued: 'blue',
+  pending: 'blue',
+  paused: 'default',
+  cancelled: 'default',
+  error: 'red',
+};
+
 /** Resolve the display value for one required-field column. Resource-level
  * keys read straight off FileResource; work-level keys resolve through the
  * linked series/movie; enum keys localize via filter.enumValue_*. */
@@ -890,7 +901,7 @@ export default function ChannelDetail() {
                                       </div>
                                       <WorkInfoIcon work={work} isSeries={!!r.series_id} />
                                     </div>
-                                    {(r.series_id || r.movie_id || r.is_batch || r.has_download_task) && (
+                                    {(r.series_id || r.movie_id || r.is_batch || r.download_status || r.pending_decision) && (
                                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
                                         {r.series_id && (
                                           <Tag
@@ -910,9 +921,17 @@ export default function ChannelDetail() {
                                             {t('dashboard.movie')}
                                           </Tag>
                                         )}
-                                        {r.has_download_task && (
-                                          <Tag color="cyan" style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}>
-                                            {t('channels.tagDownloaded')}
+                                        {r.download_status && (
+                                          <Tag
+                                            color={DOWNLOAD_STATUS_TAG_COLORS[r.download_status] ?? 'default'}
+                                            style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}
+                                          >
+                                            {t(`status.${r.download_status}`)}
+                                          </Tag>
+                                        )}
+                                        {r.pending_decision && (
+                                          <Tag color="orange" style={{ marginRight: 0, fontSize: 11, lineHeight: '16px' }}>
+                                            {t('status.pending_decisions')}
                                           </Tag>
                                         )}
                                         {/* Batch flag lives here instead of its own column */}
