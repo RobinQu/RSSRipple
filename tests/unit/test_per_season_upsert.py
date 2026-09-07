@@ -614,3 +614,68 @@ async def test_legacy_series_row_keeps_absorbing_series_level_id(db_session):
     assert result is not None
     assert result.id == legacy.id
     assert await _collection_rows(db_session) == []
+
+
+# ---------------------------------------------------------------------------
+# upsert_episodes continuation-numbering guard
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_episodes_drops_continuation_numbering(db_session):
+    """A season work must never absorb absolute-across-seasons episode
+    numbers (the bangumi:598058 incident: S3 listed sort 25-36)."""
+    work = TVSeries(
+        id=_uuid(), title_cn="百女友", content_type="tv",
+        season_number=3, number_of_episodes=12,
+    )
+    db_session.add(work)
+    await db_session.flush()
+
+    items = [{"season": 3, "episode": n, "title": f"E{n}"} for n in range(25, 37)]
+    processed = await ms.upsert_episodes(db_session, work, items)
+
+    assert processed == 0
+    rows = list((await db_session.execute(
+        select(Episode).where(Episode.series_id == work.id)
+    )).scalars().all())
+    assert rows == []
+
+
+async def test_upsert_episodes_trusts_list_starting_at_one_past_stale_count(db_session):
+    """A list starting at episode 1 is season-local by construction — kept
+    whole even when a still-airing show outgrows the stored count."""
+    work = TVSeries(
+        id=_uuid(), title_cn="猫与龙", content_type="tv",
+        season_number=1, number_of_episodes=9,
+    )
+    db_session.add(work)
+    await db_session.flush()
+
+    items = [{"season": 1, "episode": n} for n in range(1, 13)]
+    processed = await ms.upsert_episodes(db_session, work, items)
+
+    assert processed == 12
+    rows = list((await db_session.execute(
+        select(Episode).where(Episode.series_id == work.id)
+    )).scalars().all())
+    assert {e.episode for e in rows} == set(range(1, 13))
+
+
+async def test_upsert_episodes_keeps_partial_list_within_tolerance(db_session):
+    """A partial list not starting at 1 (e.g. only the latest episodes) is
+    clamped to count + tolerance rather than dropped wholesale."""
+    work = TVSeries(
+        id=_uuid(), title_cn="部分清单", content_type="tv",
+        season_number=2, number_of_episodes=12,
+    )
+    db_session.add(work)
+    await db_session.flush()
+
+    items = [{"season": 2, "episode": n} for n in (11, 12, 13, 14, 15)]
+    processed = await ms.upsert_episodes(db_session, work, items)
+
+    assert processed == 4
+    rows = list((await db_session.execute(
+        select(Episode).where(Episode.series_id == work.id)
+    )).scalars().all())
+    assert {e.episode for e in rows} == {11, 12, 13, 14}

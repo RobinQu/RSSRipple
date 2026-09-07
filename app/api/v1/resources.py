@@ -744,6 +744,24 @@ async def correct_episode(
     # after commit and ``resource`` is about to be re-fetched below).
     channel_id = resource.channel_id
     await db.flush()
+
+    # Generalize the correction: siblings of the same work+channel still
+    # queued as ambiguous/raw get the freshly-established numbering
+    # convention applied immediately, so one manual fix heals the whole
+    # release pattern instead of one row at a time.
+    healed_ids: list[str] = []
+    try:
+        from app.services.episode_history import heal_sibling_episodes
+        from app.services.metadata_episode_reconcile import seasons_map_for_work
+
+        linked = await db.get(_TVSeries, resource.series_id) if resource.series_id else None
+        healed_ids = await heal_sibling_episodes(
+            db, resource,
+            seasons_map=seasons_map_for_work(linked) if linked else {},
+        )
+    except Exception:
+        logger.exception("[correct_episode] sibling heal failed for %s", resource_id)
+
     # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
     # session and only sees committed data. Enqueuing first creates a race
     # where the worker reads the pre-correction ``episode_confidence`` and
@@ -758,7 +776,8 @@ async def correct_episode(
     # now pass the Channel confirmation gate and be dispatched. Pass the
     # resource id explicitly so run_agent does a *targeted* run against the
     # agent's current rules — bypassing the consumption watermark, since the
-    # corrected resource may be old. The watermark is not advanced.
+    # corrected resource may be old. The watermark is not advanced. Siblings
+    # healed by the fresh convention ride along in the same targeted run.
     channel = await db.get(Channel, channel_id, options=[
         selectinload(Channel.agents),
     ])
@@ -769,7 +788,8 @@ async def correct_episode(
                     await task_queue.enqueue(
                         "run_agent",
                         f"agent:{agent.id}",
-                        {"agent_id": agent.id, "resource_ids": [resource_id]},
+                        {"agent_id": agent.id,
+                         "resource_ids": [resource_id, *healed_ids]},
                     )
                 except Exception:
                     pass
@@ -1278,6 +1298,24 @@ async def correct_parse_fields(
     # after commit and ``resource`` is about to be re-fetched below).
     channel_id = resource.channel_id
     await db.flush()
+
+    # Same convention generalization as ``correct_episode``: when the
+    # correction touched the episode-number fields, heal unresolved siblings
+    # of the same work+channel before committing.
+    healed_ids: list[str] = []
+    if sent & {"episode", "season", "absolute_episode"} and not resource.is_batch:
+        try:
+            from app.services.episode_history import heal_sibling_episodes
+            from app.services.metadata_episode_reconcile import seasons_map_for_work
+
+            linked = await db.get(_TVSeries, resource.series_id) if resource.series_id else None
+            healed_ids = await heal_sibling_episodes(
+                db, resource,
+                seasons_map=seasons_map_for_work(linked) if linked else {},
+            )
+        except Exception:
+            logger.exception("[correct_parse_fields] sibling heal failed for %s", resource_id)
+
     # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
     # session and only sees committed data.
     await db.commit()
@@ -1296,7 +1334,8 @@ async def correct_parse_fields(
                     await task_queue.enqueue(
                         "run_agent",
                         f"agent:{agent.id}",
-                        {"agent_id": agent.id, "resource_ids": [resource_id]},
+                        {"agent_id": agent.id,
+                         "resource_ids": [resource_id, *healed_ids]},
                     )
                 except Exception:
                     pass

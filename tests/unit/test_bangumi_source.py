@@ -99,9 +99,37 @@ def test_episode_list_from_skips_fractional_and_dedups():
     ]
     out = mb._episode_list_from(episodes, season=3)
     assert out == [
-        {"season": 3, "episode": 1, "title": "第一集"},
-        {"season": 3, "episode": 2, "title": "ep2"},
+        {"season": 3, "episode": 1, "title": "第一集", "air_date": None},
+        {"season": 3, "episode": 2, "title": "ep2", "air_date": None},
     ]
+
+
+def test_episode_list_from_prefers_season_local_ep_over_continuation_sort():
+    """Later-season subjects continue the global numbering in ``sort``; the
+    season-local ``ep`` must win so a season work's Episode rows stay local."""
+    episodes = [
+        {"sort": 25, "ep": 1, "name_cn": "表妹女朋友", "airdate": "2026-07-05"},
+        {"sort": 26, "ep": 2, "name_cn": "知与的Family指导", "airdate": "2026-07-12"},
+        {"sort": 36, "ep": 12, "name": "finale", "airdate": "2026-09-20"},
+    ]
+    out = mb._episode_list_from(episodes, season=3)
+    assert out == [
+        {"season": 3, "episode": 1, "title": "表妹女朋友", "air_date": "2026-07-05"},
+        {"season": 3, "episode": 2, "title": "知与的Family指导", "air_date": "2026-07-12"},
+        {"season": 3, "episode": 12, "title": "finale", "air_date": "2026-09-20"},
+    ]
+
+
+def test_episode_list_from_rebases_sort_only_continuation_numbering():
+    """Without ``ep`` (older payloads), a list not starting at 1 is rebased
+    so the first entry becomes episode 1."""
+    episodes = [{"sort": 73, "name": "a"}, {"sort": 74, "name": "b"}]
+    out = mb._episode_list_from(episodes, season=4)
+    assert [e["episode"] for e in out] == [1, 2]
+    assert [e["title"] for e in out] == ["a", "b"]
+    # A list already starting at 1 is untouched.
+    out = mb._episode_list_from([{"sort": 1, "name": "x"}], season=1)
+    assert [e["episode"] for e in out] == [1]
 
 
 def test_autolink_subject_requires_unique_match():
@@ -189,7 +217,9 @@ async def test_run_bangumi_autolink_builds_entity():
     assert me["rating"] == 8.5
     assert me["number_of_episodes"] == 28
     assert len(me["episode_list"]) == 28
-    assert me["episode_list"][0] == {"season": 1, "episode": 1, "title": "第1话"}
+    assert me["episode_list"][0] == {
+        "season": 1, "episode": 1, "title": "第1话", "air_date": None,
+    }
     # A Bangumi subject is one season and therefore provides match-scoped
     # evidence without claiming a work-level total season count.
     assert "seasons" not in me

@@ -180,3 +180,165 @@ async def test_conflicting_history_and_manual_target_are_untouched(db_session, s
     assert (ambiguous.season, ambiguous.episode) == (1, 32)
     assert await apply_episode_history_reconcile(db_session, manual) is False
     assert (manual.season, manual.episode) == (1, 32)
+
+
+# ---------------------------------------------------------------------------
+# Far extrapolation (manual-anchored) + sibling heal
+# ---------------------------------------------------------------------------
+
+
+def test_choose_convention_require_manual_anchor():
+    rows = [
+        _history("A", 30, 3, 6, "reconciled"),
+        _history("B", 31, 3, 7, "reconciled"),
+    ]
+    # Consensus alone is enough adjacency-locally, but not for far jumps.
+    assert _choose_convention(rows, "c") == (3, 24)
+    assert _choose_convention(rows, "c", require_manual=True) is None
+    rows.append(_history("C", 29, 3, 5, "manual"))
+    assert _choose_convention(rows, "c", require_manual=True) == (3, 24)
+
+
+async def test_far_extrapolation_with_manual_anchor(db_session, sample_channel):
+    """A one-off manual fix generalizes across a release gap: absolute 36
+    arrives weeks after the abs-30 correction, no adjacent history exists."""
+    series = TVSeries(id=_id(), title_cn="百女友")
+    anchor = _resource(
+        sample_channel.id, series.id, "anchor-30", subtitle_group="Nix-Raws",
+        season=3, episode=6, absolute_episode=30, episode_confidence="manual",
+    )
+    target = _resource(
+        sample_channel.id, series.id, "target-36", subtitle_group="LoliHouse",
+        season=1, episode=36, episode_confidence="ambiguous",
+    )
+    db_session.add_all([series, anchor, target])
+    await db_session.commit()
+
+    changed = await apply_episode_history_reconcile(
+        db_session, target, seasons_map={1: 12, 2: 12, 3: 12}
+    )
+
+    assert changed is True
+    assert (target.season, target.episode, target.absolute_episode) == (3, 12, 36)
+    assert target.episode_confidence == "reconciled"
+
+
+async def test_far_extrapolation_requires_manual_anchor(db_session, sample_channel):
+    series = TVSeries(id=_id(), title_cn="百女友")
+    auto = _resource(
+        sample_channel.id, series.id, "auto-30", subtitle_group="Nix-Raws",
+        season=3, episode=6, absolute_episode=30, episode_confidence="reconciled",
+    )
+    target = _resource(
+        sample_channel.id, series.id, "target-36", subtitle_group="Nix-Raws",
+        season=1, episode=36, episode_confidence="ambiguous",
+    )
+    db_session.add_all([series, auto, target])
+    await db_session.commit()
+
+    changed = await apply_episode_history_reconcile(
+        db_session, target, seasons_map={1: 12, 2: 12, 3: 12}
+    )
+
+    assert changed is False
+    assert (target.season, target.episode) == (1, 36)
+
+
+async def test_far_extrapolation_respects_season_count(db_session, sample_channel):
+    """The convention's implied episode may not overshoot the known season
+    count (+ tolerance) even with a manual anchor."""
+    series = TVSeries(id=_id(), title_cn="百女友")
+    anchor = _resource(
+        sample_channel.id, series.id, "anchor-30", subtitle_group="Nix-Raws",
+        season=3, episode=6, absolute_episode=30, episode_confidence="manual",
+    )
+    target = _resource(
+        sample_channel.id, series.id, "target-52", subtitle_group="Nix-Raws",
+        season=1, episode=52, episode_confidence="ambiguous",
+    )
+    db_session.add_all([series, anchor, target])
+    await db_session.commit()
+
+    changed = await apply_episode_history_reconcile(
+        db_session, target, seasons_map={1: 12, 2: 12, 3: 12}
+    )
+
+    assert changed is False
+
+
+async def test_heal_sibling_episodes(db_session, sample_channel):
+    from app.services.episode_history import heal_sibling_episodes
+
+    series = TVSeries(id=_id(), title_cn="百女友")
+    anchor = _resource(
+        sample_channel.id, series.id, "anchor-30", subtitle_group="Nix-Raws",
+        season=3, episode=6, absolute_episode=30, episode_confidence="manual",
+    )
+    ambiguous_far = _resource(
+        sample_channel.id, series.id, "amb-36", subtitle_group="LoliHouse",
+        season=1, episode=36, episode_confidence="ambiguous",
+    )
+    ambiguous_adjacent = _resource(
+        sample_channel.id, series.id, "amb-31", subtitle_group="Nix-Raws",
+        season=1, episode=31, episode_confidence="ambiguous",
+    )
+    manual_sibling = _resource(
+        sample_channel.id, series.id, "manual-29", subtitle_group="Other",
+        season=3, episode=5, absolute_episode=29, episode_confidence="manual",
+    )
+    db_session.add_all(
+        [series, anchor, ambiguous_far, ambiguous_adjacent, manual_sibling]
+    )
+    await db_session.commit()
+
+    healed = await heal_sibling_episodes(
+        db_session, anchor, seasons_map={1: 12, 2: 12, 3: 12}
+    )
+
+    assert set(healed) == {ambiguous_far.id, ambiguous_adjacent.id}
+    assert (ambiguous_far.season, ambiguous_far.episode) == (3, 12)
+    assert (ambiguous_adjacent.season, ambiguous_adjacent.episode) == (3, 7)
+    assert ambiguous_far.episode_confidence == "reconciled"
+    # Manual rows are never touched.
+    assert (manual_sibling.season, manual_sibling.episode) == (3, 5)
+
+
+async def test_heal_sibling_episodes_scopes_to_work_and_channel(
+    db_session, sample_channel
+):
+    from app.models.channel import Channel
+    from app.services.episode_history import heal_sibling_episodes
+
+    series = TVSeries(id=_id(), title_cn="百女友")
+    other_series = TVSeries(id=_id(), title_cn="另一部")
+    channel_b = Channel(
+        id=_id(), name="Channel B", type="rss_feed",
+        url="https://example.com/rss-b", fetch_interval=1800, status="active",
+        field_mapping={"list_locator": {"source": "entries"},
+                       "field_mappings": {"torrent_url": {"source": "link"}}},
+        metadata_agent_enabled=False,
+    )
+    anchor = _resource(
+        sample_channel.id, series.id, "anchor-30", subtitle_group="Nix-Raws",
+        season=3, episode=6, absolute_episode=30, episode_confidence="manual",
+    )
+    other_work = _resource(
+        sample_channel.id, other_series.id, "other-work", subtitle_group="Nix-Raws",
+        season=1, episode=36, episode_confidence="ambiguous",
+    )
+    other_channel = _resource(
+        channel_b.id, series.id, "other-channel", subtitle_group="Nix-Raws",
+        season=1, episode=36, episode_confidence="ambiguous",
+    )
+    db_session.add_all(
+        [series, other_series, channel_b, anchor, other_work, other_channel]
+    )
+    await db_session.commit()
+
+    healed = await heal_sibling_episodes(
+        db_session, anchor, seasons_map={1: 12, 2: 12, 3: 12}
+    )
+
+    assert healed == []
+    assert other_work.episode_confidence == "ambiguous"
+    assert other_channel.episode_confidence == "ambiguous"

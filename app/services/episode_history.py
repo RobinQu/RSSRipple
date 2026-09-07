@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_ABSOLUTE_DISTANCE = 2
 _HISTORY_SCAN_LIMIT = 60
+_FAR_SCAN_LIMIT = 200
 
 
 def _group_key(value: object) -> frozenset[str]:
@@ -49,7 +50,7 @@ def _single_convention(rows: list[FileResource]) -> tuple[int, int] | None:
 
 
 def _choose_convention(
-    rows: list[FileResource], target_group: str
+    rows: list[FileResource], target_group: str, *, require_manual: bool = False
 ) -> tuple[int, int] | None:
     """Choose a convention using the strict evidence policy.
 
@@ -57,32 +58,44 @@ def _choose_convention(
     Without one, the same group needs two distinct absolute examples.  The
     cross-group fallback requires either two groups or two distinct absolute
     examples, and every eligible example must agree.
+
+    ``require_manual`` (far extrapolation beyond the adjacency window) —
+    only human-vetted (``manual``) rows establish the convention: they must
+    all agree on a single convention, and any non-manual history that
+    disagrees vetoes it. One manual correction is enough, even cross-group —
+    the per-season-count sanity check downstream bounds the blast radius.
     """
+    if require_manual:
+        manual_rows = [row for row in rows if row.episode_confidence == "manual"]
+        convention = _single_convention(manual_rows)
+        if convention is None:
+            return None
+        everything = _single_convention(rows)
+        if everything is not None and everything != convention:
+            return None
+        return convention
     target_group = _group_key(target_group)
     same_group = (
         [row for row in rows if _group_key(row.subtitle_group) == target_group]
         if target_group
         else []
     )
+    convention: tuple[int, int] | None = None
     if same_group:
         manual = [row for row in same_group if row.episode_confidence == "manual"]
         if manual:
             convention = _single_convention(manual)
-            if convention is not None:
-                return convention
-        if len({row.absolute_episode for row in same_group}) >= 2:
+        if convention is None and len({row.absolute_episode for row in same_group}) >= 2:
             convention = _single_convention(same_group)
-            if convention is not None:
-                return convention
 
-    convention = _single_convention(rows)
     if convention is None:
-        return None
-    groups = {_group_key(row.subtitle_group) for row in rows if _group_key(row.subtitle_group)}
-    absolutes = {row.absolute_episode for row in rows}
-    if len(groups) >= 2 or len(absolutes) >= 2:
-        return convention
-    return None
+        convention = _single_convention(rows)
+        if convention is not None:
+            groups = {_group_key(row.subtitle_group) for row in rows if _group_key(row.subtitle_group)}
+            absolutes = {row.absolute_episode for row in rows}
+            if not (len(groups) >= 2 or len(absolutes) >= 2):
+                convention = None
+    return convention
 
 
 async def apply_season_history_default(
@@ -178,9 +191,18 @@ async def apply_episode_history_reconcile(
 ) -> bool:
     """Apply a trusted sibling numbering convention to ``resource``.
 
-    Only earlier absolute episode numbers are used: this makes the operation
-    an extrapolation from established history and prevents peer rows for the
-    same newly-seen episode from reinforcing one another's bad parse.
+    Two evidence tiers:
+
+    1. Adjacent rows (earlier absolutes within ``_MAX_ABSOLUTE_DISTANCE``)
+       under the standard policy — an extrapolation from established history
+       that prevents peer rows for the same newly-seen episode from
+       reinforcing one another's bad parse.
+    2. Far extrapolation: when no adjacent rows exist, any trusted sibling
+       (either direction, peer absolutes excluded) may establish the
+       convention, but only when it is anchored by at least one human-vetted
+       ``manual`` correction. This is what generalizes a one-off manual fix
+       (e.g. absolute 30 → S3E6) into a durable per-group numbering rule for
+       resources arriving weeks or a season apart.
     """
     if (
         not getattr(resource, "series_id", None)
@@ -228,11 +250,48 @@ async def apply_episode_history_reconcile(
             and row.episode is not None
             and row.episode_confidence in ("manual", "reconciled")
         ][:_HISTORY_SCAN_LIMIT]
+    far = False
+    if not rows:
+        far = True
+        if history_rows is None:
+            stmt = (
+                select(FileResource)
+                .where(
+                    FileResource.series_id == resource.series_id,
+                    FileResource.channel_id == resource.channel_id,
+                    FileResource.id != resource.id,
+                    FileResource.is_batch.is_(False),
+                    FileResource.absolute_episode.isnot(None),
+                    FileResource.absolute_episode != target_absolute,
+                    FileResource.season.isnot(None),
+                    FileResource.episode.isnot(None),
+                    FileResource.episode_confidence.in_(["manual", "reconciled"]),
+                )
+                .order_by(FileResource.created_at.desc())
+                .limit(_FAR_SCAN_LIMIT)
+            )
+            rows = list((await db.execute(stmt)).scalars().all())
+        else:
+            rows = [
+                row for row in history_rows
+                if row.id != resource.id
+                and row.series_id == resource.series_id
+                and row.channel_id == resource.channel_id
+                and not row.is_batch
+                and row.absolute_episode is not None
+                and row.absolute_episode != target_absolute
+                and row.season is not None
+                and row.episode is not None
+                and row.episode_confidence in ("manual", "reconciled")
+            ][:_FAR_SCAN_LIMIT]
     if not rows:
         return False
 
-    convention = _choose_convention(rows, getattr(resource, "subtitle_groups", None)
-                                     or getattr(resource, "subtitle_group", None))
+    convention = _choose_convention(
+        rows,
+        getattr(resource, "subtitle_groups", None) or getattr(resource, "subtitle_group", None),
+        require_manual=far,
+    )
     if convention is None:
         return False
     season, offset = convention
@@ -263,3 +322,61 @@ async def apply_episode_history_reconcile(
         getattr(resource, "id", "?"), before[:2], season, episode, target_absolute,
     )
     return True
+
+
+_HEAL_SCAN_LIMIT = 100
+
+
+async def heal_sibling_episodes(
+    db: AsyncSession,
+    resource: FileResource,
+    *,
+    seasons_map: dict[int, int] | None = None,
+) -> list[str]:
+    """Reconcile unresolved siblings after a manual episode correction.
+
+    A fresh manual correction is the strongest convention anchor; siblings
+    of the same work in the same channel still sitting in the Channel
+    confirmation queue (``ambiguous``) or never reconciled (``raw``) get the
+    history convention applied immediately instead of waiting for a person
+    to repeat the same fix. Returns the ids of resources actually changed
+    (callers commit, then enqueue targeted agent reruns). Never touches
+    manual rows, batches, or other works/channels.
+    """
+    if (
+        not getattr(resource, "series_id", None)
+        or getattr(resource, "is_batch", False)
+        or getattr(resource, "episode_confidence", None) != "manual"
+    ):
+        return []
+    stmt = (
+        select(FileResource)
+        .where(
+            FileResource.series_id == resource.series_id,
+            FileResource.channel_id == resource.channel_id,
+            FileResource.id != resource.id,
+            FileResource.is_batch.is_(False),
+            FileResource.episode.isnot(None),
+            FileResource.episode_confidence.in_(["ambiguous", "raw"]),
+        )
+        .order_by(FileResource.created_at)
+        .limit(_HEAL_SCAN_LIMIT)
+    )
+    siblings = list((await db.execute(stmt)).scalars().all())
+    healed: list[str] = []
+    for sibling in siblings:
+        try:
+            if await apply_episode_history_reconcile(
+                db, sibling, seasons_map=seasons_map
+            ):
+                healed.append(sibling.id)
+        except Exception:
+            logger.exception(
+                "[episode_history] heal failed for sibling %s", sibling.id
+            )
+    if healed:
+        logger.info(
+            "[episode_history] manual correction of %s healed %d sibling(s): %s",
+            resource.id, len(healed), healed,
+        )
+    return healed

@@ -126,21 +126,43 @@ def _autolink_subject(
     return hits[0] if len(hits) == 1 else None
 
 
+def _int_or_none(value: Any) -> int | None:
+    """Whole positive int or None; fractional specials and non-positive
+    numbers are rejected."""
+    if value is None:
+        return None
+    num = int(value)
+    if num != value or num <= 0:
+        return None
+    return num
+
+
 def _episode_list_from(episodes: list[dict], season: int) -> list[dict]:
     """Map Bangumi main-story episodes to our episode_list shape.
 
-    ``sort`` is the global episode number; fractional sorts (in-between
-    specials) and non-positive numbers are skipped.
+    ``ep`` is the season-local episode number and is preferred; ``sort`` is
+    the global (continuation) number and is only a fallback — later-season
+    subjects frequently continue the previous seasons' numbering (a
+    season-3 subject lists ``sort`` 25-36 with ``ep`` 1-12), and a season
+    work's Episode rows must stay season-local. When every entry only has
+    ``sort`` and the list does not start at 1, it is rebased so the first
+    entry becomes episode 1. Fractional numbers (in-between specials) and
+    non-positive numbers are skipped.
     """
+    entries: list[tuple[int, dict]] = []
+    for ep in episodes:
+        num = _int_or_none(ep.get("ep"))
+        if num is None:
+            num = _int_or_none(ep.get("sort"))
+        if num is None:
+            continue
+        entries.append((num, ep))
+    if entries and min(num for num, _ in entries) > 1:
+        shift = min(num for num, _ in entries) - 1
+        entries = [(num - shift, ep) for num, ep in entries]
     out: list[dict] = []
     seen: set[int] = set()
-    for ep in episodes:
-        sort = ep.get("sort")
-        if sort is None:
-            continue
-        num = int(sort)
-        if num != sort or num <= 0:
-            continue
+    for num, ep in entries:
         if num in seen:
             continue
         seen.add(num)
@@ -148,6 +170,7 @@ def _episode_list_from(episodes: list[dict], season: int) -> list[dict]:
             "season": season,
             "episode": num,
             "title": ep.get("name_cn") or ep.get("name") or None,
+            "air_date": ep.get("airdate") or None,
         })
     out.sort(key=lambda e: e["episode"])
     return out

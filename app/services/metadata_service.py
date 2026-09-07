@@ -743,7 +743,10 @@ async def upsert_episodes(
     entries; a per-season work only takes its own season's entries from a
     series-level entity, and re-tags a season-granularity entity's entries to
     its ``season_number`` (a Bangumi subject IS one season; its entries may
-    carry the resource's parsed marker or a default 1).
+    carry the resource's parsed marker or a default 1). For a per-season
+    work, a list that does not start at episode 1 (continuation numbering
+    from earlier seasons) is clamped to ``number_of_episodes`` +
+    reconcile tolerance; lists starting at 1 are trusted whole.
     """
     items = [
         e for e in (episode_list or [])
@@ -757,6 +760,35 @@ async def upsert_episodes(
             items = [{**e, "season": season} for e in items]
         else:
             items = [e for e in items if int(e["season"]) == season]
+        # Continuation-numbering guard: a per-season work's Episode rows must
+        # stay season-local. A list that starts at episode 1 is season-local
+        # by construction and is trusted whole (even past a stale
+        # ``number_of_episodes`` for still-airing shows); a list that does
+        # NOT start at 1 (e.g. a Bangumi later-season subject continuing the
+        # previous seasons' numbering) is clamped to the known episode count
+        # (+ the usual airing-lag tolerance) instead of polluting the season
+        # with absolute-across-seasons numbers.
+        count = getattr(series, "number_of_episodes", None)
+        if (
+            items
+            and isinstance(count, int)
+            and not isinstance(count, bool)
+            and count > 0
+            and min(int(e["episode"]) for e in items) > 1
+        ):
+            ceiling = count + _RECONCILE_TOLERANCE
+            kept = [e for e in items if int(e["episode"]) <= ceiling]
+            dropped = len(items) - len(kept)
+            if dropped:
+                logger.warning(
+                    "[upsert_episodes] dropped %d out-of-range episode entr%s for "
+                    "series %s (season %s, count %s): looks like continuation "
+                    "numbering (min episode %s)",
+                    dropped, "y" if dropped == 1 else "ies",
+                    series.id, season, count,
+                    min(int(e["episode"]) for e in items),
+                )
+            items = kept
     if not items:
         return 0
     result = await db.execute(select(Episode).where(Episode.series_id == series.id))
