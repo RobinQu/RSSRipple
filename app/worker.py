@@ -64,9 +64,14 @@ async def _run() -> None:  # pragma: no cover - process wiring
 
     _ensure_data_dirs()
 
-    logger.info("Creating database tables...")
-    await create_tables()
-    logger.info("Database ready.")
+    if settings.db_migrate_on_startup:
+        logger.info("Creating database tables...")
+        await create_tables()
+        logger.info("Database ready.")
+    else:
+        # Distributed compose stack: DDL ran in the one-shot `migrate`
+        # service this stack depends on — skip it here.
+        logger.info("Skipping startup DDL (DB_MIGRATE_ON_STARTUP=false).")
 
     # Load runtime-configurable settings (LLM + external search source keys)
     # from the DB into the in-memory cache so user overrides take effect. Job

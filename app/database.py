@@ -225,8 +225,70 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
+# Startup DDL must never wait indefinitely: PostgreSQL queues lock requests
+# strictly, so one blocked ALTER (e.g. behind a long-running worker
+# transaction) makes every later reader of that table queue behind it and
+# gridlocks the whole stack. Fail fast and retry instead — between attempts
+# no lock request of ours is queued, so normal traffic is never stuck behind
+# a waiting migration.
+_DDL_LOCK_TIMEOUT_MS = 5000
+_DDL_MAX_ATTEMPTS = 36  # ~3 min worst case (5s lock_timeout + backoff) before giving up
+
+
+def _is_lock_timeout(exc: BaseException) -> bool:
+    """SQLSTATE 55P03 (lock_not_available) raised when lock_timeout fires."""
+    orig = getattr(exc, "orig", None)
+    return getattr(orig, "sqlstate", None) == "55P03"
+
+
+async def _create_tables_postgres() -> None:
+    """PostgreSQL branch of ``create_tables`` with bounded lock waits."""
+    for attempt in range(1, _DDL_MAX_ATTEMPTS + 1):
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text(f"SET LOCAL lock_timeout = '{_DDL_LOCK_TIMEOUT_MS}'")
+                )
+                # Multiple distributed app replicas can start at the same time.
+                # PostgreSQL enum DDL is not race-free under concurrent create_all().
+                #
+                # Transaction-scoped advisory lock: released automatically at
+                # COMMIT/ROLLBACK of this engine.begin() block. A plain
+                # pg_advisory_lock + explicit unlock would (a) mask any inner
+                # failure behind InFailedSQLTransactionError when the unlock ran
+                # on an aborted transaction, and (b) strand a session-level lock
+                # on the pooled connection after a rollback.
+                await conn.execute(
+                    text("SELECT pg_advisory_xact_lock(72057594037927937)")
+                )
+                await conn.run_sync(Base.metadata.create_all)
+                await _apply_light_migrations(conn)
+                await _ensure_pg_trgm_indexes(conn)
+            return
+        except DatabaseError as e:
+            if not _is_lock_timeout(e) or attempt == _DDL_MAX_ATTEMPTS:
+                raise
+            logger.warning(
+                "[migrate] startup DDL lock unavailable (attempt %d/%d), retrying",
+                attempt,
+                _DDL_MAX_ATTEMPTS,
+            )
+            await asyncio.sleep(2)
+
+
 async def create_tables() -> None:
     """Create all database tables (drop-and-recreate dev strategy)."""
+    if "postgresql" in settings.database_url:
+        await _create_tables_postgres()
+        # Backfill search_text for rows created before the column/event hook
+        # existed (needed for the pg_trgm indexes).
+        from app.services.fts import backfill_search_text
+
+        async with async_session_factory() as session:
+            await backfill_search_text(session)
+            await session.commit()
+        return
+
     async with engine.begin() as conn:
         if is_turso_url(settings.database_url):
             # MVCC mode is persistent per file and unlocks BEGIN CONCURRENT
@@ -238,24 +300,9 @@ async def create_tables() -> None:
             from app.services.fts import ensure_fts_tables
             await ensure_fts_tables()
             await _apply_light_migrations(conn)
-        elif "postgresql" in settings.database_url:
-            # Multiple distributed app replicas can start at the same time.
-            # PostgreSQL enum DDL is not race-free under concurrent create_all().
-            #
-            # Transaction-scoped advisory lock: released automatically at
-            # COMMIT/ROLLBACK of this engine.begin() block. A plain
-            # pg_advisory_lock + explicit unlock would (a) mask any inner
-            # failure behind InFailedSQLTransactionError when the unlock ran
-            # on an aborted transaction, and (b) strand a session-level lock
-            # on the pooled connection after a rollback.
-            await conn.execute(text("SELECT pg_advisory_xact_lock(72057594037927937)"))
+        else:
             await conn.run_sync(Base.metadata.create_all)
             await _apply_light_migrations(conn)
-            await _ensure_pg_trgm_indexes(conn)
-            return
-
-        await conn.run_sync(Base.metadata.create_all)
-        await _apply_light_migrations(conn)
 
     if is_turso_url(settings.database_url):
         # One-time backfill for databases whose FTS shadow tables predate the

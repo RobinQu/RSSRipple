@@ -107,6 +107,12 @@ class Settings(BaseSettings):
     # Env var: APP_ROLE.
     app_role: str = "all"
 
+    # Run schema creation + light migrations at process startup. Default on;
+    # the distributed docker-compose stack sets DB_MIGRATE_ON_STARTUP=false on
+    # web/worker and runs DDL once in the one-shot `migrate` service instead,
+    # so long-running worker transactions can never gridlock startup DDL.
+    db_migrate_on_startup: bool = True
+
     # Task queue backend: "memory" (default, single-process) or "redis" (distributed)
     queue_backend: str = "memory"
     redis_url: str = "redis://localhost:6379/0"

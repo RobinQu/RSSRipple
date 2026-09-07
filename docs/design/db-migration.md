@@ -92,7 +92,8 @@ uv run python scripts/verify_search_parity.py \
 
 ### 4.1 默认栈已切换为分布式
 
-- **`docker-compose.yml`（默认）**：PostgreSQL + Redis + app。首次 `docker compose up` 会启动一个**全新的空 PostgreSQL**——它不会、也无法自动读取你在单节点时代积累的 Turso 数据。
+- **`docker-compose.yml`（默认）**：PostgreSQL + Redis + 一次性 `migrate` 服务 + app（web）+ 3 worker。首次 `docker compose up` 会启动一个**全新的空 PostgreSQL**——它不会、也无法自动读取你在单节点时代积累的 Turso 数据。
+- **启动 DDL 集中在 `migrate` 一次性服务**（`python -m app.migrate`，跑完即退出）：web/worker 设 `DB_MIGRATE_ON_STARTUP=false` 跳过自身启动迁移，并 `depends_on: migrate (service_completed_successfully)`——worker 的长事务不再与启动 DDL 竞争锁。PostgreSQL 分支的启动 DDL 另带 `lock_timeout=5s` + 有限重试（SQLSTATE 55P03 快速失败重试，约 3 分钟上限），避免一个排队的 ALTER 把全库读请求堵在锁队列里。本地/单进程开发默认 `DB_MIGRATE_ON_STARTUP=true`，行为不变。
 - **`docker-compose.standalone.yml`**：Turso 单节点（无 PostgreSQL/Redis），数据仍在 `app-data` 卷的 `rss_ripple_turso.db` 里。
 
 **关键认知**：从单节点切换到分布式栈时，旧 Turso 数据仍在 `app-data` 卷里（命名卷跨 compose 文件共享），但新栈的 app 连的是空 PostgreSQL。要让旧数据回来，必须手动执行第 2 节的迁移。

@@ -399,6 +399,12 @@ async def _backfill_unmatched_resources(
             eligible_ids.append(resource.id)
 
     if eligible_ids:
+        # Close the shared fetch session's transaction (releasing its read
+        # locks) before the LLM-heavy per-resource gather below: each task
+        # uses its own session, so holding this one open across minutes of
+        # external calls only stalls concurrent writers and startup DDL
+        # (PostgreSQL queues lock requests behind a waiting ALTER).
+        await db.commit()
         await asyncio.gather(
             *(
                 _process_resource_metadata(rid, channel.id, semaphore, force_refresh=True)
@@ -476,6 +482,10 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
             eligible.append((resource.id, resource.channel_id))
 
     if eligible:
+        # Same reasoning as _backfill_unmatched_resources: release this
+        # session's locks before the long metadata gather; per-task sessions
+        # persist all results.
+        await db.commit()
         semaphore = asyncio.Semaphore(MAX_METADATA_CONCURRENCY)
         await asyncio.gather(
             *(

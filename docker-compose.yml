@@ -36,6 +36,22 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # ── One-shot schema migration ─────────────────────────────────────────────
+  # Runs create_tables (schema + light migrations) once and exits. Web/worker
+  # skip their own startup DDL (DB_MIGRATE_ON_STARTUP=false) and only start
+  # after this completes, so a busy database (long-running worker
+  # transactions) can never gridlock startup DDL behind a queued ALTER.
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-rssripple}:${POSTGRES_PASSWORD:-rssripple}@postgres:5432/${POSTGRES_DB:-rssripple}
+      - LOG_LEVEL=INFO
+    command: ["uv", "run", "--no-project", "python", "-m", "app.migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   app:
     build: .
     ports:
@@ -62,12 +78,16 @@ services:
       # Pure web role: HTTP + enqueue only; scheduling/queue consumption
       # runs in the worker service below.
       - APP_ROLE=web
+      # Startup DDL runs once in the `migrate` service above.
+      - DB_MIGRATE_ON_STARTUP=false
     command: ["uv", "run", "--no-project", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9001", "--reload"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # Webhook consumers running on the Docker host (e.g. vault-organizer):
     # the machine hostname resolves to loopback (127.0.1.1) and never works
     # across containers; this pins host.docker.internal to the host gateway.
@@ -116,12 +136,16 @@ services:
       - LOG_LEVEL=DEBUG
       - POSTER_CACHE_DIR=/app/data/posters
       - APP_ROLE=worker
+      # Startup DDL runs once in the `migrate` service above.
+      - DB_MIGRATE_ON_STARTUP=false
     command: ["uv", "run", "--no-project", "python", "-m", "app.worker"]
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # Webhook deliveries run on the worker now (notify loop lives in the
     # scheduler); same host-gateway pin as web for host-side consumers.
     extra_hosts:
