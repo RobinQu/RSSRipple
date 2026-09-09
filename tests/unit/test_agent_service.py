@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.models.agent import Agent
+from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_work import AgentWork
 from app.models.channel import Channel
 from app.models.download_task import DownloadTask
@@ -22,9 +23,13 @@ from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.agent_service import (
     RuleSet,
+    _batch_coverage_key,
+    _describe_preference,
     _generate_llm_pick,
     _parse_llm_pick,
+    _persist_suggestions,
     _resource_matches_rules,
+    _suggest_pick,
     compute_rule_diff,
     create_pending_decision,
     dispatch_download,
@@ -2271,3 +2276,284 @@ class TestDispatchPushesCachedTorrent:
             payload,
             download_dir="/downloads/rssripple",
         )
+
+
+# ---------------------------------------------------------------------------
+# Extra branch coverage: heuristic scoring, pick parsing, preferences,
+# suggestions persistence, batch coverage keys, autocommit, legacy decisions
+# ---------------------------------------------------------------------------
+
+
+def test_score_and_pick_missing_resolution_scores_zero(channel, downloader):
+    """A candidate with resolution=None scores 0 on resolution and loses to
+    a same-size 1080p release."""
+    r1 = _make_resource(channel.id, resolution=None, file_size=100)
+    r2 = _make_resource(channel.id, resolution="1080p", file_size=100)
+    agent = Agent(id=_uuid(), name="a", channel_id=channel.id,
+                  downloader_id=downloader.id, scope_channel_wide=True,
+                  conflict_resolution="auto")
+    assert score_and_pick([r1, r2], None, agent).id == r2.id
+
+
+def test_parse_llm_pick_empty_text():
+    assert _parse_llm_pick("", 2) == (None, None)
+    assert _parse_llm_pick(None, 2) == (None, None)
+
+
+def test_parse_llm_pick_invalid_json_inside_braces():
+    """A ``{...}`` block that is not valid JSON falls through to the leading
+    integer fallback (which also misses here) instead of raising."""
+    assert _parse_llm_pick("pick {not json} 2", 2)[0] is None
+    assert _parse_llm_pick("{\"pick\": x} 3", 2)[0] is None
+
+
+async def test_create_pending_decision_unknown_series_uses_episode_only_reason(
+    db_session, channel, downloader
+):
+    """When the series cannot be resolved, the decision's season component
+    stays None and the reason drops the 季 component (episode-only)."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    r = _make_resource(channel.id, series_id=None, episode=3)
+    pd = await create_pending_decision(agent, ("series", None, 3), [r], db_session)
+    assert pd.series_id is None
+    assert pd.season is None
+    assert "第03集" in pd.reason
+
+
+async def test_create_pending_decision_skip_llm(db_session, channel, downloader, series):
+    """skip_llm=True bypasses the suggestion step for a fresh decision."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    r = _make_resource(channel.id, series_id=series.id, episode=4)
+    pd = await create_pending_decision(
+        agent, ("series", series.id, 4), [r], db_session, skip_llm=True
+    )
+    assert pd.llm_picked_resource_id is None
+    assert pd.llm_suggestion is None
+    assert "第04集" in pd.reason
+
+
+def test_pick_by_preferences_skips_non_dict_pref(channel):
+    """Non-dict entries in pick_preferences are skipped, not fatal."""
+    r1 = _make_resource(channel.id, subtitle_group="G1")
+    r2 = _make_resource(channel.id, subtitle_group="G2")
+    prefs = [
+        12345,
+        {"field": "subtitle_group", "operator": "eq", "value": "G2"},
+    ]
+    tier, deciding = pick_by_preferences([r1, r2], prefs)
+    assert [r.id for r in tier] == [r2.id]
+    assert deciding == prefs[1]
+
+
+def test_pick_by_preferences_skips_rule_that_raises(channel):
+    """A malformed rule whose evaluation raises (KeyError on missing keys) is
+    skipped — it must never break dispatch."""
+    r1 = _make_resource(channel.id, subtitle_group="G1")
+    r2 = _make_resource(channel.id, subtitle_group="G2")
+    prefs = [
+        {"no_field": 1},
+        {"field": "subtitle_group", "operator": "eq", "value": "G2"},
+    ]
+    tier, deciding = pick_by_preferences([r1, r2], prefs)
+    assert [r.id for r in tier] == [r2.id]
+    assert deciding == prefs[1]
+
+
+def test_describe_preference():
+    assert _describe_preference(
+        {"field": "resolution", "operator": "eq", "value": "1080p"}
+    ) == "resolution eq 1080p"
+    assert _describe_preference(
+        {"field": "is_anime", "operator": "is_empty"}
+    ) == "is_anime is_empty"
+
+
+async def test_suggest_pick_preference_winner(channel, downloader):
+    """A unique preference winner is returned deterministically with a
+    rule-sourced reason (no LLM call)."""
+    big5 = _make_resource(channel.id, subtitle_langs=["zh-TW"])
+    gb = _make_resource(channel.id, subtitle_langs=["zh-CN"])
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+        pick_preferences=[
+            {"field": "subtitle_langs", "operator": "contains", "value": "zh-CN"},
+        ],
+    )
+    picked, reason = await _suggest_pick(agent, [big5, gb], ("series", "x", 1))
+    assert picked == gb.id
+    assert "命中优选偏好规则" in reason
+
+
+async def test_persist_suggestions_skips_blank_and_adds_valid(db_session, channel, downloader):
+    """Blank sample titles / empty resource lists are skipped; valid groups
+    replace the previous snapshot."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, scope_channel_wide=True,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    await _persist_suggestions(agent.id, [
+        {"sample_title": "   ", "resources": ["r1"]},
+        {"sample_title": "Show", "resources": []},
+        {"sample_title": "One Piece", "resources": ["r1", "r2"]},
+    ], db_session)
+    rows = (await db_session.execute(
+        select(AgentSuggestion).where(AgentSuggestion.agent_id == agent.id)
+    )).scalars().all()
+    assert [r.sample_title for r in rows] == ["One Piece"]
+    assert rows[0].resources == ["r1", "r2"]
+
+
+async def test_batch_movie_pack_conflict_ask(db_session, channel, downloader, movie):
+    """Movie packs dedup/conflict by movie coverage: two versions of the same
+    movie batch in ask mode → one movie-typed PendingDecision (batch sentinel
+    episode -1)."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, status="active",
+        scope_channel_wide=True, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    await db_session.refresh(agent)
+    r1 = _make_resource(
+        channel.id, movie_id=movie.id, episode=None, season=None,
+        is_batch=True, guid=_uuid(), resolution="1080p",
+    )
+    r2 = _make_resource(
+        channel.id, movie_id=movie.id, episode=None, season=None,
+        is_batch=True, guid=_uuid(), resolution="720p",
+    )
+    db_session.add_all([r1, r2])
+    await db_session.flush()
+    with patch(
+        "app.clients.transmission.TransmissionWrapper.add_torrent",
+        new_callable=AsyncMock,
+        return_value={"torrent_id": 1, "name": "x", "hash": "h"},
+    ):
+        result = await process_resources(agent, [r1, r2], db_session)
+    assert result.pending_decisions == 1
+    assert result.dispatched == 0
+    pd = (await db_session.execute(
+        select(PendingDecision).where(PendingDecision.agent_id == agent.id)
+    )).scalar_one()
+    assert pd.movie_id == movie.id
+    assert pd.series_id is None
+    assert pd.episode == -1  # batch sentinel
+    assert "电影" in pd.reason
+
+
+async def test_batch_franchise_unknown_coverage_stopped(db_session, channel, downloader, series):
+    """A franchise pack carries no coverage key — it is stopped at the
+    Channel confirmation gate, never dispatched or made into a decision."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, status="active",
+        scope_channel_wide=True, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    await db_session.refresh(agent)
+    r = _make_resource(
+        channel.id, series_id=series.id, episode=None, season=None,
+        is_batch=True, batch_scope="franchise", guid=_uuid(),
+    )
+    db_session.add(r)
+    await db_session.flush()
+    result = await process_resources(agent, [r], db_session)
+    assert result.unrecognized == 1
+    assert result.dispatched == 0
+    assert result.pending_decisions == 0
+
+
+def test_batch_coverage_key_season_without_series_is_none(channel):
+    """A season pack without a work FK has unknown coverage."""
+    r = _make_resource(channel.id, series_id=None, is_batch=True, batch_scope="season")
+    assert _batch_coverage_key(r) is None
+
+
+async def test_batch_coverage_key_legacy_unsplit_series_uses_parsed_season(
+    db_session, series
+):
+    """Transition-only: a legacy unsplit series-level row still needs the
+    parsed season to tell its season packs apart."""
+    legacy = TVSeries(
+        id=_uuid(), title_cn="剧集A", title_en="Series A",
+        content_type="tv", season_number=1, number_of_seasons=2,
+    )
+    db_session.add(legacy)
+    await db_session.flush()
+    r = _make_resource(
+        "ch", series=legacy, series_id=legacy.id, season=2,
+        is_batch=True, batch_scope="season",
+    )
+    assert _batch_coverage_key(r) == ("season", 2)
+
+
+async def test_process_resources_autocommit_commits(db_session, channel, downloader, series):
+    """autocommit=True persists each dispatch unit before the run returns."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, status="active",
+        scope_channel_wide=True, conflict_resolution="ask",
+    )
+    r = _make_resource(channel.id, series_id=series.id, episode=1)
+    db_session.add_all([agent, r])
+    await db_session.flush()
+    await db_session.refresh(agent)
+    with patch(
+        "app.clients.transmission.TransmissionWrapper.add_torrent",
+        new_callable=AsyncMock,
+        return_value={"torrent_id": 3, "name": "x", "hash": "h"},
+    ):
+        result = await process_resources(agent, [r], db_session, autocommit=True)
+    assert result.dispatched == 1
+    task = (await db_session.execute(
+        select(DownloadTask).where(DownloadTask.agent_id == agent.id)
+    )).scalars().one()
+    assert task.status == "downloading"
+
+
+async def test_retire_legacy_confirmation_decisions(db_session, channel, downloader, series):
+    """Legacy resource-confirmation issues still parked in the Agent decision
+    queue are retired (skipped) on the next run; real candidate conflicts
+    stay pending."""
+    agent = Agent(
+        id=_uuid(), name="a", channel_id=channel.id,
+        downloader_id=downloader.id, status="active",
+        scope_channel_wide=True, conflict_resolution="ask",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    await db_session.refresh(agent)
+    legacy = PendingDecision(
+        id=_uuid(), agent_id=agent.id, series_id=series.id, episode=1,
+        candidates=[], reason="集号不确定：无法解析集号",
+        status="pending", expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    normal = PendingDecision(
+        id=_uuid(), agent_id=agent.id, series_id=series.id, episode=2,
+        candidates=[], reason="多个资源匹配 剧集A 第02集",
+        status="pending", expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    db_session.add_all([legacy, normal])
+    await db_session.flush()
+    await process_resources(agent, [], db_session)
+    await db_session.flush()
+    legacy_after = await db_session.get(PendingDecision, legacy.id)
+    normal_after = await db_session.get(PendingDecision, normal.id)
+    assert legacy_after.status == "skipped"
+    assert legacy_after.decided_at is not None
+    assert normal_after.status == "pending"

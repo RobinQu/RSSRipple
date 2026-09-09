@@ -55,7 +55,7 @@ jobs:
         run: uv sync --frozen --all-groups
 
       - name: Run unit and API tests
-        run: uv run pytest tests/unit tests/api -v --tb=short --cov=app --cov-report=term --cov-fail-under=80
+        run: uv run pytest tests/unit tests/api -v --tb=short --cov=app --cov-report=term --cov-fail-under=95
 
       - name: Offline production metadata acceptance
         env:

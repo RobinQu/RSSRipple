@@ -262,3 +262,55 @@ async def test_backfill_search_text_fills_null_rows(db_session, sample_series):
         .execution_options(populate_existing=True)
     )).scalar_one()
     assert row.search_text == "测试剧集 test series test series 别名"
+
+
+async def test_drain_returns_zero_when_outbox_empty(db_session):
+    assert await drain_fts_outbox(db_session) == 0
+
+
+async def test_drain_respects_limit(db_session, sample_series):
+    s2 = TVSeries(
+        id=str(uuid.uuid4()), title_cn="第二部", title_en="Second Show",
+        content_type="tv",
+    )
+    db_session.add(s2)
+    await db_session.commit()
+
+    n = await drain_fts_outbox(db_session, limit=1)
+    await db_session.commit()
+    assert n == 1
+    assert len(await _outbox_rows(db_session)) == 1
+
+    await drain_fts_outbox(db_session)
+    await db_session.commit()
+    assert await _outbox_rows(db_session) == []
+
+
+async def test_drain_collapses_repeated_upserts_to_final_state(db_session, sample_series):
+    """Two upserts for the same entity between drain ticks converge to the
+    latest full-state write — no intermediate title survives in the shadow."""
+    await db_session.commit()
+    await drain_fts_outbox(db_session)
+    await db_session.commit()
+
+    sample_series.title_en = "Renamed A"
+    await db_session.commit()
+    sample_series.title_en = "Renamed B"
+    await db_session.commit()
+    assert len(await _outbox_rows(db_session)) == 2
+
+    n = await drain_fts_outbox(db_session)
+    await db_session.commit()
+    assert n == 2
+    assert sample_series.id in await search_series_fts(db_session, "renamed b")
+    # the shadow holds exactly one row for the entity — the final state only
+    from sqlalchemy import text
+
+    from app.services.fts import _get_fts_engine
+
+    engine = _get_fts_engine()
+    async with engine.connect() as conn:
+        count = (await conn.execute(text(
+            "SELECT COUNT(*) FROM tv_series_fts WHERE entity_id = :id"
+        ), {"id": sample_series.id})).scalar()
+    assert count == 1

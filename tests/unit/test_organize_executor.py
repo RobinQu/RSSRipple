@@ -11,6 +11,8 @@ import errno
 import os
 from pathlib import Path
 
+import pytest
+
 from app.services.organize_executor import (
     ExecOp,
     cleanup_empty_dirs,
@@ -383,3 +385,220 @@ def test_verify_done_hardlink_ignores_residual_src(tmp_path):
     dst = _mkfile(tmp_path / "lib" / "a.mkv", 100)
     assert verify_done([_move(src, dst, 100)], file_op="hardlink") == []
     assert verify_done([_move(src, dst, 100)], file_op="copy") == []
+
+
+# ---------------------------------------------------------------- 补缺分支
+
+
+def test_precheck_movedir_completed_when_src_missing(tmp_path):
+    """movedir 已完成（src 已移走、dst 在位）= 幂等满足，不算违例。"""
+    src = tmp_path / "dl" / "movie"
+    dst = _mkfile(tmp_path / "extras" / "movie" / "x.nfo", 5).parent
+    violations = precheck(
+        [ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)]
+    )
+    assert violations == []
+
+
+def test_precheck_movedir_both_missing(tmp_path):
+    src = tmp_path / "dl" / "movie"
+    dst = tmp_path / "extras" / "movie"
+    violations = precheck(
+        [ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)]
+    )
+    assert violations and "均不存在" in violations[0]
+
+
+def test_precheck_move_both_missing(tmp_path):
+    src = tmp_path / "dl" / "a.mkv"
+    dst = tmp_path / "lib" / "a.mkv"
+    violations = precheck([_move(src, dst, 100)])
+    assert violations and "源文件与目标均不存在" in violations[0]
+
+
+def test_state_table_src_equals_dst(tmp_path):
+    """src == dst → done（hardlink/copy 共用状态表分支）。"""
+    src = _mkfile(tmp_path / "lib" / "ep01.mkv", 100)
+    op = ExecOp(op_type="move", src=str(src), dst=str(src), size=100)
+    for file_op in ("hardlink", "copy"):
+        [r] = execute_ops([op], file_op=file_op)
+        assert r.status == "done"
+        assert src.exists()
+
+
+def test_move_non_exdev_oserror_propagates(tmp_path, monkeypatch):
+    """跨设备之外的 OSError（如权限）原样抛出，不吞异常不删源。"""
+    src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
+    dst = tmp_path / "lib" / "ep01.mkv"
+
+    def fake_rename(s, d):
+        raise OSError(errno.EPERM, "Permission denied")
+
+    monkeypatch.setattr(os, "rename", fake_rename)
+    with pytest.raises(OSError):
+        execute_ops([_move(src, dst, 100)])
+    assert src.exists()
+    assert not dst.exists()
+
+
+def test_movedir_src_missing(tmp_path):
+    src = tmp_path / "dl" / "movie"
+    dst = _mkfile(tmp_path / "extras" / "movie" / "x.nfo", 5).parent
+    assert (
+        execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+        is None
+    )
+    missing = tmp_path / "extras" / "m2"
+    error = execute_movedir(
+        ExecOp(op_type="movedir", src=str(src), dst=str(missing), size=0)
+    )
+    assert error and "均不存在" in error
+
+
+def test_movedir_empty_src_is_noop(tmp_path):
+    """空源目录无需移动，交给空目录清理。"""
+    src = tmp_path / "dl" / "movie"
+    src.mkdir(parents=True)
+    dst = tmp_path / "extras" / "movie"
+    assert (
+        execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+        is None
+    )
+    assert src.exists()
+    assert not dst.exists()
+
+
+def test_movedir_exdev_falls_back_to_shutil_move(tmp_path, monkeypatch):
+    src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+
+    def fake_rename(s, d):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(os, "rename", fake_rename)
+    assert (
+        execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+        is None
+    )
+    assert (dst / "x.nfo").exists()
+    assert not src.exists()
+
+
+def test_movedir_non_exdev_oserror_propagates(tmp_path, monkeypatch):
+    src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+
+    def fake_rename(s, d):
+        raise OSError(errno.EPERM, "Permission denied")
+
+    monkeypatch.setattr(os, "rename", fake_rename)
+    with pytest.raises(OSError):
+        execute_movedir(ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0))
+    assert src.exists()
+    assert not dst.exists()
+
+
+def test_precheck_src_size_mismatch(tmp_path):
+    """源文件大小与计划快照不符（规划后已被改动）→ 违例。"""
+    src = _mkfile(tmp_path / "dl" / "a.mkv", 100)
+    dst = tmp_path / "lib" / "a.mkv"
+    violations = precheck([_move(src, dst, 999)])
+    assert violations and "大小与计划快照不符" in violations[0]
+
+
+def test_precheck_dst_conflict_size_mismatch(tmp_path):
+    """目标已存在且大小不符 → 违例（绝不覆盖）。"""
+    src = _mkfile(tmp_path / "dl" / "a.mkv", 100)
+    dst = _mkfile(tmp_path / "lib" / "a.mkv", 200)
+    violations = precheck([_move(src, dst, 100)])
+    assert violations and "目标已存在且大小不符" in violations[0]
+
+
+def test_run_execution_cleanup_audit(tmp_path):
+    """move 后种子目录空 → 自底向上清空并产 cleanup 审计。"""
+    src = _mkfile(tmp_path / "dl" / "Show" / "ep01.mkv", 100)
+    dst = tmp_path / "lib" / "Show" / "ep01.mkv"
+    outcome = run_execution(
+        [_move(src, dst, 100)],
+        cleanup_root=str(tmp_path / "dl" / "Show"),
+        preserve=str(tmp_path / "dl"),
+    )
+    assert outcome.ok
+    assert any(a["action"] == "cleanup" for a in outcome.audits)
+
+
+def test_verify_done_missing_and_wrong_size(tmp_path):
+    src = _mkfile(tmp_path / "dl" / "a.mkv", 100)
+    dst = tmp_path / "lib" / "a.mkv"
+    problems = verify_done([_move(src, dst, 100)])
+    assert any("目标文件缺失" in p for p in problems)
+    _mkfile(dst, 999)
+    problems = verify_done([_move(src, dst, 100)])
+    assert any("目标文件大小与计划不符" in p for p in problems)
+
+
+def test_cleanup_empty_dirs_non_dir(tmp_path):
+    f = _mkfile(tmp_path / "f.txt", 1)
+    assert cleanup_empty_dirs(f) == []
+
+
+def test_cleanup_empty_dirs_keeps_root_when_preserve_equals_root(tmp_path):
+    base = tmp_path / "downloads"
+    _mkfile(base / "a" / "b" / "f.txt", 1)
+    (base / "empty").mkdir(parents=True)
+    removed = cleanup_empty_dirs(base, preserve=base)
+    assert str(base / "empty") in removed
+    assert base.exists()
+
+
+def test_run_execution_op_failure_reports_error(tmp_path, monkeypatch):
+    """单 op 失败（如 hardlink EXDEV）→ 计划级 failed + 审计明细，源保留。"""
+    src = _mkfile(tmp_path / "dl" / "a.mkv", 100)
+    dst = tmp_path / "lib" / "a.mkv"
+
+    def fake_link(s, d):
+        raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+    monkeypatch.setattr(os, "link", fake_link)
+    outcome = run_execution([_move(src, dst, 100)], file_op="hardlink")
+    assert not outcome.ok
+    assert "文件操作失败" in outcome.error
+    assert any(
+        a["action"] == "hardlink" and a["detail"]["status"] == "failed"
+        for a in outcome.audits
+    )
+    assert src.exists()
+    assert not dst.exists()
+
+
+def test_run_execution_verify_failure(tmp_path, monkeypatch):
+    """文件 op 全过但后置校验失败 → failed + verify 审计。"""
+    src = _mkfile(tmp_path / "dl" / "a.mkv", 100)
+    dst = tmp_path / "lib" / "a.mkv"
+    monkeypatch.setattr(
+        "app.services.organize_executor.verify_done",
+        lambda ops, file_op="move": ["目标文件缺失：fake"],
+    )
+    outcome = run_execution([_move(src, dst, 100)])
+    assert not outcome.ok
+    assert "后置校验未通过" in outcome.error
+    assert any(a["action"] == "verify" for a in outcome.audits)
+
+
+def test_run_execution_movedir_failure(tmp_path, monkeypatch):
+    """movedir 执行失败 → op failed + 计划级 failed，绝不让 movedir 失败混过。"""
+    src = _mkfile(tmp_path / "dl" / "movie" / "x.nfo", 5).parent
+    dst = tmp_path / "extras" / "movie"
+    monkeypatch.setattr(
+        "app.services.organize_executor.execute_movedir",
+        lambda op: "目标目录已存在，拒绝覆盖",
+    )
+    ops = [ExecOp(op_type="movedir", src=str(src), dst=str(dst), size=0)]
+    outcome = run_execution(ops)
+    assert not outcome.ok
+    assert "拒绝覆盖" in outcome.error
+    assert outcome.op_results[0].status == "failed"
+    assert any(
+        a["action"] == "movedir" and a["detail"]["status"] == "failed"
+        for a in outcome.audits
+    )

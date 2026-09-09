@@ -6,7 +6,11 @@ transforms, nested source paths, and edge cases.
 
 import pytest
 
-from app.services.resource_parser import parse_entry
+from app.services.resource_parser import (
+    extract_subtitle_group_from_filename,
+    parse_entry,
+    season_from_title,
+)
 
 SAMPLE_ENTRY = {
     "title": "[LoliHouse] Spy x Family - 12 [WebRip 1080p HEVC-10bit AAC][CHT].mkv",
@@ -916,3 +920,190 @@ def test_directory_season_inherited_without_filename_marker():
     assert extract_season_episode_from_path(
         "[BDrip] Show S02 [Group]/Show 2014 - 07.mkv"
     ) == (2, 7)
+
+
+# =============================================================================
+# extract_subtitle_group_from_filename — release-group suffix on filenames
+# =============================================================================
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        (None, None),
+        ("", None),
+        ("Show-Group.mkv", "Group"),
+        ("Show[Group].mkv", "Group"),
+        ("dir/subdir/Show-Group.mkv", "Group"),
+        ("Show-Group.Name.mkv", "Group.Name"),
+        ("Show-1234.mkv", None),           # pure digits
+        ("Show[123].mkv", None),           # digits in bracket form
+        ("Show-HEVC.mkv", None),           # technical suffix
+        ("Show-1080p.mkv", None),          # resolution token
+        ("Show-720P.mkv", None),           # resolution token (case-insensitive)
+        ("Show-AC3.mkv", None),            # technical suffix compound
+        ("Show.mkv", None),                # no suffix marker
+        ("Show - Group.mkv", None),        # spaced dash form is not a suffix
+    ],
+)
+def test_extract_subtitle_group_from_filename(path, expected):
+    assert extract_subtitle_group_from_filename(path) == expected
+
+
+# =============================================================================
+# season_from_title — season marker extraction (counterpart of strip)
+# =============================================================================
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        (None, None),
+        ("", None),
+        ("That Time I Got Reincarnated as a Slime Season 4", 4),
+        ("Some Show 2nd Season", 2),
+        ("关于我转生变成史莱姆这档事 第四季", 4),
+        ("Skeleton Knight in Another World S2", 2),
+        ("名侦探柯南", None),
+    ],
+)
+def test_season_from_title(title, expected):
+    assert season_from_title(title) == expected
+
+
+# =============================================================================
+# parse_entry — extraction failure branches
+# =============================================================================
+
+def test_parse_entry_field_extraction_failure_logs_and_nulls():
+    """A rule whose evaluation raises (invalid regex, dict-indexed list
+    source) must not abort the whole parse — the field is nulled."""
+    entry = {"title": "Show - 01"}
+    mapping = {
+        "field_mappings": {
+            "bad_regex": {"source": "title", "regex": "([unclosed"},
+            "bad_index": {"source": "enclosures[0].url"},
+        },
+    }
+    result = parse_entry({"enclosures": {"0": {"url": "x"}}, "title": "T"}, mapping)
+    assert result["bad_regex"] is None
+    assert result["bad_index"] is None
+    assert parse_entry(entry, mapping)["bad_regex"] is None
+
+
+def test_parse_entry_resolve_source_edge_cases():
+    """Empty source path / dead-ends inside dotted paths / non-dict traversal
+    all resolve to None instead of raising."""
+    mapping = {
+        "field_mappings": {
+            "no_source": {"regex": "x"},
+            "dead_end": {"source": "missing.sub"},
+            "bracket_on_str": {"source": "enclosures[0].foo[0]"},
+            "attr_on_str": {"source": "title.enclosures"},
+        },
+    }
+    entry = {"enclosures": ["abc"], "title": "Show"}
+    result = parse_entry(entry, mapping)
+    assert result["no_source"] is None
+    assert result["dead_end"] is None
+    assert result["bracket_on_str"] is None
+    assert result["attr_on_str"] is None
+
+
+def test_parse_entry_transform_failure_branches():
+    """int / float / iso_datetime transforms return None on bad input; an
+    unknown transform passes the value through unchanged."""
+    mapping = {
+        "field_mappings": {
+            "a": {"source": "v", "transform": "int"},
+            "b": {"source": "v", "transform": "float"},
+            "c": {"source": "v", "transform": "iso_datetime"},
+            "d": {"source": "v", "transform": "bogus"},
+        },
+    }
+    result = parse_entry({"v": "not-a-number"}, mapping)
+    assert result["a"] is None
+    assert result["b"] is None
+    assert result["c"] is None
+    assert result["d"] == "not-a-number"
+
+
+# =============================================================================
+# detect_batch — range sanity branches
+# =============================================================================
+
+def test_detect_batch_swaps_descending_range():
+    """[24-01 合集] is a range spanning 01..24 regardless of ordering."""
+    assert detect_batch("[Group] Show [24-01 合集]") == (True, 1, 24)
+
+
+def test_detect_batch_rejects_runaway_range():
+    """Ranges wider than 200 episodes (or >999) are sanity-rejected, not
+    treated as batches."""
+    assert detect_batch("[Group] Show [01-300]") == (False, None, None)
+
+
+# =============================================================================
+# _kanji_to_int — compound kanji numerals
+# =============================================================================
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("[Group] Show 第2季 [05]", (5, 2)),           # arabic digit -> isdigit
+        ("[Group] Show 第十一季 [01]", (1, 11)),        # 十一
+        ("[Group] Show 第二十季 [01]", (1, 20)),        # 二十
+        ("[Group] Show 第四五季 [01]", (1, None)),      # unrecognized compound
+    ],
+)
+def test_extract_episode_fallback_kanji_compounds(title, expected):
+    assert extract_episode_fallback(title) == expected
+
+
+# =============================================================================
+# extract_season_episode_from_path — remaining marker/branch coverage
+# =============================================================================
+
+def test_extract_season_episode_empty_paths():
+    from app.services.resource_parser import extract_season_episode_from_path
+
+    assert extract_season_episode_from_path(None) == (None, None)
+    assert extract_season_episode_from_path("") == (None, None)
+    assert extract_season_episode_from_path("///") == (None, None)
+
+
+@pytest.mark.parametrize(
+    "path,expected",
+    [
+        # Directory SxxEyy seeds both values before the filename forms run.
+        ("S01E02 Dir/01 Title.mkv", (1, 2)),
+        # Directory season markers by spelling.
+        ("Show Season 3/01 Title.mkv", (3, 1)),
+        ("Show 2nd Season/01 Title.mkv", (2, 1)),
+        ("Show 第二季/01 Title.mkv", (2, 1)),
+        # No season marker anywhere.
+        ("Show/01 Title.mkv", (None, 1)),
+        # Filename special (OVA/SP) maps to Plex's Specials season 0.
+        ("Show S01/OVA02.mkv", (0, 2)),
+        # Filename episode forms: semicolon, bracket, kanji, BD bare leading.
+        ("Show S01/Show 05; H264.mkv", (1, 5)),
+        ("Show S01/[01] Title.mkv", (1, 1)),
+        ("Show S01/Show 第03話.mkv", (1, 3)),
+        ("Show S01/01 Title.mkv", (1, 1)),
+    ],
+)
+def test_extract_season_episode_from_path_branches(path, expected):
+    from app.services.resource_parser import extract_season_episode_from_path
+
+    assert extract_season_episode_from_path(path) == expected
+
+
+# =============================================================================
+# normalize_parsed_fields — subtitle_groups already present
+# =============================================================================
+
+def test_normalize_normalizes_existing_subtitle_groups_list():
+    """A mapping that already emits subtitle_groups is authoritative but is
+    still normalized (case/dup collapse)."""
+    out = normalize_parsed_fields(
+        "Show - 01", {"subtitle_groups": ["CHS", "chs"], "title_cn": "Show"}
+    )
+    assert out["subtitle_groups"] == ["CHS"]

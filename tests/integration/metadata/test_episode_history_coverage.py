@@ -246,7 +246,7 @@ class TestEpisodeHistoryReconcileWithRows:
         target = _target(season=1, episode=32)
         rows = [
             _row("Group", 32, 3, 8, "manual", id="peer"),  # same absolute: excluded
-            _row("Group", 29, 3, 5, "manual", id="too-old"),  # below lower bound
+            _row("Group", 29, 3, 5, "reconciled", id="too-old"),  # below lower bound, non-manual: excluded
             _row("Group", 31, 3, 7, "raw", id="untrusted"),  # raw: excluded
             _row("Group", 31, 3, 7, "manual", series_id="s2", id="other-series"),
             _row("Group", 31, 3, 7, "manual", channel_id="ch2", id="other-channel"),

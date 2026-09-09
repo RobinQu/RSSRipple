@@ -310,3 +310,295 @@ class TestLinkSeries:
             status = await wc.link_series_wikidata_collection(db_session, series)
         assert status == wc.STATUS_ALREADY_LINKED
         client_cls.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage: _get_json / entity titles / page_id resolution / errors
+# ---------------------------------------------------------------------------
+
+
+class TestGetJson:
+    async def test_get_json_returns_none_on_failure(self):
+        """HTTP failure / non-2xx / invalid JSON all degrade to None."""
+        from unittest.mock import AsyncMock
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock(side_effect=RuntimeError("boom"))
+        client = MagicMock()
+        client.get = AsyncMock(return_value=resp)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("httpx.AsyncClient", MagicMock(return_value=client)):
+            assert await wc._get_json("https://x/api", {"a": 1}) is None
+
+    async def test_get_json_returns_payload_on_success(self):
+        from unittest.mock import AsyncMock
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"ok": True}
+        client = MagicMock()
+        client.get = AsyncMock(return_value=resp)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("httpx.AsyncClient", MagicMock(return_value=client)):
+            assert await wc._get_json("https://x/api", {"a": 1}) == {"ok": True}
+
+
+class TestEntityTitles:
+    def test_entity_titles_normalizes_labels_and_aliases(self):
+        entity = {
+            "labels": {
+                "en": {"value": "Ghost  in   the Shell"},
+                "zh": {"value": "攻壳机动队"},
+            },
+            "aliases": {
+                "en": [{"value": "GitS"}, {"value": "  "}],
+                "zh": [{"value": "攻壳"}],
+            },
+        }
+        titles = wc._entity_titles(entity)
+        assert "ghost in the shell" in titles
+        assert "攻壳机动队" in titles
+        assert "gits" in titles
+        assert "攻壳" in titles
+
+    def test_entity_titles_empty_when_no_matching_langs(self):
+        entity = {
+            "labels": {"fr": {"value": "Fantôme"}},
+            "aliases": {},
+        }
+        assert wc._entity_titles(entity) == set()
+
+    def test_entity_label_matches_exact_only(self):
+        entity = {
+            "labels": {"en": {"value": "Ghost in the Shell"}},
+            "aliases": {"zh": [{"value": "攻壳机动队"}]},
+        }
+        assert wc.entity_label_matches(entity, ["ghost   in the shell"]) is True
+        assert wc.entity_label_matches(entity, ["攻壳机动队"]) is True
+        assert wc.entity_label_matches(entity, ["Ghost 2"]) is False
+        assert wc.entity_label_matches(entity, []) is False
+
+
+class TestResolvePageId:
+    async def test_page_id_resolves_via_matching_edition(self):
+        """First matching host's QID is accepted (label-verified)."""
+
+        def handler(url, params):
+            if params.get("action") == "query":
+                return {"query": {"pages": [{"pageprops": {"wikibase_item": "Q100"}}]}}
+            if params.get("action") == "wbgetentities":
+                return {
+                    "entities": {
+                        "Q100": {
+                            "id": "Q100",
+                            "labels": {"en": {"value": "Ghost in the Shell"}},
+                        }
+                    }
+                }
+            return {}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            qid = await wc.resolve_qid_from_page_id(
+                12345, ["Ghost in the Shell", "攻壳机动队"]
+            )
+        assert qid == "Q100"
+
+    async def test_page_id_skips_wrong_edition_entity(self):
+        """A page_id whose resolved entity matches no title → skip (None)."""
+
+        def handler(url, params):
+            if params.get("action") == "query":
+                return {"query": {"pages": [{"pageprops": {"wikibase_item": "Q999"}}]}}
+            if params.get("action") == "wbgetentities":
+                return {
+                    "entities": {
+                        "Q999": {
+                            "id": "Q999",
+                            "labels": {"en": {"value": "Unrelated Page"}},
+                        }
+                    }
+                }
+            return {}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            assert await wc.resolve_qid_from_page_id(999, ["Ghost in the Shell"]) is None
+
+    async def test_page_id_no_qid_continues(self):
+        def handler(url, params):
+            return {"query": {"pages": [{"missing": True}]}}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            assert await wc.resolve_qid_from_page_id(1, ["X"]) is None
+
+
+class TestResolveSeriesQid:
+    async def test_uses_wikipedia_page_id_when_no_url(self, db_session):
+        """Row with external_id=wikipedia:<pageid> but no url resolves via page_id."""
+        series = _series(
+            title_en="Ghost in the Shell",
+            external_id="wikipedia:12345",
+        )
+        db_session.add(series)
+        await db_session.flush()
+
+        def handler(url, params):
+            if params.get("action") == "query":
+                return {"query": {"pages": [{"pageprops": {"wikibase_item": "Q100"}}]}}
+            if params.get("action") == "wbgetentities":
+                return {
+                    "entities": {
+                        "Q100": {
+                            "id": "Q100",
+                            "labels": {"en": {"value": "Ghost in the Shell"}},
+                        }
+                    }
+                }
+            return {}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            qid = await wc.resolve_series_entity_qid(series)
+        assert qid == "Q100"
+
+    async def test_wikipedia_page_id_field_directly(self, db_session):
+        series = _series(
+            title_en="X", wikipedia_page_id=42,
+        )
+        db_session.add(series)
+        await db_session.flush()
+
+        def handler(url, params):
+            if params.get("action") == "query":
+                return {"query": {"pages": [{"pageprops": {"wikibase_item": "Q100"}}]}}
+            if params.get("action") == "wbgetentities":
+                return {
+                    "entities": {
+                        "Q100": {
+                            "id": "Q100",
+                            "labels": {"en": {"value": "X"}},
+                        }
+                    }
+                }
+            return {}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            assert await wc.resolve_series_entity_qid(series) == "Q100"
+
+
+class TestSearchFallbackBranches:
+    async def test_search_empty_response_continues_to_next_title(self):
+        """A title whose API call returns no data is skipped, next title tried."""
+
+        def handler(url, params):
+            if params["action"] == "wbsearchentities" and params["search"] == "SkipMe":
+                return None
+            return {"search": [{"id": "Q100", "label": "Second"}]}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            assert await wc.search_entity_qid(["SkipMe", "Second"]) == "Q100"
+
+    async def test_search_cjk_uses_zh_language(self):
+        seen = {}
+
+        def handler(url, params):
+            seen.update(params)
+            return {"search": []}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            assert await wc.search_entity_qid(["攻壳机动队"]) is None
+        assert seen["language"] == "zh"
+
+
+class TestFetchEntityBranches:
+    async def test_fetch_entity_tolerates_list_shaped_payload(self):
+        from unittest.mock import AsyncMock
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"entities": [{"id": "Q100", "labels": {}}]}
+        client = MagicMock()
+        client.get = AsyncMock(return_value=resp)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("httpx.AsyncClient", MagicMock(return_value=client)):
+            entity = await wc.fetch_entity("Q100")
+        assert entity["id"] == "Q100"
+
+    async def test_fetch_entity_missing_returns_none(self):
+        from unittest.mock import AsyncMock
+
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"entities": {"Q100": {"missing": True}}}
+        client = MagicMock()
+        client.get = AsyncMock(return_value=resp)
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=False)
+        with patch("httpx.AsyncClient", MagicMock(return_value=client)):
+            assert await wc.fetch_entity("Q100") is None
+
+
+class TestUpsertUpdates:
+    async def test_upsert_updates_title_cn_and_fills_title_en(self, db_session):
+        c1 = await wc.upsert_collection_from_wikidata(
+            db_session, "Q400", "旧标题", None
+        )
+        await db_session.flush()
+        # Re-update: title_cn replaced, title_en filled since it was empty.
+        c2 = await wc.upsert_collection_from_wikidata(
+            db_session, "Q400", "新标题", "En New"
+        )
+        assert c2.id == c1.id
+        assert c2.title_cn == "新标题"
+        assert c2.title_en == "En New"
+
+    async def test_upsert_does_not_overwrite_title_en(self, db_session):
+        c1 = await wc.upsert_collection_from_wikidata(
+            db_session, "Q500", "标题", "En Existing"
+        )
+        await db_session.flush()
+        c2 = await wc.upsert_collection_from_wikidata(
+            db_session, "Q500", "标题", "En Different"
+        )
+        assert c2.id == c1.id
+        assert c2.title_en == "En Existing"
+
+
+class TestLinkErrorBranches:
+    async def test_work_entity_unavailable_is_failed(self, db_session):
+        series = _series(title_en="X", wikipedia_url="https://en.wikipedia.org/wiki/X")
+        db_session.add(series)
+        await db_session.flush()
+
+        def handler(url, params):
+            if params.get("action") == "query":
+                return {"query": {"pages": [{"pageprops": {"wikibase_item": "Q100"}}]}}
+            if params.get("action") == "wbgetentities":
+                return {"entities": {"Q100": {"missing": True}}}
+            return {}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            status = await wc.link_series_wikidata_collection(db_session, series)
+        assert status == wc.STATUS_FAILED
+        assert series.collection_id is None
+
+    async def test_franchise_entity_unavailable_is_failed(self, db_session):
+        series = _series(title_en="X", wikipedia_url="https://en.wikipedia.org/wiki/X")
+        db_session.add(series)
+        await db_session.flush()
+
+        def handler(url, params):
+            if params.get("action") == "query":
+                return {"query": {"pages": [{"pageprops": {"wikibase_item": "Q100"}}]}}
+            if params.get("action") == "wbgetentities":
+                if params["ids"] == "Q100":
+                    return {
+                        "entities": {"Q100": {"id": "Q100", "claims": {"P179": [_claim("Q200")]}}}
+                    }
+                return {"entities": {"Q200": {"missing": True}}}
+
+        with patch("httpx.AsyncClient", _client_mock(handler)):
+            status = await wc.link_series_wikidata_collection(db_session, series)
+        assert status == wc.STATUS_FAILED
+        assert series.collection_id is None

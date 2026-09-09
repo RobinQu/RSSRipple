@@ -282,3 +282,297 @@ async def test_reconcile_fts_noop_when_in_sync(db_session, sample_series):
     await backfill_fts_if_empty(db_session)
     report = await reconcile_fts(db_session)
     assert report == {"updated": 0, "deleted": 0}
+
+
+# ---------------------------------------------------------------------------
+# Sidecar engine bootstrap, URL derivation, availability detection
+# ---------------------------------------------------------------------------
+
+
+class _RaisingExecCtx:
+    """Async context manager whose execute() always raises — simulates a
+    broken/unreachable sidecar engine."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def execute(self, *a, **kw):
+        raise RuntimeError("sidecar boom")
+
+
+class _FakeEngine:
+    """Engine-shaped object whose begin() context raises on execute."""
+
+    def begin(self):
+        return _RaisingExecCtx()
+
+
+class _FakeConnectEngine:
+    """Engine-shaped object whose connect() context raises on execute."""
+
+    def connect(self):
+        return _RaisingExecCtx()
+
+
+class _EmptyScalars:
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+
+def _fts_available_db() -> SimpleNamespace:
+    """A fake session exposing a turso engine URL so _fts_available() is True."""
+    return SimpleNamespace(
+        engine=SimpleNamespace(url="sqlite+aioturso:///test.db"),
+        execute=AsyncMock(return_value=_EmptyScalars()),
+    )
+
+
+async def test_sidecar_url_derivation(monkeypatch):
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod.settings, "database_url", "sqlite+aioturso:///:memory:")
+    assert fts_mod._sidecar_url().startswith(
+        "sqlite+aioturso:///data/rss_ripple_fts_fts.db"
+    )
+
+    monkeypatch.setattr(fts_mod.settings, "database_url", "sqlite+aioturso:///data/rss_ripple_turso.db")
+    assert fts_mod._sidecar_url() == (
+        "sqlite+aioturso:///data/rss_ripple_turso_fts.db"
+        "?experimental_features=index_method"
+    )
+
+    # Query string stripped and extensionless paths get a plain suffix.
+    monkeypatch.setattr(
+        fts_mod.settings, "database_url",
+        "sqlite+aioturso:////var/lib/rssripple/data/shows?mode=ro",
+    )
+    assert fts_mod._sidecar_url() == (
+        "sqlite+aioturso:////var/lib/rssripple/data/shows_fts.db"
+        "?experimental_features=index_method"
+    )
+
+
+async def test_get_fts_engine_bootstraps_when_none(monkeypatch):
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod, "_FTS_ENGINE", None)
+    engine = fts_mod._get_fts_engine()
+    assert engine is not None
+    await engine.dispose()
+
+
+async def test_fts_available_from_engine_url():
+    from app.services.fts import _fts_available
+
+    assert _fts_available(SimpleNamespace(engine=SimpleNamespace(url="sqlite+aioturso:///x"))) is True
+    assert _fts_available(SimpleNamespace(engine=SimpleNamespace(url="postgresql+asyncpg:///x"))) is False
+
+
+async def test_fts_available_from_sync_session_bind():
+    from app.services.fts import _fts_available
+
+    bind = SimpleNamespace(url="sqlite+aioturso:///x")
+    db = SimpleNamespace(sync_session=SimpleNamespace(get_bind=lambda: bind))
+    assert _fts_available(db) is True
+
+
+async def test_fts_available_falls_back_to_db_object_url():
+    from app.services.fts import _fts_available
+
+    assert _fts_available(SimpleNamespace(url="sqlite+aioturso:///x")) is True
+    assert _fts_available(SimpleNamespace(url="postgresql+asyncpg:///x")) is False
+
+
+async def test_ensure_fts_tables_skips_non_turso(monkeypatch):
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod, "_FTS_ENGINE", None)
+    monkeypatch.setattr(fts_mod.settings, "database_url", "postgresql+asyncpg:///x")
+    await fts_mod.ensure_fts_tables()
+
+
+async def test_ensure_fts_tables_logs_creation_failures(monkeypatch):
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod, "_FTS_ENGINE", object())
+    monkeypatch.setattr(fts_mod, "_get_fts_engine", lambda: _FakeEngine())
+    await fts_mod.ensure_fts_tables()
+
+
+# ---------------------------------------------------------------------------
+# Fallback / error-swallowing on the FTS sidecar
+# ---------------------------------------------------------------------------
+
+
+async def test_search_entities_like_swallows_db_errors():
+    from app.services.fts import search_series_fts
+
+    db = SimpleNamespace(
+        engine=SimpleNamespace(url="sqlite+aioturso:///x"),
+        execute=AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    assert await search_series_fts(db, "测") == []
+
+
+async def test_search_entities_like_honors_limit(db_session, sample_series):
+    import uuid
+
+    from app.models.series import TVSeries
+
+    extras = [
+        TVSeries(
+            id=str(uuid.uuid4()), title_cn=f"测剧{n}", title_en=f"UniqueZ{n}",
+            external_source="manual", content_type="tv",
+        )
+        for n in range(3)
+    ]
+    db_session.add_all(extras)
+    await db_session.commit()
+
+    ids = await search_series_fts(db_session, "测", limit=2)
+    assert len(ids) == 2
+    assert all(i in {sample_series.id, *(e.id for e in extras)} for i in ids)
+
+
+async def test_upsert_delete_swallow_sidecar_write_errors(monkeypatch):
+    import app.services.fts as fts_mod
+
+    entity = SimpleNamespace(
+        id="e1", title_cn="标题", title_en="Title", original_title=None, aliases=[]
+    )
+    db = _fts_available_db()
+    monkeypatch.setattr(fts_mod, "_get_fts_engine", lambda: _FakeEngine())
+
+    await fts_mod.upsert_series_fts(db, entity)
+    await fts_mod.upsert_movie_fts(db, entity)
+    await fts_mod.upsert_audio_work_fts(db, entity)
+    await fts_mod.delete_series_fts(db, "e1")
+    await fts_mod.delete_movie_fts(db, "e1")
+    await fts_mod.delete_audio_work_fts(db, "e1")
+
+
+async def test_search_fts_swallows_sidecar_query_errors(monkeypatch):
+    import app.services.fts as fts_mod
+
+    db = _fts_available_db()
+    monkeypatch.setattr(fts_mod, "_get_fts_engine", lambda: _FakeConnectEngine())
+
+    assert await fts_mod.search_series_fts(db, "测试剧集") == []
+    assert await fts_mod.search_movie_fts(db, "测试电影") == []
+    assert await fts_mod.search_audio_work_fts(db, "深夜音声") == []
+
+
+async def test_rebuild_skips_when_fts_unavailable():
+    from app.services.fts import rebuild_audio_work_fts, rebuild_movie_fts, rebuild_series_fts
+
+    db = SimpleNamespace(
+        engine=SimpleNamespace(url="postgresql+asyncpg:///x"), execute=AsyncMock()
+    )
+    assert await rebuild_series_fts(db) == 0
+    assert await rebuild_movie_fts(db) == 0
+    assert await rebuild_audio_work_fts(db) == 0
+
+
+async def test_rebuild_swallows_sidecar_write_errors(monkeypatch):
+    import app.services.fts as fts_mod
+
+    entity = SimpleNamespace(
+        id="e1", title_cn="标题", title_en="Title", original_title=None, aliases=[]
+    )
+    result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [entity]))
+    db = SimpleNamespace(
+        engine=SimpleNamespace(url="sqlite+aioturso:///x"),
+        execute=AsyncMock(return_value=result),
+    )
+    monkeypatch.setattr(fts_mod, "_get_fts_engine", lambda: _FakeEngine())
+
+    assert await fts_mod.rebuild_series_fts(db) == 0
+    assert await fts_mod.rebuild_movie_fts(db) == 0
+    assert await fts_mod.rebuild_audio_work_fts(db) == 0
+
+
+async def test_backfill_fts_skips_when_unavailable():
+    from app.services.fts import backfill_fts_if_empty
+
+    db = SimpleNamespace(engine=SimpleNamespace(url="postgresql+asyncpg:///x"))
+    await backfill_fts_if_empty(db)
+
+
+async def test_backfill_fts_continues_on_count_query_error(db_session, monkeypatch):
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod, "_get_fts_engine", lambda: _FakeConnectEngine())
+    await fts_mod.backfill_fts_if_empty(db_session)
+
+
+async def test_drain_noop_on_non_turso(db_session, monkeypatch):
+    import app.services.fts as fts_mod
+
+    monkeypatch.setattr(fts_mod.settings, "database_url", "postgresql+asyncpg:///x")
+    assert await fts_mod.drain_fts_outbox(db_session) == 0
+
+
+async def test_drain_write_failure_logs_and_consumes_outbox(db_session, sample_series, monkeypatch):
+    import app.services.fts as fts_mod
+
+    await db_session.commit()
+    monkeypatch.setattr(fts_mod, "_get_fts_engine", lambda: _FakeEngine())
+    assert await fts_mod.drain_fts_outbox(db_session) == 1
+    assert await fts_mod.drain_fts_outbox(db_session) == 0
+
+
+async def test_reconcile_skips_when_unavailable():
+    from app.services.fts import reconcile_fts
+
+    db = SimpleNamespace(engine=SimpleNamespace(url="postgresql+asyncpg:///x"))
+    assert await reconcile_fts(db) == {"updated": 0, "deleted": 0}
+
+
+async def test_reconcile_fts_logs_write_failure(db_session, sample_series, monkeypatch):
+    from sqlalchemy import text
+
+    import app.services.fts as fts_mod
+
+    await db_session.commit()
+    await fts_mod.drain_fts_outbox(db_session)
+    await db_session.commit()
+
+    engine = fts_mod._get_fts_engine()
+    async with engine.begin() as conn:
+        await conn.execute(text(
+            "UPDATE tv_series_fts SET title_en = 'stale' WHERE entity_id = :id"
+        ), {"id": sample_series.id})
+
+    monkeypatch.setattr(fts_mod, "_shadow_write", AsyncMock(side_effect=RuntimeError("nope")))
+    report = await fts_mod.reconcile_fts(db_session)
+    assert report["updated"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Single-char fallback and normalization edge cases (movie / audio / NFKC)
+# ---------------------------------------------------------------------------
+
+
+async def test_movie_single_char_fallback(db_session, sample_movie):
+    await db_session.commit()
+    assert sample_movie.id in await search_movie_fts(db_session, "电")
+
+
+async def test_audio_work_single_char_fallback(db_session):
+    aw = _audio_work(title_cn="音声作品")
+    db_session.add(aw)
+    await db_session.commit()
+    assert aw.id in await search_audio_work_fts(db_session, "音")
+
+
+async def test_search_fullwidth_query_normalization(db_session, sample_series):
+    await db_session.commit()
+    await upsert_series_fts(db_session, sample_series)
+    # Full-width letters are NFKC-folded to ASCII and lowercased before search.
+    assert sample_series.id in await search_series_fts(db_session, "ＴＥＳＴ ＳＥＲＩＥＳ")

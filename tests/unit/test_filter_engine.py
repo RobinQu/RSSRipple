@@ -8,7 +8,9 @@ from app.services.filter_engine import (
     evaluate_field_condition,
     evaluate_filter_config,
     get_field_value,
+    loaded_relation,
     merge_filters,
+    validate_field_conditions,
     validate_filter_config,
 )
 
@@ -1074,3 +1076,323 @@ class TestContentTypeField:
         assert validate_filter_config(
             {"field": "content_type", "operator": "is_empty"}
         ) == []
+
+
+# ---------------------------------------------------------------------------
+# validate_field_conditions — flat FieldCondition list (Agent pick_preferences)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateFieldConditions:
+    def test_none_is_valid(self):
+        assert validate_field_conditions(None) == []
+
+    def test_non_list_rejected(self):
+        errs = validate_field_conditions("not-a-list")
+        assert any("must be a list of FieldCondition" in e for e in errs)
+        assert validate_field_conditions({"field": "resolution"}) != []
+
+    def test_valid_flat_list(self):
+        conds = [
+            {"field": "resolution", "operator": "eq", "value": "1080p"},
+            {"field": "file_size", "operator": "gte", "value": 1_000_000_000},
+            {"field": "series.genre", "operator": "contains", "value": "Animation"},
+        ]
+        assert validate_field_conditions(conds) == []
+
+    def test_entry_missing_operator_rejected(self):
+        errs = validate_field_conditions([{"field": "resolution", "value": "x"}])
+        assert any("must be a FieldCondition" in e for e in errs)
+
+    def test_bool_group_node_rejected_inside_list(self):
+        node = {"combinator": "and", "conditions": [
+            {"field": "resolution", "operator": "eq", "value": "1080p"}]}
+        errs = validate_field_conditions([node])
+        assert any("must be a FieldCondition" in e for e in errs)
+
+    def test_unknown_field_reported(self):
+        errs = validate_field_conditions(
+            [{"field": "bogus", "operator": "eq", "value": "x"}]
+        )
+        assert any("unknown field" in e for e in errs)
+
+    def test_value_less_ops_allowed(self):
+        conds = [{"field": "episode_confidence", "operator": "is_not_empty"}]
+        assert validate_field_conditions(conds) == []
+
+
+# ---------------------------------------------------------------------------
+# is_anime tri-state bool field + bool scalar coercion edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestIsAnimeBoolField:
+    def test_eq_true(self):
+        cond = {"field": "series.is_anime", "operator": "eq", "value": True}
+        assert evaluate_field_condition(cond, _res(series=_work(is_anime=True))) is True
+        assert evaluate_field_condition(cond, _res(series=_work(is_anime=False))) is False
+
+    def test_eq_false_confirms_live_action(self):
+        cond = {"field": "series.is_anime", "operator": "eq", "value": False}
+        assert evaluate_field_condition(cond, _res(series=_work(is_anime=False))) is True
+        assert evaluate_field_condition(cond, _res(series=_work(is_anime=True))) is False
+
+    def test_ne(self):
+        cond = {"field": "movie.is_anime", "operator": "ne", "value": True}
+        assert evaluate_field_condition(cond, _res(movie=_work(is_anime=False))) is True
+        assert evaluate_field_condition(cond, _res(movie=_work(is_anime=True))) is False
+
+    def test_null_is_neither_true_nor_false(self):
+        """Tri-state: NULL anime flag fails both eq True and eq False but
+        passes ne (must use is_empty / is_not_empty to distinguish)."""
+        r = _res(series=_work(is_anime=None))
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": True}, r) is False
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": False}, r) is False
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "ne", "value": True}, r) is True
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "is_empty"}, r) is True
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "is_not_empty"}, r) is False
+
+    def test_unloaded_work_is_empty(self):
+        r = _res(series_id="s1")  # series relation not loaded
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": True}, r) is False
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "ne", "value": True}, r) is True
+
+    def test_accepts_string_and_numeric_tokens(self):
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": "true"},
+            _res(series=_work(is_anime=True))) is True
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": 1},
+            _res(series=_work(is_anime=True))) is True
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": "no"},
+            _res(series=_work(is_anime=False))) is True
+        assert evaluate_field_condition(
+            {"field": "movie.is_anime", "operator": "eq", "value": "0"},
+            _res(movie=_work(is_anime=False))) is True
+
+    def test_unrecognized_token_falls_back_to_truthiness(self):
+        """``_coerce_bool`` falls back to Python truthiness for tokens that
+        aren't in the recognized yes/no vocabulary."""
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": "garbage"},
+            _res(series=_work(is_anime=True))) is True
+        assert evaluate_field_condition(
+            {"field": "series.is_anime", "operator": "eq", "value": ""},
+            _res(series=_work(is_anime=False))) is True
+
+    def test_unsupported_op_returns_false(self):
+        cond = {"field": "series.is_anime", "operator": "contains", "value": True}
+        assert evaluate_field_condition(
+            cond, _res(series=_work(is_anime=True))) is False
+
+    def test_validate_accepts_is_anime(self):
+        assert validate_filter_config({
+            "field": "series.is_anime", "operator": "eq", "value": True,
+        }) == []
+        assert validate_filter_config({
+            "field": "movie.is_anime", "operator": "is_empty",
+        }) == []
+        errs = validate_filter_config({
+            "field": "series.is_anime", "operator": "gt", "value": True,
+        })
+        assert errs
+
+
+# ---------------------------------------------------------------------------
+# Extra validation edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestValidationEdgeCases:
+    def test_in_comma_string_all_blank_parts_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "resolution", "operator": "in", "value": " , , "}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("requires a non-empty list" in e for e in errs)
+
+    def test_regex_non_string_value_rejected(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "title_en", "operator": "regex", "value": 123}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("'regex' requires a non-empty string" in e for e in errs)
+
+    def test_numeric_field_rejects_non_numeric_string_value(self):
+        cfg = {"combinator": "and", "conditions": [
+            {"field": "episode", "operator": "eq", "value": "abc"}
+        ]}
+        errs = validate_filter_config(cfg)
+        assert any("numeric field requires a numeric value" in e for e in errs)
+
+    def test_work_genre_list_ops_valid(self):
+        for op in ("eq", "ne", "contains", "in"):
+            cfg = {"field": "series.genre", "operator": op,
+                   "value": "Animation" if op != "in" else ["Animation", "Comedy"]}
+            assert validate_filter_config(cfg) == []
+        errs = validate_filter_config(
+            {"field": "movie.genre", "operator": "gt", "value": 3}
+        )
+        assert errs
+
+
+# ---------------------------------------------------------------------------
+# List-of-string field scalar-expected and subtitle_groups operator edges
+# ---------------------------------------------------------------------------
+
+
+class TestListFieldScalarExpected:
+    def test_eq_scalar_string(self):
+        # Non-list ``expected`` still works element-wise (set comparison).
+        cond = {"field": "subtitle_langs", "operator": "eq", "value": "zh-CN"}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN", "ja"])) is False
+
+    def test_ne_scalar_string(self):
+        cond = {"field": "subtitle_langs", "operator": "ne", "value": "zh-CN"}
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["ja"])) is True
+        assert evaluate_field_condition(cond, _res(subtitle_langs=["zh-CN"])) is False
+
+    def test_in_scalar_expected(self):
+        assert evaluate_field_condition(
+            {"field": "subtitle_langs", "operator": "in", "value": "zh-CN,ja"},
+            _res(subtitle_langs=["zh-CN"]),
+        ) is True
+
+    def test_unsupported_op_falls_through_to_false(self):
+        # fuzzy is not a valid list-field op for subtitle_langs (only for
+        # subtitle_groups) — direct evaluation returns False.
+        assert evaluate_field_condition(
+            {"field": "subtitle_langs", "operator": "fuzzy", "value": "zh"},
+            _res(subtitle_langs=["zh-CN", "ja"]),
+        ) is False
+
+
+class TestSubtitleGroupsOps:
+    def test_fuzzy_matches_close_group(self):
+        r = _res(subtitle_groups=["LoliHouse"])
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "fuzzy", "value": "Lolihouse"}, r
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "fuzzy", "value": "zzzqqq"}, r
+        ) is False
+
+    def test_regex_matches_any_element(self):
+        r = _res(subtitle_groups=["LoliHouse", "ANi"])
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "regex", "value": r"^Loli"}, r
+        ) is True
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "regex", "value": r"^XYZ"}, r
+        ) is False
+
+    def test_regex_invalid_pattern_returns_false(self):
+        r = _res(subtitle_groups=["LoliHouse"])
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "regex", "value": "(unclosed"}, r
+        ) is False
+
+    def test_empty_items_positive_ops_fail(self):
+        r = _res(subtitle_groups=None)
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "fuzzy", "value": "Loli"}, r
+        ) is False
+
+    def test_get_field_value_resolves_groups(self):
+        r = _res(subtitle_groups=["LoliHouse", "ANi"])
+        assert get_field_value(r, "subtitle_groups") == ["LoliHouse", "ANi"]
+        assert evaluate_field_condition(
+            {"field": "subtitle_groups", "operator": "contains", "value": "lolihouse"}, r
+        ) is True
+
+    def test_get_field_value_falls_back_to_legacy_scalar(self):
+        r = _res()  # legacy subtitle_group="LoliHouse", no subtitle_groups list
+        assert get_field_value(r, "subtitle_groups") == ["LoliHouse"]
+
+
+# ---------------------------------------------------------------------------
+# Numeric / string evaluation edges
+# ---------------------------------------------------------------------------
+
+
+class TestNumericEvaluationEdges:
+    def test_in_skips_non_numeric_entries(self):
+        cond = {"field": "episode", "operator": "in", "value": [3, "abc", None]}
+        assert evaluate_field_condition(cond, _res(episode=3)) is True
+        assert evaluate_field_condition(cond, _res(episode=7)) is False
+
+    def test_unknown_op_falls_through_to_false(self):
+        cond = {"field": "episode", "operator": "contains", "value": 3}
+        assert evaluate_field_condition(cond, _res(episode=3)) is False
+
+
+class TestStringEvaluationEdges:
+    def test_eq_non_string_expected_coerced(self):
+        assert evaluate_field_condition(
+            {"field": "resolution", "operator": "eq", "value": 123}, _res()
+        ) is False
+
+    def test_ne_non_string_expected_coerced(self):
+        assert evaluate_field_condition(
+            {"field": "resolution", "operator": "ne", "value": 123}, _res()
+        ) is True
+
+    def test_unknown_op_returns_false(self):
+        assert evaluate_field_condition(
+            {"field": "title_en", "operator": "startswith", "value": "T"}, _res()
+        ) is False
+
+    def test_in_scalar_non_string_value(self):
+        # ``_coerce_in_list`` wraps a scalar (non-list/str) into a one-item list.
+        assert evaluate_field_condition(
+            {"field": "resolution", "operator": "in", "value": 123}, _res()
+        ) is False
+
+
+# ---------------------------------------------------------------------------
+# loaded_relation defensive access + links year aggregation edges
+# ---------------------------------------------------------------------------
+
+
+class _RaisingGreenlet:
+    """Simulate an async ORM instance whose unloaded relationship access
+    raises (like SQLAlchemy ``MissingGreenlet``)."""
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        raise RuntimeError("MissingGreenlet: greenlet_spawn has not been called")
+
+
+def test_loaded_relation_treats_raising_access_as_absent():
+    res = _RaisingGreenlet()
+    assert loaded_relation(res, "movie") is None
+
+
+def test_loaded_relation_returns_plain_attr():
+    assert loaded_relation(SimpleNamespace(movie="m1"), "movie") == "m1"
+
+
+def test_links_year_skips_links_without_loaded_work():
+    import datetime as _dt
+
+    links = [
+        # Work FK present but ``series`` relation not eager-loaded → skip.
+        SimpleNamespace(series_id="s-0", movie_id=None),
+        SimpleNamespace(series_id="s-1", movie_id=None,
+                        series=_work(start_date=_dt.date(2015, 4, 1))),
+    ]
+    res = _res(work_links=links)
+    assert get_field_value(res, "series.year") == 2015
+    assert evaluate_field_condition(
+        {"field": "series.year", "operator": "gte", "value": 2015}, res
+    ) is True

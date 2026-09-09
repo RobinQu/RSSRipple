@@ -568,3 +568,393 @@ async def test_mirror_fast_path_disabled_by_empty_config(tmp_path, monkeypatch):
     assert fetch.call_count == 0
     assert fake.added_params
     assert parse_torrent_files(str(dest)) == [{"name": "a.mkv", "size": 100}]
+
+
+# =============================================================================
+# _extract_v1_infohash — libtorrent info_hashes path vs regex fallback
+# =============================================================================
+
+def test_extract_v1_infohash_prefers_info_hashes():
+    params = SimpleNamespace(
+        info_hashes=SimpleNamespace(
+            has_v1=lambda: True,
+            v1="0123456789ABCDEF0123456789abcdef01234567",
+        )
+    )
+    assert mr._extract_v1_infohash("magnet:?xt=urn:btih:whatever", params) == (
+        "0123456789ABCDEF0123456789abcdef01234567"
+    )
+
+
+def test_extract_v1_infohash_no_v1_returns_none():
+    params = SimpleNamespace(info_hashes=SimpleNamespace(has_v1=lambda: False))
+    assert mr._extract_v1_infohash("magnet:?xt=urn:btih:MFRGGZDFMZTWQ2LK", params) is None
+
+
+def test_extract_v1_infohash_exception_falls_back_to_regex():
+    def _boom():
+        raise RuntimeError("fake binding lacks v1 accessor")
+
+    params = SimpleNamespace(info_hashes=SimpleNamespace(has_v1=_boom))
+    assert mr._extract_v1_infohash(
+        "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", params
+    ) == "0123456789abcdef0123456789abcdef01234567"
+    # No 40-hex token in the URI -> regex gives up too.
+    assert mr._extract_v1_infohash("magnet:?xt=urn:btih:abc", params) is None
+
+
+# =============================================================================
+# _fetch_mirror_torrent — raw sync HTTPS GET
+# =============================================================================
+
+def _stub_mirror_client(monkeypatch, *, status=200, chunks=None, raise_exc=None):
+    class _Resp:
+        status_code = status
+
+        def __enter__(self_inner):
+            return self_inner
+
+        def __exit__(self_inner, *a):
+            return False
+
+        def iter_bytes(self_inner):
+            yield from (chunks if chunks is not None else [])
+
+    class _Client:
+        def __init__(self_inner, *a, **kw):
+            pass
+
+        def __enter__(self_inner):
+            return self_inner
+
+        def __exit__(self_inner, *a):
+            return False
+
+        def stream(self_inner, method, url):
+            if raise_exc is not None:
+                raise raise_exc
+            return _Resp()
+
+    monkeypatch.setattr(mr.httpx, "Client", _Client)
+
+
+def test_fetch_mirror_torrent_success(monkeypatch):
+    _stub_mirror_client(monkeypatch, chunks=[b"abc", b"def"])
+    assert mr._fetch_mirror_torrent("https://mirror/aaa.torrent") == b"abcdef"
+
+
+def test_fetch_mirror_torrent_non_200_returns_none(monkeypatch):
+    _stub_mirror_client(monkeypatch, status=404)
+    assert mr._fetch_mirror_torrent("https://mirror/missing.torrent") is None
+
+
+def test_fetch_mirror_torrent_oversized_returns_none(monkeypatch):
+    monkeypatch.setattr(mr, "_MAX_TORRENT_BYTES", 16)
+    _stub_mirror_client(monkeypatch, chunks=[b"x" * 10, b"y" * 10])
+    assert mr._fetch_mirror_torrent("https://mirror/big.torrent") is None
+
+
+def test_fetch_mirror_torrent_exception_returns_none(monkeypatch):
+    _stub_mirror_client(monkeypatch, raise_exc=RuntimeError("boom"))
+    assert mr._fetch_mirror_torrent("https://mirror/broken.torrent") is None
+
+
+# =============================================================================
+# _verify_mirror_payload — structural + infohash recompute
+# =============================================================================
+
+def test_verify_mirror_payload_rejects_non_bencode():
+    assert mr._verify_mirror_payload(b"not bencode", "a" * 40) is False
+
+
+def test_verify_mirror_payload_digest_mismatch_is_false():
+    raw, _digest = _mirror_payload()
+    assert mr._verify_mirror_payload(raw, "f" * 40) is False
+
+
+def test_verify_mirror_payload_encode_failure_is_false(monkeypatch):
+    raw, _digest = _mirror_payload()
+
+    def _boom(*a, **kw):
+        raise RuntimeError("encode exploded")
+
+    monkeypatch.setattr(mr.bencodepy, "encode", _boom)
+    assert mr._verify_mirror_payload(raw, "a" * 40) is False
+
+
+async def test_try_cache_mirrors_skips_url_without_placeholder(tmp_path, monkeypatch):
+    """A mirror URL template lacking {infohash} is skipped, never fetched."""
+    monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [
+        "https://mirror/no-placeholder.torrent",
+    ])
+    fetch = Mock(side_effect=AssertionError("must not be fetched"))
+    monkeypatch.setattr(mr, "_fetch_mirror_torrent", fetch)
+
+    dest = tmp_path / "r.torrent"
+    params = SimpleNamespace()
+    uri = f"magnet:?xt=urn:btih:{'a' * 40}"
+    assert await mr._try_cache_mirrors(uri, params, str(dest)) is False
+    fetch.assert_not_called()
+    assert not dest.exists()
+
+
+# =============================================================================
+# _get_session / _poll_metadata error branches
+# =============================================================================
+
+def test_get_session_raises_when_libtorrent_missing(monkeypatch):
+    monkeypatch.setattr(mr, "lt", None)
+    with pytest.raises(mr.MagnetUnavailableError):
+        mr._get_session()
+
+
+async def test_poll_metadata_raises_on_metadata_error():
+    class _Status:
+        @property
+        def has_metadata(self):
+            return False
+
+        @property
+        def errc(self):
+            return SimpleNamespace(value=lambda: 1, message=lambda: "metadata fetch failed")
+
+    class _Handle:
+        def status(self):
+            return _Status()
+
+    with pytest.raises(mr.MagnetMetadataError, match="metadata fetch failed"):
+        await mr._poll_metadata(_Handle())
+
+
+# =============================================================================
+# resolve_magnet_to_cache failure branches
+# =============================================================================
+
+async def test_resolve_rebuilt_torrent_unusable_raises(tmp_path, monkeypatch):
+    """The rebuilt .torrent failing re-validation is a MagnetMetadataError."""
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr, "parse_torrent_payload", Mock(return_value=None))
+    with pytest.raises(mr.MagnetMetadataError, match="rebuilt torrent metadata is unusable"):
+        await mr.resolve_magnet_to_cache(
+            "magnet:?xt=urn:btih:abc", str(tmp_path / "x.torrent"), 60
+        )
+
+
+async def test_resolve_unexpected_lt_error_wrapped_and_cleanup_silent(tmp_path, monkeypatch):
+    """A raw libtorrent crash is wrapped in MagnetMetadataError and a throwing
+    remove_torrent during cleanup never escapes."""
+    class _Handle:
+        def status(self):
+            return SimpleNamespace(has_metadata=True, errc=None)
+
+        def torrent_file(self):
+            return object()
+
+    class _Session:
+        def __init__(self, settings):
+            pass
+
+        def add_torrent(self, params):
+            return _Handle()
+
+        def remove_torrent(self, handle):
+            raise RuntimeError("cleanup boom")
+
+    class _CreateTorrent:
+        def __init__(self, ti):
+            self.trackers = []
+
+        def add_tracker(self, tracker):
+            self.trackers.append(tracker)
+
+        def generate(self):
+            raise RuntimeError("rebuild boom")
+
+    def _parse(uri):
+        return SimpleNamespace(flags=0, trackers=[], save_path="")
+
+    fake = SimpleNamespace(
+        session=_Session,
+        parse_magnet_uri=_parse,
+        create_torrent=_CreateTorrent,
+        bencode=bencodepy.encode,
+        torrent_flags=SimpleNamespace(upload_mode=1),
+    )
+    monkeypatch.setattr(mr, "lt", fake)
+    monkeypatch.setattr(mr.settings, "magnet_resolve_cache_mirrors", [])
+    with pytest.raises(mr.MagnetMetadataError, match="metadata resolution failed"):
+        await mr.resolve_magnet_to_cache(
+            "magnet:?xt=urn:btih:abc", str(tmp_path / "x.torrent"), 60
+        )
+
+
+# =============================================================================
+# launch_resolution guard branches
+# =============================================================================
+
+async def test_launch_disabled_returns_false(db_session, sample_channel, monkeypatch):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "magnet_resolve_enabled", False)
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+    assert await mr.launch_resolution(r.id) is False
+    await db_session.refresh(r)
+    assert r.magnet_resolve_status is None
+
+
+async def test_launch_skips_already_inflight_resource(monkeypatch):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    mr._inflight.add("already-running")
+    try:
+        assert await mr.launch_resolution("already-running") is False
+    finally:
+        mr._inflight.discard("already-running")
+
+
+async def test_run_resolution_swallows_crashed_attempt(monkeypatch):
+    async def _boom(resource_id):
+        raise RuntimeError("crash")
+
+    monkeypatch.setattr(mr, "_attempt_loop", _boom)
+    mr._inflight.add("crashed")
+    try:
+        await mr._run_resolution("crashed")
+    finally:
+        # The guard discards the inflight marker even after a crash.
+        assert "crashed" not in mr._inflight
+
+
+# =============================================================================
+# _attempt_loop edge branches
+# =============================================================================
+
+async def test_attempt_loop_returns_when_row_disappeared(db_session, monkeypatch):
+    """set_status(running) failing (row gone) exits the loop immediately."""
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    await mr._attempt_loop("nonexistent-id")
+
+
+async def test_attempt_loop_returns_for_non_magnet(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+    r = await _make_magnet_resource(
+        db_session, sample_channel.id, torrent_url="https://x/plain.torrent"
+    )
+    await mr._attempt_loop(r.id)
+    await db_session.refresh(r)
+    assert r.magnet_resolve_status == "running"
+
+
+async def test_attempt_loop_resource_deleted_during_failure_returns(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    from sqlalchemy import delete
+
+    from app.database import committed_session
+    from app.models.file_resource import FileResource
+
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+
+    async def _delete_then_fail(*a, **kw):
+        async with committed_session() as db:
+            await db.execute(delete(FileResource).where(FileResource.id == r.id))
+        raise mr.MagnetResolveError("gone mid-flight")
+
+    monkeypatch.setattr(mr, "resolve_magnet_to_cache", _delete_then_fail)
+    await mr._attempt_loop(r.id)
+
+
+async def test_attempt_loop_unexpected_exception_marks_failed(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+
+    async def _boom(*a, **kw):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(mr, "resolve_magnet_to_cache", _boom)
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+    await mr._attempt_loop(r.id)
+    await db_session.refresh(r)
+    assert r.magnet_resolve_status == "failed"
+    assert r.magnet_resolve_error == "unexpected error: kaboom"
+
+
+async def test_attempt_loop_resource_deleted_after_done_returns(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    from sqlalchemy import delete
+
+    from app.database import committed_session
+    from app.models.file_resource import FileResource
+
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+    monkeypatch.setattr(
+        "app.services.torrent_inspect.maybe_inspect_torrent", AsyncMock(return_value=False)
+    )
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+
+    real_set_status = mr._set_status
+
+    async def _set_status_and_delete(resource_id, **values):
+        if values.get("magnet_resolve_status") == "done":
+            async with committed_session() as db:
+                await db.execute(delete(FileResource).where(FileResource.id == resource_id))
+        return await real_set_status(resource_id, **values)
+
+    monkeypatch.setattr(mr, "_set_status", _set_status_and_delete)
+    await mr._attempt_loop(r.id)
+
+
+async def test_attempt_loop_post_inspect_crash_keeps_done(
+    db_session, sample_channel, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "torrent_cache_dir", str(tmp_path))
+
+    async def _boom(db, resource, channel=None):
+        raise RuntimeError("inspect down")
+
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _boom)
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+    assert await mr.launch_resolution(r.id) is True
+    await _drain_background()
+    await db_session.refresh(r)
+    # Inspection failure must not flip a successful resolution away from done.
+    assert r.magnet_resolve_status == "done"
+
+
+# =============================================================================
+# enqueue_resolution guard branches
+# =============================================================================
+
+async def test_enqueue_disabled_returns(db_session, sample_channel, monkeypatch):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    monkeypatch.setattr(mr.settings, "magnet_resolve_enabled", False)
+    fake_queue = SimpleNamespace(enqueue=AsyncMock())
+    monkeypatch.setattr("app.services.task_queue.task_queue", fake_queue)
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+    await mr.enqueue_resolution(r.id)
+    fake_queue.enqueue.assert_not_awaited()
+
+
+async def test_enqueue_missing_libtorrent_returns(db_session, sample_channel, monkeypatch):
+    monkeypatch.setattr(mr, "lt", None)
+    fake_queue = SimpleNamespace(enqueue=AsyncMock())
+    monkeypatch.setattr("app.services.task_queue.task_queue", fake_queue)
+    r = await _make_magnet_resource(db_session, sample_channel.id)
+    await mr.enqueue_resolution(r.id)
+    fake_queue.enqueue.assert_not_awaited()
+
+
+async def test_enqueue_missing_resource_returns(db_session, monkeypatch):
+    monkeypatch.setattr(mr, "lt", _fake_lt())
+    fake_queue = SimpleNamespace(enqueue=AsyncMock())
+    monkeypatch.setattr("app.services.task_queue.task_queue", fake_queue)
+    await mr.enqueue_resolution("nonexistent")
+    fake_queue.enqueue.assert_not_awaited()

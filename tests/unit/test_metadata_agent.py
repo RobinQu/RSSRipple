@@ -2733,3 +2733,537 @@ def test_normalize_finalize_dates_no_entity_or_no_source_key_is_noop():
     fd2 = {"found": True, "content_type": "tv", "matched_entity": {"title_cn": "x"}}
     _normalize_finalize_dates(fd2)
     assert "start_date" not in fd2["matched_entity"]
+
+
+# ---------------------------------------------------------------------------
+# Tool wrappers: JSON serialization + finalize sentinel
+# ---------------------------------------------------------------------------
+
+import app.services.metadata_agent as ma_module  # noqa: E402
+
+
+async def test_search_tmdb_tool_serializes_result(monkeypatch):
+    """The @tool wrapper JSON-serializes the source result with unicode kept."""
+    import json as _json
+
+    ma_module._execute_search_tmdb = AsyncMock(
+        return_value={"success": True, "data": [{"tmdb_id": 1, "title_cn": "葬送的芙莉莲"}]}
+    )
+    out = await ma_module.search_tmdb.coroutine("query")
+    parsed = _json.loads(out)
+    assert parsed["success"] is True
+    assert parsed["data"][0]["title_cn"] == "葬送的芙莉莲"
+
+
+async def test_get_tmdb_details_tool_serializes_result(monkeypatch):
+    import json as _json
+
+    ma_module._execute_get_tmdb_details = AsyncMock(
+        return_value={"success": True, "data": {"number_of_seasons": 2}}
+    )
+    out = await ma_module.get_tmdb_details.coroutine("85937", "tv")
+    assert _json.loads(out)["data"]["number_of_seasons"] == 2
+
+
+async def test_search_wikipedia_tool_serializes_result(monkeypatch):
+    import json as _json
+
+    ma_module._execute_search_wikipedia = AsyncMock(
+        return_value={"success": True, "data": [{"title": "Show"}]}
+    )
+    out = await ma_module.search_wikipedia.coroutine("Show", lang="zh")
+    assert _json.loads(out)["data"][0]["title"] == "Show"
+
+
+async def test_get_wikipedia_page_tool_serializes_result(monkeypatch):
+    import json as _json
+
+    ma_module._execute_get_wikipedia_page = AsyncMock(
+        return_value={"success": True, "data": {"title": "Show", "categories": {}}}
+    )
+    out = await ma_module.get_wikipedia_page.coroutine("Show", lang="zh")
+    assert _json.loads(out)["data"]["title"] == "Show"
+
+
+def test_finalize_tool_returns_sentinel():
+    assert ma_module.finalize.func("{}") == "FINALIZED"
+
+
+def test_title_year_hint_mentions_the_parsed_year():
+    hint = ma_module._title_year_hint(2005)
+    assert "2005" in hint
+    assert "strong evidence" in hint
+
+
+# ---------------------------------------------------------------------------
+# Genre helpers: _parse_genre_array
+# ---------------------------------------------------------------------------
+
+
+def test_parse_genre_array_extracts_first_array_and_clamps():
+    from app.services.metadata_agent import _parse_genre_array
+    assert _parse_genre_array('Genres: ["Animation", "Adventure"]') == ["Animation", "Adventure"]
+    assert _parse_genre_array("no brackets") == []
+    assert _parse_genre_array(None) == []
+
+
+def test_parse_genre_array_returns_empty_on_bad_json():
+    from app.services.metadata_agent import _parse_genre_array
+    assert _parse_genre_array("prefix [ {invalid json] tail") == []
+
+
+# ---------------------------------------------------------------------------
+# _agent_for_source lazy graph construction
+# ---------------------------------------------------------------------------
+
+
+def test_agent_for_source_builds_and_caches_one_graph_per_source(monkeypatch):
+    created: list[list] = []
+
+    def _fake_create(model, tools, prompt):
+        created.append(tools)
+        return object()
+
+    monkeypatch.setattr(ma_module, "create_react_agent", _fake_create)
+    agent = UnifiedMetadataAgent()
+    a = agent._agent_for_source("tmdb")
+    b = agent._agent_for_source("tmdb")
+    c = agent._agent_for_source("wikipedia")
+    d = agent._agent_for_source(None)  # normalizes to wikipedia
+    assert a is b
+    assert c is d
+    assert len(created) == 2
+
+
+# ---------------------------------------------------------------------------
+# _ensure_genre: synopsis-based genre fallback
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_genre_infers_from_synopsis():
+    agent = UnifiedMetadataAgent()
+    agent._model = MagicMock()
+    resp = MagicMock()
+    resp.content = '["Animation", "Adventure"]'
+    agent._model.ainvoke = AsyncMock(return_value=resp)
+    fd = {"found": True, "matched_entity": {
+        "title_cn": "Show", "description": "A synopsis that describes the show.",
+    }}
+    await agent._ensure_genre(fd)
+    assert fd["matched_entity"]["genre"] == ["Animation", "Adventure"]
+
+
+async def test_ensure_genre_handles_non_string_content():
+    """A list-typed model response is JSON-dumped before array extraction."""
+    agent = UnifiedMetadataAgent()
+    agent._model = MagicMock()
+    resp = MagicMock()
+    resp.content = ["Animation"]
+    agent._model.ainvoke = AsyncMock(return_value=resp)
+    fd = {"found": True, "matched_entity": {
+        "title_cn": "Show", "description": "A synopsis.",
+    }}
+    await agent._ensure_genre(fd)
+    assert fd["matched_entity"]["genre"] == ["Animation"]
+
+
+async def test_ensure_genre_llm_failure_is_silent():
+    """An LLM error must not block or invalidate the match."""
+    agent = UnifiedMetadataAgent()
+    agent._model = MagicMock()
+    agent._model.ainvoke = AsyncMock(side_effect=RuntimeError("llm down"))
+    fd = {"found": True, "matched_entity": {
+        "title_cn": "Show", "description": "A synopsis.",
+    }}
+    await agent._ensure_genre(fd)
+    assert "genre" not in fd["matched_entity"]
+
+
+async def test_ensure_genre_noop_without_description_or_with_genre():
+    agent = UnifiedMetadataAgent()
+    agent._model = MagicMock()
+    agent._model.ainvoke = AsyncMock(return_value=MagicMock(content="[]"))
+    await agent._ensure_genre({"found": True, "matched_entity": {"title_cn": "X"}})
+    await agent._ensure_genre({"found": True, "matched_entity": {
+        "genre": ["Animation"], "description": "desc",
+    }})
+    agent._model.ainvoke.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _attach_tmdb_episode_list guards + fill
+# ---------------------------------------------------------------------------
+
+
+async def test_attach_tmdb_episode_list_skips_ineligible(monkeypatch):
+    fetch = AsyncMock()
+    monkeypatch.setattr(ma_module, "fetch_tmdb_episode_list", fetch)
+    await ma_module._attach_tmdb_episode_list({"found": False, "content_type": "tv"})
+    await ma_module._attach_tmdb_episode_list({"found": True, "content_type": "movie"})
+    await ma_module._attach_tmdb_episode_list({"found": True, "content_type": "tv", "matched_entity": {}})
+    await ma_module._attach_tmdb_episode_list({"found": True, "content_type": "tv",
+                                              "matched_entity": {"episode_list": ["x"]}})
+    fetch.assert_not_called()
+
+
+async def test_attach_tmdb_episode_list_requires_tmdb_id_and_seasons(monkeypatch):
+    fetch = AsyncMock()
+    monkeypatch.setattr(ma_module, "fetch_tmdb_episode_list", fetch)
+    await ma_module._attach_tmdb_episode_list({"found": True, "content_type": "tv", "matched_entity": {
+        "external_id": "mal:123", "external_source": "mal",
+        "seasons": [{"season_number": 1}],
+    }})
+    await ma_module._attach_tmdb_episode_list({"found": True, "content_type": "tv", "matched_entity": {
+        "external_id": "tmdb:9", "external_source": "tmdb",
+    }})
+    fetch.assert_not_called()
+
+
+async def test_attach_tmdb_episode_list_fills_from_prefix_id(monkeypatch):
+    fetch = AsyncMock(return_value=[{"episode_number": 1}])
+    monkeypatch.setattr(ma_module, "fetch_tmdb_episode_list", fetch)
+    fd = {"found": True, "content_type": "tv", "matched_entity": {
+        "external_id": "tmdb:9", "external_source": "tmdb",
+        "seasons": [{"season_number": 1}],
+    }}
+    await ma_module._attach_tmdb_episode_list(fd)
+    assert fd["matched_entity"]["episode_list"] == [{"episode_number": 1}]
+    fetch.assert_awaited_once()
+    fetch.assert_awaited_with("9", [{"season_number": 1}])
+
+
+async def test_attach_tmdb_episode_list_numeric_id_without_prefix(monkeypatch):
+    fetch = AsyncMock(return_value=[{"episode_number": 1}])
+    monkeypatch.setattr(ma_module, "fetch_tmdb_episode_list", fetch)
+    fd = {"found": True, "content_type": "tv", "matched_entity": {
+        "external_id": "123", "external_source": "tmdb",
+        "seasons": [{"season_number": 1}],
+    }}
+    await ma_module._attach_tmdb_episode_list(fd)
+    fetch.assert_awaited_once()
+    fetch.assert_awaited_with("123", [{"season_number": 1}])
+
+
+# ---------------------------------------------------------------------------
+# _run_react success + invocation-failure paths
+# ---------------------------------------------------------------------------
+
+
+async def test_run_react_success_extracts_finalize():
+    agent = UnifiedMetadataAgent()
+    fake = MagicMock()
+    fake.ainvoke = AsyncMock(return_value={"messages": [
+        _ai_message("finalize", {"result_json": (
+            '{"found": true, "clean_title": "Show", "content_type": "tv", '
+            '"matched_entity": {"external_id": "x"}}'
+        )}),
+    ]})
+    agent._agent_for_source = MagicMock(return_value=fake)
+    finalize_dict, info = await agent._run_react("msg", "wikipedia")
+    assert finalize_dict["found"] is True
+    assert finalize_dict["matched_entity"]["external_id"] == "x"
+    assert info == {"method": None, "data_sources_used": [], "source_errors": {}, "error": None}
+
+
+async def test_run_react_invocation_failure_is_wrapped_transient():
+    agent = UnifiedMetadataAgent()
+    fake = MagicMock()
+    fake.ainvoke = AsyncMock(side_effect=RuntimeError("boom"))
+    agent._agent_for_source = MagicMock(return_value=fake)
+    finalize_dict, info = await agent._run_react("msg", "wikipedia")
+    assert finalize_dict["found"] is False
+    assert "Agent error: boom" in finalize_dict["reason"]
+    assert info["error"] == "boom"
+    assert info["data_sources_used"] == ["wikipedia"]
+
+
+# ---------------------------------------------------------------------------
+# _extract_finalize_result branches
+# ---------------------------------------------------------------------------
+
+
+def test_extract_finalize_result_parses_last_ai_finalize():
+    agent = UnifiedMetadataAgent()
+    messages = [
+        _ai_message("search_wikipedia", {"query": "q"}),
+        _ai_message("finalize", {"result_json": '{"found": true}'}),
+    ]
+    assert agent._extract_finalize_result(messages) == {"found": True}
+
+
+def test_extract_finalize_result_skips_bad_ai_json_then_uses_tool_message():
+    agent = UnifiedMetadataAgent()
+    messages = [
+        _ai_message("finalize", {"result_json": "{not json"}),
+        _tool_message("finalize", {"found": True}, "finalize"),
+    ]
+    assert agent._extract_finalize_result(messages) == {"found": True}
+
+
+def test_extract_finalize_result_no_finalize_returns_default():
+    from langchain_core.messages import ToolMessage
+
+    agent = UnifiedMetadataAgent()
+    messages = [
+        _ai_message("search_wikipedia", {"query": "q"}),
+        ToolMessage(content='["not", "a", "dict"]', name="finalize", tool_call_id="f"),
+    ]
+    out = agent._extract_finalize_result(messages)
+    assert out["found"] is False
+    assert "did not call finalize" in out["reason"]
+
+
+def test_extract_finalize_result_unparseable_tool_message_returns_default():
+    """A finalize ToolMessage with non-JSON content is skipped (no crash)."""
+    from langchain_core.messages import ToolMessage
+
+    agent = UnifiedMetadataAgent()
+    messages = [ToolMessage(content="not json", name="finalize", tool_call_id="f")]
+    out = agent._extract_finalize_result(messages)
+    assert out["found"] is False
+    assert "did not call finalize" in out["reason"]
+
+
+# ---------------------------------------------------------------------------
+# _extract_search_info tool-branch coverage
+# ---------------------------------------------------------------------------
+
+
+def test_extract_search_info_covers_all_tool_branches():
+    from langchain_core.messages import ToolMessage
+
+    messages = [
+        _ai_message("search_tmdb", {"query": "x"}),
+        _ai_message("get_tmdb_details", {"tmdb_id": "1", "media_type": "tv"}),
+        _ai_message("search_wikipedia", {"query": "y"}),
+        _ai_message("get_wikipedia_page", {"title": "y"}),
+        _tool_message("search_tmdb", {"success": False, "error": "TMDB 500"}, "search_tmdb"),
+        _tool_message("search_tmdb", {"success": True, "data": []}, "search_tmdb"),
+        ToolMessage(content="not json", name="search_tmdb", tool_call_id="c1"),
+        _tool_message("get_tmdb_details", {"success": False, "error": "details boom"}, "get_tmdb_details"),
+        ToolMessage(content="not json", name="get_tmdb_details", tool_call_id="c2"),
+        ToolMessage(content="not json", name="search_wikipedia", tool_call_id="c3"),
+    ]
+    info = UnifiedMetadataAgent._extract_search_info(messages)
+    assert info["method"] == "tmdb|wikipedia"
+    assert info["data_sources_used"] == ["tmdb", "wikipedia"]
+    assert info["source_errors"] == {"tmdb": "TMDB 500"}
+    assert "TMDB 500" in info["error"]
+
+
+# ---------------------------------------------------------------------------
+# process(): remaining edge branches
+# ---------------------------------------------------------------------------
+
+
+async def test_process_empty_title_returns_none():
+    agent = UnifiedMetadataAgent()
+    res = await agent.process(SimpleNamespace(title_raw="   "), SimpleNamespace(), MagicMock())
+    assert res is None
+
+
+async def test_process_applies_cached_success_without_rerun():
+    """A definitive cached success (found + entity) short-circuits the live run."""
+    agent = _patched_agent()
+    cached = _meta(found=True, matched_entity={"external_id": "x"})
+    agent._get_cache.return_value = cached
+    resource = _ns_resource()
+    res = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+    agent._run_react.assert_not_called()
+    agent._apply_to_resource.assert_called_once()
+    assert res is cached
+    assert resource.metadata_attempts == 1
+    assert resource.metadata_failure_type is None
+
+
+async def test_process_applies_cached_non_work_immediately():
+    agent = _patched_agent()
+    cached = _meta(found=False, reason="The RSS entry is a music album release")
+    agent._get_cache.return_value = cached
+    res = await agent.process(_ns_resource(), SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+    agent._run_react.assert_not_called()
+    assert res.found is False
+    assert res.reason == "The RSS entry is a music album release"
+
+
+async def test_process_short_circuit_movie_links_movie_id():
+    """The movie half of the S1 known-work branch (movie_id set, series_id cleared)."""
+    agent = UnifiedMetadataAgent()
+    agent._get_cache = AsyncMock(return_value=None)
+    agent._find_known_work = AsyncMock(return_value=("movie", "m-123"))
+    resource = SimpleNamespace(
+        title_raw="[G] Some Movie 2025 [1080p]", title_cn="Some Movie", title_en=None,
+        search_title=None, series_id="s-old", movie_id=None,
+        metadata_attempts=0, last_metadata_attempt_at=None, metadata_failure_type=None,
+    )
+    meta = await agent.process(
+        resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock()
+    )
+    assert meta.found is True
+    assert meta.content_type == "movie"
+    assert resource.movie_id == "m-123"
+    assert resource.series_id is None
+    assert resource.search_title == "Some Movie"
+
+
+async def test_process_non_media_is_non_work_and_cached():
+    agent = _patched_agent()
+    agent._get_cache.return_value = None
+    resource = _ns_resource()
+    resource.title_raw = "BitComet Stable (build 2.21.6.23) 比特彗星全功能解锁豪华版"
+    meta = await agent.process(resource, SimpleNamespace(id="ch", metadata_source=None), MagicMock())
+    agent._run_react.assert_not_called()
+    assert meta.found is False
+    assert "non-media" in meta.reason
+    agent._apply_to_resource.assert_called_once()
+    agent._set_cache.assert_called_once()
+    assert resource.metadata_failure_type == "non_work"
+
+
+async def test_process_routes_tmdb_to_react_then_web_fallback(monkeypatch):
+    """A tmdb-source channel runs ReAct, then the web fallback (here disabled)."""
+    agent = _stub_agent()
+    agent._run_react.return_value = (
+        {"found": False, "clean_title": "X", "content_type": "tv",
+         "reason": "No matching work found in TMDB"},
+        {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None},
+    )
+    monkeypatch.setattr(ma_module, "web_fallback_judge", AsyncMock(return_value=None))
+    channel = SimpleNamespace(
+        id="ch", metadata_source="tmdb", metadata_fallback_sources=None, name="ch",
+    )
+    meta = await agent.process(_ns_resource(), channel, MagicMock())
+    agent._run_react.assert_called_once()
+    assert meta.found is False
+
+
+# ---------------------------------------------------------------------------
+# process_title_only edge branches
+# ---------------------------------------------------------------------------
+
+
+async def test_process_title_only_empty_title(monkeypatch):
+    from app.services import runtime_config as _rc
+
+    monkeypatch.setitem(_rc._overrides, "llm_api_key", None)
+    agent = UnifiedMetadataAgent()
+    meta = await agent.process_title_only("   ")
+    assert meta.found is False
+    assert meta.reason == "Empty title"
+
+
+async def test_process_title_only_without_llm_key(monkeypatch):
+    from app.services import runtime_config as _rc
+
+    monkeypatch.setitem(_rc._overrides, "llm_api_key", None)
+    agent = UnifiedMetadataAgent()
+    meta = await agent.process_title_only("Some Show - 01")
+    assert meta.found is False
+    assert meta.reason == "LLM API key not configured"
+
+
+async def test_process_title_only_wikipedia_routes_search_then_judge(monkeypatch):
+    agent = _title_only_agent(monkeypatch)
+    agent._run_search_then_judge = AsyncMock(return_value=(
+        {"found": True, "clean_title": "Show", "content_type": "tv",
+         "matched_entity": {"external_id": "wikipedia:en:1"}},
+        {"method": "search_then_judge", "data_sources_used": ["wikipedia"],
+         "source_errors": {}, "error": None},
+    ))
+    meta = await agent.process_title_only("[G] Show - 01", "wikipedia")
+    agent._run_search_then_judge.assert_awaited_once()
+    assert meta.found is True
+
+
+async def test_process_title_only_bangumi_with_season_hint(monkeypatch):
+    """season_hint builds the lightweight hint_resource for the bangumi flow."""
+    from app.services import metadata_bangumi as _mb
+
+    monkeypatch.setattr(
+        _mb, "run_bangumi_search_then_judge", AsyncMock(return_value=_bangumi_found())
+    )
+    agent = _title_only_agent(monkeypatch)
+    meta = await agent.process_title_only("Show - 01", "bangumi", season_hint=2)
+    assert meta.found is True
+    assert meta.matched_entity["external_id"] == "bangumi:400602"
+
+
+async def test_process_title_only_tmdb_react_and_fallback(monkeypatch):
+    """Title-only tmdb path: ReAct message (with year hint) then web fallback."""
+    agent = _title_only_agent(monkeypatch)
+    agent._run_react = AsyncMock(return_value=(
+        {"found": False, "clean_title": "Show", "content_type": "tv", "reason": "no match"},
+        {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None},
+    ))
+    monkeypatch.setattr(ma_module, "web_fallback_judge", AsyncMock(return_value=None))
+    meta = await agent.process_title_only("Some Show 2005 - 01", "tmdb")
+    agent._run_react.assert_awaited_once()
+    assert meta.found is False
+
+
+# ---------------------------------------------------------------------------
+# _maybe_web_fallback: fallback search failure is transient
+# ---------------------------------------------------------------------------
+
+
+async def test_maybe_web_fallback_failure_is_transient(monkeypatch):
+    fb = AsyncMock(return_value=(
+        {"found": False, "clean_title": "X", "content_type": "tv", "reason": "no match"},
+        {"method": "web", "data_sources_used": ["wigolo"],
+         "source_errors": {"wigolo": "502"}, "error": "wigolo HTTP 502"},
+    ))
+    monkeypatch.setattr(ma_module, "web_fallback_judge", fb)
+    agent = UnifiedMetadataAgent()
+    fd = {"found": False, "clean_title": "X", "content_type": "tv",
+          "reason": "No matching work found in TMDB"}
+    info = {"method": "react", "data_sources_used": ["tmdb"], "source_errors": {}, "error": None}
+    out_fd, out_info = await agent._maybe_web_fallback(fd, info, "X")
+    assert out_fd["reason"] == "wigolo HTTP 502"
+    assert out_info["method"] == "react_then_web_fallback"
+    assert out_info["error"] == "wigolo HTTP 502"
+    assert out_info["data_sources_used"] == ["tmdb", "wigolo"]
+
+
+# ---------------------------------------------------------------------------
+# Message builders: year hints
+# ---------------------------------------------------------------------------
+
+
+def test_build_title_only_message_appends_year_hint():
+    agent = UnifiedMetadataAgent()
+    msg = agent._build_title_only_message("Some Show 2005 - 01", "tmdb")
+    assert "2005" in msg
+
+
+def test_build_production_message_appends_title_year_hint():
+    agent = UnifiedMetadataAgent()
+    resource = SimpleNamespace(
+        title_raw="[G] Show - 01", title_cn=None, title_en=None,
+        subtitle_group=None, episode=None, season=None,
+        resolution=None, source=None, video_codec=None, audio_codec=None,
+        subtitle_type=None, container=None, title_year=2026,
+    )
+    msg = agent._build_production_message(resource, SimpleNamespace(name="ch"))
+    assert "2026" in msg
+
+
+# ---------------------------------------------------------------------------
+# Module-level agent singleton
+# ---------------------------------------------------------------------------
+
+
+def test_get_agent_returns_and_caches_singleton():
+    ma_module._agent_instance = None
+    try:
+        a = ma_module.get_agent()
+        b = ma_module.get_agent()
+        assert a is b
+        assert isinstance(a, ma_module.UnifiedMetadataAgent)
+    finally:
+        ma_module.reset_metadata_agent()
+
+
+def test_reset_metadata_agent_clears_singleton():
+    ma_module._agent_instance = object()
+    ma_module.reset_metadata_agent()
+    assert ma_module._agent_instance is None

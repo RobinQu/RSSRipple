@@ -1057,3 +1057,781 @@ def test_cleanup_paths_skips_shared_root_without_torrent_name():
 
     payload = NotificationPayload.model_validate(_movie_payload("/downloads"))
     assert _cleanup_paths(payload, None) == (None, None)
+
+
+def test_cleanup_paths_skips_empty_download_dir():
+    """download_dir 为空：无清理范围可推，直接跳过。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _cleanup_paths
+
+    payload = NotificationPayload.model_validate(_movie_payload(""))
+    assert _cleanup_paths(payload, None) == (None, None)
+
+
+# ---------------------------------------------------------------- 补缺分支
+
+
+async def test_is_plan_executing(db_session):
+    assert not organize_service.is_plan_executing("nope")
+    organize_service._executing_plan_ids.add("plan-1")
+    try:
+        assert organize_service.is_plan_executing("plan-1")
+    finally:
+        organize_service._executing_plan_ids.discard("plan-1")
+
+
+async def test_resolve_manifest_missing_task(db_session):
+    """payload 无 download_task_id → 无清单可解析。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    payload = NotificationPayload.model_validate(_movie_payload("/downloads"))
+    assert await _resolve_manifest(db_session, payload) is None
+
+
+async def test_resolve_manifest_task_row_missing(db_session):
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    payload = NotificationPayload.model_validate(
+        _movie_payload("/downloads", task_id=_uuid())
+    )
+    assert await _resolve_manifest(db_session, payload) is None
+
+
+async def test_resolve_manifest_empty_parse(db_session, tmp_path, monkeypatch):
+    """torrent 缓存解析为空 → 无清单。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    notification = await _seed(db_session, _movie_payload(str(tmp_path / "dl")))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = str(_write_torrent(tmp_path / "r.torrent", [("a.mkv", 1)]))
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.torrent_inspect.parse_torrent_files", lambda p: None
+    )
+    payload = NotificationPayload.model_validate(notification.payload)
+    assert await _resolve_manifest(db_session, payload) is None
+
+
+async def test_resolve_manifest_fetches_torrent_url(db_session, tmp_path, monkeypatch):
+    """torrent_url 拉取成功 → 回写 torrent_file 缓存并解析清单。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    notification = await _seed(db_session, _movie_payload(str(tmp_path / "dl")))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = None
+    resource.torrent_url = "https://example.com/x.torrent"
+    torrent_path = _write_torrent(tmp_path / "r.torrent", [("a.mkv", 1)])
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.torrent_inspect.fetch_torrent_file",
+        AsyncMock(return_value=str(torrent_path)),
+    )
+    payload = NotificationPayload.model_validate(notification.payload)
+    manifest = await _resolve_manifest(db_session, payload)
+    assert manifest and manifest[0]["name"] == "a.mkv"
+    assert resource.torrent_file == str(torrent_path)
+
+
+async def test_resolve_manifest_fetch_failure_continues(db_session, tmp_path, monkeypatch):
+    """torrent_url 拉取失败 → best-effort 静默，继续回退链。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    notification = await _seed(db_session, _movie_payload(str(tmp_path / "dl")))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = None
+    resource.torrent_url = "https://example.com/x.torrent"
+    await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.torrent_inspect.fetch_torrent_file",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    payload = NotificationPayload.model_validate(notification.payload)
+    assert await _resolve_manifest(db_session, payload) is None
+
+
+async def test_resolve_manifest_from_downloader_rpc(db_session, tmp_path, monkeypatch):
+    """torrent 缓存与 URL 均无 → 下载器 RPC 清单；绝对路径/盘符被过滤。"""
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    notification = await _seed(db_session, _movie_payload(str(tmp_path / "dl")))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = None
+    task = await db_session.get(
+        DownloadTask, notification.payload["task"]["download_task_id"]
+    )
+    task.transmission_torrent_id = 42
+    await db_session.commit()
+    wrapper = SimpleNamespace(
+        get_torrent_files=AsyncMock(return_value={"files": [
+            {"name": "/etc/passwd", "length": 1},
+            {"name": "..\\evil.mkv", "length": 2},
+            {"name": "C:\\x.mkv", "length": 3},
+            {"name": "safe.mkv", "length": 4},
+        ]})
+    )
+    monkeypatch.setattr(
+        "app.clients.downloader.get_downloader_client", lambda d: wrapper
+    )
+    payload = NotificationPayload.model_validate(notification.payload)
+    manifest = await _resolve_manifest(db_session, payload)
+    assert manifest == [{"name": "safe.mkv", "size": 4}]
+
+
+async def test_resolve_manifest_rpc_failure_returns_none(db_session, tmp_path, monkeypatch):
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_manifest
+
+    notification = await _seed(db_session, _movie_payload(str(tmp_path / "dl")))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = None
+    task = await db_session.get(
+        DownloadTask, notification.payload["task"]["download_task_id"]
+    )
+    task.transmission_torrent_id = 42
+    await db_session.commit()
+    wrapper = SimpleNamespace(
+        get_torrent_files=AsyncMock(side_effect=RuntimeError("rpc down"))
+    )
+    monkeypatch.setattr(
+        "app.clients.downloader.get_downloader_client", lambda d: wrapper
+    )
+    payload = NotificationPayload.model_validate(notification.payload)
+    assert await _resolve_manifest(db_session, payload) is None
+
+
+async def test_plan_failed_on_volume_resolution_error(db_session, tmp_path, monkeypatch):
+    """下载器卷绑定残缺 → 规划确定性拒绝落 failed 计划。"""
+    from app.services.volume_service import VolumeResolutionError
+
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Show.S01" / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), torrent_name="Show.S01")
+    )
+    monkeypatch.setattr(
+        organize_service, "resolve_downloader_path",
+        Mock(side_effect=VolumeResolutionError("绑定不完整")),
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["failed"] == 1
+
+
+async def test_plan_single_file_torrent(db_session, tmp_path):
+    """torrent_name 本身即单文件种子 → 直接以该文件为磁盘清单。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Show.S01E04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), torrent_name="Show.S01E04.mkv")
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+    [plan] = await _plans(db_session)
+    [op] = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert op.src == str(dl_dir / "Show.S01E04.mkv")
+
+
+async def test_plan_skips_nameless_payload_file(db_session, tmp_path):
+    """payload.files 里缺 name 的条目跳过，不阻断其余文件匹配。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    payload = _series_payload(
+        str(dl_dir), files=[{"name": "ep04.mkv"}, {"size": 5}]
+    )
+    notification = await _seed(db_session, payload)
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["planned"] == 1
+
+
+async def test_plan_fails_when_files_miss_and_no_scoped_dir(db_session, tmp_path):
+    """payload.files 在磁盘上均未命中且无种子独立目录 → 拒绝扫描共享下载根。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "wrong.mkv"}])
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["failed"] == 1
+    [plan] = await _plans(db_session)
+    assert "无法定位下载内容" in plan.error_message
+
+
+async def test_resolve_downloader_missing_cases(db_session):
+    """下载器解析的 None 分支：无 task_id / task 行缺失 / downloader 行不存在。"""
+    from sqlalchemy import text
+
+    from app.schemas.notification import NotificationPayload
+    from app.services.organize_service import _resolve_downloader
+
+    payload = NotificationPayload.model_validate(_movie_payload("/d"))
+    assert await _resolve_downloader(db_session, payload) is None
+
+    notif = await _seed(db_session, _movie_payload("/d"))
+    p = NotificationPayload.model_validate(notif.payload)
+    task = await db_session.get(DownloadTask, p.task.download_task_id)
+    await db_session.execute(text("PRAGMA foreign_keys=OFF"))
+    task.downloader_id = _uuid()
+    await db_session.commit()
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    assert await _resolve_downloader(db_session, p) is None
+
+    notif2 = await _seed(db_session, _movie_payload("/d"))
+    p2 = NotificationPayload.model_validate(notif2.payload)
+    task2 = await db_session.get(DownloadTask, p2.task.download_task_id)
+    await db_session.execute(text("PRAGMA foreign_keys=OFF"))
+    await db_session.delete(task2)
+    await db_session.commit()
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    assert await _resolve_downloader(db_session, p2) is None
+
+
+async def test_scoped_source_dir_volume_error(db_session, tmp_path, monkeypatch):
+    """_scoped_source_dir 卷解析失败 → 规划失败（同收集失败一致落 failed）。"""
+    from app.services.volume_service import VolumeResolutionError
+
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Show.S01" / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), torrent_name="Show.S01")
+    )
+    monkeypatch.setattr(
+        organize_service, "_collect_files",
+        lambda payload, downloader: [
+            SimpleNamespace(path="x", size=1, rel="x")
+        ],
+    )
+    monkeypatch.setattr(
+        organize_service, "resolve_downloader_path",
+        Mock(side_effect=VolumeResolutionError("绑定不完整")),
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["failed"] == 1
+
+
+async def test_plan_for_notifications_empty(db_session):
+    stats = await plan_for_notifications(db_session, [])
+    assert stats == {
+        "planned": 0, "rebuilt": 0, "uncategorized": 0,
+        "skipped": 0, "failed": 0,
+    }
+
+
+async def test_plan_for_notifications_skips_without_rules(db_session, tmp_path):
+    """不存在 enabled 规则 → 整步跳过，对通知流水线零影响。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats == {
+        "planned": 0, "rebuilt": 0, "uncategorized": 0,
+        "skipped": 0, "failed": 0,
+    }
+
+
+async def test_plan_unexpected_exception_counts_failed(
+    db_session, tmp_path, monkeypatch
+):
+    """单条规划的非 PlanError 异常 → 计 failed 继续本 tick 其余通知。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    monkeypatch.setattr(
+        organize_service, "_plan_one",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["failed"] == 1
+
+
+async def test_plan_failed_save_integrity_error_skips(
+    db_session, tmp_path, monkeypatch
+):
+    """failed 计划落库输掉唯一约束竞争 → 视同已存在跳过。"""
+    from sqlalchemy.exc import IntegrityError
+
+    dl_dir = tmp_path / "downloads"
+    (dl_dir / "Show.S01").mkdir(parents=True)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), torrent_name="Show.S01")
+    )
+
+    async def boom(*a, **k):
+        raise IntegrityError("INSERT", {}, Exception("unique"))
+
+    monkeypatch.setattr(db_session, "flush", boom)
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["skipped"] == 1
+    assert not await _plans(db_session)
+
+
+async def test_plan_success_save_integrity_error_skips(
+    db_session, tmp_path, monkeypatch
+):
+    from sqlalchemy.exc import IntegrityError
+
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+
+    async def boom(*a, **k):
+        raise IntegrityError("INSERT", {}, Exception("unique"))
+
+    monkeypatch.setattr(db_session, "flush", boom)
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["skipped"] == 1
+    assert not await _plans(db_session)
+
+
+async def test_rebuild_uses_manifest_fallback(db_session, tmp_path):
+    """failed 计划重建时 payload 无 files → torrent 清单回退定位磁盘文件。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Hamnet.2025.1080p.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib", name="Movies", kind="movie")
+    await _make_rule(db_session, lib.id, "{title} ({year})/{title} ({year}){ext}")
+    notification = await _seed(db_session, _movie_payload(str(dl_dir)))
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["failed"] == 1
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = str(
+        _write_torrent(tmp_path / "r.torrent", [("Hamnet.2025.1080p.mkv", 300)])
+    )
+    await db_session.commit()
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["rebuilt"] == 1
+    [plan] = await _plans(db_session)
+    assert plan.status == "pending"
+
+
+async def test_rebuild_preserves_manual_library_synthetic_rule(db_session, tmp_path):
+    """人工分类（rule_id=None）的计划重建走合成规则直指目标库，不丢人工选择。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    await classify_plan(db_session, plan.id, lib.id)
+    new_payload = {
+        **notification.payload,
+        "resource": {**notification.payload["resource"], "episode": 5},
+    }
+    notification.payload = new_payload
+    await db_session.commit()
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["rebuilt"] == 1
+    [plan] = await _plans(db_session)
+    assert plan.library_id == lib.id
+    assert plan.rule_id is None
+
+
+async def test_rebuild_failure_keeps_old_plan(db_session, tmp_path):
+    """重建失败（磁盘文件消失）→ 保留旧计划、计 failed，不抛异常。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    Path(dl_dir / "ep04.mkv").unlink()
+    new_payload = {
+        **notification.payload,
+        "resource": {**notification.payload["resource"], "episode": 5},
+    }
+    notification.payload = new_payload
+    await db_session.commit()
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["failed"] == 1
+    [plan] = await _plans(db_session)
+    assert plan.status == "pending"
+
+
+async def test_replan_open_plans_skips_without_plans(db_session, tmp_path):
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 0, "failed": 0}
+
+
+async def test_replan_skips_plan_without_notification(db_session, tmp_path):
+    """孤儿计划行（notification 已删）在配置重建中跳过。"""
+    from sqlalchemy import text
+
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    await db_session.execute(text("PRAGMA foreign_keys=OFF"))
+    orphan = OrganizePlan(
+        notification_id=_uuid(), library_id=lib.id, status="pending",
+        payload=_series_payload(str(dl_dir)),
+    )
+    db_session.add(orphan)
+    await db_session.commit()
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 0, "failed": 0}
+
+
+async def test_replan_unexpected_exception_counts_failed(
+    db_session, tmp_path, monkeypatch
+):
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(db_session, lib.id, TV_TEMPLATE)
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    await plan_for_notifications(db_session, [notification])
+    monkeypatch.setattr(
+        organize_service, "_rebuild_plan",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    stats = await replan_open_plans(db_session, reason="规则更新")
+    assert stats == {"rebuilt": 0, "failed": 1}
+
+
+async def test_schedule_auto_execute_runs(db_session, monkeypatch):
+    """auto_execute 后台任务：独立会话内执行计划，成功路径。"""
+    from app import database as db_mod
+
+    class FakeCtx:
+        def __init__(self):
+            self.session = SimpleNamespace(executed=1)
+
+        async def __aenter__(self):
+            return self.session
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(db_mod, "committed_session", lambda: FakeCtx())
+
+    async def fake_retry(factory):
+        return await factory()
+
+    monkeypatch.setattr(db_mod, "retry_on_lock", fake_retry)
+    executed = AsyncMock()
+    monkeypatch.setattr(organize_service, "execute_plan", executed)
+    captured = {}
+
+    def fake_create_task(coro):
+        captured["coro"] = coro
+        return Mock()
+
+    monkeypatch.setattr(organize_service.asyncio, "create_task", fake_create_task)
+    organize_service.schedule_auto_execute("plan-1")
+    await captured["coro"]
+    executed.assert_awaited_once()
+    session, plan_id = executed.await_args.args
+    assert session.executed == 1
+    assert plan_id == "plan-1"
+
+
+async def test_schedule_auto_execute_failure_logged(db_session, monkeypatch):
+    """auto_execute 后台任务异常只记日志，不向上传播。"""
+    from app import database as db_mod
+
+    class FakeCtx:
+        async def __aenter__(self):
+            return SimpleNamespace()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(db_mod, "committed_session", lambda: FakeCtx())
+
+    async def fake_retry(factory):
+        return await factory()
+
+    monkeypatch.setattr(db_mod, "retry_on_lock", fake_retry)
+    monkeypatch.setattr(
+        organize_service, "execute_plan",
+        AsyncMock(side_effect=RuntimeError("boom")),
+    )
+    captured = {}
+
+    def fake_create_task(coro):
+        captured["coro"] = coro
+        return Mock()
+
+    monkeypatch.setattr(organize_service.asyncio, "create_task", fake_create_task)
+    organize_service.schedule_auto_execute("plan-1")
+    await captured["coro"]
+
+
+async def test_execute_running_in_progress_rejected(db_session, tmp_path):
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    plan.status = "running"
+    await db_session.commit()
+    organize_service._executing_plan_ids.add(plan.id)
+    try:
+        with pytest.raises(OrganizeError, match="正在执行中"):
+            await execute_plan(db_session, plan.id)
+    finally:
+        organize_service._executing_plan_ids.discard(plan.id)
+
+
+async def test_execute_cancelled_plan_rejected(db_session, tmp_path):
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    plan.status = "cancelled"
+    await db_session.commit()
+    with pytest.raises(OrganizeError, match="已取消"):
+        await execute_plan(db_session, plan.id)
+
+
+async def test_execute_plan_requires_category(db_session, tmp_path):
+    """{category} 模板规则命中但计划类别未定 → 拒绝执行，提示先分类。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "hamnet.mkv", 500)
+    lib = await _make_library(
+        db_session, tmp_path / "movies", name="Movies", kind="movie"
+    )
+    rule = await _make_rule(db_session, lib.id, MOVIE_TEMPLATE)
+    notification = await _seed(
+        db_session, _movie_payload(str(dl_dir), files=[{"name": "hamnet.mkv"}])
+    )
+    plan = OrganizePlan(
+        notification_id=notification.id, rule_id=rule.id, library_id=lib.id,
+        status="pending", payload=notification.payload,
+    )
+    db_session.add(plan)
+    await db_session.commit()
+    with pytest.raises(OrganizeError, match="尚未指定影片类别"):
+        await execute_plan(db_session, plan.id)
+
+
+async def test_execute_plan_missing_library_rejected(db_session, tmp_path):
+    """计划指向的 Library 行不存在 → 拒绝执行。"""
+    from sqlalchemy import text
+
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    await db_session.execute(text("PRAGMA foreign_keys=OFF"))
+    plan.library_id = _uuid()
+    await db_session.commit()
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    with pytest.raises(OrganizeError, match="目标库不存在"):
+        await execute_plan(db_session, plan.id)
+
+
+async def test_execute_plan_volume_error_rejected(db_session, tmp_path, monkeypatch):
+    """执行段卷解析失败 → OrganizeError，计划保持 pending。"""
+    from app.services.volume_service import VolumeResolutionError
+
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    monkeypatch.setattr(
+        organize_service, "resolve_downloader_path",
+        Mock(side_effect=VolumeResolutionError("存储卷不存在")),
+    )
+    with pytest.raises(OrganizeError, match="存储卷不存在"):
+        await execute_plan(db_session, plan.id)
+    await db_session.refresh(plan)
+    assert plan.status == "pending"
+
+
+async def test_execute_plan_internal_error_fails_plan(
+    db_session, tmp_path, monkeypatch
+):
+    """执行段未预期异常 → 落 failed 可重试，绝不卡在 running。"""
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    monkeypatch.setattr(
+        organize_service, "run_execution", Mock(side_effect=RuntimeError("boom"))
+    )
+    with pytest.raises(OrganizeError, match="内部错误"):
+        await execute_plan(db_session, plan.id)
+    await db_session.refresh(plan)
+    assert plan.status == "failed"
+    assert "内部错误" in plan.error_message
+
+
+def test_touched_path_no_move_ops():
+    from app.services.organize_executor import ExecOp
+    from app.services.organize_service import _touched_path
+
+    assert _touched_path([]) is None
+    assert _touched_path(
+        [ExecOp(op_type="keep", src="a", dst=None, size=1)]
+    ) is None
+
+
+def test_touched_path_commonpath_error(monkeypatch):
+    """跨盘不可比的 move 目标 → 退整库刷新（None）。"""
+    from app.services.organize_executor import ExecOp
+    from app.services.organize_service import _touched_path
+
+    def boom(paths):
+        raise ValueError("no common path")
+
+    monkeypatch.setattr("app.services.organize_service.os.path.commonpath", boom)
+    assert _touched_path([
+        ExecOp(op_type="move", src="x", dst="/a/x.mkv", size=1),
+        ExecOp(op_type="move", src="y", dst="/b/y.mkv", size=1),
+    ]) is None
+
+
+async def test_classify_missing_plan(db_session):
+    with pytest.raises(OrganizeError, match="计划不存在"):
+        await classify_plan(db_session, _uuid(), _uuid())
+
+
+async def test_classify_invalid_status(db_session, tmp_path):
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    plan.status = "done"
+    await db_session.commit()
+    with pytest.raises(OrganizeError, match="不可分类"):
+        await classify_plan(db_session, plan.id, plan.library_id)
+
+
+async def test_classify_missing_library(db_session, tmp_path):
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    plan.library_id = None
+    plan.rule_id = None
+    await db_session.commit()
+    with pytest.raises(OrganizeError, match="目标库不存在"):
+        await classify_plan(db_session, plan.id, _uuid())
+
+
+async def test_classify_uncategorized_with_manifest(db_session, tmp_path):
+    """待分类计划无 op、payload 无 files → classify 经 torrent 清单定位重渲染。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Hamnet.2025.1080p.mkv", 300)
+    lib = await _make_library(
+        db_session, tmp_path / "lib", name="Movies", kind="movie"
+    )
+    await _make_rule(
+        db_session, lib.id, "{title} ({year})/{title} ({year}){ext}",
+        filter={"field": "series.is_anime", "operator": "eq", "value": True},
+    )
+    notification = await _seed(db_session, _movie_payload(str(dl_dir)))
+    resource = (
+        await db_session.execute(select(FileResource))
+    ).scalars().one()
+    resource.torrent_file = str(
+        _write_torrent(tmp_path / "r.torrent", [("Hamnet.2025.1080p.mkv", 300)])
+    )
+    await db_session.commit()
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["uncategorized"] == 1
+    [plan] = await _plans(db_session)
+    plan = await classify_plan(db_session, plan.id, lib.id)
+    ops = (
+        await db_session.execute(
+            select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+        )
+    ).scalars().all()
+    assert len(ops) == 1
+    assert ops[0].src == str(dl_dir / "Hamnet.2025.1080p.mkv")
+
+
+async def test_classify_collect_files_failure(db_session, tmp_path):
+    """待分类计划磁盘定位失败（规划后文件消失）→ 明确 OrganizeError。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "ep04.mkv", 300)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), files=[{"name": "ep04.mkv"}])
+    )
+    stats = await plan_for_notifications(db_session, [notification])
+    assert stats["uncategorized"] == 1
+    Path(dl_dir / "ep04.mkv").unlink()
+    [plan] = await _plans(db_session)
+    with pytest.raises(OrganizeError, match="无法定位磁盘文件"):
+        await classify_plan(db_session, plan.id, lib.id)
+
+
+async def test_classify_rerender_failure(db_session, tmp_path):
+    """classify 重渲染时规划失败（无正片）→ 明确 OrganizeError。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "Show.S01" / "note.txt", 10)
+    lib = await _make_library(db_session, tmp_path / "lib")
+    await _make_rule(
+        db_session, lib.id, TV_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": False},
+    )
+    notification = await _seed(
+        db_session, _series_payload(str(dl_dir), torrent_name="Show.S01")
+    )
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    with pytest.raises(OrganizeError, match="重渲染失败"):
+        await classify_plan(db_session, plan.id, lib.id)
+
+
+async def test_classify_requires_category_when_template_needs(db_session, tmp_path):
+    """{category} 模板 + 无类别可选（genre 空）→ 提示同时指定影片类别。"""
+    dl_dir = tmp_path / "downloads"
+    _mkfile(dl_dir / "hamnet.mkv", 500)
+    lib = await _make_library(
+        db_session, tmp_path / "movies", name="Movies", kind="movie"
+    )
+    await _make_rule(
+        db_session, lib.id, MOVIE_TEMPLATE,
+        filter={"field": "series.is_anime", "operator": "eq", "value": True},
+    )
+    notification = await _seed(
+        db_session, _movie_payload(str(dl_dir), files=[{"name": "hamnet.mkv"}])
+    )
+    notification.payload["work"]["genre"] = []
+    await db_session.commit()
+    await plan_for_notifications(db_session, [notification])
+    [plan] = await _plans(db_session)
+    with pytest.raises(OrganizeError, match="同时指定影片类别"):
+        await classify_plan(db_session, plan.id, lib.id)

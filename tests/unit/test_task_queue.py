@@ -660,3 +660,294 @@ class TestCreateQueue:
 
         await q.stop()
         await fake.aclose()
+
+
+# ---------------------------------------------------------------------------
+# RedisQueue edge cases: lazy client creation, throttle before start, clear,
+# heartbeat loop, worker error/cancellation, recovery corner cases.
+# ---------------------------------------------------------------------------
+
+
+class _WrappedRedis:
+    """Delegates every attribute to the inner redis client but exposes a
+    non-fakeredis type, so RedisQueue enables its heartbeat loop."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+class TestRedisQueueEdgeCases:
+    @pytest.fixture
+    async def redis_client(self):
+        client = make_fake_redis()
+        yield client
+        await client.aclose()
+
+    async def test_start_lazily_creates_client_from_url(self, monkeypatch):
+        fake = make_fake_redis()
+        import redis.asyncio as aioredis
+
+        monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: fake)
+        q = RedisQueue(redis_url="redis://example:6379/0")
+        await q.start(consume=False)
+        try:
+            assert q._redis is fake
+        finally:
+            await q.stop()
+
+    async def test_throttle_true_when_not_started(self):
+        q = RedisQueue()
+        assert await q.throttle("sync_progress", 60) is True
+
+    async def test_list_jobs_empty_before_any_enqueue(self, redis_client):
+        q = RedisQueue(redis_client=redis_client)
+        assert await q.list_jobs() == []
+
+    async def test_clear_removes_job_state_and_active_lock(self, redis_client):
+        q = RedisQueue(redis_client=redis_client)
+        await q.start(consume=False)
+        try:
+            job = await q.enqueue("noop", "clear-me", {})
+            assert job is not None
+            assert await q.status("clear-me") is not None
+
+            await q.clear("clear-me")
+            assert await q.status("clear-me") is None
+            assert not await redis_client.exists("rssripple:job:clear-me")
+            assert not await redis_client.exists("rssripple:active:clear-me")
+        finally:
+            await q.stop()
+
+    async def test_worker_releases_slot_when_cancelled_while_claiming(self, redis_client):
+        """Cancelling the worker while it holds a semaphore slot (inside the
+        claim) must release the slot — otherwise the sem leaks capacity."""
+        entered = asyncio.Event()
+        blocking = asyncio.Event()
+
+        async def blocking_lmove(*args, **kwargs):
+            entered.set()
+            await blocking.wait()
+            return None
+
+        redis_client.lmove = blocking_lmove
+        q = RedisQueue(redis_client=redis_client, max_concurrent=1)
+        await q.start()
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+            await q.stop()
+            assert q._sem._value == 1
+        finally:
+            await q.stop()
+
+    async def test_worker_survives_transient_lmove_error(self, redis_client):
+        inner = redis_client
+        calls = {"n": 0}
+        real_lmove = inner.lmove
+
+        async def flaky_lmove(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("transient redis error")
+            return await real_lmove(*args, **kwargs)
+
+        inner.lmove = flaky_lmove
+        q = RedisQueue(redis_client=inner)
+        await q.start()
+        try:
+            await asyncio.sleep(0.35)
+            # the loop logged the error and kept polling (later claims succeeded)
+            assert calls["n"] >= 3
+        finally:
+            await q.stop()
+
+    async def test_heartbeat_loop_refreshes_lease(self, redis_client, monkeypatch):
+        import app.services.task_queue as tq
+
+        monkeypatch.setattr(tq, "CONSUMER_HEARTBEAT_SECONDS", 0.001)
+        q = RedisQueue(redis_client=_WrappedRedis(redis_client))
+        try:
+            await q.start()
+            assert q._heartbeat is not None
+            assert q._worker is not None
+
+            await redis_client.delete(q._consumer_key)
+            await asyncio.sleep(0.05)
+            # the heartbeat loop re-armed the consumer lease
+            assert await redis_client.exists(q._consumer_key)
+        finally:
+            await q.stop()
+
+    async def test_heartbeat_logs_and_continues_after_error(self, redis_client, monkeypatch):
+        import app.services.task_queue as tq
+
+        monkeypatch.setattr(tq, "CONSUMER_HEARTBEAT_SECONDS", 0.001)
+        inner = redis_client
+        real_set = inner.set
+        calls = {"n": 0}
+
+        async def flaky_set(name, *a, **k):
+            calls["n"] += 1
+            if calls["n"] >= 3:
+                await asyncio.sleep(0)
+                raise RuntimeError("redis down")
+            return await real_set(name, *a, **k)
+
+        inner.set = flaky_set
+        q = RedisQueue(redis_client=_WrappedRedis(inner))
+        q._sem = asyncio.Semaphore(4)
+        q._heartbeat = asyncio.create_task(q._heartbeat_loop())
+        await asyncio.sleep(0.05)
+        try:
+            # the loop kept running after the exceptions instead of dying
+            assert not q._heartbeat.done()
+        finally:
+            await q.stop()
+
+    async def test_stop_handles_heartbeat_cancelled_before_first_run(self, redis_client):
+        """stop() tolerates a heartbeat task that was cancelled before it ever
+        ran a loop iteration (the CancelledError escapes the loop's handler)."""
+        q = RedisQueue(redis_client=redis_client)
+        q._sem = asyncio.Semaphore(4)
+        q._heartbeat = asyncio.create_task(q._heartbeat_loop())
+        q._heartbeat.cancel()
+        await q.stop()
+
+    async def test_recovery_skips_when_lock_held(self, redis_client):
+        await redis_client.set("rssripple:recovery-lock", "some-other-worker")
+        q = RedisQueue(redis_client=redis_client)
+        await q._recover_orphaned_jobs()
+        assert await redis_client.get("rssripple:recovery-lock") == "some-other-worker"
+
+    async def test_recovery_discards_malformed_processing_message(self, redis_client):
+        await redis_client.rpush("rssripple:processing:dead-worker", "not-json{")
+        q = RedisQueue(redis_client=redis_client)
+        await q._recover_orphaned_jobs()
+        assert not await redis_client.exists("rssripple:processing:dead-worker")
+
+    async def test_recovery_requeues_priority_job(self, redis_client):
+        msg = json.dumps({
+            "job_id": "crashed-prio", "job_type": "sync_progress", "key": "prio-key",
+            "payload": {"x": 1},
+        })
+        await redis_client.hset("rssripple:job:prio-key", mapping={
+            "job_id": "crashed-prio", "job_type": "sync_progress", "key": "prio-key",
+            "status": JobStatus.RUNNING, "result": "", "error": "",
+            "queued_at": "2026-01-01T00:00:00", "started_at": "2026-01-01T00:00:01",
+            "finished_at": "", "message": msg,
+        })
+        await redis_client.set("rssripple:active:prio-key", "crashed-prio")
+        await redis_client.rpush("rssripple:processing:dead-worker", msg)
+
+        q = RedisQueue(redis_client=redis_client)
+        await q._recover_orphaned_jobs()
+
+        assert (await q.status("prio-key"))["status"] == JobStatus.QUEUED
+        head = (await redis_client.lrange("rssripple:jobs", 0, 0))[0]
+        assert json.loads(head)["job_type"] == "sync_progress"
+        assert not await redis_client.exists("rssripple:processing:dead-worker")
+
+    async def test_recovery_drops_message_without_matching_state(self, redis_client):
+        msg = json.dumps({
+            "job_id": "orphan-job", "job_type": "echo", "key": "gone-key",
+            "payload": {},
+        })
+        await redis_client.rpush("rssripple:processing:dead-worker", msg)
+        # No job hash exists for "gone-key" — the descriptor is discarded.
+        q = RedisQueue(redis_client=redis_client)
+        await q._recover_orphaned_jobs()
+        assert not await redis_client.exists("rssripple:processing:dead-worker")
+        assert await redis_client.llen("rssripple:jobs") == 0
+
+    async def test_stop_requeues_inflight_job(self):
+        """A running job cancelled by stop() is put back on the durable queue
+        (with its dedup lock intact) instead of being lost."""
+        server = fakeredis.FakeServer()
+        redis = fakeredis.FakeAsyncRedis(server=server, decode_responses=True)
+        probe = fakeredis.FakeAsyncRedis(server=server, decode_responses=True)
+        gate = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow(payload):
+            started.set()
+            await gate.wait()
+
+        q = RedisQueue(redis_client=redis)
+        q.register("slow", slow)
+        await q.start()
+        try:
+            await q.enqueue("slow", "inflight-1", {})
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await q.stop()
+
+            assert (await probe.hget("rssripple:job:inflight-1", "status")) == JobStatus.QUEUED
+            assert await probe.llen("rssripple:jobs") == 1
+            assert await probe.llen(q._processing_key) == 0
+            assert await probe.exists("rssripple:active:inflight-1")
+        finally:
+            await q.stop()
+            await probe.aclose()
+
+    async def test_stop_requeues_priority_job(self):
+        server = fakeredis.FakeServer()
+        redis = fakeredis.FakeAsyncRedis(server=server, decode_responses=True)
+        probe = fakeredis.FakeAsyncRedis(server=server, decode_responses=True)
+        gate = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow(payload):
+            started.set()
+            await gate.wait()
+
+        q = RedisQueue(redis_client=redis)
+        q.register("sync_progress", slow)
+        await q.start()
+        try:
+            await q.enqueue("sync_progress", "inflight-prio", {})
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await q.stop()
+
+            assert (await probe.hget("rssripple:job:inflight-prio", "status")) == JobStatus.QUEUED
+            assert await probe.llen("rssripple:jobs") == 1
+            assert await probe.llen(q._processing_key) == 0
+        finally:
+            await q.stop()
+            await probe.aclose()
+
+    def test_deserialize_parses_json_result(self):
+        state = RedisQueue._deserialize({
+            "job_id": "1", "job_type": "t", "key": "k", "status": JobStatus.DONE,
+            "result": '{"ok": 1}', "error": "", "queued_at": "", "started_at": "",
+            "finished_at": "",
+        })
+        assert state["result"] == {"ok": 1}
+
+    def test_deserialize_gracefully_handles_bad_result_json(self):
+        state = RedisQueue._deserialize({
+            "job_id": "1", "job_type": "t", "key": "k", "status": JobStatus.DONE,
+            "result": "{not-json", "error": "", "queued_at": "", "started_at": "",
+            "finished_at": "",
+        })
+        assert state["result"] == "{not-json"
+
+
+# ---------------------------------------------------------------------------
+# create_queue kwargs forwarding
+# ---------------------------------------------------------------------------
+
+
+class TestCreateQueueKwargs:
+    def test_memory_backend_forwards_max_concurrent_only(self):
+        q = create_queue("memory", redis_url="redis://x:6379/0", max_concurrent=3)
+        assert isinstance(q, MemoryQueue)
+        assert q._max_concurrent == 3
+
+    def test_redis_backend_forwards_known_kwargs(self):
+        fake = make_fake_redis()
+        q = create_queue("redis", redis_client=fake, ttl=100, max_concurrent=2, bogus=1)
+        assert isinstance(q, RedisQueue)
+        assert q._redis is fake
+        assert q._ttl == 100
+        assert q._max_concurrent == 2

@@ -1564,3 +1564,1404 @@ async def test_update_series_respects_manually_edited_start_date(db_session):
         raw_source=None, canonical_id=None, granularity="series",
     )
     assert sp.start_date is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: mark_manually_edited / sniff / poster edge branches
+# ---------------------------------------------------------------------------
+
+
+def test_mark_manually_edited_records_editable_fields():
+    work = TVSeries(id=_uuid(), title_en="X", content_type="tv")
+    ms.mark_manually_edited(work, {"title_cn": "新标题", "rating": 9.0, "collection_id": "x"})
+    assert set(work.manually_edited_fields) == {"title_cn", "rating"}
+
+
+def test_mark_manually_edited_ignores_system_fields():
+    work = TVSeries(id=_uuid(), title_en="X", content_type="tv")
+    ms.mark_manually_edited(work, {"collection_id": "x", "search_text": "s"})
+    assert work.manually_edited_fields is None
+
+
+def test_sniff_image_ext_webp_and_gif():
+    assert ms._sniff_image_ext(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "webp"
+    assert ms._sniff_image_ext(b"GIF89a") == "gif"
+
+
+def test_extract_search_title_empty_raw_returns_raw():
+    r = SimpleNamespace(title_cn=None, title_en=None, title_raw="   ")
+    assert ms.extract_search_title(r) == "   "
+
+
+async def test_download_and_cache_poster_no_cache_dir(tmp_path):
+    saved = ms.settings.poster_cache_dir
+    ms.settings.poster_cache_dir = ""
+    try:
+        assert await ms.download_and_cache_poster("https://x/poster.jpg") is None
+    finally:
+        ms.settings.poster_cache_dir = saved
+
+
+async def test_download_and_cache_poster_write_failure(tmp_path, monkeypatch):
+    ms.settings.poster_cache_dir = str(tmp_path)
+
+    async def _fake_to_thread(fn, *a, **kw):
+        return fn()
+
+    import asyncio
+    import hashlib
+
+    monkeypatch.setattr(asyncio, "to_thread", _fake_to_thread)
+
+    class _Resp:
+        content = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+
+        def raise_for_status(self):
+            pass
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, **kw):
+            return _Resp()
+
+    import httpx
+    monkeypatch.setattr(httpx, "Client", _Client)
+    digest = hashlib.sha256(b"https://x/fail.jpg").hexdigest()[:16]
+    from pathlib import Path
+
+    real_write = Path.write_bytes
+
+    def _fail_write(self, data):
+        if self.name == f"{digest}.jpg":
+            raise OSError("disk full")
+        return real_write(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", _fail_write)
+    assert await ms.download_and_cache_poster("https://x/fail.jpg") is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: _parse_date edge branches
+# ---------------------------------------------------------------------------
+
+
+async def test_parse_date_datetime_and_time_string():
+    from datetime import datetime
+
+    assert ms._parse_date(datetime(2024, 5, 1, 12, 30)) == date(2024, 5, 1)
+    assert ms._parse_date("2024-05-01T12:00:00") == date(2024, 5, 1)
+    # long string whose prefix fails both formats -> except -> continue
+    assert ms._parse_date("2024-13-99 99:99:99 extra") is None
+    # "0000" is a 4-digit year but year 0 is out of range -> ValueError -> None
+    assert ms._parse_date("0000") is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: _sniff / _identity_granularity / season helpers
+# ---------------------------------------------------------------------------
+
+
+def test_identity_granularity_synthetic_and_season_source():
+    assert ms._identity_granularity("wikipedia", "wikipedia:zh:123#s2") == (
+        "season", "wikipedia:zh:123", 2,
+    )
+    assert ms._identity_granularity("bangumi", None) == ("season", None, None)
+
+
+def test_season_entry_none_season():
+    assert ms._season_entry({}, None) is None
+
+
+def test_season_episode_subset_none_season():
+    assert ms._season_episode_subset({}, None) == []
+
+
+def test_work_episode_count_from_subset():
+    data = {
+        "episode_list": [
+            {"season": 2, "episode": 1},
+            {"season": 2, "episode": 2},
+            {"season": 1, "episode": 1},
+        ]
+    }
+    assert ms._work_episode_count(data, 2, "series") == 2
+
+
+def test_work_start_end_date_from_episode_dates():
+    data = {
+        "episode_list": [
+            {"season": 1, "episode": 1, "air_date": "2020-04-01"},
+            {"season": 1, "episode": 2, "air_date": "2020-04-08"},
+        ]
+    }
+    assert ms._work_start_date(data, 1, "series") == date(2020, 4, 1)
+    assert ms._work_end_date(data, 1, "series") == date(2020, 4, 8)
+
+
+def test_work_end_date_from_season_entry():
+    data = {"seasons": [{"season_number": 1, "end_date": "2020-06-30"}]}
+    assert ms._work_end_date(data, 1, "series") == date(2020, 6, 30)
+
+
+def test_title_season_from_entity_number_of_seasons_range():
+    data = {"title_en": "Show III", "number_of_seasons": 3}
+    assert ms._title_season_from_entity(data) == 3
+
+
+def test_merge_primary_external_id_synthetic_same_season():
+    assert ms._merge_primary_external_id("tmdb:82684#s4", "tmdb:82684#s4") == "tmdb:82684#s4"
+
+
+def test_year_mismatch_undetectable_string_date():
+    assert ms._year_mismatch(2026, "not-a-date") is False
+
+
+async def test_find_collection_by_titles_no_titles(db_session):
+    assert await ms._find_collection_by_titles(db_session, []) is None
+    assert await ms._find_collection_by_titles(db_session, [" ", None]) is None
+
+
+async def test_merge_collection_aliases_manual_edit_skipped(db_session):
+    coll = WorkCollection(
+        id=_uuid(), title_cn="合集", external_source="series_group",
+        manually_edited_fields=["aliases"],
+    )
+    db_session.add(coll)
+    await db_session.flush()
+    ms._merge_collection_aliases(coll, {"title_cn": "合集", "title_en": "New Name"})
+    assert coll.aliases is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: find_series/movie_by_external_id
+# ---------------------------------------------------------------------------
+
+
+async def test_find_series_by_external_id(db_session):
+    s = TVSeries(
+        id=_uuid(), title_en="X", content_type="tv",
+        external_id="tmdb:123", external_source="tmdb",
+    )
+    db_session.add(s)
+    await db_session.flush()
+    found = await ms.find_series_by_external_id(db_session, {
+        "external_source": "tmdb", "external_id": "tmdb:123",
+    })
+    assert found.id == s.id
+    assert await ms.find_series_by_external_id(db_session, {"external_source": "tmdb"}) is None
+
+
+async def test_find_movie_by_external_id(db_session):
+    m = Movie(
+        id=_uuid(), title_en="M", content_type="movie",
+        external_id="tmdb:456", external_source="tmdb",
+    )
+    db_session.add(m)
+    await db_session.flush()
+    found = await ms.find_movie_by_external_id(db_session, {
+        "external_source": "tmdb", "external_id": "tmdb:456",
+    })
+    assert found.id == m.id
+    assert await ms.find_movie_by_external_id(db_session, {"external_source": "tmdb"}) is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: match_*_by_title empty/edge + audio + movie fuzzy
+# ---------------------------------------------------------------------------
+
+
+async def test_match_series_by_title_empty(db_session):
+    assert await ms.match_series_by_title(db_session, "") == (None, 0)
+    assert await ms.match_series_by_title(db_session, "  ") == (None, 0)
+
+
+async def test_match_movie_by_title_empty(db_session):
+    assert await ms.match_movie_by_title(db_session, "") == (None, 0)
+    assert await ms.match_movie_by_title(db_session, "  ") == (None, 0)
+
+
+async def test_match_movie_by_title_exact_and_fuzzy(db_session):
+    m = Movie(id=_uuid(), title_en="Demon Slayer", content_type="movie")
+    db_session.add(m)
+    await db_session.flush()
+    exact, score = await ms.match_movie_by_title(db_session, "Demon Slayer")
+    assert exact.id == m.id and score == 100
+    fuzzy, fscore = await ms.match_movie_by_title(db_session, "Demon Slayerr")
+    assert fuzzy.id == m.id and fscore >= 70
+    miss, mscore = await ms.match_movie_by_title(db_session, "Quantum Physics Explained")
+    assert miss is None and mscore == 0
+
+
+async def test_match_audio_work_by_title(db_session):
+    from app.models.audio_work import AudioWork
+
+    assert await ms.match_audio_work_by_title(db_session, "") == (None, 0)
+    assert await ms.match_audio_work_by_title(db_session, "  ") == (None, 0)
+    aw = AudioWork(id=_uuid(), title_en="Audio Show", content_type="music")
+    db_session.add(aw)
+    await db_session.flush()
+    exact, score = await ms.match_audio_work_by_title(db_session, "Audio Show")
+    assert exact.id == aw.id and score == 100
+    fuzzy, fscore = await ms.match_audio_work_by_title(db_session, "Audio Showw")
+    assert fuzzy.id == aw.id and fscore >= 70
+    miss, mscore = await ms.match_audio_work_by_title(db_session, "Something Else Entirely")
+    assert miss is None and mscore == 0
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: search_metadata_via_llm (real body, patched agent)
+# ---------------------------------------------------------------------------
+
+
+def _make_agent(result):
+    from types import SimpleNamespace as _SimpleNS
+
+    return _SimpleNS(process_title_only=AsyncMock(return_value=result))
+
+
+async def test_search_metadata_via_llm_success(monkeypatch):
+    from app.services.metadata_resource_meta import ResourceMetadata
+
+    result = ResourceMetadata(
+        clean_title="X", found=True,
+        matched_entity={"content_type": "tv", "title_en": "X", "external_id": "tmdb:1", "external_source": "tmdb"},
+    )
+    monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: _make_agent(result))
+    out = await ms.search_metadata_via_llm("X", "tmdb")
+    assert out == [{"content_type": "tv", "title_en": "X", "external_id": "tmdb:1", "external_source": "tmdb"}]
+
+
+async def test_search_metadata_via_llm_found_false_ambiguous(monkeypatch):
+    from app.services.metadata_resource_meta import ResourceMetadata
+
+    result = ResourceMetadata(
+        clean_title="X", found=False, ambiguous=True,
+        ambiguous_candidates=[{"content_type": "tv", "title_en": "Amb", "external_id": "tmdb:2", "external_source": "tmdb"}],
+    )
+    monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: _make_agent(result))
+    out = await ms.search_metadata_via_llm("X")
+    assert out == [{"content_type": "tv", "title_en": "Amb", "external_id": "tmdb:2", "external_source": "tmdb"}]
+
+
+async def test_search_metadata_via_llm_not_found(monkeypatch):
+    from app.services.metadata_resource_meta import ResourceMetadata
+
+    result = ResourceMetadata(clean_title="X", found=False)
+    monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: _make_agent(result))
+    assert await ms.search_metadata_via_llm("X") == []
+
+
+async def test_search_metadata_via_llm_ambiguous_lead(monkeypatch):
+    from app.services.metadata_resource_meta import ResourceMetadata
+
+    result = ResourceMetadata(
+        clean_title="X", found=True, ambiguous=True,
+        matched_entity={"content_type": "tv", "title_en": "X", "external_id": "tmdb:1", "external_source": "tmdb"},
+        ambiguous_candidates=[{"content_type": "tv", "title_en": "Y", "external_id": "tmdb:2", "external_source": "tmdb"}],
+    )
+    monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: _make_agent(result))
+    out = await ms.search_metadata_via_llm("X")
+    assert out[0]["ambiguous"] is True
+    assert len(out) == 2
+
+
+async def test_search_metadata_via_llm_agent_exception(monkeypatch):
+    agent = SimpleNamespace(process_title_only=AsyncMock(side_effect=RuntimeError("boom")))
+    monkeypatch.setattr("app.services.metadata_agent.get_agent", lambda: agent)
+    assert await ms.search_metadata_via_llm("X") == []
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: _bag_matched_entity_ids alt_external_ids
+# ---------------------------------------------------------------------------
+
+
+async def test_create_or_update_movie_bags_alt_external_ids(db_session):
+    from sqlalchemy import select
+
+    from app.models.work_external_id import WorkExternalId
+
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        m = await ms.create_or_update_movie_from_external(db_session, {
+            "content_type": "movie", "title_en": "Bag Movie",
+            "external_id": "tmdb:777", "external_source": "tmdb",
+            "alt_external_ids": [
+                {"source": "imdb", "id": "tt777"},
+                "not-a-dict",
+                42,
+            ],
+        })
+    await db_session.flush()
+    rows = (await db_session.execute(
+        select(WorkExternalId).where(WorkExternalId.work_id == m.id)
+    )).scalars().all()
+    ids = {(r.source, r.external_id) for r in rows}
+    assert ("tmdb", "tmdb:777") in ids
+    assert ("imdb", "imdb:tt777") in ids
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: upsert_episodes
+# ---------------------------------------------------------------------------
+
+
+async def test_upsert_episodes_empty(db_session):
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    assert await ms.upsert_episodes(db_session, s, None) == 0
+    assert await ms.upsert_episodes(db_session, s, [{"season": 1}]) == 0
+    assert await ms.upsert_episodes(db_session, s, [{"episode": 1}]) == 0
+
+
+async def test_upsert_episodes_per_season_retags(db_session):
+    from sqlalchemy import select
+
+    from app.models.episode import Episode
+
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv", season_number=1, collection_id=coll.id)
+    db_session.add_all([coll, s])
+    await db_session.flush()
+    n = await ms.upsert_episodes(db_session, s, [
+        {"season": 3, "episode": 25, "title": "EP25"},
+        {"season": 3, "episode": 26, "title": "EP26"},
+    ], entity_granularity="season")
+    assert n == 2
+    rows = (await db_session.execute(
+        select(Episode).where(Episode.series_id == s.id)
+    )).scalars().all()
+    assert {(r.season, r.episode) for r in rows} == {(1, 25), (1, 26)}
+
+
+async def test_upsert_episodes_series_granularity_filters(db_session):
+    from sqlalchemy import select
+
+    from app.models.episode import Episode
+
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv", season_number=2, collection_id=coll.id)
+    db_session.add_all([coll, s])
+    await db_session.flush()
+    n = await ms.upsert_episodes(db_session, s, [
+        {"season": 2, "episode": 1, "title": "S2E1"},
+        {"season": 1, "episode": 10, "title": "S1E10"},
+        {"season": 3, "episode": 5},
+    ], entity_granularity="series")
+    assert n == 1
+    rows = (await db_session.execute(select(Episode))).scalars().all()
+    assert [(r.season, r.episode) for r in rows] == [(2, 1)]
+
+
+async def test_upsert_episodes_continuation_guard(db_session, caplog):
+    import logging
+
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s = TVSeries(
+        id=_uuid(), title_en="X", content_type="tv", season_number=1,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    db_session.add_all([coll, s])
+    await db_session.flush()
+    with caplog.at_level(logging.WARNING, logger="app.services.metadata_service"):
+        n = await ms.upsert_episodes(db_session, s, [
+            {"season": 1, "episode": 25},
+            {"season": 1, "episode": 26},
+        ], entity_granularity="series")
+    assert n == 0
+    assert any("out-of-range episode" in r.message for r in caplog.records)
+
+
+async def test_upsert_episodes_legacy_absorbs_all(db_session):
+    s = TVSeries(
+        id=_uuid(), title_en="X", content_type="tv",
+        seasons=[{"season_number": 1, "episode_count": 12}, {"season_number": 2, "episode_count": 12}],
+        number_of_seasons=2,
+    )
+    db_session.add(s)
+    await db_session.flush()
+    n = await ms.upsert_episodes(db_session, s, [
+        {"season": 1, "episode": 1}, {"season": 2, "episode": 1},
+    ], entity_granularity="series")
+    assert n == 2
+
+
+async def test_upsert_episodes_updates_existing(db_session):
+    from sqlalchemy import select
+
+    from app.models.episode import Episode
+
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv", season_number=1)
+    db_session.add(s)
+    await db_session.flush()
+    await ms.upsert_episodes(db_session, s, [{"season": 1, "episode": 1, "title": "A"}])
+    await ms.upsert_episodes(db_session, s, [{"season": 1, "episode": 1, "title": "B", "air_date": "2024-01-01"}])
+    row = (await db_session.execute(
+        select(Episode).where(Episode.series_id == s.id)
+    )).scalars().first()
+    assert row.title == "B"
+    assert row.air_date == date(2024, 1, 1)
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: series upsert collection/season resolution paths
+# ---------------------------------------------------------------------------
+
+
+async def test_series_upsert_resolves_collection_member_from_bag(db_session):
+    from app.services.external_ids import add_external_id
+
+    coll = WorkCollection(id=_uuid(), title_cn="系列合集", external_source="series_group")
+    s1 = TVSeries(id=_uuid(), title_cn="剧集", content_type="tv", season_number=1, collection_id=coll.id)
+    db_session.add_all([coll, s1])
+    await db_session.flush()
+    await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:555")
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧集", "title_en": "Show",
+            "external_id": "tmdb:555", "external_source": "tmdb",
+            "number_of_seasons": 2,
+            "seasons": [{"season_number": 1, "episode_count": 12}, {"season_number": 2, "episode_count": 12}],
+        }, season_hint=1)
+    assert work.id == s1.id
+    assert work.title_en == "Show"
+
+
+async def test_series_upsert_parking_on_multi_member_collection(db_session):
+    from app.services.external_ids import add_external_id
+
+    coll = WorkCollection(id=_uuid(), title_cn="多季合集", external_source="series_group")
+    db_session.add(coll)
+    await db_session.flush()
+    await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:666")
+    db_session.add_all([
+        TVSeries(id=_uuid(), title_cn="剧A", content_type="tv", season_number=1, collection_id=coll.id),
+        TVSeries(id=_uuid(), title_cn="剧B", content_type="tv", season_number=2, collection_id=coll.id),
+    ])
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧A", "title_en": "Show",
+            "external_id": "tmdb:666", "external_source": "tmdb",
+            "number_of_seasons": 2,
+        })
+    assert work is None
+
+
+async def test_series_upsert_creates_season_1_when_single_season_evidence(db_session):
+    from app.services.external_ids import add_external_id
+
+    coll = WorkCollection(id=_uuid(), title_cn="单季合集", external_source="series_group")
+    db_session.add(coll)
+    await db_session.flush()
+    await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:777")
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧A", "title_en": "Show",
+            "external_id": "tmdb:777", "external_source": "tmdb",
+            "number_of_seasons": 1,
+        })
+    assert work is not None
+    assert work.season_number == 1
+    assert work.collection_id == coll.id
+
+
+async def test_series_upsert_synthetic_season_bag_lookup(db_session):
+    from app.services.external_ids import add_external_id
+
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s = TVSeries(
+        id=_uuid(), title_en="Show", content_type="tv", season_number=1,
+        collection_id=coll.id, external_id="tmdb:82684#s1", external_source="tmdb",
+    )
+    db_session.add_all([coll, s])
+    await db_session.flush()
+    await add_external_id(db_session, "series", s.id, "tmdb", "tmdb:82684#s1")
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        out = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_en": "Show",
+            "external_id": "tmdb:82684", "external_source": "tmdb",
+        }, season_hint=1)
+    assert out.id == s.id
+
+
+async def test_series_upsert_title_candidate_exact_season(db_session):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(
+        id=_uuid(), title_cn="剧集", content_type="tv", season_number=1,
+        collection_id=coll.id, external_source="manual",
+    )
+    db_session.add_all([coll, s1])
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧集", "title_en": "Show",
+            "external_source": "llm_search", "external_id": "wikipedia:999",
+            "number_of_seasons": 2,
+            "seasons": [{"season_number": 1, "episode_count": 12}],
+        }, season_hint=1)
+    assert work.id == s1.id
+
+
+async def test_series_upsert_title_candidate_creates_missing_season(db_session):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(
+        id=_uuid(), title_cn="剧集", content_type="tv", season_number=1,
+        collection_id=coll.id, external_source="manual",
+    )
+    db_session.add_all([coll, s1])
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧集", "title_en": "Show",
+            "external_source": "llm_search", "external_id": "wikipedia:999",
+            "number_of_seasons": 2,
+            "seasons": [
+                {"season_number": 1, "episode_count": 12},
+                {"season_number": 2, "episode_count": 12},
+            ],
+            "episode_list": [{"season": 2, "episode": 1, "title": "S2E1"}],
+        }, season_hint=2)
+    assert work is not None
+    assert work.season_number == 2
+    assert work.collection_id == coll.id
+
+
+async def test_series_upsert_parks_on_shared_collection(db_session):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    db_session.add_all([
+        coll,
+        TVSeries(id=_uuid(), title_cn="剧集", content_type="tv", season_number=1, collection_id=coll.id, external_source="manual"),
+        TVSeries(id=_uuid(), title_cn="剧集", content_type="tv", season_number=2, collection_id=coll.id, external_source="manual"),
+    ])
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧集", "title_en": "Show",
+            "external_source": "llm_search", "external_id": "wikipedia:999",
+            "number_of_seasons": 2,
+        })
+    assert work is None
+
+
+async def test_series_upsert_multi_candidate_no_shared_collection(db_session):
+    s1 = TVSeries(id=_uuid(), title_cn="剧集", content_type="tv", season_number=1, external_source="manual")
+    db_session.add(s1)
+    await db_session.flush()
+    db_session.add(TVSeries(id=_uuid(), title_cn="剧集", content_type="tv", season_number=2, external_source="manual"))
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧集",
+            "external_source": "llm_search", "external_id": "wikipedia:999",
+            "number_of_seasons": 2,
+        })
+    assert work is not None
+    assert work.season_number == 1
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: find_collection_for_entity / locate_absolute_episode
+# ---------------------------------------------------------------------------
+
+
+async def test_find_collection_for_entity_via_bag(db_session):
+    from app.services.external_ids import add_external_id
+
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    db_session.add(coll)
+    await db_session.flush()
+    await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:888")
+    out = await ms.find_collection_for_entity(db_session, {
+        "content_type": "tv", "title_en": "Show",
+        "external_id": "tmdb:888", "external_source": "tmdb",
+    })
+    assert out.id == coll.id
+
+
+async def test_locate_absolute_episode_in_collection(db_session):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(
+        id=_uuid(), title_cn="A", content_type="tv", season_number=1,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="B", content_type="tv", season_number=2,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    s3 = TVSeries(id=_uuid(), title_cn="C", content_type="tv", season_number=3, collection_id=coll.id)
+    db_session.add_all([coll, s1, s2, s3])
+    await db_session.flush()
+    assert await ms.locate_absolute_episode_in_collection(db_session, coll.id, None) is None
+    assert await ms.locate_absolute_episode_in_collection(db_session, coll.id, 0) is None
+    member, ep = await ms.locate_absolute_episode_in_collection(db_session, coll.id, 15)
+    assert (member.id, ep) == (s2.id, 3)
+    # walking into the count-less season aborts the cumulative walk
+    assert await ms.locate_absolute_episode_in_collection(db_session, coll.id, 30) is None
+    assert await ms.locate_absolute_episode_in_collection(db_session, coll.id, 999) is None
+
+
+async def test_locate_absolute_episode_tolerance_on_last_member(db_session):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(
+        id=_uuid(), title_cn="A", content_type="tv", season_number=1,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="B", content_type="tv", season_number=2,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    db_session.add_all([coll, s1, s2])
+    await db_session.flush()
+    # absolute 26 lands in the reconcile-tolerance headroom of the LAST member
+    member, ep = await ms.locate_absolute_episode_in_collection(db_session, coll.id, 26)
+    assert (member.id, ep) == (s2.id, 14)
+    assert await ms.locate_absolute_episode_in_collection(db_session, coll.id, 27) is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: reconcile_linked_series_resource branches
+# ---------------------------------------------------------------------------
+
+
+async def test_reconcile_linked_series_resource_missing_series(db_session, channel):
+    res = SimpleNamespace(
+        id=_uuid(), channel_id=channel.id, series_id=_uuid(),
+        season=None, absolute_episode=None, episode_confidence=None, is_batch=False,
+    )
+    await ms.reconcile_linked_series_resource(db_session, res)
+    assert res.series_id is not None  # untouched
+
+
+async def test_reconcile_linked_series_resource_locates_absolute(db_session, channel):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s1 = TVSeries(
+        id=_uuid(), title_cn="A", content_type="tv", season_number=1,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="B", content_type="tv", season_number=2,
+        collection_id=coll.id, number_of_episodes=12,
+    )
+    db_session.add_all([coll, s1, s2])
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s1.id, season=None, episode=None, absolute_episode=15)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.reconcile_linked_series_resource(db_session, res, series=s1)
+    assert res.series_id == s2.id
+    assert res.season == 2
+    assert res.episode == 3
+    assert res.episode_confidence == "reconciled"
+
+
+async def test_reconcile_linked_series_resource_seasons_map(db_session, channel):
+    s = TVSeries(id=_uuid(), title_cn="剧", content_type="tv", season_number=1, number_of_episodes=24)
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id, season=1, episode=1, episode_confidence="raw")
+    db_session.add(res)
+    await db_session.flush()
+    await ms.reconcile_linked_series_resource(db_session, res, series=s)
+    assert res.episode_confidence == "raw"
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: _update_series_from_entity field population
+# ---------------------------------------------------------------------------
+
+
+async def test_update_series_from_entity_populates_fields(db_session):
+    coll = WorkCollection(id=_uuid(), title_cn="系列", external_source="series_group")
+    s = TVSeries(id=_uuid(), title_cn="剧", content_type="tv", season_number=1, collection_id=coll.id)
+    db_session.add_all([coll, s])
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value="/posters/x.jpg",
+    ):
+        await ms._update_series_from_entity(db_session, s, {
+            "content_type": "tv",
+            "title_cn": "剧",
+            "wikipedia_url": "https://zh.wikipedia.org/wiki/X",
+            "description": "desc",
+            "rating": 8.5,
+            "original_title": "OT",
+            "status": "airing",
+            "number_of_episodes": 12,
+            "seasons": [{"season_number": 1, "episode_count": 12}],
+            "start_date": "2024-01-05",
+            "end_date": "2024-03-30",
+            "genre": ["Animation", "Drama"],
+            "poster_url": "https://x/poster.jpg",
+            "episode_list": [{"season": 1, "episode": 1, "title": "EP1"}],
+        }, raw_source="tmdb", canonical_id="tmdb:999", granularity="series")
+    await db_session.flush()
+    assert s.wikipedia_url == "https://zh.wikipedia.org/wiki/X"
+    assert s.rating == 8.5
+    assert s.number_of_episodes == 12
+    assert s.start_date == date(2024, 1, 5)
+    assert s.end_date == date(2024, 3, 30)
+    assert s.genre == ["Animation", "Drama"]
+    assert s.poster_url == "/posters/x.jpg"
+    from sqlalchemy import select
+
+    from app.models.episode import Episode
+
+    ep = (await db_session.execute(select(Episode).where(Episode.series_id == s.id))).scalars().first()
+    assert ep.episode == 1
+
+
+async def test_update_series_from_entity_legacy_unsplit(db_session):
+    s = TVSeries(
+        id=_uuid(), title_cn="剧", content_type="tv",
+        seasons=[{"season_number": 1, "episode_count": 12}, {"season_number": 2, "episode_count": 12}],
+        number_of_seasons=2,
+    )
+    db_session.add(s)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms._update_series_from_entity(db_session, s, {
+            "content_type": "tv", "title_cn": "剧",
+            "number_of_episodes": 24, "start_date": "2023-01-01", "end_date": "2023-12-31",
+        }, raw_source="tmdb", canonical_id="tmdb:1000", granularity="series")
+    await db_session.flush()
+    assert s.number_of_episodes == 24
+    assert s.start_date == date(2023, 1, 1)
+    assert s.end_date == date(2023, 12, 31)
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: movie / audio upsert update branches
+# ---------------------------------------------------------------------------
+
+
+async def test_movie_upsert_update_wikipedia_and_poster(db_session):
+    m = Movie(
+        id=_uuid(), title_en="M", content_type="movie",
+        external_id="tmdb:300", external_source="tmdb",
+    )
+    db_session.add(m)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value="/posters/m.jpg",
+    ):
+        out = await ms.create_or_update_movie_from_external(db_session, {
+            "content_type": "movie", "title_en": "M",
+            "external_id": "tmdb:300", "external_source": "tmdb",
+            "wikipedia_url": "https://zh.wikipedia.org/wiki/M",
+            "poster_url": "https://x/m.jpg",
+            "rating": 8.0, "original_title": "OT", "status": "released",
+            "release_date": "2024-05-01", "runtime": 100,
+            "genre": ["Drama"],
+        })
+    assert out.wikipedia_url == "https://zh.wikipedia.org/wiki/M"
+    assert out.poster_url == "/posters/m.jpg"
+
+
+async def test_audio_work_update_populates_fields(db_session):
+    from app.models.audio_work import AudioWork
+
+    aw = AudioWork(
+        id=_uuid(), title_cn="音声", content_type="asmr",
+        external_id="tmdb:400", external_source="tmdb",
+    )
+    db_session.add(aw)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value="/posters/a.jpg",
+    ):
+        out = await ms.create_or_update_audio_work_from_external(db_session, {
+            "external_id": "tmdb:400", "external_source": "tmdb",
+            "description": "d", "rating": 8.0, "original_title": "OT", "status": "s",
+            "release_date": "2024-01-01", "runtime": 60, "genre": ["Music"],
+            "title_cn": "新音声", "title_en": "Audio Title",
+            "content_type": "music",
+            "poster_url": "https://x/a.jpg",
+        })
+    assert out.id == aw.id
+    assert out.title_cn == "音声"  # existing title preserved (only fills null)
+    assert out.title_en == "Audio Title"
+    assert out.rating == 8.0
+    assert out.release_date == date(2024, 1, 1)
+    assert out.runtime == 60
+    assert out.genre == ["Music"]
+    assert out.content_type == "music"
+    assert out.poster_url == "/posters/a.jpg"
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: select_channel_works_for_refresh
+# ---------------------------------------------------------------------------
+
+
+async def test_select_channel_works_for_refresh_gates_gaps(db_session, channel):
+    complete = TVSeries(
+        id=_uuid(), title_cn="剧", title_en="Show", original_title="Show",
+        description="d", rating=8.0, status="airing", genre=["Drama"],
+        poster_url="/posters/x.jpg", number_of_episodes=12,
+        start_date=date(2024, 1, 1), end_date=date(2024, 3, 1),
+        external_id="tmdb:1", external_source="tmdb", content_type="tv",
+    )
+    gap = Movie(id=_uuid(), title_cn="影", content_type="movie")
+    db_session.add_all([complete, gap])
+    await db_session.flush()
+    db_session.add_all([
+        _resource(channel.id, series_id=complete.id),
+        _resource(channel.id, movie_id=gap.id),
+    ])
+    await db_session.flush()
+    gated = await ms.select_channel_works_for_refresh(db_session, channel.id, full_scope=False)
+    assert gated == [{"id": gap.id, "content_type": "movie"}]
+    full = await ms.select_channel_works_for_refresh(db_session, channel.id, full_scope=True)
+    assert len(full) == 2
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: fetch_and_link_metadata remaining branches
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_and_link_no_search_title_records_not_found(db_session, channel):
+    res = _resource(channel.id, title_raw="", search_title=None, title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.metadata_failure_type == "not_found"
+    assert res.metadata_attempts == 1
+
+
+async def test_local_exact_match_autolinks_movie(db_session, channel):
+    m = Movie(id=_uuid(), title_cn="电影名", content_type="movie")
+    db_session.add(m)
+    await db_session.flush()
+    res = _resource(channel.id, search_title="电影名")
+    db_session.add(res)
+    await db_session.flush()
+    await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.movie_id == m.id
+    assert res.metadata_matched_at is not None
+
+
+async def test_fetch_and_link_layer4_search_exception_transient(db_session, channel):
+    channel.metadata_agent_enabled = True
+    res = _resource(channel.id, search_title="unknown show abc", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        side_effect=RuntimeError("boom"),
+    ):
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.metadata_failure_type == "transient"
+
+
+async def test_fetch_and_link_layer4_links_movie(db_session, channel):
+    channel.metadata_agent_enabled = True
+    res = _resource(channel.id, search_title="Movie ABC 2024", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    fake = [{
+        "content_type": "movie", "title_en": "Movie ABC",
+        "external_id": "tmdb:55555", "external_source": "tmdb",
+    }]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=fake,
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ), patch(
+        "app.services.collection_service.link_movie_collection",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.movie_id is not None
+    assert res.metadata_matched_at is not None
+
+
+async def test_fetch_and_link_layer4_parks_on_collection(db_session, channel):
+    channel.metadata_agent_enabled = True
+    res = _resource(channel.id, search_title="Multi Season Show", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    fake = [{
+        "content_type": "tv", "title_en": "Multi Season Show",
+        "external_id": "tmdb:77777", "external_source": "tmdb",
+        "number_of_seasons": 3,
+    }]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=fake,
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.series_id is None
+    assert res.collection_id is not None
+    assert res.episode_confidence == "ambiguous"
+
+
+async def test_fetch_and_link_layer4_park_collection_not_found(db_session, channel):
+    channel.metadata_agent_enabled = True
+    res = _resource(channel.id, search_title="Some Show", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    fake = [{
+        "content_type": "tv", "title_en": None,
+        "external_source": "llm_search", "external_id": "abc-123",
+        "number_of_seasons": 3,
+    }]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=fake,
+    ), patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.metadata_failure_type == "not_found"
+    assert res.series_id is None
+
+
+async def test_fetch_and_link_layer4_upsert_exception_transient(db_session, channel):
+    channel.metadata_agent_enabled = True
+    res = _resource(channel.id, search_title="Boom Show", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    fake = [{
+        "content_type": "tv", "title_en": "Boom Show",
+        "external_source": "tmdb", "external_id": "tmdb:424242",
+    }]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=fake,
+    ), patch(
+        "app.services.metadata_service.create_or_update_series_from_external",
+        side_effect=RuntimeError("boom"),
+    ):
+        await ms.fetch_and_link_metadata(db_session, res, channel)
+    assert res.metadata_failure_type == "transient"
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: manual_search_metadata local + normalization
+# ---------------------------------------------------------------------------
+
+
+async def test_manual_search_metadata_local_tv(db_session):
+    s = TVSeries(id=_uuid(), title_en="Local Show", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    out = await ms.manual_search_metadata(db_session, "Local Show", "tv", data_source_type="local")
+    assert len(out) == 1
+    assert out[0]["_local_id"] == s.id
+    assert out[0]["content_type"] == "tv"
+
+
+async def test_manual_search_metadata_local_movie(db_session):
+    m = Movie(id=_uuid(), title_en="Local Film", content_type="movie")
+    db_session.add(m)
+    await db_session.flush()
+    out = await ms.manual_search_metadata(db_session, "Local Film", "movie", data_source_type="local")
+    assert len(out) == 1
+    assert out[0]["content_type"] == "movie"
+
+
+async def test_manual_search_metadata_llm_normalizes_and_prefers(db_session):
+    fake = [
+        {"content_type": "tv", "title_en": "A"},
+        "not-a-dict",
+        {"content_type": None, "title_en": "B"},
+    ]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=fake,
+    ):
+        out = await ms.manual_search_metadata(db_session, "query", "tv")
+    assert len(out) == 2
+    assert out[0]["content_type"] == "tv"
+    assert out[1]["content_type"] == "tv"
+
+
+async def test_manual_search_metadata_llm_no_preference(db_session):
+    fake = [{"content_type": "tv", "title_en": "A"}]
+    with patch(
+        "app.services.metadata_service.search_metadata_via_llm",
+        new_callable=AsyncMock, return_value=fake,
+    ):
+        out = await ms.manual_search_metadata(db_session, "query", "audio")
+    assert len(out) == 1
+    assert out[0]["content_type"] == "tv"
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: invalidate_metadata_cache_for_external_id
+# ---------------------------------------------------------------------------
+
+
+async def test_invalidate_metadata_cache_for_external_id(db_session):
+    from app.models.metadata_cache import MetadataCache
+
+    assert await ms.invalidate_metadata_cache_for_external_id(db_session, None) == 0
+    assert await ms.invalidate_metadata_cache_for_external_id(db_session, "") == 0
+    db_session.add_all([
+        MetadataCache(
+            id=_uuid(), title="t1", source="metadata_agent:tmdb",
+            metadata_json={"matched_entity": {"external_id": "tmdb:999"}},
+        ),
+        MetadataCache(
+            id=_uuid(), title="t2", source="metadata_agent:tmdb",
+            metadata_json={"matched_entity": {"external_id": "tmdb:888"}},
+        ),
+        MetadataCache(id=_uuid(), title="t3", source="metadata_agent:tmdb", metadata_json={}),
+    ])
+    await db_session.flush()
+    assert await ms.invalidate_metadata_cache_for_external_id(db_session, "tmdb:000") == 0
+    assert await ms.invalidate_metadata_cache_for_external_id(db_session, "tmdb:999") == 1
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: manual_link_metadata stale-ambiguous + raw_title key
+# ---------------------------------------------------------------------------
+
+
+async def test_manual_link_movie_clears_stale_ambiguous(db_session, channel):
+    res = _resource(channel.id, title_raw="[G] Some Movie", episode_confidence="ambiguous")
+    db_session.add(res)
+    await db_session.flush()
+    selected = {
+        "content_type": "movie", "title_en": "Some Movie",
+        "external_id": "tmdb:8888", "external_source": "tmdb",
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ), patch(
+        "app.services.collection_service.link_movie_collection",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        await ms.manual_link_metadata(db_session, res, channel, selected)
+    assert res.episode_confidence is None
+
+
+async def test_manual_link_metadata_raw_title_key_update(db_session, channel):
+    mapping = ChannelRawTitleMapping(
+        id=_uuid(), channel_id=channel.id, raw_title="", search_title_key="",
+        content_type="movie", movie_id=None,
+    )
+    db_session.add(mapping)
+    await db_session.flush()
+    res = _resource(channel.id, title_raw="", title_cn=None, title_en=None)
+    db_session.add(res)
+    await db_session.flush()
+    selected = {
+        "content_type": "movie", "title_en": "No Title",
+        "external_id": "tmdb:7777", "external_source": "tmdb",
+    }
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ), patch(
+        "app.services.collection_service.link_movie_collection",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        entity = await ms.manual_link_metadata(db_session, res, channel, selected)
+    assert mapping.movie_id == entity.id
+    assert mapping.content_type == "movie"
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: apply_channel_default_is_anime + bangumi verification
+# ---------------------------------------------------------------------------
+
+
+async def test_apply_channel_default_is_anime_series(db_session, channel):
+    channel.default_is_anime = True
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.apply_channel_default_is_anime(db_session, channel, res)
+    assert s.is_anime is True
+
+
+async def test_apply_channel_default_is_anime_movie(db_session, channel):
+    channel.default_is_anime = True
+    m = Movie(id=_uuid(), title_en="X", content_type="movie")
+    db_session.add(m)
+    await db_session.flush()
+    res = _resource(channel.id, movie_id=m.id)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.apply_channel_default_is_anime(db_session, channel, res)
+    assert m.is_anime is True
+
+
+async def test_apply_channel_default_is_anime_sticky(db_session, channel):
+    channel.default_is_anime = True
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv", is_anime=True)
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.apply_channel_default_is_anime(db_session, channel, res)
+    assert s.is_anime is True
+
+
+async def test_verify_is_anime_via_bangumi_skipped_when_default_flag(db_session, channel):
+    channel.default_is_anime = True
+    s = TVSeries(id=_uuid(), title_en="Anime Show", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert s.is_anime is None
+
+
+async def test_verify_is_anime_via_bangumi_sets_verdict(db_session, channel, monkeypatch):
+    s = TVSeries(id=_uuid(), title_cn="某动画", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    monkeypatch.setattr("app.services.bangumi_client.bangumi_configured", lambda: True)
+
+    async def fake_search(client, query):
+        return [{"name": "某动画", "name_cn": "某动画", "date": "2024-04-01", "type": 2}]
+
+    monkeypatch.setattr("app.services.bangumi_client.search_subjects", fake_search)
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert s.is_anime is True
+
+
+async def test_verify_is_anime_via_bangumi_movie_branch(db_session, channel, monkeypatch):
+    m = Movie(
+        id=_uuid(), title_en="Some Movie", content_type="movie",
+        release_date=date(2023, 6, 1),
+    )
+    db_session.add(m)
+    await db_session.flush()
+    res = _resource(channel.id, movie_id=m.id)
+    db_session.add(res)
+    await db_session.flush()
+    monkeypatch.setattr("app.services.bangumi_client.bangumi_configured", lambda: True)
+
+    async def fake_search(client, query):
+        return [{"name": "Some Movie", "name_cn": None, "date": "2023-06-01", "type": 6}]
+
+    monkeypatch.setattr("app.services.bangumi_client.search_subjects", fake_search)
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert m.is_anime is False
+
+
+async def test_verify_is_anime_via_bangumi_skips_manually_edited(db_session, channel, monkeypatch):
+    s = TVSeries(
+        id=_uuid(), title_cn="某动画", content_type="tv",
+        manually_edited_fields=["is_anime"],
+    )
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    monkeypatch.setattr("app.services.bangumi_client.bangumi_configured", lambda: True)
+    called = False
+
+    async def fake_search(client, query):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr("app.services.bangumi_client.search_subjects", fake_search)
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert called is False
+    assert s.is_anime is None
+
+
+async def test_verify_is_anime_via_bangumi_no_match(db_session, channel, monkeypatch):
+    s = TVSeries(id=_uuid(), title_cn="某动画", title_en="Anime", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    monkeypatch.setattr("app.services.bangumi_client.bangumi_configured", lambda: True)
+
+    async def fake_search(client, query):
+        return []
+
+    monkeypatch.setattr("app.services.bangumi_client.search_subjects", fake_search)
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert s.is_anime is None
+
+
+async def test_verify_is_anime_via_bangumi_exception_handled(db_session, channel, monkeypatch):
+    s = TVSeries(id=_uuid(), title_cn="某动画", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    monkeypatch.setattr("app.services.bangumi_client.bangumi_configured", lambda: True)
+
+    async def fake_search(client, query):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("app.services.bangumi_client.search_subjects", fake_search)
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert s.is_anime is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage boost: remaining defensive branches
+# ---------------------------------------------------------------------------
+
+
+async def test_find_same_title_works_blank(db_session):
+    assert await ms._find_same_title_works(db_session, "   ") == []
+    assert await ms._find_same_title_works(db_session, "") == []
+
+
+async def test_series_upsert_bags_alt_ids_and_synthetic(db_session):
+    from sqlalchemy import select
+
+    from app.models.work_external_id import WorkExternalId
+
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧", "title_en": "Show",
+            "external_id": "tmdb:82684#s2", "external_source": "tmdb",
+            "alt_external_ids": [{"source": "imdb", "id": "tt999"}],
+        })
+    await db_session.flush()
+    assert work.season_number == 2
+    rows = (await db_session.execute(select(WorkExternalId))).scalars().all()
+    by = {(r.work_type, r.source, r.external_id) for r in rows}
+    assert ("series", "tmdb", "tmdb:82684#s2") in by
+    assert ("collection", "imdb", "imdb:tt999") in by
+
+
+async def test_series_upsert_creates_season_1_unverified_empty_collection(db_session):
+    from app.services.external_ids import add_external_id
+
+    coll = WorkCollection(id=_uuid(), title_cn="空合集", external_source="series_group")
+    db_session.add(coll)
+    await db_session.flush()
+    await add_external_id(db_session, "collection", coll.id, "tmdb", "tmdb:778")
+    with patch(
+        "app.services.metadata_service.download_and_cache_poster",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        work = await ms.create_or_update_series_from_external(db_session, {
+            "content_type": "tv", "title_cn": "剧", "title_en": "Show",
+            "external_id": "tmdb:778", "external_source": "tmdb",
+        })
+    assert work is not None
+    assert work.season_number == 1
+    assert work.collection_id == coll.id
+
+
+async def test_verify_is_anime_via_bangumi_skips_determined_work(db_session, channel, monkeypatch):
+    s = TVSeries(id=_uuid(), title_en="X", content_type="tv", is_anime=True)
+    db_session.add(s)
+    await db_session.flush()
+    res = _resource(channel.id, series_id=s.id)
+    db_session.add(res)
+    await db_session.flush()
+    monkeypatch.setattr("app.services.bangumi_client.bangumi_configured", lambda: True)
+    called = False
+
+    async def fake_search(client, query):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr("app.services.bangumi_client.search_subjects", fake_search)
+    await ms.maybe_verify_is_anime_via_bangumi(db_session, channel, res)
+    assert called is False
+    assert s.is_anime is True
+
+
+async def test_manual_search_metadata_local_low_score_skipped(db_session, monkeypatch):
+    s = TVSeries(id=_uuid(), title_en="Completely Different Name", content_type="tv")
+    db_session.add(s)
+    await db_session.flush()
+
+    async def fake_series_fts(db, query, limit=20):
+        return [s.id]
+
+    async def fake_movie_fts(db, query, limit=20):
+        return []
+
+    monkeypatch.setattr("app.services.metadata_service.fts_service.search_series_fts", fake_series_fts)
+    monkeypatch.setattr("app.services.metadata_service.fts_service.search_movie_fts", fake_movie_fts)
+    out = await ms.manual_search_metadata(db_session, "Quantum Physics Explained", "tv", data_source_type="local")
+    assert out == []
+
+
+async def test_manual_search_metadata_local_movie_low_score_skipped(db_session, monkeypatch):
+    m = Movie(id=_uuid(), title_en="Completely Different", content_type="movie")
+    db_session.add(m)
+    await db_session.flush()
+
+    async def fake_series_fts(db, query, limit=20):
+        return []
+
+    async def fake_movie_fts(db, query, limit=20):
+        return [m.id]
+
+    monkeypatch.setattr("app.services.metadata_service.fts_service.search_series_fts", fake_series_fts)
+    monkeypatch.setattr("app.services.metadata_service.fts_service.search_movie_fts", fake_movie_fts)
+    out = await ms.manual_search_metadata(db_session, "Quantum Physics", "movie", data_source_type="local")
+    assert out == []

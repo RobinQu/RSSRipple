@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, timedelta
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import select
@@ -36,6 +37,7 @@ from app.services.notify_service import (
     deliver_due_deliveries,
     ensure_deliveries,
     regenerate_notifications,
+    regenerate_resource_notifications,
     reset_deliveries_for_retry,
 )
 from app.utils.time import utcnow
@@ -203,6 +205,59 @@ def test_build_payload_freezes_all_linked_work_metadata():
     )
     assert set(payload["works"]) == {"series:series-1", "series:series-2"}
     assert payload["works"]["series:series-2"]["title_cn"] == "第二部作品"
+
+
+def _movie_ns(**overrides):
+    defaults = dict(
+        id="movie-1",
+        title_en="Your Name",
+        title_cn="你的名字",
+        original_title="君の名は。",
+        release_date=date(2016, 8, 26),
+        content_type="movie",
+        is_anime=False,
+        collection=None,
+        genre=["Romance"],
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def test_build_payload_movie_work_link():
+    """A multi-work pack with a movie link lands in works under movie:."""
+    movie = _movie_ns()
+    resource = _resource_ns(
+        id="resource-movie-link", series=None, movie=None,
+        file_assignments=[],
+        work_links=[SimpleNamespace(series=None, movie=movie)],
+    )
+    payload = build_payload(
+        "notif-movie-link", None, SimpleNamespace(id="t", download_dir="/d"),
+        resource, {"name": "pack", "files": []},
+    )
+    assert set(payload["works"]) == {"movie:movie-1"}
+    assert payload["works"]["movie:movie-1"]["type"] == "movie"
+
+
+def test_build_payload_skips_unassigned_assignment_rows():
+    """A file-assignment row with neither series nor movie is skipped."""
+    assignment = SimpleNamespace(
+        file_path="unmapped.mkv", file_size=100,
+        series_id=None, movie_id=None, season=None,
+        episode_start=None, episode_end=None, source="auto",
+    )
+    resource = _resource_ns(
+        id="resource-unmapped", series=None, movie=None,
+        file_assignments=[assignment],
+    )
+    payload = build_payload(
+        "notif-unmapped", None, SimpleNamespace(id="t", download_dir="/d"),
+        resource, {"name": "pack", "files": [{"name": "unmapped.mkv", "size": 100}]},
+    )
+    assert payload["file_associations"]["items"] == []
+    # Every assignment row bound → but the skipped row counts as unbound →
+    # status is partial (1 row, 0 items, paths mismatch).
+    assert payload["file_associations"]["status"] == "partial"
 
 
 def test_backoff_delay_grows_and_caps(monkeypatch):
@@ -1005,3 +1060,205 @@ async def test_cleanup_expired_protects_tasks_with_open_deliveries(
         )
     ).scalar_one_or_none()
     assert remaining is None
+
+
+# ---------------------------------------------------------------------------
+# regenerate_resource_notifications（单资源快照/计划重建）
+# ---------------------------------------------------------------------------
+
+
+async def test_regenerate_resource_rebuilds_snapshot(db_session, seed, monkeypatch):
+    """重建一条已完成的资源任务通知：拿到 torrent 清单时直接重建快照并触发
+    organize 计划重建。"""
+    from unittest.mock import AsyncMock
+
+    from app.services import organize_service as org_mod
+
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+
+    replanned = AsyncMock()
+    monkeypatch.setattr(org_mod, "plan_for_notifications", replanned)
+
+    stats = await regenerate_resource_notifications(
+        db_session, seed.resource.id
+    )
+    assert stats == {"regenerated": 1}
+    await db_session.refresh(n)
+    assert n.payload["notification_id"] == n.id
+    assert n.payload["work"]["title_en"] == "Test Series"
+    replanned.assert_awaited_once()
+
+
+async def test_regenerate_resource_skips_absent_notification(db_session, seed, monkeypatch):
+    """没有通知的任务不处理（返回 0）。"""
+
+    stats = await regenerate_resource_notifications(db_session, seed.resource.id)
+    assert stats == {"regenerated": 0}
+
+
+async def test_regenerate_resource_fallback_keeps_old_files(db_session, seed, monkeypatch):
+    """downloader RPC 不可达（拿不到新清单）时，用旧快照的 files 重建元数据
+    /关联部分，保留已建立的文件清单。"""
+    from unittest.mock import AsyncMock
+
+    from app.services import organize_service as org_mod
+
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    old_files = n.payload["files"]
+    # 构造一个传输层拿不到清单的任务：transmission_torrent_id 无效。
+    orphan_task = DownloadTask(
+        id=_uuid(), agent_id=seed.agent.id,
+        file_resource_id=seed.resource.id, downloader_id=seed.downloader.id,
+        download_dir="/downloads/rssripple",
+        transmission_torrent_id=None, status="completed",
+        completed_at=utcnow(),
+    )
+    db_session.add(orphan_task)
+    await db_session.flush()
+    orphan_n = DownloadNotification(
+        id=_uuid(), agent_id=seed.agent.id, download_task_id=orphan_task.id,
+        payload={
+            "notification_id": _uuid(),
+            "task": {"torrent_name": "Test.Series.S01"},
+            "files": old_files,
+        },
+    )
+    db_session.add(orphan_n)
+    await db_session.commit()
+
+    replanned = AsyncMock()
+    monkeypatch.setattr(org_mod, "plan_for_notifications", replanned)
+
+    stats = await regenerate_resource_notifications(
+        db_session, seed.resource.id
+    )
+    # seed.task 的通知可重建（has_snapshot True），orphan 走旧 files 回退。
+    assert stats == {"regenerated": 2}
+    await db_session.refresh(orphan_n)
+    assert orphan_n.payload["files"] == old_files
+    assert orphan_n.payload["task"]["torrent_name"] == "Test.Series.S01"
+
+
+async def test_regenerate_resource_skips_notification_without_old_files(
+    db_session, seed, monkeypatch
+):
+    """拿不到新清单、旧快照也没有 files → 跳过（不降级）。"""
+    orphan_task = DownloadTask(
+        id=_uuid(), agent_id=seed.agent.id,
+        file_resource_id=seed.resource.id, downloader_id=seed.downloader.id,
+        download_dir="/downloads/rssripple",
+        transmission_torrent_id=None, status="completed",
+        completed_at=utcnow(),
+    )
+    db_session.add(orphan_task)
+    await db_session.flush()
+    orphan_n = DownloadNotification(
+        id=_uuid(), agent_id=seed.agent.id, download_task_id=orphan_task.id,
+        payload={"notification_id": _uuid(), "task": {"torrent_name": None}},
+    )
+    db_session.add(orphan_n)
+    await db_session.commit()
+
+    stats = await regenerate_resource_notifications(
+        db_session, seed.resource.id
+    )
+    # seed.task 无通知跳过；orphan 因无旧 files 也跳过。
+    assert stats == {"regenerated": 0}
+
+
+# ---------------------------------------------------------------------------
+# ensure_deliveries 边界
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_deliveries_batch_commit_many_webhooks(db_session, seed):
+    """超过批次大小（50）时 fan-out 正常分批提交。"""
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    db_session.add_all([
+        _webhook(seed.agent.id, url=f"http://hook{i}/x") for i in range(55)
+    ])
+    await db_session.commit()
+
+    created = await ensure_deliveries(db_session)
+    assert created == 55
+    assert len(await _deliveries(db_session, n.id)) == 55
+
+
+async def test_ensure_deliveries_lost_race_absorbed(db_session, seed):
+    """扇出竞态：existing 查询是过期读（并发写者已提交 delivery），插入命中
+    唯一约束 → SAVEPOINT 捕获并继续，不掉整个批次。"""
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    webhook = _webhook(seed.agent.id)
+    db_session.add(webhook)
+    await db_session.flush()
+    # "并发写者"已提交的行。
+    db_session.add(WebhookDelivery(
+        id=_uuid(), notification_id=n.id, webhook_id=webhook.id,
+        status="pending", next_attempt_at=utcnow(),
+    ))
+    await db_session.commit()
+
+    # 让 existing 查询模拟过期读：返回空集合，插入必然撞唯一约束。
+    real_execute = db_session.execute
+
+    async def stale_execute(stmt, *a, **kw):
+        cols = list(getattr(stmt, "selected_columns", ()))
+        if (
+            len(cols) == 2
+            and cols[0].key == "notification_id"
+            and cols[1].key == "webhook_id"
+            and "webhook_deliveries" in str(stmt)
+        ):
+            fake = MagicMock()
+            fake.all.return_value = []
+            return fake
+        return await real_execute(stmt, *a, **kw)
+
+    db_session.execute = stale_execute  # type: ignore[assignment]
+    try:
+        created = await ensure_deliveries(db_session)
+    finally:
+        db_session.execute = real_execute  # type: ignore[assignment]
+    assert created == 0
+    # 会话仍然可用，库里仍只有并发写者那一条 delivery。
+    rows = await _deliveries(db_session, n.id)
+    assert len(rows) == 1
+    assert rows[0].webhook_id == webhook.id
+
+
+async def test_regenerate_replan_failure_is_tolerated(db_session, seed, monkeypatch):
+    """organize 计划重建抛异常时不中断 regenerate 结果。"""
+    from unittest.mock import AsyncMock
+
+    from app.services import organize_service as org_mod
+
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+
+    replanned = AsyncMock(side_effect=RuntimeError("organize boom"))
+    monkeypatch.setattr(org_mod, "plan_for_notifications", replanned)
+
+    stats = await regenerate_notifications(db_session, seed.agent.id, None)
+    assert stats == {"created": 0, "regenerated": 1}
+
+
+async def test_regenerate_resource_replan_failure_propagates(
+    db_session, seed, monkeypatch
+):
+    """单资源重建的 organize 计划失败直接抛（与 regenerate_notifications 的
+    容错不同——该路径不吞异常）。"""
+    from unittest.mock import AsyncMock
+
+    import pytest
+
+    from app.services import organize_service as org_mod
+
+    n, _ = await create_notification_for_task(db_session, seed.task)
+    await db_session.commit()
+
+    replanned = AsyncMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setattr(org_mod, "plan_for_notifications", replanned)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await regenerate_resource_notifications(db_session, seed.resource.id)

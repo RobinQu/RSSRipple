@@ -12,10 +12,22 @@ import uuid
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
-from app.services.external_ids import find_work_by_external_id
-from app.services.metadata_search import refresh_work_by_source
+from app.schemas.metadata_search import MetadataCandidate, MetadataSearchRequest
+from app.services.external_ids import add_external_id, find_work_by_external_id
+from app.services.metadata_search import (
+    _candidate_from_result,
+    apply_work_metadata,
+    preview_work_metadata,
+    refresh_work_by_source,
+    search_metadata_candidates,
+)
 
 _SEARCH = "app.services.metadata_service.search_metadata_via_llm"
 _POSTER = "app.services.metadata_search.download_and_cache_poster"
@@ -293,3 +305,241 @@ async def test_refresh_never_overwrites_existing_identity(db_session):
     assert work.external_source == "tmdb"
     owner = await find_work_by_external_id(db_session, "series", "bangumi", "bangumi:777")
     assert owner is not None and owner.id == work.id
+
+
+# ---------------------------------------------------------------------------
+# search / preview / apply — candidate construction, fallbacks, error branches
+# ---------------------------------------------------------------------------
+
+
+def _external_candidate(title="Show", *, external_id="tmdb:1", poster_url=None, metadata=None):
+    return MetadataCandidate(
+        origin="external",
+        content_type="tv",
+        title_cn=title,
+        primary_source="tmdb",
+        identity_source="tmdb",
+        external_id=external_id,
+        match_path="primary",
+        selectable=True,
+        poster_url=poster_url,
+        metadata=metadata or {},
+    )
+
+
+def test_candidate_from_result_local_mode():
+    """mode=local candidates carry origin/work_id."""
+    request = MetadataSearchRequest(query="X", content_type="tv", mode="local")
+    hit = _candidate_from_result(
+        {"title_cn": "本地作品", "year": 2020, "_local_id": "w-1"}, request
+    )
+    assert hit.origin == "local"
+    assert hit.work_id == "w-1"
+    assert hit.match_path == "local"
+    assert hit.selectable is True
+    assert hit.title_cn == "本地作品"
+
+
+def test_candidate_from_result_external_match_paths():
+    """Web-fallback candidates are labeled by the registry source they resolved
+    from; candidates without a trusted identity are not selectable."""
+    req = MetadataSearchRequest(
+        query="X", content_type="tv", mode="online", source="wikipedia"
+    )
+    primary = _candidate_from_result(
+        {"title_en": "Show", "external_source": "wikipedia", "external_id": "wikipedia:en:1"},
+        req,
+    )
+    assert primary.match_path == "primary"
+    assert primary.selectable is True
+
+    fallback = _candidate_from_result(
+        {"title_en": "Show", "external_source": "tmdb", "external_id": "tmdb:2"},
+        req,
+    )
+    assert fallback.match_path == "web_fallback"
+    assert fallback.identity_source == "tmdb"
+    assert fallback.primary_source == "wikipedia"
+
+    no_id = _candidate_from_result({"title_en": "Show"}, req)
+    assert no_id.selectable is False
+    assert "no trusted external identity" in no_id.unavailable_reason
+
+
+async def test_search_candidates_rejects_unavailable_online_source(db_session):
+    """mode=online with a disabled source raises 400 before any search runs."""
+    req = MetadataSearchRequest(query="Show", content_type="tv", mode="online", source="tmdb")
+    with patch("app.services.metadata_search.is_metadata_source_available", return_value=False):
+        with pytest.raises(HTTPException) as exc:
+            await search_metadata_candidates(db_session, req)
+    assert exc.value.status_code == 400
+
+
+async def test_preview_work_not_found(db_session):
+    with pytest.raises(HTTPException) as exc:
+        await preview_work_metadata(db_session, _uuid(), "tv", _external_candidate(), False)
+    assert exc.value.status_code == 404
+
+
+async def test_apply_work_not_found(db_session):
+    with pytest.raises(HTTPException) as exc:
+        await apply_work_metadata(db_session, _uuid(), "tv", _external_candidate(), False)
+    assert exc.value.status_code == 404
+
+
+async def test_preview_ignores_badly_typed_values(db_session):
+    """rating="not-a-number" / number_of_episodes="xyz" hit the safe-caster
+    None branch (and the equal-value skip for title_cn) instead of 500ing."""
+    work = TVSeries(id=_uuid(), title_cn="Show", content_type="tv")
+    db_session.add(work)
+    await db_session.flush()
+    candidate = _external_candidate(metadata={
+        "rating": "not-a-number",
+        "number_of_episodes": "xyz",
+    })
+    result = await preview_work_metadata(db_session, work.id, "tv", candidate, False)
+    assert result["changes"] == []
+
+
+async def test_preview_poster_and_is_anime_changes(db_session):
+    """poster_url / is_anime changes flow through the preview change list
+    (only_missing=False → they are candidates for apply)."""
+    work = TVSeries(id=_uuid(), title_cn="Show", content_type="tv")
+    db_session.add(work)
+    await db_session.flush()
+    candidate = _external_candidate(
+        poster_url="http://cdn.example.com/poster.jpg",
+        metadata={"is_anime": True},
+    )
+    result = await preview_work_metadata(db_session, work.id, "tv", candidate, False)
+    fields = {c["field"] for c in result["changes"]}
+    assert "poster_url" in fields
+    assert "is_anime" in fields
+
+
+async def test_preview_only_missing_skips_existing_poster_and_is_anime(db_session):
+    """only_missing=True never proposes changing an already-set poster/is_anime."""
+    work = TVSeries(
+        id=_uuid(), title_cn="Show", content_type="tv",
+        is_anime=True, poster_url="http://cdn.example.com/old.jpg",
+    )
+    db_session.add(work)
+    await db_session.flush()
+    candidate = _external_candidate(
+        poster_url="http://cdn.example.com/new.jpg",
+        metadata={"is_anime": False},
+    )
+    result = await preview_work_metadata(
+        db_session, work.id, "tv", candidate, False, only_missing=True
+    )
+    assert {c["field"] for c in result["changes"]} <= {"title_cn"}
+    assert "poster_url" not in {c["field"] for c in result["changes"]}
+    assert "is_anime" not in {c["field"] for c in result["changes"]}
+
+
+async def test_apply_rejects_bagged_identity_conflict(db_session):
+    """A candidate identity already bagged by another work → 409, never steal."""
+    owner = TVSeries(id=_uuid(), title_cn="Owner", content_type="tv")
+    work = TVSeries(id=_uuid(), title_cn="Show", content_type="tv")
+    db_session.add_all([owner, work])
+    await db_session.flush()
+    await add_external_id(db_session, "series", owner.id, "tmdb", "tmdb:999")
+    candidate = _external_candidate(external_id="tmdb:999")
+    with pytest.raises(HTTPException) as exc:
+        await apply_work_metadata(db_session, work.id, "tv", candidate, False)
+    assert exc.value.status_code == 409
+
+
+async def test_apply_rejects_cross_type_identity_conflict(db_session):
+    """A candidate identity bagged for the OTHER work type → 409."""
+    movie = Movie(id=_uuid(), title_cn="电影", content_type="movie")
+    work = TVSeries(id=_uuid(), title_cn="Show", content_type="tv")
+    db_session.add_all([movie, work])
+    await db_session.flush()
+    await add_external_id(db_session, "movie", movie.id, "tmdb", "tmdb:777")
+    candidate = _external_candidate(external_id="tmdb:777")
+    with pytest.raises(HTTPException) as exc:
+        await apply_work_metadata(db_session, work.id, "tv", candidate, False)
+    assert exc.value.status_code == 409
+
+
+async def test_apply_full_success_poster_is_anime_episodes(db_session):
+    """A selectable candidate applies poster + is_anime + season-scoped Episode
+    rows, and the poster cache miss falls back to the candidate's URL."""
+    work = TVSeries(id=_uuid(), title_cn="Show", content_type="tv", season_number=1)
+    db_session.add(work)
+    await db_session.flush()
+    candidate = _external_candidate(
+        poster_url="http://cdn.example.com/p.jpg",
+        metadata={
+            "is_anime": True,
+            "episode_list": [{"season": 1, "episode": 1, "title": "Ep1"}],
+        },
+    )
+    with patch(
+        "app.services.metadata_search.download_and_cache_poster",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        result = await apply_work_metadata(db_session, work.id, "tv", candidate, False)
+    assert "poster_url" in result["applied"]
+    assert "is_anime" in result["applied"]
+    assert work.poster_url == "http://cdn.example.com/p.jpg"
+    assert work.is_anime is True
+    from app.models.episode import Episode
+
+    eps = (await db_session.execute(select(Episode))).scalars().all()
+    assert [(e.season, e.episode) for e in eps] == [(1, 1)]
+
+
+async def test_apply_override_manual_edits_forces_is_anime(db_session):
+    """override_manual_edits=True writes the candidate's is_anime verdict
+    directly instead of going through the sticky apply_is_anime policy."""
+    work = TVSeries(id=_uuid(), title_cn="Show", content_type="tv", is_anime=True)
+    db_session.add(work)
+    await db_session.flush()
+    candidate = _external_candidate(metadata={"is_anime": False})
+    result = await apply_work_metadata(
+        db_session, work.id, "tv", candidate, override_manual_edits=True
+    )
+    assert "is_anime" in result["applied"]
+    assert work.is_anime is False
+
+
+async def test_refresh_work_none(db_session):
+    result = await refresh_work_by_source(db_session, None, "tv", "tmdb")
+    assert result["found"] is False
+    assert "work not found" in result["message"]
+
+
+async def test_refresh_no_title_available(db_session):
+    work = TVSeries(id=_uuid(), content_type="tv")
+    db_session.add(work)
+    await db_session.flush()
+    with patch(_SEARCH, new_callable=AsyncMock) as search:
+        result = await refresh_work_by_source(db_session, work, "tv", "tmdb")
+    assert result["found"] is False
+    assert "no title" in result["message"]
+    search.assert_not_awaited()
+
+
+async def test_refresh_re_raises_non_conflict_http(db_session):
+    """Only 409 (identity conflict) is swallowed into the result dict — other
+    HTTPExceptions from apply must propagate."""
+    work = TVSeries(id=_uuid(), title_en="Show", content_type="tv")
+    db_session.add(work)
+    await db_session.flush()
+    patches = _patch_search([
+        {"title_en": "Show", "content_type": "tv",
+         "external_id": "tmdb:5", "external_source": "tmdb"},
+    ])
+    with patches[0], patches[1], patches[2]:
+        with patch(
+            "app.services.metadata_search.apply_work_metadata",
+            new_callable=AsyncMock,
+            side_effect=HTTPException(status_code=400, detail="boom"),
+        ) as ap:
+            with pytest.raises(HTTPException) as exc:
+                await refresh_work_by_source(db_session, work, "tv", "tmdb")
+    assert exc.value.status_code == 400
+    ap.assert_awaited_once()

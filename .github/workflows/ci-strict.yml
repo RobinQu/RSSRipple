@@ -43,7 +43,7 @@ jobs:
         run: uv sync --frozen --all-groups
 
       - name: Run unit and API tests
-        run: uv run pytest tests/unit tests/api -v --tb=short --cov=app --cov-report=term --cov-fail-under=80
+        run: uv run pytest tests/unit tests/api -v --tb=short --cov=app --cov-report=term --cov-fail-under=95
 
   integration-single:
     needs: [lint, unit-tests]
@@ -60,7 +60,7 @@ jobs:
       - name: Run single-node integration tests
         run: docker compose -f docker-compose.test.yml run --rm test-runner
 
-      - name: Integration coverage (fail under 80%)
+      - name: Integration coverage (fail under 85%)
         run: |
           # coverage.py only flushes data on a clean interpreter exit; uvicorn
           # skips atexit on SIGTERM, so flush via SIGINT before stopping.

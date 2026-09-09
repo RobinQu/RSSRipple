@@ -1036,3 +1036,395 @@ class TestContentTypeRuleMatching:
             _batch_payload(), _batch_files(), [singles_only], [lib],
         )
         assert result.rule is None  # 合集不命中单集规则
+
+
+class TestPlannerErrorBranches:
+    """补缺：模板渲染失败 / 未知作品类型 / 单集缺季 / 合集缺视频等分支。"""
+
+    def test_template_render_error_becomes_plan_error(self):
+        lib = _library()
+        rule = _rule("bad", 10, lib.id, "{missing_var}/ep{ext}")
+        with pytest.raises(PlanError, match="占位符"):
+            build_plan(
+                GITS_PAYLOAD, [DiskFile("/d/ep04.mkv", 1, "ep04.mkv")], [rule], [lib]
+            )
+
+    def test_unknown_work_type_fails(self):
+        payload = {**GITS_PAYLOAD, "work": {**GITS_PAYLOAD["work"], "type": "audio"}}
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="作品类型缺失或未知"):
+            build_plan(payload, [DiskFile("/d/a.mkv", 1, "a.mkv")], [rule], [lib])
+
+    def test_single_episode_association_no_match_fails(self):
+        payload = {
+            **GITS_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [{
+                    "file_path": "other.mkv", "file_size": 1,
+                    "work_type": "series", "work_id": "s-1",
+                    "season": 1, "episode_start": 4, "episode_end": 4,
+                    "source": "manual",
+                }],
+            },
+        }
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="权威文件关联中没有单集主视频映射"):
+            build_plan(payload, [DiskFile("/d/ep04.mkv", 1, "ep04.mkv")], [rule], [lib])
+
+    def test_missing_season_fails(self):
+        payload = {
+            **GITS_PAYLOAD,
+            "resource": {**GITS_PAYLOAD["resource"], "season": None},
+        }
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="缺少季号"):
+            build_plan(payload, [DiskFile("/d/a.mkv", 1, "a.mkv")], [rule], [lib])
+
+    def test_batch_no_videos_fails(self):
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="未找到视频"):
+            build_plan(
+                _batch_payload(),
+                [DiskFile("/d/sub.ass", 5, "sub.ass")],
+                [rule], [lib],
+            )
+
+    def test_batch_explicit_range_missing_season_fails(self):
+        """v1 快照：显式 episode_start/end 但季号不可得 → 拒绝（绝不硬猜）。"""
+        payload = _batch_payload()
+        payload["resource"] = {**payload["resource"], "season": None}
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="缺少季号，无法校验覆盖度"):
+            build_plan(payload, _batch_files(), [rule], [lib])
+
+    def test_derive_range_cross_season_returns_none(self):
+        """文件清单推导：跨季 → 无法构成单一区间 → 无法校验覆盖度拒绝。"""
+        payload = _batch_payload()
+        payload["resource"] = {
+            **payload["resource"],
+            "season": 1, "episode_start": None, "episode_end": None,
+        }
+        payload["work"] = {**payload["work"], "seasons": None, "episodes": []}
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        files = [
+            DiskFile("/d/GITS.S01E01.1080p.mkv", 300, "GITS.S01E01.1080p.mkv"),
+            DiskFile("/d/GITS.S02E01.1080p.mkv", 300, "GITS.S02E01.1080p.mkv"),
+        ]
+        with pytest.raises(PlanError, match="无法校验覆盖度"):
+            build_plan(payload, files, [rule], [lib])
+
+    def test_batch_subtitle_without_episode_kept(self):
+        payload = _batch_payload()
+        files = _batch_files() + [
+            DiskFile("/downloads/complete/gits/extra.ass", 5, "extra.ass"),
+        ]
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert "/downloads/complete/gits/extra.ass" in keeps
+
+    def test_duplicate_subtitle_gets_ordinal(self):
+        """同集同语言第 2 份字幕追加序号，避免重名覆盖。"""
+        payload = _batch_payload()
+        files = _batch_files() + [
+            DiskFile(
+                "/downloads/complete/gits/GITS.S01E01.chs.ass", 5,
+                "GITS.S01E01.chs.ass",
+            ),
+            DiskFile(
+                "/downloads/complete/gits/GITS.S01E01.zh-hans.ass", 5,
+                "GITS.S01E01.zh-hans.ass",
+            ),
+        ]
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        dsts = [op.dst for op in result.ops if op.op_type == "move" and op.dst.endswith(".ass")]
+        assert len(dsts) == 2
+        assert any(".chs.2.ass" in d for d in dsts)
+
+    def test_batch_file_not_in_associations_kept(self):
+        """权威关联清单外的视频按 keep 原地保留，不参与覆盖度。"""
+        payload = _batch_payload()
+        payload["resource"] = {**payload["resource"], "episode_end": 2}
+        payload["file_associations"] = {
+            "version": 1, "status": "complete",
+            "items": [
+                {
+                    "file_path": f"GITS.S01E0{e}.1080p.mkv", "file_size": 300,
+                    "work_type": "series", "work_id": payload["work"]["series_id"],
+                    "season": 1, "episode_start": e, "episode_end": e,
+                    "source": "manual",
+                }
+                for e in (1, 2)
+            ],
+        }
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, _batch_files(), [rule], [lib])
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert "/downloads/complete/gits/GITS.S01E03.1080p.mkv" in keeps
+
+
+class TestMovieErrorBranches:
+    def test_movie_no_videos_fails(self):
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        with pytest.raises(PlanError, match="未找到视频"):
+            build_plan(
+                HAMNET_PAYLOAD,
+                [DiskFile("/d/track.en.sup", 5, "track.en.sup")],
+                [rule], [lib],
+            )
+
+    def test_movie_associations_no_main_fails(self):
+        payload = {
+            **HAMNET_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [{
+                    "file_path": "other.mkv", "file_size": 8000,
+                    "work_type": "movie", "work_id": "m-1",
+                    "season": None, "episode_start": None, "episode_end": None,
+                    "source": "manual",
+                }],
+            },
+        }
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        with pytest.raises(PlanError, match="权威文件关联中没有电影主文件"):
+            build_plan(payload, [DiskFile("/d/movie.mkv", 8000, "movie.mkv")], [rule], [lib])
+
+    def test_movie_audio_unsafe_rel_rejected(self):
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        files = [
+            DiskFile("/d/movie.mkv", 8000, "movie.mkv"),
+            DiskFile("/d/weird.flac", 10, "../weird.flac"),
+        ]
+        with pytest.raises(PlanError, match="不安全的相对路径"):
+            build_plan(HAMNET_PAYLOAD, files, [rule], [lib])
+
+    def test_movie_audio_sanitize_failure_rejected(self):
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        files = [
+            DiskFile("/d/movie.mkv", 8000, "movie.mkv"),
+            DiskFile("/d/x.flac", 10, "\x00\x01/\x00\x02.flac"),
+        ]
+        with pytest.raises(PlanError, match="外置音轨路径无效"):
+            build_plan(HAMNET_PAYLOAD, files, [rule], [lib])
+
+    def test_movie_associations_restrict_videos(self):
+        """关联清单内视频才参与正片选择；清单外视频不产出任何 op。"""
+        payload = {
+            **HAMNET_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [{
+                    "file_path": "movie.mkv", "file_size": 8000,
+                    "work_type": "movie", "work_id": "m-1",
+                    "season": None, "episode_start": None, "episode_end": None,
+                    "source": "manual",
+                }],
+            },
+        }
+        lib = _library("lib-movies", "/data/movies", kind="movie")
+        rule = _rule("movies", 10, lib.id, PRESET_MOVIE)
+        files = [
+            DiskFile("/d/movie.mkv", 8000, "movie.mkv"),
+            DiskFile("/d/sample.mkv", 10, "sample.mkv"),
+        ]
+        result = build_plan(payload, files, [rule], [lib])
+        moves = {op.src for op in result.ops if op.op_type == "move"}
+        assert "/d/movie.mkv" in moves
+        assert "/d/sample.mkv" not in moves
+
+    def test_unbound_library_returns_pending_signal(self):
+        """目标库未绑定卷（root_path 未解析出）→ 不落 ops、不失败。"""
+        lib = _library("lib-tv", "/data/tv")
+        lib.root_path = None
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            GITS_PAYLOAD, [DiskFile("/d/ep04.mkv", 1, "ep04.mkv")], [rule], [lib]
+        )
+        assert result.rule is rule
+        assert result.library is lib
+        assert result.ops == []
+
+
+class TestAssociationSuffixMatch:
+    """``_association_for`` 的后缀兜底匹配（下载器清单对种子根是否带目录不一致）。"""
+
+    def _payload(self, file_path):
+        return {
+            **GITS_PAYLOAD,
+            "file_associations": {
+                "version": 1, "status": "complete",
+                "items": [{
+                    "file_path": file_path, "file_size": 1,
+                    "work_type": "series", "work_id": "s-1",
+                    "season": 1, "episode_start": 4, "episode_end": 4,
+                    "source": "manual",
+                }],
+            },
+        }
+
+    def test_unique_suffix_matches(self):
+        lib = _library()
+        rule = _rule("tv", 10, lib.id, PRESET_TV)
+        result = build_plan(
+            self._payload("ep04.mkv"),
+            [DiskFile("/d/sub/ep04.mkv", 1, "sub/ep04.mkv")],
+            [rule], [lib],
+        )
+        moves = [op for op in result.ops if op.op_type == "move"]
+        assert moves and moves[0].dst.endswith("s01e04 - 机器人回旋曲.mkv")
+
+    def test_ambiguous_suffix_returns_none(self):
+        from app.schemas.notification import NotificationPayload
+        from app.services.organize_planner import _association_for
+
+        payload = self._payload("a/ep04.mkv")
+        payload["file_associations"]["items"].append({
+            "file_path": "ep04.mkv", "file_size": 1,
+            "work_type": "series", "work_id": "s-1",
+            "season": 1, "episode_start": 4, "episode_end": 4, "source": "manual",
+        })
+        parsed = NotificationPayload.model_validate(payload)
+        assert _association_for(parsed, "z/a/ep04.mkv") is None
+
+
+class TestMultiWorkEdgeCases:
+    """多作品同目标拆分规划的补缺分支。"""
+
+    def _multi_work_payload(self):
+        first = {**GITS_PAYLOAD["work"], "series_id": "s-1", "title_cn": "作品甲"}
+        second = {
+            **GITS_PAYLOAD["work"], "series_id": "s-2", "title_cn": "作品乙",
+        }
+        items = [
+            {
+                "file_path": "A/ep.mkv", "file_size": 300,
+                "work_type": "series", "work_id": "s-1", "season": 1,
+                "episode_start": 1, "episode_end": 1, "source": "manual",
+            },
+            {
+                "file_path": "B/ep.mkv", "file_size": 300,
+                "work_type": "series", "work_id": "s-2", "season": 1,
+                "episode_start": 2, "episode_end": 2, "source": "manual",
+            },
+        ]
+        return {
+            **_batch_payload(),
+            "work": {"type": None},
+            "works": {"series:s-1": first, "series:s-2": second},
+            "resource": {
+                **_batch_payload()["resource"], "season": None,
+                "episode_start": None, "episode_end": None,
+                "batch_scope": "franchise",
+            },
+            "file_associations": {
+                "version": 1, "status": "complete", "items": items,
+            },
+        }
+
+    def test_leftover_video_kept(self):
+        """不在任何作品关联清单的视频按 keep 原地保留（不误归到某作品）。"""
+        payload = self._multi_work_payload()
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/unknown.mkv", 300, "unknown.mkv"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert "/d/unknown.mkv" in keeps
+
+    def test_subtitle_routes_to_matching_work(self):
+        payload = self._multi_work_payload()
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/A/ep01.zh.ass", 5, "A/ep01.zh.ass"),
+            DiskFile("/d/B/ep02.zh.ass", 5, "B/ep02.zh.ass"),
+            DiskFile("/d/orphan.zh.ass", 5, "orphan.zh.ass"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        moves = {op.src for op in result.ops if op.op_type == "move"}
+        assert "/d/A/ep01.zh.ass" in moves
+        assert "/d/B/ep02.zh.ass" in moves
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert "/d/orphan.zh.ass" in keeps
+
+    def test_subtitle_ambiguous_kept(self):
+        """字幕集号同时落入两个作品区间 → 归属不了唯一作品 → keep。"""
+        payload = self._multi_work_payload()
+        payload["file_associations"]["items"][1]["episode_start"] = 1
+        payload["file_associations"]["items"][1]["episode_end"] = 1
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/shared.ep01.zh.ass", 5, "shared.ep01.zh.ass"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+        result = build_plan(payload, files, [rule], [lib])
+        keeps = {op.src for op in result.ops if op.op_type == "keep"}
+        assert "/d/shared.ep01.zh.ass" in keeps
+
+    def test_missing_work_metadata_fails(self):
+        payload = self._multi_work_payload()
+        del payload["works"]["series:s-2"]
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+        ]
+        lib = _library()
+        rule = _rule("all-tv", 10, lib.id, PRESET_TV)
+        with pytest.raises(PlanError, match="多作品快照缺少作品元数据"):
+            build_plan(payload, files, [rule], [lib])
+
+    def test_child_no_rule_match_fails(self):
+        """某作品分组未命中规则/媒体库 → 整单拒绝，不做部分整理。"""
+        payload = self._multi_work_payload()
+        payload["works"]["series:s-2"]["is_anime"] = False
+        anime = _library("anime", "/anime")
+        rule = _rule("anime", 1, anime.id, PRESET_TV, {
+            "field": "series.is_anime", "operator": "eq", "value": True,
+        })
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+        ]
+        with pytest.raises(PlanError, match="未命中可执行的整理规则"):
+            build_plan(payload, files, [rule], [anime])
+
+    def test_movedir_with_recycle(self):
+        """多作品合集 + 剩余文件 + move + 回收站 → 产 movedir。"""
+        payload = self._multi_work_payload()
+        lib = _library("lib-anime", "/data/tv_anime")
+        lib.recycle_path = "/data/recycle"
+        rule = _rule("anime", 10, lib.id, PRESET_TV)
+        files = [
+            DiskFile("/d/A/ep.mkv", 300, "A/ep.mkv"),
+            DiskFile("/d/B/ep.mkv", 300, "B/ep.mkv"),
+            DiskFile("/d/leftover.nfo", 5, "leftover.nfo"),
+        ]
+        result = build_plan(payload, files, [rule], [lib], source_dir="/d")
+        movedirs = [op for op in result.ops if op.op_type == "movedir"]
+        assert len(movedirs) == 1
+        assert movedirs[0].src == "/d"
+        assert movedirs[0].dst == "/data/recycle/d"

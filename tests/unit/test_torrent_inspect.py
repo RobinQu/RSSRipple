@@ -10,7 +10,9 @@ plus maybe_inspect_torrent (channel A write-back, preconditions, failures).
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import bencodepy
 import pytest
@@ -898,6 +900,373 @@ async def test_inspect_reuses_existing_cache(tmp_path, monkeypatch):
     assert r.is_batch is True
     assert r.batch_scope == "season"
     assert r.torrent_file == str(cached)
+
+
+# =============================================================================
+# fetch_torrent_file edge branches
+# =============================================================================
+
+async def test_fetch_no_cache_dir_returns_none(monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", "")
+    assert await fetch_torrent_file("https://x/a.torrent", "rid-none") is None
+
+
+async def test_fetch_cache_dir_not_writable_returns_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+
+    class _BadDir(Path):
+        def mkdir(self, *a, **kw):
+            raise OSError("permission denied")
+
+    monkeypatch.setattr(ti, "Path", _BadDir)
+    _stub_httpx(monkeypatch, chunks=[b"d8:announce0:e"])
+    assert await fetch_torrent_file("https://x/a.torrent", "rid-nodir") is None
+
+
+async def test_fetch_write_failure_returns_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(ti.settings, "torrent_cache_dir", str(tmp_path))
+    payload = _single_torrent("Show.S01E01.mkv", 500 * MB)
+    _stub_httpx(monkeypatch, chunks=[payload])
+
+    def _boom_write(self, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ti.Path, "write_bytes", _boom_write)
+    assert await fetch_torrent_file("https://x/write.torrent", "rid-write") is None
+    assert list(tmp_path.iterdir()) == []
+
+
+# =============================================================================
+# parse_torrent_payload structural rejects
+# =============================================================================
+
+def test_parse_non_dict_payload_returns_none(tmp_path):
+    p = tmp_path / "nondict.torrent"
+    p.write_bytes(bencodepy.encode(b"spam"))
+    assert parse_torrent_files(str(p)) is None
+
+
+def test_parse_files_entry_not_dict_returns_none(tmp_path):
+    p = tmp_path / "junk.torrent"
+    p.write_bytes(_torrent_bytes({
+        b"info": {b"name": b"root", b"files": [b"junk"],
+                  b"piece length": 16384, b"pieces": b"x" * 20},
+    }))
+    assert parse_torrent_files(str(p)) is None
+
+
+def test_parse_files_entry_bad_shape_returns_none(tmp_path):
+    p = tmp_path / "bad.torrent"
+    p.write_bytes(_torrent_bytes({
+        b"info": {b"name": b"root",
+                  b"files": [{b"length": b"100", b"path": [b"a.mkv"]}],
+                  b"piece length": 16384, b"pieces": b"x" * 20},
+    }))
+    assert parse_torrent_files(str(p)) is None
+
+
+def test_parse_single_file_missing_length_returns_none(tmp_path):
+    p = tmp_path / "nolength.torrent"
+    p.write_bytes(_torrent_bytes({b"info": {b"name": b"x.mkv"}}))
+    assert parse_torrent_files(str(p)) is None
+
+
+def test_decode_text_passes_str_through():
+    assert ti._decode_text("作品A") == "作品A"
+    assert ti._decode_text(b"\xff") == "\ufffd"
+
+
+# =============================================================================
+# read_torrent_root_name
+# =============================================================================
+
+def test_read_torrent_root_name_decode_failure(tmp_path):
+    p = tmp_path / "bad.torrent"
+    p.write_bytes(b"not bencode")
+    assert ti.read_torrent_root_name(str(p)) is None
+
+
+def test_read_torrent_root_name_non_dict_payload(tmp_path):
+    p = tmp_path / "nondict.torrent"
+    p.write_bytes(bencodepy.encode(b"spam"))
+    assert ti.read_torrent_root_name(str(p)) is None
+
+
+def test_read_torrent_root_name_single_file_returns_none(tmp_path):
+    p = tmp_path / "single.torrent"
+    p.write_bytes(_single_torrent("Movie.mkv", 100))
+    assert ti.read_torrent_root_name(str(p)) is None
+
+
+def test_read_torrent_root_name_multi_file(tmp_path):
+    p = tmp_path / "multi.torrent"
+    p.write_bytes(_multi_torrent([(["Show S01", "a.mkv"], 100)]))
+    assert ti.read_torrent_root_name(str(p)) == "root"
+
+
+# =============================================================================
+# _is_main_video defensive branch
+# =============================================================================
+
+def test_is_main_video_empty_path_components():
+    assert ti._is_main_video({"name": "///", "size": 500 * MB}) is False
+
+
+# =============================================================================
+# ensure_torrent_cached poison-cache handling
+# =============================================================================
+
+async def test_ensure_removes_poison_cache_then_fetches(tmp_path, monkeypatch):
+    """A cache file that exists but fails to parse (HTML error page persisted
+    by an old implementation) is unlinked before a fresh fetch."""
+    poison = tmp_path / "poison.torrent"
+    poison.write_bytes(b"<!doctype html><html></html>")
+
+    async def _fake_fetch(url, rid):
+        return "/tmp/rid-a.torrent"
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    r = _resource(torrent_file=str(poison))
+    assert await ensure_torrent_cached(r) == "/tmp/rid-a.torrent"
+    assert r.torrent_file == "/tmp/rid-a.torrent"
+    assert not poison.exists()
+
+
+async def test_ensure_unlink_failure_still_refetches(tmp_path, monkeypatch):
+    """An unlink failure on the poison cache degrades silently — the fetch
+    proceeds and the fresh path is written back."""
+    poison = tmp_path / "poison.torrent"
+    poison.write_bytes(b"<!doctype html><html></html>")
+
+    def _boom_unlink(self, *a, **kw):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(ti.Path, "unlink", _boom_unlink)
+
+    async def _fake_fetch(url, rid):
+        return "/tmp/rid-a.torrent"
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    r = _resource(torrent_file=str(poison))
+    assert await ensure_torrent_cached(r) == "/tmp/rid-a.torrent"
+    assert r.torrent_file == "/tmp/rid-a.torrent"
+
+
+async def test_ensure_fetch_exception_silent(monkeypatch):
+    async def _boom(url, rid):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _boom)
+    r = _resource()
+    assert await ensure_torrent_cached(r) is None
+    assert r.torrent_file is None
+
+
+# =============================================================================
+# maybe_inspect_torrent: complete-batch skip, stale-cache, enrichment, crash
+# =============================================================================
+
+async def test_inspect_complete_batch_with_assignments_skipped(db_session, sample_channel):
+    """A fully-scoped batch whose file assignments already exist is left alone
+    (verdict_complete + non-empty file_assignments → short-circuit)."""
+    import uuid
+
+    from app.models.file_resource import FileResource
+    from app.models.resource_file_assignment import ResourceFileAssignment
+
+    r = FileResource(
+        id=str(uuid.uuid4()), channel_id=sample_channel.id, guid=str(uuid.uuid4()),
+        title_raw="Show", torrent_url="https://x/pack.torrent",
+        is_batch=True, batch_scope="season", episode_start=1, episode_end=3,
+    )
+    a = ResourceFileAssignment(
+        resource_id=r.id, file_path="Show.S01E01.mkv", source="auto",
+    )
+    db_session.add_all([r, a])
+    await db_session.commit()
+    assert await maybe_inspect_torrent(db_session, r) is False
+
+
+async def test_inspect_unlinks_stale_poison_cache(tmp_path, monkeypatch):
+    """A stale unparseable cache file never blocks a later valid fetch."""
+    poison = tmp_path / "poison.torrent"
+    poison.write_bytes(b"<!doctype html><html></html>")
+    good = tmp_path / "good.torrent"
+    good.write_bytes(b"not-really-parsed")
+
+    async def _fake_fetch(url, rid):
+        return str(good)
+
+    def _fake_parse(path):
+        if str(path) == str(poison):
+            return None
+        return [_f("Show.S01E01.1080p.mkv"), _f("Show.S01E02.1080p.mkv")]
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    monkeypatch.setattr(ti, "parse_torrent_files", _fake_parse)
+    r = _resource(torrent_file=str(poison))
+    assert await maybe_inspect_torrent(None, r) is True
+    assert r.batch_scope == "season"
+    assert r.torrent_file == str(good)
+    assert not poison.exists()
+
+
+async def test_inspect_unlink_failure_tolerated(tmp_path, monkeypatch):
+    """An unlink failure on a poison cache degrades silently — the fresh fetch
+    still happens and the batch verdict still lands."""
+    poison = tmp_path / "poison.torrent"
+    poison.write_bytes(b"<!doctype html><html></html>")
+    good = tmp_path / "good.torrent"
+    good.write_bytes(b"not-really-parsed")
+
+    def _boom_unlink(self, *a, **kw):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(ti.Path, "unlink", _boom_unlink)
+
+    async def _fake_fetch(url, rid):
+        return str(good)
+
+    def _fake_parse(path):
+        if str(path) == str(poison):
+            return None
+        return [_f("Show.S01E01.1080p.mkv"), _f("Show.S01E02.1080p.mkv")]
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _fake_fetch)
+    monkeypatch.setattr(ti, "parse_torrent_files", _fake_parse)
+    r = _resource(torrent_file=str(poison))
+    assert await maybe_inspect_torrent(None, r) is True
+    assert r.batch_scope == "season"
+    assert r.torrent_file == str(good)
+
+
+# ---------------------------------------------------------------------------
+# Enrichment pass (apply_auto_assignments / season_ranges / gated LLM refine)
+# ---------------------------------------------------------------------------
+
+def _assign_resource(**over):
+    """Like ``_resource`` but exposes the enrichment surface (file_assignments
+    list, subtitle fields, search titles, season_ranges)."""
+    r = _resource(**over)
+    r.file_assignments = []
+    r.subtitle_group = None
+    r.subtitle_groups = None
+    r.subtitle_groups_source = None
+    r.season_ranges = None
+    r.search_title = "Show"
+    r.title_cn = None
+    r.title_raw = "Show"
+    r.episode_confidence = None
+    return r
+
+
+class _EnrichDb:
+    """Minimal db double whose refresh is a no-op (SimpleNamespace resource)."""
+
+    async def refresh(self, obj, attrs=None):
+        return None
+
+    async def get(self, model, pk):
+        return None
+
+
+async def test_inspect_season_enrichment_writes_assignments(monkeypatch):
+    """Every main video file gets a durable auto assignment row + ranges."""
+    _stub_pipeline(monkeypatch, [
+        _f("Show.S01E01.1080p.mkv"),
+        _f("Show.S01E02.1080p.mkv"),
+    ])
+    r = _assign_resource()
+    assert await maybe_inspect_torrent(_EnrichDb(), r) is True
+    assert r.is_batch is True
+    assert r.batch_scope == "season"
+    assert len(r.file_assignments) == 2
+    assert r.season_ranges == [
+        {"season": 1, "episode_start": 1, "episode_end": 2}
+    ]
+
+
+async def test_inspect_enrichment_survives_refresh_failure(monkeypatch):
+    """A db.refresh hiccup in the enrichment pass degrades silently — the
+    deterministic assignment write-back still happens."""
+    _stub_pipeline(monkeypatch, [
+        _f("Show.S01E01.1080p.mkv"),
+        _f("Show.S01E02.1080p.mkv"),
+    ])
+    r = _assign_resource()
+
+    class _BoomDb:
+        async def refresh(self, obj, attrs=None):
+            raise RuntimeError("pending row")
+
+    assert await maybe_inspect_torrent(_BoomDb(), r) is True
+    assert r.is_batch is True
+    assert r.batch_scope == "season"
+    assert len(r.file_assignments) == 2
+
+
+async def test_inspect_franchise_llm_refinement_binds_movies(monkeypatch):
+    """Franchise pack + LLM key → gated refine runs and movies stay bound
+    (no franchise collection linking when llm_bound_movies is True)."""
+    monkeypatch.setattr(ti.settings, "llm_api_key", "sk-test")
+    import app.services.batch_content_analysis as bca_mod
+
+    refine = AsyncMock(return_value=True)
+    monkeypatch.setattr(bca_mod, "refine_batch_content", refine)
+    link = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.franchise_service.link_franchise_pack", link
+    )
+    _stub_pipeline(monkeypatch, [
+        _f("作品X TV/作品X S01E01.mkv"),
+        _f("作品X TV/作品X S01E02.mkv"),
+        _f("作品X 剧场版/作品X Movie.mkv"),
+    ])
+    r = _assign_resource()
+    assert await maybe_inspect_torrent(_EnrichDb(), r) is True
+    assert r.is_batch is True
+    assert r.batch_scope == "franchise"
+    refine.assert_awaited_once()
+    # llm_bound_movies=True → franchise linking is skipped.
+    link.assert_not_awaited()
+    assert r.season_ranges is not None
+
+
+async def test_inspect_franchise_llm_failure_degrades_and_links(monkeypatch):
+    """A crashing LLM refinement must not lose the batch verdict — the
+    deterministic franchise linking then still runs."""
+    monkeypatch.setattr(ti.settings, "llm_api_key", "sk-test")
+    import app.services.batch_content_analysis as bca_mod
+
+    refine = AsyncMock(side_effect=RuntimeError("llm down"))
+    monkeypatch.setattr(bca_mod, "refine_batch_content", refine)
+    link = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.franchise_service.link_franchise_pack", link
+    )
+    _stub_pipeline(monkeypatch, [
+        _f("作品X TV/作品X S01E01.mkv"),
+        _f("作品X TV/作品X S01E02.mkv"),
+        _f("作品X 剧场版/作品X Movie.mkv"),
+    ])
+    r = _assign_resource()
+    assert await maybe_inspect_torrent(_EnrichDb(), r) is True
+    assert r.is_batch is True
+    assert r.batch_scope == "franchise"
+    link.assert_awaited_once()
+
+
+async def test_inspect_unexpected_fetch_error_returns_false(monkeypatch):
+    """Any unexpected exception inside the inspection body is swallowed and
+    reported as a no-op (False)."""
+
+    async def _boom(url, rid):
+        raise RuntimeError("network gone")
+
+    monkeypatch.setattr(ti, "fetch_torrent_file", _boom)
+    r = _resource()
+    assert await maybe_inspect_torrent(None, r) is False
+    assert r.torrent_file is None
 
 
 # ---------------------------------------------------------------------------

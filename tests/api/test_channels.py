@@ -619,3 +619,422 @@ class TestChannelDeleteCascade:
         async with db_session_factory() as s:
             remaining = (await s.execute(_select(DownloadTask))).scalars().all()
         assert remaining == []
+
+
+# ---------------------------------------------------------------------------
+# Edge branches: field_mapping validation, form-token guards, scheduler/enqueue
+# degradation, delete 404, fetch dedup, cleanup-unresolved, SSE streams.
+# ---------------------------------------------------------------------------
+
+
+class TestFieldMappingValidation:
+    async def test_create_rejects_empty_field_mapping(self, client):
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post(
+                "/api/v1/channels",
+                json=_channel_payload(field_mapping={}),
+            )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_create_rejects_field_mapping_without_source(self, client):
+        # A dict with no field_mappings key and no entry carrying "source".
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post(
+                "/api/v1/channels",
+                json=_channel_payload(field_mapping={"list_locator": {}}),
+            )
+        assert res.status_code == 422
+
+    async def test_update_rejects_empty_field_mapping(self, client, sample_channel):
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"field_mapping": {}},
+        )
+        assert res.status_code == 422
+
+    async def test_update_rejects_null_field_mapping(self, client, sample_channel):
+        # Not a dict at all → the helper bails at the isinstance guard.
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"field_mapping": None},
+        )
+        assert res.status_code == 422
+
+
+class TestFormTokenGuard:
+    async def test_create_duplicate_submission(self, client, monkeypatch):
+        from app.services import submission_guard as sg_mod
+
+        class _RejectGuard:
+            async def issue(self) -> str:
+                return "test-token"
+
+            async def consume(self, token: str) -> bool:
+                return False
+
+        monkeypatch.setattr(sg_mod, "submission_guard", _RejectGuard())
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post(
+                "/api/v1/channels",
+                json=_channel_payload(),
+                headers={"X-Form-Token": "test-token"},
+            )
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "DUPLICATE_SUBMISSION"
+
+    async def test_update_duplicate_submission(self, client, sample_channel, monkeypatch):
+        from app.services import submission_guard as sg_mod
+
+        class _RejectGuard:
+            async def issue(self) -> str:
+                return "test-token"
+
+            async def consume(self, token: str) -> bool:
+                return False
+
+        monkeypatch.setattr(sg_mod, "submission_guard", _RejectGuard())
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}",
+            json={"name": "X"},
+            headers={"X-Form-Token": "test-token"},
+        )
+        assert res.status_code == 409
+
+
+class TestCreateDegradation:
+    async def test_create_propagates_validate_rss_url_exception(self, client):
+        import pytest
+
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                await client.post("/api/v1/channels", json=_channel_payload())
+
+    async def test_create_survives_reschedule_failure(self, client, monkeypatch):
+        from app.services import scheduler as sched_mod
+
+        def failing_reschedule(ch):
+            raise RuntimeError("scheduler not ready")
+
+        monkeypatch.setattr(sched_mod, "reschedule_channel", failing_reschedule)
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post("/api/v1/channels", json=_channel_payload())
+        assert res.status_code == 201
+
+    async def test_create_survives_enqueue_failure(self, client, monkeypatch):
+        from app.config import settings
+        from app.services import task_queue as tq_mod
+
+        monkeypatch.setattr(settings, "scheduler_enabled", True)
+        fake = MagicMock()
+        fake.enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
+        fake.status = AsyncMock(return_value=None)
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        with patch(
+            "app.api.v1.channels.validate_rss_url",
+            AsyncMock(return_value=(True, "ok", 5, 5)),
+        ):
+            res = await client.post("/api/v1/channels", json=_channel_payload())
+        assert res.status_code == 201
+        assert res.json()["meta"]["fetch_triggered"] is False
+
+
+class TestUpdateEdges:
+    async def test_update_channel_404(self, client):
+        res = await client.put(
+            "/api/v1/channels/does-not-exist", json={"name": "X"}
+        )
+        assert res.status_code == 404
+
+    async def test_update_survives_reschedule_failure(self, client, sample_channel, monkeypatch):
+        from app.services import scheduler as sched_mod
+
+        def failing_reschedule(ch):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(sched_mod, "reschedule_channel", failing_reschedule)
+        res = await client.put(
+            f"/api/v1/channels/{sample_channel.id}", json={"name": "X"}
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["name"] == "X"
+
+
+class TestDeleteEdges:
+    async def test_delete_channel_404(self, client):
+        res = await client.delete("/api/v1/channels/does-not-exist")
+        assert res.status_code == 404
+
+    async def test_delete_survives_unschedule_failure(self, client, sample_channel, monkeypatch):
+        from app.services import scheduler as sched_mod
+
+        def failing_unschedule(cid):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(sched_mod, "unschedule_channel", failing_unschedule)
+        res = await client.delete(f"/api/v1/channels/{sample_channel.id}")
+        assert res.status_code == 200
+        assert res.json()["data"]["deleted"] is True
+
+
+class TestFetchDedup:
+    async def test_fetch_returns_inflight_job(self, client, sample_channel, monkeypatch):
+        """A queued/running fetch_channel job is returned for polling, not 409."""
+        from app.services import task_queue as tq_mod
+
+        fake = MagicMock()
+        fake.status = AsyncMock(return_value={
+            "job_type": "fetch_channel", "status": "queued",
+            "job_id": "job-1", "key": f"channel:{sample_channel.id}",
+        })
+        fake.enqueue = AsyncMock()
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/fetch")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["data"]["status"] == "queued"
+        fake.enqueue.assert_not_called()
+
+    async def test_fetch_clears_finished_job_then_enqueues(
+        self, client, sample_channel, monkeypatch
+    ):
+        """A finished fetch_channel job is cleared so a fresh one can enqueue."""
+        from app.services import task_queue as tq_mod
+
+        fake = MagicMock()
+        fake.status = AsyncMock(return_value={
+            "job_type": "fetch_channel", "status": "done",
+        })
+        fake.clear = AsyncMock()
+        fake.enqueue = AsyncMock(return_value={
+            "job_id": "job-2", "job_type": "fetch_channel",
+            "key": f"channel:{sample_channel.id}", "status": "queued",
+        })
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        res = await client.post(f"/api/v1/channels/{sample_channel.id}/fetch")
+        assert res.status_code == 200
+        fake.clear.assert_awaited_once_with(f"channel:{sample_channel.id}")
+        fake.enqueue.assert_awaited_once()
+
+    async def test_fetch_status_404(self, client):
+        res = await client.get("/api/v1/channels/nope/fetch-status")
+        assert res.status_code == 404
+
+
+class TestCleanupUnresolved:
+    async def test_cleanup_unresolved_success(self, client, sample_channel):
+        res = await client.post(
+            f"/api/v1/channels/{sample_channel.id}/cleanup-unresolved"
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["deleted"] == 0
+
+    async def test_cleanup_unresolved_404(self, client):
+        res = await client.post("/api/v1/channels/nope/cleanup-unresolved")
+        assert res.status_code == 404
+
+
+class TestAnalyzeErrors:
+    async def test_analyze_channel_fetch_error(self, client, sample_channel):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            res = await client.post(f"/api/v1/channels/{sample_channel.id}/analyze")
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "FETCH_ERROR"
+
+    async def test_analyze_channel_empty_feed(self, client, sample_channel):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(return_value=[]),
+        ):
+            res = await client.post(f"/api/v1/channels/{sample_channel.id}/analyze")
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "EMPTY_FEED"
+
+    async def test_preview_feed_fetch_error(self, client):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            res = await client.post(
+                "/api/v1/channels/preview-feed", json={"url": "https://x/rss"}
+            )
+        assert res.status_code == 400
+        assert res.json()["error"]["code"] == "FETCH_ERROR"
+
+
+async def _async_gen(*items):
+    for item in items:
+        yield item
+
+
+class TestAnalyzeStreams:
+    async def test_analyze_url_stream_yields_events(self, client):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(return_value=[{"title": "[G] T - 01"}]),
+        ), patch(
+            "app.api.v1.channels.analyze_feed_stream",
+            return_value=_async_gen(
+                {"type": "delta", "content": "partial"},
+                {"type": "done", "field_mapping": {}, "confidence": "high"},
+            ),
+        ):
+            async with client.stream(
+                "POST", "/api/v1/channels/analyze-url-stream",
+                json={"url": "https://x/rss"},
+            ) as resp:
+                assert resp.status_code == 200
+                assert resp.headers["content-type"].startswith("text/event-stream")
+                body = (await resp.aread()).decode()
+        assert "fetching feed" in body
+        assert '"delta"' in body
+        assert '"done"' in body
+
+    async def test_analyze_url_stream_fetch_error(self, client):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with client.stream(
+                "POST", "/api/v1/channels/analyze-url-stream",
+                json={"url": "https://x/rss"},
+            ) as resp:
+                assert resp.status_code == 200
+                body = (await resp.aread()).decode()
+        assert '"error"' in body
+        assert "boom" in body
+
+    async def test_analyze_url_stream_empty_feed(self, client):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(return_value=[]),
+        ):
+            async with client.stream(
+                "POST", "/api/v1/channels/analyze-url-stream",
+                json={"url": "https://x/rss"},
+            ) as resp:
+                body = (await resp.aread()).decode()
+        assert "No entries found" in body
+
+    async def test_analyze_channel_stream_success(self, client, sample_channel):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(return_value=[{"title": "[G] T - 01"}]),
+        ), patch(
+            "app.api.v1.channels.analyze_feed_stream",
+            return_value=_async_gen({"type": "done", "field_mapping": {}, "confidence": "high"}),
+        ):
+            async with client.stream(
+                "POST", f"/api/v1/channels/{sample_channel.id}/analyze-stream",
+            ) as resp:
+                assert resp.status_code == 200
+                body = (await resp.aread()).decode()
+        assert '"done"' in body
+
+    async def test_analyze_channel_stream_404(self, client):
+        async with client.stream(
+            "POST", "/api/v1/channels/nope/analyze-stream",
+        ) as resp:
+            assert resp.status_code == 404
+            await resp.aread()
+
+    async def test_analyze_channel_stream_fetch_error(self, client, sample_channel):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        ):
+            async with client.stream(
+                "POST", f"/api/v1/channels/{sample_channel.id}/analyze-stream",
+            ) as resp:
+                body = (await resp.aread()).decode()
+        assert '"error"' in body
+
+    async def test_analyze_channel_stream_empty_feed(self, client, sample_channel):
+        with patch(
+            "app.api.v1.channels.get_raw_entries",
+            AsyncMock(return_value=[]),
+        ):
+            async with client.stream(
+                "POST", f"/api/v1/channels/{sample_channel.id}/analyze-stream",
+            ) as resp:
+                body = (await resp.aread()).decode()
+        assert "No entries found" in body
+
+
+class TestSummarizeFiltersEdges:
+    async def test_summarize_filters_no_matching_resources(self, client, sample_channel):
+        res = await client.post(
+            f"/api/v1/channels/{sample_channel.id}/summarize-filters",
+            json={"resource_ids": [str(uuid.uuid4())]},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        assert data["works"] == []
+        assert data["global_filter_config"] is None
+        assert data["unlinked_count"] == 0
+
+    async def test_summarize_filters_movie_work_and_non_subtitle_override(
+        self, client, sample_channel, db_session_factory
+    ):
+        """Movie-linked resources group under a movie work; a non-subtitle
+        field uniform within a work but not global becomes an eq override."""
+        from app.models.file_resource import FileResource
+        from app.models.movie import Movie
+        from app.models.series import TVSeries
+
+        s1_id, m1_id = str(uuid.uuid4()), str(uuid.uuid4())
+        rids = [str(uuid.uuid4()) for _ in range(3)]
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=s1_id, title_cn="剧A", content_type="tv"))
+            s.add(Movie(id=m1_id, title_cn="电影B", content_type="movie"))
+            # Series A: 2 resources, resolution 720p uniform; Movie B: 1 resource.
+            for i, (wid, link_field, resolution) in enumerate([
+                (s1_id, "series_id", "720p"),
+                (s1_id, "series_id", "720p"),
+                (m1_id, "movie_id", "1080p"),
+            ]):
+                s.add(FileResource(
+                    id=rids[i], channel_id=sample_channel.id, guid=rids[i] + "-g",
+                    title_raw=f"T{i}", subtitle_group="AllSame",
+                    resolution=resolution, **{link_field: wid},
+                    torrent_url="magnet:?xt=urn:btih:x",
+                ))
+            await s.commit()
+
+        res = await client.post(
+            f"/api/v1/channels/{sample_channel.id}/summarize-filters",
+            json={"resource_ids": rids},
+        )
+        assert res.status_code == 200
+        data = res.json()["data"]
+        by_id = {w["movie_id"] or w["series_id"]: w for w in data["works"]}
+        assert len(data["works"]) == 2
+        # subtitle_group uniform across all → global.
+        assert any(c["field"] == "subtitle_groups" for c in data["global_filter_config"]["conditions"])
+        # 720p is uniform within series A but not global → eq override.
+        s_work = by_id[s1_id]
+        assert s_work["filter_overrides"]["conditions"] == [
+            {"field": "resolution", "operator": "eq", "value": "720p"}
+        ]
+        m_work = by_id[m1_id]
+        assert m_work["content_type"] == "movie"
+        assert m_work["title"] == "电影B"

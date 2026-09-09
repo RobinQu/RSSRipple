@@ -13,10 +13,12 @@ import pytest
 
 from app.services.feed_analyzer import (
     _call_openai,
+    _call_openrouter,
     _extract_content,
     _extract_json_object,
     _parse_llm_json,
     _stream_openai,
+    _stream_openrouter,
     analyze_feed,
     analyze_feed_stream,
     call_llm,
@@ -379,6 +381,22 @@ def test_parse_llm_json_invalid_escapes():
     text = r'{"regex": "\s+(\d+)"}'
     result = _parse_llm_json(text)
     assert result["regex"] == r"\s+(\d+)"
+
+
+def test_parse_llm_json_mixed_valid_and_invalid_escapes():
+    """A valid escape pair (e.g. ``\\n``) stays intact while an invalid one
+    (``\\d``) is double-escaped — exercising the skip-two-characters branch."""
+    text = r'{"regex": "\d+(\n)"}'
+    result = _parse_llm_json(text)
+    # \d is double-escaped (invalid), \n is a real escape → newline in value.
+    assert result["regex"] == r"\d+(" + "\n" + ")"
+
+
+def test_parse_llm_json_extracted_object_still_invalid_raises():
+    """Balanced-object extraction found something, but it still isn't valid
+    JSON (trailing comma) → the last-resort strategy fails and we raise."""
+    with pytest.raises(json.JSONDecodeError):
+        _parse_llm_json('{"a": 1,}')
 
 
 def test_parse_llm_json_raises_on_garbage():
@@ -976,3 +994,554 @@ def test_async_openai_constructor_no_proxies_error():
         )
     except TypeError as e:
         pytest.fail(f"AsyncOpenAI raised TypeError (proxies incompatibility?): {e}")
+
+
+# =============================================================================
+# 17. analyze_feed — guard clauses (no entries / no api key)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_no_entries(mock_settings):
+    mock_settings.llm_api_key = "test-key"
+    result = await analyze_feed([])
+    assert result["confidence"] == "low"
+    assert result["field_mapping"] == {}
+
+
+# =============================================================================
+# 18. analyze_feed — daily-limit / per-minute-limit / per-day retry branches
+# =============================================================================
+
+
+def _raise_on(exc: Exception):
+    """Return a callable that raises ``exc`` every time."""
+    async def _f(*a, **kw):
+        raise exc
+    return _f
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_per_day_limit_returns_immediately(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=Exception("daily tokens per-day limit exceeded")
+    )
+    mock_openai_class.return_value = mock_client
+
+    result = await analyze_feed(SAMPLE_ENTRIES)
+    assert result["confidence"] == "low"
+    assert result["field_mapping"] == {}
+    # Daily limit is not retryable → exactly one call, no 65s sleeps.
+    assert mock_client.chat.completions.create.await_count == 1
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_per_minute_limit_retries_then_succeeds(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=[
+            Exception("per-minute rate limit reached"),
+            _make_openai_response(content=json.dumps(MOCK_LLM_RESPONSE)),
+        ]
+    )
+    mock_openai_class.return_value = mock_client
+
+    result = await analyze_feed(SAMPLE_ENTRIES)
+    assert result["confidence"] == "high"
+    assert mock_client.chat.completions.create.await_count == 2
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_per_minute_limit_exhausts_all_attempts(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=Exception("per-minute rate limit exceeded")
+    )
+    mock_openai_class.return_value = mock_client
+
+    result = await analyze_feed(SAMPLE_ENTRIES)
+    assert result["confidence"] == "low"
+    assert result["field_mapping"] == {}
+    assert mock_client.chat.completions.create.await_count == 3
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_retries_on_empty_then_succeeds(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=[
+            _make_openai_response(content="   "),
+            _make_openai_response(content=json.dumps(MOCK_LLM_RESPONSE)),
+        ]
+    )
+    mock_openai_class.return_value = mock_client
+
+    result = await analyze_feed(SAMPLE_ENTRIES)
+    assert result["confidence"] == "high"
+    assert mock_client.chat.completions.create.await_count == 2
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_all_attempts_fail_generic(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=Exception("upstream 500")
+    )
+    mock_openai_class.return_value = mock_client
+
+    result = await analyze_feed(SAMPLE_ENTRIES)
+    assert result["confidence"] == "low"
+    assert result["field_mapping"] == {}
+    assert mock_client.chat.completions.create.await_count == 3
+
+
+# =============================================================================
+# 19. _extract_content — reasoning_details with object (non-dict) items
+# =============================================================================
+
+
+def test_extract_content_reasoning_details_object_items():
+    msg = SimpleNamespace(
+        content=None,
+        reasoning=None,
+        reasoning_content=None,
+        reasoning_details=[
+            SimpleNamespace(summary="First", text="ignored"),
+            SimpleNamespace(summary=None, text="Second"),
+        ],
+    )
+    result = _extract_content(msg)
+    assert "First" in result
+    assert "Second" in result
+
+
+# =============================================================================
+# 20. _parse_llm_json / _extract_json_object edge cases
+# =============================================================================
+
+
+def test_parse_llm_json_unterminated_fence_raises():
+    # A fence opener without a closing fence leaves garbage behind → not JSON.
+    with pytest.raises(json.JSONDecodeError):
+        _parse_llm_json("```json")
+
+
+def test_extract_json_object_handles_escaped_quotes_inside_strings():
+    # ``\"`` keeps the string open; the brace depth must not be thrown off.
+    text = 'pre {"a": "say \\"hi\\"", "b": 2} post'
+    result = _extract_json_object(text)
+    assert result is not None
+    parsed = json.loads(result)
+    assert parsed["b"] == 2
+    assert parsed["a"] == 'say "hi"'
+
+
+def test_extract_json_object_unescaped_quote_inside_string_closes_string():
+    text = 'pre {"a": "has "quote" inside", "b": 2}'
+    result = _extract_json_object(text)
+    assert result is not None
+
+
+# =============================================================================
+# 21. _call_openrouter — direct function tests (native SDK)
+# =============================================================================
+
+
+def _setup_openrouter_client(chunks):
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(return_value=_make_async_stream(chunks))
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    return cm, client
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_call_openrouter_prefers_content_over_reasoning(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    cm, _ = _setup_openrouter_client([
+        _make_chunk(reasoning="thinking trace"),
+        _make_chunk(content="the-answer"),
+    ])
+    mock_openrouter_class.return_value = cm
+
+    result = await _call_openrouter([{"role": "user", "content": "hi"}])
+    assert result == "the-answer"
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_call_openrouter_falls_back_to_reasoning_when_content_empty(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    cm, _ = _setup_openrouter_client([_make_chunk(reasoning="the-answer")])
+    mock_openrouter_class.return_value = cm
+
+    result = await _call_openrouter([{"role": "user", "content": "hi"}])
+    assert result == "the-answer"
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_call_openrouter_skips_chunks_without_choices(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    empty_chunk = MagicMock()
+    empty_chunk.choices = []
+    cm, _ = _setup_openrouter_client([
+        empty_chunk,
+        _make_chunk(content="the-answer"),
+    ])
+    mock_openrouter_class.return_value = cm
+
+    result = await _call_openrouter([{"role": "user", "content": "hi"}])
+    assert result == "the-answer"
+
+
+# =============================================================================
+# 22. analyze_feed_stream — guard clauses
+# =============================================================================
+
+
+@pytest.mark.asyncio
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_stream_no_entries(mock_settings):
+    mock_settings.llm_api_key = "test-key"
+    events = await _collect_events(analyze_feed_stream([]))
+    assert len(events) == 1
+    assert events[0]["type"] == "error"
+    assert "No entries" in events[0]["message"]
+
+
+@pytest.mark.asyncio
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_stream_no_api_key(mock_settings):
+    mock_settings.llm_api_key = ""
+    events = await _collect_events(analyze_feed_stream(SAMPLE_ENTRIES))
+    assert len(events) == 1
+    assert events[0]["type"] == "error"
+    assert "API key" in events[0]["message"]
+
+
+# =============================================================================
+# 23. analyze_feed_stream — provider routing + exception surface
+# =============================================================================
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer._stream_openai")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_stream_routes_to_openai(mock_settings, mock_stream_openai):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_stream_openai.return_value = _make_async_stream([
+        {"type": "done", "field_mapping": {"x": 1}, "confidence": "high"},
+    ])
+    events = await _collect_events(analyze_feed_stream(SAMPLE_ENTRIES))
+    mock_stream_openai.assert_called_once()
+    assert events[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer._stream_openrouter")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_stream_routes_to_openrouter(mock_settings, mock_stream_openrouter):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_stream_openrouter.return_value = _make_async_stream([
+        {"type": "done", "field_mapping": {"x": 1}, "confidence": "high"},
+    ])
+    events = await _collect_events(analyze_feed_stream(SAMPLE_ENTRIES))
+    mock_stream_openrouter.assert_called_once()
+    assert events[-1]["type"] == "done"
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer._stream_openai")
+@patch("app.services.runtime_config.settings")
+async def test_analyze_feed_stream_surfaces_stream_exception(mock_settings, mock_stream_openai):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    async def _boom(messages):
+        raise RuntimeError("stream exploded")
+        yield  # pragma: no cover
+    mock_stream_openai.side_effect = _boom
+    events = await _collect_events(analyze_feed_stream(SAMPLE_ENTRIES))
+    assert events[-1]["type"] == "error"
+    assert "stream exploded" in events[-1]["message"]
+
+
+# =============================================================================
+# 24. _stream_openrouter — retries, reset event, per-day branch, empty, invalid
+# =============================================================================
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_per_minute_rate_limit_retries_then_succeeds(mock_settings, mock_openrouter_class):
+    """A per-minute rate-limit error on attempt 1 waits 65s then succeeds."""
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(side_effect=[
+        RuntimeError("per-minute rate limit reached"),
+        _make_async_stream([_make_chunk(content=json.dumps(MOCK_LLM_RESPONSE))]),
+    ])
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "done"
+    assert events[-1]["confidence"] == "high"
+    assert client.chat.send_async.await_count == 2
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_retries_transient_then_succeeds(mock_settings, mock_openrouter_class):
+    """A network failure on attempt 1 → reset event → success on attempt 2."""
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(side_effect=[
+        RuntimeError("connection reset"),
+        _make_async_stream([_make_chunk(content=json.dumps(MOCK_LLM_RESPONSE))]),
+    ])
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    types = [e["type"] for e in events]
+    assert types[0] == "reset"
+    assert "done" in types
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_per_day_aborts_immediately(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(side_effect=RuntimeError("per-day usage limit reached"))
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    assert events[0]["type"] == "error"
+    assert "per-day" in events[0]["message"]
+    # Non-retryable → single attempt, no reset event.
+    assert client.chat.send_async.await_count == 1
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_exhausts_transient_retries(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(side_effect=RuntimeError("network timeout"))
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "error"
+    assert client.chat.send_async.await_count == 3
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_empty_response_exhausts_retries(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(
+        return_value=_make_async_stream([_make_chunk(content="", reasoning="")])
+    )
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "error"
+    assert "empty" in events[-1]["message"].lower()
+    assert client.chat.send_async.await_count == 3
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_invalid_json_exhausts_retries(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    client = MagicMock()
+    # Fresh stream on every attempt (a reused async generator would be
+    # exhausted after the first parse failure → empty response).
+    client.chat.send_async = AsyncMock(
+        side_effect=lambda *a, **kw: _make_async_stream([_make_chunk(content="not json {{{")])
+    )
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "error"
+    assert "invalid JSON" in events[-1]["message"]
+    assert client.chat.send_async.await_count == 3
+
+
+@pytest.mark.asyncio
+@patch("openrouter.OpenRouter")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openrouter_skips_chunks_without_choices(mock_settings, mock_openrouter_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://openrouter.ai/api/v1"
+    mock_settings.llm_model = "openrouter/free"
+    empty_chunk = MagicMock()
+    empty_chunk.choices = []
+    client = MagicMock()
+    client.chat.send_async = AsyncMock(return_value=_make_async_stream([
+        empty_chunk,
+        _make_chunk(content=json.dumps(MOCK_LLM_RESPONSE)),
+    ]))
+    cm = AsyncMock()
+    cm.__aenter__.return_value = client
+    cm.__aexit__.return_value = None
+    mock_openrouter_class.return_value = cm
+
+    events = await _collect_events(_stream_openrouter([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "done"
+
+
+# =============================================================================
+# 25. _stream_openai — exception branch / skip-no-choices / invalid JSON exhaust
+# =============================================================================
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openai_exhausts_transient_retries(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(side_effect=RuntimeError("boom"))
+    mock_openai_class.return_value = mock_client
+
+    events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "error"
+    assert mock_client.chat.completions.create.await_count == 3
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openai_skips_chunks_without_choices(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    empty_chunk = SimpleNamespace(choices=[])
+    content_chunk = _make_stream_chunk(content=json.dumps(MOCK_LLM_RESPONSE))
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=_make_openai_stream([
+        empty_chunk, content_chunk,
+    ]))
+    mock_openai_class.return_value = mock_client
+
+    events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "done"
+    assert events[-1]["confidence"] == "high"
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openai_invalid_json_exhausts_retries(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        side_effect=lambda *a, **kw: _make_openai_stream([_make_stream_chunk(content="nope {{{")])
+    )
+    mock_openai_class.return_value = mock_client
+
+    events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "error"
+    assert "invalid JSON" in events[-1]["message"]
+    assert mock_client.chat.completions.create.await_count == 3
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_stream_openai_empty_response_exhausts_retries(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_openai_stream([_make_stream_chunk(content="")])
+    )
+    mock_openai_class.return_value = mock_client
+
+    events = await _collect_events(_stream_openai([{"role": "user", "content": "hi"}]))
+    assert events[-1]["type"] == "error"
+    assert "empty" in events[-1]["message"].lower()
+    assert mock_client.chat.completions.create.await_count == 3

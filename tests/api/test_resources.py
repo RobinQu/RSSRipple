@@ -1982,3 +1982,678 @@ class TestAssociationAudioPreservation:
         body = res.json()["data"]
         assert body["audio_work_id"] == aid
         assert body["resolution"] == "1080p"
+
+
+class TestResourceListGroupedBuckets:
+    """Grouped listing with series/movie/audio/unknown buckets, and the
+    matched=false filter that leaves the linked buckets empty."""
+
+    async def test_grouped_all_buckets(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.audio_work import AudioWork
+        from app.models.movie import Movie
+        from app.models.series import TVSeries
+
+        sid, mid, aid = _uuid(), _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", title_en="Show", content_type="tv"))
+            s.add(Movie(id=mid, title_cn="影", title_en="Movie", content_type="movie"))
+            s.add(AudioWork(id=aid, title_cn="音", content_type="music"))
+            await s.commit()
+        await _make_resource(db_session_factory, sample_channel.id, series_id=sid)
+        await _make_resource(db_session_factory, sample_channel.id, movie_id=mid)
+        await _make_resource(db_session_factory, sample_channel.id, audio_work_id=aid)
+        await _make_resource(db_session_factory, sample_channel.id, title_raw="未识别")
+
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/resources?grouped=true"
+        )
+        assert res.status_code == 200
+        groups = res.json()["data"]["groups"]
+        types = {g["type"] for g in groups}
+        assert types == {"series", "movie", "audio", "unknown"}
+        audio = next(g for g in groups if g["type"] == "audio")
+        assert audio["resources"][0]["audio_work_id"] == aid
+        movie = next(g for g in groups if g["type"] == "movie")
+        assert movie["resources"][0]["movie_id"] == mid
+
+    async def test_grouped_matched_false_skips_empty_linked_buckets(
+        self, client, sample_channel, db_session_factory,
+    ):
+        from app.models.audio_work import AudioWork
+        from app.models.movie import Movie
+        from app.models.series import TVSeries
+
+        sid, mid, aid = _uuid(), _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(TVSeries(id=sid, title_cn="剧", content_type="tv"))
+            s.add(Movie(id=mid, title_cn="影", content_type="movie"))
+            s.add(AudioWork(id=aid, title_cn="音", content_type="music"))
+            await s.commit()
+        await _make_resource(db_session_factory, sample_channel.id, series_id=sid)
+        await _make_resource(db_session_factory, sample_channel.id, movie_id=mid)
+        await _make_resource(db_session_factory, sample_channel.id, audio_work_id=aid)
+        await _make_resource(db_session_factory, sample_channel.id, title_raw="未识别")
+
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/resources"
+            "?grouped=true&matched=false"
+        )
+        assert res.status_code == 200
+        groups = res.json()["data"]["groups"]
+        assert {g["type"] for g in groups} == {"unknown"}
+
+    async def test_list_empty_channel(self, client, sample_channel):
+        res = await client.get(f"/api/v1/channels/{sample_channel.id}/resources")
+        assert res.status_code == 200
+        assert res.json()["meta"]["total"] == 0
+
+
+class TestChannelFieldValuesEdges:
+    """subtitle_langs unnest edge cases: empty lists, non-string tags and
+    whitespace-only tags must be skipped; the prefix filter prunes the rest."""
+
+    async def test_subtitle_langs_skips_empty_nonstring_whitespace(
+        self, client, sample_channel, db_session_factory,
+    ):
+        await _make_resource(db_session_factory, sample_channel.id, subtitle_langs=[])
+        await _make_resource(db_session_factory, sample_channel.id, subtitle_langs=[123])
+        await _make_resource(db_session_factory, sample_channel.id, subtitle_langs=["  "])
+        await _make_resource(db_session_factory, sample_channel.id, subtitle_langs=["ja", "zh-CN"])
+
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values?field=subtitle_langs"
+        )
+        assert res.status_code == 200
+        assert set(res.json()["data"]) == {"ja", "zh-CN"}
+
+        res = await client.get(
+            f"/api/v1/channels/{sample_channel.id}/field-values"
+            "?field=subtitle_langs&q=zh"
+        )
+        assert res.status_code == 200
+        assert res.json()["data"] == ["zh-CN"]
+
+
+class TestResourceMetadataAudioMovie:
+    """GET /resources/{id}/metadata linked entities for movie/audio works and
+    the 500 when the live metadata match blows up."""
+
+    async def test_metadata_linked_movie_and_audio(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from app.models.audio_work import AudioWork
+        from app.models.movie import Movie
+
+        mid, aid = _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(Movie(id=mid, title_cn="影", title_en="Movie", content_type="movie"))
+            s.add(AudioWork(id=aid, title_cn="音", content_type="music"))
+            await s.commit()
+        mrid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            movie_id=mid, metadata_matched_at=datetime.now(UTC),
+        )
+        arid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            audio_work_id=aid, metadata_matched_at=datetime.now(UTC),
+        )
+        monkeypatch.setattr(
+            "app.api.v1.resources.fetch_and_link_metadata", AsyncMock()
+        )
+        movie = await client.get(f"/api/v1/resources/{mrid}/metadata")
+        assert movie.status_code == 200
+        assert movie.json()["data"]["linked"]["type"] == "movie"
+        assert movie.json()["data"]["movie_id"] == mid
+
+        audio = await client.get(f"/api/v1/resources/{arid}/metadata")
+        assert audio.status_code == 200
+        assert audio.json()["data"]["linked"]["type"] == "audio"
+        assert audio.json()["data"]["audio_work_id"] == aid
+
+    async def test_metadata_match_error_500(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        monkeypatch.setattr(
+            "app.api.v1.resources.fetch_and_link_metadata",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        res = await client.get(f"/api/v1/resources/{rid}/metadata")
+        assert res.status_code == 500
+        assert res.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+
+
+class TestEpisodeCorrectionCollection:
+    """PATCH /resources/{id}/episode season derivation along collection
+    members (per-season works) + failure-tolerant siblings heal/reenqueue."""
+
+    async def _make_collection(self, db_session_factory):
+        from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+
+        coll_id, s1, s2 = _uuid(), _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(WorkCollection(id=coll_id, title_cn="系列合集"))
+            s.add(TVSeries(
+                id=s1, title_cn="系列", content_type="tv",
+                season_number=1, number_of_episodes=24, collection_id=coll_id,
+            ))
+            s.add(TVSeries(
+                id=s2, title_cn="系列", content_type="tv",
+                season_number=2, number_of_episodes=24, collection_id=coll_id,
+            ))
+            await s.commit()
+        return coll_id, s1, s2
+
+    async def test_derives_season_along_collection_members(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """absolute 30 along a 2×24 collection pins down S2E6 and re-points
+        the resource at the second season's work."""
+        coll_id, s1, s2 = await self._make_collection(db_session_factory)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            series_id=s1, season=None, episode=None,
+            absolute_episode=30, episode_confidence="ambiguous",
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode",
+            json={"episode": None, "absolute_episode": 30},
+        )
+        assert res.status_code == 200, res.text[:500]
+        body = res.json()["data"]
+        assert body["series_id"] == s2
+        assert body["season"] == 2
+        assert body["episode_confidence"] == "manual"
+
+    async def test_derives_episode_too_when_episode_omitted(
+        self, client, sample_channel, db_session_factory,
+    ):
+        """The schema requires ``episode``, but a direct call with the field
+        missing from ``model_fields_set`` fills in the derived episode."""
+        from app.api.v1.resources import correct_episode
+        from app.schemas.file_resource import EpisodeCorrectionRequest
+
+        coll_id, s1, s2 = await self._make_collection(db_session_factory)
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            series_id=s1, season=None, episode=99,
+            absolute_episode=30, episode_confidence="ambiguous",
+        )
+        body = EpisodeCorrectionRequest.model_validate({
+            "episode": None, "season": None, "absolute_episode": 30,
+        })
+        # Simulate a client that omitted ``episode`` entirely.
+        object.__setattr__(
+            body, "__pydantic_fields_set__", frozenset({"absolute_episode"})
+        )
+        async with db_session_factory() as s:
+            response = await correct_episode(rid, body, s)
+        payload = response["data"]
+        assert payload["episode"] == 6
+        assert payload["season"] == 2
+
+    async def test_heal_failure_swallowed(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=1, absolute_episode=1, episode_confidence="ambiguous",
+        )
+        monkeypatch.setattr(
+            "app.services.episode_history.heal_sibling_episodes",
+            AsyncMock(side_effect=RuntimeError("heal boom")),
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["episode"] == 3
+
+    async def test_reenqueues_active_agents(
+        self, client, sample_channel, sample_downloader, db_session_factory,
+        monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.agent import Agent
+
+        agent_id = _uuid()
+        async with db_session_factory() as s:
+            s.add(Agent(
+                id=agent_id, name="A", channel_id=sample_channel.id,
+                downloader_id=sample_downloader.id,
+                scope_channel_wide=True, status="active",
+            ))
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=1, absolute_episode=1, episode_confidence="ambiguous",
+        )
+        enqueue = AsyncMock(return_value={"job_id": "j", "status": "queued"})
+        monkeypatch.setattr(
+            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        enqueue.assert_awaited_once_with(
+            "run_agent", f"agent:{agent_id}",
+            {"agent_id": agent_id, "resource_ids": [rid]},
+        )
+
+    async def test_reenqueue_failure_swallowed(
+        self, client, sample_channel, sample_downloader, db_session_factory,
+        monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.agent import Agent
+
+        async with db_session_factory() as s:
+            s.add(Agent(
+                id=_uuid(), name="A", channel_id=sample_channel.id,
+                downloader_id=sample_downloader.id, status="active",
+            ))
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id,
+            episode=1, absolute_episode=1, episode_confidence="ambiguous",
+        )
+        enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
+        monkeypatch.setattr(
+            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+        )
+        res = await client.patch(
+            f"/api/v1/resources/{rid}/episode", json={"episode": 3},
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["episode"] == 3
+
+
+class TestMagnetResolveDisabled:
+    async def test_422_when_feature_disabled(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from app.config import settings
+
+        monkeypatch.setattr("app.services.magnet_resolve.lt", object())
+        monkeypatch.setattr(settings, "magnet_resolve_enabled", False)
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.post(f"/api/v1/resources/{rid}/magnet-resolve")
+        assert res.status_code == 422
+        assert "disabled" in res.json()["error"]["message"]
+
+
+class TestResourceAssociationsErrors:
+    """PUT /resources/{id}/associations failure modes + agent reenqueue."""
+
+    async def test_404(self, client):
+        res = await client.put(
+            "/api/v1/resources/nope/associations",
+            json={"is_batch": False, "works": []},
+        )
+        assert res.status_code == 404
+
+    async def test_apply_unexpected_error_500(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        monkeypatch.setattr(
+            "app.services.resource_association.apply_association_update",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": []},
+        )
+        assert res.status_code == 500
+        assert res.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+
+    async def test_active_agent_reenqueue_and_organize_refresh(
+        self, client, sample_channel, sample_downloader, db_session_factory,
+        monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.agent import Agent
+        from app.models.series import TVSeries
+
+        agent_id, sid = _uuid(), _uuid()
+        async with db_session_factory() as s:
+            s.add(Agent(
+                id=agent_id, name="A", channel_id=sample_channel.id,
+                downloader_id=sample_downloader.id, status="active",
+            ))
+            s.add(TVSeries(id=sid, title_cn="剧", title_en="Show", content_type="tv"))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        enqueue = AsyncMock(return_value={"job_id": "j", "status": "queued"})
+        monkeypatch.setattr(
+            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": [{"work_type": "series", "work_id": sid}]},
+        )
+        assert res.status_code == 200, res.text[:500]
+        calls = [call.args[0] for call in enqueue.await_args_list]
+        assert calls == ["refresh_resource_organize", "run_agent"]
+
+    async def test_enqueue_failures_swallowed(
+        self, client, sample_channel, sample_downloader, db_session_factory,
+        monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.agent import Agent
+        from app.models.series import TVSeries
+
+        sid = _uuid()
+        async with db_session_factory() as s:
+            s.add(Agent(
+                id=_uuid(), name="A", channel_id=sample_channel.id,
+                downloader_id=sample_downloader.id, status="active",
+            ))
+            s.add(TVSeries(id=sid, title_cn="剧", title_en="Show", content_type="tv"))
+            await s.commit()
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
+        monkeypatch.setattr(
+            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+        )
+        res = await client.put(
+            f"/api/v1/resources/{rid}/associations",
+            json={"is_batch": False, "works": [{"work_type": "series", "work_id": sid}]},
+        )
+        assert res.status_code == 200, res.text[:500]
+        assert res.json()["data"]["series_id"] == sid
+
+
+class TestAnalyzeBatchStream:
+    """POST /resources/{id}/analyze-batch-stream — cached replay and live
+    SSE events (status/delta/result/warning)."""
+
+    async def _stream(self, client, rid, fake_queue, monkeypatch):
+        monkeypatch.setattr("app.services.task_queue.task_queue", fake_queue)
+        return await client.post(f"/api/v1/resources/{rid}/analyze-batch-stream")
+
+    @staticmethod
+    def _events(res):
+        import json
+
+        return [
+            json.loads(line[len("data: "):])
+            for line in res.text.splitlines()
+            if line.startswith("data: ")
+        ]
+
+    async def test_404(self, client):
+        res = await client.post("/api/v1/resources/nope/analyze-batch-stream")
+        assert res.status_code == 404
+
+    async def test_cached_result_replayed(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from app.api.v1.resources import _BATCH_ANALYSIS_SOURCE
+        from app.models.metadata_cache import METADATA_CACHE_GENERATION, MetadataCache
+
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        async with db_session_factory() as s:
+            s.add(MetadataCache(
+                title="fp-cached",
+                source=_BATCH_ANALYSIS_SOURCE,
+                content_type="batch_analysis",
+                metadata_json={"suggestion": {"works": []}, "files": []},
+                generation=METADATA_CACHE_GENERATION,
+            ))
+            await s.commit()
+
+        async def fake_resolve(db, resource):
+            return [{"name": "A.mkv", "size": 100}], "torrent_cache"
+
+        monkeypatch.setattr("app.api.v1.resources._resolve_resource_files", fake_resolve)
+        monkeypatch.setattr(
+            "app.api.v1.resources._batch_analysis_fingerprint",
+            lambda resource, files: "fp-cached",
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/analyze-batch-stream")
+        assert res.status_code == 200
+        assert "text/event-stream" in res.headers["content-type"]
+        events = self._events(res)
+        assert any(e["type"] == "status" for e in events)
+        result_events = [e for e in events if e["type"] == "result"]
+        assert result_events and result_events[-1]["suggestion"]["works"] == []
+
+    async def test_live_stream_running_to_done(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+
+        async def fake_resolve(db, resource):
+            return [{"name": "A.mkv", "size": 100}], "torrent_cache"
+
+        monkeypatch.setattr("app.api.v1.resources._resolve_resource_files", fake_resolve)
+        monkeypatch.setattr(
+            "app.api.v1.resources._batch_analysis_fingerprint",
+            lambda resource, files: "fp-live",
+        )
+        fake = SimpleNamespace(
+            status=AsyncMock(side_effect=[
+                None,
+                {"status": "running", "result": {"message": "开始", "output": "A"}},
+                {"status": "running", "result": {"message": "继续", "output": "AB"}},
+                {"status": "running", "result": {"message": "跳到X", "output": "XY"}},
+                {"status": "done", "result": {
+                    "message": "完成", "output": "XYZ", "suggestion": {"works": ["w"]},
+                }},
+            ]),
+            enqueue=AsyncMock(return_value={"job_id": "j", "status": "queued"}),
+        )
+        res = await self._stream(client, rid, fake, monkeypatch)
+        assert res.status_code == 200
+        events = self._events(res)
+        types = [e["type"] for e in events]
+        assert "status" in types
+        assert "delta" in types
+        result = next(e for e in events if e["type"] == "result")
+        assert result["suggestion"]["works"] == ["w"]
+
+    async def test_live_stream_job_state_lost(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        fake = SimpleNamespace(
+            status=AsyncMock(side_effect=[None, None]),
+            enqueue=AsyncMock(return_value={"job_id": "j", "status": "queued"}),
+        )
+        res = await self._stream(client, rid, fake, monkeypatch)
+        assert res.status_code == 200
+        events = self._events(res)
+        assert events[-1]["type"] == "warning"
+
+    async def test_live_stream_failed(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        fake = SimpleNamespace(
+            status=AsyncMock(side_effect=[
+                {"status": "done", "result": {}},
+                {"status": "failed", "error": "boom"},
+            ]),
+            enqueue=AsyncMock(return_value={"job_id": "j", "status": "queued"}),
+        )
+        res = await self._stream(client, rid, fake, monkeypatch)
+        assert res.status_code == 200
+        events = self._events(res)
+        assert events[-1]["type"] == "warning"
+        assert events[-1]["message"] == "boom"
+
+
+class TestParseCorrectionSeasonSubtitleAndFailures:
+    """PATCH /resources/{id}: explicit season/absolute fields, subtitle-group
+    synchronization, and the failure-tolerant heal/reenqueue paths."""
+
+    async def test_explicit_season_and_absolute_applied(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"season": 3, "absolute_episode": 100},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["season"] == 3
+        assert body["absolute_episode"] == 100
+        assert body["episode_confidence"] == "manual"
+
+    async def test_subtitle_groups_syncs_legacy(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"subtitle_groups": ["组A", "组B"]},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["subtitle_groups"] == ["组A", "组B"]
+        assert body["subtitle_group"] == "组A&组B"
+        async with db_session_factory() as s:
+            from app.models.file_resource import FileResource
+
+            row = await s.get(FileResource, rid)
+            assert row.subtitle_groups_source == "manual"
+
+    async def test_legacy_subtitle_group_syncs_list(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}", json={"subtitle_group": "字幕组"},
+        )
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["subtitle_group"] == "字幕组"
+        assert body["subtitle_groups"] == ["字幕组"]
+        async with db_session_factory() as s:
+            from app.models.file_resource import FileResource
+
+            row = await s.get(FileResource, rid)
+            assert row.subtitle_groups_source == "manual"
+
+    async def test_subtitle_group_disagreement_422(
+        self, client, sample_channel, db_session_factory,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.patch(
+            f"/api/v1/resources/{rid}",
+            json={"subtitle_group": "组A", "subtitle_groups": ["组B"]},
+        )
+        assert res.status_code == 422
+        assert "disagree" in res.json()["error"]["message"]
+
+    async def test_heal_failure_swallowed(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, episode=5,
+            episode_confidence="raw",
+        )
+        monkeypatch.setattr(
+            "app.services.episode_history.heal_sibling_episodes",
+            AsyncMock(side_effect=RuntimeError("heal boom")),
+        )
+        res = await client.patch(f"/api/v1/resources/{rid}", json={"episode": 7})
+        assert res.status_code == 200
+        assert res.json()["data"]["episode"] == 7
+
+    async def test_agent_enqueue_failure_swallowed(
+        self, client, sample_channel, sample_downloader, db_session_factory,
+        monkeypatch,
+    ):
+        from types import SimpleNamespace
+
+        from app.models.agent import Agent
+
+        async with db_session_factory() as s:
+            s.add(Agent(
+                id=_uuid(), name="A", channel_id=sample_channel.id,
+                downloader_id=sample_downloader.id, status="active",
+            ))
+            await s.commit()
+        rid = await _make_resource(
+            db_session_factory, sample_channel.id, episode=5,
+            episode_confidence="raw",
+        )
+        enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
+        monkeypatch.setattr(
+            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+        )
+        res = await client.patch(f"/api/v1/resources/{rid}", json={"episode": 7})
+        assert res.status_code == 200
+        assert res.json()["data"]["episode"] == 7
+
+
+class TestBatchAnalysisCacheHelpers:
+    """Internal cache helpers exercised directly: analysis storage creates then
+    updates, and the torrent re-cache no-ops on a missing resource."""
+
+    async def test_store_batch_analysis_create_then_update(
+        self, client, db_session_factory, monkeypatch,
+    ):
+        from sqlalchemy import select
+
+        from app.api.v1.resources import _store_batch_analysis
+        from app.models.metadata_cache import MetadataCache
+
+        monkeypatch.setattr(
+            "app.api.v1.resources.async_session_factory", db_session_factory,
+        )
+        await _store_batch_analysis("fp-key", {"suggestion": "v1"})
+        await _store_batch_analysis("fp-key", {"suggestion": "v2"})
+        async with db_session_factory() as s:
+            rows = (await s.execute(
+                select(MetadataCache).where(MetadataCache.title == "fp-key")
+            )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].metadata_json == {"suggestion": "v2"}
+
+    async def test_retry_torrent_cache_skips_missing_resource(self, client, db_session):
+        from app.api.v1.resources import _retry_torrent_cache
+
+        await _retry_torrent_cache(db_session, str(uuid.uuid4()))
+
+
+class TestAnalyzeBatchSuggestFailure:
+    """POST /resources/{id}/analyze-batch: an LLM analysis failure degrades to
+    a null suggestion instead of an error response."""
+
+    async def test_suggest_failure_swallowed(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+
+        async def fake_resolve(db, resource):
+            return [{"name": "A.mkv", "size": 100}], "torrent_cache"
+
+        monkeypatch.setattr("app.api.v1.resources._resolve_resource_files", fake_resolve)
+        monkeypatch.setattr(
+            "app.services.batch_content_analysis.suggest_batch_content",
+            AsyncMock(side_effect=RuntimeError("llm boom")),
+        )
+        res = await client.post(f"/api/v1/resources/{rid}/analyze-batch")
+        assert res.status_code == 200
+        body = res.json()["data"]
+        assert body["suggestion"] is None
+        assert body["listing_source"] == "torrent_cache"
