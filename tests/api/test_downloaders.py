@@ -337,3 +337,93 @@ class TestDownloaderTestVolumeCheck:
         data = res.json()["data"]
         assert data["success"] is True
         assert data["volume_check"] is None
+
+
+class TestDownloaderTaskSorting:
+    """GET /downloaders/{id}/tasks ``sort`` param: comma-separated
+    ``key:asc|desc`` entries applied in order; default is incomplete-first,
+    newest-enqueued-first."""
+
+    async def _make_tasks(self, db_session, sample_downloader, sample_channel):
+        import uuid
+        from datetime import UTC, datetime, timedelta
+
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        specs = [
+            # (status, created offset minutes, progress, title)
+            ("completed", 30, 1.0, "B done"),
+            ("downloading", 10, 0.5, "A active"),
+            ("pending", 20, 0.0, "C waiting"),
+            ("cancelled", 40, 0.2, "D cancelled"),
+        ]
+        ids = []
+        for status, mins, prog, title in specs:
+            rid = str(uuid.uuid4())
+            db_session.add(FileResource(
+                id=rid,
+                channel_id=sample_channel.id,
+                guid=str(uuid.uuid4()),
+                title_raw=title,
+                torrent_url=f"magnet:?xt=urn:btih:{rid}",
+            ))
+            task = DownloadTask(
+                id=str(uuid.uuid4()),
+                file_resource_id=rid,
+                downloader_id=sample_downloader.id,
+                download_dir="/downloads/rssripple",
+                status=status,
+                progress=prog,
+                created_at=base + timedelta(minutes=mins),
+            )
+            db_session.add(task)
+            ids.append(task.id)
+        await db_session.commit()
+        return ids
+
+    async def _ids(self, client, downloader_id, sort=None):
+        url = f"/api/v1/downloaders/{downloader_id}/tasks"
+        if sort:
+            url += f"?sort={sort}"
+        res = await client.get(url)
+        assert res.status_code == 200
+        return [t["id"] for t in res.json()["data"]]
+
+    async def test_default_sort_incomplete_first_then_newest(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        ids = await self._make_tasks(db_session, sample_downloader, sample_channel)
+        got = await self._ids(client, sample_downloader.id)
+        # pending(20min) > downloading(10min) within the incomplete group;
+        # cancelled(40min) > completed(30min) within the finished group.
+        assert got == [ids[2], ids[1], ids[3], ids[0]]
+
+    async def test_explicit_created_at_asc(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        ids = await self._make_tasks(db_session, sample_downloader, sample_channel)
+        got = await self._ids(client, sample_downloader.id, "created_at:asc")
+        assert got == [ids[1], ids[2], ids[0], ids[3]]
+
+    async def test_status_desc_finished_first(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        ids = await self._make_tasks(db_session, sample_downloader, sample_channel)
+        got = await self._ids(client, sample_downloader.id, "status:desc,created_at:desc")
+        assert got == [ids[3], ids[0], ids[2], ids[1]]
+
+    async def test_title_sort_uses_resource_join(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        ids = await self._make_tasks(db_session, sample_downloader, sample_channel)
+        got = await self._ids(client, sample_downloader.id, "title:asc")
+        assert got == [ids[1], ids[0], ids[2], ids[3]]
+
+    async def test_unknown_keys_fall_back_to_default(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        ids = await self._make_tasks(db_session, sample_downloader, sample_channel)
+        got = await self._ids(client, sample_downloader.id, "bogus:asc")
+        assert got == [ids[2], ids[1], ids[3], ids[0]]

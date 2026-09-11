@@ -1,0 +1,1 @@
+import{Or as e,Tr as t}from"./client-BsHGRirm.js";import{t as n}from"./channels-GDkTGxrn.js";import{t as r}from"./filterUtils-vV1vHmkR.js";var i=e(t(),1);function a(e){let[t,a]=(0,i.useState)(null);return(0,i.useEffect)(()=>{if(!e){a(null);return}let t=!0;return n.get(e).then(e=>{t&&e.success&&e.data&&a(r(e.data.required_metadata_fields))}),()=>{t=!1}},[e]),t}export{a as t};

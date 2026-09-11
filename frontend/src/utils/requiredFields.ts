@@ -1,3 +1,5 @@
+import type { TFunction } from 'i18next';
+import { formatBytes } from './format';
 import type { FileResource } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,113 @@ export function fieldApplicable(key: string, shape: RowShape): boolean {
   return !shapes || shapes.includes(shape);
 }
 
+/** Tag color per latest download-task status (dispatch outcome). */
+export const DOWNLOAD_STATUS_TAG_COLORS: Record<string, string> = {
+  organized: 'green',
+  completed: 'green',
+  downloading: 'cyan',
+  queued: 'blue',
+  pending: 'blue',
+  paused: 'default',
+  cancelled: 'default',
+  error: 'red',
+};
+
+/** Resolve the display value for one required-field column. Resource-level
+ * keys read straight off FileResource; work-level keys resolve through the
+ * linked series/movie; enum keys localize via filter.enumValue_*. */
+export function requiredFieldValue(
+  r: FileResource,
+  key: string,
+  t: TFunction,
+): string | null {
+  const num = (v: number | null | undefined): string | null =>
+    v != null ? String(v) : null;
+  const str = (v: string | null | undefined): string | null => {
+    const s = (v ?? '').trim();
+    return s.length > 0 ? s : null;
+  };
+  const work = r.series ?? r.movie ?? null;
+  switch (key) {
+    // ── Resource-level fields ──
+    case 'title_cn':
+      return str(r.title_cn);
+    case 'title_en':
+      return str(r.title_en);
+    case 'search_title':
+      return str(r.search_title);
+    case 'episode':
+      return num(r.episode);
+    case 'season':
+      return num(r.season);
+    case 'episode_start':
+      return num(r.episode_start);
+    case 'episode_end':
+      return num(r.episode_end);
+    case 'absolute_episode':
+      return num(r.absolute_episode);
+    case 'is_batch':
+      return r.is_batch ? t('filter.true') : t('filter.false');
+    case 'episode_confidence':
+      return r.episode_confidence
+        ? t(`filter.enumValue_${r.episode_confidence}`, { defaultValue: r.episode_confidence })
+        : null;
+    case 'content_type':
+      // Derived from which work FK the resource carries (mirrors the DSL).
+      if (r.series_id) return t('filter.enumValue_tv', { defaultValue: 'tv' });
+      if (r.movie_id) return t('filter.enumValue_movie', { defaultValue: 'movie' });
+      if (r.audio_work_id) return t('filter.enumValue_audio', { defaultValue: 'audio' });
+      return null;
+    case 'subtitle_group':
+      return str(r.subtitle_group);
+    case 'resolution':
+      return str(r.resolution);
+    case 'source':
+      return str(r.source);
+    case 'video_codec':
+      return str(r.video_codec);
+    case 'audio_codec':
+      return str(r.audio_codec);
+    case 'subtitle_type':
+      return str(r.subtitle_type);
+    case 'subtitle_langs':
+      return r.subtitle_langs && r.subtitle_langs.length > 0
+        ? r.subtitle_langs.join(' · ')
+        : null;
+    case 'container':
+      return str(r.container);
+    case 'file_size':
+      return r.file_size != null ? formatBytes(r.file_size) : null;
+    case 'resource_collection':
+      return str(r.collection_name);
+    // ── Work-level fields (resolve through the linked work) ──
+    default:
+      if (!work) return null;
+      switch (key) {
+        case 'rating':
+          return work.rating != null ? work.rating.toFixed(1) : null;
+        case 'year': {
+          const d = work.start_date || work.release_date;
+          return d ? d.slice(0, 4) : null;
+        }
+        case 'genre':
+          return work.genre && work.genre.length > 0 ? work.genre.join(' · ') : null;
+        case 'is_anime':
+          return work.is_anime == null
+            ? null
+            : work.is_anime
+              ? t('works.anime')
+              : t('works.liveAction');
+        case 'collection': {
+          const c = work.collection;
+          return c ? (c.title_cn || c.title_en || null) : null;
+        }
+        default:
+          return null;
+      }
+  }
+}
+
 // Column display order: work-type grouping first (基础必选 → 合集TV集数范围 →
 // 多作品合集关联), then remaining fields in semantic/catalog order.
 const GROUP_RANK: Record<string, number> = {
@@ -125,12 +234,19 @@ export function orderedRequiredKeys(keys: string[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Per-channel column configuration (persisted in localStorage)
+// Column configuration (persisted in localStorage, keyed per table instance:
+// channel resource tables and the downloader local-task table)
 // ---------------------------------------------------------------------------
 
 /** Every catalog key is a configurable column (作品/操作 are fixed table
  * columns outside this pool). Mirrors app/services/required_fields.py. */
 export const COLUMN_POOL: readonly string[] = CATALOG_ORDER;
+
+/** Downloader local-task table pool: same catalog minus the keys already
+ * carried by the fixed 作品/类型标签 columns (titles, content_type, is_batch). */
+export const TASK_COLUMN_POOL: readonly string[] = CATALOG_ORDER.filter(
+  (k) => !HIDDEN_COLUMN_KEYS.has(k),
+);
 
 export interface ChannelColumnConfig {
   /** Full ordered key list — the display order of all known columns. */
@@ -139,16 +255,23 @@ export interface ChannelColumnConfig {
   hidden: string[];
 }
 
-function columnStorageKey(channelId: string): string {
+export function channelColumnStorageKey(channelId: string): string {
   return `rssripple:channel-columns:${channelId}`;
+}
+
+export function taskColumnStorageKey(downloaderId: string): string {
+  return `rssripple:downloader-task-columns:${downloaderId}`;
 }
 
 /** Default ordering: declared required fields first (work-type applicability
  * ranking), remaining pool keys appended in canonical catalog order. */
-export function defaultColumnOrder(declared: string[]): string[] {
+export function defaultColumnOrder(
+  declared: string[],
+  pool: readonly string[] = COLUMN_POOL,
+): string[] {
   const ranked = orderedRequiredKeys(declared);
   const out = [...ranked];
-  for (const k of COLUMN_POOL) if (!out.includes(k)) out.push(k);
+  for (const k of pool) if (!out.includes(k)) out.push(k);
   return out;
 }
 
@@ -162,16 +285,17 @@ export function defaultColumnOrder(declared: string[]): string[] {
 export function effectiveColumnState(
   cfg: ChannelColumnConfig | null,
   declared: string[],
+  pool: readonly string[] = COLUMN_POOL,
 ): { order: string[]; hidden: Set<string> } {
   if (!cfg) {
     const hidden = new Set(
-      COLUMN_POOL.filter((k) => !(declared.includes(k) && !HIDDEN_COLUMN_KEYS.has(k))),
+      pool.filter((k) => !(declared.includes(k) && !HIDDEN_COLUMN_KEYS.has(k))),
     );
-    return { order: defaultColumnOrder(declared), hidden };
+    return { order: defaultColumnOrder(declared, pool), hidden };
   }
-  const known = new Set(COLUMN_POOL);
+  const known = new Set(pool);
   const order = cfg.order.filter((k) => known.has(k));
-  for (const k of COLUMN_POOL) if (!order.includes(k)) order.push(k);
+  for (const k of pool) if (!order.includes(k)) order.push(k);
   const hidden = new Set(cfg.hidden.filter((k) => known.has(k)));
   return { order, hidden };
 }
@@ -180,15 +304,16 @@ export function effectiveColumnState(
 export function resolveVisibleColumns(
   cfg: ChannelColumnConfig | null,
   declared: string[],
+  pool: readonly string[] = COLUMN_POOL,
 ): string[] {
-  const { order, hidden } = effectiveColumnState(cfg, declared);
+  const { order, hidden } = effectiveColumnState(cfg, declared, pool);
   return order.filter((k) => !hidden.has(k));
 }
 
-/** Load a channel's saved column config; null = never customized. */
-export function loadColumnConfig(channelId: string): ChannelColumnConfig | null {
+/** Load a saved column config by storage key; null = never customized. */
+export function loadColumnConfig(storageKey: string): ChannelColumnConfig | null {
   try {
-    const raw = localStorage.getItem(columnStorageKey(channelId));
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (
@@ -208,15 +333,15 @@ export function loadColumnConfig(channelId: string): ChannelColumnConfig | null 
   return null;
 }
 
-/** Persist (or clear with null) a channel's column config. Failures
- * (private mode etc.) degrade silently to session-only state. */
+/** Persist (or clear with null) a column config under the given storage key.
+ * Failures (private mode etc.) degrade silently to session-only state. */
 export function saveColumnConfig(
-  channelId: string,
+  storageKey: string,
   config: ChannelColumnConfig | null,
 ): void {
   try {
-    if (config) localStorage.setItem(columnStorageKey(channelId), JSON.stringify(config));
-    else localStorage.removeItem(columnStorageKey(channelId));
+    if (config) localStorage.setItem(storageKey, JSON.stringify(config));
+    else localStorage.removeItem(storageKey);
   } catch {
     // ignore
   }

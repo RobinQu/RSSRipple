@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import useUrlTab from '../hooks/useUrlTab';
 import {
@@ -44,16 +43,20 @@ import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import ResourceCorrectionModal from '../components/ResourceCorrectionModal';
 import FilterSummaryModal from '../components/FilterSummaryModal';
 import ColumnSettings from '../components/ColumnSettings';
-import { timeAgo, formatBytes } from '../utils/format';
-import { seasonLabel, seasonWorkInfo } from '../utils/season';
+import {
+  RequiredFieldCell,
+  WorkInfoIcon,
+} from '../components/resourceCells';
+import { timeAgo } from '../utils/format';
+import { seasonLabel } from '../utils/season';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import {
-  fieldApplicable,
+  DOWNLOAD_STATUS_TAG_COLORS,
+  channelColumnStorageKey,
   loadColumnConfig,
   orderedRequiredKeys,
   requiredFieldWidth,
   resolveVisibleColumns,
-  resourceShape,
   saveColumnConfig,
   type ChannelColumnConfig,
 } from '../utils/requiredFields';
@@ -61,7 +64,6 @@ import type {
   ChannelDetail as ChannelDetailData,
   FileResource,
   GroupedResource,
-  ResourceWorkRef,
 } from '../types';
 
 const { Title, Text } = Typography;
@@ -76,126 +78,6 @@ function groupColor(type: GroupedResource['type']) {
   if (type === 'series') return 'blue';
   if (type === 'movie') return 'green';
   return 'default';
-}
-
-/** Tag color per latest download-task status (dispatch outcome). */
-const DOWNLOAD_STATUS_TAG_COLORS: Record<string, string> = {
-  organized: 'green',
-  completed: 'green',
-  downloading: 'cyan',
-  queued: 'blue',
-  pending: 'blue',
-  paused: 'default',
-  cancelled: 'default',
-  error: 'red',
-};
-
-/** Resolve the display value for one required-field column. Resource-level
- * keys read straight off FileResource; work-level keys resolve through the
- * linked series/movie; enum keys localize via filter.enumValue_*. */
-function requiredFieldValue(
-  r: FileResource,
-  key: string,
-  t: TFunction,
-): string | null {
-  const num = (v: number | null | undefined): string | null =>
-    v != null ? String(v) : null;
-  const str = (v: string | null | undefined): string | null => {
-    const s = (v ?? '').trim();
-    return s.length > 0 ? s : null;
-  };
-  const work = r.series ?? r.movie ?? null;
-  switch (key) {
-    // ── Resource-level fields ──
-    case 'title_cn':
-      return str(r.title_cn);
-    case 'title_en':
-      return str(r.title_en);
-    case 'search_title':
-      return str(r.search_title);
-    case 'episode':
-      return num(r.episode);
-    case 'season':
-      return num(r.season);
-    case 'episode_start':
-      return num(r.episode_start);
-    case 'episode_end':
-      return num(r.episode_end);
-    case 'absolute_episode':
-      return num(r.absolute_episode);
-    case 'is_batch':
-      return r.is_batch ? t('filter.true') : t('filter.false');
-    case 'episode_confidence':
-      return r.episode_confidence
-        ? t(`filter.enumValue_${r.episode_confidence}`, { defaultValue: r.episode_confidence })
-        : null;
-    case 'content_type':
-      // Derived from which work FK the resource carries (mirrors the DSL).
-      if (r.series_id) return t('filter.enumValue_tv', { defaultValue: 'tv' });
-      if (r.movie_id) return t('filter.enumValue_movie', { defaultValue: 'movie' });
-      if (r.audio_work_id) return t('filter.enumValue_audio', { defaultValue: 'audio' });
-      return null;
-    case 'subtitle_group':
-      return str(r.subtitle_group);
-    case 'resolution':
-      return str(r.resolution);
-    case 'source':
-      return str(r.source);
-    case 'video_codec':
-      return str(r.video_codec);
-    case 'audio_codec':
-      return str(r.audio_codec);
-    case 'subtitle_type':
-      return str(r.subtitle_type);
-    case 'subtitle_langs':
-      return r.subtitle_langs && r.subtitle_langs.length > 0
-        ? r.subtitle_langs.join(' · ')
-        : null;
-    case 'container':
-      return str(r.container);
-    case 'file_size':
-      return r.file_size != null ? formatBytes(r.file_size) : null;
-    case 'resource_collection':
-      return str(r.collection_name);
-    // ── Work-level fields (resolve through the linked work) ──
-    default:
-      if (!work) return null;
-      switch (key) {
-        case 'rating':
-          return work.rating != null ? work.rating.toFixed(1) : null;
-        case 'year': {
-          const d = work.start_date || work.release_date;
-          return d ? d.slice(0, 4) : null;
-        }
-        case 'genre':
-          return work.genre && work.genre.length > 0 ? work.genre.join(' · ') : null;
-        case 'is_anime':
-          return work.is_anime == null
-            ? null
-            : work.is_anime
-              ? t('works.anime')
-              : t('works.liveAction');
-        case 'collection': {
-          const c = work.collection;
-          return c ? (c.title_cn || c.title_en || null) : null;
-        }
-        default:
-          return null;
-      }
-  }
-}
-
-/** Single required-field column cell: type-irrelevant fields render blank
- * (e.g. batch ranges on movies), applicable-but-missing values render — so
- * unparsed fields stay visible without misleading dashes elsewhere. */
-function RequiredFieldCell({ r, fieldKey }: { r: FileResource; fieldKey: string }) {
-  const { t } = useTranslation();
-  if (!fieldApplicable(fieldKey, resourceShape(r))) return null;
-  const v = requiredFieldValue(r, fieldKey, t);
-  if (v == null) {
-    return <span style={{ color: 'var(--rr-text-muted)' }}>—</span>;
-  }
-  return <span>{v}</span>;
 }
 
 function ResourceRowActions({ r }: { r: FileResource }) {
@@ -270,70 +152,6 @@ function ResourceRowActions({ r }: { r: FileResource }) {
         />
       )}
     </>
-  );
-}
-
-function WorkInfoIcon({ work, isSeries }: { work: ResourceWorkRef | null; isSeries: boolean }) {  const { t } = useTranslation();
-  if (!work) return null;
-  const dateStr = isSeries ? work.start_date : work.release_date;
-  const year = dateStr ? dateStr.slice(0, 4) : null;
-  const rows: Array<{ label: string; value: string }> = [];
-  if (year) rows.push({ label: t('works.year'), value: year });
-  if (work.is_anime != null) {
-    rows.push({
-      label: t('works.animeStatus'),
-      value: work.is_anime ? t('works.anime') : t('works.liveAction'),
-    });
-  }
-  if (work.rating != null) rows.push({ label: t('works.colRating'), value: work.rating.toFixed(1) });
-  if (work.genre && work.genre.length > 0) rows.push({ label: t('works.colGenre'), value: work.genre.join(' · ') });
-  if (work.status) rows.push({ label: t('works.colStatus'), value: work.status });
-  if (isSeries && (work.season_number != null || work.number_of_episodes != null)) {
-    rows.push({
-      label: t('series.seasonsEpisodes'),
-      // Per-season works: a series work IS one season.
-      value: seasonWorkInfo(t, work.season_number ?? null, work.number_of_episodes ?? null) || '—',
-    });
-  }
-  if (rows.length === 0 && !work.description) return null;
-  return (
-    <Tooltip
-      title={
-        <div style={{ maxWidth: 320 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6, color: '#fff', wordBreak: 'break-word' }}>
-            {work.title_cn || work.title_en || work.original_title || work.id}
-          </div>
-          {rows.map((row) => (
-            <div key={row.label} style={{ display: 'flex', gap: 8, fontSize: 12, lineHeight: '18px' }}>
-              <span style={{ color: '#b0b0ba', flexShrink: 0 }}>{row.label}</span>
-              <span style={{ color: '#fff', wordBreak: 'break-word' }}>{row.value}</span>
-            </div>
-          ))}
-          {work.description && (
-            <div
-              style={{
-                marginTop: 6,
-                fontSize: 12,
-                color: '#c8c8d0',
-                wordBreak: 'break-word',
-                maxHeight: 80,
-                overflow: 'hidden',
-              }}
-            >
-              {work.description}
-            </div>
-          )}
-        </div>
-      }
-      placement="topLeft"
-    >
-      <span
-        onClick={(e) => e.stopPropagation()}
-        style={{ display: 'inline-flex', alignItems: 'center' }}
-      >
-        <Info size={12} style={{ color: 'var(--rr-text-muted)', flexShrink: 0, cursor: 'help' }} />
-      </span>
-    </Tooltip>
   );
 }
 
@@ -595,7 +413,7 @@ export default function ChannelDetail() {
     [channel?.required_metadata_fields],
   );
   useEffect(() => {
-    setColumnCfg(id ? loadColumnConfig(id) : null);
+    setColumnCfg(id ? loadColumnConfig(channelColumnStorageKey(id)) : null);
   }, [id]);
   const requiredColumns = useMemo(
     () => resolveVisibleColumns(columnCfg, declaredRequired),
@@ -604,7 +422,7 @@ export default function ChannelDetail() {
   const handleColumnsChange = useCallback(
     (next: ChannelColumnConfig | null) => {
       setColumnCfg(next);
-      if (id) saveColumnConfig(id, next);
+      if (id) saveColumnConfig(channelColumnStorageKey(id), next);
     },
     [id],
   );

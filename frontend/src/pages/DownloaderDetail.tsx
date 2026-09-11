@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
@@ -10,6 +10,7 @@ import {
   Space,
   Table,
   Tabs,
+  Tag,
   Progress,
   Spin,
   App,
@@ -30,13 +31,61 @@ import {
   Loader,
 } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
-import type { DownloaderInstance, DownloadTask, TorrentInfo } from '../types';
+import type { DownloaderInstance, DownloadTask, FileResource, TorrentInfo } from '../types';
 import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import StatusBadge from '../components/StatusBadge';
 import EllipsisText from '../components/EllipsisText';
-import TaskStatusIcon from '../components/TaskStatusIcon';
+import ColumnSettings from '../components/ColumnSettings';
+import SortSettings, { type SortEntry, type SortField } from '../components/SortSettings';
+import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
+import {
+  RequiredFieldCell,
+  WorkInfoIcon,
+  WorkTypeTags,
+} from '../components/resourceCells';
+import { posterUrl, useDefaultPoster } from '../utils/poster';
+import { seasonLabel } from '../utils/season';
+import {
+  DOWNLOAD_STATUS_TAG_COLORS,
+  TASK_COLUMN_POOL,
+  loadColumnConfig,
+  requiredFieldWidth,
+  resolveVisibleColumns,
+  saveColumnConfig,
+  taskColumnStorageKey,
+  type ChannelColumnConfig,
+} from '../utils/requiredFields';
+
+import {
+  loadSortEntries,
+  saveSortEntries,
+  serializeSortEntries,
+  taskSortStorageKey,
+} from '../utils/sortSettings';
 
 const { Title, Text } = Typography;
+
+// Local-task table: default-visible metadata columns (the must-show fields —
+// work title (with type/batch tags folded into its second line), status and
+// progress — are fixed columns outside the configurable pool).
+const DEFAULT_TASK_COLUMNS: string[] = [
+  'year',
+  'season',
+  'episode',
+  'episode_start',
+  'episode_end',
+  'resolution',
+  'subtitle_group',
+  'file_size',
+];
+
+// Sortable task fields; the default puts unfinished tasks first, then the
+// most recently enqueued.
+const TASK_SORTABLE_KEYS = ['status', 'created_at', 'progress', 'title'] as const;
+const DEFAULT_TASK_SORTS: SortEntry[] = [
+  { key: 'status', dir: 'asc' },
+  { key: 'created_at', dir: 'desc' },
+];
 
 // Transmission status → icon-only mapping; the text label moves to a tooltip
 // so the column can shrink to icon width (same pattern as the agent task list).
@@ -74,6 +123,46 @@ export default function DownloaderDetail() {
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [taskPage, setTaskPage] = useState(1);
   const [taskTotal, setTaskTotal] = useState(0);
+  // Task-table column configuration (metadata pool only — work title,
+  // type/tags, status and progress are fixed must-show columns), persisted
+  // per downloader in localStorage.
+  const [columnCfg, setColumnCfg] = useState<ChannelColumnConfig | null>(null);
+  const [sorts, setSorts] = useState<SortEntry[]>(DEFAULT_TASK_SORTS);
+  const [selectedResource, setSelectedResource] = useState<FileResource | null>(null);
+
+  useEffect(() => {
+    setColumnCfg(id ? loadColumnConfig(taskColumnStorageKey(id)) : null);
+    setSorts((id && loadSortEntries(taskSortStorageKey(id))) || DEFAULT_TASK_SORTS);
+  }, [id]);
+  const visibleMetaColumns = useMemo(
+    () => resolveVisibleColumns(columnCfg, DEFAULT_TASK_COLUMNS, TASK_COLUMN_POOL),
+    [columnCfg],
+  );
+  const handleColumnsChange = useCallback(
+    (next: ChannelColumnConfig | null) => {
+      setColumnCfg(next);
+      if (id) saveColumnConfig(taskColumnStorageKey(id), next);
+    },
+    [id],
+  );
+  const handleSortsChange = useCallback(
+    (next: SortEntry[] | null) => {
+      setSorts(next ?? DEFAULT_TASK_SORTS);
+      setTaskPage(1);
+      if (id) saveSortEntries(taskSortStorageKey(id), next);
+    },
+    [id],
+  );
+  const sortFields: SortField[] = useMemo(
+    () =>
+      TASK_SORTABLE_KEYS.map((key) => ({
+        key,
+        label: t(`downloaders.sortField_${key}`),
+        ascLabel: t(`downloaders.sortDir_${key}_asc`),
+        descLabel: t(`downloaders.sortDir_${key}_desc`),
+      })),
+    [t],
+  );
 
   const fetchDl = useCallback(async () => {
     if (!id) return;
@@ -97,13 +186,13 @@ export default function DownloaderDetail() {
 
   const fetchTasks = useCallback(async () => {
     if (!id) return;
-    const res = await downloadersApi.listTasks(id, taskPage, 20);
+    const res = await downloadersApi.listTasks(id, taskPage, 20, serializeSortEntries(sorts));
     if (res.success) {
       setTasks(res.data);
       if (res.meta) setTaskTotal(res.meta.total);
     }
     setLoadingTasks(false);
-  }, [id, taskPage]);
+  }, [id, taskPage, sorts]);
 
   useEffect(() => {
     fetchDl();
@@ -228,26 +317,102 @@ export default function DownloaderDetail() {
 
   const taskColumns: TableColumnsType<DownloadTask> = [
     {
-      title: t('common.title'),
-      key: 'title',
-      // Flexes to take the remaining width (same as the torrent name column).
-      render: (_, r) => (
-        <EllipsisText text={r.file_resource?.title_raw || r.file_resource_id.slice(0, 8)} />
-      ),
+      title: t('channels.work'),
+      key: 'work',
+      width: 260,
+      fixed: 'left',
+      render: (_, task) => {
+        const fr = task.file_resource;
+        const work = fr?.series ?? fr?.movie ?? null;
+        const workUrl = fr?.series_id
+          ? `/series/${fr.series_id}`
+          : fr?.movie_id
+            ? `/movies/${fr.movie_id}`
+            : null;
+        const base =
+          (work && (work.original_title || work.title_cn || work.title_en)) ||
+          fr?.title_cn ||
+          fr?.search_title ||
+          fr?.title_raw ||
+          task.file_resource_id.slice(0, 8);
+        // Per-season works: the base title equals the collection name — the
+        // season label is what makes the linked work identifiable.
+        const s = fr?.series_id && work ? seasonLabel(t, work.season_number ?? null) : '';
+        const workTitle = s ? `${base} · ${s}` : base;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <img
+              src={posterUrl(work?.poster_url)}
+              alt=""
+              style={{
+                width: 28,
+                height: 40,
+                objectFit: 'cover',
+                borderRadius: 4,
+                flexShrink: 0,
+                background: 'var(--rr-border-soft)',
+              }}
+              onError={useDefaultPoster}
+            />
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {workUrl ? (
+                    <Link to={workUrl} onClick={(e) => e.stopPropagation()}>
+                      <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                        {workTitle}
+                      </Text>
+                    </Link>
+                  ) : (
+                    <Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
+                      {workTitle}
+                    </Text>
+                  )}
+                </div>
+                <WorkInfoIcon work={work} isSeries={!!fr?.series_id} />
+              </div>
+              {/* Type/batch tags fold into the work column's second line (same
+                  layout as the channel resource list) to keep the fixed
+                  columns compact. */}
+              {fr && (
+                <div style={{ marginTop: 2 }}>
+                  <WorkTypeTags r={fr} />
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      },
     },
+    // Configurable metadata columns — same catalog/cells as the channel
+    // resource table.
+    ...visibleMetaColumns.map(
+      (k): TableColumnsType<DownloadTask>[number] => ({
+        title: t(`channels.requiredField_${k}`, { defaultValue: k }),
+        key: `meta_${k}`,
+        width: requiredFieldWidth(k),
+        render: (_, task) =>
+          task.file_resource ? <RequiredFieldCell r={task.file_resource} fieldKey={k} /> : null,
+      }),
+    ),
     {
       title: t('common.status'),
       dataIndex: 'status',
       key: 'status',
-      width: 56,
-      align: 'center',
-      render: (s: string) => <TaskStatusIcon status={s} />,
+      width: 96,
+      fixed: 'right',
+      render: (s: string) => (
+        <Tag color={DOWNLOAD_STATUS_TAG_COLORS[s] ?? 'default'} style={{ marginRight: 0 }}>
+          {t(`status.${s}`, { defaultValue: s })}
+        </Tag>
+      ),
     },
     {
       title: t('common.progress'),
       dataIndex: 'progress',
       key: 'progress',
       width: 200,
+      fixed: 'right',
       // Progress bar on top, live speed + ETA stacked below while running —
       // the separate speed column is folded into this one.
       render: (p: number, record) => (
@@ -315,7 +480,53 @@ export default function DownloaderDetail() {
 
       <Card>
         <Tabs
+          defaultActiveKey="tasks"
           items={[
+            {
+              key: 'tasks',
+              label: `${t('downloaders.localTasks')} (${taskTotal})`,
+              children: (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <SortSettings
+                      fields={sortFields}
+                      value={sorts}
+                      onChange={handleSortsChange}
+                    />
+                    <ColumnSettings
+                      config={columnCfg}
+                      declared={DEFAULT_TASK_COLUMNS}
+                      pool={TASK_COLUMN_POOL}
+                      hint={t('downloaders.columnSettingsHint')}
+                      onChange={handleColumnsChange}
+                    />
+                  </div>
+                  <Table
+                    className="stack-table"
+                    columns={withMobileLabels(taskColumns)}
+                    dataSource={tasks}
+                    rowKey="id"
+                    loading={loadingTasks}
+                    size="small"
+                    scroll={{ x: 'max-content' }}
+                    onRow={(record) => ({
+                      onClick: () => {
+                        if (record.file_resource) setSelectedResource(record.file_resource);
+                      },
+                      style: { cursor: record.file_resource ? 'pointer' : 'default' },
+                    })}
+                    pagination={{
+                      current: taskPage,
+                      pageSize: 20,
+                      total: taskTotal,
+                      onChange: setTaskPage,
+                      showSizeChanger: false,
+                    }}
+                    locale={{ emptyText: t('common.noData') }}
+                  />
+                </>
+              ),
+            },
             {
               key: 'transmission',
               label: `${t('downloaders.transmissionTorrents')} (${torrents.length})`,
@@ -339,31 +550,17 @@ export default function DownloaderDetail() {
                 />
               ),
             },
-            {
-              key: 'tasks',
-              label: `${t('downloaders.localTasks')} (${taskTotal})`,
-              children: (
-                <Table
-                  className="stack-table"
-                  columns={withMobileLabels(taskColumns)}
-                  dataSource={tasks}
-                  rowKey="id"
-                  loading={loadingTasks}
-                  size="small"
-                  pagination={{
-                    current: taskPage,
-                    pageSize: 20,
-                    total: taskTotal,
-                    onChange: setTaskPage,
-                    showSizeChanger: false,
-                  }}
-                  locale={{ emptyText: t('common.noData') }}
-                />
-              ),
-            },
           ]}
         />
       </Card>
+
+      {/* Read-only resource view: tasks open the shared resource drawer with
+          all write actions disabled. */}
+      <ResourceDetailDrawer
+        resource={selectedResource}
+        readOnly
+        onClose={() => setSelectedResource(null)}
+      />
     </div>
   );
 }

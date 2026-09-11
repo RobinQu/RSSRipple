@@ -73,6 +73,9 @@ interface ResourceDetailDrawerProps {
   resource: FileResource | null;
   onClose: () => void;
   onCorrected?: () => void;
+  /** View-only mode (e.g. opened from the downloader task list): hides the
+   * edit / create-task footer actions and never mounts the write modals. */
+  readOnly?: boolean;
 }
 
 function PosterBlock({ url }: { url: string | null | undefined }) {
@@ -107,6 +110,7 @@ export default function ResourceDetailDrawer({
   resource,
   onClose,
   onCorrected,
+  readOnly = false,
 }: ResourceDetailDrawerProps) {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -473,14 +477,16 @@ export default function ResourceDetailDrawer({
         destroyOnHidden
         styles={{ body: { padding: 20 } }}
         footer={
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button icon={<Pencil size={14} />} onClick={() => setParseEditOpen(true)}>
-              {t('resource.editFooter')}
-            </Button>
-            <Button icon={<Download size={14} />} onClick={() => setCreateTaskOpen(true)}>
-              {t('tasks.createTask')}
-            </Button>
-          </Space>
+          readOnly ? null : (
+            <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button icon={<Pencil size={14} />} onClick={() => setParseEditOpen(true)}>
+                {t('resource.editFooter')}
+              </Button>
+              <Button icon={<Download size={14} />} onClick={() => setCreateTaskOpen(true)}>
+                {t('tasks.createTask')}
+              </Button>
+            </Space>
+          )
         }
       >
         {r && (
@@ -673,7 +679,7 @@ export default function ResourceDetailDrawer({
         )}
       </Drawer>
 
-      {r && (
+      {r && !readOnly && (
         <ResourceCorrectionModal
           resourceId={r.id}
           open={parseEditOpen}
@@ -687,7 +693,7 @@ export default function ResourceDetailDrawer({
         />
       )}
 
-      {r && (
+      {r && !readOnly && (
         <CreateTaskModal
           resourceId={r.id}
           open={createTaskOpen}

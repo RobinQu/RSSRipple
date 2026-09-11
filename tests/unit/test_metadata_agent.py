@@ -3146,6 +3146,11 @@ async def test_process_title_only_empty_title(monkeypatch):
     from app.services import runtime_config as _rc
 
     monkeypatch.setitem(_rc._overrides, "llm_api_key", None)
+    # The agent constructor still builds a ChatOpenAI client; without any key
+    # in the environment (CI) the SDK raises at construction. A dummy
+    # OPENAI_API_KEY satisfies the SDK while the None override keeps the
+    # code path under test ("no key configured").
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
     agent = UnifiedMetadataAgent()
     meta = await agent.process_title_only("   ")
     assert meta.found is False
@@ -3156,6 +3161,7 @@ async def test_process_title_only_without_llm_key(monkeypatch):
     from app.services import runtime_config as _rc
 
     monkeypatch.setitem(_rc._overrides, "llm_api_key", None)
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
     agent = UnifiedMetadataAgent()
     meta = await agent.process_title_only("Some Show - 01")
     assert meta.found is False

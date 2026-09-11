@@ -42,8 +42,8 @@ export const downloadersApi = {
     }>(`/downloaders/${id}/test`, overrides),
   listTorrents: (id: string) =>
     api.get<TorrentInfo[]>(`/downloaders/${id}/torrents`),
-  listTasks: (id: string, page = 1, pageSize = 20) =>
+  listTasks: (id: string, page = 1, pageSize = 20, sort?: string) =>
     api.get<DownloadTask[]>(
-      `/downloaders/${id}/tasks?page=${page}&page_size=${pageSize}`,
+      `/downloaders/${id}/tasks?page=${page}&page_size=${pageSize}${sort ? `&sort=${encodeURIComponent(sort)}` : ''}`,
     ),
 };

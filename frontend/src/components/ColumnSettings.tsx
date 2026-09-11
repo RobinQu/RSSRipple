@@ -7,21 +7,26 @@ import { effectiveColumnState, type ChannelColumnConfig } from '../utils/require
 const { Text } = Typography;
 
 interface Props {
-  /** Saved config for this channel (null = defaults). */
+  /** Saved config for this table (null = defaults). */
   config: ChannelColumnConfig | null;
-  /** Channel-declared required field keys — drives default state. */
+  /** Default-visible keys (channel-declared required fields, or the task
+   * table's built-in defaults) — drives default state. */
   declared: string[];
+  /** Configurable column keys; fixed columns live outside this pool. */
+  pool?: readonly string[];
+  /** Hint line above the list (e.g. which scope the config is saved for). */
+  hint?: string;
   onChange: (next: ChannelColumnConfig | null) => void;
 }
 
-/** Column settings popover for the channel resource tables: every catalog
- * field can be shown/hidden and reordered (作品/操作 are fixed columns
- * outside this list). The config is persisted per channel by the parent. */
-export default function ColumnSettings({ config, declared, onChange }: Props) {
+/** Column settings popover: every pooled field can be shown/hidden and
+ * reordered (fixed columns live outside this list). The config is persisted
+ * by the parent (per channel / per downloader). */
+export default function ColumnSettings({ config, declared, pool, hint, onChange }: Props) {
   const { t } = useTranslation();
   const { order, hidden } = useMemo(
-    () => effectiveColumnState(config, declared),
-    [config, declared],
+    () => effectiveColumnState(config, declared, pool),
+    [config, declared, pool],
   );
   const label = (key: string) =>
     t(`channels.requiredField_${key}`, { defaultValue: key });
@@ -58,7 +63,7 @@ export default function ColumnSettings({ config, declared, onChange }: Props) {
             }}
           >
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('channels.columnSettingsHint')}
+              {hint ?? t('channels.columnSettingsHint')}
             </Text>
             <Tooltip title={t('channels.columnSettingsReset')}>
               <Button

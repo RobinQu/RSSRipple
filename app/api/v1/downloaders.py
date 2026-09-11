@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -218,6 +218,14 @@ async def list_downloader_tasks(
     downloader_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    sort: str | None = Query(
+        None,
+        description=(
+            "Comma-separated sort spec `key:asc|desc` applied in order. Keys: "
+            "status (asc = incomplete first), created_at, progress, title. "
+            "Default: status:asc,created_at:desc (incomplete, newest first)."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     dl = await db.get(DownloaderInstance, downloader_id)
@@ -230,17 +238,63 @@ async def list_downloader_tasks(
                 "error": {"code": "NOT_FOUND", "message": "Downloader not found"},
             },
         )
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.series import TVSeries
+
     offset = (page - 1) * page_size
     base_q = select(DownloadTask).where(DownloadTask.downloader_id == downloader_id)
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = total_q.scalar_one()
+
+    # Sortable keys → order-by expression. ``status`` ranks by completion so
+    # asc puts unfinished tasks first; ``title`` needs the resource join.
+    incomplete_rank = case(
+        (DownloadTask.status.in_(["completed", "cancelled"]), 1),
+        else_=0,
+    )
+    sort_columns = {
+        "status": incomplete_rank,
+        "created_at": DownloadTask.created_at,
+        "progress": DownloadTask.progress,
+        "title": FileResource.title_raw,
+    }
+    entries: list[tuple[str, bool]] = []  # (key, ascending)
+    for part in (sort or "").split(","):
+        key, _, direction = part.strip().partition(":")
+        if key in sort_columns:
+            entries.append((key, direction.lower() != "desc"))
+    if not entries:
+        entries = [("status", True), ("created_at", False)]
+
+    query = base_q
+    if any(key == "title" for key, _ in entries):
+        query = query.outerjoin(
+            FileResource, DownloadTask.file_resource_id == FileResource.id
+        )
+    order_clauses = [
+        sort_columns[key].asc() if ascending else sort_columns[key].desc()
+        for key, ascending in entries
+    ]
+    # Stable tiebreaker so paginating a sorted list never reshuffles rows.
+    order_clauses.append(DownloadTask.id.asc())
+
+    # Eager-load the resource's linked works (and their collections) so the
+    # task table can render poster/work metadata like the channel list does.
     result = await db.execute(
-        base_q
+        query
         .options(
-            selectinload(DownloadTask.file_resource),
+            selectinload(DownloadTask.file_resource).selectinload(
+                FileResource.series
+            ).selectinload(TVSeries.collection),
+            selectinload(DownloadTask.file_resource).selectinload(
+                FileResource.movie
+            ).selectinload(Movie.collection),
+            selectinload(DownloadTask.file_resource).selectinload(FileResource.audio_work),
+            selectinload(DownloadTask.file_resource).selectinload(FileResource.collection),
             selectinload(DownloadTask.agent),
         )
-        .order_by(DownloadTask.created_at.desc())
+        .order_by(*order_clauses)
         .offset(offset).limit(page_size)
     )
     tasks = result.scalars().all()

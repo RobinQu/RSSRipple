@@ -246,7 +246,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | PUT | `/downloaders/{id}` | 更新下载器 |
 | DELETE | `/downloaders/{id}` | 删除下载器；若仍有关联 Agent 返回 `409 CONFLICT` 并在 `error.details.agents` 中带出 `[{id, name}]` 列表，UI 可据此指引用户先解绑/删除这些 Agent |
 | POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录；**同时校验卷绑定有效性**（存在且可读可写）。请求体可选 `{url, username, password, download_dir, volume_id, volume_subpath}`：用于编辑表单按未保存的表单值探测（缺省字段回退到已存值，空密码 = 沿用已存密码；`volume_id`/`volume_subpath` 缺省沿用已存值、显式 `null` = 解绑即恒等）；带覆盖值的探测不更新 status，仅探测已存配置时才更新 status。响应含 `volume_check`（`{exists, readable, writable}` 或 null），卷绑定无效时 `success=false` 且 message 说明原因 |
-| GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表 |
+| GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表（内联 `file_resource` 及其 series/movie/audio_work/collection 关联，供作品列与 metadata 列渲染）；`sort` 查询参数为逗号分隔的 `key:asc|desc`（key ∈ `status`/`created_at`/`progress`/`title`，status 按完成度分组 asc=未完成优先、title 走资源 join），缺省 `status:asc,created_at:desc`（未完成靠前、组内入队最新靠前），非法 key 忽略、全部非法回退默认，id 升序兜底保证分页稳定 |
 | GET | `/downloaders/{id}/torrents` | Transmission 实时种子列表（直连 RPC 返回） |
 
 `POST /downloaders` 请求体示例：
