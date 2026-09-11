@@ -460,9 +460,11 @@ async def _call_openrouter(messages: list[dict]) -> str:
 async def _call_openai(messages: list[dict]) -> str:
     """Call an OpenAI-compatible API using the OpenAI SDK.
 
-    ``enable_thinking`` is forwarded via ``extra_body`` so providers that
-    support chain-of-thought (e.g. ZhipuAI GLM, DeepSeek-R1) respect it.
-    Providers that don't recognise the field silently ignore it.
+    ``enable_thinking`` is forwarded via ``extra_body`` in both spellings
+    (top-level and ``chat_template_kwargs`` — sglang/vLLM only honor the
+    latter) so providers that support chain-of-thought (e.g. ZhipuAI GLM,
+    DeepSeek-R1) respect it. Providers that don't recognise the fields
+    silently ignore them.
     """
     client = AsyncOpenAI(
         api_key=runtime_config.llm_api_key,
@@ -474,7 +476,7 @@ async def _call_openai(messages: list[dict]) -> str:
         messages=messages,
         temperature=0.1,
         timeout=120,
-        extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
+        extra_body=runtime_config.llm_extra_body(),
     )
     msg = response.choices[0].message
     return _extract_content(msg)
@@ -663,7 +665,7 @@ async def _stream_openai(messages: list[dict]) -> AsyncGenerator[dict, None]:
                 temperature=0.1,
                 stream=True,
                 timeout=120,
-                extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
+                extra_body=runtime_config.llm_extra_body(),
             )
 
             async for chunk in stream:

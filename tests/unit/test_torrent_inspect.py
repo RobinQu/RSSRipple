@@ -141,6 +141,13 @@ def test_parse_no_info_dict_returns_none(tmp_path):
     ("Hyouka. TV (2012) 22; BD_1080P.mkv", (None, 22)),
     # Batch range in the directory must NOT be read as episode 12.
     ("Show S01 01-12/Show S01E07.mkv", (1, 7)),
+    # English-ordinal "Stage" season markers (Initial D naming).
+    ("Initial D Second Stage/Initial D Second Stage - 01.mkv", (2, 1)),
+    ("Initial D First Stage/Initial D First Stage - 03.mkv", (1, 3)),
+    ("Initial D/Initial D Fourth Stage/Initial D Fourth Stage - 02.mkv", (4, 2)),
+    ("Show/Show 2nd Stage/Show 2nd Stage - 05.mkv", (2, 5)),
+    # "Final Stage" is deliberately not mapped to a season number.
+    ("Initial D Final Stage/Initial D Final Stage - 01.mkv", (None, 1)),
 ])
 def test_extract_season_episode_from_path(path, expected):
     assert extract_season_episode_from_path(path) == expected
@@ -176,6 +183,43 @@ def test_analyze_multi_season_dirs():
     assert report.scope == "multi_season"
     assert report.is_batch is True
     assert report.episode_start is None and report.episode_end is None
+    assert report.seasons == [1, 2]
+
+
+def test_analyze_multi_season_stage_dirs_single_root():
+    # Single root directory with Stage-named season subdirectories: the
+    # top-level cluster is one work, seasons come from the Stage markers.
+    files = [
+        _f(f"Initial D/Initial D First Stage/Initial D First Stage - {ep:02d}.mkv")
+        for ep in range(1, 27)
+    ]
+    files += [
+        _f(f"Initial D/Initial D Second Stage/Initial D Second Stage - {ep:02d}.mkv")
+        for ep in range(1, 14)
+    ]
+    report = analyze_torrent_files(files)
+    assert report.scope == "multi_season"
+    assert report.is_batch is True
+    assert report.seasons == [1, 2]
+    assert report.episode_start is None and report.episode_end is None
+
+
+def test_analyze_stage_top_level_dirs_go_franchise():
+    # Two distinct top-level Stage directories form two credible clusters,
+    # so the franchise branch wins before the multi-season check — existing
+    # behavior, unchanged by Stage-ordinal season recognition.
+    files = [
+        _f(f"Initial D First Stage/Initial D First Stage - {ep:02d}.mkv")
+        for ep in range(1, 13)
+    ]
+    files += [
+        _f(f"Initial D Second Stage/Initial D Second Stage - {ep:02d}.mkv")
+        for ep in range(1, 13)
+    ]
+    report = analyze_torrent_files(files)
+    assert report.scope == "franchise"
+    assert report.is_batch is True
+    assert report.work_titles == ["Initial D First Stage", "Initial D Second Stage"]
     assert report.seasons == [1, 2]
 
 
@@ -1113,3 +1157,65 @@ def test_llm_candidate_key_is_server_validated():
         "files": [{"path": "01.mkv", "season": 1, "episode": 1}],
     }]}, {"01.mkv"}, candidates)
     assert invented == []
+
+
+# =============================================================================
+# C2 — mixed franchise packs still build their collection after LLM movie binding
+# =============================================================================
+
+
+async def test_inspect_mixed_pack_still_links_franchise_after_llm_movies(monkeypatch):
+    """C2: LLM refinement binding movies must NOT skip link_franchise_pack
+    for a MIXED pack (TV clusters remain)."""
+    import app.services.batch_content_analysis as bca
+    import app.services.franchise_service as fs_mod
+
+    linked = []
+
+    async def _fake_link(db, resource, report, channel):
+        linked.append(resource)
+
+    async def _fake_refine(db, resource, report, channel):
+        return True  # LLM bound movie rows
+
+    monkeypatch.setattr(fs_mod, "link_franchise_pack", _fake_link)
+    monkeypatch.setattr(bca, "llm_refinement_needed", lambda *a, **k: True)
+    monkeypatch.setattr(bca, "refine_batch_content", _fake_refine)
+    _stub_pipeline(monkeypatch, [
+        _f("作品X TV/作品X S01E01.mkv"),
+        _f("作品X TV/作品X S01E02.mkv"),
+        _f("作品X 剧场版/作品X Movie.mkv"),
+    ])
+    r = _resource(file_assignments=[])
+    channel = SimpleNamespace(id="ch-1", metadata_source="wikipedia")
+    assert await maybe_inspect_torrent(None, r, channel) is True
+    assert r.batch_scope == "franchise"
+    assert linked == [r]
+
+
+async def test_inspect_pure_movie_pack_still_skips_franchise_link(monkeypatch):
+    """C2: a pure-movie pack (scope upgraded to "movies" by refinement)
+    keeps the no-collection behavior."""
+    import app.services.batch_content_analysis as bca
+    import app.services.franchise_service as fs_mod
+
+    linked = []
+
+    async def _fake_link(db, resource, report, channel):
+        linked.append(resource)
+
+    async def _fake_refine(db, resource, report, channel):
+        resource.batch_scope = "movies"  # refine's own pure-movie upgrade
+        return True
+
+    monkeypatch.setattr(fs_mod, "link_franchise_pack", _fake_link)
+    monkeypatch.setattr(bca, "llm_refinement_needed", lambda *a, **k: True)
+    monkeypatch.setattr(bca, "refine_batch_content", _fake_refine)
+    _stub_pipeline(monkeypatch, [
+        _f("作品X Movie A/作品X Movie A.mkv"),
+        _f("作品X Movie B/作品X Movie B.mkv"),
+    ])
+    r = _resource(file_assignments=[])
+    assert await maybe_inspect_torrent(None, r, SimpleNamespace(id="ch-1")) is True
+    assert r.batch_scope == "movies"
+    assert linked == []

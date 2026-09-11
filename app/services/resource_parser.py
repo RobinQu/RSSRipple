@@ -26,6 +26,8 @@ _SEASON_SUFFIX_RE = re.compile(
     r"|\d{1,2}\s*[季期]"                             # bare N季/N期 (e.g. 3期, 2季)
     r"|Season\s*\d+"                                    # Season 4
     r"|\d+(?:st|nd|rd|th)\s+Season"                     # 4th Season
+    r"|(?:First|Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth|Final)\s+Stage"
+    r"|\d{1,2}(?:st|nd|rd|th)\s+Stage"                  # 2nd Stage
     r"|S\d{1,2}"                                        # S04
     r")\s*$",
     flags=re.IGNORECASE,
@@ -320,6 +322,41 @@ _BATCH_KEYWORD_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Whole-run season markers: "全六季" / "全12季" (all N seasons -> 1..N) and
+# explicit season ranges "1-6季" / "2~4季". The 季 suffix is mandatory so
+# episode-count phrasing ("全12话") never matches; the 1-2 digit caps plus
+# the sanity span below keep year pairs ("[2020-2024]") out. These are
+# multi-season semantics — deliberately NOT part of the single-season
+# markers used by ``_is_season_marked_disc_pack``.
+_ALL_SEASONS_RE = re.compile(r"全([一二三四五六七八九十\d]{1,2})季")
+_SEASON_SPAN_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[-~–～〜]\s*(\d{1,2})\s*季")
+# Sanity cap on an N-M季 span; wider spans are almost always something else.
+_SEASON_SPAN_MAX = 30
+
+
+def detect_season_span(title: str | None) -> list[int] | None:
+    """Seasons covered by a whole-run / season-range title marker.
+
+    ``"全六季"`` -> ``[1, 2, 3, 4, 5, 6]``; ``"1-6季"`` -> ``[1..6]``.
+    Returns None when the title carries no such marker. ``"全12话"`` (episode
+    count, not seasons) and year pairs (``"[2020-2024]"``) never match.
+    """
+    if not title:
+        return None
+    m = _ALL_SEASONS_RE.search(title)
+    if m:
+        n = _kanji_to_int(m.group(1))
+        if n is not None and 1 <= n <= 99:
+            return list(range(1, n + 1))
+    m = _SEASON_SPAN_RE.search(title)
+    if m:
+        start, end = int(m.group(1)), int(m.group(2))
+        if end < start:
+            start, end = end, start
+        if start >= 1 and end - start <= _SEASON_SPAN_MAX:
+            return list(range(start, end + 1))
+    return None
+
 # --- Season-marked whole-disc (BD) season packs -----------------------------
 # Titles like "[LinRip] Show Season 2 [BDRip 1080p ...]" carry an explicit
 # season marker, no episode number at all, and a whole-disc release token —
@@ -433,6 +470,12 @@ def detect_batch(title: str | None) -> tuple[bool, int | None, int | None]:
         if end - start > 200 or start < 0 or end > 999:
             continue
         return True, start, end
+
+    # Whole-run season markers ("全六季" / "1-6季"): multi-season batch with
+    # known coverage. The covered-season list itself is exposed separately
+    # via ``detect_season_span`` for callers that persist ``batch_seasons``.
+    if detect_season_span(title) is not None:
+        return True, None, None
 
     if _BATCH_KEYWORD_RE.search(title):
         return True, None, None
@@ -617,6 +660,22 @@ _FB_SEASON_S_RE = re.compile(r"\bS(\d{1,2})\b(?!E)", re.IGNORECASE)
 _FB_SEASON_KANJI_RE = re.compile(r"第([一二三四五六七八九十\d]{1,3})季")
 _KANJI_DIGITS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
 
+# English-ordinal "Stage" season markers (頭文字D "Initial D Second Stage").
+# Word ordinals map through the table; numeric ordinals ("2nd Stage") parse
+# directly. "Final Stage" is deliberately NOT mapped — the word carries no
+# season number and a wrong guess is worse than none. Both forms require the
+# ``Stage`` suffix with word boundaries so a stray "stage" inside other text
+# never matches.
+_STAGE_ORDINAL_WORDS = {
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+}
+_STAGE_WORD_RE = re.compile(
+    r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+Stage\b",
+    re.IGNORECASE,
+)
+_STAGE_NUM_ORDINAL_RE = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+Stage\b", re.IGNORECASE)
+
 # Release-year detection. Bracketed ``[2026]`` is preferred; otherwise a
 # standalone 4-digit token. The lookarounds reject resolution (``1920x1080``)
 # and codec-adjacent (``x264``… ok, but ``2026x`` / ``x2026``) contexts.
@@ -707,6 +766,10 @@ def _season_marker(text: str) -> int | None:
     if m:
         return int(m.group(1))
     if (m := _FB_SEASON_ORDINAL_RE.search(text)):
+        return int(m.group(1))
+    if (m := _STAGE_WORD_RE.search(text)):
+        return _STAGE_ORDINAL_WORDS[m.group(1).lower()]
+    if (m := _STAGE_NUM_ORDINAL_RE.search(text)):
         return int(m.group(1))
     if (m := _FB_SEASON_KANJI_RE.search(text)):
         return _kanji_to_int(m.group(1))

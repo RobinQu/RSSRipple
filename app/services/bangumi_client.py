@@ -86,6 +86,22 @@ async def get_subject(
     return resp.json() or {}
 
 
+async def get_subject_relations(
+    client: httpx.AsyncClient, subject_id: int | str
+) -> list[dict[str, Any]]:
+    """Related subjects (GET /v0/subjects/{id}/subjects).
+
+    Each item carries the localized ``relation`` label (续集/前传/番外篇/
+    剧场版/不同演绎/…) plus a subject summary (id/type/name/name_cn/images).
+    Raises on HTTP errors — callers treat any failure as "no expansion".
+    """
+    resp = await client.get(
+        f"{_base_url()}/subjects/{subject_id}/subjects", headers=_headers()
+    )
+    resp.raise_for_status()
+    return resp.json() or []
+
+
 async def get_subject_episodes(
     client: httpx.AsyncClient, subject_id: int | str
 ) -> list[dict[str, Any]]:

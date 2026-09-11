@@ -177,17 +177,21 @@ def _episode_list_from(episodes: list[dict], season: int) -> list[dict]:
 
 
 async def _build_matched_entity(
-    client: httpx.AsyncClient, subject: dict, *, season: int
+    client: httpx.AsyncClient, subject: dict, *, season: int,
+    detail: dict | None = None,
 ) -> dict:
     """Expand a search-hit subject into a matched_entity (details + full
     episode list). Best-effort: detail/episode failures degrade to the
-    search hit's own fields."""
+    search hit's own fields. ``detail`` is a prefetched full subject payload
+    (the series-graph pass already fetched it for classification) — passed
+    to skip a redundant ``get_subject`` round-trip."""
     sid = subject.get("id")
-    detail: dict = {}
-    try:
-        detail = await get_subject(client, sid)
-    except Exception as e:
-        logger.warning("[metadata_bangumi] subject %s details failed: %s", sid, e)
+    if detail is None:
+        detail = {}
+        try:
+            detail = await get_subject(client, sid)
+        except Exception as e:
+            logger.warning("[metadata_bangumi] subject %s details failed: %s", sid, e)
     subj = {**subject, **{k: v for k, v in detail.items() if v is not None}}
 
     episodes: list[dict] = []
@@ -215,6 +219,10 @@ async def _build_matched_entity(
         "is_anime": True,  # the search is restricted to the anime category
         "episode_list": ep_list or None,
         "_content_type": content_type,
+        # Carried for shape classification (番外/OVA → season-0 specials) by
+        # franchise member resolution and the series-graph pass; consumers
+        # pop it before the entity reaches the upsert.
+        "_platform": platform,
     }
     if content_type == "tv":
         entity["single_season_entry"] = True
@@ -272,6 +280,72 @@ async def _judge(
     if isinstance(content, list):
         content = "".join(getattr(c, "text", str(c)) for c in content)
     return _parse_finalize_json(content)
+
+
+async def list_bangumi_subjects(
+    raw_title: str, resource: Any | None = None, *, limit: int = 20
+) -> list[dict]:
+    """Listing-mode search: every search hit, merged across candidate queries.
+
+    Used by the manual-search list mode (POST /metadata/search with
+    source=bangumi): unlike ``run_bangumi_search_then_judge`` nothing here
+    converges to a single pick — the UI shows the full subject list and the
+    user selects. Query cleaning reuses the judge path's builder; per-source
+    failures degrade silently (the remaining queries still produce hits).
+    """
+    if not bangumi_configured():
+        return []
+    queries = _bangumi_queries(raw_title, resource)
+    if not queries:
+        return []
+    async with httpx.AsyncClient(timeout=15) as client:
+        raw_results = await asyncio.gather(
+            *(search_subjects(client, q, limit=limit, anime_only=True) for q in queries),
+            return_exceptions=True,
+        )
+    seen_ids: set = set()
+    subjects: list[dict] = []
+    for res in raw_results:
+        if isinstance(res, Exception):
+            logger.warning(
+                "[metadata_bangumi] listing search failed for %r: %s",
+                raw_title[:80], res,
+            )
+            continue
+        for subj in res:
+            sid = subj.get("id")
+            if sid is None or sid in seen_ids:
+                continue
+            seen_ids.add(sid)
+            subjects.append(subj)
+            if len(subjects) >= limit:
+                return subjects
+    return subjects
+
+
+async def build_entity_for_subject(
+    subject_id: int | str, *, season: int = 1
+) -> dict | None:
+    """Full matched entity for a KNOWN Bangumi subject id (details + episodes).
+
+    On-demand expansion for thin listing-mode candidates: preview/apply call
+    this when the user selected a search hit whose candidate metadata only
+    carries the search-response fields. Returns None when the source is not
+    configured or the details fetch fails (callers keep the thin candidate).
+    """
+    if not bangumi_configured():
+        return None
+    async with httpx.AsyncClient(timeout=15) as client:
+        try:
+            detail = await get_subject(client, subject_id)
+        except Exception as e:
+            logger.warning(
+                "[metadata_bangumi] subject %s expansion failed: %s", subject_id, e
+            )
+            return None
+        if not detail:
+            return None
+        return await _build_matched_entity(client, detail, season=season)
 
 
 async def run_bangumi_search_then_judge(

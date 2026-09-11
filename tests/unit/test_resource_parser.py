@@ -301,6 +301,19 @@ from app.services.resource_parser import detect_batch
             "[Shiniori-Raws] 葬送的芙莉莲/Sousou no Frieren (BD 1920x1080 x265 10bit FLAC)",
             (False, None, None),
         ),
+        # --- whole-run season markers: 全N季 / N-M季 ---
+        # Real-world title: "全+kanji number+季" is a multi-season batch.
+        (
+            "头文字D.全六季.日语.英文字幕.Initial D [BD] [1080p] [AV1]",
+            (True, None, None),
+        ),
+        ("某动画 全12季 [BDRip 1080p]", (True, None, None)),
+        # Explicit season range with the mandatory 季 suffix.
+        ("某动画 1-6季 [BDRip 1080p]", (True, None, None)),
+        ("某作品 2～4季 1080p", (True, None, None)),
+        # Negatives: episode counts ("全12话") and year pairs stay untouched.
+        ("某动画.全12话", (False, None, None)),
+        ("[Group] Show [2020-2024] [1080p]", (False, None, None)),
     ],
 )
 def test_detect_batch(title, expected):
@@ -352,6 +365,68 @@ def test_detect_batch_ignores_resolution_pairs():
     """1920x1080 must not be mistaken for a batch range."""
     result = detect_batch("[Group] Show - 05 (1920x1080 HEVC AAC)")
     assert result == (False, None, None)
+
+
+# =============================================================================
+# detect_season_span — 全N季 / N-M季 covered-season extraction
+# =============================================================================
+
+
+from app.services.resource_parser import detect_season_span  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("头文字D.全六季.日语.英文字幕.Initial D [BD] [1080p] [AV1]", [1, 2, 3, 4, 5, 6]),
+        ("某动画 1-6季 [BDRip 1080p]", [1, 2, 3, 4, 5, 6]),
+        ("某作品 2-4季", [2, 3, 4]),
+        ("某作品 2～4季", [2, 3, 4]),
+        ("全十二季 合集", list(range(1, 13))),
+        ("某动画 全1季", [1]),
+        # Reversed range normalizes.
+        ("某作品 4-2季", [2, 3, 4]),
+        # Negatives: episode counts, year pairs, no marker.
+        ("某动画.全12话", None),
+        ("[Group] Show [2020-2024] [1080p]", None),
+        ("Show S01E01-12 1080p", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_detect_season_span(title, expected):
+    assert detect_season_span(title) == expected
+
+
+# =============================================================================
+# season_from_title — English-ordinal "Stage" season markers
+# =============================================================================
+
+
+from app.services.resource_parser import season_from_title  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("Initial D First Stage", 1),
+        ("Initial D Second Stage", 2),
+        ("头文字D Fourth Stage", 4),
+        ("Initial D Fifth Stage", 5),
+        # Numeric ordinal form.
+        ("Initial D 2nd Stage", 2),
+        ("Show 10th Stage", 10),
+        # "Final Stage" carries no season number — deliberately unmapped.
+        ("Initial D Final Stage", None),
+        # A lone "Stage" is not a season marker.
+        ("Show Stage 1080p", None),
+        ("Staged 2024", None),
+        ("Spy x Family", None),
+        (None, None),
+    ],
+)
+def test_season_from_title_stage_ordinals(title, expected):
+    assert season_from_title(title) == expected
 
 
 # =============================================================================
@@ -442,9 +517,16 @@ from app.services.resource_parser import strip_season_from_title  # noqa: E402
         ("Wistoria: Wand and Sword Season 2", "Wistoria: Wand and Sword"),
         ("Skeleton Knight in Another World S2", "Skeleton Knight in Another World"),
         ("Some Show 4th Season", "Some Show"),
+        # English-ordinal "Stage" markers (Initial D style naming)
+        ("Initial D First Stage", "Initial D"),
+        ("头文字D Second Stage", "头文字D"),
+        ("Initial D 2nd Stage", "Initial D"),
+        ("Initial D Final Stage", "Initial D"),
         # Non-season titles are untouched
         ("名侦探柯南", "名侦探柯南"),
         ("Spy x Family", "Spy x Family"),
+        # A lone "Stage" token is not a season suffix
+        ("Show Stage 1080p", "Show Stage 1080p"),
         # Ambiguous bare trailing digits are NOT stripped (too risky)
         ("异世界悠闲农家2", "异世界悠闲农家2"),
         # None / empty pass through

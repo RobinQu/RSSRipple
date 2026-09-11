@@ -4,9 +4,19 @@
 
 ## 已有覆盖与边界
 
-v1 收录 1,372 条真实资源的脱敏快照，846 条具有 torrent 证据（843 个去重文件），冻结清单共 8,895 个文件。所有 torrent 都有清单解析回归；这仅验证文件名/大小提取，不代表每个文件的作品与季集语义已核验。
+当前语料为 **v2**（`tests/fixtures/metadata_corpus_v2`，2026-09-09 导出；v1 目录保留为只读存档，`tests/metadata_corpus/dataset.py` 的 `ROOT` 已指向 v2）。v2 收录 1,512 条真实资源的脱敏快照，1,487 个去重 torrent 证据（19 条缺 torrent），冻结清单共 16,134 个文件；图快照含 167 部剧集、470 部电影、265 个合集、2,629 行 Episode。v1 唯一已确认 review（猫与龙 `f79ef2eb…`）及其 bangumi_single 场景 cassette 已迁入 v2。所有 torrent 都有清单解析回归；这仅验证文件名/大小提取，不代表每个文件的作品与季集语义已核验。
 
-当前完整语义场景为 Bangumi 单集：冷库重建、同标题再次入库、Episode 清单、单季合集归属、文件指派、Channel 必填门禁、mock 下载派发与重复派发抑制。只有 1 个独立核验的资源，其他 1,371 条仍为 pending，526 条缺 torrent。**CI 通过不等于全库作品/合集解析通过**。跨季、电影包、混合包、人工修订回流与批量 backfill 尚须补充独立答案和录制场景。
+当前完整语义场景两个：Bangumi 单集（冷库重建、同标题再次入库、Episode 清单、单季合集归属、文件指派、Channel 必填门禁、mock 下载派发与重复派发抑制）与头文字D 跨季 franchise 包（见下）。只有 2 个独立核验的资源，其他 1,510 条仍为 pending，19 条缺 torrent。**CI 通过不等于全库作品/合集解析通过**。电影包、单季合集缺集、人工修订回流与批量 backfill 尚须补充独立答案和录制场景。2026-09-11 因 F6（LLM 请求新增 `chat_template_kwargs`，指纹变化）对 bangumi_single 场景执行 record-llm 重录：源证据 seed 不变、expected 不变，新完整回放为 `http/bangumi_complete_f6.json.gz`（场景 `llm_base_url` 记录为录制期代理地址 `http://127.0.0.1:18000/v1`；重录后 runner actual 与已确认 expected 零差异）。
+
+### initial_d_franchise 场景（第二个语义金标）
+
+真实资源 `头文字D.全六季.日语.英文字幕.Initial D [BD] [1080p] [AV1]`（case `995c8c1d-…`，93 个媒体文件：5 部 TV 季 + Third Stage 剧场版 + Legend 三部曲 + 若干部 OVA/总集篇）。冻结证据覆盖 bangumi 搜索/详情/剧集/关系端点、wigolo 网络回退与 LLM judge。expected 依据冻结 Bangumi 条目与 torrent 清单独立认定：First/Second/Fourth/Fifth/Final Stage 五个季作品（bangumi 8290/9568/3816/46312/104569，季号 1/2/4/5/6——包内目录 S01–S05 为顺序编号，Third Stage 是剧场版不占 TV 季，Fourth 起按 Stage 序数 remap）、Extra Stage 占 season 0、Third Stage + Legend 三部曲电影、Battle Stage/Extra Stage 2/Battle Stage 2 各落壳合集（mal 身份）、franchise scope、confirmation 空、不派发。
+
+该场景经四轮"录制→暴露缺陷→修复→重录"收敛（2026-09-09 至 09-11）：R1 暴露图谱跨 IP 污染（MF Ghost）、air-date 阈值污染、合集标题未清洗、包内季号冲突；R2 暴露图谱 upsert 顺序缺陷（Fifth Stage 被陈旧槽位 park）、LLM 精判跳过 franchise 链接致资源合集 NULL、OVA form guard 误伤；R3 暴露 OVA 抢占主合集季槽位 + season-marker-tier 跨标题误绑（First Stage 26 文件错挂 Battle Stage）；R4（Fix D）全部收敛。
+
+已知残留（expected 如实断言或豁免并在此注明）：Battle Stage 3 未绑定（冻结 wigolo 证据只有无关 wikipedia 命中，found=False 是对证据的正确裁决）；Movie Battle Digest 绑到 wikipedia 的 Legend 三部曲汇总条目（冻结证据中只有该身份可用）；104569/44758 的 `episode_seasons` 未断言——自愈季号纠正（s1→s6 / s1→s0）遗留旧季标记的 Episode 行，不作为金标祝福；`batch_seasons=[1..5]` 为 torrent 目录序派生缓存（franchise scope 不从作品身份重推导）；Fourth Stage Battle Digest 单文件按冻结 LLM judge 裁决绑 3816:s4。
+
+备选第三场景 `[整理搬运] 头文字D…`（case `20010314-…`，156 文件：95 视频 + 59 zip/文本非视频，含漫画/CD/字幕/字体）已有 torrent 证据、review pending；非视频文件不进入 assignments 的处理与 156 文件的独立审核成本较高，留待后续轮次立项。
 
 ## 日常离线验证
 
@@ -44,7 +54,7 @@ HTTP 在 httpx 同步/异步传输层回放，未录制请求、录制次数变�
 
 `tests/integration/metadata_corpus/test_deepsearch_corpus.py` 新增 51 项默认离线用例：完整性/真实资源 UUID 关联、48 次真实回答的字段/引用契约，以及实际 AniList 命中与越界候选的生产 fallback 边界。6 个已知引文契约失败保留为**负向回归**，不是把错误回答标成语义金标。测试封锁外连；不调用真实 LLM，不将旧模型回答当作新 prompt 的质量验证。`deepsearch-audit.json` 随原有报告上传，仅报告库存和已知失败数，执行成败看 JUnit。
 
-当前整个 corpus 子目录为 **939 项**（原 871 项＋17 项通用 DeepSearch 护栏＋51 项冻结数据回归）。完整作品/集合语义金标仍只有原来的 1 个独立资源；新增测试没有改变 1,371 条 pending 的审核状态。
+当前整个 corpus 子目录为 **1,584 项**（v2：1,488 项 torrent 清单回归＋51 项冻结 DeepSearch 数据回归＋17 项通用 DeepSearch 护栏＋15 项回放机制＋10 项数据集完整性＋3 项场景门禁）。完整作品/集合语义金标为 2 个独立资源（猫与龙单集、头文字D 跨季 franchise 包）；其余 1,510 条 pending 的审核状态不变。
 
 ## 扩充与审核
 

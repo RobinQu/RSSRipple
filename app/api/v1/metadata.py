@@ -31,7 +31,10 @@ async def list_metadata_sources():
 
 @router.post("/metadata/search")
 async def search_metadata(body: MetadataSearchRequest, db: AsyncSession = Depends(get_db)):
-    candidates = await search_metadata_candidates(db, body)
+    # The manual-search UI gets bangumi's LIST mode (one candidate per subject,
+    # no pick-one convergence); the refresh pipeline calls the service with the
+    # default listing=False and keeps the deterministic judge path.
+    candidates = await search_metadata_candidates(db, body, listing=True)
     return success_response({
         "query": body.query,
         "mode": body.mode,

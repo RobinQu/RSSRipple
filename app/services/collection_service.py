@@ -188,6 +188,132 @@ async def try_absorb_shell_collection(
     return True
 
 
+# Auto-created collection sources: identity-free groupings built by the
+# per-season upsert (``series_group``) and the franchise-pack linker
+# (``franchise_pack``). Only these are eligible for same-name absorption.
+_AUTO_COLLECTION_SOURCES = frozenset({"series_group", "franchise_pack"})
+
+
+def _collection_base_names(collection: WorkCollection) -> set[str]:
+    """Season-stripped normalized base names of a collection's titles/aliases."""
+    from app.services.resource_parser import strip_season_from_title
+    from app.services.text_normalizer import normalize_title
+
+    out: set[str] = set()
+    for title in (collection.title_cn, collection.title_en, *(collection.aliases or [])):
+        if not title:
+            continue
+        for cand in {title, strip_season_from_title(title)}:
+            norm = normalize_title(cand)
+            if norm:
+                out.add(norm)
+    return out
+
+
+def same_collection_family(a: WorkCollection, b: WorkCollection) -> bool:
+    """Whether two collections are name-wise the same IP family.
+
+    Normalized base names must be equal or contain one another (a cleaned
+    pack title like "头文字D Initial D" and the series group "头文字D"). A
+    two-character floor keeps single-letter names from containing everything.
+    """
+    for base_a in _collection_base_names(a):
+        for base_b in _collection_base_names(b):
+            if base_a == base_b:
+                return True
+            if min(len(base_a), len(base_b)) >= 2 and (
+                base_a in base_b or base_b in base_a
+            ):
+                return True
+    return False
+
+
+async def try_absorb_same_name_collection(
+    db: AsyncSession, collection: WorkCollection, work: TVSeries | Movie
+) -> bool:
+    """Absorb a same-base-name auto collection into ``collection`` (F3b).
+
+    The franchise-pack linker and the per-season upsert can each build their
+    own collection for the SAME IP ("头文字D" series_group from title
+    fallback vs the pack's cleaned franchise_pack title) — duplicates of one
+    IP. When ``work`` sits in such an auto collection (``series_group`` /
+    ``franchise_pack``) whose base name matches ``collection``'s, the whole
+    duplicate is folded in instead of refusing the attach:
+
+    - every member work is re-pointed to ``collection`` EXCEPT season works
+      whose ``(collection, season)`` slot is already occupied (the pair is
+      application-level unique — colliding members stay behind and the
+      source row is kept for them);
+    - the identity bag and aliases merge into ``collection`` (deduped, the
+      target's existing values win) and the emptied source row is deleted.
+
+    A source carrying ANY ``manually_edited_fields`` is never absorbed
+    (warning logged) — user-curated groupings always win. Returns True when
+    ``work`` itself landed in ``collection``.
+    """
+    if not work.collection_id or work.collection_id == collection.id:
+        return False
+    source = await db.get(WorkCollection, work.collection_id)
+    if source is None or source.external_source not in _AUTO_COLLECTION_SOURCES:
+        return False
+    if source.manually_edited_fields:
+        logger.warning(
+            "[collection] NOT absorbing %r into %r: source has manual edits",
+            source.title_cn, collection.title_cn,
+        )
+        return False
+    if not same_collection_family(collection, source):
+        return False
+
+    occupied_seasons = set(
+        (await db.execute(
+            select(TVSeries.season_number).where(
+                TVSeries.collection_id == collection.id
+            )
+        )).scalars().all()
+    )
+    moved = False
+    kept = False
+    for member in (await db.execute(
+        select(TVSeries).where(TVSeries.collection_id == source.id)
+    )).scalars().all():
+        if member.season_number in occupied_seasons:
+            logger.warning(
+                "[collection] member %s (season %s) stays in %r: slot occupied "
+                "in %r",
+                member.id, member.season_number, source.title_cn, collection.title_cn,
+            )
+            kept = True
+            continue
+        member.collection_id = collection.id
+        if member.season_number is not None:
+            occupied_seasons.add(member.season_number)
+        moved = moved or member.id == work.id
+    for member in (await db.execute(
+        select(Movie).where(Movie.collection_id == source.id)
+    )).scalars().all():
+        member.collection_id = collection.id
+        moved = moved or member.id == work.id
+    await db.flush()
+    if not kept:
+        await merge_external_id_bags(db, collection, [source])
+        aliases = list(collection.aliases or [])
+        for alias in source.aliases or []:
+            if alias not in aliases:
+                aliases.append(alias)
+        if aliases:
+            collection.aliases = aliases
+        # Delete the emptied source BEFORE re-pointing stragglers: the ORM
+        # nullifies a deleted collection's member FKs at flush.
+        await db.delete(source)
+        await db.flush()
+        logger.info(
+            "[collection] absorbed same-name auto collection %r into %r",
+            source.title_cn, collection.title_cn,
+        )
+    return moved
+
+
 async def collection_work_summaries(
     db: AsyncSession, collection_id: str, exclude: tuple[str, str] | None = None
 ) -> list[dict]:

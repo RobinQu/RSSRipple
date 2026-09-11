@@ -374,6 +374,11 @@ class UnifiedMetadataAgent:
             # _classify_failure, so this only tightens the in-process budget.
             timeout=60,
             max_retries=3,
+            # F6: forward the thinking switch in both spellings — sglang/vLLM
+            # only honor ``chat_template_kwargs.enable_thinking``; without it
+            # the judge/ReAct calls pay full chain-of-thought latency (a
+            # 216s judge blew the 60s call budget via retries).
+            extra_body=runtime_config.llm_extra_body(),
         )
         self._agents: dict[str, Any] = {}
         # Work-level short-circuit index (S1) - encapsulated in WorkTitleIndex.

@@ -697,7 +697,9 @@ async def maybe_inspect_torrent(
             bca.apply_auto_assignments(resource, report)
             resource.season_ranges = bca.compute_season_ranges(resource)
 
-            if resource.is_batch and bca.llm_refinement_needed(report, resource.batch_scope):
+            if resource.is_batch and bca.llm_refinement_needed(
+                report, resource.batch_scope, resource.is_batch
+            ):
                 try:
                     llm_bound_movies = await bca.refine_batch_content(
                         db, resource, report, channel
@@ -709,11 +711,16 @@ async def maybe_inspect_torrent(
                 if llm_bound_movies:
                     resource.season_ranges = bca.compute_season_ranges(resource)
 
-            # Member-work linking + collection attach — only for packs that
-            # are NOT a pure-movie bundle (movie packs link per-file movie
-            # rows instead of a collection). Isolated from the verdict above:
-            # a linking failure must not lose the batch classification.
-        if resource.is_batch and resource.batch_scope == "franchise" and not llm_bound_movies:
+            # Member-work linking + collection attach — skipped only for
+            # PURE-movie packs: the LLM refinement upgrades those to
+            # batch_scope="movies" itself (all resolved works are movies), so
+            # a still-"franchise" scope after refinement means MIXED content
+            # (movies bound, TV clusters hint-only) — those still get their
+            # franchise collection so every associated work, bound movies
+            # included, lands in it and resource.collection_id settles.
+            # Isolated from the verdict above: a linking failure must not
+            # lose the batch classification.
+        if resource.is_batch and resource.batch_scope == "franchise":
             try:
                 from app.services.franchise_service import link_franchise_pack
 
@@ -721,6 +728,19 @@ async def maybe_inspect_torrent(
             except Exception as e:
                 logger.warning(
                     "[torrent] franchise linking failed for %s: %s", resource.id, e
+                )
+        # Cluster-level work binding (C1): resolve each work_title_hint
+        # cluster to one work and bind the cluster's unbound auto rows.
+        # Runs after franchise/collection linking so same-collection members
+        # resolve first; every failure degrades to the hint-only state.
+        if resource.is_batch and hasattr(resource, "file_assignments"):
+            try:
+                from app.services.cluster_work_binding import bind_hint_clusters
+
+                await bind_hint_clusters(db, resource, channel)
+            except Exception as e:  # noqa: BLE001 — enrichment must not lose the verdict
+                logger.warning(
+                    "[torrent] cluster binding failed for %s: %s", resource.id, e
                 )
         # "single" / "unknown": keep the verdict, only the torrent_file cache.
         return report.is_batch

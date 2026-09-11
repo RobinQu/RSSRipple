@@ -33,6 +33,7 @@ from app.models.episode import Episode
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
+from app.models.work_external_id import WorkExternalId
 from app.services import fts as fts_service
 from app.services.anime_signals import apply_is_anime
 from app.services.external_ids import add_external_id, find_work_by_external_id
@@ -471,6 +472,166 @@ async def match_movie_by_title(db: AsyncSession, title: str) -> tuple[Movie | No
     return None, 0
 
 
+async def find_local_work_for_entity(
+    db: AsyncSession, data: dict, content_type: str | None
+) -> TVSeries | Movie | None:
+    """Local-first reuse for member-resolution upserts (F5).
+
+    Before a franchise member / cluster title resolution upserts its matched
+    entity, the local library gets the first claim: identity-bag reverse
+    lookup, then normalized exact/fuzzy title match at the shared auto-link
+    threshold. Two refusal guards keep same-IP siblings distinct:
+
+    - same-source conflict: the candidate already carries a DIFFERENT id of
+      the entity's registry source (First Stage vs Final Stage are both just
+      "头文字D" once the Stage suffix is stripped — provably different
+      Bangumi subjects, never one work);
+    - number-token agreement: the scoring title pair must carry the same
+      standalone numbers ("Extra Stage 2" vs "Extra Stage" differ).
+
+    On a hit the entity's identity is ONLY bagged onto the existing row
+    (creator-wins — the primary id is never grabbed) and no new row is
+    created; the caller skips the full upsert. Returns None when nothing
+    local qualifies.
+    """
+    raw_external_id = data.get("external_id")
+    raw_source = data.get("external_source")
+    work: TVSeries | Movie | None = None
+    work_type = "movie" if content_type == "movie" else "series"
+    if raw_external_id:
+        work = await find_work_by_external_id(db, work_type, raw_source, raw_external_id)
+    if work is None:
+        titles = [
+            t for t in (
+                data.get("title_cn"),
+                data.get("title_en"),
+                data.get("original_title"),
+                *(data.get("alt_titles") or []),
+            ) if t
+        ]
+        matcher = match_movie_by_title if content_type == "movie" else match_series_by_title
+        seen: set[str] = set()
+        for title in titles:
+            candidate, score = await matcher(db, title)
+            if (
+                candidate is not None
+                and score >= AUTO_LINK_THRESHOLD
+                and candidate.id not in seen
+            ):
+                seen.add(candidate.id)
+                if await _has_conflicting_identity(
+                    db, work_type, candidate, raw_source, raw_external_id
+                ):
+                    continue
+                if not _titles_number_aligned(titles, candidate):
+                    continue
+                work = candidate
+                break
+    if work is None:
+        return None
+    if raw_external_id:
+        added = await add_external_id(db, work_type, work.id, raw_source, raw_external_id)
+        if added:
+            logger.info(
+                "[metadata] member resolution reused %s %s by local match; "
+                "bagged %s:%s (primary id kept, creator-wins)",
+                work_type, work.id, raw_source, raw_external_id,
+            )
+    else:
+        logger.info(
+            "[metadata] member resolution reused %s %s by local title match",
+            work_type, work.id,
+        )
+    return work
+
+
+def _seasonless_number_tokens(title: str | None) -> set[str]:
+    """Standalone numbers of a title after season-marker stripping.
+
+    "头文字D Extra Stage 2" → {"2"}; "头文字D 第二季" → set() (the season
+    suffix is stripped first). Used to keep numbered siblings (Extra Stage
+    vs Extra Stage 2) from fuzzy-merging.
+    """
+    if not title:
+        return set()
+    base = strip_season_from_title(title) or title
+    return set(re.findall(r"\d+", normalize_title(base)))
+
+
+def _titles_number_aligned(entity_titles: list[str], work: Any) -> bool:
+    """Whether any entity/work title pair matches at the auto-link threshold
+    AND carries identical number tokens."""
+    work_titles = [
+        t for t in (
+            getattr(work, "title_cn", None),
+            getattr(work, "title_en", None),
+            getattr(work, "original_title", None),
+            *(getattr(work, "aliases", None) or []),
+        ) if t
+    ]
+    for entity_title in entity_titles:
+        for work_title in work_titles:
+            if similarity_score(entity_title, work_title) < AUTO_LINK_THRESHOLD:
+                continue
+            if _seasonless_number_tokens(entity_title) == _seasonless_number_tokens(work_title):
+                return True
+    return False
+
+
+async def _has_conflicting_identity(
+    db: AsyncSession,
+    work_type: str,
+    work: Any,
+    source: str | None,
+    external_id: str | None,
+) -> bool:
+    """Whether ``work`` provably is a DIFFERENT entry of ``source`` than the
+    incoming identity (a different subject id of the same registry source in
+    the primary column or the identity bag). Works carrying no id of that
+    source at all never conflict — the incoming id is simply bagged.
+    Wikipedia is exempt: different pageids are the same work's pages in
+    different language editions (langlinks), converging via the collection
+    bag — never proof of a different subject. So are series-level sources
+    (tmdb/imdb on tv): a re-homed or manually corrected series id of a
+    title-equal work still merges (identity is then repaired via the bag).
+    Only entry-level ids (season/movie granularity: bangumi/mal/anilist/
+    douban — one id = one season/entry) prove a different subject."""
+    if not source or not external_id or source not in REGISTRY_SOURCES:
+        return False
+    content_type = "movie" if work_type == "movie" else "tv"
+    if granularity_of(source, content_type) not in ("season", "movie"):
+        return False
+
+    def _base(identity: str | None) -> str | None:
+        if not identity:
+            return None
+        split = split_season_identity(identity)
+        return split[0] if split else identity
+
+    incoming = {
+        _base(external_id),
+        _base(canonicalize_external_id(external_id, source, content_type)),
+    } - {None}
+    existing: set[str] = set()
+    if work.external_source == source and work.external_id:
+        existing.add(_base(work.external_id))
+        existing.add(_base(canonicalize_external_id(work.external_id, source, content_type)))
+    rows = (
+        await db.execute(
+            select(WorkExternalId.external_id).where(
+                WorkExternalId.work_type == work_type,
+                WorkExternalId.work_id == work.id,
+                WorkExternalId.source == source,
+            )
+        )
+    ).scalars().all()
+    # A series-level incoming id and the member's synthetic per-season id
+    # (``{series_id}#s{N}``) are the SAME identity — compare base forms.
+    existing.update(_base(row) for row in rows)
+    existing.discard(None)
+    return bool(existing) and incoming.isdisjoint(existing)
+
+
 async def match_audio_work_by_title(db: AsyncSession, title: str) -> tuple[AudioWork | None, int]:
     """Find best matching AudioWork in local DB. Returns (entity, score 0-100).
 
@@ -869,6 +1030,35 @@ def _identity_granularity(
     return "series", canonical_id, None
 
 
+def _has_unresolved_title_qualifier(data: dict) -> bool:
+    """Whether an entity title carries a qualifier beyond known season
+    markers — "頭文字D Final Stage" ("Final Stage" strips via the suffix
+    table but maps to no number) or a bare trailing sequel number ("Initial
+    D Battle Stage 2") — vs a true base entry ("頭文字D").
+
+    A qualified-but-unmarked subject is ONE season of *some* series, but
+    which season is genuinely unknowable from the title: defaulting it to
+    season 1 would seize the collection's season-1 slot from the real first
+    season (order-dependent). Such entities skip the single-season default
+    and park on the collection for the Bangumi series graph to place
+    deterministically.
+    """
+    from app.services.metadata_episode_reconcile import _trailing_sequel_number
+
+    for t in (
+        data.get("title_cn"),
+        data.get("title_en"),
+        data.get("original_title"),
+    ):
+        if not t:
+            continue
+        if normalize_title(t) != normalize_title(strip_season_from_title(t)):
+            return True
+        if _trailing_sequel_number(t) is not None:
+            return True
+    return False
+
+
 def _title_season_from_entity(data: dict) -> int | None:
     """Season marker from the matched entity's own titles, if any.
 
@@ -1065,12 +1255,24 @@ def _merge_collection_aliases(collection: WorkCollection, data: dict) -> None:
     collection.aliases = new_aliases or None
 
 
-async def _create_series_collection(db: AsyncSession, data: dict) -> WorkCollection:
-    """Create the shell collection for a freshly-matched series-level entity."""
+async def _create_series_collection(
+    db: AsyncSession, data: dict, *, preserve_full_title: bool = False
+) -> WorkCollection:
+    """Create the shell collection for a freshly-matched series-level entity.
+
+    ``preserve_full_title`` keeps the qualified entity title ("頭文字D Final
+    Stage") as the collection name instead of the season-stripped base — a
+    qualified-but-unmarked subject must not squat on the base IP name
+    ("頭文字D"), which the real first season's collection needs for the
+    two-level title fallback.
+    """
     raw_cn = data.get("title_cn")
     raw_en = data.get("title_en") or data.get("original_title")
     base_cn = strip_season_from_title(raw_cn)
     base_en = strip_season_from_title(raw_en)
+    if preserve_full_title:
+        base_cn = raw_cn or base_cn
+        base_en = raw_en or base_en
     aliases: list[str] = []
     for t in (
         raw_cn,
@@ -1254,13 +1456,18 @@ async def _create_season_work(
     canonical_id: str | None,
     granularity: str,
     series_level_id: str | None,
+    preserve_full_title: bool = False,
 ) -> TVSeries:
     """Lazily create the per-season work for one collection member.
 
     Only the season the match asked for is materialized. Titles keep the
     base (season-stripped) convention with the season-qualified variants in
-    ``aliases``; the primary id is the season-granularity canonical id or —
-    for series-level entities — the synthetic ``{series_id}#s{N}`` identity
+    ``aliases``; ``preserve_full_title`` (qualified-but-unmarked subjects
+    like "頭文字D Final Stage") keeps the qualified title so the bare base
+    name stays exclusive to the real first season's work — otherwise the
+    work-title fallback would merge the true base entry into this row. The
+    primary id is the season-granularity canonical id or — for series-level
+    entities — the synthetic ``{series_id}#s{N}`` identity
     (when the id has a registry prefix; unregistry-shaped ids stay as-is).
     """
     remote_poster = data.get("poster_url")
@@ -1269,6 +1476,9 @@ async def _create_season_work(
     raw_en = data.get("title_en") or data.get("original_title")
     title_cn = strip_season_from_title(raw_cn)
     title_en = strip_season_from_title(raw_en)
+    if preserve_full_title:
+        title_cn = raw_cn or title_cn
+        title_en = raw_en or title_en
     aliases: list[str] = []
     # Keep the original (season-suffixed) forms as aliases too, so resources
     # whose title still carries the season can still match via the title index.
@@ -1352,9 +1562,10 @@ async def _resolve_collection_member(
     members = await _collection_members(db, collection.id)
     work: TVSeries | None = None
     if season is None:
-        if len(members) == 1:
+        qualified = _has_unresolved_title_qualifier(data)
+        if len(members) == 1 and not qualified:
             work = members[0]
-        elif len(members) >= 2 or (verified_season_count(data) or 0) > 1:
+        elif len(members) >= 1 or (verified_season_count(data) or 0) > 1:
             await _bag_entity_ids_by_granularity(
                 db, work=None, collection=collection, data=data,
                 series_level_id=series_level_id,
@@ -1364,6 +1575,25 @@ async def _resolve_collection_member(
             season = 1
     if work is None:
         work = next((m for m in members if m.season_number == season), None)
+    if work is not None and await _has_conflicting_identity(
+        db, "series", work, raw_source, data.get("external_id")
+    ):
+        # The season slot's member provably is a DIFFERENT subject of the
+        # same source (e.g. a no-marker "Final Stage" defaulted onto the
+        # season-1 slot that "First Stage" owns) — merging would bag the
+        # incoming identity onto the wrong work. Park the ids on the
+        # collection instead; the Bangumi series graph assigns the correct
+        # season deterministically.
+        logger.warning(
+            "[metadata] collection %s season-%s member %s carries a conflicting "
+            "%s identity; incoming %s parked on the collection, not merged",
+            collection.id, season, work.id, raw_source, data.get("external_id"),
+        )
+        await _bag_entity_ids_by_granularity(
+            db, work=None, collection=collection, data=data,
+            series_level_id=series_level_id,
+        )
+        return None
     if work is None:
         return await _create_season_work(
             db, data, collection, season,
@@ -1425,9 +1655,21 @@ async def create_or_update_series_from_external(
         raw_source, canonical_id
     )
 
-    season = season_hint or synth_season or _title_season_from_entity(data)
+    # None-aware chain: season 0 (specials/OVA works) is a legitimate hint and
+    # must survive — a truthiness chain would silently re-derive it.
+    if season_hint is not None:
+        season = season_hint
+    elif synth_season is not None:
+        season = synth_season
+    else:
+        season = _title_season_from_entity(data)
     if season is None and verified_season_count(data) == 1:
-        season = 1
+        # Single-season-entry evidence proves the subject is ONE season, not
+        # WHICH one: a qualified-but-unmarked title ("頭文字D Final Stage")
+        # must not default onto season 1 and seize the real first season's
+        # slot — it stays unpinned (parked on the collection / fresh shell).
+        if not _has_unresolved_title_qualifier(data):
+            season = 1
 
     # (1) Per-season identity → work identity bag.
     series: TVSeries | None = None
@@ -1520,6 +1762,24 @@ async def create_or_update_series_from_external(
             .order_by(TVSeries.created_at)
         )
         candidates = list(title_result.scalars().all())
+    if candidates and raw_external_id and raw_source:
+        # A title-equal work that provably carries a DIFFERENT subject id of
+        # the same source ("頭文字D Final Stage" vs the "頭文字D" base entry)
+        # is never a merge target — filter it out so the fallback creates a
+        # distinct work instead of bagging the incoming id onto it.
+        kept: list[TVSeries] = []
+        for candidate in candidates:
+            if await _has_conflicting_identity(
+                db, "series", candidate, raw_source, raw_external_id
+            ):
+                logger.warning(
+                    "[metadata] title-fallback candidate %s carries a conflicting "
+                    "%s identity; not merging incoming %s into it",
+                    candidate.id, raw_source, raw_external_id,
+                )
+                continue
+            kept.append(candidate)
+        candidates = kept
     if candidates:
         if season is not None:
             exact = [c for c in candidates if (c.season_number or 1) == season]
@@ -1590,8 +1850,13 @@ async def create_or_update_series_from_external(
 
     # (5) Fresh match: create the shell collection + the season work. A
     # multi-season entity whose season cannot be determined is parked on the
-    # new collection (ids bagged) without materializing a guessed season.
-    collection = await _create_series_collection(db, data)
+    # new collection (ids bagged) without materializing a guessed season. A
+    # qualified-but-unmarked subject gets a shell named by its FULL title so
+    # the base IP name stays available for the real first season.
+    qualified = season is None and _has_unresolved_title_qualifier(data)
+    collection = await _create_series_collection(
+        db, data, preserve_full_title=qualified
+    )
     if season is None:
         if (verified_season_count(data) or 0) > 1:
             await _bag_entity_ids_by_granularity(
@@ -1605,6 +1870,7 @@ async def create_or_update_series_from_external(
         raw_source=raw_source, raw_external_id=raw_external_id,
         canonical_id=canonical_id, granularity=granularity,
         series_level_id=series_level_id,
+        preserve_full_title=qualified,
     )
 
 

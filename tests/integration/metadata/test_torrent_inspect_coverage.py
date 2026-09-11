@@ -682,7 +682,7 @@ async def _make_resource(db_session, **over):
 
 
 async def test_enrichment_writes_auto_assignments_and_ranges(monkeypatch, db_session):
-    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope: False)
+    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope, resource_is_batch=False: False)
     _stub_pipeline(monkeypatch, [
         _f("Show.S01E01.1080p.mkv"),
         _f("Show.S01E02.1080p.mkv"),
@@ -697,7 +697,7 @@ async def test_enrichment_writes_auto_assignments_and_ranges(monkeypatch, db_ses
 
 
 async def test_enrichment_tolerates_assignment_refresh_failure(monkeypatch, db_session):
-    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope: False)
+    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope, resource_is_batch=False: False)
     _stub_pipeline(monkeypatch, [
         _f("Show.S01E01.1080p.mkv"),
         _f("Show.S01E02.1080p.mkv"),
@@ -720,7 +720,7 @@ async def test_enrichment_tolerates_assignment_refresh_failure(monkeypatch, db_s
 async def test_llm_refinement_success_recomputes_season_ranges(monkeypatch, db_session):
     calls = []
 
-    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope: True)
+    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope, resource_is_batch=False: True)
 
     async def _fake_refine(db, resource, report, channel):
         calls.append((resource.id, sorted(report.work_titles), channel))
@@ -740,7 +740,7 @@ async def test_llm_refinement_success_recomputes_season_ranges(monkeypatch, db_s
 
 
 async def test_llm_refinement_failure_degrades_silently(monkeypatch, db_session):
-    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope: True)
+    monkeypatch.setattr(bca, "llm_refinement_needed", lambda report, scope, resource_is_batch=False: True)
 
     async def _boom(db, resource, report, channel):
         raise RuntimeError("llm timeout")

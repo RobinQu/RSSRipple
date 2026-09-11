@@ -112,8 +112,41 @@ def _candidate_from_result(
     )
 
 
+def _bangumi_listing_result(subject: dict[str, Any]) -> dict[str, Any]:
+    """Map one Bangumi search-hit subject to a manual-search result dict.
+
+    Thin by design (search-response fields only) — preview/apply expand the
+    subject's details + episode list on demand once the user picks it.
+    ``subject_season`` carries the entry's own title season marker so the UI
+    can annotate the list against the requested ``season_hint``.
+    """
+    from app.services.metadata_bangumi import _subject_season
+
+    sid = subject.get("id")
+    platform = str(subject.get("platform") or "")
+    date = str(subject.get("date") or "")
+    images = subject.get("images") or {}
+    return {
+        "content_type": "movie" if platform in {"剧场版", "电影"} else "tv",
+        "title_cn": subject.get("name_cn") or subject.get("name"),
+        "original_title": subject.get("name"),
+        "external_source": "bangumi",
+        "external_id": f"bangumi:{sid}",
+        "year": int(date[:4]) if date[:4].isdigit() else None,
+        "poster_url": images.get("large") or images.get("common"),
+        "description": (subject.get("summary") or "")[:2000] or None,
+        "rating": (subject.get("rating") or {}).get("score"),
+        "start_date": subject.get("date") or None,
+        "subject_season": _subject_season(subject),
+    }
+
+
 async def search_metadata_candidates(
-    db: AsyncSession, request: MetadataSearchRequest, *, season_hint: int | None = None
+    db: AsyncSession,
+    request: MetadataSearchRequest,
+    *,
+    season_hint: int | None = None,
+    listing: bool = False,
 ) -> list[MetadataCandidate]:
     """Search one local or external source without mutating application data.
 
@@ -121,9 +154,23 @@ async def search_metadata_candidates(
     batch/periodic refresh passes the target work's own ``season_number``) —
     it keeps season-granular sources (bangumi) from matching the season-1
     entry for a season>1 work.
+
+    ``listing=True`` (the manual-search UI) turns the bangumi source into a
+    LIST mode: the raw subject search hits are returned as-is (one candidate
+    per subject, no auto-link/judge convergence, no LLM call). The refresh
+    pipeline keeps the pick-one behavior (``listing`` stays False there).
     """
     if request.mode == "online" and not is_metadata_source_available(request.source or ""):
         raise HTTPException(status_code=400, detail="metadata source is not available")
+    if listing and request.mode == "online" and request.source == "bangumi":
+        from app.services.metadata_bangumi import list_bangumi_subjects
+
+        subjects = await list_bangumi_subjects(request.query)
+        return [
+            _candidate_from_result(result, request)
+            for result in (_bangumi_listing_result(s) for s in subjects)
+            if result.get("content_type") == request.content_type
+        ]
     source = "local" if request.mode == "local" else request.source
     results = await manual_search_metadata(
         db,
@@ -152,6 +199,53 @@ def _candidate_values(candidate: MetadataCandidate) -> dict[str, Any]:
     return values
 
 
+def _bangumi_subject_id(external_id: str | None) -> int | None:
+    if not external_id or not external_id.startswith("bangumi:"):
+        return None
+    digits = external_id.split(":", 1)[1]
+    return int(digits) if digits.isdigit() else None
+
+
+async def _expanded_candidate_values(
+    work: TVSeries | Movie, content_type: str, candidate: MetadataCandidate
+) -> dict[str, Any]:
+    """Candidate values, expanded on demand for thin bangumi listing picks.
+
+    Listing-mode candidates carry only the search-response fields; a selected
+    bangumi identity is expanded via the subject details + episodes endpoints
+    (``build_entity_for_subject``) so preview diffs and apply episode upserts
+    see the full entity. Any expansion failure keeps the thin values — the
+    preview then simply shows fewer changes. The candidate's own identity
+    always wins over the expanded entity's.
+    """
+    values = _candidate_values(candidate)
+    if candidate.identity_source != "bangumi" or values.get("episode_list"):
+        return values
+    sid = _bangumi_subject_id(candidate.external_id)
+    if sid is None:
+        return values
+    season = (getattr(work, "season_number", None) or 1) if content_type == "tv" else 1
+    from app.services.metadata_bangumi import build_entity_for_subject
+
+    try:
+        entity = await build_entity_for_subject(sid, season=season)
+    except Exception:  # noqa: BLE001 — best-effort expansion
+        return values
+    if not entity:
+        return values
+    entity.pop("_content_type", None)
+    entity.pop("_platform", None)
+    for key, value in entity.items():
+        if value is not None:
+            values[key] = value
+    values["external_id"] = candidate.external_id
+    values["external_source"] = candidate.identity_source
+    if content_type == "movie" and not values.get("release_date"):
+        # The bangumi entity carries start_date; the movie diff reads release_date.
+        values["release_date"] = values.get("start_date")
+    return values
+
+
 def _comparable(value: Any) -> Any:
     if isinstance(value, date):
         return value.isoformat()
@@ -165,11 +259,20 @@ async def preview_work_metadata(
     candidate: MetadataCandidate,
     override_manual_edits: bool,
     only_missing: bool = False,
+    *,
+    resolved_values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     work = await db.get(Movie if content_type == "movie" else TVSeries, work_id)
     if work is None:
         raise HTTPException(status_code=404, detail="work not found")
-    values = _candidate_values(candidate)
+    # ``resolved_values`` lets apply pass its already-expanded values through
+    # (a bangumi listing pick expands via the details/episodes endpoints —
+    # once per apply, not twice).
+    values = (
+        dict(resolved_values)
+        if resolved_values is not None
+        else await _expanded_candidate_values(work, content_type, candidate)
+    )
     if content_type == "tv":
         # Season-scoped dates (same semantics as the upsert path): a
         # series-level entity's premiere/finale belongs to season 1 and must
@@ -261,8 +364,10 @@ async def apply_work_metadata(
     ) is not None:
         raise HTTPException(status_code=409, detail="external identity belongs to another work type")
 
+    values = await _expanded_candidate_values(work, content_type, candidate)
     preview = await preview_work_metadata(
-        db, work_id, content_type, candidate, override_manual_edits, only_missing
+        db, work_id, content_type, candidate, override_manual_edits, only_missing,
+        resolved_values=values,
     )
     applied: list[str] = []
     for change in preview["changes"]:
@@ -277,11 +382,12 @@ async def apply_work_metadata(
         setattr(work, field, value)
         applied.append(field)
 
-    if candidate.poster_url and not (only_missing and work.poster_url) and (
+    poster_url = candidate.poster_url or values.get("poster_url")
+    if poster_url and not (only_missing and work.poster_url) and (
         override_manual_edits or "poster_url" not in manually_edited_fields(work)
     ):
-        cached = await download_and_cache_poster(candidate.poster_url)
-        poster = cached or candidate.poster_url
+        cached = await download_and_cache_poster(poster_url)
+        poster = cached or poster_url
         if work.poster_url != poster:
             work.poster_url = poster
             applied.append("poster_url")
@@ -289,7 +395,6 @@ async def apply_work_metadata(
     await add_external_id(
         db, work_type, work.id, candidate.identity_source, candidate.external_id
     )
-    values = _candidate_values(candidate)
     if values.get("is_anime") is not None and not (only_missing and work.is_anime is not None):
         previous_is_anime = work.is_anime
         if override_manual_edits:

@@ -644,6 +644,52 @@ async def test_analyze_feed_openai_thinking_disabled_by_default(mock_settings, m
         f"reasoning must not be sent via extra_body: {call_kwargs}"
 
 
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_call_openai_sends_both_thinking_spellings(mock_settings, mock_openai_class):
+    """F6: extra_body carries enable_thinking top-level AND under
+    chat_template_kwargs (sglang/vLLM only honor the latter)."""
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_settings.llm_enable_thinking = False
+
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_openai_response(content='{"ok": true}')
+    )
+    mock_openai_class.return_value = mock_client
+
+    await _call_openai([{"role": "user", "content": "test"}])
+
+    extra_body = mock_client.chat.completions.create.call_args.kwargs["extra_body"]
+    assert extra_body["enable_thinking"] is False
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+@pytest.mark.asyncio
+@patch("app.services.feed_analyzer.AsyncOpenAI")
+@patch("app.services.runtime_config.settings")
+async def test_call_openai_thinking_enabled_propagates_to_both(mock_settings, mock_openai_class):
+    mock_settings.llm_api_key = "test-key"
+    mock_settings.llm_base_url = "https://api.test.com"
+    mock_settings.llm_model = "test-model"
+    mock_settings.llm_enable_thinking = True
+
+    mock_client = AsyncMock()
+    mock_client.chat.completions.create = AsyncMock(
+        return_value=_make_openai_response(content='{"ok": true}')
+    )
+    mock_openai_class.return_value = mock_client
+
+    await _call_openai([{"role": "user", "content": "test"}])
+
+    extra_body = mock_client.chat.completions.create.call_args.kwargs["extra_body"]
+    assert extra_body["enable_thinking"] is True
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
 # =============================================================================
 # 13. _call_openai — direct function tests
 # =============================================================================

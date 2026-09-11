@@ -1,0 +1,67 @@
+{
+  "candidate_file": "candidates.json.gz",
+  "candidate_sha256": "4926954def0110a99bd4f4f1d13b3dee9c12ec3549f3eeab46c514333f1b421f",
+  "captured_at": "2026-09-09T04:52:27.112491+00:00",
+  "case_count": 1512,
+  "counts": {
+    "audio_works": 5,
+    "channels": 3,
+    "episodes": 2629,
+    "file_resources": 1512,
+    "movies": 470,
+    "resource_file_assignments": 5484,
+    "resource_work_links": 603,
+    "tv_series": 167,
+    "work_collections": 265,
+    "work_external_ids": 1059
+  },
+  "file_list_file": "file_lists.json.gz",
+  "file_list_sha256": "ddd232d1b6fea0ebb79dd902d9ea191e8e693ed0f325a81fc1dc480d9801dfb6",
+  "input_limitation": "Historical RSS bodies were not persisted; title/torrent inputs do not claim RSS mapping coverage.",
+  "review_file": "reviews.json",
+  "scenarios": [
+    {
+      "case_ids": [
+        "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+        "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
+      ],
+      "cassette": "http/bangumi_complete_f6.json.gz",
+      "id": "bangumi_single",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "seed": "http/bangumi_single.json.gz",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    },
+    {
+      "case_ids": [
+        "995c8c1d-5c69-400d-99f3-f197c7ee953b"
+      ],
+      "cassette": "http/initial_d_franchise.json.gz",
+      "id": "initial_d_franchise",
+      "llm_base_url": "http://127.0.0.1:18000/v1",
+      "llm_host": "127.0.0.1",
+      "model": "Qwen/Qwen3.8-27B-FP8",
+      "source_hosts": [
+        "api.bgm.tv",
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        "lain.bgm.tv",
+        "en.wikipedia.org",
+        "zh.wikipedia.org",
+        "ja.wikipedia.org",
+        "flash-aio"
+      ]
+    }
+  ],
+  "version": 1
+}

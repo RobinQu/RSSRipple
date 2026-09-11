@@ -20,7 +20,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { Plus, RefreshCw, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus, RefreshCw, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { collectionsApi } from '../api/collections';
 import { moviesApi } from '../api/movies';
@@ -55,6 +55,22 @@ interface Placement {
   epStart: number | null;
   epEnd: number | null;
 }
+
+/** One work_title_hint cluster of the wizard's file-mapping step. */
+interface ClusterGroup {
+  key: string;
+  title: string | null;
+  pool: ResourceFileItem[];
+  assigned: string[];
+  allPaths: string[];
+}
+
+/** Flat render row of the candidate pane: cluster headers interleaved with
+ * the (expanded) per-file rows. */
+type PoolRow =
+  | { kind: 'header'; group: ClusterGroup }
+  | { kind: 'file'; file: ResourceFileItem; idx: number }
+  | { kind: 'assigned'; path: string };
 
 type MediaFieldKey =
   | 'resolution'
@@ -113,9 +129,12 @@ interface ResourceEditWizardProps {
 /** Four-step unified edit flow for a file resource (per-season works):
  * ① collection & works association (batch toggle; TV resources pick/create
  *    the collection first, then season works among its members),
- * ② file mapping (left: selectable work list; right: shift-range multi-select
- *    files joined into the selected work — the season comes from the work's
- *    own season_number, S/E prefilled from the deterministic name parses),
+ * ② file mapping (left: selectable work list; right: candidate files grouped
+ *    by work_title_hint cluster — a cluster-level work pick expands to every
+ *    member file, expanding a cluster exposes per-file tweaks and the
+ *    shift-range/drag multi-select join into the selected work — the season
+ *    comes from the work's own season_number, S/E prefilled from the
+ *    deterministic name parses),
  * ③ generic media fields (dropdowns fed by system-observed values),
  * ④ confirmation review before the single PUT save. */
 export default function ResourceEditWizard({
@@ -189,6 +208,9 @@ export default function ResourceEditWizard({
   // File-mapping selection state (step ① right pane).
   const [selectedWorkKey, setSelectedWorkKey] = useState<string | null>(null);
   const [checkedFiles, setCheckedFiles] = useState<string[]>([]);
+  const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
+  // Cluster key waiting on a WorkPickerModal pick (whole-cluster binding).
+  const [pickerCluster, setPickerCluster] = useState<string | null>(null);
   const lastCheckedIdxRef = useRef<number | null>(null);
   const [joinSeason, setJoinSeason] = useState<number | null>(1);
   // Mouse drag range-selection on the candidate list: press on a row to
@@ -215,6 +237,8 @@ export default function ResourceEditWizard({
     setSuggestion(null);
     setCheckedFiles([]);
     setSelectedWorkKey(null);
+    setPickerCluster(null);
+    setExpandedClusters(new Set());
     setStep(initialStep);
     setSaveError(null);
     worksDirtyRef.current = false;
@@ -403,6 +427,128 @@ export default function ResourceEditWizard({
     [files, placements],
   );
 
+  // Cluster title per file path: persisted assignment hints first, then the
+  // analyze-batch deterministic clusters as a fallback for fresh resources.
+  const hintByPath = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of suggestion?.deterministic.clusters ?? []) {
+      for (const p of c.files) {
+        if (c.title) map[p] = c.title;
+      }
+    }
+    for (const a of detail?.file_assignments ?? []) {
+      if (a.work_title_hint) map[a.file_path] = a.work_title_hint;
+    }
+    return map;
+  }, [detail, suggestion]);
+
+  // Cluster-grouped view of the candidate pool: one group per distinct
+  // work_title_hint, files without a hint collected into the trailing
+  // "other" group. Drag/shift selection keeps indexing into poolFiles, so
+  // every row resolves its global index through poolIndex.
+  const poolIndex = useMemo(
+    () => new Map(poolFiles.map((f, i) => [f.name, i])),
+    [poolFiles],
+  );
+
+  const clusterGroups = useMemo<ClusterGroup[]>(() => {
+    const groups = new Map<string, ClusterGroup>();
+    for (const f of files) {
+      const hint = hintByPath[f.name] || '';
+      const key = hint ? `hint:${hint.toLowerCase()}` : '__other__';
+      let g = groups.get(key);
+      if (!g) {
+        g = { key, title: hint || null, pool: [], assigned: [], allPaths: [] };
+        groups.set(key, g);
+      }
+      g.allPaths.push(f.name);
+      if (placements[f.name]) g.assigned.push(f.name);
+      else g.pool.push(f);
+    }
+    const hinted = [...groups.values()].filter((g) => g.title);
+    hinted.sort((a, b) => (a.title ?? '').localeCompare(b.title ?? ''));
+    const other = groups.get('__other__');
+    return other ? [...hinted, other] : hinted;
+  }, [files, hintByPath, placements]);
+
+  // Flat render list for the candidate pane: cluster headers interleaved
+  // with the (expanded) per-file rows. Kept flat so drag/shift selection
+  // handlers stay in a single top-level map like the pre-cluster list.
+  const poolRows = useMemo<PoolRow[]>(() => {
+    const rows: PoolRow[] = [];
+    for (const g of clusterGroups) {
+      const showHeader = clusterGroups.length > 1 || g.title != null;
+      const expanded = !showHeader || expandedClusters.has(g.key);
+      if (showHeader) rows.push({ kind: 'header', group: g });
+      if (!expanded) continue;
+      for (const f of g.pool) {
+        const idx = poolIndex.get(f.name);
+        if (idx != null) rows.push({ kind: 'file', file: f, idx });
+      }
+      for (const path of g.assigned) {
+        if (placements[path]) rows.push({ kind: 'assigned', path });
+      }
+    }
+    return rows;
+  }, [clusterGroups, expandedClusters, poolIndex, placements]);
+
+  const toggleCluster = (key: string) => {
+    setExpandedClusters((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  /** Compact S/E coverage preview of a cluster, e.g. "S1 E1-26 · S2 E1-24".
+   * Parsed values win; existing placements fill the gaps. */
+  const clusterRangePreview = (paths: string[]): string => {
+    const bySeason = new Map<number, number[]>();
+    let hasAny = false;
+    for (const path of paths) {
+      const parsed = detParses[path];
+      const placed = placements[path];
+      const season = parsed?.season ?? placed?.season ?? null;
+      const eps = [
+        parsed?.episode ?? null,
+        placed?.epStart ?? null,
+        placed?.epEnd ?? null,
+      ].filter((v): v is number => v != null);
+      if (season == null && eps.length === 0) continue;
+      hasAny = true;
+      if (season != null && eps.length > 0) {
+        const list = bySeason.get(season) ?? [];
+        list.push(...eps);
+        bySeason.set(season, list);
+      } else if (season != null) {
+        bySeason.set(season, bySeason.get(season) ?? []);
+      }
+    }
+    if (!hasAny) return '';
+    if (bySeason.size === 0) return '';
+    return [...bySeason.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([s, eps]) =>
+        eps.length > 0 ? `S${s} E${Math.min(...eps)}-${Math.max(...eps)}` : `S${s}`,
+      )
+      .join(' · ');
+  };
+
+  /** Current binding of a cluster: the shared work key, 'mixed' when its
+   * files point at different works, or null when nothing is bound yet. */
+  const clusterBinding = (paths: string[]): string | 'mixed' | null => {
+    const keys = new Set(
+      paths
+        .map((p) => placements[p])
+        .filter((p): p is Placement => p != null)
+        .map((p) => workKeyOf(p.workType, p.workId)),
+    );
+    if (keys.size === 0) return null;
+    if (keys.size > 1) return 'mixed';
+    return [...keys][0];
+  };
+
   const deriveScopeLabel = useMemo(() => {
     if (!isBatch) return '';
     if (!works.length) return t('channels.batchFranchise');
@@ -575,6 +721,71 @@ export default function ResourceEditWizard({
     }
     setCheckedFiles([]);
     lastCheckedIdxRef.current = null;
+  };
+
+  /** Bind a whole cluster to one work: adds the work to the association list
+   * when new, then expands the cluster choice into per-file placements
+   * (parsed season wins, then the work's own season_number, then the join
+   * fallback — same precedence as joinChecked). Files already placed on the
+   * target work keep their episode edits. */
+  const applyClusterToWork = (
+    group: ClusterGroup,
+    ref: AssociationWorkRef,
+    title: string,
+    season: number | null,
+  ) => {
+    const targetKey = workKeyOf(ref.work_type, ref.work_id);
+    if (!works.some((w) => workKeyOf(w.work_type, w.work_id) === targetKey)) {
+      addWork(ref, title, { season });
+    }
+    const missing: string[] = [];
+    let applied = 0;
+    setPlacements((prev) => {
+      const next = { ...prev };
+      for (const path of group.allPaths) {
+        const existing = next[path];
+        if (existing && workKeyOf(existing.workType, existing.workId) === targetKey) {
+          continue;
+        }
+        const parsed = detParses[path];
+        const s =
+          ref.work_type === 'series'
+            ? seasonForJoin(targetKey, parsed?.season ?? season)
+            : null;
+        if (ref.work_type === 'series' && s == null) {
+          missing.push(path);
+          continue;
+        }
+        const ep = parsed?.episode ?? null;
+        next[path] = { workType: ref.work_type, workId: ref.work_id, season: s, epStart: ep, epEnd: ep };
+        applied += 1;
+      }
+      return next;
+    });
+    setCheckedFiles((prev) => prev.filter((p) => !group.allPaths.includes(p)));
+    if (missing.length > 0) {
+      message.warning(t('resource.seasonParamRequired', { count: missing.length }));
+    }
+    if (applied > 0) {
+      message.success(t('resource.clusterApplied', { count: applied, title }));
+    }
+  };
+
+  const pickClusterWork = (group: ClusterGroup, value: string) => {
+    if (value === '__new__') {
+      setPickerCluster(group.key);
+      setPickerOpen(true);
+      return;
+    }
+    const sep = value.indexOf(':');
+    const wt = value.slice(0, sep) as WorkRefType;
+    const wid = value.slice(sep + 1);
+    applyClusterToWork(
+      group,
+      { work_type: wt, work_id: wid },
+      workTitles[value] || wid,
+      workSeasons[value] ?? null,
+    );
   };
 
   const toggleFileChecked = (
@@ -1537,45 +1748,114 @@ export default function ResourceEditWizard({
                 {poolFiles.length === 0 ? (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('resource.allMappedHint')} style={{ margin: 12 }} />
                 ) : (
-                  poolFiles.map((f, idx) => {
-                    const checked = checkedFiles.includes(f.name);
-                    const parsed = detParses[f.name];
-                    return (
-                      <div
-                        key={f.name}
-                        data-file-index={idx}
-                        onPointerDown={(e) => {
-                          beginPointerSelect(e, f.name, idx);
-                        }}
-                        onPointerEnter={() => extendDragSelect(idx)}
-                        onClick={(e) => {
-                          // Keyboard/tap fallback without drag semantics.
-                          if (e.detail === 0) toggleFileChecked(f.name, idx, e.shiftKey);
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '3px 4px',
-                          borderBottom: '1px solid var(--rr-border-soft)',
-                          background: checked ? 'var(--rr-primary-soft)' : undefined,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <Checkbox checked={checked} tabIndex={-1} />
-                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
-                          {f.name}
-                        </span>
-                        {parsed && (parsed.season != null || parsed.episode != null) && (
-                          <Tag style={{ fontSize: 10, margin: 0, width: 70, flexShrink: 0, textAlign: 'center' }} color="default">
-                            {parsed.season != null ? `S${parsed.season}` : ''}
-                            {parsed.episode != null ? ` E${parsed.episode}` : ''}
+                  // Cluster-level rows: one header per work_title_hint group
+                  // (files without a hint fall into the trailing "other"
+                  // group); expanding a cluster reveals its per-file rows.
+                  poolRows.map((row) => {
+                    if (row.kind === 'header') {
+                      const g = row.group;
+                      const expanded = expandedClusters.has(g.key);
+                      const binding = clusterBinding(g.allPaths);
+                      const range = clusterRangePreview(g.allPaths);
+                      return (
+                        <div
+                          key={`h-${g.key}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            padding: '4px 4px',
+                            borderBottom: '1px solid var(--rr-border-soft)',
+                            background: 'var(--rr-surface-card)',
+                          }}
+                        >
+                          <Button
+                            size="small"
+                            type="text"
+                            icon={expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            onClick={() => toggleCluster(g.key)}
+                          />
+                          <span style={{ fontSize: 12, fontWeight: 600, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                            {g.title || t('resource.otherFilesGroup')}
+                          </span>
+                          <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                            {t('resource.clusterFileCount', { count: g.allPaths.length })}
+                            {range ? ` · ${range}` : ''}
+                          </Text>
+                          <span style={{ flex: 1 }} />
+                          {binding === 'mixed' ? (
+                            <Tag color="orange" style={{ fontSize: 10, margin: 0 }}>{t('resource.clusterMixed')}</Tag>
+                          ) : binding ? (
+                            <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>{workTitles[binding] || binding}</Tag>
+                          ) : g.title ? (
+                            <Tag style={{ fontSize: 10, margin: 0 }}>{t('resource.clusterUnbound')}</Tag>
+                          ) : null}
+                          {g.title && (
+                            <Select
+                              size="small"
+                              style={{ width: 180, flexShrink: 0 }}
+                              placeholder={t('resource.clusterApplyWork')}
+                              value={binding && binding !== 'mixed' ? binding : undefined}
+                              onChange={(v) => pickClusterWork(g, v)}
+                              options={[
+                                ...works.map((w) => {
+                                  const key = workKeyOf(w.work_type, w.work_id);
+                                  const sLabel =
+                                    w.work_type === 'series' ? ` · ${seasonLabel(t, workSeasons[key])}` : '';
+                                  return {
+                                    value: key,
+                                    label: `${workTitles[key] || w.work_id}${sLabel}`,
+                                  };
+                                }),
+                                { value: '__new__', label: t('resource.pickNewWork') },
+                              ]}
+                            />
+                          )}
+                        </div>
+                      );
+                    }
+                    if (row.kind === 'assigned') {
+                      // Assigned cluster members surface inside the expanded
+                      // cluster too, so single-file tweaks (unassign back to
+                      // the pool) stay in the cluster context.
+                      const p = placements[row.path];
+                      const key = workKeyOf(p.workType, p.workId);
+                      return (
+                        <div
+                          key={`a-${row.path}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '3px 4px 3px 26px',
+                            borderBottom: '1px solid var(--rr-border-soft)',
+                          }}
+                        >
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                            {row.path}
+                          </span>
+                          <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>
+                            {workTitles[key] || key}
+                            {p.season != null ? ` S${p.season}` : ''}
+                            {p.epStart != null ? ` E${p.epStart}` : ''}
                           </Tag>
-                        )}
-                        <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, width: 64, textAlign: 'right' }}>
-                          {formatBytes(f.size)}
-                        </Text>
-                      </div>
+                          <Button size="small" type="text" icon={<X size={11} />} onClick={() => unassignPaths([row.path])} />
+                        </div>
+                      );
+                    }
+                    return (
+                      <PoolFileRow
+                        key={row.file.name}
+                        name={row.file.name}
+                        size={row.file.size}
+                        idx={row.idx}
+                        checked={checkedFiles.includes(row.file.name)}
+                        parsed={detParses[row.file.name]}
+                        indented={clusterGroups.length > 1 || clusterGroups[0]?.title != null}
+                        onPointerDown={beginPointerSelect}
+                        onPointerEnter={extendDragSelect}
+                        onToggle={toggleFileChecked}
+                      />
                     );
                   })
                 )}
@@ -1675,10 +1955,27 @@ export default function ResourceEditWizard({
         collectionId={collectionId}
         defaultMetadataSource={channelMetadataSource}
         defaultFallbackSources={channelFallbackSources}
-        onClose={() => setPickerOpen(false)}
-        onPick={(ref, title, meta) => {
-          addWork(ref, title, meta);
+        initialQuery={
+          pickerCluster
+            ? clusterGroups.find((g) => g.key === pickerCluster)?.title ?? ''
+            : ''
+        }
+        onClose={() => {
           setPickerOpen(false);
+          setPickerCluster(null);
+        }}
+        onPick={(ref, title, meta) => {
+          const group = pickerCluster
+            ? clusterGroups.find((g) => g.key === pickerCluster)
+            : undefined;
+          if (group) {
+            // Whole-cluster pick: bind every member file to the picked work.
+            applyClusterToWork(group, ref, title, meta?.season ?? null);
+          } else {
+            addWork(ref, title, meta);
+          }
+          setPickerOpen(false);
+          setPickerCluster(null);
         }}
       />
     </div>
@@ -1706,6 +2003,68 @@ export default function ResourceEditWizard({
       setCreatingColl(false);
     }
   }
+}
+
+/** One unassigned candidate file row in the wizard's file-mapping step.
+ * Module-level so the drag/shift selection handlers arrive as props (the
+ * react-hooks refs rule rejects inline handler closures calling ref-reading
+ * functions inside the grouped cluster render). */
+function PoolFileRow({
+  name,
+  size,
+  idx,
+  checked,
+  parsed,
+  indented,
+  onPointerDown,
+  onPointerEnter,
+  onToggle,
+}: {
+  name: string;
+  size: number;
+  idx: number;
+  checked: boolean;
+  parsed: { season: number | null; episode: number | null } | undefined;
+  /** Align under a cluster header when the pool is cluster-grouped. */
+  indented: boolean;
+  onPointerDown: (e: React.PointerEvent<HTMLDivElement>, path: string, index: number) => void;
+  onPointerEnter: (index: number) => void;
+  onToggle: (path: string, index: number, shiftKey: boolean) => void;
+}) {
+  return (
+    <div
+      data-file-index={idx}
+      onPointerDown={(e) => onPointerDown(e, name, idx)}
+      onPointerEnter={() => onPointerEnter(idx)}
+      onClick={(e) => {
+        // Keyboard/tap fallback without drag semantics.
+        if (e.detail === 0) onToggle(name, idx, e.shiftKey);
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: `3px 4px 3px ${indented ? 26 : 4}px`,
+        borderBottom: '1px solid var(--rr-border-soft)',
+        background: checked ? 'var(--rr-primary-soft)' : undefined,
+        cursor: 'pointer',
+      }}
+    >
+      <Checkbox checked={checked} tabIndex={-1} />
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12, overflowWrap: 'anywhere', wordBreak: 'break-all', lineHeight: 1.4 }}>
+        {name}
+      </span>
+      {parsed && (parsed.season != null || parsed.episode != null) && (
+        <Tag style={{ fontSize: 10, margin: 0, width: 70, flexShrink: 0, textAlign: 'center' }} color="default">
+          {parsed.season != null ? `S${parsed.season}` : ''}
+          {parsed.episode != null ? ` E${parsed.episode}` : ''}
+        </Tag>
+      )}
+      <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, width: 64, textAlign: 'right' }}>
+        {formatBytes(size)}
+      </Text>
+    </div>
+  );
 }
 
 function worksAddedIsEmpty(c: { worksAdded: string[]; worksRemoved: string[] }): boolean {
@@ -1843,6 +2202,7 @@ function WorkPickerModal({
   collectionId,
   defaultMetadataSource,
   defaultFallbackSources,
+  initialQuery = '',
   onClose,
   onPick,
 }: {
@@ -1853,6 +2213,8 @@ function WorkPickerModal({
   collectionId: string | null;
   defaultMetadataSource: MetadataSource;
   defaultFallbackSources: string[];
+  /** Prefilled search text (e.g. the cluster title for whole-cluster picks). */
+  initialQuery?: string;
   onClose: () => void;
   onPick: (
     ref: AssociationWorkRef,
@@ -1878,7 +2240,8 @@ function WorkPickerModal({
     if (!open) return;
     setMetadataSource(defaultMetadataSource);
     setFallbackSources(defaultFallbackSources);
-  }, [open, defaultMetadataSource, defaultFallbackSources]);
+    setQ(initialQuery);
+  }, [open, defaultMetadataSource, defaultFallbackSources, initialQuery]);
 
   const searchLibrary = async (query?: string) => {
     setSearching(true);

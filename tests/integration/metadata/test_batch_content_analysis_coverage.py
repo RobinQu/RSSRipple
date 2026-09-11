@@ -172,6 +172,37 @@ def test_llm_refinement_needed_gate(monkeypatch):
     assert bca.llm_refinement_needed(single, None) is False
 
 
+def test_llm_refinement_needed_title_batch_unknown_scope(monkeypatch):
+    """Title-judged batch + deterministic ``unknown`` + >=2 videos -> refine.
+
+    This is the 全六季/Stage-named-pack hole: the title layer flags the
+    resource as a batch but path parsing yields no season/episode structure,
+    so neither the franchise branch nor the unparsed-ratio rule fires.
+    """
+    unknown = TorrentReport(
+        scope="unknown", is_batch=False, video_file_count=6, unparsed_ratio=0.2
+    )
+    _llm_key(monkeypatch)
+    # New gate: resource-level batch verdict + unknown scope + >= 2 videos.
+    assert bca.llm_refinement_needed(unknown, "season", True) is True
+    # Without the title-layer verdict the same report stays deterministic.
+    assert bca.llm_refinement_needed(unknown, "season", False) is False
+    assert bca.llm_refinement_needed(unknown, "season") is False
+    # A single video file never qualifies.
+    one = TorrentReport(
+        scope="unknown", is_batch=False, video_file_count=1, unparsed_ratio=1.0
+    )
+    assert bca.llm_refinement_needed(one, "season", True) is False
+    # A resolved deterministic scope is not second-guessed by the new rule.
+    season = TorrentReport(
+        scope="season", is_batch=True, video_file_count=12, unparsed_ratio=0.0
+    )
+    assert bca.llm_refinement_needed(season, "season", True) is False
+    # The API key gate still dominates the new condition.
+    _no_llm_key(monkeypatch)
+    assert bca.llm_refinement_needed(unknown, "season", True) is False
+
+
 # =============================================================================
 # Prompt/parsing helpers
 # =============================================================================
@@ -1092,3 +1123,843 @@ async def test_suggest_batch_content_llm_absent_returns_empty_works(db_session, 
     # The deterministic layer is always returned; only the LLM block is empty.
     assert out["deterministic"]["scope_hint"] == "franchise"
     assert out["works"] == []
+
+
+# =============================================================================
+# cluster_work_binding.bind_hint_clusters — hint → work resolution + binding
+# =============================================================================
+
+import app.services.cluster_work_binding as cwb  # noqa: E402
+
+
+def _no_external(monkeypatch):
+    """Forbid the external-search leg: cluster tests must resolve locally."""
+
+    async def _boom(title, source, **kwargs):
+        raise AssertionError("external search must not fire for this cluster")
+
+    import app.services.metadata_agent as ma
+
+    monkeypatch.setattr(
+        ma, "get_agent", lambda: SimpleNamespace(process_title_only=_boom)
+    )
+
+
+def _external_not_found(monkeypatch):
+    async def _not_found(title, source, **kwargs):
+        return SimpleNamespace(found=False, ambiguous=False, matched_entity=None)
+
+    import app.services.metadata_agent as ma
+
+    monkeypatch.setattr(
+        ma, "get_agent", lambda: SimpleNamespace(process_title_only=_not_found)
+    )
+
+
+async def test_bind_hint_clusters_binds_cluster_via_collection_members(
+    db_session, monkeypatch
+):
+    """(a) Hint hits collection members (direct title + base-name widening)."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D", external_source="series_group", external_id=_uuid(),
+    )
+    s1 = TVSeries(
+        id=_uuid(), title_cn="头文字D First Stage", season_number=1,
+        collection_id=collection.id,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="头文字D Second Stage", season_number=2,
+        collection_id=collection.id,
+    )
+    db_session.add_all([collection, s1, s2])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        collection_id=collection.id,
+    )
+    db_session.add_all([
+        # Direct member-title match.
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="S1/e01.mkv", source="auto",
+            work_title_hint="头文字D First Stage", season=1,
+            episode_start=1, episode_end=1,
+        ),
+        # Base-name match: the season token was stripped from the directory,
+        # so the hint equals the collection title and the parsed season picks
+        # the season-2 work.
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="S2/e01.mkv", source="auto",
+            work_title_hint="头文字D", season=2, episode_start=1, episode_end=1,
+        ),
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="S2/e02.mkv", source="auto",
+            work_title_hint="头文字D", season=2, episode_start=2, episode_end=2,
+        ),
+    ])
+    await db_session.commit()
+
+    bound = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert bound.bound == 3
+    assert bound.remapped == 0
+    rows = {r.file_path: r for r in resource.file_assignments}
+    assert rows["S1/e01.mkv"].series_id == s1.id
+    assert rows["S2/e01.mkv"].series_id == s2.id
+    assert rows["S2/e02.mkv"].series_id == s2.id
+    # Auto provenance is kept (deterministic cluster evidence).
+    assert all(r.source == "auto" for r in rows.values())
+    # season_ranges recomputed from the bound rows.
+    assert resource.season_ranges == [
+        {"season": 1, "episode_start": 1, "episode_end": 1},
+        {"season": 2, "episode_start": 1, "episode_end": 2},
+    ]
+    # Both works gain auto links; batch_seasons mirrors the linked seasons.
+    links = await _links(db_session, resource.id)
+    assert sorted(link.series_id for link in links) == sorted([s1.id, s2.id])
+    assert all(link.source == "auto" for link in links)
+    assert resource.batch_seasons == [1, 2]
+    # Idempotent: a second run binds nothing and duplicates no links.
+    assert (await cwb.bind_hint_clusters(db_session, resource, None)).bound == 0
+    assert len(await _links(db_session, resource.id)) == 2
+
+
+async def test_bind_hint_clusters_unmatched_hint_keeps_rows_unbound(
+    db_session, monkeypatch
+):
+    """(b) No local hit and external not-found → rows keep the hint only."""
+    _external_not_found(monkeypatch)
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="franchise",
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id, file_path="Ghost/e01.mkv", source="auto",
+        work_title_hint="不存在的作品 Ghost", season=1,
+        episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    bound = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert bound.bound == 0
+    row = resource.file_assignments[0]
+    assert row.series_id is None and row.movie_id is None
+    assert row.work_title_hint == "不存在的作品 Ghost"
+    assert await _links(db_session, resource.id) == []
+
+
+async def test_bind_hint_clusters_never_touches_manual_rows(db_session, monkeypatch):
+    """(c) Manual/llm provenance inside a resolved cluster is left alone."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="合集", external_source="series_group", external_id=_uuid(),
+    )
+    work = TVSeries(
+        id=_uuid(), title_cn="剧集A", season_number=1, collection_id=collection.id,
+    )
+    other = TVSeries(id=_uuid(), title_cn="别的作品", season_number=1)
+    db_session.add_all([collection, work, other])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        collection_id=collection.id,
+    )
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="A/e01.mkv", source="auto",
+            work_title_hint="剧集A", season=1, episode_start=1, episode_end=1,
+        ),
+        # Manual row already bound elsewhere: never rebound, never rehinted.
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="A/e02.mkv", source="manual",
+            work_title_hint="剧集A", series_id=other.id,
+            season=1, episode_start=2, episode_end=2,
+        ),
+        # LLM-provenance row: also never rebound.
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="A/e03.mkv", source="llm",
+            work_title_hint="剧集A", season=1, episode_start=3, episode_end=3,
+        ),
+    ])
+    await db_session.commit()
+
+    bound = await cwb.bind_hint_clusters(db_session, resource, None)
+    # Only the unbound auto row is bound; llm/manual rows are never targets.
+    assert bound.bound == 1
+    rows = {r.file_path: r for r in resource.file_assignments}
+    assert rows["A/e01.mkv"].series_id == work.id
+    assert rows["A/e02.mkv"].series_id == other.id
+    assert rows["A/e02.mkv"].source == "manual"
+    assert rows["A/e03.mkv"].series_id is None
+    assert rows["A/e03.mkv"].source == "llm"
+
+
+async def test_bind_hint_clusters_settles_collection_identity(db_session, monkeypatch):
+    """(d) All bound works in one collection → collection_id settled."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D", external_source="series_group", external_id=_uuid(),
+    )
+    s1 = TVSeries(
+        id=_uuid(), title_cn="头文字D First Stage", season_number=1,
+        collection_id=collection.id,
+    )
+    s2 = TVSeries(
+        id=_uuid(), title_cn="头文字D Second Stage", season_number=2,
+        collection_id=collection.id,
+    )
+    db_session.add_all([collection, s1, s2])
+    await db_session.commit()
+    # Season-flavored scope without a parked collection: the identity is
+    # derived purely from the works the clusters bind to.
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+    )
+    # One pre-existing link makes the collection reachable for member matching.
+    db_session.add_all([
+        ResourceWorkLink(resource_id=resource.id, series_id=s1.id, source="auto"),
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="S1/e01.mkv", source="auto",
+            work_title_hint="头文字D First Stage", season=1,
+            episode_start=1, episode_end=1,
+        ),
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="S2/e01.mkv", source="auto",
+            work_title_hint="头文字D Second Stage", season=2,
+            episode_start=1, episode_end=1,
+        ),
+    ])
+    await db_session.commit()
+
+    bound = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert bound.bound == 2
+    assert resource.collection_id == collection.id
+    assert resource.batch_seasons == [1, 2]
+    links = await _links(db_session, resource.id)
+    assert sorted(link.series_id for link in links) == sorted([s1.id, s2.id])
+
+
+async def test_bind_hint_clusters_season_only_path_never_remaps(
+    db_session, monkeypatch
+):
+    """(B-1b) Season-only selection (base-name widening, no title evidence)
+    keeps the conservative rule: a disagreeing parsed season is never bound."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="合集B", external_source="series_group", external_id=_uuid(),
+    )
+    work = TVSeries(
+        id=_uuid(), title_cn="剧集B", season_number=1, collection_id=collection.id,
+    )
+    db_session.add_all([collection, work])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        collection_id=collection.id,
+    )
+    db_session.add_all([
+        # The hint equals the COLLECTION title (a stripped "合集B S02"-style
+        # directory), so the base-name widening selects purely by the parsed
+        # season mode (2); the only member is s1 → no exact match → skipped,
+        # never remapped onto the wrong season.
+        ResourceFileAssignment(
+            resource_id=resource.id, file_path="B/e01.mkv", source="auto",
+            work_title_hint="合集B", season=2, episode_start=1, episode_end=1,
+        ),
+    ])
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 0
+    assert out.remapped == 0
+    row = resource.file_assignments[0]
+    assert row.series_id is None
+    assert row.season == 2
+    assert row.work_title_hint == "合集B"
+    assert await _links(db_session, resource.id) == []
+
+
+async def test_bind_hint_clusters_non_batch_is_noop(db_session):
+    resource = await _make_resource(db_session, is_batch=False)
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id, file_path="a.mkv", source="auto",
+        work_title_hint="某作品",
+    ))
+    await db_session.commit()
+    assert (await cwb.bind_hint_clusters(db_session, resource, None)).bound == 0
+    await db_session.refresh(resource, ["file_assignments"])
+    assert resource.file_assignments[0].series_id is None
+
+
+# =============================================================================
+# Fix Round B — pack-internal season remap + FTS mis-binding guards
+# =============================================================================
+
+
+async def test_bind_hint_clusters_title_evidence_remaps_pack_season(
+    db_session, monkeypatch
+):
+    """(B-1a) Title evidence: the work's season_number outranks pack-internal
+    directory numbering ("[Season 3] Initial D Fourth Stage" = work s4)."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D", external_source="series_group", external_id=_uuid(),
+    )
+    s4 = TVSeries(
+        id=_uuid(), title_cn="头文字D Fourth Stage", title_en="Initial D Fourth Stage",
+        season_number=4, collection_id=collection.id,
+    )
+    db_session.add_all([collection, s4])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        collection_id=collection.id,
+    )
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id,
+            file_path=f"[2004] [Season 3] Initial D Fourth Stage/Initial D - S03E0{i}.mkv",
+            source="auto", work_title_hint="Initial D Fourth Stage",
+            season=3, episode_start=i, episode_end=i,
+        )
+        for i in (1, 2, 3)
+    ])
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    # Title evidence (exact member title_en match) → rows remap 3 → 4 and bind.
+    assert out.bound == 3
+    assert out.remapped == 3
+    for row in resource.file_assignments:
+        assert row.series_id == s4.id
+        assert row.season == 4
+        assert row.source == "auto"
+    # Episodes are season-internal and untouched by the remap.
+    assert resource.season_ranges == [
+        {"season": 4, "episode_start": 1, "episode_end": 3}
+    ]
+    links = await _links(db_session, resource.id)
+    assert [(link.series_id, link.source) for link in links] == [(s4.id, "auto")]
+    assert resource.batch_seasons == [4]
+
+
+def _patch_fts(monkeypatch, *, series_ids=(), movie_ids=()):
+    """Deterministic FTS candidate sets (isolate the guard logic from the
+    sidecar index)."""
+    import app.services.fts as fts_mod
+
+    async def _series(db, query, limit=30):
+        return list(series_ids)
+
+    async def _movies(db, query, limit=30):
+        return list(movie_ids)
+
+    monkeypatch.setattr(fts_mod, "search_series_fts", _series)
+    monkeypatch.setattr(fts_mod, "search_movie_fts", _movies)
+
+
+async def test_bind_hint_clusters_tv_cluster_never_binds_movie_via_fts(
+    db_session, monkeypatch
+):
+    """(B-2c) Form guard: an episode-bearing cluster whose sole FTS hit is a
+    Movie stays unbound (the Initial D Fifth Stage → Battle Stage movie bug)."""
+    _external_not_found(monkeypatch)
+    movie = Movie(id=_uuid(), title_cn="Initial D Fifth Stage")
+    db_session.add(movie)
+    await db_session.commit()
+    _patch_fts(monkeypatch, movie_ids=[movie.id])
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+    )
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id,
+            file_path=f"[2005] [Season 4] Initial D Fifth Stage/e0{i}.mkv",
+            source="auto", work_title_hint="Initial D Fifth Stage",
+            season=4, episode_start=i, episode_end=i,
+        )
+        for i in (1, 2)
+    ])
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 0
+    for row in resource.file_assignments:
+        assert row.series_id is None and row.movie_id is None
+        assert row.work_title_hint == "Initial D Fifth Stage"
+    assert await _links(db_session, resource.id) == []
+
+
+async def test_bind_hint_clusters_fts_base_name_mismatch_rejected(
+    db_session, monkeypatch
+):
+    """(B-2d) Base-name guard: a ≥85-similarity series hit whose base form
+    differs (Fifth ≠ Battle) is rejected even when its season matches."""
+    _external_not_found(monkeypatch)
+    lookalike = TVSeries(
+        id=_uuid(), title_cn="Initial D Battle Stage", season_number=5,
+    )
+    db_session.add(lookalike)
+    await db_session.commit()
+    _patch_fts(monkeypatch, series_ids=[lookalike.id])
+    # Levenshtein similarity between the two titles is ~88 (≥ the auto-link
+    # threshold) — only the base-name guard can reject this hit.
+    from app.services.text_normalizer import similarity_score
+
+    assert similarity_score("Initial D Fifth Stage", "Initial D Battle Stage") >= 85
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id, file_path="Initial D Fifth Stage/e01.mkv",
+        source="auto", work_title_hint="Initial D Fifth Stage",
+        season=4, episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 0
+    row = resource.file_assignments[0]
+    assert row.series_id is None
+    assert row.work_title_hint == "Initial D Fifth Stage"
+    assert await _links(db_session, resource.id) == []
+
+
+async def test_bind_hint_clusters_fts_hit_binds_with_remap(
+    db_session, monkeypatch
+):
+    """FTS hit passing both guards counts as title evidence: the pack-internal
+    season (S04) remaps onto the work's own season_number (Fifth Stage = s5)."""
+    _no_external(monkeypatch)
+    work = TVSeries(
+        id=_uuid(), title_cn="头文字D Fifth Stage", title_en="Initial D Fifth Stage",
+        season_number=5,
+    )
+    db_session.add(work)
+    await db_session.commit()
+    _patch_fts(monkeypatch, series_ids=[work.id])
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+    )
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id,
+            file_path=f"[2005] [Season 4] Initial D Fifth Stage/e0{i}.mkv",
+            source="auto", work_title_hint="Initial D Fifth Stage",
+            season=4, episode_start=i, episode_end=i,
+        )
+        for i in (1, 2)
+    ])
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 2
+    assert out.remapped == 2
+    for row in resource.file_assignments:
+        assert row.series_id == work.id
+        assert row.season == 5
+    links = await _links(db_session, resource.id)
+    assert [(link.series_id, link.source) for link in links] == [(work.id, "auto")]
+
+
+async def test_bind_hint_clusters_movie_binding_clears_pack_season(
+    db_session, monkeypatch
+):
+    """A movie-form cluster binds its Movie member; movies are seasonless, so
+    the pack-internal "[Season 3]" directory tag is dropped from the row."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D", external_source="series_group", external_id=_uuid(),
+    )
+    movie = Movie(
+        id=_uuid(), title_cn="头文字D Third Stage", title_en="Initial D Third Stage",
+        collection_id=collection.id,
+    )
+    db_session.add_all([collection, movie])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="franchise",
+        collection_id=collection.id,
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2001] [Season 3] Initial D Third Stage/movie.mkv",
+        source="auto", work_title_hint="Initial D Third Stage",
+        season=3,  # pack-internal numbering from the directory tag; no episode
+    ))
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 1
+    assert out.remapped == 0
+    row = resource.file_assignments[0]
+    assert row.movie_id == movie.id
+    assert row.series_id is None
+    assert row.season is None
+
+
+def test_cluster_form_guard_pure():
+    """Form evidence: episodes → tv; explicit movie marker → movie; a bare
+    single file WITHOUT a movie marker stays neutral (OVA dirs hold TV-form
+    content)."""
+    tv_rows = [SimpleNamespace(episode_start=1, episode_end=1, season=4, file_path="a/e01.mkv")]
+    assert cwb._cluster_form(tv_rows, "Initial D Fifth Stage") == "tv"
+    movie_rows = [SimpleNamespace(episode_start=None, episode_end=None, season=None, file_path="[2014] [Movie] X/m.mkv")]
+    assert cwb._cluster_form(movie_rows, "X") == "movie"
+    ova_rows = [SimpleNamespace(episode_start=None, episode_end=None, season=None, file_path="[2007] [OVA] X Battle Stage 2/o.mkv")]
+    assert cwb._cluster_form(ova_rows, "X Battle Stage 2") == "unknown"
+    season_only = [SimpleNamespace(episode_start=None, episode_end=None, season=3, file_path="[2001] [Season 3] X Third Stage/m.mkv")]
+    assert cwb._cluster_form(season_only, "X Third Stage") == "unknown"
+
+
+def test_base_match_guard_pure():
+    battle = SimpleNamespace(
+        title_cn="Initial D Battle Stage", title_en=None, original_title=None, aliases=[],
+    )
+    fifth = SimpleNamespace(
+        title_cn="Initial D Fifth Stage", title_en=None, original_title=None, aliases=[],
+    )
+    # Stage ordinal words are work-name words: fifth ≠ battle → rejected.
+    assert cwb._base_match("Initial D Fifth Stage", battle) is False
+    assert cwb._base_match("Initial D Fifth Stage", fifth) is True
+    # Numeric season tokens and bracket tags are pack decoration on both sides.
+    decorated = SimpleNamespace(
+        title_cn="[YSS] Initial D Fifth Stage", title_en=None, original_title=None, aliases=[],
+    )
+    assert cwb._base_match("Initial D Fifth Stage S05", decorated) is True
+    short = SimpleNamespace(title_cn="D", title_en=None, original_title=None, aliases=[])
+    assert cwb._base_match("Initial D Fifth Stage", short) is False
+
+
+async def test_bind_hint_clusters_marker_tier_binds_via_collection_base(
+    db_session, monkeypatch
+):
+    """(B-1c) The hint's own Stage marker + collection base-name containment
+    resolve a member whose titles are CJK-only (no Latin alias): "Initial D
+    Fifth Stage" → the collection's s5 work, pack season S04 remapped to 5."""
+    _no_external(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D Initial D",
+        external_source="series_group", external_id=_uuid(),
+    )
+    s4 = TVSeries(
+        id=_uuid(), title_cn="头文字D Fourth Stage", season_number=4,
+        collection_id=collection.id,
+    )
+    s5 = TVSeries(
+        id=_uuid(), title_cn="头文字D Fifth Stage", season_number=5,
+        collection_id=collection.id,
+    )
+    db_session.add_all([collection, s4, s5])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        collection_id=collection.id,
+    )
+    db_session.add_all([
+        ResourceFileAssignment(
+            resource_id=resource.id,
+            file_path=f"[2012] [Season 4] Initial D Fifth Stage/e{i:02d}.mkv",
+            source="auto", work_title_hint="Initial D Fifth Stage",
+            season=4, episode_start=i, episode_end=i,
+        )
+        for i in (1, 2)
+    ])
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 2
+    assert out.remapped == 2
+    for row in resource.file_assignments:
+        assert row.series_id == s5.id
+        assert row.season == 5
+    links = await _links(db_session, resource.id)
+    assert [(link.series_id, link.source) for link in links] == [(s5.id, "auto")]
+    assert resource.batch_seasons == [5]
+
+
+async def test_bind_hint_clusters_reconcile_follows_work_season_relocation(
+    db_session, monkeypatch
+):
+    """Auto rows bound on title evidence mirror a work season that was
+    corrected AFTER binding (franchise linking created the Final Stage work
+    as s1; the series graph later relocated it to s6)."""
+    _no_external(monkeypatch)
+    work = TVSeries(id=_uuid(), title_cn="头文字D Final Stage", season_number=1)
+    db_session.add(work)
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2014] [Season 5] Initial D Final Stage/e01.mkv",
+        source="auto", work_title_hint="Initial D Final Stage",
+        series_id=work.id, season=1, episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+    # The series graph relocates the work to its true season.
+    work.season_number = 6
+    await db_session.commit()
+
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.bound == 0
+    assert out.remapped == 1
+    row = resource.file_assignments[0]
+    assert row.season == 6
+    assert row.episode_start == 1
+    assert resource.season_ranges == [
+        {"season": 6, "episode_start": 1, "episode_end": 1}
+    ]
+    # Manual provenance never follows a relocation.
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2014] [Season 5] Initial D Final Stage/e02.mkv",
+        source="manual", series_id=work.id, season=1,
+        episode_start=2, episode_end=2,
+    ))
+    await db_session.commit()
+    out = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert out.remapped == 0
+    rows = {r.file_path: r for r in resource.file_assignments}
+    assert rows["[2014] [Season 5] Initial D Final Stage/e02.mkv"].season == 1
+
+
+# =============================================================================
+# C3 — cluster form guard (OVA single-file movie verdicts) + sequel ambiguity
+# =============================================================================
+
+
+def _external_movie_hit(monkeypatch, entity):
+    async def _found(title, source, **kwargs):
+        return SimpleNamespace(
+            found=True, ambiguous=False, content_type="movie",
+            matched_entity=entity, reason="",
+        )
+
+    import app.services.metadata_agent as ma
+
+    monkeypatch.setattr(
+        ma, "get_agent", lambda: SimpleNamespace(process_title_only=_found)
+    )
+
+
+async def test_ova_single_file_cluster_accepts_movie_verdict(db_session, monkeypatch):
+    """C3a: a single-file OVA-dir cluster with only WEAK numeric evidence
+    (an LLM-suggested episode, not a path pattern) is not locked to tv — a
+    movie verdict binds."""
+    _external_movie_hit(monkeypatch, {
+        "external_id": "tmdb:999001", "external_source": "tmdb",
+        "title_cn": "头文字D 战斗舞台3", "content_type": "movie",
+    })
+    resource = await _make_resource(db_session, is_batch=True, batch_scope="franchise")
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2021] [OVA] Initial D Battle Stage 3/[2021] [OVA] Initial D Battle Stage 3.mkv",
+        source="auto", work_title_hint="Initial D Battle Stage 3",
+        episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 1
+    row = resource.file_assignments[0]
+    movie = (await db_session.execute(select(Movie))).scalars().one()
+    assert row.movie_id == movie.id
+    assert row.series_id is None
+    assert row.season is None  # movies are seasonless
+
+
+async def test_strong_episode_evidence_still_rejects_movie_verdict(
+    db_session, monkeypatch
+):
+    """C3a: SxxEyy in the path remains hard TV evidence — a movie verdict is
+    still rejected."""
+    _external_movie_hit(monkeypatch, {
+        "external_id": "tmdb:999002", "external_source": "tmdb",
+        "title_cn": "某电影", "content_type": "movie",
+    })
+    resource = await _make_resource(db_session, is_batch=True, batch_scope="franchise")
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2012] [Season 4] Initial D Fifth Stage/Initial D [2012] - S04E01 - Encounter.mkv",
+        source="auto", work_title_hint="Initial D Fifth Stage",
+        season=4, episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 0
+    row = resource.file_assignments[0]
+    assert row.series_id is None and row.movie_id is None
+    assert row.work_title_hint == "Initial D Fifth Stage"
+
+
+async def test_sequel_sibling_not_bound_by_stripped_base(db_session, monkeypatch):
+    """C3b: "Initial D Battle Stage" never binds the "...Battle Stage 2"
+    work via stripped-base containment — the hint is kept."""
+    _external_not_found(monkeypatch)
+    bs2 = TVSeries(
+        id=_uuid(), title_cn="头文字D 战斗舞台2", title_en="Initial D Battle Stage 2",
+        content_type="tv", season_number=1,
+    )
+    db_session.add(bs2)
+    await db_session.commit()
+    resource = await _make_resource(db_session, is_batch=True, batch_scope="franchise")
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2002] [OVA] Initial D Battle Stage/[2002] [OVA] Initial D Battle Stage.mkv",
+        source="auto", work_title_hint="Initial D Battle Stage",
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 0
+    row = resource.file_assignments[0]
+    assert row.series_id is None and row.movie_id is None
+    assert row.work_title_hint == "Initial D Battle Stage"
+
+
+async def test_sequel_disambiguation_prefers_exact_original(db_session, monkeypatch):
+    """C3b: with an exact-original match present ("Initial D: Battle Stage"),
+    the hint binds THAT, not the sequel sibling."""
+    _external_not_found(monkeypatch)
+    bs2 = TVSeries(
+        id=_uuid(), title_cn="头文字D 战斗舞台2", title_en="Initial D Battle Stage 2",
+        content_type="tv", season_number=1,
+    )
+    movie = Movie(
+        id=_uuid(), title_cn="头文字D 战斗舞台", title_en="Initial D: Battle Stage",
+        content_type="movie",
+    )
+    db_session.add_all([bs2, movie])
+    await db_session.commit()
+    resource = await _make_resource(db_session, is_batch=True, batch_scope="franchise")
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[2002] [OVA] Initial D Battle Stage/[2002] [OVA] Initial D Battle Stage.mkv",
+        source="auto", work_title_hint="Initial D Battle Stage",
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 1
+    row = resource.file_assignments[0]
+    assert row.movie_id == movie.id
+    assert row.series_id is None
+
+
+def test_sequel_ambiguous_ignores_season_tokens():
+    """C3b: season tokens ("Show S02") are not sequel numbers — the normal
+    season-selection path is unaffected."""
+    plain = SimpleNamespace(
+        title_cn="Show", title_en=None, original_title=None, aliases=None,
+    )
+    assert cwb._sequel_ambiguous("Show S02", plain) is False
+    sequel = SimpleNamespace(
+        title_cn="头文字D 战斗舞台2", title_en="Initial D Battle Stage 2",
+        original_title=None, aliases=None,
+    )
+    assert cwb._sequel_ambiguous("Initial D Battle Stage", sequel) is True
+    assert cwb._sequel_ambiguous("Initial D Battle Stage 2", sequel) is False
+
+
+async def test_season_marker_hint_still_binds_by_season(db_session, monkeypatch):
+    """C3b non-regression: a season-marked hint ("Show S02") still resolves
+    to the collection's season-2 member via the season-marker tier."""
+    _external_not_found(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="Show", external_source="series_group", external_id=_uuid(),
+    )
+    show = TVSeries(
+        id=_uuid(), title_cn="Show", title_en="Show", content_type="tv",
+        season_number=2, collection_id=collection.id,
+    )
+    db_session.add_all([collection, show])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="multi_season",
+        collection_id=collection.id,
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id, file_path="Show S02/Show.S02E01.mkv",
+        source="auto", work_title_hint="Show S02", season=2,
+        episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 1
+    assert resource.file_assignments[0].series_id == show.id
+
+
+# =============================================================================
+# D2 — season marker tier qualifier compatibility
+# =============================================================================
+
+
+async def test_season_marker_tier_rejects_conflicting_qualifier(
+    db_session, monkeypatch
+):
+    """D2: hint "Initial D First Stage" (marker 1) must not select the
+    collection's season-1 member when that member is "Initial D Battle
+    Stage" — same stripped base, conflicting qualifier."""
+    _external_not_found(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D Initial D",
+        external_source="franchise_pack", external_id=None,
+    )
+    squatter = TVSeries(
+        id=_uuid(), title_cn="头文字D 战斗舞台", title_en="Initial D Battle Stage",
+        content_type="tv", season_number=1, collection_id=collection.id,
+    )
+    db_session.add_all([collection, squatter])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="franchise",
+        collection_id=collection.id,
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E01 - Natural.mkv",
+        source="auto", work_title_hint="Initial D First Stage", season=1,
+        episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 0
+    row = resource.file_assignments[0]
+    assert row.series_id is None and row.movie_id is None
+    assert row.work_title_hint == "Initial D First Stage"
+
+
+async def test_season_marker_tier_accepts_base_name_member(
+    db_session, monkeypatch
+):
+    """D2: same hint, but the season-1 member is the base work "头文字D"
+    (empty qualifier residue on both sides) — the tier binds."""
+    _external_not_found(monkeypatch)
+    collection = WorkCollection(
+        id=_uuid(), title_cn="头文字D Initial D",
+        external_source="franchise_pack", external_id=None,
+    )
+    first = TVSeries(
+        id=_uuid(), title_cn="头文字D", title_en="Initial D",
+        content_type="tv", season_number=1, collection_id=collection.id,
+    )
+    db_session.add_all([collection, first])
+    await db_session.commit()
+    resource = await _make_resource(
+        db_session, is_batch=True, batch_scope="franchise",
+        collection_id=collection.id,
+    )
+    db_session.add(ResourceFileAssignment(
+        resource_id=resource.id,
+        file_path="[1998] [Season 1] Initial D First Stage/Initial D [1998] - S01E01 - Natural.mkv",
+        source="auto", work_title_hint="Initial D First Stage", season=1,
+        episode_start=1, episode_end=1,
+    ))
+    await db_session.commit()
+
+    outcome = await cwb.bind_hint_clusters(db_session, resource, None)
+    assert outcome.bound == 1
+    assert resource.file_assignments[0].series_id == first.id

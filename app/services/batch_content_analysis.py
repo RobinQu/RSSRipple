@@ -17,7 +17,10 @@ cannot finish the job —
 
 1. ``batch_scope == "franchise"`` (multi-work packs), or
 2. ``is_batch`` and a large share of main video files have no parseable
-   episode numbers.
+   episode numbers, or
+3. the title layer already judged the resource a batch
+   (``resource.is_batch``) but the deterministic report stayed
+   ``scope="unknown"`` with at least two main video files.
 
 Season/multi-season packs never burn an LLM call. All failures degrade
 silently to the deterministic result; rows marked ``source="manual"``
@@ -61,11 +64,27 @@ _UNPARSED_RATIO_THRESHOLD = 0.5
 _MAX_LISTING_ENTRIES = 400
 
 
-def llm_refinement_needed(report: TorrentReport, batch_scope: str | None) -> bool:
-    """True when the report should be refined through the LLM layer."""
+def llm_refinement_needed(
+    report: TorrentReport,
+    batch_scope: str | None,
+    resource_is_batch: bool = False,
+) -> bool:
+    """True when the report should be refined through the LLM layer.
+
+    ``resource_is_batch`` is the resource-level verdict from the title layer:
+    a title-judged batch whose deterministic report stays ``unknown`` (paths
+    carry no parseable season/episode structure, e.g. Stage-named folders
+    without numbers) is exactly the case the LLM can still resolve.
+    """
     if not runtime_config.llm_api_key:
         return False
     if batch_scope == "franchise":
+        return True
+    if (
+        resource_is_batch
+        and report.scope == "unknown"
+        and report.video_file_count >= 2
+    ):
         return True
     return (
         report.is_batch
@@ -242,10 +261,12 @@ async def analyze_listing(
 ) -> dict[str, Any] | None:
     """One LLM call classifying the listing. Returns None on any failure.
 
-    Uses a dedicated short-timeout client (20s) instead of the shared
-    ``call_llm`` helper (120s): the deterministic layer already covers the
-    wizard, so a slow/unreachable LLM must never stall the analyze-batch
-    request long enough for browsers/proxies to cut the connection.
+    Budget: 120s (the shared ``call_llm`` helper's magnitude). Large
+    franchise-pack listings (90+ files) legitimately need that long for a
+    full mapping; the earlier 20s budget timed out on exactly those packs.
+    The deterministic layer still covers the wizard when the LLM is slow or
+    unreachable, and the response is non-streaming JSON, so a hung call is
+    the only real cost.
     """
     if not runtime_config.llm_api_key:
         return None
@@ -277,14 +298,14 @@ async def analyze_listing(
         client = _AsyncOpenAI(
             api_key=runtime_config.llm_api_key,
             base_url=runtime_config.llm_base_url,
-            timeout=_httpx.Timeout(20.0, connect=5.0),
+            timeout=_httpx.Timeout(120.0, connect=5.0),
         )
         response = await client.chat.completions.create(
             model=runtime_config.llm_model,
             messages=messages,
             temperature=0.1,
-            timeout=20,
-            extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
+            timeout=120,
+            extra_body=runtime_config.llm_extra_body(),
         )
         raw = response.choices[0].message.content or ""
         data = _parse_llm_json(raw)
@@ -336,14 +357,14 @@ async def analyze_listing_stream(
         client = _AsyncOpenAI(
             api_key=runtime_config.llm_api_key,
             base_url=runtime_config.llm_base_url,
-            timeout=_httpx.Timeout(60.0, connect=5.0),
+            timeout=_httpx.Timeout(120.0, connect=5.0),
         )
         stream = await client.chat.completions.create(
             model=runtime_config.llm_model,
             messages=messages,
             temperature=0.1,
             stream=True,
-            extra_body={"enable_thinking": runtime_config.llm_enable_thinking},
+            extra_body=runtime_config.llm_extra_body(),
         )
         async for chunk in stream:
             delta = chunk.choices[0].delta.content or ""

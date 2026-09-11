@@ -117,6 +117,22 @@ class _RuntimeConfig:
     def llm_enable_thinking(self) -> bool:
         return self._bool("llm_enable_thinking")
 
+    def llm_extra_body(self) -> dict:
+        """``extra_body`` for chat-completions calls (F6).
+
+        Both spellings of the thinking switch are sent: some OpenAI-compatible
+        relays (ZhipuAI GLM, DeepSeek) read the top-level ``enable_thinking``,
+        while sglang/vLLM-style servers only honor
+        ``chat_template_kwargs.enable_thinking`` — a top-level-only key is
+        silently dropped there and the judge pays full chain-of-thought
+        latency. Endpoints recognizing neither ignore both harmlessly.
+        """
+        thinking = self.llm_enable_thinking
+        return {
+            "enable_thinking": thinking,
+            "chat_template_kwargs": {"enable_thinking": thinking},
+        }
+
     # ── External search data sources ──────────────────────────────────────
     @property
     def tmdb_api_key(self) -> str:

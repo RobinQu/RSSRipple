@@ -306,6 +306,62 @@ async def _process_resource_metadata(
                         bind_single_work_assignments,
                     )
                     await bind_single_work_assignments(task_db, resource)
+                    # Bangumi series-graph expansion (B1): a franchise /
+                    # multi_season pack linked to a Bangumi base entry unfolds
+                    # its sibling seasons / movies / specials via the
+                    # related-subjects endpoint. Best-effort and expansion-only
+                    # — failures keep the original link verdict.
+                    if resource.is_batch and resource.batch_scope in (
+                        "franchise", "multi_season",
+                    ):
+                        try:
+                            from app.services.bangumi_relations import (
+                                expand_bangumi_series_graph,
+                            )
+
+                            await expand_bangumi_series_graph(task_db, resource)
+                        except Exception as e:  # noqa: BLE001 — never a downgrade
+                            logger.warning(
+                                "[bangumi-graph] expansion failed for %s: %s",
+                                resource_id, e, exc_info=True,
+                            )
+                        # Cluster binding second pass: torrent inspection runs
+                        # BEFORE metadata linking, so works created or
+                        # season-relocated by the series graph above were not
+                        # visible to it. The pass is idempotent — unbound
+                        # clusters resolve against the expanded members, and
+                        # already-bound auto rows mirror any season relocation
+                        # (e.g. "Final Stage" created as s1 by franchise
+                        # linking, then relocated to s6 by the graph).
+                        try:
+                            from app.services.cluster_work_binding import (
+                                bind_hint_clusters,
+                            )
+
+                            await bind_hint_clusters(task_db, resource, channel)
+                        except Exception as e:  # noqa: BLE001 — enrichment only
+                            logger.warning(
+                                "[cluster-bind] post-graph pass failed for %s: %s",
+                                resource_id, e,
+                            )
+                        # C4: member resolution (web fallback, English titles)
+                        # and the series graph (Japanese titles) can each
+                        # create a row for the SAME film. Deterministic
+                        # same-resource same-date movie dedup — no date
+                        # evidence, no merge.
+                        try:
+                            from app.services.franchise_service import (
+                                dedupe_resource_movies,
+                            )
+
+                            await dedupe_resource_movies(
+                                task_db, resource, channel=channel
+                            )
+                        except Exception as e:  # noqa: BLE001 — enrichment only
+                            logger.warning(
+                                "[franchise] movie dedup failed for %s: %s",
+                                resource_id, e,
+                            )
                     # Commit inside the lock: the next same-work task's lookup
                     # must see this task's series/movie row.
                     await task_db.commit()
@@ -725,6 +781,7 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
         from app.services.resource_parser import (
             detect_absolute_episode,
             detect_batch,
+            detect_season_span,
             detect_subtitle_langs,
             extract_compilation_work_title,
         )
@@ -744,6 +801,14 @@ async def fetch_channel_resources(channel: Channel, db: AsyncSession, *, force: 
                 resource.episode_start = pre_start
             if pre_end is not None:
                 resource.episode_end = pre_end
+            # Whole-run markers ("全N季"/"N-M季") spell out the covered
+            # seasons in the title itself: record them as multi-season
+            # coverage so the batch is dispatchable even before (or without)
+            # torrent content detection, which may later refine/overwrite.
+            season_span = detect_season_span(title)
+            if season_span is not None and len(season_span) >= 2:
+                resource.batch_scope = "multi_season"
+                resource.batch_seasons = season_span
         # Compilation/archive torrents ("[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版...")
         # bundle an entire work. Extract the primary work name as the search
         # title so the resource can link to that work (via the title index or

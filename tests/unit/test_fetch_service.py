@@ -171,6 +171,29 @@ class TestFetchChannelResources:
         assert row.episode is None
         assert row.subtitle_langs == ["zh-CN", "zh-TW"]
 
+    async def test_pre_parser_fills_multi_season_span(self, db_session, channel, fake_queue):
+        """A 全N季 title spells out the covered seasons: the title layer
+        records them as multi-season coverage (batch_scope + batch_seasons)
+        so the pack is dispatchable even before torrent content detection."""
+        entries = [
+            _entry("gspan", "头文字D.全六季.日语.英文字幕.Initial D [BD] [1080p] [AV1]", enclosures=[
+                {"url": "magnet:?xt=urn:btih:span"},
+            ]),
+        ]
+        feed = _mock_feed(entries)
+        with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+             patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+            await fs.fetch_channel_resources(channel, db_session)
+
+        from sqlalchemy import select
+        row = (await db_session.execute(
+            select(FileResource).where(FileResource.guid == "gspan")
+        )).scalar_one()
+        assert row.is_batch is True
+        assert row.batch_scope == "multi_season"
+        assert row.batch_seasons == [1, 2, 3, 4, 5, 6]
+        assert row.episode is None
+
     async def test_batch_detection_clears_field_mapped_episode(self, db_session, fake_queue):
         """A detect_batch hit must clear a stray single ``episode`` parsed by
         the channel field_mapping (e.g. a year like 1975 misparsed as an

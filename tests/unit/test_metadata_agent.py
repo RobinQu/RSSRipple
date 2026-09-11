@@ -56,6 +56,23 @@ def test_tools_are_restricted_to_selected_source():
     }
 
 
+def test_judge_model_sends_both_thinking_spellings(monkeypatch):
+    """F6: the judge/ReAct ChatOpenAI model carries enable_thinking both
+    top-level and under chat_template_kwargs (sglang only honors the latter)."""
+    from app.services import runtime_config as rc
+
+    monkeypatch.setitem(rc._overrides, "llm_enable_thinking", "false")
+    agent = UnifiedMetadataAgent()
+    extra_body = agent._model.extra_body
+    assert extra_body["enable_thinking"] is False
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    monkeypatch.setitem(rc._overrides, "llm_enable_thinking", "true")
+    agent = UnifiedMetadataAgent()
+    extra_body = agent._model.extra_body
+    assert extra_body["enable_thinking"] is True
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
 def test_resource_metadata_parses_batch_fields():
     meta = ResourceMetadata.from_dict({
         "clean_title": "Witch Hat Atelier",

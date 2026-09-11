@@ -142,3 +142,43 @@ async def test_sync_resource_collection_without_works_untouched(
     resource.series_id = work.id
     await sync_resource_collection(db_session, resource)
     assert resource.collection_id is None
+
+
+async def test_analyze_listing_timeout_and_thinking_body(monkeypatch):
+    """F6/F7: analyze_listing sends enable_thinking in both spellings and
+    budgets 120s for large franchise-pack listings."""
+    from types import SimpleNamespace
+
+    from app.services import batch_content_analysis as bca
+    from app.services import runtime_config as rc
+
+    monkeypatch.setitem(rc._overrides, "llm_api_key", "test-key")
+    monkeypatch.setitem(rc._overrides, "llm_enable_thinking", "false")
+
+    captured = {}
+
+    class _FakeCompletions:
+        async def create(self, **kwargs):
+            captured.update(kwargs)
+            message = SimpleNamespace(content='{"scope": "franchise", "works": []}')
+            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    class _FakeClient:
+        def __init__(self, **kwargs):
+            captured["client_timeout"] = kwargs.get("timeout")
+
+        chat = SimpleNamespace(completions=_FakeCompletions())
+
+    monkeypatch.setattr("openai.AsyncOpenAI", _FakeClient)
+
+    files = [{"name": f"pack/f{i:02d}.mkv", "size": 1000} for i in range(93)]
+    result = await bca.analyze_listing("头文字D 全六季", files, ["Initial D First Stage"])
+
+    assert result == {"scope": "franchise", "works": []}
+    extra_body = captured["extra_body"]
+    assert extra_body["enable_thinking"] is False
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["timeout"] == 120
+    # The full 93-file listing is sent, not truncated below the entry cap.
+    assert "93 entries" in captured["messages"][1]["content"]
+    monkeypatch.delitem(rc._overrides, "llm_api_key", raising=False)
