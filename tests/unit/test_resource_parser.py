@@ -407,9 +407,6 @@ def test_detect_season_span(title, expected):
 # =============================================================================
 
 
-from app.services.resource_parser import season_from_title  # noqa: E402
-
-
 @pytest.mark.parametrize(
     "title,expected",
     [

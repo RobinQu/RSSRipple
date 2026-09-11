@@ -1205,33 +1205,6 @@ async def test_inspect_enrichment_survives_refresh_failure(monkeypatch):
     assert len(r.file_assignments) == 2
 
 
-async def test_inspect_franchise_llm_refinement_binds_movies(monkeypatch):
-    """Franchise pack + LLM key → gated refine runs and movies stay bound
-    (no franchise collection linking when llm_bound_movies is True)."""
-    monkeypatch.setattr(ti.settings, "llm_api_key", "sk-test")
-    import app.services.batch_content_analysis as bca_mod
-
-    refine = AsyncMock(return_value=True)
-    monkeypatch.setattr(bca_mod, "refine_batch_content", refine)
-    link = AsyncMock()
-    monkeypatch.setattr(
-        "app.services.franchise_service.link_franchise_pack", link
-    )
-    _stub_pipeline(monkeypatch, [
-        _f("作品X TV/作品X S01E01.mkv"),
-        _f("作品X TV/作品X S01E02.mkv"),
-        _f("作品X 剧场版/作品X Movie.mkv"),
-    ])
-    r = _assign_resource()
-    assert await maybe_inspect_torrent(_EnrichDb(), r) is True
-    assert r.is_batch is True
-    assert r.batch_scope == "franchise"
-    refine.assert_awaited_once()
-    # llm_bound_movies=True → franchise linking is skipped.
-    link.assert_not_awaited()
-    assert r.season_ranges is not None
-
-
 async def test_inspect_franchise_llm_failure_degrades_and_links(monkeypatch):
     """A crashing LLM refinement must not lose the batch verdict — the
     deterministic franchise linking then still runs."""

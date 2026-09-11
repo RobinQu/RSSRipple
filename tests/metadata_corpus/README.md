@@ -14,7 +14,7 @@
 
 该场景经四轮"录制→暴露缺陷→修复→重录"收敛（2026-09-09 至 09-11）：R1 暴露图谱跨 IP 污染（MF Ghost）、air-date 阈值污染、合集标题未清洗、包内季号冲突；R2 暴露图谱 upsert 顺序缺陷（Fifth Stage 被陈旧槽位 park）、LLM 精判跳过 franchise 链接致资源合集 NULL、OVA form guard 误伤；R3 暴露 OVA 抢占主合集季槽位 + season-marker-tier 跨标题误绑（First Stage 26 文件错挂 Battle Stage）；R4（Fix D）全部收敛。
 
-已知残留（expected 如实断言或豁免并在此注明）：Battle Stage 3 未绑定（冻结 wigolo 证据只有无关 wikipedia 命中，found=False 是对证据的正确裁决）；Movie Battle Digest 绑到 wikipedia 的 Legend 三部曲汇总条目（冻结证据中只有该身份可用）；104569/44758 的 `episode_seasons` 未断言——自愈季号纠正（s1→s6 / s1→s0）遗留旧季标记的 Episode 行，不作为金标祝福；`batch_seasons=[1..5]` 为 torrent 目录序派生缓存（franchise scope 不从作品身份重推导）；Fourth Stage Battle Digest 单文件按冻结 LLM judge 裁决绑 3816:s4。
+已知残留（expected 如实断言或豁免并在此注明）：Battle Stage 3 未绑定（冻结 wigolo 证据只有无关 wikipedia 命中，found=False 是对证据的正确裁决）；Movie Battle Digest 绑到 wikipedia 的 Legend 三部曲汇总条目（冻结证据中只有该身份可用）；104569/44758 的 `episode_seasons` 未断言——自愈季号纠正（s1→s6 / s1→s0）现由 `_sync_work_episode_seasons` 把 Episode 行同步重标到目标季（目标季同集号冲突行删除），不再遗留旧季标记，但该审计字段仍未纳入金标断言；`batch_seasons=[1..5]` 为 torrent 目录序派生缓存（franchise scope 不从作品身份重推导）；Fourth Stage Battle Digest 单文件按冻结 LLM judge 裁决绑 3816:s4。
 
 备选第三场景 `[整理搬运] 头文字D…`（case `20010314-…`，156 文件：95 视频 + 59 zip/文本非视频，含漫画/CD/字幕/字体）已有 torrent 证据、review pending；非视频文件不进入 assignments 的处理与 156 文件的独立审核成本较高，留待后续轮次立项。
 

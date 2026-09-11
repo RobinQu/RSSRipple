@@ -748,8 +748,14 @@ def _fake_openai_client(monkeypatch, completions):
 def _cfg(monkeypatch, *, api_key="k"):
     monkeypatch.setattr(
         _bca, "runtime_config",
-        _SimpleNamespace(llm_api_key=api_key, llm_base_url="http://llm",
-                         llm_model="m", llm_enable_thinking=False),
+        _SimpleNamespace(
+            llm_api_key=api_key, llm_base_url="http://llm",
+            llm_model="m", llm_enable_thinking=False,
+            llm_extra_body=lambda: {
+                "enable_thinking": False,
+                "chat_template_kwargs": {"enable_thinking": False},
+            },
+        ),
     )
 
 
@@ -789,7 +795,10 @@ async def test_analyze_listing_success_and_failure(monkeypatch):
     assert data["works"][0]["title"] == "电影"
     assert captured["model"] == "m"
     assert captured["temperature"] == 0.1
-    assert captured["extra_body"] == {"enable_thinking": False}
+    assert captured["extra_body"] == {
+        "enable_thinking": False,
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
 
     # exception in the LLM call -> None
     _fake_openai_client(monkeypatch, _Completions(exc=RuntimeError("boom")))

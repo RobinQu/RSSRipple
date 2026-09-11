@@ -1154,3 +1154,147 @@ async def test_audit_list_and_plan_filter(
     body = resp.json()
     assert body["meta"]["total"] == 4
     assert len(body["data"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Extra coverage: validation branches, replan failure, preview RPC errors
+# ---------------------------------------------------------------------------
+
+
+async def test_replan_failure_is_swallowed(client, library, monkeypatch):
+    """配置变更后的计划重建失败只记日志，不影响响应。"""
+    async def _boom(db, reason):
+        raise RuntimeError("replan down")
+
+    monkeypatch.setattr(
+        "app.services.organize_service.replan_open_plans", _boom
+    )
+    resp = await client.post(
+        "/api/v1/organize-rules",
+        json={"name": "replan", "library_id": library.id,
+              "path_template": MOVIE_TEMPLATE},
+    )
+    assert resp.status_code == 201
+
+
+async def test_library_update_rejects_bad_subpaths(client, library):
+    resp = await client.put(
+        f"/api/v1/libraries/{library.id}", json={"root_subpath": "../escape"}
+    )
+    assert resp.status_code == 422
+    resp = await client.put(
+        f"/api/v1/libraries/{library.id}", json={"recycle_subpath": "/abs"}
+    )
+    assert resp.status_code == 422
+
+
+async def test_preview_plan_error_returns_422(
+    client, db_session, movie_seed, monkeypatch
+):
+    from app.services.organize_planner import PlanError
+
+    def _boom(*a, **kw):
+        raise PlanError("cannot plan")
+
+    monkeypatch.setattr(
+        "app.services.organize_service._collect_and_plan", _boom
+    )
+    resp = await client.post(
+        "/api/v1/organize-rules/preview",
+        json={"notification_id": movie_seed["notification"].id, "category": "Horror"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_preview_resource_without_task_422(
+    client, db_session, sample_channel
+):
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid="no-task",
+        title_raw="No.Task", torrent_url="magnet:?xt=urn:btih:no", is_batch=False,
+    )
+    db_session.add(res)
+    await db_session.commit()
+    resp = await client.post(
+        "/api/v1/organize-rules/preview", json={"resource_id": res.id}
+    )
+    assert resp.status_code == 422
+
+
+async def test_preview_resource_rpc_failure_is_tolerated(
+    client, db_session, db_session_factory, library, movie_seed, download_file,
+    monkeypatch,
+):
+    await _point_download_dir(
+        db_session_factory, movie_seed["notification"].id, str(download_file)
+    )
+    async with db_session_factory() as s:
+        task = await s.get(DownloadTask, movie_seed["task"].id)
+        task.transmission_torrent_id = 7
+        await s.commit()
+    monkeypatch.setattr(
+        "app.clients.transmission.TransmissionWrapper.get_torrent_files",
+        AsyncMock(side_effect=RuntimeError("rpc down")),
+    )
+    resp = await client.post(
+        "/api/v1/organize-rules/preview",
+        json={"resource_id": movie_seed["resource"].id, "category": "Horror"},
+    )
+    assert resp.status_code in (200, 422)
+
+
+async def test_get_unknown_rule_404(client):
+    resp = await client.get(f"/api/v1/organize-rules/{_uuid()}")
+    assert resp.status_code == 404
+
+
+async def test_rule_update_all_fields(client, library, rule):
+    resp = await client.put(
+        f"/api/v1/organize-rules/{rule.id}",
+        json={
+            "name": "renamed",
+            "priority": 7,
+            "enabled": False,
+            "library_id": library.id,
+            "filter": {"field": "movie.genre", "operator": "contains",
+                       "value": "Horror"},
+            "path_template": MOVIE_TEMPLATE,
+            "file_op": "copy",
+            "auto_execute": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text[:300]
+    data = resp.json()["data"]
+    assert data["name"] == "renamed"
+    assert data["file_op"] == "copy"
+    assert data["auto_execute"] is True
+
+
+async def test_plan_pending_reason_missing_category(
+    client, db_session, library, rule, movie_seed
+):
+    plan = await _seed_plan_with_op(
+        db_session, movie_seed["notification"], library, rule=rule
+    )
+    resp = await client.get("/api/v1/organize/plans")
+    item = next(p for p in resp.json()["data"] if p["id"] == plan.id)
+    assert item["pending_reason"] == "unclassified"
+
+
+async def test_classify_organize_error_returns_422(
+    client, db_session, library, movie_seed, monkeypatch
+):
+    from app.services import organize_service
+
+    plan = await _make_plan(db_session, movie_seed["notification"])
+    await db_session.commit()
+
+    async def _boom(*a, **kw):
+        raise organize_service.OrganizeError("bad classify")
+
+    monkeypatch.setattr(organize_service, "classify_plan", _boom)
+    resp = await client.post(
+        f"/api/v1/organize/plans/{plan.id}/classify",
+        json={"library_id": library.id, "category": "Horror"},
+    )
+    assert resp.status_code == 422

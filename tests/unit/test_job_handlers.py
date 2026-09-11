@@ -677,6 +677,6 @@ def test_register_all_handlers():
         "sync_progress", "daily_cleanup", "daily_dedup", "check_downloaders",
         "fts_drain", "fts_reconcile", "download_notifications",
         "refresh_resource_organize", "resolve_magnet_torrent",
-        "magnet_resolve_sweep",
+        "magnet_resolve_sweep", "reprocess_resource_metadata",
     }
     assert registered == expected

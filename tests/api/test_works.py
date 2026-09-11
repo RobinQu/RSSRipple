@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
+from app.api.v1.works import _year_from_date
 from app.models.audio_work import AudioWork
 from app.models.movie import Movie
 from app.models.series import TVSeries
@@ -62,6 +63,109 @@ class TestRemovedWorksMetadataEndpoints:
         assert res.status_code == 200
         assert res.json()["data"]["count"] == 0
         assert res.json()["data"]["job"] is None
+
+    async def test_batch_refresh_blank_source_400(self, client):
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={"items": [{"id": _uuid(), "content_type": "tv"}], "source": "   "},
+        )
+        assert res.status_code == 400
+
+    async def test_batch_refresh_unknown_source_400(self, client):
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={"items": [{"id": _uuid(), "content_type": "tv"}], "source": "bogus"},
+        )
+        assert res.status_code == 400
+
+    async def test_batch_refresh_trusted_sites_normalized(self, client, monkeypatch):
+        from app.services import task_queue as tq_mod
+
+        fake = MagicMock()
+        fake.enqueue = AsyncMock(return_value={"job_id": "j2"})
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={
+                "items": [{"id": _uuid(), "content_type": "tv"}],
+                "source": "wikipedia",
+                "trusted_sites": ["Bangumi", "bangumi", "tmdb"],
+            },
+        )
+        assert res.status_code == 200, res.text[:300]
+        assert res.json()["data"]["trusted_sites"] == ["bangumi", "tmdb"]
+        payload = fake.enqueue.call_args.args[2]
+        assert payload["trusted_sites"] == ["bangumi", "tmdb"]
+
+    async def test_batch_refresh_invalid_trusted_site_422(self, client):
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={
+                "items": [{"id": _uuid(), "content_type": "tv"}],
+                "source": "wikipedia",
+                "trusted_sites": ["not-a-site"],
+            },
+        )
+        assert res.status_code == 422
+
+    async def test_batch_refresh_explicit_null_trusted_sites(self, client, monkeypatch):
+        from app.services import task_queue as tq_mod
+
+        fake = MagicMock()
+        fake.enqueue = AsyncMock(return_value={"job_id": "j3"})
+        monkeypatch.setattr(tq_mod, "task_queue", fake)
+        res = await client.post(
+            "/api/v1/works/batch-refresh-metadata",
+            json={
+                "items": [{"id": _uuid(), "content_type": "tv"}],
+                "source": "wikipedia",
+                "trusted_sites": None,
+            },
+        )
+        assert res.status_code == 200
+        assert res.json()["data"]["trusted_sites"] is None
+
+
+class TestYearFromDate:
+    def test_year_from_date_variants(self):
+        assert _year_from_date(None) is None
+        assert _year_from_date("1999-03-01") == 1999
+        assert _year_from_date("abcd") is None
+
+
+class TestWorksListSearchAndAudio:
+    async def _seed(self, db_session):
+        series = TVSeries(
+            id=_uuid(), title_cn="Searchable 剧集", content_type="tv",
+            start_date=__import__("datetime").date(2020, 5, 1),
+        )
+        movie = Movie(
+            id=_uuid(), title_cn="Searchable 电影", content_type="movie",
+            release_date=__import__("datetime").date(2021, 2, 2),
+        )
+        audio = AudioWork(id=_uuid(), title_cn="Searchable 音频", content_type="asmr")
+        db_session.add_all([series, movie, audio])
+        await db_session.commit()
+        return series, movie, audio
+
+    async def test_search_matches_all_three_tables(self, client, db_session):
+        series, movie, audio = await self._seed(db_session)
+        res = await client.get("/api/v1/works", params={"search": "Searchable"})
+        assert res.status_code == 200
+        ids = {w["id"] for w in res.json()["data"]}
+        assert ids == {series.id, movie.id, audio.id}
+        by_id = {w["id"]: w for w in res.json()["data"]}
+        assert by_id[series.id]["year"] == 2020
+        assert by_id[movie.id]["year"] == 2021
+
+    async def test_audio_type_filter_includes_search(self, client, db_session):
+        _, _, audio = await self._seed(db_session)
+        res = await client.get(
+            "/api/v1/works", params={"content_type": "asmr", "search": "Searchable"}
+        )
+        assert res.status_code == 200
+        ids = {w["id"] for w in res.json()["data"]}
+        assert ids == {audio.id}
 
 
 class TestWorksListCollectionFilter:
@@ -192,6 +296,33 @@ class TestWorksMerge:
             },
         )
         assert res.status_code == 422
+
+    async def test_merge_empty_duplicates_rejected(self, client, db_session):
+        s1 = await self._make_series(db_session)
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": s1.id,
+                "duplicate_ids": [],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 422
+        assert res.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    async def test_merge_unknown_survivor_404(self, client, db_session):
+        s2 = await self._make_series(db_session)
+        res = await client.post(
+            "/api/v1/works/merge",
+            json={
+                "survivor_type": "series",
+                "survivor_id": _uuid(),
+                "duplicate_ids": [s2.id],
+                "confirm": True,
+            },
+        )
+        assert res.status_code == 404
 
     async def test_merge_series_success_repoints_children(
         self, client, db_session, sample_channel

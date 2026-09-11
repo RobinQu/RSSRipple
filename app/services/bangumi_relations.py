@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 from sqlalchemy import select
 
+from app.models.episode import Episode
 from app.models.movie import Movie
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
@@ -463,6 +464,41 @@ async def _attach_and_link(
     return await _ensure_link(db, resource, work_type, work.id)
 
 
+async def _sync_work_episode_seasons(
+    db: AsyncSession, work: TVSeries, season: int
+) -> None:
+    """Follow a corrected work season onto its denormalized Episode rows.
+
+    ``Episode.season`` must equal the owning work's ``season_number``; the
+    additive ``upsert_episodes`` never moves rows, so a graph-driven season
+    correction (s1→s6 / s1→s0) would otherwise leave stale-season Episode
+    rows behind. Re-tag each of the work's episodes; an episode number
+    already present at the target season is dropped so the
+    ``(series, season, episode)`` unique key cannot collide.
+    """
+    rows = (
+        await db.execute(select(Episode).where(Episode.series_id == work.id))
+    ).scalars().all()
+    target_episodes = {r.episode for r in rows if r.season == season}
+    moved = dropped = 0
+    for row in rows:
+        if row.season == season:
+            continue
+        if row.episode in target_episodes:
+            await db.delete(row)
+            dropped += 1
+        else:
+            row.season = season
+            target_episodes.add(row.episode)
+            moved += 1
+    if moved or dropped:
+        logger.info(
+            "[bangumi-graph] re-tagged %d episode(s), dropped %d stale "
+            "duplicate(s) for work %s -> season %s",
+            moved, dropped, work.id, season,
+        )
+
+
 async def _correct_work_season(
     db: AsyncSession, work: TVSeries, season: int, node: dict[str, Any]
 ) -> bool:
@@ -500,6 +536,7 @@ async def _correct_work_season(
         work.id, work.season_number, season,
     )
     work.season_number = season
+    await _sync_work_episode_seasons(db, work, season)
     return True
 
 

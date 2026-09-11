@@ -8,7 +8,8 @@ run against the real test DB.
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import select
 
@@ -21,7 +22,14 @@ from app.models.work_collection import WorkCollection
 from app.models.work_external_id import WorkExternalId
 from app.services.franchise_service import (
     FRANCHISE_PACK_SOURCE,
+    _ensure_auto_link,
+    _get_or_create_franchise_collection,
+    _is_pack_base_name,
+    _movie_base_names,
     _pack_title,
+    _resolve_member,
+    _same_ip_movies,
+    dedupe_resource_movies,
     enforce_franchise_resource_invariant,
     link_franchise_pack,
 )
@@ -777,3 +785,221 @@ async def test_unmarked_base_name_member_takes_pack_s1(db_session):
     work = (await db_session.execute(select(TVSeries))).scalars().one()
     assert work.collection_id == pack.id
     assert work.season_number == 1
+
+
+# ---------------------------------------------------------------------------
+# Gap coverage: helper bodies, degraded resolution, empty reports
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_auto_link_is_idempotent(db_session):
+    ch = await _channel(db_session)
+    resource = _resource(ch.id)
+    series = TVSeries(id=_uuid(), title_cn="作品", content_type="tv")
+    db_session.add_all([resource, series])
+    await db_session.flush()
+
+    assert await _ensure_auto_link(db_session, resource.id, "series", series.id) is True
+    assert await _ensure_auto_link(db_session, resource.id, "series", series.id) is False
+
+
+async def test_get_or_create_collection_matches_existing_title_en(db_session):
+    existing = WorkCollection(
+        id=_uuid(), title_cn="头文字D（合集）", title_en="Initial D",
+        external_source=FRANCHISE_PACK_SOURCE,
+    )
+    db_session.add(existing)
+    await db_session.flush()
+
+    coll = await _get_or_create_franchise_collection(db_session, "Initial D")
+    assert coll.id == existing.id
+
+
+async def test_resolve_member_local_lookup_failure_still_upserts(db_session):
+    agent = _agent({"作品X": _tv_hit("tmdb:100", "作品X")})
+    with patch(
+        "app.services.metadata_service.find_local_work_for_entity",
+        new_callable=AsyncMock, side_effect=RuntimeError("local lookup down"),
+    ):
+        result = await _resolve_member(db_session, agent, "tmdb", "作品X")
+    assert result is not None
+    work, attach = result
+    assert work.external_id.startswith("tmdb:100")
+    assert attach is True
+
+
+async def test_resolve_member_series_upsert_none_and_exception(db_session):
+    agent = _agent({"作品X": _tv_hit("tmdb:100", "作品X")})
+    with patch(
+        "app.services.metadata_service.create_or_update_series_from_external",
+        new_callable=AsyncMock, return_value=None,
+    ):
+        assert await _resolve_member(db_session, agent, "tmdb", "作品X") is None
+    with patch(
+        "app.services.metadata_service.create_or_update_series_from_external",
+        new_callable=AsyncMock, side_effect=RuntimeError("upsert down"),
+    ):
+        assert await _resolve_member(db_session, agent, "tmdb", "作品X") is None
+
+
+async def test_resolve_member_non_tv_movie_content_type_skipped(db_session):
+    audio_hit = ResourceMetadata(
+        clean_title="声音作品",
+        found=True,
+        content_type="audio",
+        matched_entity={
+            "external_id": "wikipedia:1", "external_source": "wikipedia",
+            "title_cn": "声音作品",
+        },
+    )
+    agent = _agent({"声音作品": audio_hit})
+    assert await _resolve_member(db_session, agent, "tmdb", "声音作品") is None
+
+
+def test_is_pack_base_name_no_bases_and_different_work():
+    assert _is_pack_base_name({"title_cn": "作品A"}, None) is True
+    assert _is_pack_base_name({"title_cn": "作品A"}, frozenset({"某大ip"})) is True
+    # Same family but a decorated variant → not attachable.
+    assert _is_pack_base_name(
+        {"title_cn": "Initial D Battle Stage"},
+        frozenset({"initial d"}),
+    ) is False
+
+
+async def test_link_franchise_pack_without_member_titles(db_session):
+    ch = await _channel(db_session)
+    resource = _resource(ch.id)
+    db_session.add(resource)
+    await db_session.flush()
+
+    await link_franchise_pack(db_session, resource, _report(), ch)
+    await db_session.flush()
+    assert resource.collection_id is not None
+    coll = await db_session.get(WorkCollection, resource.collection_id)
+    assert coll is not None and coll.external_source == FRANCHISE_PACK_SOURCE
+
+
+def test_movie_base_names_and_same_ip():
+    a = Movie(
+        id=_uuid(), title_cn="头文字D", title_en=None, original_title=None,
+        aliases=["Initial D"], content_type="movie",
+    )
+    b = Movie(
+        id=_uuid(), title_cn="头文字D 剧场版", content_type="movie",
+    )
+    c = Movie(id=_uuid(), title_cn="完全无关的电影", content_type="movie")
+    assert "头文字d" in _movie_base_names(a)
+    assert "initial d" in _movie_base_names(a)
+    assert _same_ip_movies(a, b) is True  # containment
+    assert _same_ip_movies(a, c) is False
+
+
+def test_same_ip_movies_shared_collection():
+    a = Movie(id=_uuid(), title_cn="A", collection_id="c1", content_type="movie")
+    b = Movie(id=_uuid(), title_cn="B", collection_id="c1", content_type="movie")
+    assert _same_ip_movies(a, b) is True
+
+
+def test_same_ip_movies_equal_base_name():
+    a = Movie(id=_uuid(), title_cn="同名电影", content_type="movie")
+    b = Movie(id=_uuid(), title_cn="同名电影", content_type="movie")
+    assert _same_ip_movies(a, b) is True
+
+
+def test_enforce_non_franchise_resource_returns_false():
+    resource = _resource("c", is_batch=False, batch_scope=None)
+    assert enforce_franchise_resource_invariant(resource) is False
+
+
+async def test_dedupe_less_than_two_movie_ids_returns_zero(db_session):
+    ch = await _channel(db_session, metadata_source="bangumi")
+    resource = _resource(ch.id)
+    db_session.add(resource)
+    await db_session.flush()
+
+    assert await dedupe_resource_movies(db_session, resource, channel=ch) == 0
+
+
+async def test_dedupe_uses_resource_movie_fk(db_session):
+    """One movie is only reachable through the resource FK, not a link row."""
+    from datetime import date
+
+    ch = await _channel(db_session, metadata_source="bangumi")
+    coll = WorkCollection(
+        id=_uuid(), title_cn="作品X", external_id=None,
+        external_source=FRANCHISE_PACK_SOURCE,
+    )
+    m1 = Movie(
+        id=_uuid(), title_cn="作品X Legend1", external_id="bangumi:1",
+        external_source="bangumi", content_type="movie",
+        release_date=date(2014, 8, 23), collection_id=coll.id,
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="作品X Legend1 剧场版", external_id="mal:2",
+        external_source="mal", content_type="movie",
+        release_date=date(2014, 8, 24), collection_id=coll.id,
+    )
+    resource = _resource(ch.id, collection_id=coll.id, movie_id=m1.id)
+    db_session.add_all([coll, m1, m2, resource])
+    await db_session.flush()
+    db_session.add(ResourceWorkLink(
+        id=_uuid(), resource_id=resource.id, movie_id=m2.id, source="auto",
+    ))
+    await db_session.commit()
+
+    assert await dedupe_resource_movies(db_session, resource, channel=ch) == 1
+
+
+async def test_dedupe_unresolvable_movie_ids_returns_zero():
+    """Two referenced ids but fewer than two resolvable rows → no-op."""
+
+    class _Scalars:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class _Result:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def scalars(self):
+            return _Scalars(self._rows)
+
+    class _FakeDB:
+        async def execute(self, stmt):
+            return _Result(["ghost-1", "ghost-2"])
+
+        async def get(self, model, ident):
+            return None
+
+    resource = SimpleNamespace(id="res-1", movie_id=None)
+    assert await dedupe_resource_movies(_FakeDB(), resource, channel=None) == 0
+
+
+async def test_dedupe_same_year_different_ip_keeps_both(db_session):
+    from datetime import date
+
+    ch = await _channel(db_session, metadata_source="bangumi")
+    m1 = Movie(
+        id=_uuid(), title_cn="甲电影", external_id="bangumi:1",
+        external_source="bangumi", content_type="movie",
+        release_date=date(2014, 1, 1),
+    )
+    m2 = Movie(
+        id=_uuid(), title_cn="乙电影", external_id="mal:2",
+        external_source="mal", content_type="movie",
+        release_date=date(2014, 2, 2),
+    )
+    resource = _resource(ch.id)
+    db_session.add_all([m1, m2, resource])
+    await db_session.flush()
+    db_session.add_all([
+        ResourceWorkLink(id=_uuid(), resource_id=resource.id, movie_id=m1.id, source="auto"),
+        ResourceWorkLink(id=_uuid(), resource_id=resource.id, movie_id=m2.id, source="auto"),
+    ])
+    await db_session.commit()
+
+    assert await dedupe_resource_movies(db_session, resource, channel=ch) == 0
+    assert len((await db_session.execute(select(Movie))).scalars().all()) == 2

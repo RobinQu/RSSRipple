@@ -1172,3 +1172,302 @@ async def test_process_resource_metadata_caches_torrent_before_inspect(
         res.id, sample_channel.id, asyncio.Semaphore(1),
     )
     assert calls == ["ensure", "inspect", "link"]
+
+
+# ---------------------------------------------------------------------------
+# Small eligibility helpers + title cleanup gaps
+# ---------------------------------------------------------------------------
+
+
+def test_simple_title_clean_empty():
+    assert fs._simple_title_clean("") is None
+
+
+def test_is_retry_eligible_missing_timestamp_is_true():
+    from app.utils.time import utcnow
+    r = _res(metadata_attempts=2, metadata_failure_type="transient",
+             last_metadata_attempt_at=None)
+    assert fs._is_retry_eligible(r, utcnow()) is True
+
+
+def test_is_retry_eligible_unknown_failure_type_is_true():
+    from datetime import timedelta
+
+    from app.utils.time import utcnow
+    now = utcnow()
+    r = _res(metadata_attempts=3, metadata_failure_type="mystery",
+             last_metadata_attempt_at=now - timedelta(seconds=1))
+    assert fs._is_retry_eligible(r, now) is True
+
+
+def test_is_linked_enrichment_eligible_no_channel_is_false():
+    from app.utils.time import utcnow
+    r = SimpleNamespace(series_id="s", movie_id=None, audio_work_id=None,
+                        collection_id=None, channel=None)
+    assert fs._is_linked_enrichment_eligible(r, utcnow()) is False
+
+
+def test_is_linked_enrichment_eligible_contract_satisfied_is_false(monkeypatch):
+    from app.utils.time import utcnow
+    monkeypatch.setattr(
+        fs, "inspect_resource_confirmation",
+        lambda resource, required: SimpleNamespace(required=False),
+    )
+    r = SimpleNamespace(series_id="s", movie_id=None, audio_work_id=None,
+                        collection_id=None, channel=SimpleNamespace(
+                            required_metadata_fields=["x"]))
+    assert fs._is_linked_enrichment_eligible(r, utcnow()) is False
+
+
+# ---------------------------------------------------------------------------
+# _process_resource_metadata: early exit, invariant, error paths
+# ---------------------------------------------------------------------------
+
+
+async def test_process_resource_metadata_missing_resource_returns(db_engine, sample_channel):
+    import asyncio
+
+    await fs._process_resource_metadata(
+        "does-not-exist", sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+async def test_process_resource_metadata_restored_fk_is_cleared(
+    db_session, sample_channel, monkeypatch,
+):
+    import asyncio
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Show - 01", torrent_url="https://x/a.torrent",
+        search_title="Show",
+    )
+    db_session.add(res)
+    await db_session.commit()
+
+    async def _ensure(resource):
+        return None
+
+    async def _inspect(db, resource, channel):
+        return False
+
+    async def _link(db, resource, channel):
+        return None
+
+    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _ensure)
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+    monkeypatch.setattr(
+        "app.services.franchise_service.enforce_franchise_resource_invariant",
+        lambda resource: True,
+    )
+
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+async def test_process_resource_metadata_outer_exception_is_swallowed(
+    db_session, sample_channel, monkeypatch,
+):
+    import asyncio
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Show - 01", torrent_url="https://x/a.torrent",
+        search_title="Show",
+    )
+    db_session.add(res)
+    await db_session.commit()
+
+    async def _boom(resource):
+        raise RuntimeError("torrent cache exploded")
+
+    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _boom)
+
+    # No exception should escape.
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+async def test_process_resource_metadata_rollback_failure_is_swallowed(
+    db_engine, monkeypatch,
+):
+    import asyncio
+
+    class _FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a, **kw):
+            raise RuntimeError("db down")
+
+        async def rollback(self):
+            raise RuntimeError("rollback also down")
+
+    monkeypatch.setattr(
+        "app.database.async_session_factory", MagicMock(return_value=_FakeSession())
+    )
+    # No exception escapes despite the failing rollback.
+    await fs._process_resource_metadata("r", "c", asyncio.Semaphore(1))
+
+
+async def test_process_resource_metadata_batch_enrichment_failures_are_swallowed(
+    db_session, sample_channel, monkeypatch,
+):
+    import asyncio
+
+    res = FileResource(
+        id=_uuid(), channel_id=sample_channel.id, guid=_uuid(),
+        title_raw="[G] Pack", torrent_url="https://x/pack.torrent",
+        search_title="Pack", is_batch=True, batch_scope="franchise",
+    )
+    db_session.add(res)
+    await db_session.commit()
+
+    async def _ensure(resource):
+        return None
+
+    async def _inspect(db, resource, channel):
+        return False
+
+    async def _link(db, resource, channel):
+        return None
+
+    def _raise(*a, **kw):
+        raise RuntimeError("enrichment down")
+
+    monkeypatch.setattr("app.services.torrent_inspect.ensure_torrent_cached", _ensure)
+    monkeypatch.setattr("app.services.torrent_inspect.maybe_inspect_torrent", _inspect)
+    monkeypatch.setattr(fs, "fetch_and_link_metadata", _link)
+    monkeypatch.setattr(
+        "app.services.bangumi_relations.expand_bangumi_series_graph", _raise,
+    )
+    monkeypatch.setattr("app.services.cluster_work_binding.bind_hint_clusters", _raise)
+    monkeypatch.setattr("app.services.franchise_service.dedupe_resource_movies", _raise)
+
+    await fs._process_resource_metadata(
+        res.id, sample_channel.id, asyncio.Semaphore(1),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Parsing sub-paths inside the new-entry loop
+# ---------------------------------------------------------------------------
+
+
+async def test_entry_with_subtitle_groups_sets_legacy_scalar(
+    db_session, channel, fake_queue, monkeypatch,
+):
+    entries = [_entry("gsub", "Show - 01 1080p", enclosures=[
+        {"url": "magnet:?xt=urn:btih:sub"},
+    ])]
+    feed = _mock_feed(entries)
+
+    monkeypatch.setattr(fs, "parse_entry", lambda *a, **kw: {"subtitle_groups": ["A", "B"]})
+    from sqlalchemy import select
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gsub")
+    )).scalar_one()
+    assert row.subtitle_group == "A&B"
+
+
+async def test_compilation_title_marks_batch_and_sets_search_title(
+    db_session, channel, fake_queue,
+):
+    entries = [_entry(
+        "gcomp",
+        "[整理搬运] 猫眼三姐妹／猫之眼：TV动画+剧场版+漫画+CD",
+        enclosures=[{"url": "magnet:?xt=urn:btih:comp"}],
+    )]
+    feed = _mock_feed(entries)
+    from sqlalchemy import select
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gcomp")
+    )).scalar_one()
+    assert row.is_batch is True
+    assert row.search_title == "猫眼三姐妹"
+
+
+async def test_nn_mm_title_records_absolute_episode(
+    db_session, channel, fake_queue,
+):
+    entries = [_entry("gnnmm", "[G] Show - 13(85) [1080p]", enclosures=[
+        {"url": "magnet:?xt=urn:btih:nnmm"},
+    ])]
+    feed = _mock_feed(entries)
+    from sqlalchemy import select
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service.fetch_and_link_metadata", new_callable=AsyncMock):
+        await fs.fetch_channel_resources(channel, db_session)
+
+    row = (await db_session.execute(
+        select(FileResource).where(FileResource.guid == "gnnmm")
+    )).scalar_one()
+    assert row.episode == 13
+    assert row.absolute_episode == 85
+    assert row.episode_confidence == "reconciled"
+
+
+async def test_backfill_phase_exception_is_swallowed(db_session, channel, fake_queue):
+    feed = _mock_feed([])
+    with patch("app.services.fetch_service._parse_feed_sync", return_value=feed), \
+         patch("app.services.fetch_service._backfill_unmatched_resources",
+               new_callable=AsyncMock, side_effect=RuntimeError("backfill down")):
+        res = await fs.fetch_channel_resources(channel, db_session)
+    assert res["backfilled_count"] == 0
+    assert channel.last_fetch_status == "success"
+
+
+async def test_global_backfill_empty_returns_zero(db_session):
+    assert await fs.backfill_unmatched_resources_global(db_session) == 0
+
+
+async def test_reconcile_stale_raw_episodes_empty_returns_zero(db_session):
+    assert await fs.reconcile_stale_raw_episodes(db_session) == 0
+    assert await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True) == []
+
+
+async def test_reconcile_stale_history_backed_path(db_session, channel):
+    """A manual same-group sibling anchors the numbering convention: the
+    stale target is reconciled via history (not arithmetic)."""
+    from app.models.series import TVSeries
+
+    series = TVSeries(
+        id=_uuid(), title_cn="History Show",
+        seasons=[{"season_number": 4, "episode_count": 24}],
+    )
+    db_session.add(series)
+    await db_session.flush()
+
+    manual = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="hist-manual",
+        title_raw="[G] History S4 - 18", torrent_url="magnet:?xt=urn:btih:h1",
+        series_id=series.id, season=4, episode=18, absolute_episode=89,
+        episode_confidence="manual", subtitle_group="GROUP",
+    )
+    target = FileResource(
+        id=_uuid(), channel_id=channel.id, guid="hist-target",
+        title_raw="[G] History S4 - 18", torrent_url="magnet:?xt=urn:btih:h2",
+        series_id=series.id, season=4, episode=18, absolute_episode=90,
+        episode_confidence="raw", subtitle_group="GROUP",
+    )
+    db_session.add_all([manual, target])
+    await db_session.commit()
+
+    changed = await fs.reconcile_stale_raw_episodes(db_session, return_resource_ids=True)
+    assert target.id in changed
+    await db_session.refresh(target)
+    assert target.episode_confidence == "reconciled"

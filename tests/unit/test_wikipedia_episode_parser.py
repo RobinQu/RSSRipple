@@ -14,8 +14,14 @@ import pytest
 from app.services.wikipedia_episode_parser import (
     _kanji_to_int,
     _parse_air_date,
+    _parse_broadcast_fragment,
     _parse_episode_number,
+    _parse_episode_template,
+    _resolve_template,
+    _split_name_value,
     clean_text,
+    has_animanga_film_infobox,
+    has_tvanime_infobox,
     parse_episode_list,
     parse_season_air_dates,
     parse_seasons_from_infobox,
@@ -477,3 +483,75 @@ class TestHelpers:
         assert clean_text("{{Sfnp|x|2022|p=6}}題") == "題"
         assert clean_text("") is None
         assert clean_text(None) is None
+
+
+class TestExtraBranches:
+    def test_kanji_to_int_empty_and_invalid(self):
+        assert _kanji_to_int("") is None
+        assert _kanji_to_int("X") is None
+
+    def test_resolve_template_no_args(self):
+        assert _resolve_template("lang") == ""
+        assert _resolve_template("") == ""
+
+    def test_split_name_value_nested_and_links(self):
+        assert _split_name_value("{{x}}=y") == ("{{x}}", "y")
+        assert _split_name_value("[[a]]=y") == ("[[a]]", "y")
+        assert _split_name_value("noeq") is None
+
+    def test_parse_episode_template_unparseable_chapter(self):
+        assert _parse_episode_template(
+            "劇集列表/base|Chapter = 第一章|Number = 第1話"
+        ) is None
+
+    def test_parse_episode_template_missing_number(self):
+        assert _parse_episode_template("劇集列表/base|Title = 甲") is None
+
+    def test_broadcast_fragment_invalid_month_day(self):
+        assert _parse_broadcast_fragment("2020年13月40日", None, is_end=False) is None
+
+    def test_broadcast_fragment_month_day_without_year(self):
+        assert _parse_broadcast_fragment("10月5日", None, is_end=False) is None
+
+    def test_broadcast_fragment_invalid_month_only(self):
+        assert _parse_broadcast_fragment("13月", 2020, is_end=False) is None
+
+    def test_broadcast_fragment_month_only_without_year(self):
+        assert _parse_broadcast_fragment("5月", None, is_end=False) is None
+
+    def test_broadcast_fragment_end_rolls_year(self):
+        assert _parse_broadcast_fragment(
+            "3月", 2020, is_end=True, start_month=12
+        ) == "2021-03-31"
+
+    def test_broadcast_fragment_no_date(self):
+        assert _parse_broadcast_fragment("無", None, is_end=False) is None
+
+    def test_air_field_skips_empty_item(self):
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = 全12話\n"
+              "| 播放開始 = <br />2020年1月1日\n}}")
+        assert parse_season_air_dates(wt) == {1: {"air_date": "2020-01-01"}}
+
+    def test_air_field_skips_unparseable_entry(self):
+        wt = ("{{Infobox animanga/TVAnime\n"
+              "| 話數 = 全12話\n"
+              "| 播放結束 = nonsense\n}}")
+        assert parse_season_air_dates(wt) is None
+
+    def test_episode_list_section_without_parseable_rows(self):
+        wt = "=== 各話列表 ===\n{{劇集列表/base\n| Title = 無集號\n}}\n"
+        assert parse_episode_list(wt) is None
+
+
+class TestInfoboxPresenceHelpers:
+    def test_has_tvanime_infobox(self):
+        assert has_tvanime_infobox("{{Infobox animanga/TVAnime\n| 話數 = 全12話\n}}")
+        assert not has_tvanime_infobox("{{Infobox animanga/Novel\n| 話數 = 全12話\n}}")
+        assert not has_tvanime_infobox(None)
+
+    def test_has_animanga_film_infobox(self):
+        assert has_animanga_film_infobox("{{Infobox animanga/Movie\n| 話數 = 1\n}}")
+        assert has_animanga_film_infobox("{{Infobox animanga/OVA\n}}")
+        assert not has_animanga_film_infobox("{{Infobox animanga/TVAnime\n}}")
+        assert not has_animanga_film_infobox(None)

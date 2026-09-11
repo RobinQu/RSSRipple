@@ -1153,3 +1153,209 @@ async def test_light_migrations_required_fields_defensive_branches():
             baseline = normalize_required_fields([])
             for _, rf in rows:
                 assert _json.loads(rf) == baseline
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL-only migration branches via a fake async connection
+# ---------------------------------------------------------------------------
+
+
+class _FakeSavepoint:
+    async def start(self):
+        return self
+
+    async def rollback(self):
+        return None
+
+    async def commit(self):
+        return None
+
+
+class _FakeRow:
+    """Result row supporting integer indexing and iteration (no attributes)."""
+
+    def __init__(self, *values):
+        self._values = tuple(values)
+
+    def __getitem__(self, index):
+        return self._values[index]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+
+class _FakeChannelRow:
+    """Channels select row: the migration reads ``row.id`` /
+    ``row.required_metadata_fields`` by attribute."""
+
+    def __init__(self, id_, required_metadata_fields):
+        self.id = id_
+        self.required_metadata_fields = required_metadata_fields
+
+    def __getitem__(self, index):
+        return (self.id, self.required_metadata_fields)[index]
+
+    def __iter__(self):
+        return iter((self.id, self.required_metadata_fields))
+
+
+class _FakeResult:
+    def __init__(self, rows=None):
+        self._rows = list(rows or [])
+        self.rowcount = len(self._rows)
+
+    def fetchall(self):
+        return list(self._rows)
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+    def scalar_one_or_none(self):
+        return self._rows[0][0] if self._rows else None
+
+    def scalar_one(self):
+        return self._rows[0][0] if self._rows else 0
+
+    def scalar(self):
+        return self._rows[0][0] if self._rows else None
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _FakePGConn:
+    """Minimal async connection emulating enough PG catalog behaviour to walk
+    every PostgreSQL-only branch of ``_apply_light_migrations``."""
+
+    def __init__(self, channel_rows):
+        self._channel_rows = channel_rows
+        self.executed: list[str] = []
+
+    def begin_nested(self):
+        return _FakeSavepoint()
+
+    async def execute(self, stmt, params=None):
+        sql = str(stmt)
+        self.executed.append(sql)
+        if "information_schema.columns" in sql:
+            if params and params.get("t") is not None:
+                return _FakeResult([])
+            if "'agents'" in sql:
+                return _FakeResult([])
+            if "'download_notifications'" in sql:
+                return _FakeResult([_FakeRow("status"), _FakeRow("attempt_count")])
+            return _FakeResult([])
+        if "SELECT value FROM app_settings" in sql:
+            return _FakeResult([("pending",)])
+        if "SELECT id, required_metadata_fields FROM channels" in sql:
+            return _FakeResult(self._channel_rows)
+        if "SELECT 1 FROM pg_type" in sql:
+            return _FakeResult([(1,)])
+        if "COUNT(*)" in sql:
+            return _FakeResult([(0,)])
+        return _FakeResult([])
+
+
+async def test_light_migrations_postgres_branches_fake_conn(monkeypatch):
+    """Walk the PostgreSQL-only migration branches without a real server."""
+    import app.database as db_mod
+    from app.config import settings
+
+    monkeypatch.setattr(
+        settings, "database_url", "postgresql+asyncpg://u:p@h/db"
+    )
+    monkeypatch.setenv("PLEX_URL", "http://plex:32400")
+    monkeypatch.setenv("PLEX_TOKEN", "tok")
+
+    rows = [
+        _FakeChannelRow("c1", '["season"]'),
+        _FakeChannelRow(
+            "c2",
+            '["title_cn","title_en","season","absolute_episode","episode_confidence"]',
+        ),
+    ]
+    conn = _FakePGConn(rows)
+    await db_mod._apply_light_migrations(conn)
+    # Spot-check the queries actually ran.
+    assert any("pg_advisory" not in q for q in conn.executed)
+    assert any("ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL" in q
+               for q in conn.executed)
+    assert any("ADD VALUE IF NOT EXISTS 'mock'" in q for q in conn.executed)
+    assert any("download_tasks_agent_id_fkey" in q for q in conn.executed)
+
+
+async def test_ensure_pg_trgm_indexes_fake_conn():
+    import app.database as db_mod
+
+    conn = _FakePGConn([])
+    await db_mod._ensure_pg_trgm_indexes(conn)
+    assert any("CREATE EXTENSION IF NOT EXISTS pg_trgm" in q for q in conn.executed)
+    assert sum("USING gin" in q for q in conn.executed) == 3
+
+
+async def test_create_tables_postgres_branch(monkeypatch):
+    import app.database as db_mod
+    from app.config import settings
+    from app.services import fts as fts_mod
+
+    monkeypatch.setattr(
+        settings, "database_url", "postgresql+asyncpg://u:p@h/db"
+    )
+    called: dict[str, bool] = {}
+
+    async def _fake_create():
+        called["create"] = True
+
+    monkeypatch.setattr(db_mod, "_create_tables_postgres", _fake_create)
+
+    async def _fake_backfill(session):
+        called["backfill"] = True
+
+    monkeypatch.setattr(fts_mod, "backfill_search_text", _fake_backfill)
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def commit(self):
+            called["commit"] = True
+
+    monkeypatch.setattr(db_mod, "async_session_factory", lambda: _Session())
+    await db_mod.create_tables()
+    assert called == {"create": True, "backfill": True, "commit": True}
+
+
+async def test_retry_on_lock_unreachable(monkeypatch):
+    import app.database as db_mod
+
+    monkeypatch.setattr(db_mod, "_MAX_DB_RETRIES", 0)
+
+    async def _op():
+        return 1
+
+    with pytest.raises(AssertionError):
+        await db_mod.retry_on_lock(_op)
+
+
+def test_install_db_retry_middleware_unreachable(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import app.database as db_mod
+
+    monkeypatch.setattr(db_mod, "_MAX_DB_RETRIES", 0)
+    app = FastAPI()
+
+    @app.get("/ok")
+    async def ok():
+        return {"ok": True}
+
+    db_mod.install_db_retry_middleware(app)
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.get("/ok").status_code == 500

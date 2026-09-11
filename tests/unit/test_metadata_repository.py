@@ -718,3 +718,106 @@ async def test_season_ambiguous_cache_roundtrip(db_session):
     assert cached.season_ambiguous is True
     assert cached.ambiguous is True
     assert cached.ambiguous_candidates == [{"season": 2}]
+
+
+# ---------------------------------------------------------------------------
+# Episode evidence + subtitle-group registration
+# ---------------------------------------------------------------------------
+
+
+async def test_series_has_episode_evidence_true_from_episode_rows(db_session):
+    from app.models.episode import Episode
+    from app.services.metadata_repository import _series_has_episode_evidence
+
+    series = TVSeries(id=_uuid(), title_cn="有集数", content_type="tv")
+    db_session.add(series)
+    await db_session.flush()
+    db_session.add(Episode(id=_uuid(), series_id=series.id, season=1, episode=1))
+    await db_session.flush()
+
+    assert await _series_has_episode_evidence(db_session, series.id) is True
+
+
+async def test_fill_subtitle_group_promotes_legacy_scalar(db_session):
+    from app.services.metadata_repository import _fill_subtitle_group
+
+    resource = _resource()
+    resource.subtitle_group = "喵萌奶茶屋&桜都"
+    resource.subtitle_groups = None
+    _fill_subtitle_group(_meta(found=False), resource)
+    assert resource.subtitle_groups == ["喵萌奶茶屋", "桜都"]
+    assert resource.subtitle_groups_source == "legacy"
+    # No LLM candidate → the legacy list survives untouched.
+    assert resource.subtitle_group == "喵萌奶茶屋&桜都"
+
+
+async def test_register_subtitle_group_mapping_creates_then_updates(db_session):
+    from app.models.subtitle_group_mapping import SubtitleGroupMapping
+    from app.services.metadata_repository import _register_subtitle_group_mapping
+
+    meta = _meta(subtitle_groups=["喵萌奶茶屋", "桜都"])
+    resource = SimpleNamespace(subtitle_group="喵萌奶茶屋&桜都")
+    await _register_subtitle_group_mapping(meta, resource, db_session)
+    await db_session.flush()
+
+    row = (await db_session.execute(
+        select(SubtitleGroupMapping).where(
+            SubtitleGroupMapping.normalized_key == "喵萌奶茶屋&桜都"
+        )
+    )).scalar_one()
+    assert row.groups == ["喵萌奶茶屋", "桜都"]
+    assert row.resolution == "llm"
+
+    # An existing non-manual/llm row is promoted in place, not duplicated.
+    row.resolution = "single"
+    meta2 = _meta(subtitle_groups=["喵萌奶茶屋", "桜都"])
+    await _register_subtitle_group_mapping(meta2, resource, db_session)
+    await db_session.flush()
+    rows = (await db_session.execute(select(SubtitleGroupMapping))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].resolution == "llm"
+
+
+async def test_register_subtitle_group_mapping_rejects_unvalidated_split(db_session):
+    from app.models.subtitle_group_mapping import SubtitleGroupMapping
+    from app.services.metadata_repository import _register_subtitle_group_mapping
+
+    # The LLM candidate is not a subset of the parser's split → ignored.
+    meta = _meta(subtitle_groups=["A", "B"])
+    resource = SimpleNamespace(subtitle_group="C&D")
+    await _register_subtitle_group_mapping(meta, resource, db_session)
+    assert (await db_session.execute(select(SubtitleGroupMapping))).scalars().all() == []
+
+
+async def test_movie_verdict_indeterminate_season_links_known_series(db_session):
+    """Series upsert returns None (season indeterminate) → link the known row."""
+    series = TVSeries(
+        id=_uuid(), title_cn="剧集", external_id="wikipedia:999",
+        external_source="wikipedia", content_type="tv",
+    )
+    db_session.add(series)
+    await db_session.flush()
+
+    meta = _meta(
+        content_type="movie",
+        matched_entity={
+            "external_id": "wikipedia:999", "external_source": "wikipedia",
+            "title_cn": "剧集",
+        },
+    )
+    resource = _resource()
+    with (
+        patch(
+            "app.services.metadata_service.download_and_cache_poster",
+            new_callable=AsyncMock, return_value=None,
+        ),
+        patch(
+            "app.services.metadata_service.create_or_update_series_from_external",
+            new_callable=AsyncMock, return_value=None,
+        ),
+    ):
+        await _apply_to_resource(meta, resource, SimpleNamespace(id=_uuid()), db_session)
+
+    assert resource.series_id == series.id
+    assert resource.movie_id is None
+    assert resource.audio_work_id is None

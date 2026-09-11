@@ -28,7 +28,6 @@ RSSRipple 是一个面向 TV / 番剧 / 电影资源的 RSS 订阅下载器。�
 cp .env.example .env
 # 至少设置：LLM_API_KEY、LLM_BASE_URL、LLM_MODEL
 # 可选元数据源：TMDB_API_KEY / BANGUMI_API_KEY
-# 旧版/仅环境变量源（手动搜索/评测）：JINA_API_KEY
 ```
 
 ### 2. 用 Docker Compose 启动
@@ -69,9 +68,8 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | Bangumi | [bgm.tv](https://bgm.tv/)（开发者 token） | `BANGUMI_API_KEY` | 可选 — 仅动画分类条目搜索；配置 token 即启用 |
 | Wikipedia | — | — | 无需 key（免费 `wikipedia` 库）— 默认频道源 |
 | Wigolo | 自托管搜索守护进程（[wigolo](https://github.com/KnockOutEZ/wigolo)） | `WIGOLO_BASE_URL` / `WIGOLO_API_TOKEN` | 可选 — 仅用作主源未命中时的有序网络搜索回退 |
-| Jina Search + Reader | [jina.ai/api-dashboard](https://jina.ai/api-dashboard/) | `JINA_API_KEY` | 可选 — 仅环境变量；仅手动搜索/评测（已废弃为频道源） |
 
-一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`WEB_FALLBACK_ENABLED` / `JINA_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（`WEB_FALLBACK_ENABLED` 只控制 wigolo 网络搜索回退；jina 仅环境变量，设置页密钥行已移除）。`local` 源无需凭证 — 仅本地 DB 匹配。
+一个元数据源只有"启用开关开启 **且** 凭证已配置"时才在 UI 中可选。开关：`WEB_FALLBACK_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`（`WEB_FALLBACK_ENABLED` 只控制 wigolo 网络搜索回退）。手动搜索另支持无需凭证的 `local` 模式（仅匹配本地 DB），它不是频道元数据源。
 
 ## 配置
 
@@ -81,7 +79,7 @@ RSSRipple 需要一个 LLM 和至少一个元数据源。按需申请 key 后填
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy 数据库 URL |
 | `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI 兼容 LLM，用于 feed 分析、元数据 agent、建议 |
-| `JINA_API_KEY` / `TMDB_API_KEY` / `BANGUMI_API_KEY` | 元数据源凭证 — 按需配置 |
+| `TMDB_API_KEY` / `BANGUMI_API_KEY` | 元数据源凭证 — 按需配置 |
 | `QUEUE_BACKEND` | `"memory"`（默认）或 `"redis"`（需 `REDIS_URL`） |
 | `POSTER_CACHE_DIR` | 海报缓存目录，挂载到 `/posters` |
 
@@ -128,7 +126,7 @@ docker compose start app
 
 | 层 | 技术 |
 | --- | --- |
-| 后端 | Python 3.11+、FastAPI、SQLAlchemy 2.0 async、Pydantic v2 |
+| 后端 | Python 3.12+、FastAPI、SQLAlchemy 2.0 async、Pydantic v2 |
 | 数据库 | 默认 PostgreSQL；Turso（嵌入式，MVCC 并发写）见 `docker-compose.standalone.yml` |
 | 队列 / 调度 | MemoryQueue 或 RedisQueue、APScheduler |
 | RSS | feedparser |

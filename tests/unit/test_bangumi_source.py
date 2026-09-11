@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.series import TVSeries
 from app.services import metadata_bangumi as mb
@@ -495,3 +495,199 @@ def test_bangumi_in_channel_source_catalog(monkeypatch):
     monkeypatch.setitem(_rc._overrides, "bangumi_api_key", "tok")
     cat = {s["value"]: s for s in get_metadata_source_catalog(channel_only=True)}
     assert cat["bangumi"]["available"] is True
+
+
+# ---------------------------------------------------------------------------
+# Degraded fetch paths + listing/expansion helpers
+# ---------------------------------------------------------------------------
+
+
+class _DummyClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _dummy_httpx():
+    return patch("app.services.metadata_bangumi.httpx.AsyncClient", MagicMock(return_value=_DummyClient()))
+
+
+async def test_build_matched_entity_survives_detail_and_episode_failures():
+    subject = {"id": 77, "name": "作品", "name_cn": "作品CN", "platform": "TV"}
+    with (
+        patch.object(mb, "get_subject", AsyncMock(side_effect=RuntimeError("detail down"))),
+        patch.object(mb, "get_subject_episodes", AsyncMock(side_effect=RuntimeError("eps down"))),
+    ):
+        entity = await mb._build_matched_entity(AsyncMock(), subject, season=1)
+    assert entity["external_id"] == "bangumi:77"
+    assert entity["number_of_episodes"] is None
+    assert entity["episode_list"] is None
+
+
+async def test_judge_llm_failure_returns_none():
+    model = MagicMock()
+    model.ainvoke = AsyncMock(side_effect=RuntimeError("llm down"))
+    assert await mb._judge(model, "raw title", [{"id": 1, "name": "a"}], None) is None
+
+
+async def test_judge_structured_content_list_is_joined():
+    model = MagicMock()
+    model.ainvoke = AsyncMock(return_value=SimpleNamespace(content=[
+        SimpleNamespace(text='{"found": false,'), SimpleNamespace(text=' "reason": "x"}'),
+    ]))
+    out = await mb._judge(model, "raw", [], None)
+    assert out == {"found": False, "reason": "x"}
+
+
+async def test_list_bangumi_subjects_not_configured_and_no_query():
+    with patch.object(mb, "bangumi_configured", return_value=False):
+        assert await mb.list_bangumi_subjects("x") == []
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "_bangumi_queries", return_value=[]),
+    ):
+        assert await mb.list_bangumi_subjects("x") == []
+
+
+async def test_list_bangumi_subjects_merges_dedups_and_survives_failures():
+    async def fake_search(client, q, limit=20, anime_only=True):
+        if q == "bad":
+            raise RuntimeError("search down")
+        if q == "a":
+            return [{"id": 1, "name": "a"}, {"id": None, "name": "no-id"}]
+        return [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "_bangumi_queries", return_value=["a", "bad", "b"]),
+        patch.object(mb, "search_subjects", side_effect=fake_search),
+        _dummy_httpx(),
+    ):
+        out = await mb.list_bangumi_subjects("raw")
+    assert [s["id"] for s in out] == [1, 2]
+
+
+async def test_list_bangumi_subjects_respects_limit():
+    async def fake_search(client, q, limit=20, anime_only=True):
+        return [{"id": i, "name": str(i)} for i in range(1, 6)]
+
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "_bangumi_queries", return_value=["q"]),
+        patch.object(mb, "search_subjects", side_effect=fake_search),
+        _dummy_httpx(),
+    ):
+        out = await mb.list_bangumi_subjects("raw", limit=2)
+    assert [s["id"] for s in out] == [1, 2]
+
+
+async def test_build_entity_for_subject_paths():
+    subject = _frieren_subject()
+    with patch.object(mb, "bangumi_configured", return_value=False):
+        assert await mb.build_entity_for_subject(1) is None
+
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "get_subject", AsyncMock(side_effect=RuntimeError("down"))),
+        _dummy_httpx(),
+    ):
+        assert await mb.build_entity_for_subject(1) is None
+
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "get_subject", AsyncMock(return_value={})),
+        _dummy_httpx(),
+    ):
+        assert await mb.build_entity_for_subject(1) is None
+
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "get_subject", AsyncMock(return_value=subject)),
+        patch.object(mb, "get_subject_episodes", AsyncMock(return_value=[])),
+        _dummy_httpx(),
+    ):
+        entity = await mb.build_entity_for_subject(subject["id"], season=1)
+    assert entity["external_id"] == "bangumi:400602"
+
+
+async def test_run_bangumi_no_usable_query():
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "_bangumi_queries", return_value=[]),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            AsyncMock(), "raw", resource=None
+        )
+    assert finalize["found"] is False
+    assert finalize["reason"] == "no usable query"
+    assert info["method"] == "bangumi"
+
+
+async def test_run_bangumi_search_exceptions_are_collected():
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "search_subjects", AsyncMock(side_effect=RuntimeError("net down"))),
+        _dummy_httpx(),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            AsyncMock(), "raw title", resource=None
+        )
+    assert finalize["found"] is False
+    assert "no credible match" in finalize["reason"]
+    assert info["source_errors"]["bangumi"].startswith("RuntimeError")
+
+
+async def test_run_bangumi_candidate_cap_and_autolink():
+    subject = _frieren_subject()
+    many = [{**subject, "id": i} for i in range(1, 20)]
+
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "search_subjects", AsyncMock(return_value=many)),
+        patch.object(mb, "_autolink_subject", return_value=many[0]),
+        patch.object(mb, "get_subject", AsyncMock(return_value=subject)),
+        patch.object(mb, "get_subject_episodes", AsyncMock(return_value=[])),
+        _dummy_httpx(),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(
+            AsyncMock(), "raw title", resource=None
+        )
+    assert finalize["found"] is True
+    assert info["method"].endswith("autolink")
+    assert finalize["matched_entity"]["external_id"] == "bangumi:1"
+
+
+async def test_run_bangumi_judge_unparseable_json():
+    subject = _frieren_subject()
+    model = MagicMock()
+    model.ainvoke = AsyncMock(return_value=SimpleNamespace(content="not json"))
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "search_subjects", AsyncMock(return_value=[subject])),
+        patch.object(mb, "_autolink_subject", return_value=None),
+        _dummy_httpx(),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(model, "raw", resource=None)
+    assert finalize["found"] is False
+    assert "unparseable JSON" in finalize["reason"]
+
+
+async def test_run_bangumi_judge_picks_unknown_subject():
+    subject = _frieren_subject()
+    judge_json = (
+        '{"found": true, "clean_title": "X", "content_type": "tv",'
+        ' "matched_entity": {"external_id": "bangumi:999"}}'
+    )
+    model = MagicMock()
+    model.ainvoke = AsyncMock(return_value=SimpleNamespace(content=judge_json))
+    with (
+        patch.object(mb, "bangumi_configured", return_value=True),
+        patch.object(mb, "search_subjects", AsyncMock(return_value=[subject])),
+        patch.object(mb, "_autolink_subject", return_value=None),
+        _dummy_httpx(),
+    ):
+        finalize, info = await mb.run_bangumi_search_then_judge(model, "raw", resource=None)
+    assert finalize["found"] is False
+    assert "unknown subject" in finalize["reason"]

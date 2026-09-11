@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.clients.transmission import TransmissionWrapper, _parse_url
+from app.clients.transmission import (
+    TransmissionWrapper,
+    _parse_url,
+    _torrent_to_dict,
+)
 
 # ---------------------------------------------------------------------------
 # URL parsing
@@ -338,3 +342,84 @@ class TestRemoveTorrent:
         with patch(MOCK_CLIENT, return_value=mock_client):
             ok = await _make_wrapper().remove_torrent(1)
         assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# _torrent_to_dict edge branches + wrapper constructor/get_torrent
+# ---------------------------------------------------------------------------
+
+
+class TestTorrentToDictBranches:
+    def _base(self):
+        t = MagicMock()
+        t.id = 1
+        t.name = "x"
+        t.hashString = "h"
+        t.status = "idle"
+        t.eta = None
+        t.added_date = None
+        t.left_until_done = 0
+        return t
+
+    def test_eta_plain_number(self):
+        t = self._base()
+        t.eta = 120
+        assert _torrent_to_dict(t)["eta_seconds"] == 120
+
+    def test_eta_comparison_error_swallowed(self):
+        t = self._base()
+        t.eta = "abc"  # no total_seconds, and str > 0 raises TypeError
+        assert _torrent_to_dict(t)["eta_seconds"] is None
+
+    def test_added_date_error_swallowed(self):
+        t = self._base()
+        t.added_date = 123  # no isoformat -> AttributeError
+        assert _torrent_to_dict(t)["added_date"] is None
+
+    def test_left_until_done_error_swallowed(self):
+        t = self._base()
+        t.left_until_done = "abc"
+        assert _torrent_to_dict(t)["left_until_done"] == 0
+
+    def test_status_normalization(self):
+        for raw, expected in (
+            ("Stopped", "stopped"),
+            ("Checking", "checking"),
+            ("Seeding", "seeding"),
+            ("idle", "queued"),
+        ):
+            t = self._base()
+            t.status = raw
+            t.rate_download = 0
+            assert _torrent_to_dict(t)["status"] == expected
+
+
+def test_wrapper_requires_url():
+    with pytest.raises(ValueError):
+        TransmissionWrapper()
+
+
+class TestGetTorrent:
+    @pytest.mark.asyncio
+    async def test_get_torrent_found(self):
+        mock_client = MagicMock()
+        torrent = MagicMock()
+        torrent.id = 5
+        torrent.name = "Show"
+        torrent.hashString = "h5"
+        torrent.status = "idle"
+        torrent.eta = None
+        torrent.added_date = None
+        torrent.left_until_done = 0
+        mock_client.get_torrents.return_value = [torrent]
+        with patch(MOCK_CLIENT, return_value=mock_client):
+            result = await _make_wrapper().get_torrent(5)
+        assert result["id"] == 5
+
+    @pytest.mark.asyncio
+    async def test_get_torrent_not_found(self):
+        mock_client = MagicMock()
+        mock_client.get_torrents.return_value = []
+        with patch(MOCK_CLIENT, return_value=mock_client):
+            with pytest.raises(ValueError):
+                await _make_wrapper().get_torrent(99)
