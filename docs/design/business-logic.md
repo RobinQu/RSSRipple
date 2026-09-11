@@ -669,7 +669,7 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 
 验收入口为 `tests/integration/metadata_corpus/`，由现有单节点/分布式 Compose 的集成收集执行，共享导出/回放工具保留在 `tests/metadata_corpus/`。Fast Gate 和发布前门禁也运行相同离线用例。审核报告写入 `CORPUS_REPORT_DIR` 而非 fixture，逐场景异常与语义差异随 JUnit 上传；分布式使用独立 `metadata_corpus_test` 库，不读写 HTTP app 测试库。真实 LLM 评测需显式执行，不属于默认集成运行。
 
-`tests/metadata_corpus` 与 `scripts/metadata_corpus.py` 提供版本化作品库/torrent 测试集：原始输入、源证据、生产候选答案和独立审核答案分离，禁止把生产关联直接注入冷库。传输层冻结外部源与 LLM 响应，严格校验请求指纹/消费次数并禁止未录制联网；真实 LLM 三轮评测单独执行，外部 metadata 源仍冻结。重建走真实抓取与匹配服务，核验季作品/合集/文件指派/Channel 门禁及可选下载派发，数据库与缓存全部隔离。CI 同时检查全量可用 torrent 的冻结清单与已审核语义场景；待审核或缺证据资源不冒充通过。当前覆盖范围、录制审核流程与限制见 [测试说明](../../tests/metadata_corpus/README.md)。
+`tests/metadata_corpus` 与 `scripts/metadata_corpus.py` 提供版本化作品库/torrent 测试集：原始输入、源证据、生产候选答案和独立审核答案分离，禁止把生产关联直接注入冷库。传输层冻结外部源与 LLM 响应，严格校验请求指纹/消费次数并禁止未录制联网；真实 LLM 三轮评测单独执行，外部 metadata 源仍冻结。重建走真实抓取与匹配服务，核验季作品/合集/文件指派/Channel 门禁及可选下载派发，数据库与缓存全部隔离。CI 同时检查全量可用 torrent 的冻结清单与已审核语义场景；待审核或缺证据资源不冒充通过。当前覆盖范围、录制审核流程与限制见 [测试说明](../testing/metadata-corpus.md)。
 
 ### Torrent 文件关联的抓取期收敛与遗留回填
 

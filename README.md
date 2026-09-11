@@ -51,7 +51,7 @@ PostgreSQL (`postgres:16-alpine`) + Redis (`redis:7-alpine`) are the default bac
 
 ```bash
 uv sync
-cd frontend && npm install && npm run build && cd ..
+cd frontend && corepack pnpm install && corepack pnpm run build && cd ..
 uv run uvicorn app.main:app --reload --port 9001
 ```
 
@@ -108,6 +108,15 @@ Once the app is running at http://localhost:9001:
 3. **Create an agent** — *Download Agents → New Agent*: pick the channel and downloader, subscribe specific works (series/movies, up to 10) or go channel-wide, and refine the filter conditions. Saving runs a rules-preview that lets you optionally backfill existing resources. On a channel's detail page you can also select a few resources and use **Generate Filter Rules** to bootstrap an agent from them.
 4. **Watch the dashboard** — `/` shows the key metrics, your top active agents with their in-progress downloads, the active download list, and anything waiting for your decision (confirm/skip, with an AI suggestion when LLM is enabled).
 
+## Documentation
+
+The full documentation map lives in [docs/README.md](docs/README.md). Key entry points:
+
+- [docs/design/](docs/design/) — authoritative design specs (data models, API endpoints, business logic, organize, notifications).
+- [docs/testing/](docs/testing/) — integration inventory, metadata corpus acceptance, Midscene E2E, and manual UI cases.
+- [docs/plans/](docs/plans/) — research and validation plans.
+- [AGENTS.md](AGENTS.md) — spec index and core constraints for coding agents; [CONTRIBUTION.md](CONTRIBUTION.md) — dev setup, tests, branch policy, CI/CD.
+
 ## Feedback & Issues
 
 Found a bug or have a feature request? Please open an issue at [GitHub Issues](https://github.com/RobinQu/RSSRipple/issues).
@@ -133,7 +142,7 @@ Developer setup, tests, branch policy, and CI/CD live in [CONTRIBUTION.md](CONTR
 | Metadata / AI | OpenAI-compatible LLM, LangGraph ReAct, Wikipedia / TMDB / Bangumi (+ ordered wigolo web-search fallback) |
 | Download | Transmission RPC |
 | Frontend | React, TypeScript, Vite, Ant Design |
-| Package manager | uv, npm |
+| Package manager | uv, pnpm (via corepack) |
 
 ## License
 

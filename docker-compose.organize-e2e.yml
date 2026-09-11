@@ -13,7 +13,7 @@
 # 驱动脚本（预置文件到共享卷 + 造 completed 任务 + 轮询断言全链路）：
 #   uv run python scripts/organize_e2e.py            # 跑完整半 E2E
 #   uv run python scripts/organize_e2e.py --down     # 结束后拆除环境
-# 详见 tests/integration/organize/README.md。
+# 详见 docs/testing/organize-integration.md。
 # ==============================================================================
 name: rssripple-organize-e2e
 

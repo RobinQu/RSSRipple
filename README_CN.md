@@ -51,7 +51,7 @@ docker compose up --build
 
 ```bash
 uv sync
-cd frontend && npm install && npm run build && cd ..
+cd frontend && corepack pnpm install && corepack pnpm run build && cd ..
 uv run uvicorn app.main:app --reload --port 9001
 ```
 
@@ -108,6 +108,15 @@ docker compose start app
 3. **创建 Agent** — *下载代理 → 新建 Agent*：选择频道和下载器，订阅指定作品（剧集/电影，最多 10 个）或使用全频道模式，再调整过滤条件。保存时会经过 rules-preview，可选择是否回填历史资源。也可以在频道详情页勾选若干资源，用**生成过滤规则**快速引导创建一个 Agent。
 4. **关注仪表盘** — `/` 展示核心指标、Top 活跃 Agent 及其进行中下载、活跃下载列表，以及等待你处理的待决策项（启用 LLM 时附带 AI 建议，可一键确认/跳过）。
 
+## 文档
+
+完整文档索引见 [docs/README.md](docs/README.md)。主要入口：
+
+- [docs/design/](docs/design/) — 权威设计文档（数据模型、API、业务逻辑、organize、通知）。
+- [docs/testing/](docs/testing/) — 集成测试清单、Metadata 语料验收、Midscene E2E、手工 UI 用例。
+- [docs/plans/](docs/plans/) — 调研与验证方案。
+- [AGENTS.md](AGENTS.md) — 面向 coding agent 的 spec 索引与核心约束；[CONTRIBUTION.md](CONTRIBUTION.md) — 开发环境、测试、分支规范与 CI/CD。
+
 ## 反馈与缺陷报告
 
 发现 bug 或有功能建议？请到 [GitHub Issues](https://github.com/RobinQu/RSSRipple/issues) 提交 issue。
@@ -133,7 +142,7 @@ docker compose start app
 | 元数据 / AI | OpenAI 兼容 LLM、LangGraph ReAct、Wikipedia / TMDB / Bangumi（+ 有序 wigolo 网络搜索回退） |
 | 下载 | Transmission RPC |
 | 前端 | React、TypeScript、Vite、Ant Design |
-| 包管理 | uv、npm |
+| 包管理 | uv、pnpm（经 corepack） |
 
 ## 许可证
 

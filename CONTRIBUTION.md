@@ -119,7 +119,7 @@ compose 文件会监听 `./app` 并热重载 Python。前端改动**不会**热�
 CORPUS_REPORT_DIR=/tmp/metadata-corpus uv run pytest tests/integration/metadata_corpus -q --junitxml=/tmp/metadata-corpus/integration.xml
 ```
 
-不需要外部 API key：torrent、源响应和模型响应均冻结。报告将待审核样本与已核验语义场景分开，不能把 torrent 清单通过率当作作品识别正确率。数据集更新、独立审核与真实 LLM 三轮评测见 [验收说明](tests/metadata_corpus/README.md)。
+不需要外部 API key：torrent、源响应和模型响应均冻结。报告将待审核样本与已核验语义场景分开，不能把 torrent 清单通过率当作作品识别正确率。数据集更新、独立审核与真实 LLM 三轮评测见 [验收说明](docs/testing/metadata-corpus.md)。
 
 **单元 & API 测试**（快速，本地 Turso）：
 
@@ -145,7 +145,7 @@ docker compose -f docker-compose.test.yml run --rm test-runner \
 docker compose -f docker-compose.test-distributed.yml run --rm test-runner
 ```
 
-需要持久网络客户端的测试（E2E、种子生命周期）在两个 profile 中都被排除；Redis 专用的队列测试在单节点模式下自动跳过。浏览器端 E2E（Midscene.js）的运行方式见 [tests/midscene/README.md](tests/midscene/README.md)。
+需要持久网络客户端的测试（E2E、种子生命周期）在两个 profile 中都被排除；Redis 专用的队列测试在单节点模式下自动跳过。浏览器端 E2E（Midscene.js）的运行方式见 [docs/testing/midscene-e2e.md](docs/testing/midscene-e2e.md)。
 
 **变异测试**（mutmut，Phase 1 试点）— 只变异确定性叶子模块（`pyproject.toml` 的 `[tool.mutmut] only_mutate`），用它们的快速单测建立基线：
 
@@ -164,6 +164,8 @@ uv run mutmut browse    # 交互式 TUI
 如果你是在本仓库工作的 coding agent（Claude Code、Cursor、Copilot、Codex 等），按以下顺序阅读：
 
 - **[AGENTS.md](AGENTS.md)** — 权威 spec 索引与核心约束速查；详细设计（数据模型、Filter DSL、API 端点、业务逻辑、前端路由、错误处理、分支规范）在 [docs/design/](docs/design/) 子文档中。这是*系统如何工作*的唯一事实来源。
+- **[docs/README.md](docs/README.md)** — 文档总索引（按读者分组：用户 / 贡献者 / Coding Agent / 测试）。
+- **[docs/design/constraints.md](docs/design/constraints.md)** — 核心约束完整速查（从 AGENTS.md 拆出）。
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — 模块布局与运行时数据流。
 - **[DESIGN.md](DESIGN.md)** — 设计 token 与视觉指引（仅前端）。
 
