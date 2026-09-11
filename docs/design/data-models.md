@@ -162,7 +162,7 @@ resource_file_assignments              # 文件级映射：torrent 清单条目 
 
 序列化：`GET/PATCH/PUT` 单资源端点返回 `FileResourceDetailResponse`（在基础 schema 上附 `work_links[]` + `file_assignments[]`，需 `_DETAIL_LOAD_OPTIONS` selectinload）；列表端点保持精简基础 schema。
 
-`FileResource.confirmation_ignored_at`：用户在 Dashboard 单个或批量忽略「文件资源元数据确认」时写入 UTC 时间。非空资源仍完整保留并可在频道资源页检索/修订，但不再进入 Dashboard 待确认策略扫描；它不等价于 metadata 已补齐，也不会删除或派发资源。
+`FileResource.confirmation_ignored_at`：用户在 Dashboard 单个或批量忽略「文件资源元数据确认」时写入 UTC 时间。非空资源仍完整保留并可在频道资源页检索/修订，但不再进入 Dashboard 待确认策略扫描；它不等价于 metadata 已补齐，也不会删除或派发资源。**临时忽略**：`POST /resources/{id}/reparse-metadata` 同样写该列（资源立即退出待办），但其入队的 `reprocess_resource_metadata` 任务在结束（成败都）时清除标记，让待确认策略重新评估——与手动忽略的永久语义差异在于任务结束即重评。
 
 Dashboard 待确认扫描索引：`Index(confirmation_ignored_at, created_at, id)`，同时支撑未忽略资源过滤及稳定倒序分页扫描。
 

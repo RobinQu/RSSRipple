@@ -1307,6 +1307,7 @@ export default function Dashboard() {
             resourceId={correctionResource.id}
             open
             onClose={() => setCorrectionResource(null)}
+            onReparse={() => void fetchOverview()}
             onSaved={() => {
               setCorrectionResource(null);
               fetchOverview();

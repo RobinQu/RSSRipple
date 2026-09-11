@@ -373,6 +373,34 @@ async def test_same_name_multi_member_auto_collection_absorbed(db_session):
     assert w2.collection_id == colls[0].id
 
 
+async def test_absorbed_collection_repoints_parked_resources(db_session):
+    """Resources parked on an absorbed collection must follow to the
+    survivor — their collection_id must never dangle after the source row
+    is deleted."""
+    ch = await _channel(db_session)
+    shell = WorkCollection(
+        id=_uuid(), title_cn="作品X", external_id=None, external_source="series_group",
+    )
+    w1 = TVSeries(
+        id=_uuid(), title_cn="作品X", external_id="tmdb:100", external_source="tmdb",
+        content_type="tv", season_number=1, collection_id=shell.id,
+    )
+    resource = _resource(ch.id)
+    parked = _resource(ch.id, guid=_uuid(), collection_id=shell.id)
+    db_session.add_all([shell, w1, resource, parked])
+    await db_session.flush()
+
+    agent = _agent({"作品X TV": _tv_hit("tmdb:100", "作品X")})
+    with patch("app.services.metadata_agent.get_agent", return_value=agent):
+        await link_franchise_pack(db_session, resource, _report("作品X TV"), ch)
+    await db_session.flush()
+
+    colls = await _collections(db_session)
+    assert len(colls) == 1
+    await db_session.refresh(parked)
+    assert parked.collection_id == colls[0].id
+
+
 # ---------------------------------------------------------------------------
 # F4 — OVA/番外 member shape (season-0 slot)
 # ---------------------------------------------------------------------------

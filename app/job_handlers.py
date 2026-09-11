@@ -381,6 +381,36 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
     return {"status": "done", "processed": len(results), "results": results}
 
 
+async def _handle_reprocess_resource_metadata(payload: dict) -> dict:
+    """Background job: full metadata reparse for one resource.
+
+    Runs the same pipeline as fetch-time processing with
+    ``force_refresh=True`` (metadata cache bypass). The endpoint set
+    ``confirmation_ignored_at`` up front so the resource left the dashboard
+    todo list immediately; clearing it here — success or failure — lets the
+    confirmation policy re-evaluate: still-incomplete resources re-enter the
+    list, fully matched ones stay out.
+    """
+    from app.models.file_resource import FileResource
+    from app.services.fetch_service import _process_resource_metadata
+
+    await _refresh_runtime_config()
+    resource_id: str = payload["resource_id"]
+    try:
+        await _process_resource_metadata(
+            resource_id,
+            payload["channel_id"],
+            asyncio.Semaphore(1),
+            force_refresh=True,
+        )
+    finally:
+        async with committed_session() as session:
+            resource = await session.get(FileResource, resource_id)
+            if resource is not None:
+                resource.confirmation_ignored_at = None
+    return {"status": "done"}
+
+
 async def _handle_backfill_metadata(payload: dict) -> dict:  # pragma: no cover
     """Background job: globally backfill retry-eligible unmatched resources.
 
@@ -756,6 +786,7 @@ def register_all_handlers(queue) -> None:
     queue.register("run_agent", _handle_run_agent)
     queue.register("refresh_works_metadata", _handle_refresh_works_metadata)
     queue.register("refresh_channel_works", _handle_refresh_channel_works)
+    queue.register("reprocess_resource_metadata", _handle_reprocess_resource_metadata)
     queue.register("backfill_metadata", _handle_backfill_metadata)
     queue.register("analyze_batch_files", _handle_analyze_batch_files)
     queue.register("sync_progress", _handle_sync_progress)

@@ -1,1 +1,0 @@
-import{n as e,r as t}from"./client-BsHGRirm.js";import{t as n}from"./pagination-w36B7ZrO.js";var r=e();function i({page:e,pageSize:i,total:a,onPageChange:o}){let{t:s}=t();return(0,r.jsx)(n,{current:e,total:a,pageSize:i,onChange:o,showSizeChanger:!1,showTotal:(e,t)=>s(`pagination.range`,{from:t[0],to:t[1],total:e}),size:`small`})}export{i as t};

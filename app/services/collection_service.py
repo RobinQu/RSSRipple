@@ -20,9 +20,10 @@ import logging
 import re
 import time
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.series import TVSeries
 from app.models.work_collection import WorkCollection
@@ -181,7 +182,14 @@ async def try_absorb_shell_collection(
     if aliases:
         collection.aliases = aliases
     # Delete the shell BEFORE re-pointing the work: the ORM nullifies a
-    # deleted collection's member FKs at flush.
+    # deleted collection's member FKs at flush. Resources parked on the shell
+    # are NOT session-tracked members — re-point them explicitly so their
+    # collection_id never dangles.
+    await db.execute(
+        update(FileResource)
+        .where(FileResource.collection_id == shell.id)
+        .values(collection_id=collection.id)
+    )
     await db.delete(shell)
     await db.flush()
     work.collection_id = collection.id
@@ -304,7 +312,14 @@ async def try_absorb_same_name_collection(
         if aliases:
             collection.aliases = aliases
         # Delete the emptied source BEFORE re-pointing stragglers: the ORM
-        # nullifies a deleted collection's member FKs at flush.
+        # nullifies a deleted collection's member FKs at flush. Resources
+        # parked on the source are NOT session-tracked members — re-point
+        # them explicitly so their collection_id never dangles.
+        await db.execute(
+            update(FileResource)
+            .where(FileResource.collection_id == source.id)
+            .values(collection_id=collection.id)
+        )
         await db.delete(source)
         await db.flush()
         logger.info(

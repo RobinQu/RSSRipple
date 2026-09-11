@@ -8,6 +8,8 @@ interface ResourceCorrectionModalProps {
   open: boolean;
   onClose: () => void;
   onSaved?: (updated: FileResource) => void;
+  /** Forwarded from the wizard after a background metadata reparse triggers. */
+  onReparse?: () => void;
   initialStep?: number;
 }
 
@@ -18,6 +20,7 @@ export default function ResourceCorrectionModal({
   open,
   onClose,
   onSaved,
+  onReparse,
   initialStep = 0,
 }: ResourceCorrectionModalProps) {
   const { t } = useTranslation();
@@ -46,6 +49,7 @@ export default function ResourceCorrectionModal({
         <ResourceEditWizard
           resourceId={resourceId}
           initialStep={initialStep}
+          onReparse={onReparse}
           onDone={(updated) => {
             if (updated) onSaved?.(updated);
             onClose();

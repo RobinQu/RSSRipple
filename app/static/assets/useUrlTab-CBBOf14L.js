@@ -1,0 +1,1 @@
+import{Or as e,Tr as t}from"./client-BsHGRirm.js";import{et as n}from"./index-wRg1MV78.js";var r=e(t(),1);function i(e,t,i=`tab`){let[a,o]=n(),s=a.get(i);return[t.includes(s)?s:e,(0,r.useCallback)(t=>{o(n=>{let r=new URLSearchParams(n);return t===e?r.delete(i):r.set(i,t),r},{replace:!0})},[e,i,o])]}export{i as t};

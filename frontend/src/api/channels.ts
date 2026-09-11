@@ -219,6 +219,14 @@ export const resourcesApi = {
       `/resources/${id}/magnet-resolve`,
       trackers === undefined ? {} : { trackers },
     ),
+  // Full background metadata reparse: hides the resource from dashboard
+  // confirmations immediately; the job clears the flag on completion so the
+  // confirmation policy re-evaluates. 409 while a reparse is already active.
+  reparseMetadata: (id: string) =>
+    api.post<{ reparse: { status: string } }>(
+      `/resources/${id}/reparse-metadata`,
+      {},
+    ),
   correctParseFields: (id: string, body: ResourceCorrectionBody) =>
     api.patch<FileResource>(`/resources/${id}`, body),
   // Edit wizard write path: full association state (works set, collection,

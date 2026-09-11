@@ -11,6 +11,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Segmented,
   Select,
   Space,
@@ -124,6 +125,9 @@ interface ResourceEditWizardProps {
   /** Called once a save settles: updated resource on success, null when
    * nothing changed / closed without applicable changes. */
   onDone: (updated: FileResource | null) => void;
+  /** Called after a background metadata reparse is successfully triggered —
+   * hosts showing todo lists should refresh so the entry disappears. */
+  onReparse?: () => void;
 }
 
 /** Four-step unified edit flow for a file resource (per-season works):
@@ -141,6 +145,7 @@ export default function ResourceEditWizard({
   resourceId,
   initialStep = 0,
   onDone,
+  onReparse,
 }: ResourceEditWizardProps) {
   const { t } = useTranslation();
   const { message } = App.useApp();
@@ -157,6 +162,7 @@ export default function ResourceEditWizard({
   const [batchEpStart, setBatchEpStart] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [reparsing, setReparsing] = useState(false);
   // Server 422 (VALIDATION_ERROR) surfaced in-place: the message lists the
   // per-work gaps; ``step`` is the wizard step that fixes it.
   const [saveError, setSaveError] = useState<{ step: number; message: string } | null>(null);
@@ -1299,6 +1305,28 @@ export default function ResourceEditWizard({
     }
   };
 
+  // Secondary footer action: full background metadata reparse. The server
+  // hides the resource from dashboard confirmations up front and clears the
+  // flag when the job finishes, so the wizard stays open.
+  const handleReparse = async () => {
+    setReparsing(true);
+    try {
+      const res = await resourcesApi.reparseMetadata(resourceId);
+      if (!res.success) {
+        if (res.error?.code === 'ALREADY_RUNNING') {
+          message.warning(t('resource.reparseRunning'));
+        } else {
+          message.error(res.error?.message || t('resource.reparseFailed'));
+        }
+        return;
+      }
+      message.success(t('resource.reparseTriggered'));
+      onReparse?.();
+    } finally {
+      setReparsing(false);
+    }
+  };
+
   const panelStyle = (active: boolean) => ({
     display: active ? undefined : ('none' as const),
   });
@@ -1935,19 +1963,32 @@ export default function ResourceEditWizard({
 
       </div>
 
-      <Space size={8} style={{ display: 'flex', justifyContent: 'flex-end', flexShrink: 0, padding: '12px 4px 4px', borderTop: '1px solid var(--rr-border-soft)' }}>
-        {step > 0 && <Button disabled={analyzing} onClick={() => setStep((s) => s - 1)}>{t('resource.prevStep')}</Button>}
-        {step < 3 && (
-          <Button type="primary" disabled={analyzing} onClick={() => maybeAutoAnalyze(step + 1)}>
-            {t('resource.nextStep')}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, padding: '12px 4px 4px', borderTop: '1px solid var(--rr-border-soft)' }}>
+        <Popconfirm
+          title={t('resource.reparseConfirmTitle')}
+          description={t('resource.reparseConfirmDesc')}
+          okText={t('common.confirm')}
+          cancelText={t('common.cancel')}
+          onConfirm={() => void handleReparse()}
+        >
+          <Button loading={reparsing} icon={<RefreshCw size={14} />}>
+            {t('resource.reparseMetadata')}
           </Button>
-        )}
-        {step === 3 && (
-          <Button type="primary" loading={saving} onClick={() => void handleSave()}>
-            {t('common.confirm')}
-          </Button>
-        )}
-      </Space>
+        </Popconfirm>
+        <Space size={8}>
+          {step > 0 && <Button disabled={analyzing} onClick={() => setStep((s) => s - 1)}>{t('resource.prevStep')}</Button>}
+          {step < 3 && (
+            <Button type="primary" disabled={analyzing} onClick={() => maybeAutoAnalyze(step + 1)}>
+              {t('resource.nextStep')}
+            </Button>
+          )}
+          {step === 3 && (
+            <Button type="primary" loading={saving} onClick={() => void handleSave()}>
+              {t('common.confirm')}
+            </Button>
+          )}
+        </Space>
+      </div>
 
       <WorkPickerModal
         open={pickerOpen}
