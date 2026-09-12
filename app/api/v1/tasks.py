@@ -6,6 +6,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.task_listing import (
+    apply_effective_task_statuses,
+    apply_task_sort,
+    apply_task_status_filter,
+    parse_task_sort,
+    task_list_load_options,
+)
 from app.database import get_db
 from app.models.download_task import DownloadTask
 from app.schemas.common import paginated_response, success_response
@@ -69,23 +76,38 @@ async def list_agent_tasks(
     agent_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: str | None = Query(None),
+    status: str | None = Query(
+        None,
+        description=(
+            "Filter by effective (display) status: `completed` also matches "
+            "organized rows, `cancelled` only genuine cancels."
+        ),
+    ),
+    sort: str | None = Query(
+        None,
+        description=(
+            "Comma-separated sort spec `key:asc|desc` applied in order. Keys: "
+            "status (asc = incomplete first), created_at, progress, title. "
+            "Default: status:asc,created_at:desc (incomplete, newest first)."
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     offset = (page - 1) * page_size
     base_q = select(DownloadTask).where(DownloadTask.agent_id == agent_id)
-    if status:
-        base_q = base_q.where(DownloadTask.status == status)
+    base_q = apply_task_status_filter(base_q, status)
     total_q = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = total_q.scalar_one()
+    query = apply_task_sort(base_q, parse_task_sort(sort))
     result = await db.execute(
-        base_q.options(selectinload(DownloadTask.file_resource), selectinload(DownloadTask.agent))
-        .order_by(DownloadTask.created_at.desc())
+        query.options(*task_list_load_options())
         .offset(offset).limit(page_size)
     )
     tasks = result.scalars().all()
+    payload = [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks]
+    await apply_effective_task_statuses(db, tasks, payload)
     return paginated_response(
-        [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks],
+        payload,
         total=total, page=page, page_size=page_size,
     )
 

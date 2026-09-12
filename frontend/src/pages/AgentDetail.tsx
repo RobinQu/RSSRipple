@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import useDocumentTitle from '../hooks/useDocumentTitle';
 import useAgentFilterFields from '../hooks/useAgentFilterFields';
 import useUrlTab from '../hooks/useUrlTab';
+import { useDownloadTaskPrefs } from '../hooks/useDownloadTaskPrefs';
 import {
   Tabs,
   Table,
@@ -15,7 +16,6 @@ import {
   Empty,
   Spin,
   App,
-  Select,
   Statistic,
   Row,
   Col,
@@ -52,10 +52,9 @@ import {
 import { agentsApi } from '../api/agents';
 import { tasksApi, decisionsApi } from '../api/tasks';
 import StatusBadge from '../components/StatusBadge';
-import ProgressBar from '../components/ProgressBar';
-import EllipsisText from '../components/EllipsisText';
-import TaskStatusIcon from '../components/TaskStatusIcon';
 import FilterBuilder from '../components/FilterBuilder';
+import DownloadTaskTable from '../components/DownloadTaskTable';
+import ResourceDetailDrawer from '../components/ResourceDetailDrawer';
 import {
   collectFieldConditions,
   describeCondition,
@@ -68,8 +67,10 @@ import BackfillPreviewModal from '../components/BackfillPreviewModal';
 import NotificationsPanel from '../components/NotificationsPanel';
 import ResourceFilesDrawer from '../components/ResourceFilesDrawer';
 import SeasonInput from '../components/SeasonInput';
-import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
+import { formatBytes, timeAgo } from '../utils/format';
 import { withMobileLabels } from '../utils/table';
+import { agentTaskColumnStorageKey } from '../utils/requiredFields';
+import { agentTaskSortStorageKey } from '../utils/sortSettings';
 import type {
   Agent,
   AgentRun,
@@ -114,6 +115,14 @@ export default function AgentDetail() {
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskStatus, setTaskStatus] = useState<string | undefined>();
   const [loadingTasks, setLoadingTasks] = useState(false);
+  // Task-table sort/column prefs (shared with the downloader local-task
+  // table), persisted per agent in localStorage.
+  const taskPrefs = useDownloadTaskPrefs(
+    id ? agentTaskSortStorageKey(id) : undefined,
+    id ? agentTaskColumnStorageKey(id) : undefined,
+  );
+  // Read-only resource view opened by clicking a task row.
+  const [selectedTaskResource, setSelectedTaskResource] = useState<FileResource | null>(null);
   // Batch retry: selected task ids + in-flight flag for the tasks tab.
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const [taskBatchLoading, setTaskBatchLoading] = useState(false);
@@ -192,13 +201,13 @@ export default function AgentDetail() {
   const loadTasks = useCallback(async () => {
     if (!id) return;
     setLoadingTasks(true);
-    const r = await tasksApi.listByAgent(id, taskPage, 20, taskStatus);
+    const r = await tasksApi.listByAgent(id, taskPage, 20, taskStatus, taskPrefs.sortParam);
     if (r.success) {
       setTasks(r.data);
       if (r.meta) setTaskTotal(r.meta.total);
     }
     setLoadingTasks(false);
-  }, [id, taskPage, taskStatus]);
+  }, [id, taskPage, taskStatus, taskPrefs.sortParam]);
 
   const loadDecisions = useCallback(async () => {
     if (!id) return;
@@ -641,50 +650,10 @@ export default function AgentDetail() {
     message.success(t('agents.errorCopied'));
   };
 
-  const taskColumns: TableColumnsType<DownloadTask> = [
-    {
-      title: t('agents.taskTitle'),
-      dataIndex: ['file_resource', 'title_raw'],
-      key: 'title',
-      width: 400,
-      // Pinned left so the title stays visible while scrolling horizontally;
-      // single-line ellipsis keeps the table from being crushed in narrow
-      // viewports; the full raw title is available via the tooltip.
-      fixed: 'left',
-      render: (text: string, record) => (
-        <EllipsisText text={text || record.file_resource_id.slice(0, 8)} />
-      ),
-    },
-    {
-      title: t('agents.taskStatus'),
-      dataIndex: 'status',
-      key: 'status',
-      width: 56,
-      align: 'center',
-      render: (status: string) => <TaskStatusIcon status={status} />,
-    },
-    {
-      title: t('agents.taskProgress'),
-      dataIndex: 'progress',
-      key: 'progress',
-      width: 200,
-      // Progress bar on top, live speed + ETA stacked below (only while the
-      // task is actually running).
-      render: (progress: number, record) => (
-        <div>
-          <ProgressBar progress={progress} />
-          <div style={{ marginTop: 2 }}>
-            {['pending', 'queued', 'downloading'].includes(record.status) ? (
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                ↓{formatSpeed(record.download_speed)} · ETA {formatEta(record.eta)}
-              </Text>
-            ) : (
-              <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
-            )}
-          </div>
-        </div>
-      ),
-    },
+  // Extra fixed-right columns appended after the shared task table's
+  // progress column: error popover + row actions (agent-tab specific). The
+  // shared table supplies work/metadata/status/progress columns.
+  const taskExtraColumns: TableColumnsType<DownloadTask> = [
     {
       title: t('agents.taskError'),
       dataIndex: 'error_message',
@@ -706,14 +675,23 @@ export default function AgentDetail() {
                   type="text"
                   icon={<Copy size={13} />}
                   style={{ marginTop: 6, padding: 0 }}
-                  onClick={() => copyText(v)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyText(v);
+                  }}
                 >
                   {t('agents.copyError')}
                 </Button>
               </div>
             }
           >
-            <Button type="text" size="small" danger icon={<AlertTriangle size={15} />} />
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<AlertTriangle size={15} />}
+              onClick={(e) => e.stopPropagation()}
+            />
           </Popover>
         ) : null,
     },
@@ -726,7 +704,7 @@ export default function AgentDetail() {
       // scrolling to the far end of the (wide) table.
       fixed: 'right',
       render: (_, record) => (
-        <Space size={0}>
+        <Space size={0} onClick={(e) => e.stopPropagation()}>
           {record.status === 'downloading' && (
             <Button type="text" size="small" icon={<Pause size={14} />} onClick={() => handlePause(record.id)} />
           )}
@@ -871,51 +849,46 @@ export default function AgentDetail() {
             label: `${t('agents.downloadTasks')} (${taskTotal})`,
             children: (
               <Card>
-                <Space wrap style={{ marginBottom: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{t('agents.statusFilter')}</Text>
-                  <Select
-                    allowClear
-                    placeholder={t('common.all')}
-                    style={{ width: 140 }}
-                    value={taskStatus}
-                    onChange={(v) => {
-                      setTaskStatus(v);
-                      setTaskPage(1);
-                    }}
-                    options={[
-                      { value: 'pending', label: t('status.pending') },
-                      { value: 'queued', label: t('status.queued') },
-                      { value: 'downloading', label: t('status.downloading') },
-                      { value: 'paused', label: t('status.paused') },
-                      { value: 'completed', label: t('status.completed') },
-                      { value: 'error', label: t('status.error') },
-                    ]}
-                  />
-                  <Button
-                    size="small"
-                    loading={taskBatchLoading}
-                    onClick={handleBatchRetryAll}
-                  >
-                    {t('agents.batchRetryAll')}
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    loading={taskBatchLoading}
-                    disabled={selectedTaskIds.length === 0}
-                    onClick={() => handleBatchRetry(selectedTaskIds)}
-                  >
-                    {t('agents.batchRetrySelected', { n: selectedTaskIds.length })}
-                  </Button>
-                </Space>
-                <Table<DownloadTask>
-                  className="stack-table"
-                  columns={withMobileLabels(taskColumns)}
-                  dataSource={tasks}
-                  rowKey="id"
+                <DownloadTaskTable
+                  tasks={tasks}
                   loading={loadingTasks}
-                  size="small"
-                  scroll={{ x: 872 }}
+                  page={taskPage}
+                  total={taskTotal}
+                  onPageChange={setTaskPage}
+                  sorts={taskPrefs.sorts}
+                  onSortsChange={(next) => {
+                    taskPrefs.handleSortsChange(next);
+                    setTaskPage(1);
+                  }}
+                  columnCfg={taskPrefs.columnCfg}
+                  onColumnsChange={taskPrefs.handleColumnsChange}
+                  columnSettingsHint={t('agents.taskColumnSettingsHint')}
+                  statusFilter={taskStatus}
+                  onStatusFilterChange={(v) => {
+                    setTaskStatus(v);
+                    setTaskPage(1);
+                  }}
+                  toolbarExtra={
+                    <>
+                      <Button
+                        size="small"
+                        loading={taskBatchLoading}
+                        onClick={handleBatchRetryAll}
+                      >
+                        {t('agents.batchRetryAll')}
+                      </Button>
+                      <Button
+                        size="small"
+                        type="primary"
+                        loading={taskBatchLoading}
+                        disabled={selectedTaskIds.length === 0}
+                        onClick={() => handleBatchRetry(selectedTaskIds)}
+                      >
+                        {t('agents.batchRetrySelected', { n: selectedTaskIds.length })}
+                      </Button>
+                    </>
+                  }
+                  extraColumns={taskExtraColumns}
                   rowSelection={{
                     selectedRowKeys: selectedTaskIds,
                     onChange: (keys) => setSelectedTaskIds(keys as string[]),
@@ -924,14 +897,10 @@ export default function AgentDetail() {
                       disabled: !['error', 'paused'].includes(record.status),
                     }),
                   }}
-                  pagination={{
-                    current: taskPage,
-                    pageSize: 20,
-                    total: taskTotal,
-                    onChange: setTaskPage,
-                    showSizeChanger: false,
+                  onRowClick={(task) => {
+                    if (task.file_resource) setSelectedTaskResource(task.file_resource);
                   }}
-                  locale={{ emptyText: <Empty description={t('agents.noTasks')} /> }}
+                  emptyText={<Empty description={t('agents.noTasks')} />}
                 />
               </Card>
             ),
@@ -1506,6 +1475,14 @@ export default function AgentDetail() {
         resourceId={filesResourceId}
         open={!!filesResourceId}
         onClose={() => setFilesResourceId(null)}
+      />
+
+      {/* Read-only resource view: task rows open the shared resource drawer
+          with all write actions disabled (same as the downloader page). */}
+      <ResourceDetailDrawer
+        resource={selectedTaskResource}
+        readOnly
+        onClose={() => setSelectedTaskResource(null)}
       />
     </div>
   );

@@ -246,7 +246,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | PUT | `/downloaders/{id}` | 更新下载器 |
 | DELETE | `/downloaders/{id}` | 删除下载器；若仍有关联 Agent 返回 `409 CONFLICT` 并在 `error.details.agents` 中带出 `[{id, name}]` 列表，UI 可据此指引用户先解绑/删除这些 Agent |
 | POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录；**同时校验卷绑定有效性**（存在且可读可写）。请求体可选 `{url, username, password, download_dir, volume_id, volume_subpath}`：用于编辑表单按未保存的表单值探测（缺省字段回退到已存值，空密码 = 沿用已存密码；`volume_id`/`volume_subpath` 缺省沿用已存值、显式 `null` = 解绑即恒等）；带覆盖值的探测不更新 status，仅探测已存配置时才更新 status。响应含 `volume_check`（`{exists, readable, writable}` 或 null），卷绑定无效时 `success=false` 且 message 说明原因 |
-| GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表（内联 `file_resource` 及其 series/movie/audio_work/collection 关联，供作品列与 metadata 列渲染）；返回的 `status` 为**展示用有效状态**：原始行为 `cancelled` 但 `completed_at` 非空时（organize 清理/进度同步会把已完成任务置 cancelled，`completed_at` 才是可靠完成标记，语义同频道资源列表的派发结果）改报 `completed`，其 organize 计划已 done 则报 `organized`；`sort` 查询参数为逗号分隔的 `key:asc|desc`（key ∈ `status`/`created_at`/`progress`/`title`，status 按完成度分组 asc=未完成优先、title 走资源 join），缺省 `status:asc,created_at:desc`（未完成靠前、组内入队最新靠前），非法 key 忽略、全部非法回退默认，id 升序兜底保证分页稳定 |
+| GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表（内联 `file_resource` 及其 series/movie/audio_work/collection 关联，供作品列与 metadata 列渲染）；返回的 `status` 为**展示用有效状态**：原始行为 `cancelled` 但 `completed_at` 非空时（organize 清理/进度同步会把已完成任务置 cancelled，`completed_at` 才是可靠完成标记，语义同频道资源列表的派发结果）改报 `completed`，其 organize 计划已 done 则报 `organized`；`status` 过滤按**有效状态**语义（`completed` 含 organized 行、`cancelled` 仅真正取消）；`sort` 查询参数为逗号分隔的 `key:asc|desc`（key ∈ `status`/`created_at`/`progress`/`title`，status 按完成度分组 asc=未完成优先、title 走资源 join），缺省 `status:asc,created_at:desc`（未完成靠前、组内入队最新靠前），非法 key 忽略、全部非法回退默认，id 升序兜底保证分页稳定 |
 | GET | `/downloaders/{id}/torrents` | Transmission 实时种子列表（直连 RPC 返回） |
 
 `POST /downloaders` 请求体示例：
@@ -304,7 +304,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 |--------|------|------|
 | POST | `/tasks` | 手动创建下载任务（绕过 Agent，见下文） |
 | GET | `/tasks` | **全局**下载任务列表（分页，`page_size`≤100；可选过滤 `downloader_id`/`agent_id`/`status`，status 非法值 422；`created_at` 倒序）。供外部消费者（如 vault-organizer）按通知 payload 的 `download_task_id` 寻址查询 |
-| GET | `/agents/{agent_id}/tasks` | Agent 的下载任务（分页，可按 status 过滤） |
+| GET | `/agents/{agent_id}/tasks` | Agent 的下载任务（分页）。与 `/downloaders/{id}/tasks` 共用 `app/api/v1/task_listing.py` 的任务列表能力：内联 `file_resource` 及作品/合集关联（供共享任务表格渲染作品列与 metadata 列）、返回**展示用有效状态**（cancelled+completed_at → completed/organized）、`status` 过滤按有效状态语义（`completed` 含 organized 行）、`sort` 同规格（key ∈ `status`/`created_at`/`progress`/`title`，缺省 `status:asc,created_at:desc`） |
 | GET | `/tasks/{id}` | 任务详情（含 file_resource、agent、channel 信息） |
 | POST | `/tasks/{id}/pause` | 停止（暂停，调用 Transmission RPC） |
 | POST | `/tasks/{id}/resume` | 恢复 |

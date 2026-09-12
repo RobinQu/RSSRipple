@@ -2,12 +2,13 @@ import { api } from './client';
 import type { DownloadTask, PendingDecision } from '../types';
 
 export const tasksApi = {
-  listByAgent: (agentId: string, page = 1, pageSize = 20, status?: string) => {
+  listByAgent: (agentId: string, page = 1, pageSize = 20, status?: string, sort?: string) => {
     const qs = new URLSearchParams({
       page: String(page),
       page_size: String(pageSize),
     });
     if (status) qs.set('status', status);
+    if (sort) qs.set('sort', sort);
     return api.get<DownloadTask[]>(`/agents/${agentId}/tasks?${qs.toString()}`);
   },
   get: (id: string) => api.get<DownloadTask>(`/tasks/${id}`),

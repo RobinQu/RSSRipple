@@ -482,6 +482,28 @@ class TestDownloaderTaskEffectiveStatus:
         got = await self._statuses(client, sample_downloader.id)
         assert got[task.id] == "cancelled"
 
+    async def test_status_filter_completed_includes_organized(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        organized = await self._make_cancelled_task(
+            db_session, sample_downloader, sample_channel, completed=True
+        )
+        genuine = await self._make_cancelled_task(
+            db_session, sample_downloader, sample_channel, completed=False
+        )
+        res = await client.get(
+            f"/api/v1/downloaders/{sample_downloader.id}/tasks?status=completed"
+        )
+        assert res.status_code == 200
+        got = {t["id"]: t["status"] for t in res.json()["data"]}
+        assert set(got) == {organized.id}
+        assert got[organized.id] == "completed"
+        res = await client.get(
+            f"/api/v1/downloaders/{sample_downloader.id}/tasks?status=cancelled"
+        )
+        got = {t["id"]: t["status"] for t in res.json()["data"]}
+        assert set(got) == {genuine.id}
+
     async def test_completed_then_cancelled_shows_completed(
         self, client, db_session, sample_downloader, sample_channel
     ):

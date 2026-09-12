@@ -10,6 +10,10 @@ export function torrentSortStorageKey(downloaderId: string): string {
   return `rssripple:downloader-torrent-sorts:${downloaderId}`;
 }
 
+export function agentTaskSortStorageKey(agentId: string): string {
+  return `rssripple:agent-task-sorts:${agentId}`;
+}
+
 function isValid(entries: unknown): entries is SortEntry[] {
   return (
     Array.isArray(entries) &&

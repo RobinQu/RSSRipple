@@ -237,3 +237,81 @@ class TestGlobalTaskList:
     async def test_page_size_cap(self, client, setup):
         res = await client.get("/api/v1/tasks?page_size=101")
         assert res.status_code == 422
+
+
+class TestAgentTaskListing:
+    """GET /agents/{id}/tasks: shared task-listing capabilities — ``sort``
+    spec, effective-status ``status`` filter, and the completed_at-based
+    display status (cancelled rows that actually completed)."""
+
+    async def _make_task(
+        self, db_session_factory, ch_id, dl_id, aid, *,
+        status, title, created_offset_min=0, completed=False,
+    ):
+        from datetime import UTC, datetime, timedelta
+
+        from app.models.download_task import DownloadTask
+
+        rid = await _create_resource(db_session_factory, ch_id, title)
+        tid = _uuid()
+        async with db_session_factory() as s:
+            s.add(DownloadTask(
+                id=tid, agent_id=aid, file_resource_id=rid,
+                downloader_id=dl_id,
+                download_dir="/downloads/rssripple",
+                status=status, progress=0.0,
+                download_speed=0, upload_speed=0, retry_count=0, max_retries=3,
+                created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(minutes=created_offset_min),
+                completed_at=datetime(2026, 1, 2, tzinfo=UTC) if completed else None,
+            ))
+            await s.commit()
+        return tid
+
+    async def test_sort_default_incomplete_first_then_newest(
+        self, client, setup, db_session_factory
+    ):
+        ch, dl, aid = setup
+        t_done = await self._make_task(
+            db_session_factory, ch, dl, aid, status="completed", title="B", created_offset_min=30
+        )
+        t_active = await self._make_task(
+            db_session_factory, ch, dl, aid, status="downloading", title="A", created_offset_min=10
+        )
+        t_wait = await self._make_task(
+            db_session_factory, ch, dl, aid, status="pending", title="C", created_offset_min=20
+        )
+        res = await client.get(f"/api/v1/agents/{aid}/tasks")
+        assert res.status_code == 200
+        got = [t["id"] for t in res.json()["data"]]
+        assert got == [t_wait, t_active, t_done]
+
+    async def test_sort_title_uses_resource_join(self, client, setup, db_session_factory):
+        ch, dl, aid = setup
+        tb = await self._make_task(db_session_factory, ch, dl, aid, status="pending", title="Bbb")
+        ta = await self._make_task(db_session_factory, ch, dl, aid, status="pending", title="Aaa")
+        res = await client.get(f"/api/v1/agents/{aid}/tasks?sort=title:asc")
+        assert [t["id"] for t in res.json()["data"]] == [ta, tb]
+
+    async def test_status_filter_completed_includes_organized(
+        self, client, setup, db_session_factory
+    ):
+        ch, dl, aid = setup
+        # Organized row: raw cancelled but completed (organize cleanup flip).
+        t_org = await self._make_task(
+            db_session_factory, ch, dl, aid, status="cancelled", title="org", completed=True
+        )
+        t_done = await self._make_task(
+            db_session_factory, ch, dl, aid, status="completed", title="done"
+        )
+        t_cancel = await self._make_task(
+            db_session_factory, ch, dl, aid, status="cancelled", title="cancel"
+        )
+        res = await client.get(f"/api/v1/agents/{aid}/tasks?status=completed")
+        got = {t["id"]: t["status"] for t in res.json()["data"]}
+        assert set(got) == {t_org, t_done}
+        # The organized row reports its effective display status.
+        assert got[t_org] == "completed"
+
+        res = await client.get(f"/api/v1/agents/{aid}/tasks?status=cancelled")
+        got = {t["id"]: t["status"] for t in res.json()["data"]}
+        assert set(got) == {t_cancel}

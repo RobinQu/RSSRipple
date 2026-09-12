@@ -267,6 +267,10 @@ export function torrentColumnStorageKey(downloaderId: string): string {
   return `rssripple:downloader-torrent-columns:${downloaderId}`;
 }
 
+export function agentTaskColumnStorageKey(agentId: string): string {
+  return `rssripple:agent-task-columns:${agentId}`;
+}
+
 /** Default ordering: declared required fields first (work-type applicability
  * ranking), remaining pool keys appended in canonical catalog order. */
 export function defaultColumnOrder(
