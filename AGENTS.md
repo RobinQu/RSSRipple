@@ -92,3 +92,4 @@
 - 遵循 Conventional Branch v1.1.0：`<type>/<description>`，全小写 + 连字符；前缀 `feature|bugfix|hotfix|release|chore|ai|copilot|cursor|claude|codex`。
 - CI：开发分支走 ci-fast（lint + 单元/API，覆盖率 ≥95%），`develop`/`release/**` 走 ci-strict（另含集成测试，覆盖率 ≥85%），推送 `main` 或 `v*` 触发 GHCR 双架构镜像发布；生产 Metadata 离线验收见 [docs/testing/metadata-corpus.md](docs/testing/metadata-corpus.md)。
 - 本地 pre-commit：`git config core.hooksPath githooks` 启用 `uv run ruff check .` 门禁。
+- **本地测试 Compose 隔离（强制）**：dev/生产栈默认项目名为 `rssripple`；本地跑单元/API 或集成测试所用的任何 `docker compose` 必须用 `-p <唯一项目名>`（脚本内部调用则用 `COMPOSE_PROJECT_NAME`）隔离，禁止默认项目名，否则会重建/停止运行中的栈。详见 [CONTRIBUTION.md](CONTRIBUTION.md)「测试」与 [docs/design/branching.md](docs/design/branching.md)。

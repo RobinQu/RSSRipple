@@ -16,8 +16,9 @@
 # (app-2 serves no HTTP), so the cross-instance parametrization collapses to
 # the single web URL and the distinct-instance dedup class skips.
 #
-# Usage:
-#   docker compose -f docker-compose.test-distributed.yml run --rm test-runner
+# Usage (MUST pass an isolated project name via -p; the default `rssripple`
+# project is reserved for the dev/prod stack and must not be disturbed):
+#   docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml run --build --rm test-runner
 # ==============================================================================
 services:
   # Dedicated corpus database: never seed/clear the HTTP integration app DB.

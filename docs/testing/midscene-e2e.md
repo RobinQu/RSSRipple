@@ -43,8 +43,10 @@ npx @midscene/cli@latest model verify
 ## Running
 
 ```bash
-# 1. Start RSSRipple (backend serves the built frontend on :9001)
-docker compose up -d app        # or: uv run uvicorn app.main:app --port 9001
+# 1. Start RSSRipple (backend serves the built frontend on :9001).
+#    Always use a distinct compose project name (e.g. -p rssripple-midscene);
+#    the default project name `rssripple` is reserved for the dev/prod stack.
+docker compose -p rssripple-midscene up -d app   # or: uv run uvicorn app.main:app --port 9001
 
 # 2. Run all suites
 cd tests/midscene

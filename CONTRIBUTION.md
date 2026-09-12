@@ -121,28 +121,37 @@ CORPUS_REPORT_DIR=/tmp/metadata-corpus uv run pytest tests/integration/metadata_
 
 不需要外部 API key：torrent、源响应和模型响应均冻结。报告将待审核样本与已核验语义场景分开，不能把 torrent 清单通过率当作作品识别正确率。数据集更新、独立审核与真实 LLM 三轮评测见 [验收说明](docs/testing/metadata-corpus.md)。
 
-**单元 & API 测试**（快速，本地 Turso）：
+> **强制要求：测试用 Docker Compose 必须使用独立项目名。**
+> dev/生产栈的默认 Compose 项目名是 `rssripple`。任何为单元/API 或集成测试启动的
+> `docker compose` 都必须显式隔离项目名，否则会**重建/停止正在运行的 `rssripple`
+> 容器**（`app`、`worker`、`postgres`、`redis` 等）。统一使用 `-p <唯一项目名>`
+> （如 `-p rssripple-itest`）；若命令由脚本内部调用 compose（如 organize E2E），
+> 改用环境变量 `COMPOSE_PROJECT_NAME=<唯一项目名>`。跑完清理：
+> `docker compose -p <唯一项目名> -f <compose-file> down -v --remove-orphans`。
+
+**单元 & API 测试**（快速，本地 Turso；纯 `uv run pytest`，不需要 docker）：
 
 ```bash
 uv run pytest tests/unit tests/api -v
 ```
 
-**集成测试**（docker-compose）— 两个 profile：
+**集成测试**（docker-compose）— 两个 profile。首次运行或改动 `app/` 后加 `--build`
+重建镜像，避免使用过期镜像导致误报：
 
 单节点（Turso + MemoryQueue）— 快速，无外部依赖：
 
 ```bash
 rm -rf data/ && mkdir -p data   # 残留的数据库文件在 `down -v` 后仍会保留
-docker compose -f docker-compose.test.yml run --rm test-runner
+docker compose -p rssripple-itest -f docker-compose.test.yml run --build --rm test-runner
 # 单个模块：
-docker compose -f docker-compose.test.yml run --rm test-runner \
+docker compose -p rssripple-itest -f docker-compose.test.yml run --rm test-runner \
   uv run pytest tests/integration/http/test_channel_workflow.py -v --tb=short
 ```
 
 分布式（PostgreSQL + Redis，两个 app 副本）— 验证多实例队列去重：
 
 ```bash
-docker compose -f docker-compose.test-distributed.yml run --rm test-runner
+docker compose -p rssripple-itest-dist -f docker-compose.test-distributed.yml run --build --rm test-runner
 ```
 
 需要持久网络客户端的测试（E2E、种子生命周期）在两个 profile 中都被排除；Redis 专用的队列测试在单节点模式下自动跳过。浏览器端 E2E（Midscene.js）的运行方式见 [docs/testing/midscene-e2e.md](docs/testing/midscene-e2e.md)。

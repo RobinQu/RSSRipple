@@ -11,9 +11,10 @@
 # Redis-specific job-queue dedup tests in test_task_queue.py are skipped
 # automatically when no distinct Redis-backed instance is available.
 #
-# Usage:
+# Usage (MUST pass an isolated project name via -p; the default `rssripple`
+# project is reserved for the dev/prod stack and must not be disturbed):
 #   rm -rf data/ && mkdir -p data
-#   docker compose -f docker-compose.test.yml run --rm test-runner
+#   docker compose -p rssripple-itest -f docker-compose.test.yml run --build --rm test-runner
 # ==============================================================================
 services:
   # ── RSSRipple (MemoryQueue + SQLite) ───────────────────────────────────────

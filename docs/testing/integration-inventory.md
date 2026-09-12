@@ -3,6 +3,15 @@
 > 重组完成于 2026-07-24 ｜ 分支 `refactor/integration-tests`
 > 范围：`tests/integration/` ｜ 最新验收（2026-09-09）：**82 个测试文件 / 单节点 2351 passed + 17 skipped**（历史计数：重组前 16 文件 / 166 用例，重组去重 17 个）
 
+> **运行约定（强制）：测试 Compose 必须使用独立项目名。**
+> dev/生产栈的默认项目名是 `rssripple`；本地跑单节点/分布式测试栈时必须传
+> `-p <唯一项目名>`，例如
+> `docker compose -p rssripple-itest -f docker-compose.test.yml run --build --rm test-runner`，
+> 禁止使用默认项目名（会重建/停止正在运行的 `rssripple` 容器）。分布式同理，用
+> `-p rssripple-itest-dist -f docker-compose.test-distributed.yml`。首次运行或改动
+> `app/` 后加 `--build`；跑完用 `... down -v --remove-orphans` 清理。CI 在专用
+> runner 上运行，不需要该隔离。
+
 ## 0. 2026-09 覆盖率门禁提升至 单元 ≥95% / 集成 ≥85%（验收完成）
 
 2026-09-09 将单元/API 覆盖率门禁从 80% 提升到 **95%**（ci-fast / ci-strict 的 `--cov-fail-under=95`），集成覆盖率门禁从 80% 提升到 **85%**（`docker-compose.test.yml` 的 coverage-report `--fail-under=85`，docs/design/branching.md 与 AGENTS.md 同步）。单元侧新增/扩展约 500+ 用例，覆盖 batch_content_analysis、metadata_service、metadata_search_agent、job_handlers、worker、fts、task_queue、organize_*、torrent_inspect、magnet_resolve、metadata_agent、resource_association、database.py 迁移等此前低覆盖模块，单元+API 合计 **97%**。集成侧修复 `test_episode_history_coverage.py::test_only_earlier_absolutes_within_distance_are_used`：该用例早于「manual 锚定的远推外推」特性（aa78259）撰写，其 abs-29 行被标记为 manual 后在新语义下成为合法远推锚（S3E8），改为 `reconciled` 后恢复原意图（仅近邻窗口内的绝对集号参与），集成合计 **90%**，`--fail-under=85` 通过。

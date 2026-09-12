@@ -44,11 +44,13 @@ uv run pytest tests/integration/organize -q
   代码路径：每分钟 tick 停种（真实 RPC）→ 建通知 → organize 规划（卷绑定
   解析）→ auto_execute 执行 → 任务清理（真实 RPC remove_torrent）。
 
-运行（仓库根目录，需要 docker）：
+运行（仓库根目录，需要 docker）。`scripts/organize_e2e.py` 内部调用
+`docker compose -f docker-compose.organize-e2e.yml`，因此用 `COMPOSE_PROJECT_NAME`
+隔离项目名（**强制要求**，禁止默认的 `rssripple`，以免影响正在运行的 dev/生产栈）：
 
 ```
-uv run python scripts/organize_e2e.py           # 全链路，保留环境供检查
-uv run python scripts/organize_e2e.py --down    # 跑完拆除（含 volumes）
+COMPOSE_PROJECT_NAME=rssripple-organize-e2e uv run python scripts/organize_e2e.py           # 全链路，保留环境供检查
+COMPOSE_PROJECT_NAME=rssripple-organize-e2e uv run python scripts/organize_e2e.py --down    # 跑完拆除（含 volumes）
 ```
 
 脚本断言：计划 done、文件落在 `/media/movies/Hamnet (2025)/`、源种子目录
