@@ -2746,8 +2746,10 @@ async def test_search_tmdb_tool_serializes_result(monkeypatch):
     """The @tool wrapper JSON-serializes the source result with unicode kept."""
     import json as _json
 
-    ma_module._execute_search_tmdb = AsyncMock(
-        return_value={"success": True, "data": [{"tmdb_id": 1, "title_cn": "葬送的芙莉莲"}]}
+    monkeypatch.setattr(
+        ma_module,
+        "_execute_search_tmdb",
+        AsyncMock(return_value={"success": True, "data": [{"tmdb_id": 1, "title_cn": "葬送的芙莉莲"}]}),
     )
     out = await ma_module.search_tmdb.coroutine("query")
     parsed = _json.loads(out)
@@ -2758,8 +2760,10 @@ async def test_search_tmdb_tool_serializes_result(monkeypatch):
 async def test_get_tmdb_details_tool_serializes_result(monkeypatch):
     import json as _json
 
-    ma_module._execute_get_tmdb_details = AsyncMock(
-        return_value={"success": True, "data": {"number_of_seasons": 2}}
+    monkeypatch.setattr(
+        ma_module,
+        "_execute_get_tmdb_details",
+        AsyncMock(return_value={"success": True, "data": {"number_of_seasons": 2}}),
     )
     out = await ma_module.get_tmdb_details.coroutine("85937", "tv")
     assert _json.loads(out)["data"]["number_of_seasons"] == 2
@@ -2768,8 +2772,10 @@ async def test_get_tmdb_details_tool_serializes_result(monkeypatch):
 async def test_search_wikipedia_tool_serializes_result(monkeypatch):
     import json as _json
 
-    ma_module._execute_search_wikipedia = AsyncMock(
-        return_value={"success": True, "data": [{"title": "Show"}]}
+    monkeypatch.setattr(
+        ma_module,
+        "_execute_search_wikipedia",
+        AsyncMock(return_value={"success": True, "data": [{"title": "Show"}]}),
     )
     out = await ma_module.search_wikipedia.coroutine("Show", lang="zh")
     assert _json.loads(out)["data"][0]["title"] == "Show"
@@ -2778,8 +2784,10 @@ async def test_search_wikipedia_tool_serializes_result(monkeypatch):
 async def test_get_wikipedia_page_tool_serializes_result(monkeypatch):
     import json as _json
 
-    ma_module._execute_get_wikipedia_page = AsyncMock(
-        return_value={"success": True, "data": {"title": "Show", "categories": {}}}
+    monkeypatch.setattr(
+        ma_module,
+        "_execute_get_wikipedia_page",
+        AsyncMock(return_value={"success": True, "data": {"title": "Show", "categories": {}}}),
     )
     out = await ma_module.get_wikipedia_page.coroutine("Show", lang="zh")
     assert _json.loads(out)["data"]["title"] == "Show"
