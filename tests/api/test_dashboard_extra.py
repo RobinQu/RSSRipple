@@ -519,7 +519,15 @@ class TestDashboardUntrackedTorrents:
              "percent_done": 0.5, "is_finished": False},
             {"id": 2, "name": "untracked-movie", "status": "downloading",
              "percent_done": 0.1, "is_finished": False},
-            # Seeding torrents are not "active downloads" — excluded.
+            # Stopped but unfinished: still an unmanaged download — listed
+            # with its raw status, but not counted as in-flight.
+            {"id": 4, "name": "untracked-stopped", "status": "stopped",
+             "percent_done": 0.3, "is_finished": False},
+            # Fully downloaded but stopped: Transmission reports
+            # isFinished=false here — percent_done must back it up.
+            {"id": 5, "name": "stopped-complete", "status": "stopped",
+             "percent_done": 1.0, "is_finished": False},
+            # Seeding torrents are finished — excluded.
             {"id": 3, "name": "seeding", "status": "seeding",
              "percent_done": 1.0, "is_finished": True},
         ]
@@ -529,13 +537,15 @@ class TestDashboardUntrackedTorrents:
         data = res.json()["data"]
         untracked = [g for g in data["active_download_groups"] if g["type"] == "untracked"]
         assert len(untracked) == 1
-        entries = untracked[0]["tasks"]
-        assert len(entries) == 1
-        assert entries[0]["resource_title"] == "untracked-movie"
-        assert entries[0]["progress"] == 0.1
-        assert entries[0]["agent_id"] is None
-        assert entries[0]["downloader_name"] == "DDl"
-        # 3 tracked active tasks + 1 untracked torrent
+        entries = {e["resource_title"]: e for e in untracked[0]["tasks"]}
+        assert set(entries) == {"untracked-movie", "untracked-stopped"}
+        assert entries["untracked-movie"]["progress"] == 0.1
+        assert entries["untracked-movie"]["agent_id"] is None
+        assert entries["untracked-movie"]["downloader_name"] == "DDl"
+        assert entries["untracked-movie"]["status"] == "downloading"
+        assert entries["untracked-stopped"]["status"] == "stopped"
+        # 3 tracked active tasks + 1 in-flight untracked torrent (the stopped
+        # one is listed but not counted).
         assert data["active_download_count"] == 4
 
     async def test_unreachable_downloader_does_not_break_dashboard(

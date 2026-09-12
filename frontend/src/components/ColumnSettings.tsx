@@ -16,20 +16,23 @@ interface Props {
   pool?: readonly string[];
   /** Hint line above the list (e.g. which scope the config is saved for). */
   hint?: string;
+  /** i18n namespace prefix for column labels (defaults to the channel
+   * required-field catalog). */
+  labelNs?: string;
   onChange: (next: ChannelColumnConfig | null) => void;
 }
 
 /** Column settings popover: every pooled field can be shown/hidden and
  * reordered (fixed columns live outside this list). The config is persisted
  * by the parent (per channel / per downloader). */
-export default function ColumnSettings({ config, declared, pool, hint, onChange }: Props) {
+export default function ColumnSettings({ config, declared, pool, hint, labelNs, onChange }: Props) {
   const { t } = useTranslation();
   const { order, hidden } = useMemo(
     () => effectiveColumnState(config, declared, pool),
     [config, declared, pool],
   );
   const label = (key: string) =>
-    t(`channels.requiredField_${key}`, { defaultValue: key });
+    t(`${labelNs ?? 'channels.requiredField_'}${key}`, { defaultValue: key });
 
   const commit = (nextOrder: string[], nextHidden: string[]) =>
     onChange({ order: nextOrder, hidden: nextHidden });

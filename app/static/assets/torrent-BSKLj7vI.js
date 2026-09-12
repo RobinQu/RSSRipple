@@ -1,0 +1,1 @@
+var e={downloading:`processing`,"download pending":`default`,checking:`processing`,"check pending":`default`,seeding:`success`,"seed pending":`default`,stopped:`warning`},t=new Set([`downloading`,`seeding`,`checking`,`check pending`,`download pending`,`seed pending`]);export{e as n,t};

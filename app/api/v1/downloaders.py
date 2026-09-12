@@ -298,8 +298,39 @@ async def list_downloader_tasks(
         .offset(offset).limit(page_size)
     )
     tasks = result.scalars().all()
+    payload = [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks]
+
+    # The raw status lies about completion: organize cleanup
+    # (``task_cleanup.delete_task_after_organize``) flips a *completed* task
+    # to ``cancelled`` after moving its files into the library, and the
+    # progress sync does the same when the torrent leaves the daemon.
+    # ``completed_at`` is the reliable completion marker — same semantics as
+    # the channel resource list's dispatch outcome (resources.py).
+    affected = [t for t in tasks if t.status == "cancelled" and t.completed_at is not None]
+    if affected:
+        from app.models.download_notification import DownloadNotification
+        from app.models.organize_plan import OrganizePlan
+
+        plan_rows = (await db.execute(
+            select(DownloadNotification.download_task_id, OrganizePlan.status)
+            .select_from(DownloadNotification)
+            .outerjoin(
+                OrganizePlan,
+                OrganizePlan.notification_id == DownloadNotification.id,
+            )
+            .where(DownloadNotification.download_task_id.in_([t.id for t in affected]))
+        )).all()
+        plan_status_by_task = {task_id: plan_status for task_id, plan_status in plan_rows}
+        effective = {
+            t.id: "organized" if plan_status_by_task.get(t.id) == "done" else "completed"
+            for t in affected
+        }
+        for row in payload:
+            if row["id"] in effective:
+                row["status"] = effective[row["id"]]
+
     return paginated_response(
-        [DownloadTaskResponse.model_validate(t).model_dump() for t in tasks],
+        payload,
         total=total, page=page, page_size=page_size,
     )
 

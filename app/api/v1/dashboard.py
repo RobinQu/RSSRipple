@@ -495,9 +495,11 @@ async def _dashboard_downloads(db: AsyncSession) -> dict:
     # Only include unknown if it has tasks
     active_download_groups = [g for g in groups.values() if g["tasks"] or g["type"] != "unknown"]
 
-    # Untracked torrents: actively downloading in a downloader but without a
-    # matching non-terminal DownloadTask (e.g. added directly in Transmission).
-    # Lets users see downloads RSSRipple did not dispatch.
+    # Untracked torrents: unfinished in a downloader but without a matching
+    # non-terminal DownloadTask (e.g. added directly in Transmission).
+    # Transfer state does not matter — a stopped/paused unfinished torrent is
+    # still an unmanaged download the user should see. The raw torrent status
+    # rides along so the UI can tell "stopped" rows apart from live ones.
     untracked_tasks: list[dict] = []
     tracked_q = await db.execute(
         select(DownloadTask.downloader_id, DownloadTask.transmission_torrent_id).where(
@@ -546,11 +548,11 @@ async def _dashboard_downloads(db: AsyncSession) -> dict:
     for downloader, torrents in zip(downloaders, torrent_lists, strict=True):
         tracked_ids = tracked.get(downloader.id, set())
         for torrent in torrents:
-            if (
-                torrent.get("status") in ("downloading", "download pending")
-                and not torrent.get("is_finished")
-                and torrent.get("id") not in tracked_ids
-            ):
+            # "Finished" must be derived, not trusted: Transmission reports
+            # isFinished=false for *stopped* torrents even at 100%, so a
+            # fully downloaded stopped torrent would otherwise leak in.
+            done = torrent.get("is_finished") or (torrent.get("percent_done") or 0) >= 1
+            if not done and torrent.get("id") not in tracked_ids:
                 untracked_tasks.append({
                     # Synthetic id — there is no DownloadTask row for these.
                     "task_id": f"untracked-{downloader.id}-{torrent['id']}",
@@ -563,6 +565,8 @@ async def _dashboard_downloads(db: AsyncSession) -> dict:
                     "downloader_id": downloader.id,
                     "downloader_name": downloader.name,
                     "download_speed": int(torrent.get("rate_download") or 0),
+                    # Raw Transmission status enum (downloading/stopped/…).
+                    "status": torrent.get("status"),
                 })
 
     if untracked_tasks:
@@ -574,8 +578,16 @@ async def _dashboard_downloads(db: AsyncSession) -> dict:
             "tasks": untracked_tasks,
         })
 
+    # The headline "downloading" count tracks only in-flight work — stopped
+    # untracked torrents are listed for visibility but are not transferring.
+    active_untracked = sum(
+        1
+        for entry in untracked_tasks
+        if entry["status"] in ("downloading", "download pending")
+    )
+
     return {
-        "active_download_count": len(tasks) + len(untracked_tasks),
+        "active_download_count": len(tasks) + active_untracked,
         "active_download_groups": active_download_groups,
     }
 

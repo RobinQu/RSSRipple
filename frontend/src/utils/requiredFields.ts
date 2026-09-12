@@ -263,6 +263,10 @@ export function taskColumnStorageKey(downloaderId: string): string {
   return `rssripple:downloader-task-columns:${downloaderId}`;
 }
 
+export function torrentColumnStorageKey(downloaderId: string): string {
+  return `rssripple:downloader-torrent-columns:${downloaderId}`;
+}
+
 /** Default ordering: declared required fields first (work-type applicability
  * ranking), remaining pool keys appended in canonical catalog order. */
 export function defaultColumnOrder(
@@ -362,6 +366,8 @@ export function requiredFieldWidth(key: string): number {
       return 130;
     case 'file_size':
       return 90;
+    case 'created_at':
+      return 150;
     case 'episode_confidence':
       return 100;
     case 'content_type':

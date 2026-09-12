@@ -76,7 +76,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `pending_confirmations` 条目结构 `{resource, channel_name, work_title, work_ref, kinds, missing_fields}`：`work_title`/`work_ref` 为标题展示与跳转目标，按 互斥作品 FK（series/movie）→ 挂载合集（`collection_id`，对应 `/collections/:id`）→ 合集包 `resource_work_links` 首个关联作品 的优先级取首个可用者，全空（未识别）则为 null（标题不可点击）。
 
-`untracked` 组：对每个下载器调用 `list_torrents`，筛选 `status ∈ {downloading, download pending}` 且 `is_finished=false` 且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name`；计入 `active_download_count`。
+`untracked` 组：对每个下载器调用 `list_torrents`，筛选**未下载完成**（`is_finished=false` 且 `percent_done<1`——Transmission 对 stopped 的 100% 种子也报 `isFinished=false`，需双条件；不限传输状态，stopped/paused 的未完成种子同样属于未跟踪）且 torrent id 不属于任何非终态（pending/queued/downloading/paused）DownloadTask 的种子；下载器不可达时跳过（不影响整体响应）。其 task 条目 `task_id` 为合成值（`untracked-{downloader_id}-{torrent_id}`），`agent_*`/`channel_*` 为 null，附带 `downloader_id`/`downloader_name` 与原始种子状态 `status`（Transmission 枚举）；仅正在传输（downloading/download pending）的未跟踪种子计入 `active_download_count`。
 
 ### Queue（队列监控）
 
@@ -246,7 +246,7 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | PUT | `/downloaders/{id}` | 更新下载器 |
 | DELETE | `/downloaders/{id}` | 删除下载器；若仍有关联 Agent 返回 `409 CONFLICT` 并在 `error.details.agents` 中带出 `[{id, name}]` 列表，UI 可据此指引用户先解绑/删除这些 Agent |
 | POST | `/downloaders/{id}/test` | 测试 Transmission RPC 连通性，并用 `free_space(download_dir)` 检查默认下载目录；**同时校验卷绑定有效性**（存在且可读可写）。请求体可选 `{url, username, password, download_dir, volume_id, volume_subpath}`：用于编辑表单按未保存的表单值探测（缺省字段回退到已存值，空密码 = 沿用已存密码；`volume_id`/`volume_subpath` 缺省沿用已存值、显式 `null` = 解绑即恒等）；带覆盖值的探测不更新 status，仅探测已存配置时才更新 status。响应含 `volume_check`（`{exists, readable, writable}` 或 null），卷绑定无效时 `success=false` 且 message 说明原因 |
-| GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表（内联 `file_resource` 及其 series/movie/audio_work/collection 关联，供作品列与 metadata 列渲染）；`sort` 查询参数为逗号分隔的 `key:asc|desc`（key ∈ `status`/`created_at`/`progress`/`title`，status 按完成度分组 asc=未完成优先、title 走资源 join），缺省 `status:asc,created_at:desc`（未完成靠前、组内入队最新靠前），非法 key 忽略、全部非法回退默认，id 升序兜底保证分页稳定 |
+| GET | `/downloaders/{id}/tasks` | 本地 DownloadTask 分页列表（内联 `file_resource` 及其 series/movie/audio_work/collection 关联，供作品列与 metadata 列渲染）；返回的 `status` 为**展示用有效状态**：原始行为 `cancelled` 但 `completed_at` 非空时（organize 清理/进度同步会把已完成任务置 cancelled，`completed_at` 才是可靠完成标记，语义同频道资源列表的派发结果）改报 `completed`，其 organize 计划已 done 则报 `organized`；`sort` 查询参数为逗号分隔的 `key:asc|desc`（key ∈ `status`/`created_at`/`progress`/`title`，status 按完成度分组 asc=未完成优先、title 走资源 join），缺省 `status:asc,created_at:desc`（未完成靠前、组内入队最新靠前），非法 key 忽略、全部非法回退默认，id 升序兜底保证分页稳定 |
 | GET | `/downloaders/{id}/torrents` | Transmission 实时种子列表（直连 RPC 返回） |
 
 `POST /downloaders` 请求体示例：

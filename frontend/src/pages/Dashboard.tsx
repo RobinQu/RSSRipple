@@ -37,6 +37,7 @@ import {
 } from '../components/filterUtils';
 import { timeAgo, formatBytes, formatSpeed } from '../utils/format';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
+import { TORRENT_STATUS_TAG_COLORS } from '../utils/torrent';
 import type {
   DashboardDownloadsData,
   DashboardOverviewData,
@@ -1251,6 +1252,17 @@ export default function Dashboard() {
                               {task.resource_title}
                             </Text>
                             <Space size="small" style={{ color: 'var(--rr-text-muted)', fontSize: 12, flexShrink: 0 }}>
+                              {/* Untracked rows carry the raw Transmission
+                                  status so stopped torrents are visibly
+                                  distinct from live ones. */}
+                              {task.status && (
+                                <Tag
+                                  color={TORRENT_STATUS_TAG_COLORS[task.status] ?? 'default'}
+                                  style={{ marginRight: 0 }}
+                                >
+                                  {task.status}
+                                </Tag>
+                              )}
                               {task.agent_id ? (
                                 <Link to={`/agents/${task.agent_id}`}>
                                   <Text style={{ fontSize: 12 }}>{task.agent_name}</Text>

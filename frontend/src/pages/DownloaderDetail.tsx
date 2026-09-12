@@ -15,10 +15,8 @@ import {
   Spin,
   App,
   Alert,
-  Tooltip,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import type { ReactNode } from 'react';
 import { withMobileLabels } from '../utils/table';
 import {
   Edit,
@@ -26,13 +24,10 @@ import {
   RefreshCw,
   ArrowDown,
   ArrowUp,
-  Clock,
-  Pause,
-  Loader,
 } from 'lucide-react';
 import { downloadersApi } from '../api/downloaders';
 import type { DownloaderInstance, DownloadTask, FileResource, TorrentInfo } from '../types';
-import { formatBytes, formatSpeed, formatEta, timeAgo } from '../utils/format';
+import { formatBytes, formatDate, formatSpeed, formatEta, timeAgo } from '../utils/format';
 import StatusBadge from '../components/StatusBadge';
 import EllipsisText from '../components/EllipsisText';
 import ColumnSettings from '../components/ColumnSettings';
@@ -45,6 +40,7 @@ import {
 } from '../components/resourceCells';
 import { posterUrl, useDefaultPoster } from '../utils/poster';
 import { seasonLabel } from '../utils/season';
+import { ACTIVE_TORRENT_STATUSES, TORRENT_STATUS_TAG_COLORS } from '../utils/torrent';
 import {
   DOWNLOAD_STATUS_TAG_COLORS,
   TASK_COLUMN_POOL,
@@ -53,6 +49,7 @@ import {
   resolveVisibleColumns,
   saveColumnConfig,
   taskColumnStorageKey,
+  torrentColumnStorageKey,
   type ChannelColumnConfig,
 } from '../utils/requiredFields';
 
@@ -61,13 +58,16 @@ import {
   saveSortEntries,
   serializeSortEntries,
   taskSortStorageKey,
+  torrentSortStorageKey,
 } from '../utils/sortSettings';
 
 const { Title, Text } = Typography;
 
 // Local-task table: default-visible metadata columns (the must-show fields —
 // work title (with type/batch tags folded into its second line), status and
-// progress — are fixed columns outside the configurable pool).
+// progress — are fixed columns outside the configurable pool). ``created_at``
+// is a task-level column (the task's enqueue time), not a resource catalog
+// field; it renders from the task row.
 const DEFAULT_TASK_COLUMNS: string[] = [
   'year',
   'season',
@@ -77,7 +77,12 @@ const DEFAULT_TASK_COLUMNS: string[] = [
   'resolution',
   'subtitle_group',
   'file_size',
+  'created_at',
 ];
+
+// Task-table column pool: the resource metadata catalog plus the task's own
+// enqueue time.
+const TASK_POOL: readonly string[] = [...TASK_COLUMN_POOL, 'created_at'];
 
 // Sortable task fields; the default puts unfinished tasks first, then the
 // most recently enqueued.
@@ -87,26 +92,20 @@ const DEFAULT_TASK_SORTS: SortEntry[] = [
   { key: 'created_at', dir: 'desc' },
 ];
 
-// Transmission status → icon-only mapping; the text label moves to a tooltip
-// so the column can shrink to icon width (same pattern as the agent task list).
-const TORRENT_STATUS_ICON: Record<string, { icon: ReactNode; color: string }> = {
-  downloading: { icon: <ArrowDown size={15} />, color: 'var(--rr-primary)' },
-  'download pending': { icon: <Clock size={15} />, color: 'var(--rr-text-secondary)' },
-  checking: { icon: <Loader size={15} />, color: 'var(--rr-primary)' },
-  'check pending': { icon: <Clock size={15} />, color: 'var(--rr-text-secondary)' },
-  seeding: { icon: <ArrowUp size={15} />, color: 'var(--rr-success)' },
-  'seed pending': { icon: <Clock size={15} />, color: 'var(--rr-text-secondary)' },
-  stopped: { icon: <Pause size={15} />, color: 'var(--rr-warning)' },
-};
+// Transmission torrent table: same sort-option design as the local tasks
+// (active torrents first, then most recently added), applied client-side —
+// the RPC list arrives unpaginated and unsorted.
+const TORRENT_SORTABLE_KEYS = ['tstatus', 'added_date', 'progress', 'name'] as const;
+const DEFAULT_TORRENT_SORTS: SortEntry[] = [
+  { key: 'tstatus', dir: 'asc' },
+  { key: 'added_date', dir: 'desc' },
+];
 
-const ACTIVE_STATUSES = new Set([
-  'downloading',
-  'seeding',
-  'checking',
-  'check pending',
-  'download pending',
-  'seed pending',
-]);
+// Torrent-table optional columns (the torrent name — with the raw status tag
+// folded into it — is the fixed must-show column locked to the left); all are
+// visible by default.
+const TORRENT_COLUMN_POOL = ['added_date', 'download_dir', 'progress', 'transfer'] as const;
+const DEFAULT_TORRENT_COLUMNS: string[] = [...TORRENT_COLUMN_POOL];
 
 export default function DownloaderDetail() {
   const { id } = useParams<{ id: string }>();
@@ -128,15 +127,23 @@ export default function DownloaderDetail() {
   // per downloader in localStorage.
   const [columnCfg, setColumnCfg] = useState<ChannelColumnConfig | null>(null);
   const [sorts, setSorts] = useState<SortEntry[]>(DEFAULT_TASK_SORTS);
+  const [torrentColumnCfg, setTorrentColumnCfg] = useState<ChannelColumnConfig | null>(null);
+  const [torrentSorts, setTorrentSorts] = useState<SortEntry[]>(DEFAULT_TORRENT_SORTS);
   const [selectedResource, setSelectedResource] = useState<FileResource | null>(null);
 
   useEffect(() => {
     setColumnCfg(id ? loadColumnConfig(taskColumnStorageKey(id)) : null);
     setSorts((id && loadSortEntries(taskSortStorageKey(id))) || DEFAULT_TASK_SORTS);
+    setTorrentColumnCfg(id ? loadColumnConfig(torrentColumnStorageKey(id)) : null);
+    setTorrentSorts((id && loadSortEntries(torrentSortStorageKey(id))) || DEFAULT_TORRENT_SORTS);
   }, [id]);
   const visibleMetaColumns = useMemo(
-    () => resolveVisibleColumns(columnCfg, DEFAULT_TASK_COLUMNS, TASK_COLUMN_POOL),
+    () => resolveVisibleColumns(columnCfg, DEFAULT_TASK_COLUMNS, TASK_POOL),
     [columnCfg],
+  );
+  const visibleTorrentColumns = useMemo(
+    () => resolveVisibleColumns(torrentColumnCfg, DEFAULT_TORRENT_COLUMNS, TORRENT_COLUMN_POOL),
+    [torrentColumnCfg],
   );
   const handleColumnsChange = useCallback(
     (next: ChannelColumnConfig | null) => {
@@ -145,11 +152,25 @@ export default function DownloaderDetail() {
     },
     [id],
   );
+  const handleTorrentColumnsChange = useCallback(
+    (next: ChannelColumnConfig | null) => {
+      setTorrentColumnCfg(next);
+      if (id) saveColumnConfig(torrentColumnStorageKey(id), next);
+    },
+    [id],
+  );
   const handleSortsChange = useCallback(
     (next: SortEntry[] | null) => {
       setSorts(next ?? DEFAULT_TASK_SORTS);
       setTaskPage(1);
       if (id) saveSortEntries(taskSortStorageKey(id), next);
+    },
+    [id],
+  );
+  const handleTorrentSortsChange = useCallback(
+    (next: SortEntry[] | null) => {
+      setTorrentSorts(next ?? DEFAULT_TORRENT_SORTS);
+      if (id) saveSortEntries(torrentSortStorageKey(id), next);
     },
     [id],
   );
@@ -163,6 +184,36 @@ export default function DownloaderDetail() {
       })),
     [t],
   );
+  const torrentSortFields: SortField[] = useMemo(
+    () =>
+      TORRENT_SORTABLE_KEYS.map((key) => ({
+        key,
+        label: t(`downloaders.sortField_${key}`),
+        ascLabel: t(`downloaders.sortDir_${key}_asc`),
+        descLabel: t(`downloaders.sortDir_${key}_desc`),
+      })),
+    [t],
+  );
+
+  // Client-side sort chain for the live torrent list; ``tstatus`` ranks by
+  // activity so asc puts in-progress torrents first. Falls back to the
+  // torrent id for a stable order between refreshes.
+  const sortedTorrents = useMemo(() => {
+    const activeRank = (tor: TorrentInfo) => (ACTIVE_TORRENT_STATUSES.has(tor.status) ? 0 : 1);
+    const comparators: Record<string, (a: TorrentInfo, b: TorrentInfo) => number> = {
+      tstatus: (a, b) => activeRank(a) - activeRank(b),
+      added_date: (a, b) => (a.added_date ?? '').localeCompare(b.added_date ?? ''),
+      progress: (a, b) => a.percent_done - b.percent_done,
+      name: (a, b) => a.name.localeCompare(b.name),
+    };
+    return [...torrents].sort((a, b) => {
+      for (const entry of torrentSorts) {
+        const cmp = comparators[entry.key]?.(a, b) ?? 0;
+        if (cmp !== 0) return entry.dir === 'asc' ? cmp : -cmp;
+      }
+      return a.id - b.id;
+    });
+  }, [torrents, torrentSorts]);
 
   const fetchDl = useCallback(async () => {
     if (!id) return;
@@ -204,7 +255,7 @@ export default function DownloaderDetail() {
     fetchTasks();
   }, [fetchTasks]);
 
-  const hasActiveTorrents = torrents.some((torrent) => ACTIVE_STATUSES.has(torrent.status));
+  const hasActiveTorrents = torrents.some((torrent) => ACTIVE_TORRENT_STATUSES.has(torrent.status));
   const hasActiveTasks = tasks.some((task) =>
     ['pending', 'queued', 'downloading'].includes(task.status),
   );
@@ -232,16 +283,21 @@ export default function DownloaderDetail() {
     fetchTorrents();
   };
 
-  const torrentColumns: TableColumnsType<TorrentInfo> = [
-    {
-      title: t('common.name'),
-      dataIndex: 'name',
-      key: 'name',
-      // No fixed width: the name flexes to take whatever the compact columns
-      // leave.
-      render: (name: string, t) => <EllipsisText text={name} danger={t.error > 0} />,
+  // Optional torrent columns, keyed so the column-settings order/visibility
+  // config can pick them in any arrangement. The torrent name (with the raw
+  // Transmission status enum as a tag on its second line) is the fixed
+  // must-show column locked to the left.
+  const torrentColumnDefs: Record<string, TableColumnsType<TorrentInfo>[number]> = {
+    added_date: {
+      title: t('downloaders.torrentCol_added_date'),
+      dataIndex: 'added_date',
+      key: 'added_date',
+      width: 150,
+      render: (v: string | null) => (
+        <Text type="secondary">{v ? formatDate(v) : t('format.dash')}</Text>
+      ),
     },
-    {
+    download_dir: {
       title: t('common.directory'),
       dataIndex: 'download_dir',
       key: 'download_dir',
@@ -249,22 +305,7 @@ export default function DownloaderDetail() {
       ellipsis: true,
       render: (v: string | null) => <Text type="secondary">{v || t('format.dash')}</Text>,
     },
-    {
-      title: t('common.status'),
-      dataIndex: 'status',
-      key: 'status',
-      width: 56,
-      align: 'center',
-      render: (s: string) => {
-        const conf = TORRENT_STATUS_ICON[s] ?? TORRENT_STATUS_ICON.stopped;
-        return (
-          <Tooltip title={s}>
-            <span style={{ color: conf.color, display: 'inline-flex' }}>{conf.icon}</span>
-          </Tooltip>
-        );
-      },
-    },
-    {
+    progress: {
       title: t('common.progress'),
       dataIndex: 'percent_done',
       key: 'percent_done',
@@ -287,7 +328,7 @@ export default function DownloaderDetail() {
         />
       ),
     },
-    {
+    transfer: {
       // Combined transfer info: down/up speeds on the first line, ETA and
       // total size on the second — replaces four separate narrow columns.
       title: t('downloaders.transferInfo'),
@@ -313,6 +354,31 @@ export default function DownloaderDetail() {
         </div>
       ),
     },
+  };
+
+  const torrentColumns: TableColumnsType<TorrentInfo> = [
+    {
+      title: t('common.name'),
+      dataIndex: 'name',
+      key: 'name',
+      width: 240,
+      fixed: 'left',
+      render: (name: string, tor) => (
+        <div>
+          <EllipsisText text={name} danger={tor.error > 0} />
+          {/* Raw Transmission status enum as a tag under the title. */}
+          <div style={{ marginTop: 2 }}>
+            <Tag
+              color={TORRENT_STATUS_TAG_COLORS[tor.status] ?? 'default'}
+              style={{ marginRight: 0 }}
+            >
+              {tor.status}
+            </Tag>
+          </div>
+        </div>
+      ),
+    },
+    ...visibleTorrentColumns.map((k) => torrentColumnDefs[k]),
   ];
 
   const taskColumns: TableColumnsType<DownloadTask> = [
@@ -385,14 +451,18 @@ export default function DownloaderDetail() {
       },
     },
     // Configurable metadata columns — same catalog/cells as the channel
-    // resource table.
+    // resource table, plus the task-level enqueue time.
     ...visibleMetaColumns.map(
       (k): TableColumnsType<DownloadTask>[number] => ({
         title: t(`channels.requiredField_${k}`, { defaultValue: k }),
         key: `meta_${k}`,
         width: requiredFieldWidth(k),
         render: (_, task) =>
-          task.file_resource ? <RequiredFieldCell r={task.file_resource} fieldKey={k} /> : null,
+          k === 'created_at' ? (
+            <Text type="secondary">{formatDate(task.created_at)}</Text>
+          ) : task.file_resource ? (
+            <RequiredFieldCell r={task.file_resource} fieldKey={k} />
+          ) : null,
       }),
     ),
     {
@@ -496,7 +566,7 @@ export default function DownloaderDetail() {
                     <ColumnSettings
                       config={columnCfg}
                       declared={DEFAULT_TASK_COLUMNS}
-                      pool={TASK_COLUMN_POOL}
+                      pool={TASK_POOL}
                       hint={t('downloaders.columnSettingsHint')}
                       onChange={handleColumnsChange}
                     />
@@ -538,16 +608,34 @@ export default function DownloaderDetail() {
                   showIcon
                 />
               ) : (
-                <Table
-                  className="stack-table"
-                  columns={withMobileLabels(torrentColumns)}
-                  dataSource={torrents}
-                  rowKey="id"
-                  loading={loadingTorrents}
-                  size="small"
-                  pagination={torrents.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}
-                  locale={{ emptyText: t('downloaders.noTransmissionTorrents') }}
-                />
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                    <SortSettings
+                      fields={torrentSortFields}
+                      value={torrentSorts}
+                      onChange={handleTorrentSortsChange}
+                    />
+                    <ColumnSettings
+                      config={torrentColumnCfg}
+                      declared={DEFAULT_TORRENT_COLUMNS}
+                      pool={TORRENT_COLUMN_POOL}
+                      labelNs="downloaders.torrentCol_"
+                      hint={t('downloaders.columnSettingsHint')}
+                      onChange={handleTorrentColumnsChange}
+                    />
+                  </div>
+                  <Table
+                    className="stack-table"
+                    columns={withMobileLabels(torrentColumns)}
+                    dataSource={sortedTorrents}
+                    rowKey="id"
+                    loading={loadingTorrents}
+                    size="small"
+                    scroll={{ x: 'max-content' }}
+                    pagination={sortedTorrents.length > 20 ? { pageSize: 20, showSizeChanger: false } : false}
+                    locale={{ emptyText: t('downloaders.noTransmissionTorrents') }}
+                  />
+                </>
               ),
             },
           ]}

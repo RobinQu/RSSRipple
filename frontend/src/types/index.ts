@@ -796,7 +796,11 @@ export type TaskStatus =
   | 'paused'
   | 'completed'
   | 'error'
-  | 'cancelled';
+  | 'cancelled'
+  // Display-only outcome: the raw row says "cancelled" but ``completed_at``
+  // proves the download finished and its organize plan is done (organize
+  // cleanup flips completed tasks to cancelled).
+  | 'organized';
 
 export interface DownloadTask {
   id: string;
@@ -1073,6 +1077,8 @@ export interface DashboardDownloadGroup {
     // Present on 'untracked' entries (torrents RSSRipple did not dispatch).
     downloader_id?: string | null;
     downloader_name?: string | null;
+    /** Raw Transmission status enum (downloading/stopped/…). */
+    status?: string | null;
   }>;
 }
 

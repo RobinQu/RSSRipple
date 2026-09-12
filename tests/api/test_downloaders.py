@@ -427,3 +427,85 @@ class TestDownloaderTaskSorting:
         ids = await self._make_tasks(db_session, sample_downloader, sample_channel)
         got = await self._ids(client, sample_downloader.id, "bogus:asc")
         assert got == [ids[2], ids[1], ids[3], ids[0]]
+
+
+class TestDownloaderTaskEffectiveStatus:
+    """GET /downloaders/{id}/tasks display status: the raw row lies about
+    completion — organize cleanup flips a *completed* task to ``cancelled``
+    after moving its files into the library. ``completed_at`` is the reliable
+    marker (same semantics as the channel resource list's dispatch outcome):
+    cancelled + completed_at → ``completed``, or ``organized`` when the
+    task's organize plan is done; a genuine cancel (no completed_at) stays
+    ``cancelled``."""
+
+    async def _make_cancelled_task(
+        self, db_session, sample_downloader, sample_channel, *, completed: bool
+    ):
+        import uuid
+        from datetime import UTC, datetime
+
+        from app.models.download_task import DownloadTask
+        from app.models.file_resource import FileResource
+
+        rid = str(uuid.uuid4())
+        db_session.add(FileResource(
+            id=rid,
+            channel_id=sample_channel.id,
+            guid=str(uuid.uuid4()),
+            title_raw="res",
+            torrent_url=f"magnet:?xt=urn:btih:{rid}",
+        ))
+        task = DownloadTask(
+            id=str(uuid.uuid4()),
+            file_resource_id=rid,
+            downloader_id=sample_downloader.id,
+            download_dir="/downloads/rssripple",
+            status="cancelled",
+            progress=1.0 if completed else 0.2,
+            completed_at=datetime(2026, 1, 1, tzinfo=UTC) if completed else None,
+        )
+        db_session.add(task)
+        await db_session.commit()
+        return task
+
+    async def _statuses(self, client, downloader_id):
+        res = await client.get(f"/api/v1/downloaders/{downloader_id}/tasks")
+        assert res.status_code == 200
+        return {t["id"]: t["status"] for t in res.json()["data"]}
+
+    async def test_genuine_cancel_stays_cancelled(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        task = await self._make_cancelled_task(
+            db_session, sample_downloader, sample_channel, completed=False
+        )
+        got = await self._statuses(client, sample_downloader.id)
+        assert got[task.id] == "cancelled"
+
+    async def test_completed_then_cancelled_shows_completed(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        task = await self._make_cancelled_task(
+            db_session, sample_downloader, sample_channel, completed=True
+        )
+        got = await self._statuses(client, sample_downloader.id)
+        assert got[task.id] == "completed"
+
+    async def test_completed_with_done_plan_shows_organized(
+        self, client, db_session, sample_downloader, sample_channel
+    ):
+        from app.models.download_notification import DownloadNotification
+        from app.models.organize_plan import OrganizePlan
+
+        task = await self._make_cancelled_task(
+            db_session, sample_downloader, sample_channel, completed=True
+        )
+        notification = DownloadNotification(download_task_id=task.id, payload={})
+        db_session.add(notification)
+        await db_session.flush()
+        db_session.add(OrganizePlan(
+            notification_id=notification.id, status="done", payload={}
+        ))
+        await db_session.commit()
+        got = await self._statuses(client, sample_downloader.id)
+        assert got[task.id] == "organized"
