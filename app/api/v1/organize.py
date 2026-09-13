@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, Query
@@ -64,7 +65,7 @@ from app.services.filter_engine import validate_filter_config
 from app.services.notify_service import build_payload
 from app.services.organize_planner import PlanError
 from app.services.organize_template import validate_template
-from app.services.volume_service import resolve_library_root
+from app.services.volume_service import VolumeResolutionError, resolve_library_recycle, resolve_library_root
 from app.utils.download_paths import validate_download_subdir
 
 router = APIRouter()
@@ -78,7 +79,11 @@ async def _replan_after_config_change(db: AsyncSession, reason: str) -> None:
     附带动作：变更本身已提交，重建失败只记日志、不影响响应。
     """
     try:
-        await organize_service.replan_open_plans(db, reason=reason)
+        # Configuration is already committed. Keep best-effort replanning's
+        # refresh/rollback effects out of the response session's identity map.
+        async with AsyncSession(bind=db.bind, expire_on_commit=False) as replan_db:
+            await organize_service.replan_open_plans(replan_db, reason=reason)
+            await replan_db.commit()
     except Exception as e:  # noqa: BLE001
         logger.warning("[organize] %s 后重建计划失败：%s", reason, e)
 
@@ -125,6 +130,13 @@ _LIBRARY_LOAD_OPTIONS = (
 
 def _library_out(lib: Library) -> dict:
     """响应组装：root_path 为派生展示字段（卷引用解析结果），bound 为绑定状态。"""
+    path_error = None
+    try:
+        root_path = resolve_library_root(lib)
+        resolve_library_recycle(lib)
+    except VolumeResolutionError as exc:
+        root_path = None
+        path_error = str(exc)
     return LibraryOut(
         id=lib.id,
         name=lib.name,
@@ -136,7 +148,8 @@ def _library_out(lib: Library) -> dict:
         volume_id=lib.volume_id,
         volume_name=lib.volume.name if lib.volume else None,
         root_subpath=lib.root_subpath,
-        root_path=resolve_library_root(lib),
+        root_path=root_path,
+        path_error=path_error,
         recycle_subpath=lib.recycle_subpath,
         bound=lib.volume_id is not None,
         subtitle_lang_map=lib.subtitle_lang_map,
@@ -168,7 +181,7 @@ async def list_libraries(
     items = []
     for lib in rows:
         data = LibraryListItem(
-            **_library_out(lib),
+            **(await asyncio.to_thread(_library_out, lib)),
             pending_plan_count=pending_counts.get(lib.id, 0),
         ).model_dump()
         items.append(data)
@@ -189,7 +202,7 @@ async def get_library(library_id: str, db: AsyncSession = Depends(get_db)):
     lib = await _get_library_or_404(db, library_id)
     if isinstance(lib, JSONResponse):
         return lib
-    return success_response(_library_out(lib))
+    return success_response(await asyncio.to_thread(_library_out, lib))
 
 
 @router.put("/libraries/{library_id}")
@@ -235,7 +248,7 @@ async def update_library(
         )
     ).scalar_one()
     await _replan_after_config_change(db, f"媒体库「{lib.name}」更新")
-    return success_response(_library_out(lib))
+    return success_response(await asyncio.to_thread(_library_out, lib))
 
 
 @router.delete("/libraries/{library_id}")
@@ -580,10 +593,9 @@ def _pending_reason(plan: OrganizePlan) -> str | None:
         return "unclassified"
     if plan.library is not None and plan.library.volume_id is None:
         return "unbound"
-    if (
-        plan.rule is not None
-        and plan.category is None
-        and "{category}" in plan.rule.path_template
+    if plan.needs_category or (
+        plan.file_op is None and plan.rule is not None
+        and plan.category is None and "{category}" in plan.rule.path_template
     ):
         return "unclassified"
     return None
@@ -597,6 +609,9 @@ def _plan_list_item(plan: OrganizePlan) -> dict:
     ops = sorted(plan.ops, key=lambda o: o.seq)
     item = OrganizePlanListItem(
         id=plan.id,
+        revision=plan.revision,
+        file_op=plan.file_op,
+        needs_category=plan.needs_category,
         notification_id=plan.notification_id,
         rule_id=plan.rule_id,
         rule_name=plan.rule.name if plan.rule else None,
@@ -695,8 +710,19 @@ async def execute_plan_endpoint(plan_id: str, db: AsyncSession = Depends(get_db)
             409, "INVALID_STATE",
             f"计划当前状态（{plan.status}）不可执行，仅 pending/failed/running 可执行",
         )
-    if plan.status == "running" and organize_service.is_plan_executing(plan.id):
+    from app.config import settings
+    from app.services.organize_ownership import OwnershipDomainError, is_plan_owned, registered_domain
+
+    directory = Path(settings.organize_lock_dir)
+    try:
+        domain = await registered_domain(db, directory)
+        busy = organize_service.is_plan_executing(plan.id) or await is_plan_owned(directory, plan.id, domain)
+    except OwnershipDomainError as exc:
+        return _error(409, "INVALID_STATE", str(exc))
+    if busy:
         return _error(409, "ALREADY_RUNNING", "计划正在执行中")
+    if plan.status == "running" and plan.file_op not in ("move", "hardlink", "copy"):
+        return _error(409, "INVALID_STATE", "旧 running 计划缺少执行方式快照，不能自动恢复")
     if plan.library_id is None:
         return _error(
             409, "INVALID_STATE", "待分类计划请先指定目标库（classify）再执行"
@@ -706,10 +732,9 @@ async def execute_plan_endpoint(plan_id: str, db: AsyncSession = Depends(get_db)
             409, "INVALID_STATE",
             "目标库未绑定存储卷（待绑定），请先补绑定再执行",
         )
-    if (
-        plan.rule is not None
-        and plan.category is None
-        and "{category}" in plan.rule.path_template
+    if plan.needs_category or (
+        plan.file_op is None and plan.rule is not None
+        and plan.category is None and "{category}" in plan.rule.path_template
     ):
         return _error(
             409, "INVALID_STATE", "计划尚未指定影片类别，请先分类（classify）"
@@ -764,6 +789,30 @@ async def cancel_plan(
     body: OrganizeCancelRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ):
+    from app.config import settings
+    from app.services.organize_ownership import (
+        OwnershipBusyError,
+        OwnershipDomainError,
+        async_plan_lock,
+        finish_before_cancel,
+        registered_domain,
+    )
+
+    async def owned():
+        try:
+            directory = Path(settings.organize_lock_dir)
+            domain = await registered_domain(db, directory)
+            async with async_plan_lock(directory, plan_id, domain):
+                return await _cancel_plan_owned(plan_id, body, db)
+        except OwnershipBusyError:
+            return _error(409, "ALREADY_RUNNING", "计划正在执行中，不可取消")
+        except OwnershipDomainError as exc:
+            return _error(409, "INVALID_STATE", str(exc))
+
+    return await finish_before_cancel(owned())
+
+
+async def _cancel_plan_owned(plan_id, body, db):
     """取消 pending/failed 及崩溃遗留的 running 计划 → cancelled；done 409。
 
     可选附带动作（body）：``delete_task`` 同时删除关联下载任务（任务行置
@@ -774,6 +823,7 @@ async def cancel_plan(
     plan = await _get_plan_or_404(db, plan_id)
     if isinstance(plan, JSONResponse):
         return plan
+    await db.refresh(plan)
     if plan.status not in ("pending", "failed", "running"):
         return _error(
             409, "INVALID_STATE",
@@ -781,6 +831,17 @@ async def cancel_plan(
         )
     if plan.status == "running" and organize_service.is_plan_executing(plan.id):
         return _error(409, "ALREADY_RUNNING", "计划正在执行中，不可取消")
+    from app.services.organize_plan_state import reserve_revision
+
+    from_status = plan.status
+    if not await reserve_revision(
+        db, plan, expected_revision=plan.revision, config_revision=None,
+        states=("pending", "failed", "running"), status="cancelled", owner_token=None,
+    ):
+        return _error(409, "INVALID_STATE", "计划已变更，请刷新后重试")
+    # Publish cancellation before any external deletion; the shared lock is
+    # retained through cleanup and auditing, including caller cancellation.
+    await db.commit()
     opts = body or OrganizeCancelRequest()
     delete_task = opts.delete_task or opts.delete_data
     task_cleaned: bool | None = None
@@ -800,8 +861,6 @@ async def cancel_plan(
                 task_cleaned = await delete_task_after_organize(
                     db, notification.download_task_id
                 )
-    from_status = plan.status
-    plan.status = "cancelled"
     detail: dict = {"from_status": from_status}
     if delete_task:
         detail.update(

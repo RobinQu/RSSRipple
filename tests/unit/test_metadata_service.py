@@ -2593,7 +2593,8 @@ async def test_fetch_and_link_layer4_upsert_exception_transient(db_session, chan
 async def test_manual_search_metadata_local_tv(db_session):
     s = TVSeries(id=_uuid(), title_en="Local Show", content_type="tv")
     db_session.add(s)
-    await db_session.flush()
+    # Local FTS indexes committed library rows, as in a separate search request.
+    await db_session.commit()
     out = await ms.manual_search_metadata(db_session, "Local Show", "tv", data_source_type="local")
     assert len(out) == 1
     assert out[0]["_local_id"] == s.id
@@ -2603,7 +2604,8 @@ async def test_manual_search_metadata_local_tv(db_session):
 async def test_manual_search_metadata_local_movie(db_session):
     m = Movie(id=_uuid(), title_en="Local Film", content_type="movie")
     db_session.add(m)
-    await db_session.flush()
+    # Local FTS indexes committed library rows, as in a separate search request.
+    await db_session.commit()
     out = await ms.manual_search_metadata(db_session, "Local Film", "movie", data_source_type="local")
     assert len(out) == 1
     assert out[0]["content_type"] == "movie"

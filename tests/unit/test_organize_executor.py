@@ -47,7 +47,7 @@ def test_move_normal(tmp_path):
 
 
 def test_move_already_done_cleans_residual_src(tmp_path):
-    """dst 存在且 size 匹配 = 已完成；src 残留且 size 相同 → 删 src 收敛。"""
+    """dst 与 src 的完整内容一致 → move 删源收敛。"""
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
     dst = _mkfile(tmp_path / "lib" / "ep01.mkv", 100)
     [r] = execute_ops([_move(src, dst, 100)])
@@ -57,11 +57,11 @@ def test_move_already_done_cleans_residual_src(tmp_path):
 
 
 def test_move_already_done_keeps_different_src(tmp_path):
-    """dst size 匹配但 src 残留 size 不同 → 不删 src（dst 为权威）。"""
+    """源与目标大小不同 → 冲突失败，保留双方。"""
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 50)
     dst = _mkfile(tmp_path / "lib" / "ep01.mkv", 100)
     [r] = execute_ops([_move(src, dst, 100)])
-    assert r.status == "done"
+    assert r.status == "failed"
     assert src.exists()
 
 
@@ -140,14 +140,16 @@ def test_exdev_falls_back_to_copy(tmp_path, monkeypatch):
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
     dst = tmp_path / "lib" / "ep01.mkv"
 
-    real_rename = os.rename
+    from app.services import organize_executor as executor
+    real_rename = executor.rename_noreplace
 
     def fake_rename(s, d):
-        raise OSError(errno.EXDEV, "Invalid cross-device link")
+        if s == src:
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return real_rename(s, d)
 
-    monkeypatch.setattr(os, "rename", fake_rename)
+    monkeypatch.setattr(executor, "rename_noreplace", fake_rename)
     [r] = execute_ops([_move(src, dst, 100)])
-    monkeypatch.setattr(os, "rename", real_rename)
     assert r.status == "done"
     assert dst.exists() and dst.stat().st_size == 100
     assert not src.exists()
@@ -160,12 +162,11 @@ def test_exdev_copy_verify_failure_removes_partial_dst(tmp_path, monkeypatch):
     def fake_rename(s, d):
         raise OSError(errno.EXDEV, "Invalid cross-device link")
 
-    def fake_copyfile(s, d):
-        Path(d).parent.mkdir(parents=True, exist_ok=True)
-        Path(d).write_bytes(b"x" * 10)  # 截断的半成品
+    def fake_copyfile(s, d, *, length):
+        d.write(b"x" * 10)  # 截断的半成品
 
-    monkeypatch.setattr(os, "rename", fake_rename)
-    monkeypatch.setattr("app.services.organize_executor.shutil.copyfile", fake_copyfile)
+    monkeypatch.setattr("app.services.organize_executor.rename_noreplace", fake_rename)
+    monkeypatch.setattr("app.services.organize_executor.shutil.copyfileobj", fake_copyfile)
     [r] = execute_ops([_move(src, dst, 100)])
     assert r.status == "failed"
     assert "校验失败" in r.error
@@ -269,9 +270,11 @@ def test_hardlink_normal_preserves_src(tmp_path):
 
 
 def test_hardlink_already_done_keeps_src(tmp_path):
-    """dst 存在且 size 匹配 = 已完成（同 move 状态表语义），但保留 src。"""
+    """dst 与 src 同 inode = 已完成，保留 src。"""
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
-    dst = _mkfile(tmp_path / "lib" / "ep01.mkv", 100)
+    dst = tmp_path / "lib" / "ep01.mkv"
+    dst.parent.mkdir(parents=True)
+    os.link(src, dst)
     [r] = execute_ops([_move(src, dst, 100)], file_op="hardlink")
     assert r.status == "done"
     assert src.exists() and dst.exists()
@@ -291,7 +294,7 @@ def test_hardlink_exdev_fails_without_copy_fallback(tmp_path, monkeypatch):
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
     dst = tmp_path / "lib" / "ep01.mkv"
 
-    def fake_link(s, d):
+    def fake_link(s, d, *, follow_symlinks=False):
         raise OSError(errno.EXDEV, "Invalid cross-device link")
 
     monkeypatch.setattr(os, "link", fake_link)
@@ -345,11 +348,10 @@ def test_copy_verify_failure_removes_partial_dst(tmp_path, monkeypatch):
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
     dst = tmp_path / "lib" / "ep01.mkv"
 
-    def fake_copyfile(s, d):
-        Path(d).parent.mkdir(parents=True, exist_ok=True)
-        Path(d).write_bytes(b"x" * 10)  # 截断的半成品
+    def fake_copyfile(s, d, *, length):
+        d.write(b"x" * 10)  # 截断的半成品
 
-    monkeypatch.setattr("app.services.organize_executor.shutil.copyfile", fake_copyfile)
+    monkeypatch.setattr("app.services.organize_executor.shutil.copyfileobj", fake_copyfile)
     [r] = execute_ops([_move(src, dst, 100)], file_op="copy")
     assert r.status == "failed"
     assert "校验失败" in r.error
@@ -426,17 +428,18 @@ def test_state_table_src_equals_dst(tmp_path):
         assert src.exists()
 
 
-def test_move_non_exdev_oserror_propagates(tmp_path, monkeypatch):
-    """跨设备之外的 OSError（如权限）原样抛出，不吞异常不删源。"""
+def test_move_non_exdev_oserror_fails_without_deleting_source(tmp_path, monkeypatch):
+    """权限/原子发布不支持错误可见，源保留。"""
     src = _mkfile(tmp_path / "dl" / "ep01.mkv", 100)
     dst = tmp_path / "lib" / "ep01.mkv"
 
     def fake_rename(s, d):
         raise OSError(errno.EPERM, "Permission denied")
 
-    monkeypatch.setattr(os, "rename", fake_rename)
-    with pytest.raises(OSError):
-        execute_ops([_move(src, dst, 100)])
+    monkeypatch.setattr("app.services.organize_executor.rename_noreplace", fake_rename)
+    [result] = execute_ops([_move(src, dst, 100)])
+    assert result.status == "failed"
+    assert "Permission denied" in result.error
     assert src.exists()
     assert not dst.exists()
 
@@ -556,7 +559,7 @@ def test_run_execution_op_failure_reports_error(tmp_path, monkeypatch):
     src = _mkfile(tmp_path / "dl" / "a.mkv", 100)
     dst = tmp_path / "lib" / "a.mkv"
 
-    def fake_link(s, d):
+    def fake_link(s, d, *, follow_symlinks=False):
         raise OSError(errno.EXDEV, "Invalid cross-device link")
 
     monkeypatch.setattr(os, "link", fake_link)

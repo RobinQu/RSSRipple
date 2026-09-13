@@ -1,0 +1,301 @@
+--- a/app/services/metadata_wiki_judge.py
++++ b/app/services/metadata_wiki_judge.py
+@@ -226,8 +226,8 @@
+         return_exceptions=True,
+     )
+     source_errors: dict[str, str] = {}
+-    # Collect top candidates (dedup by page_id) across variants.
+-    seen_pids: set = set()
++    # Page IDs are unique only within a language edition.
++    seen_pids: set[tuple[str, str]] = set()
+     top: list[dict] = []
+     for (q, lang), res in zip(queries, raw_results):
+         if isinstance(res, Exception):
+@@ -242,10 +242,10 @@
+             continue
+         for cand in res.get("data", [])[:3]:
+             pid = cand.get("page_id")
+-            if pid and pid in seen_pids:
++            if pid and (lang, str(pid)) in seen_pids:
+                 continue
+             if pid:
+-                seen_pids.add(pid)
++                seen_pids.add((lang, str(pid)))
+             top.append({"query": q, "lang": lang, **cand})
+             if len(top) >= 6:
+                 break
+@@ -498,39 +498,43 @@
+     if finalize_dict.get("found"):
+         me = finalize_dict.get("matched_entity") or {}
+         ext_id = me.get("external_id") or ""
+-        _, pid = parse_wikipedia_id(ext_id)
+-        if pid:
+-            for e in evidence:
+-                if str(e.get("page_id")) == str(pid):
+-                    me["categories"] = list(e.get("categories", [])[:10])
+-                    if not me.get("description"):
+-                        me["description"] = (e.get("summary") or "")[:500] or None
+-                    # Language-qualify the pageid (pageids are per-edition)
+-                    # and carry the page URL for display/wikidata resolution.
+-                    if e.get("lang"):
+-                        me["external_id"] = f"wikipedia:{e['lang']}:{pid}"
+-                    if not me.get("wikipedia_url") and e.get("url"):
+-                        me["wikipedia_url"] = e.get("url")
+-                    # Cross-language bridge: backfill the other language's
+-                    # title slot and carry all langlink titles as alt_titles
+-                    # so the upsert's title fallback can converge per-language
+-                    # wiki pages of the same work onto one row.
+-                    xl = _cross_language_titles(e)
+-                    if xl["alt_titles"]:
+-                        me["alt_titles"] = xl["alt_titles"]
+-                    # P3: langlink pageids join the identity bag at upsert.
+-                    alt_ids = _wikipedia_alt_external_ids(e)
+-                    if alt_ids:
+-                        me["alt_external_ids"] = alt_ids
+-                    if not me.get("title_cn") and xl["title_cn"]:
+-                        me["title_cn"] = xl["title_cn"]
+-                    if not me.get("title_en") and xl["title_en"]:
+-                        me["title_en"] = xl["title_en"]
+-                    if finalize_dict.get("content_type") == "tv":
+-                        # P2: deterministic seasons/episodes from the judged
+-                        # page's wikitext (LLM judge schema stays unchanged).
+-                        await _attach_wikipedia_content(me, e)
+-                    break
++        lang, pid = parse_wikipedia_id(ext_id)
++        matches = [e for e in evidence if pid and str(e.get("page_id")) == pid
++                   and (lang is None or e.get("lang") == lang)]
++        # Legacy bare IDs are safe only when the observed edition is unambiguous.
++        if len(matches) != 1:
++            finalize_dict.update(found=False, matched_entity=None,
++                                 reason="No matching Wikipedia identity in search evidence")
++        else:
++            e = matches[0]
++            me["categories"] = list(e.get("categories", [])[:10])
++            if not me.get("description"):
++                me["description"] = (e.get("summary") or "")[:500] or None
++            # Language-qualify the pageid (pageids are per-edition)
++            # and carry the page URL for display/wikidata resolution.
++            if e.get("lang"):
++                me["external_id"] = f"wikipedia:{e['lang']}:{pid}"
++            if not me.get("wikipedia_url") and e.get("url"):
++                me["wikipedia_url"] = e.get("url")
++            # Cross-language bridge: backfill the other language's
++            # title slot and carry all langlink titles as alt_titles
++            # so the upsert's title fallback can converge per-language
++            # wiki pages of the same work onto one row.
++            xl = _cross_language_titles(e)
++            if xl["alt_titles"]:
++                me["alt_titles"] = xl["alt_titles"]
++            # P3: langlink pageids join the identity bag at upsert.
++            alt_ids = _wikipedia_alt_external_ids(e)
++            if alt_ids:
++                me["alt_external_ids"] = alt_ids
++            if not me.get("title_cn") and xl["title_cn"]:
++                me["title_cn"] = xl["title_cn"]
++            if not me.get("title_en") and xl["title_en"]:
++                me["title_en"] = xl["title_en"]
++            if finalize_dict.get("content_type") == "tv":
++                # P2: deterministic seasons/episodes from the judged
++                # page's wikitext (LLM judge schema stays unchanged).
++                await _attach_wikipedia_content(me, e)
+             finalize_dict["matched_entity"] = me
+     finalize_dict.setdefault("clean_title", "")
+     finalize_dict.setdefault("content_type", "tv")
+--- a/app/services/metadata_agent.py
++++ b/app/services/metadata_agent.py
+@@ -1020,10 +1020,12 @@
+             )
+ 
+         messages = result.get("messages", [])
+-        return (
+-            self._extract_finalize_result(messages),
+-            self._extract_search_info(messages),
+-        )
++        finalize = self._extract_finalize_result(messages)
++        if source == "tmdb":
++            from app.services.metadata_identity_evidence import ground_tmdb_identity
++
++            finalize = ground_tmdb_identity(finalize, messages)
++        return finalize, self._extract_search_info(messages)
+ 
+     async def _run_search_then_judge(
+         self,
+--- /dev/null
++++ b/app/services/metadata_identity_evidence.py
+@@ -0,0 +1,44 @@
++"""Validate model-selected TMDB identity against successful tool results."""
++import json
++import re
++
++from langchain_core.messages import ToolMessage
++
++
++def ground_tmdb_identity(finalize: dict, messages: list) -> dict:
++    if not finalize.get("found"):
++        return finalize
++    identities: set[tuple[str, str]] = set()
++    for message in messages:
++        if not isinstance(message, ToolMessage) or message.name not in {"search_tmdb", "get_tmdb_details"}:
++            continue
++        if message.status == "error" or not isinstance(message.content, str):
++            continue
++        try:
++            payload = json.loads(message.content)
++        except (ValueError, TypeError):
++            continue
++        if not isinstance(payload, dict) or payload.get("success") is not True:
++            continue
++        data = payload.get("data")
++        rows = data if isinstance(data, list) else [data]
++        for row in rows:
++            if not isinstance(row, dict) or row.get("media_type") not in {"tv", "movie"}:
++                continue
++            raw_id = row.get("tmdb_id")
++            if raw_id is None:
++                external_id = row.get("external_id")
++                if isinstance(external_id, str) and re.fullmatch(r"tmdb:[0-9]+", external_id):
++                    raw_id = external_id[5:]
++            if isinstance(raw_id, bool) or not isinstance(raw_id, (int, str)):
++                continue
++            if re.fullmatch(r"[0-9]+", str(raw_id)) and int(raw_id) > 0:
++                identities.add((row["media_type"], str(int(raw_id))))
++    entity = finalize.get("matched_entity")
++    external_id = entity.get("external_id") if isinstance(entity, dict) else None
++    match = re.fullmatch(r"tmdb:([0-9]+)", external_id) if isinstance(external_id, str) else None
++    identity = (finalize.get("content_type"), str(int(match[1]))) if match else None
++    if identity not in identities:
++        return {**finalize, "found": False, "matched_entity": None,
++                "reason": "No matching TMDB identity and media type in tool evidence"}
++    return finalize
+--- a/tests/unit/test_metadata_wiki_judge.py
++++ b/tests/unit/test_metadata_wiki_judge.py
+@@ -170,7 +170,7 @@
+     assert info["error"] is None
+ 
+ 
+-async def test_judge_found_with_unknown_page_id_keeps_entity_unchanged():
++async def test_judge_found_with_unknown_page_id_rejects_entity():
+     rr, mb = _runner()
+     search_p, page_p, _, _ = _wiki_patches(
+         search_return={
+@@ -189,9 +189,9 @@
+         finalize, info = await wj.run_search_then_judge(
+             model, "abcd show", react_runner=rr, msg_builder=mb
+         )
+-    assert finalize["found"] is True
++    assert finalize["found"] is False
+     assert finalize["clean_title"] == ""  # setdefault applied
+-    assert finalize["matched_entity"] == {"external_id": "wikipedia:999"}
++    assert finalize["matched_entity"] is None
+     assert info["method"] == "search_then_judge"
+ 
+ 
+@@ -306,7 +306,8 @@
+         search_return={"success": True, "data": [{"title": "Zzz Qqq", "page_id": 1}]},
+         page_side_effect=RuntimeError("page fetch failed"),
+     )
+-    model = _model({"found": True, "clean_title": "Zzz", "content_type": "tv"})
++    model = _model({"found": True, "clean_title": "Zzz", "content_type": "tv",
++                    "matched_entity": {"external_id": "wikipedia:en:1"}})
+     with search_p, page_p:
+         finalize, info = await wj.run_search_then_judge(
+             model, "abcd show", react_runner=rr, msg_builder=mb
+@@ -328,7 +329,8 @@
+         {"success": True, "data": candidates[6:9]},
+     ])
+     page = AsyncMock(return_value={"data": {}})
+-    model = _model({"found": True, "clean_title": "x", "content_type": "tv"})
++    model = _model({"found": True, "clean_title": "x", "content_type": "tv",
++                    "matched_entity": {"external_id": "wikipedia:en:1"}})
+     with (
+         patch(f"{_JUDGE}._candidate_queries", return_value=queries),
+         patch(f"{_JUDGE}._execute_search_wikipedia", search),
+--- /dev/null
++++ b/tests/unit/test_metadata_identity_grounding.py
+@@ -0,0 +1,86 @@
++"""Untrusted model identities must be grounded in successful tool evidence."""
++import json
++from unittest.mock import AsyncMock, MagicMock, patch
++
++import pytest
++from langchain_core.messages import AIMessage, ToolMessage
++
++from app.services import metadata_wiki_judge as wiki
++from app.services.metadata_agent import UnifiedMetadataAgent
++from tests.unit.test_metadata_wiki_judge import _model, _runner
++
++
++@pytest.mark.parametrize('identity', ['wikipedia:en:999', 'wikipedia:zh:123', 'wikipedia:bogus'])
++async def test_judge_rejects_identity_absent_from_language_qualified_evidence(identity):
++    runner, builder = _runner()
++    search = AsyncMock(return_value={'success': True, 'data': [{'title': 'Different ZZZ', 'page_id': 123}]})
++    page = AsyncMock(return_value={'success': True, 'data': {'categories': ['TV series'], 'summary': 'series'}})
++    model = _model({'found': True, 'content_type': 'tv', 'matched_entity': {'external_id': identity}})
++    with patch.object(wiki, '_candidate_queries', return_value=[('input', 'en')]), \
++            patch.object(wiki, '_execute_search_wikipedia', search), \
++            patch.object(wiki, '_execute_get_wikipedia_page', page):
++        result, _ = await wiki.run_search_then_judge(model, 'input', react_runner=runner, msg_builder=builder)
++    assert result['found'] is False
++    assert result.get('matched_entity') is None
++
++
++async def test_same_pageid_in_two_editions_retains_both_candidates_and_exact_identity():
++    runner, builder = _runner()
++    async def search(query, lang):
++        return {'success': True, 'data': [{'title': 'Different ' + lang, 'page_id': 123}]}
++    async def page(title, lang):
++        return {'success': True, 'data': {'categories': [lang + ' category'], 'summary': lang + ' summary'}}
++    page_mock = AsyncMock(side_effect=page)
++    model = _model({'found': True, 'content_type': 'movie',
++                    'matched_entity': {'external_id': 'wikipedia:ja:123'}})
++    with patch.object(wiki, '_candidate_queries', return_value=[('input', 'en'), ('input', 'ja')]), \
++            patch.object(wiki, '_execute_search_wikipedia', side_effect=search), \
++            patch.object(wiki, '_execute_get_wikipedia_page', page_mock):
++        result, _ = await wiki.run_search_then_judge(model, 'input', react_runner=runner, msg_builder=builder)
++    assert page_mock.await_count == 2
++    assert result['matched_entity']['external_id'] == 'wikipedia:ja:123'
++    assert result['matched_entity']['categories'] == ['ja category']
++
++
++@pytest.mark.parametrize('identity,kind', [('tmdb:999', 'tv'), ('tmdb:111', 'movie')])
++async def test_tmdb_react_rejects_id_or_media_type_not_in_tool_evidence(identity, kind):
++    agent = UnifiedMetadataAgent()
++    final = {'found': True, 'content_type': kind,
++             'matched_entity': {'external_id': identity, 'external_source': 'tmdb'}}
++    messages = [
++        ToolMessage(content=json.dumps({'success': True, 'data': [
++            {'tmdb_id': 111, 'external_id': 'tmdb:111', 'media_type': 'tv'}]}),
++            name='search_tmdb', tool_call_id='search'),
++        AIMessage(content='', tool_calls=[{'id': 'final', 'name': 'finalize',
++                                           'args': {'result_json': json.dumps(final)}}]),
++    ]
++    agent._agent_for_source = MagicMock(return_value=MagicMock(ainvoke=AsyncMock(return_value={'messages': messages})))
++    result, _ = await agent._run_react('input', 'tmdb')
++    assert result['found'] is False
++    assert result.get('matched_entity') is None
++
++
++@pytest.mark.parametrize('name,payload,status,expected', [
++    ('search_tmdb', {'success': True, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'success', True),
++    ('search_tmdb', {'success': True, 'data': [{'external_id': 'tmdb:111', 'media_type': 'tv'}]}, 'success', True),
++    ('get_tmdb_details', {'success': True, 'data': {'tmdb_id': 111, 'media_type': 'tv'}}, 'success', True),
++    ('search_tmdb', {'success': False, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'success', False),
++    ('search_tmdb', {'success': True, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'error', False),
++    ('search_tmdb', {'success': True, 'data': [{'tmdb_id': 111}]}, 'success', False),
++    ('finalize', {'success': True, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'success', False),
++    ('search_tmdb', {'success': True, 'data': [None, 'malformed', {'tmdb_id': True, 'media_type': 'tv'}]}, 'success', False),
++    ('search_tmdb', 'invalid json', 'success', False),
++])
++def test_tmdb_grounding_accepts_only_successful_typed_source_evidence(name, payload, status, expected):
++    from app.services.metadata_identity_evidence import ground_tmdb_identity
++
++    final = {'found': True, 'content_type': 'tv', 'matched_entity': {'external_id': 'tmdb:111'}}
++    message = ToolMessage(content=json.dumps(payload) if not isinstance(payload, str) else payload,
++                          name=name, tool_call_id='evidence', status=status)
++    result = ground_tmdb_identity(final, [message])
++    assert result['found'] is expected
++    if expected:
++        assert result['matched_entity']['external_id'] == 'tmdb:111'
++    else:
++        assert result['matched_entity'] is None
++    assert final['found'] is True  # validation does not mutate caller input

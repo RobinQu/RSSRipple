@@ -19,13 +19,15 @@ from app.services.genre_registry import TMDB_ID_TO_NAME
 
 @pytest.fixture(autouse=True)
 def _clean_caches():
+    # Retain the real cache when tests patch the module symbol.
+    image_base = msa._tmdb_image_base
     msa._cache.clear()
     msa._TMDB_GENRE_MAP = None
-    msa._tmdb_image_base.cache_clear()
+    image_base.cache_clear()
     yield
     msa._cache.clear()
     msa._TMDB_GENRE_MAP = None
-    msa._tmdb_image_base.cache_clear()
+    image_base.cache_clear()
 
 
 @pytest.fixture

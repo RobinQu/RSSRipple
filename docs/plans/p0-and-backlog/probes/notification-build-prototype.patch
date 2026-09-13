@@ -1,0 +1,688 @@
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -22,6 +22,7 @@
+ from app.models.media_server import MediaServerBinding, MediaServerInstance
+ from app.models.metadata_cache import MetadataCache
+ from app.models.movie import Movie
++from app.models.notification_build_failure import NotificationBuildFailure
+ from app.models.organize_audit import OrganizeAuditEntry
+ from app.models.organize_configuration import OrganizeConfiguration
+ from app.models.organize_plan import OrganizePlan
+@@ -54,6 +55,7 @@
+     "DownloaderInstance",
+     "DownloadTask",
+     "DownloadNotification",
++    "NotificationBuildFailure",
+     "PendingDecision",
+     "ResourceWorkLink",
+     "ResourceFileAssignment",
+--- /dev/null
++++ b/app/models/notification_build_failure.py
+@@ -0,0 +1,21 @@
++"""Retry state for tasks whose notification snapshot could not be built."""
++import uuid
++from datetime import datetime
++
++from sqlalchemy import DateTime, ForeignKey, Integer, String, func
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++
++class NotificationBuildFailure(Base):
++    __tablename__ = "notification_build_failures"
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    download_task_id: Mapped[str] = mapped_column(
++        String(36), ForeignKey("download_tasks.id", ondelete="CASCADE"), unique=True, nullable=False,
++    )
++    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
++    next_attempt_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
++    error_message: Mapped[str] = mapped_column(String(2048), nullable=False)
++    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+--- /dev/null
++++ b/app/services/notification_build.py
+@@ -0,0 +1,79 @@
++"""Isolate snapshot generation failures from other tasks and delivery stages."""
++import logging
++import uuid
++from datetime import timedelta
++
++from sqlalchemy import delete, select, update
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++
++from app.database import committed_session, retry_on_lock
++from app.models.download_notification import DownloadNotification
++from app.models.download_task import DownloadTask
++from app.models.notification_build_failure import NotificationBuildFailure
++from app.services.notify_service import create_notification_for_task
++from app.utils.time import utcnow
++
++logger = logging.getLogger(__name__)
++
++
++async def _attempt(task_id):
++    async with committed_session() as db:
++        task = await db.get(DownloadTask, task_id)
++        if task is None or task.status != "completed":
++            return None
++        failure = await db.scalar(select(NotificationBuildFailure).where(
++            NotificationBuildFailure.download_task_id == task_id,
++        ))
++        if failure is not None and failure.next_attempt_at > utcnow():
++            return None
++        notification, created = await create_notification_for_task(db, task)
++        await db.execute(delete(NotificationBuildFailure).where(
++            NotificationBuildFailure.download_task_id == task_id,
++        ))
++        return notification.id if created else None
++
++
++async def _record_failure(task_id, message):
++    async with committed_session() as db:
++        task = await db.get(DownloadTask, task_id)
++        if task is None or task.status != "completed":
++            return
++        if await db.scalar(select(DownloadNotification.id).where(
++            DownloadNotification.download_task_id == task_id,
++        )):
++            return
++        table = NotificationBuildFailure
++        insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
++        now = utcnow()
++        statement = insert(table).values(
++            id=str(uuid.uuid4()), download_task_id=task_id, attempt_count=1,
++            next_attempt_at=now, updated_at=now, error_message=message[:2048],
++        ).on_conflict_do_update(
++            index_elements=["download_task_id"],
++            set_={"attempt_count": table.attempt_count + 1, "updated_at": now,
++                  "error_message": message[:2048]},
++        ).returning(table.attempt_count)
++        attempts = await db.scalar(statement)
++        delay = min(1800, 30 * 2 ** min(attempts - 1, 6))
++        await db.execute(update(table).where(table.download_task_id == task_id).values(
++            next_attempt_at=now + timedelta(seconds=delay),
++        ))
++
++
++async def build_task_notifications(task_ids):
++    """Commit each task independently; return only newly committed snapshot ids."""
++    created = []
++    for task_id in task_ids:
++        try:
++            notification_id = await retry_on_lock(lambda: _attempt(task_id))
++            if notification_id is not None:
++                created.append(notification_id)
++        except Exception as error:
++            logger.warning("[notify] task %s snapshot generation failed: %s", task_id, error)
++            message = str(error)
++            try:
++                await retry_on_lock(lambda: _record_failure(task_id, message))
++            except Exception:
++                logger.exception("[notify] task %s failure state could not be saved", task_id)
++    return created
+--- a/app/services/scheduler.py
++++ b/app/services/scheduler.py
+@@ -588,16 +588,17 @@
+ 
+     if not settings.notify_enabled:
+         return
+-    from sqlalchemy import select
++    from sqlalchemy import delete, select
+ 
+     from app.database import committed_session
+     from app.models.agent_webhook import AgentWebhook
+     from app.models.download_notification import DownloadNotification
+     from app.models.download_task import DownloadTask
++    from app.models.notification_build_failure import NotificationBuildFailure
+     from app.models.organize_plan import OrganizePlan
+     from app.models.organize_rule import OrganizeRule
++    from app.services.notification_build import build_task_notifications
+     from app.services.notify_service import (
+-        create_notification_for_task,
+         deliver_due_deliveries,
+         ensure_deliveries,
+     )
+@@ -621,21 +622,27 @@
+                 .where(OrganizeRule.enabled.is_(True))
+                 .exists()
+             )
+-            stmt = select(DownloadTask).where(
++            # A concurrent successful builder may have beaten failure marking.
++            await db.execute(delete(NotificationBuildFailure).where(
++                NotificationBuildFailure.download_task_id.in_(notified),
++            ))
++            await db.commit()
++            deferred = select(NotificationBuildFailure.id).where(
++                NotificationBuildFailure.download_task_id == DownloadTask.id,
++                NotificationBuildFailure.next_attempt_at > utcnow(),
++            ).exists()
++            stmt = select(DownloadTask.id).where(
+                 DownloadTask.status == "completed",
+                 DownloadTask.id.notin_(notified),
+                 has_webhook | organize_active,
++                ~deferred,
+             )
+-            tasks = (await db.execute(stmt)).scalars().all()
+-            enqueued = 0
+-            created_notifications = []
+-            for task in tasks:
+-                notification, was_created = await create_notification_for_task(db, task)
+-                if was_created:
+-                    enqueued += 1
+-                    if notification is not None:
+-                        created_notifications.append(notification)
+-                await db.commit()
++            task_ids = (await db.execute(stmt)).scalars().all()
++            created_ids = await build_task_notifications(task_ids)
++            enqueued = len(created_ids)
++            created_notifications = (await db.execute(select(DownloadNotification).where(
++                DownloadNotification.id.in_(created_ids),
++            ))).scalars().all() if created_ids else []
+             # organize 规划步：补建通知之后、fan-out 之前；失败不中断 tick 其余阶段
+             plan_targets = list(created_notifications)
+             try:
+--- /dev/null
++++ b/tests/integration/organize/test_notify_poison_task.py
+@@ -0,0 +1,140 @@
++"""Reviewed manifest positive control plus explicit malformed RPC injection."""
++import uuid
++from datetime import timedelta
++
++import pytest
++from sqlalchemy import select
++
++from app.models.download_notification import DownloadNotification
++from app.models.file_resource import FileResource
++from app.models.notification_build_failure import NotificationBuildFailure
++from app.models.organize_plan import OrganizePlan
++from app.models.series import TVSeries
++from app.models.webhook_delivery import WebhookDelivery
++from app.models.work_collection import WorkCollection
++from app.services.notify_service import create_notification_for_task, ensure_deliveries
++from app.services.scheduler import _process_download_notifications
++from app.services.torrent_inspect import parse_torrent_payload
++from tests.integration.organize.test_organize_pipeline import TV_TEMPLATE, _library, _rule, _seed_chain
++from tests.metadata_corpus.dataset import ROOT, asset, digest, load_corpus, read_json
++
++
++@pytest.mark.parametrize("fault", ["malformed_rpc", "after_snapshot_flush"])
++async def test_poison_task_does_not_block_existing_delivery_and_plan(
++    db_session, session_factory, shared_volume, rpc_mocks, record_testsuite_property, monkeypatch, fault,
++):
++    manifest, corpus, reviews = load_corpus(ROOT)
++    case_id = "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b"
++    case = next(row for row in corpus["cases"] if row["id"] == case_id)
++    assert reviews[case_id]["status"] == "confirmed"
++    [assignment] = reviews[case_id]["expected"]["assignments"]
++    assert assignment["season"] == 1 and assignment["episode_start"] == 10
++    torrent = asset(ROOT, case["evidence"]["torrent"])
++    assert digest(torrent.read_bytes()) == torrent.stem
++    listing_file = asset(ROOT, manifest["file_list_file"])
++    assert digest(listing_file.read_bytes()) == manifest["file_list_sha256"]
++    listing = read_json(listing_file)[case["evidence"]["torrent"]]
++    assert parse_torrent_payload(torrent.read_bytes()) == listing
++    assert listing[0]["name"] == assignment["file_path"]
++    record_testsuite_property("torrent_sha256", torrent.stem)
++    record_testsuite_property("real_case", case_id)
++    record_testsuite_property("injection", f"{fault}; media bytes synthetic")
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="猫与龙")
++    db_session.add(collection)
++    series = TVSeries(id=str(uuid.uuid4()), title_cn="猫与龙", season_number=1,
++                      collection_id=collection.id, number_of_episodes=12, content_type="tv")
++    async def chain():
++        return await _seed_chain(
++            db_session, work=series,
++            resource_kw=dict(title_raw=case["input"]["title_raw"], season=1, episode=10, is_batch=False),
++            download_dir=shared_volume.complete_daemon, volume=shared_volume.volume,
++            downloader_dir=shared_volume.daemon,
++        )
++    good = await chain()
++    folder = shared_volume.complete_process / "captured-torrent"
++    folder.mkdir()
++    [entry] = listing
++    sentinel = folder / entry["name"]
++    body = b"explicit synthetic media"
++    sentinel.write_bytes(body)
++    rpc_mocks.get_files.return_value = {"name": folder.name, "files": listing}
++    existing, created = await create_notification_for_task(db_session, good.task)
++    assert created
++    await db_session.commit()
++    await ensure_deliveries(db_session)
++    bad = await chain()
++    bad.task.transmission_torrent_id = 43
++    await db_session.commit()
++    lib = await _library(db_session, shared_volume.media / "tv")
++    await _rule(db_session, lib.id, TV_TEMPLATE)
++    rpc_mocks.get_files.side_effect = lambda torrent_id: (
++        {"name": folder.name, "files": [None]} if torrent_id == 43
++        else {"name": folder.name, "files": listing}
++    )
++    from app.services import notification_build
++
++    original_create = notification_build.create_notification_for_task
++    if fault == "after_snapshot_flush":
++        rpc_mocks.get_files.side_effect = None
++
++        async def fail_after_real_flush(db, task):
++            result = await original_create(db, task)
++            if task.id == bad.task.id:
++                resource = await db.get(FileResource, task.file_resource_id)
++                resource.title_raw = "must be rolled back"
++                await db.flush()
++                raise RuntimeError("injected after snapshot flush")
++            return result
++
++        monkeypatch.setattr(notification_build, "create_notification_for_task", fail_after_real_flush)
++    await _process_download_notifications()
++    async with session_factory() as session:
++        delivery = (await session.execute(select(WebhookDelivery).where(
++            WebhookDelivery.notification_id == existing.id,
++        ))).scalar_one()
++        assert delivery.status == "done", "one malformed task blocked an existing delivery"
++        plan = (await session.execute(select(OrganizePlan).where(
++            OrganizePlan.notification_id == existing.id,
++        ))).scalar_one()
++        assert plan.status == "pending"
++        assert await session.scalar(select(DownloadNotification.id).where(
++            DownloadNotification.download_task_id == bad.task.id,
++        )) is None
++    assert sentinel.read_bytes() == body
++    rpc_mocks.remove.assert_not_awaited()
++
++    async with session_factory() as session:
++        failure = (await session.execute(select(NotificationBuildFailure))).scalar_one()
++        assert failure.download_task_id == bad.task.id and failure.attempt_count == 1
++        assert ("NoneType" if fault == "malformed_rpc" else "injected") in failure.error_message
++        resource = await session.get(FileResource, bad.resource.id)
++        assert resource.title_raw == case["input"]["title_raw"]
++        due = failure.next_attempt_at
++    assert sum(call.args == (43,) for call in rpc_mocks.get_files.await_args_list) == 1
++    fresh = await chain()
++    fresh.task.transmission_torrent_id = 44
++    await db_session.commit()
++    await _process_download_notifications()
++    assert sum(call.args == (43,) for call in rpc_mocks.get_files.await_args_list) == 1
++    async with session_factory() as session:
++        fresh_notification = await session.scalar(select(DownloadNotification).where(
++            DownloadNotification.download_task_id == fresh.task.id,
++        ))
++        assert fresh_notification is not None
++        assert await session.scalar(select(OrganizePlan.id).where(
++            OrganizePlan.notification_id == fresh_notification.id,
++        ))
++    # Corrected RPC data is retried after persisted backoff, without restarting.
++    monkeypatch.setattr("app.services.scheduler.utcnow", lambda: due + timedelta(seconds=1))
++    monkeypatch.setattr("app.services.notification_build.utcnow", lambda: due + timedelta(seconds=1))
++    rpc_mocks.get_files.side_effect = None
++    monkeypatch.setattr(notification_build, "create_notification_for_task", original_create)
++    rpc_mocks.get_files.return_value = {"name": folder.name, "files": listing}
++    await _process_download_notifications()
++    async with session_factory() as session:
++        assert await session.scalar(select(NotificationBuildFailure.id)) is None
++        assert await session.scalar(select(DownloadNotification.id).where(
++            DownloadNotification.download_task_id == bad.task.id,
++        ))
++    assert sentinel.read_bytes() == body
++    rpc_mocks.remove.assert_not_awaited()
+--- /dev/null
++++ b/tests/integration/organize/test_notification_build_retry.py
+@@ -0,0 +1,87 @@
++"""Real persistence checks; synthetic task metadata, no downloaded media."""
++import uuid
++from datetime import datetime, timedelta
++
++from sqlalchemy import delete, select
++
++from app.models.download_notification import DownloadNotification
++from app.models.download_task import DownloadTask
++from app.models.notification_build_failure import NotificationBuildFailure
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services import notification_build as build
++from tests.integration.organize.test_organize_pipeline import _seed_chain
++
++
++async def seed_retry_task(db):
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="synthetic retry fixture")
++    db.add(collection)
++    work = TVSeries(id=str(uuid.uuid4()), title_cn="synthetic retry fixture", season_number=1,
++                    collection_id=collection.id, content_type="tv")
++    chain = await _seed_chain(db, work=work, resource_kw={"season": 1, "episode": 1},
++                              download_dir="/synthetic/no-media")
++    chain.task.transmission_torrent_id = None
++    await db.commit()
++    return chain.task.id
++
++
++async def test_backoff_cap_success_and_cancelled_task(db_session, session_factory, monkeypatch):
++    task_id = await seed_retry_task(db_session)
++    now = datetime(2026, 9, 13)
++    monkeypatch.setattr(build, "utcnow", lambda: now)
++    for attempt in range(1, 11):
++        await build._record_failure(task_id, "synthetic failure")
++        async with session_factory() as db:
++            failure = await db.scalar(select(NotificationBuildFailure))
++            assert failure.attempt_count == attempt
++            assert failure.next_attempt_at == now + timedelta(seconds=min(1800, 30 * 2 ** (attempt - 1)))
++        assert await build._attempt(task_id) is None
++    now += timedelta(seconds=1801)
++    notification_id = await build._attempt(task_id)
++    assert notification_id
++    await build._record_failure(task_id, "late error after success")
++    async with session_factory() as db:
++        assert await db.scalar(select(NotificationBuildFailure.id)) is None
++        notification = await db.get(DownloadNotification, notification_id)
++        assert notification.download_task_id == task_id
++    cancelled_id = await seed_retry_task(db_session)
++    async with session_factory() as db:
++        task = await db.get(DownloadTask, cancelled_id)
++        task.status = "cancelled"
++        await db.commit()
++    await build._record_failure(cancelled_id, "late error after cancellation")
++    assert await build._attempt(cancelled_id) is None
++    async with session_factory() as db:
++        assert await db.scalar(select(NotificationBuildFailure.id)) is None
++        await db.execute(delete(DownloadTask).where(DownloadTask.id == cancelled_id))
++        await db.commit()
++    await build._record_failure(cancelled_id, "late error after deletion")
++    assert await build._attempt(cancelled_id) is None
++
++
++async def test_failure_table_upgrade_is_idempotent_and_cascades(db_session, db_engine, session_factory):
++    from sqlalchemy import inspect
++
++    from app.database import Base, _apply_light_migrations
++
++    task_id = await seed_retry_task(db_session)
++    async with db_engine.begin() as connection:
++        await connection.run_sync(NotificationBuildFailure.__table__.drop)
++        assert not await connection.run_sync(lambda c: inspect(c).has_table("notification_build_failures"))
++        await connection.run_sync(Base.metadata.create_all)
++        await _apply_light_migrations(connection)
++    await build._record_failure(task_id, "preserve this diagnostic across upgrade")
++    async with session_factory() as db:
++        original = await db.scalar(select(NotificationBuildFailure))
++        original_state = (original.id, original.attempt_count, original.next_attempt_at, original.error_message)
++    async with db_engine.begin() as connection:
++        await connection.run_sync(Base.metadata.create_all)
++        await _apply_light_migrations(connection)
++    async with session_factory() as db:
++        failure = await db.scalar(select(NotificationBuildFailure))
++        assert (failure.id, failure.attempt_count, failure.next_attempt_at, failure.error_message) == original_state
++        assert (await db.get(DownloadTask, task_id)).status == "completed"
++        await db.execute(delete(DownloadTask).where(DownloadTask.id == task_id))
++        await db.commit()
++    async with session_factory() as db:
++        assert await db.scalar(select(NotificationBuildFailure.id)) is None
+--- a/tests/unit/test_scheduler.py
++++ b/tests/unit/test_scheduler.py
+@@ -557,141 +557,110 @@
+ 
+ @pytest.mark.asyncio
+ async def test_process_download_notifications_tick_failure_swallowed(
+-    db_session, monkeypatch
++    db_session, monkeypatch, caplog
+ ):
++    """A failed delivery stage is reached, logged, and its transaction ends."""
++    from sqlalchemy import text
++
+     import app.config as cfg_mod
+-    monkeypatch.setattr(cfg_mod, "settings", SimpleNamespace(notify_enabled=True))
+-    factory = _ctx_factory(db_session)
+-    import app.database as dbmod
+-    monkeypatch.setattr(dbmod, "async_session_factory", factory)
+-
++
++    monkeypatch.setattr(cfg_mod.settings, "notify_enabled", True)
+     with patch(
+-        "app.services.notify_service.create_notification_for_task",
+-        new=AsyncMock(side_effect=RuntimeError("boom")),
+-    ):
+-        await sch._process_download_notifications()  # must not raise
++        "app.services.notify_service.ensure_deliveries",
++        new=AsyncMock(side_effect=RuntimeError("injected fan-out failure")),
++    ) as fan_out:
++        await sch._process_download_notifications()
++    fan_out.assert_awaited_once()
++    assert "injected fan-out failure" in caplog.text
++    assert await db_session.scalar(text("SELECT 1")) == 1
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_process_download_notifications_full_tick(
+     db_session, _seed, monkeypatch
+ ):
+-    """A completed task with an enabled webhook flows through the whole tick:
+-    notification creation, organize planning, fan-out and delivery."""
++    """Newly committed snapshots are reloaded before planning and fan-out."""
+     import app.config as cfg_mod
+-    monkeypatch.setattr(cfg_mod, "settings", SimpleNamespace(notify_enabled=True))
+-    factory = _ctx_factory(db_session)
+-    import app.database as dbmod
+-    monkeypatch.setattr(dbmod, "async_session_factory", factory)
+-
+     from app.models.agent_webhook import AgentWebhook
+     from app.models.download_notification import DownloadNotification
+ 
+-    webhook = AgentWebhook(
+-        id=_uuid(), agent_id=_seed.agent.id, url="http://example.com/hook",
+-        enabled=True,
+-    )
+-    db_session.add(webhook)
++    monkeypatch.setattr(cfg_mod.settings, "notify_enabled", True)
++    db_session.add(AgentWebhook(
++        id=_uuid(), agent_id=_seed.agent.id, url="http://example.invalid/hook",
++        enabled=True, mock=True,
++    ))
+     _seed.t_done.status = "completed"
+-    _seed.t_done.completed_at = datetime.now(UTC)
+     await db_session.commit()
+-
+-    notif = DownloadNotification(
+-        id=_uuid(), agent_id=_seed.agent.id,
+-        download_task_id=_seed.t_done.id,
+-        payload={"version": 2, "task_id": _seed.t_done.id},
+-    )
+-
+-    async def _create_notification(db, task):
+-        return notif, True
+-
+-    async def _plan_for_notifications(db, targets):
+-        return {"planned": 1, "rebuilt": 0, "uncategorized": 0,
+-                "skipped": 0, "failed": 0}
++    notification_id = _uuid()
++
++    async def create_snapshot(db, task):
++        notification = DownloadNotification(
++            id=notification_id, agent_id=task.agent_id, download_task_id=task.id,
++            payload={"version": 2, "task_id": task.id},
++        )
++        db.add(notification)
++        await db.flush()
++        return notification, True
+ 
+     with patch(
+-        "app.services.notify_service.create_notification_for_task",
+-        new=AsyncMock(side_effect=_create_notification),
+-    ), patch(
++        "app.services.notification_build.create_notification_for_task",
++        new=AsyncMock(side_effect=create_snapshot),
++    ) as create, patch(
+         "app.services.organize_service.plan_for_notifications",
+-        new=AsyncMock(side_effect=_plan_for_notifications),
+-    ), patch(
+-        "app.services.notify_service.ensure_deliveries",
+-        new=AsyncMock(return_value=2),
+-    ), patch(
++        new=AsyncMock(return_value={"planned": 1, "rebuilt": 0, "uncategorized": 0,
++                                   "skipped": 0, "failed": 0}),
++    ) as planner, patch(
++        "app.services.notify_service.ensure_deliveries", new=AsyncMock(return_value=1),
++    ) as fan_out, patch(
+         "app.services.notify_service.deliver_due_deliveries",
+-        new=AsyncMock(return_value={"delivered": 1, "failed": 0, "skipped": 1}),
+-    ):
++        new=AsyncMock(return_value={"delivered": 1, "failed": 0, "skipped": 0}),
++    ) as deliver:
+         await sch._process_download_notifications()
++    create.assert_awaited_once()
++    planner.assert_awaited_once()
++    assert [row.id for row in planner.await_args.args[1]] == [notification_id]
++    assert (await db_session.get(DownloadNotification, notification_id)).download_task_id == _seed.t_done.id
++    fan_out.assert_awaited_once()
++    deliver.assert_awaited_once()
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_process_download_notifications_orphan_scan_failure(
+-    db_session, _seed, monkeypatch
++    db_session, monkeypatch, caplog
+ ):
+-    """The organize orphan back-scan failure is non-fatal (logged only)."""
++    """Failure of the actual orphan query still reaches both delivery stages."""
++    from sqlalchemy.sql.selectable import Select
++
+     import app.config as cfg_mod
+-    monkeypatch.setattr(cfg_mod, "settings", SimpleNamespace(notify_enabled=True))
+-    factory = _ctx_factory(db_session)
+-    import app.database as dbmod
+-    monkeypatch.setattr(dbmod, "async_session_factory", factory)
+-
+-    from app.models.agent_webhook import AgentWebhook
+-
+-    webhook = AgentWebhook(
+-        id=_uuid(), agent_id=_seed.agent.id, url="http://example.com/hook",
+-        enabled=True,
+-    )
+-    db_session.add(webhook)
+-    await db_session.commit()
+-
+-    async def _create_notification(db, task):
+-        return None, False
+-
+-    # Patch only the ORPHAN query (the second SELECT of DownloadNotification
+-    # inside the try block) to raise; the task query must still succeed.
+-    from sqlalchemy import select
+-
++    import app.database as dbmod
+     from app.models.download_notification import DownloadNotification
+ 
++    monkeypatch.setattr(cfg_mod.settings, "notify_enabled", True)
++    monkeypatch.setattr(dbmod, "async_session_factory", _ctx_factory(db_session))
+     real_execute = db_session.execute
+-    call_count = 0
+-
+-    async def _selective_fail_execute(stmt, *a, **kw):
+-        nonlocal call_count
+-        # First select on DownloadNotification is the `notified` subquery in
+-        # the task stmt; failing it would break the whole tick. Only fail the
+-        # orphan back-scan (second standalone DownloadNotification select that
+-        # has no join and no `status` filter).
+-        if isinstance(stmt, select) and stmt.whereclause is not None:
+-
+-            has_task_table = any(
+-                col.table.key == "download_tasks" for col in stmt.whereclause.get_children(
+-                    **{"iterate": True}
+-                ) if hasattr(col, "table")
+-            )
+-            if not has_task_table and any(
+-                isinstance(desc, DownloadNotification)
+-                for desc in getattr(stmt, "_entities", [])
+-            ):
+-                raise RuntimeError("orphan scan failed")
+-        return await real_execute(stmt, *a, **kw)
+-
+-    db_session.execute = _selective_fail_execute  # type: ignore[method-assign]
+-    try:
+-        with patch(
+-            "app.services.notify_service.create_notification_for_task",
+-            new=AsyncMock(side_effect=_create_notification),
+-        ), patch(
+-            "app.services.notify_service.ensure_deliveries",
+-            new=AsyncMock(return_value=0),
+-        ), patch(
+-            "app.services.notify_service.deliver_due_deliveries",
+-            new=AsyncMock(return_value={"delivered": 0, "failed": 0, "skipped": 0}),
+-        ):
+-            await sch._process_download_notifications()  # must not raise
+-    finally:
+-        db_session.execute = real_execute  # type: ignore[method-assign]
++    failures = 0
++
++    async def fail_orphan_query(statement, *args, **kwargs):
++        nonlocal failures
++        if isinstance(statement, Select) and any(
++            desc.get("entity") is DownloadNotification for desc in statement.column_descriptions
++        ) and "organize_plans" in str(statement):
++            failures += 1
++            raise RuntimeError("injected orphan scan failure")
++        return await real_execute(statement, *args, **kwargs)
++
++    monkeypatch.setattr(db_session, "execute", fail_orphan_query)
++    with patch(
++        "app.services.notify_service.ensure_deliveries", new=AsyncMock(return_value=0),
++    ) as fan_out, patch(
++        "app.services.notify_service.deliver_due_deliveries",
++        new=AsyncMock(return_value={"delivered": 0, "failed": 0, "skipped": 0}),
++    ) as deliver:
++        await sch._process_download_notifications()
++    assert failures == 1
++    assert "injected orphan scan failure" in caplog.text
++    fan_out.assert_awaited_once()
++    deliver.assert_awaited_once()
+ 
+ 
+ def test_get_scheduler_uninitialized_raises():
+--- a/docs/design/notifications.md
++++ b/docs/design/notifications.md
+@@ -202,3 +202,10 @@
+ ## 环境变量
+ 
+ `NOTIFY_ENABLED`（默认 true，总开关/熔断）、`NOTIFY_MAX_ATTEMPTS`（5）、`NOTIFY_RETRY_BASE_SECONDS`（30）、`NOTIFY_RETENTION_DAYS`（30）。webhook 超时为代码常量 180s，非环境变量。
++
++
++## 通知快照生成失败的隔离与重试
++
++生成快照按 download_task_id 使用独立事务；一项失败不回滚其他任务，也不中断已有通知的整理规划和 webhook 投递。失败事务不保留空快照，不把 completed 下载任务改成 error。生成失败由 NotificationBuildFailure 持久记录；首次等待 30 秒，此后指数退避，上限 1800 秒，无自动终止次数。到期后仍满足 completed 和消费者启用条件的任务重新入选。
++
++生成成功与删除该任务的失败记录在同一事务提交。并发失败记录按任务唯一键原子累加 attempt_count；如果成功通知先提交、迟到失败记录随后提交，下一 tick 清除已有通知对应的失败记录。任务取消或删除后不再生成；删除任务级联删除失败记录。失败记录自身无法保存时记录日志并继续后续任务，不承诺该项可持久退避。该退避独立于 WebhookDelivery 的投递次数及状态机。
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -811,3 +811,8 @@
+ 整理模型完整关系见 [file-organization.md](file-organization.md)。`OrganizePlan` 增加可空 String(16) `file_op`、非空 Boolean `needs_category`/`manual_destination`（服务端 false）、非空 BigInteger `revision`（服务端 0）、可空 BigInteger `config_revision`、可空 String(36) `owner_token`。历史未知模式保留 NULL，执行前重建或拒绝；不能迁移成 move。
+ 
+ `OrganizeConfiguration`（`organize_configuration`）是内部单例：UUID v4 主键 `b72934dd-04bd-4cc3-8a68-ab1957b78027`，非空 BigInteger `revision`（服务端 0），可空 String(36) `lock_domain`。配置与版本同事务写入；锁域首次使用注册，后续不能自动改指另一目录。两后端启动轻迁移幂等添加字段并确保单例存在，关键列失败中止启动。
++
++
++### NotificationBuildFailure（通知生成失败）
++
++表 `notification_build_failures`：UUID v4 字符串主键 `id`；`download_task_id` 非空、唯一、引用 `download_tasks.id ON DELETE CASCADE`；`attempt_count` 非空整数、server default 1；`next_attempt_at` 非空 UTC DateTime 并建索引；`error_message` 非空 String(2048)；`updated_at` 非空 UTC DateTime，默认当前时间、每次失败更新。它仅记录生成快照的失败，不是 DownloadNotification 或 WebhookDelivery 的替代品；成功后删除。
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -694,3 +694,6 @@
+ 
+ 
+ 季号不确定的持久化门禁：MetadataAgent 清除不受证据支持的 inferred_season 后，repository 将 season_ambiguous 传给季作品 upsert。若解析上下文/身份/主源证据仍不能定季，只建或复用合集并挂待确认；不得经历史“新作品默认 S1”或单成员标题兜底重新创建/链接季作品。已验证的季号（含合法单季回退）仍按正常路径处理，重试和缓存重放均遵循同一门禁。
++
++
++通知 tick 对 completed 任务逐个使用独立事务生成冻结快照；失败写入 NotificationBuildFailure 并按 30 秒起、最多 1800 秒的指数退避重试，成功清理记录。坏任务不阻断其他任务、已有整理计划及投递。失败记录并发与清理契约见 notifications.md。
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -196,3 +196,6 @@
+ 
+ 
+ 整理所有权升级新增 Plan 六个快照/版本字段及 OrganizeConfiguration 单例（含 lock_domain），轻迁移在 Turso MVCC 初始化后确保单例，重复执行不重置 revision。历史 file_op 保留 NULL，pending/failed 执行前重建，running 未知模式拒绝执行。此组关键列失败须中止启动；迁移和启动前应停止旧版本整理执行者，所有 Web/worker 一起升级，禁止不遵守共享锁的旧进程与新版本混跑。保留原共享锁目录，数据库和锁域恢复必须一致。
++
++
++通知生成失败隔离新增 `notification_build_failures` 表，由启动 `Base.metadata.create_all` 在 Turso/PostgreSQL 幂等建立，任务 FK 为 ON DELETE CASCADE、每任务唯一。升级不修改下载状态或既有通知；重复启动保留尝试次数和下次重试时间。回退旧程序可保留该表，但旧程序不会消费其中的退避状态。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -251,3 +251,6 @@
+ 
+ 
+ 2026-09-13 P0 分布式补验：独立 PostgreSQL/Redis/Web/三 worker 栈验证三次修订实际消费落库，以及全部 worker SIGKILL（退出码 137）→停机修改配置→重启连续抓取→重新启用自动刷新；全部通过。驱动与限制见 [scheduler-integration.md](scheduler-integration.md)，测试容器已清理。该记录不计入上方历史 pytest 用例数或完整集成覆盖率。
++
++
++通知生成隔离：`tests/integration/organize/test_notify_poison_task.py` 使用已审核真实种子/清单正例及显式坏 RPC、flush 后故障，断言部分写入回滚、正常新任务和已有投递继续、退避与到期恢复；媒体内容为合成字节。`test_notification_build_retry.py` 检查退避上限、取消/删除、实际旧 schema 升级和 FK 级联。独立 PostgreSQL 进程及 SQL 屏障验证脚本位于 `docs/plans/p0-and-backlog/probes/notification_*_pg_probe.py`，严格使用可丢弃专用项目；不能把进程内 Turso 通过替代 PostgreSQL 并发门禁。

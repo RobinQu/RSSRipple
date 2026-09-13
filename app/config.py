@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # When set, poster URLs returned by LLM are downloaded and stored here,
     # and the DB pointer is updated to the local /posters/<file> path.
     poster_cache_dir: str = "data/posters"
+    organize_lock_dir: str = "data/organize-locks"
 
     # Torrent file cache — .torrent files fetched for content inspection
     # (file-listing batch analysis) are stored here as

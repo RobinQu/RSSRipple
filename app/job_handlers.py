@@ -48,6 +48,8 @@ async def _handle_fetch_channel(payload: dict) -> dict:  # pragma: no cover
     force: bool = bool(payload.get("force", False))
     async with committed_session() as session:
         ch = await session.get(Channel, channel_id)
+        if payload.get("scheduled") and (ch is None or ch.status == "inactive"):
+            return {"status": "skipped", "reason": "channel inactive or deleted"}
         if not ch:
             raise RuntimeError(f"Channel {channel_id} not found")
         result = await fetch_channel_resources(ch, session, force=force)
@@ -66,6 +68,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
     from app.models.movie import Movie
     from app.models.resource_work_link import ResourceWorkLink
     from app.models.series import TVSeries
+    from app.services.agent_resource_requests import acknowledge_requests, defer_requests, snapshot_requests
     from app.services.agent_service import process_resources
     from app.utils.time import utcnow
 
@@ -95,6 +98,8 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         if not agent:
             raise RuntimeError(f"Agent {agent_id} not found")
 
+        request_snapshots = await snapshot_requests(session, agent_id)
+
         run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
         session.add(run)
         await session.flush()
@@ -102,7 +107,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
         channel_id = agent.channel_id
 
         advance_to = None
-        if resource_ids:
+        if resource_ids or payload.get("pending_requests"):
             # Targeted run (scenario ③, e.g. correct_episode): process exactly
             # the given resources against the agent's *current* rules. Bypasses
             # the watermark and does NOT advance it — the resource may be old,
@@ -111,7 +116,7 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 select(FileResource.id)
                 .where(
                     FileResource.channel_id == channel_id,
-                    FileResource.id.in_(resource_ids),
+                    FileResource.id.in_(resource_ids or []),
                 )
                 .order_by(FileResource.created_at.asc())
             )
@@ -163,96 +168,114 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
                 if rows:
                     advance_to = max(r.created_at for r in rows)
 
+        selected_ids = list(dict.fromkeys([*selected_ids, *(r.resource_id for r in request_snapshots)]))
+
     # Phase 2 (incremental commits): the slow part — filtering, LLM picks,
     # Transmission RPCs. ``autocommit=True`` makes process_resources commit
     # after each dispatch/decision, so the write lock is never held across an
     # external call. The block-level retry of committed_session is safe here:
     # every unit is idempotent (task dedup / decision upsert), so a re-run
     # after a lock error just skips already-committed work.
-    async with committed_session() as session:
-        agent = await session.get(
-            Agent, agent_id, options=[selectinload(Agent.channel)]
-        )
-        if not agent:
-            raise RuntimeError(f"Agent {agent_id} not found")
-        run = await session.get(AgentRun, run_id)
-        if not run:
-            raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
-
-        resources: list[FileResource] = []
-        if selected_ids:
-            result = await session.execute(
-                select(FileResource)
-                .where(FileResource.id.in_(selected_ids))
-                # series/movie are read by the filter DSL (movie.rating …) and
-                # the LLM pick summary — eager-load to avoid async lazy loads.
-                # The work's collection feeds the series.collection /
-                # movie.collection DSL fields, so chain-load it too; the
-                # resource's own collection feeds the resource-level
-                # ``collection`` field (franchise packs); work_links carry the
-                # works of links-only multi-season packs (per-season works) —
-                # chain-load the works so the DSL year fields can aggregate
-                # across them.
-                .options(
-                    selectinload(FileResource.series).selectinload(TVSeries.collection),
-                    selectinload(FileResource.movie).selectinload(Movie.collection),
-                    selectinload(FileResource.collection),
-                    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
-                    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
-                )
-                .order_by(FileResource.created_at.asc())
+    try:
+        async with committed_session() as session:
+            agent = await session.get(
+                Agent, agent_id, options=[selectinload(Agent.channel)]
             )
-            resources = list(result.scalars().all())
-        run_result = await process_resources(
-            agent,
-            resources,
-            session,
-            autocommit=True,
-            required_metadata_fields=(
-                agent.channel.required_metadata_fields if agent.channel else None
-            ),
-        )
+            if not agent:
+                raise RuntimeError(f"Agent {agent_id} not found")
+            run = await session.get(AgentRun, run_id)
+            if not run:
+                raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
 
-        if advance_to is not None:
-            agent.last_consumed_at = advance_to
+            resources: list[FileResource] = []
+            if selected_ids:
+                result = await session.execute(
+                    select(FileResource)
+                    .where(FileResource.id.in_(selected_ids))
+                    # series/movie are read by the filter DSL (movie.rating …) and
+                    # the LLM pick summary — eager-load to avoid async lazy loads.
+                    # The work's collection feeds the series.collection /
+                    # movie.collection DSL fields, so chain-load it too; the
+                    # resource's own collection feeds the resource-level
+                    # ``collection`` field (franchise packs); work_links carry the
+                    # works of links-only multi-season packs (per-season works) —
+                    # chain-load the works so the DSL year fields can aggregate
+                    # across them.
+                    .options(
+                        selectinload(FileResource.series).selectinload(TVSeries.collection),
+                        selectinload(FileResource.movie).selectinload(Movie.collection),
+                        selectinload(FileResource.collection),
+                        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+                        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
+                    )
+                    .order_by(FileResource.created_at.asc())
+                )
+                resources = list(result.scalars().all())
+            run_result = await process_resources(
+                agent,
+                resources,
+                session,
+                autocommit=True,
+                required_metadata_fields=(
+                    agent.channel.required_metadata_fields if agent.channel else None
+                ),
+            )
 
-        agent.last_run_at = utcnow()
-        # More granular status so the UI can badge "待决策" instead of a
-        # deceptively-green "success" when the run generated PDs but
-        # dispatched nothing.
-        if run_result.errors:
-            agent.last_run_status = "failed"
-        elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
-            agent.last_run_status = "pending_decisions"
-        else:
-            agent.last_run_status = "success"
+            if run_result.errors:
+                await defer_requests(session, request_snapshots, "; ".join(run_result.errors))
+            else:
+                await acknowledge_requests(session, request_snapshots)
 
-        # Finalise the run record.
-        run.status = agent.last_run_status
-        run.finished_at = utcnow()
-        run.scan_since = run_scan_since
-        run.total_resources = run_result.total_resources
-        run.matched = run_result.matched
-        run.dispatched = run_result.dispatched
-        run.pending_decisions = run_result.pending_decisions
-        run.filter_failed = run_result.filter_failed
-        run.duplicates_skipped = run_result.duplicates_skipped
-        run.unrecognized = run_result.unrecognized
-        run.matched_resource_ids = list(run_result.matched_resource_ids)
-        run.errors = list(run_result.errors)
+            if advance_to is not None and not run_result.errors:
+                # Keep failed incremental candidates eligible for the next run.
+                # Already committed groups are skipped by normal task dedup.
+                agent.last_consumed_at = advance_to
 
-        return {
-            "agent_id": agent_id,
-            "run_id": run.id,
-            "total_resources": run_result.total_resources,
-            "matched": run_result.matched,
-            "dispatched": run_result.dispatched,
-            "pending_decisions": run_result.pending_decisions,
-            "filter_failed": run_result.filter_failed,
-            "duplicates_skipped": run_result.duplicates_skipped,
-            "unrecognized": run_result.unrecognized,
-            "errors": run_result.errors,
-        }
+            agent.last_run_at = utcnow()
+            # More granular status so the UI can badge "待决策" instead of a
+            # deceptively-green "success" when the run generated PDs but
+            # dispatched nothing.
+            if run_result.errors:
+                agent.last_run_status = "failed"
+            elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
+                agent.last_run_status = "pending_decisions"
+            else:
+                agent.last_run_status = "success"
+
+            # Finalise the run record.
+            run.status = agent.last_run_status
+            run.finished_at = utcnow()
+            run.scan_since = run_scan_since
+            run.total_resources = run_result.total_resources
+            run.matched = run_result.matched
+            run.dispatched = run_result.dispatched
+            run.pending_decisions = run_result.pending_decisions
+            run.filter_failed = run_result.filter_failed
+            run.duplicates_skipped = run_result.duplicates_skipped
+            run.unrecognized = run_result.unrecognized
+            run.matched_resource_ids = list(run_result.matched_resource_ids)
+            run.errors = list(run_result.errors)
+
+            return {
+                "agent_id": agent_id,
+                "run_id": run.id,
+                "total_resources": run_result.total_resources,
+                "matched": run_result.matched,
+                "dispatched": run_result.dispatched,
+                "pending_decisions": run_result.pending_decisions,
+                "filter_failed": run_result.filter_failed,
+                "duplicates_skipped": run_result.duplicates_skipped,
+                "unrecognized": run_result.unrecognized,
+                "errors": run_result.errors,
+            }
+
+    except Exception as error:
+        try:
+            async with committed_session() as failure_db:
+                await defer_requests(failure_db, request_snapshots, str(error))
+        except Exception:
+            logger.exception("Could not defer failed resource requests for Agent %s", agent_id)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +286,6 @@ async def _handle_run_agent(payload: dict) -> dict:  # pragma: no cover
 # external search call that never returns must not stall the whole
 # batch - and with it the shared task queue.
 _REFRESH_WORK_TIMEOUT = 120  # seconds
-
 
 async def _refresh_works_batch(
     items: list[dict], source: str, override_manual_edits: bool = False,
@@ -361,6 +383,8 @@ async def _handle_refresh_channel_works(payload: dict) -> dict:
         if channel.status == "inactive":
             logger.info("[channel_refresh] channel %s inactive; skipping", channel_id)
             return {"status": "done", "processed": 0, "results": []}
+        if payload.get("scheduled") and not channel.metadata_refresh_enabled:
+            return {"status": "skipped", "processed": 0, "results": [], "reason": "refresh disabled"}
         source = resolve_metadata_source(channel.metadata_source)
         items = await select_channel_works_for_refresh(
             session, channel_id,

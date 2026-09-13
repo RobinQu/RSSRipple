@@ -1045,3 +1045,62 @@ class TestAgentRunsPendingDecisionCorrection:
             for m in res.json()["data"][0]["matched_resources"]
         }
         assert marks == {r_cand.id: True, r_other.id: False}
+
+
+@pytest.mark.parametrize("existing", [False, True])
+async def test_backfill_failure_rolls_back_save_and_watermark(
+    client, channel_and_dl, db_session, monkeypatch, existing,
+):
+    from sqlalchemy import select
+
+    from app.models.agent import Agent
+    from app.models.download_task import DownloadTask
+    from app.models.file_resource import FileResource
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
+
+    ch_id, dl_id = channel_and_dl
+    collection = WorkCollection(id=_uuid(), title_cn="synthetic backfill")
+    series = TVSeries(id=_uuid(), title_cn="synthetic backfill", content_type="tv",
+                      start_date=date(2024, 1, 1), is_anime=False,
+                      collection_id=collection.id, season_number=1)
+    db_session.add_all([collection, series])
+    await db_session.flush()
+    resources = [FileResource(
+        id=_uuid(), channel_id=ch_id, guid=_uuid(), title_raw=f"synthetic - {episode:02}",
+        torrent_url=f"magnet:?xt=urn:btih:synthetic{episode}", series_id=series.id,
+        episode=episode, season=1, title_year=2024, search_title="synthetic backfill", is_batch=False,
+    ) for episode in (1, 2)]
+    db_session.add_all(resources)
+    await db_session.commit()
+    payload = {"name": "Original", "channel_id": ch_id, "downloader_id": dl_id,
+               "scope_channel_wide": True}
+    agent_id = None
+    if existing:
+        response = await client.post("/api/v1/agents", json=payload)
+        agent_id = response.json()["data"]["id"]
+    calls = []
+
+    async def dispatch(agent, resource, unit):
+        calls.append(resource.id)
+        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
+                            downloader_id=dl_id, status="downloading",
+                            download_dir=None if len(calls) == 1 else "/synthetic/backfill")
+        unit.add(task)
+        await unit.flush()
+        return task
+
+    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+    payload.update(name="Changed", dispatch_resource_ids=[r.id for r in resources])
+    response = await (client.put(f"/api/v1/agents/{agent_id}", json=payload) if existing
+                      else client.post("/api/v1/agents", json=payload))
+    assert response.status_code == 500, response.text
+    assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
+    assert len(calls) == 2
+    assert (await db_session.scalars(select(DownloadTask))).all() == []
+    agents = (await db_session.scalars(select(Agent))).all()
+    if existing:
+        assert len(agents) == 1 and agents[0].name == "Original"
+        assert agents[0].last_consumed_at is None
+    else:
+        assert agents == []

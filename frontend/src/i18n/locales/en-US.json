@@ -1471,6 +1471,7 @@
     "server": "Server",
     "serverPath": "Server Path",
     "rootPath": "Resolved Root",
+    "invalidPath": "Invalid path configuration",
     "binding": "Binding",
     "bound": "Bound",
     "unbound": "Unbound",

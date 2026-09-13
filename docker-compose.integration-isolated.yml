@@ -1,0 +1,249 @@
+# Isolated full integration gate: always -p <unique-name>.
+# Build rssripple-v0-tests:local with locked dev dependencies first.
+# No host .env/data mounts or published ports; runtime networking is internal.
+services:
+  app:
+    environment:
+      LLM_API_KEY: ''
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: ''
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
+      QUEUE_BACKEND: memory
+      DEBUG: 'true'
+      LOG_LEVEL: DEBUG
+      POSTER_CACHE_DIR: /app/data/posters
+      SCHEDULER_ENABLED: 'false'
+    volumes:
+    - gate-data:/app/data
+    - ./app:/app/app:ro
+    - ./tests:/app/tests:ro
+    - ./scripts:/app/scripts:ro
+    - ./.coveragerc:/app/.coveragerc:ro
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - coverage
+    - run
+    - --rcfile=/app/.coveragerc
+    - --data-file=/app/data/.coverage.integration
+    - -m
+    - uvicorn
+    - app.main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '9001'
+    depends_on:
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - 'import urllib.request; urllib.request.urlopen(urllib.request.Request(''http://localhost:9001/api/v1/channels'',
+        headers={''X-API-Key'': ''test-integration-key''}), timeout=3)'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+  app-llm:
+    environment:
+      LLM_API_KEY: mock-key
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: mock-bangumi-key
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_llm_turso.db
+      QUEUE_BACKEND: memory
+      DEBUG: 'true'
+      LOG_LEVEL: DEBUG
+      POSTER_CACHE_DIR: /app/data/posters-llm
+      SCHEDULER_ENABLED: 'true'
+      LLM_BASE_URL: http://test-server:8080/v1
+      LLM_MODEL: mock-model
+      BANGUMI_API_BASE: http://test-server:8080/bangumi/v0
+    volumes:
+    - gate-data:/app/data
+    - ./app:/app/app:ro
+    - ./tests:/app/tests:ro
+    - ./scripts:/app/scripts:ro
+    - ./.coveragerc:/app/.coveragerc:ro
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - coverage
+    - run
+    - --rcfile=/app/.coveragerc
+    - --data-file=/app/data/.coverage.integration-llm
+    - -m
+    - uvicorn
+    - app.main:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '9001'
+    depends_on:
+      test-server:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - 'import urllib.request; urllib.request.urlopen(urllib.request.Request(''http://localhost:9001/api/v1/channels'',
+        headers={''X-API-Key'': ''test-integration-key''}), timeout=3)'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+  test-server:
+    environment:
+    - SERVER_URL=http://test-server:8080
+    healthcheck:
+      test:
+      - CMD
+      - python3
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://localhost:8080/health',
+        timeout=3)
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    networks:
+    - integration-gate
+    image: rssripple-itest-test-server:latest
+    volumes:
+    - ./tests/integration/server:/app/server:ro
+  test-runner:
+    environment:
+      LLM_API_KEY: ''
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: ''
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
+      TEST_SERVER_URL: http://test-server:8080
+      RSSRIPPLE_URL: http://app:9001
+      RSSRIPPLE_LLM_URL: http://app-llm:9001
+      CORPUS_TEST_DATABASE_URL: ''
+      CORPUS_REPORT_DIR: /app/data/metadata-corpus
+    volumes:
+    - gate-data:/app/data
+    - ./app:/app/app:ro
+    - ./tests:/app/tests:ro
+    - ./scripts:/app/scripts:ro
+    - ./.coveragerc:/app/.coveragerc:ro
+    depends_on:
+      app:
+        condition: service_healthy
+      app-llm:
+        condition: service_healthy
+      test-server:
+        condition: service_healthy
+      transmission:
+        condition: service_started
+    command:
+    - /app/.venv/bin/python
+    - -m
+    - coverage
+    - run
+    - --rcfile=/app/.coveragerc
+    - --data-file=/app/data/.coverage.test-runner
+    - -m
+    - pytest
+    - tests/integration/
+    - --ignore=tests/integration/eval
+    - --ignore=tests/integration/external
+    - --ignore=tests/integration/http/test_fetch_with_real_feed.py
+    - --junitxml=/app/data/metadata-corpus/integration.xml
+    - -v
+    - --tb=short
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+  coverage-report:
+    volumes:
+    - gate-data:/app/data
+    - ./app:/app/app:ro
+    - ./tests:/app/tests:ro
+    - ./scripts:/app/scripts:ro
+    - ./.coveragerc:/app/.coveragerc:ro
+    command:
+    - sh
+    - -c
+    - /app/.venv/bin/python -m coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.scripts
+      -m app.scripts.dedup_metadata && /app/.venv/bin/python -m coverage combine --keep
+      --rcfile=/app/.coveragerc /app/data/.coverage.integration /app/data/.coverage.integration-llm
+      /app/data/.coverage.test-runner /app/data/.coverage.scripts && /app/.venv/bin/python
+      -m coverage xml --rcfile=/app/.coveragerc -o /app/data/coverage.xml && /app/.venv/bin/python
+      -m coverage report --rcfile=/app/.coveragerc --fail-under=85
+    networks:
+    - integration-gate
+    image: rssripple-v0-tests:local
+    environment:
+      LLM_API_KEY: ''
+      TMDB_API_KEY: ''
+      BANGUMI_API_KEY: ''
+      WIGOLO_API_TOKEN: ''
+      AUTH_ENABLED: 'true'
+      API_KEY: test-integration-key
+      APP_ROLE: all
+      MAGNET_RESOLVE_ENABLED: 'true'
+      PYTHONPATH: /app
+      DATABASE_URL: sqlite+aioturso:///data/rss_ripple_test_turso.db
+      POSTER_CACHE_DIR: /app/data/posters
+      COVERAGE_FILE: /app/data/.coverage.combined
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    volumes:
+    - transmission-test-config:/config
+    - ./docker/transmission/custom-cont-init.d:/custom-cont-init.d:ro
+    - test-downloads:/downloads
+    - test-watch:/watch
+    environment:
+    - PUID=1000
+    - PGID=1000
+    - PEERPORT=51413
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -o
+      - /dev/null
+      - http://localhost:9091/transmission/rpc
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+    - integration-gate
+volumes:
+  transmission-test-config: null
+  test-downloads: null
+  test-watch: null
+  gate-data: {}
+networks:
+  integration-gate:
+    internal: true

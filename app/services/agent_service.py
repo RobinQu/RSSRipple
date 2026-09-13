@@ -804,6 +804,39 @@ def _batch_decision_key(key: tuple) -> tuple[tuple, str]:
     )
 
 
+async def _process_candidate_group(agent, key, cands, db) -> bool:
+    """Dispatch one coverage group; return whether it created a decision."""
+    if len(cands) == 1:
+        await dispatch_download(agent, cands[0], db)
+        return False
+    else:
+        if agent.conflict_resolution == "ask":
+            if key[0] == "batch":
+                pd_key, reason = _batch_decision_key(key)
+                await create_pending_decision(
+                    agent, pd_key, cands, db, reason_override=reason
+                )
+            else:
+                await create_pending_decision(agent, key, cands, db)
+            return True
+        else:
+            # "auto": deterministic preference rules first — they only
+            # rank, never filter. A unique winner dispatches without
+            # any LLM call; a tied shortlist goes to the LLM pick
+            # (self-gated on llm_enabled + API key); the heuristic
+            # scorer stays the final fallback.
+            tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
+            if len(tier) == 1:
+                chosen = tier[0]
+            else:
+                picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
+                chosen = next((c for c in tier if c.id == picked_id), None)
+                if chosen is None:
+                    chosen = score_and_pick(tier, None, agent)
+            await dispatch_download(agent, chosen, db)
+            return False
+
+
 async def process_resources(
     agent: Agent,
     resources: list[FileResource],
@@ -948,40 +981,31 @@ async def process_resources(
         result.matched += 1
         result.matched_resource_ids.append(resource.id)
 
+    if autocommit:
+        # Background callers own this transaction. Finish selection before
+        # independent candidate writers; preserve loaded objects on commit.
+        await db.commit()
     for key, cands in candidates_by_key.items():
         try:
-            if len(cands) == 1:
-                await dispatch_download(agent, cands[0], db)
-                result.dispatched += 1
-            else:
-                if agent.conflict_resolution == "ask":
-                    if key[0] == "batch":
-                        pd_key, reason = _batch_decision_key(key)
-                        await create_pending_decision(
-                            agent, pd_key, cands, db, reason_override=reason
-                        )
-                    else:
-                        await create_pending_decision(agent, key, cands, db)
-                    result.pending_decisions += 1
-                else:
-                    # "auto": deterministic preference rules first — they only
-                    # rank, never filter. A unique winner dispatches without
-                    # any LLM call; a tied shortlist goes to the LLM pick
-                    # (self-gated on llm_enabled + API key); the heuristic
-                    # scorer stays the final fallback.
-                    tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
-                    if len(tier) == 1:
-                        chosen = tier[0]
-                    else:
-                        picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
-                        chosen = next((c for c in tier if c.id == picked_id), None)
-                        if chosen is None:
-                            chosen = score_and_pick(tier, None, agent)
-                    await dispatch_download(agent, chosen, db)
-                    result.dispatched += 1
             if autocommit:
-                await db.commit()
+                async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
+                    async with unit_db.begin():
+                        pending = await _process_candidate_group(agent, key, cands, unit_db)
+            else:
+                # A newly saved Agent may still be uncommitted in this request.
+                # Keep that state visible and isolate only the candidate writes.
+                async with db.begin_nested():
+                    pending = await _process_candidate_group(agent, key, cands, db)
+            if pending:
+                result.pending_decisions += 1
+            else:
+                result.dispatched += 1
         except Exception as e:
+            if not autocommit and (
+                not db.is_active or getattr(e, "connection_invalidated", False)
+            ):
+                # A lost outer transaction cannot safely continue a backfill.
+                raise
             logger.exception("Failed to process candidates for %s: %s", key, e)
             result.errors.append(str(e))
 

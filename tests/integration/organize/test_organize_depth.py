@@ -103,7 +103,7 @@ class TestExecuteOps:
         src = _mk(tmp_path / "a.mkv", 10)
         dst = tmp_path / "sub" / "a.mkv"
 
-        def eperm(link_src, link_dst):
+        def eperm(link_src, link_dst, **kwargs):
             raise OSError(1, "Operation not permitted")
 
         monkeypatch.setattr(os, "link", eperm)
@@ -116,14 +116,16 @@ class TestExecuteOps:
 
     def test_hardlink_idempotent_states(self, tmp_path):
         src = _mk(tmp_path / "s.mkv", 7)
-        done_dst = _mk(tmp_path / "d1.mkv", 7)
+        done_dst = tmp_path / "d1.mkv"
+        os.link(src, done_dst)
         conflict_dst = _mk(tmp_path / "d2.mkv", 9)
-        results = execute_ops([
+        ops = [
             ExecOp("move", str(src), str(done_dst), 7),
             ExecOp("move", str(src), str(conflict_dst), 7),
             ExecOp("move", str(src), str(src), 7),  # src == dst
             ExecOp("move", str(tmp_path / "nope.mkv"), str(tmp_path / "x.mkv"), 1),
-        ], file_op="hardlink")
+        ]
+        results = [execute_ops([op], file_op="hardlink")[0] for op in ops]
         assert [r.status for r in results] == [
             "done", "failed", "done", "failed",
         ]
@@ -134,14 +136,10 @@ class TestExecuteOps:
         src = _mk(tmp_path / "c.mkv", 20)
         dst = tmp_path / "out" / "c.mkv"
 
-        real_copyfile = _shutil.copyfile
+        def short_copy(s, d, **kwargs):
+            d.write(b"short")
 
-        def short_copy(s, d):
-            real_copyfile(s, d)
-            with open(d, "wb") as f:
-                f.write(b"short")
-
-        monkeypatch.setattr(_shutil, "copyfile", short_copy)
+        monkeypatch.setattr(_shutil, "copyfileobj", short_copy)
         results = execute_ops(
             [ExecOp("move", str(src), str(dst), 20)], file_op="copy"
         )
@@ -162,10 +160,16 @@ class TestExecuteOps:
         src = _mk(tmp_path / "ex.mkv", 12)
         dst = tmp_path / "n" / "ex.mkv"
 
-        def exdev(rs, rd):
-            raise OSError(18, "Invalid cross-device link")
+        from app.services import organize_executor
 
-        monkeypatch.setattr(os, "rename", exdev)
+        real_rename = organize_executor.rename_noreplace
+
+        def exdev(rs, rd):
+            if rs == src:
+                raise OSError(18, "Invalid cross-device link")
+            return real_rename(rs, rd)
+
+        monkeypatch.setattr(organize_executor, "rename_noreplace", exdev)
         results = execute_ops([ExecOp("move", str(src), str(dst), 12)])
         assert results[0].status == "done"
         assert dst.exists() and not src.exists()
@@ -174,21 +178,26 @@ class TestExecuteOps:
         src = _mk(tmp_path / "bad.mkv", 12)
         dst = tmp_path / "n2" / "bad.mkv"
 
-        def exdev(rs, rd):
-            raise OSError(18, "Invalid cross-device link")
+        from app.services import organize_executor
 
-        monkeypatch.setattr(os, "rename", exdev)
+        real_rename = organize_executor.rename_noreplace
+
+        def exdev(rs, rd):
+            if rs == src:
+                raise OSError(18, "Invalid cross-device link")
+            return real_rename(rs, rd)
+
+        monkeypatch.setattr(organize_executor, "rename_noreplace", exdev)
 
         import shutil as _shutil
 
-        def short_copy(s, d):
-            with open(d, "wb") as f:
-                f.write(b"partial")
+        def short_copy(s, d, **kwargs):
+            d.write(b"partial")
 
-        monkeypatch.setattr(_shutil, "copyfile", short_copy)
+        monkeypatch.setattr(_shutil, "copyfileobj", short_copy)
         results = execute_ops([ExecOp("move", str(src), str(dst), 12)])
         assert results[0].status == "failed"
-        assert "跨文件系统复制校验失败" in results[0].error
+        assert "复制校验失败" in results[0].error
         assert not dst.exists()
 
 
@@ -253,7 +262,7 @@ class TestRunExecution:
         assert src.exists()
 
     def test_op_failure_short_circuits_before_verify(self, tmp_path, monkeypatch):
-        def eperm(s, d):
+        def eperm(s, d, **kwargs):
             raise OSError(1, "denied")
 
         monkeypatch.setattr(os, "link", eperm)
@@ -481,14 +490,14 @@ class TestResolveManifest:
         names = [e["name"] for e in manifest]
         assert names == ["Pack.Root/A/e01.mkv", "Pack.Root/e02.mkv"]
 
-    async def test_unsafe_root_name_skips_prefixing(self, db_session, tmp_path):
+    async def test_unsafe_root_name_rejected(self, db_session, tmp_path):
         tfile = tmp_path / "weird.torrent"
         tfile.write_bytes(_torrent_bytes("../evil", [(["e.mkv"], 100)]))
         task = await _seed_task_with_resource(db_session, torrent_file=str(tfile))
-        manifest = await osvc._resolve_manifest(
-            db_session, osvc.NotificationPayload.model_validate(_payload_for(task.id))
-        )
-        assert [e["name"] for e in manifest] == ["e.mkv"]
+        with pytest.raises(osvc.PlanError, match="路径"):
+            await osvc._resolve_manifest(
+                db_session, osvc.NotificationPayload.model_validate(_payload_for(task.id))
+            )
 
     async def test_url_fetch_writes_back_cache(self, db_session, tmp_path):
         torrent_bytes = _torrent_bytes("", [(["flat.mkv"], 100)])
@@ -520,19 +529,19 @@ class TestResolveManifest:
             async def get_torrent_files(self, tid):
                 return {"name": "RPC.Root", "files": [
                     {"name": "RPC.Root/f.mkv", "size": 100},
-                    {"name": "/abs/path.mkv", "size": 5},     # 绝对路径剔除
-                    {"name": "../escape.mkv", "size": 5},      # .. 分量剔除
+                    {"name": "/abs/path.mkv", "size": 5},     # 绝对路径拒绝
+                    {"name": "../escape.mkv", "size": 5},      # .. 分量拒绝
                 ]}
 
         with patch(
             "app.clients.downloader.get_downloader_client",
             return_value=_FakeClient(),
         ):
-            manifest = await osvc._resolve_manifest(
-                db_session,
-                osvc.NotificationPayload.model_validate(_payload_for(task.id)),
-            )
-        assert [e["name"] for e in manifest] == ["RPC.Root/f.mkv"]
+            with pytest.raises(osvc.PlanError, match="路径"):
+                await osvc._resolve_manifest(
+                    db_session,
+                    osvc.NotificationPayload.model_validate(_payload_for(task.id)),
+                )
 
     async def test_no_task_or_no_sources_returns_none(self, db_session):
         assert await osvc._resolve_manifest(

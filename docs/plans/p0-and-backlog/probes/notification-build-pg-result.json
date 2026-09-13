@@ -1,0 +1,12 @@
+{
+  "backend": "PostgreSQL 16",
+  "data": "synthetic task metadata; no media",
+  "process_exit_codes": [
+    0,
+    0
+  ],
+  "concurrent_attempts": 6,
+  "retry_seconds": 960,
+  "old_schema_upgrade_and_repeat_preserve_state": true,
+  "real_success_commit_before_late_failure_insert_cleanup": true
+}

@@ -1226,6 +1226,8 @@ export interface Library {
   /** Recycle dir for batch-move leftovers (volume-relative), null = keep in place. */
   recycle_subpath: string | null;
   root_path: string | null;
+  /** Existing binding whose root/recycle path cannot be resolved safely. */
+  path_error?: string | null;
   /** volume_id !== null; unbound libraries need an in-place binding fix. */
   bound: boolean;
   subtitle_lang_map: Record<string, string> | null;
@@ -1396,6 +1398,9 @@ export interface OrganizeOpsSummary {
 
 export interface OrganizePlanListItem {
   id: string;
+  revision: number;
+  file_op: 'move' | 'hardlink' | 'copy' | null;
+  needs_category: boolean;
   notification_id: string;
   rule_id: string | null;
   rule_name: string | null;

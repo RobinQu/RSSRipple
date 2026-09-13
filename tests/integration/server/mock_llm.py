@@ -134,6 +134,10 @@ def _finalize_result(messages: list) -> dict:
             },
         }
     if canned:
+        # Successful TV linking is an explicit synthetic single-season case.
+        # Missing season evidence must not rely on the retired default S1.
+        if canned["entity"]["content_type"] == "tv":
+            canned["entity"]["number_of_seasons"] = 1
         result = {
             "found": True,
             "clean_title": canned["clean_title"],

@@ -1,0 +1,9 @@
+{
+  "db_disconnect_releases_advisory_but_not_file_lock": true,
+  "live_owner_takeover_rejected": true,
+  "sigkill_exit": -9,
+  "recovery_published_real_hardlink": true,
+  "repeated_cancellation_waits_for_thread_and_finalization": true,
+  "media": "synthetic 1048577 bytes",
+  "scope": "local shared filesystem; not remote lock certification"
+}

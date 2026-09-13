@@ -52,6 +52,7 @@ class LibraryOut(BaseModel):
     volume_name: str | None = None
     root_subpath: str | None
     root_path: str | None
+    path_error: str | None = None
     recycle_subpath: str | None = None
     bound: bool
     subtitle_lang_map: dict[str, str] | None
@@ -175,6 +176,9 @@ class OrganizePlanListItem(BaseModel):
     """List row: no payload, carries display joins and an ops summary."""
 
     id: str
+    revision: int = 0
+    file_op: str | None = None
+    needs_category: bool = False
     notification_id: str
     rule_id: str | None
     rule_name: str | None = None

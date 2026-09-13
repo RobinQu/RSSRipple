@@ -284,6 +284,7 @@ async def _apply_to_resource(
                     series = await create_or_update_series_from_external(
                         db, meta.matched_entity,
                         season_hint=resource_season_hint(resource, meta.matched_entity),
+                        season_ambiguous=meta.season_ambiguous,
                     )
                     if series is not None:
                         resource.series_id = series.id
@@ -323,6 +324,7 @@ async def _apply_to_resource(
                 series = await create_or_update_series_from_external(
                     db, meta.matched_entity,
                     season_hint=resource_season_hint(resource, meta.matched_entity),
+                    season_ambiguous=meta.season_ambiguous,
                 )
                 if series is not None:
                     resource.series_id = series.id

@@ -1,0 +1,12 @@
+{
+  "case_id": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+  "torrent_sha256": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813",
+  "rpc_acceptances": 2,
+  "same_torrent_id": true,
+  "daemon_torrents": 1,
+  "persisted_tasks": 1,
+  "received_media_bytes": 0,
+  "failure": "real NOT NULL after RPC",
+  "retry": "durable request dispatcher + real queue/job after backoff",
+  "database": "/tmp/rssripple-agent-rpc-uli1lycg/probe.db"
+}

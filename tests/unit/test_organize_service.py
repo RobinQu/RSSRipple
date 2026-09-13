@@ -11,7 +11,9 @@ DB 用 tests/unit/conftest.py 的 db_session；文件树用 tmp_path 真实目�
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +21,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from app.models.download_notification import DownloadNotification
@@ -680,6 +683,55 @@ async def _planned_series_plan(db_session, tmp_path, **rule_kw):
     return plan, dl_dir
 
 
+@pytest.mark.parametrize("cancel_inner_owner", [False, True])
+async def test_execute_plan_cancellation_retains_owner_until_finalize(
+    db_session, db_engine, tmp_path, monkeypatch, cancel_inner_owner,
+):
+    plan, downloads = await _planned_series_plan(db_session, tmp_path, file_op="hardlink")
+    entered = threading.Event()
+    release = threading.Event()
+    real_execution = organize_service.run_execution
+
+    def paused(*args, **kwargs):
+        entered.set()
+        if not release.wait(20):
+            raise TimeoutError("executor was not released")
+        return real_execution(*args, **kwargs)
+
+    monkeypatch.setattr(organize_service, "run_execution", paused)
+    baseline_tasks = asyncio.all_tasks()
+    operation = asyncio.create_task(execute_plan(db_session, plan.id))
+    try:
+        assert await asyncio.to_thread(entered.wait, 20)
+        operation.cancel()
+        if cancel_inner_owner:
+            # asyncio.run shutdown cancels both the caller and its shielded
+            # owner Task. Executor Futures themselves are not Tasks.
+            inner = asyncio.all_tasks() - baseline_tasks - {operation}
+            assert inner
+            for task in inner:
+                task.cancel()
+        await asyncio.sleep(0)
+        operation.cancel()
+        await asyncio.sleep(0)
+        assert not operation.done()
+        factory = async_sessionmaker(db_engine, expire_on_commit=False)
+        async with factory() as contender:
+            with pytest.raises(OrganizeError, match="正在执行中"):
+                await execute_plan(contender, plan.id)
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await operation
+    async with factory() as reader:
+        completed = await reader.get(OrganizePlan, plan.id)
+        assert completed.status == "done"
+        assert all(op.status == "done" for op in completed.ops)
+        source = downloads / "Show.S01/ep04.mkv"
+        assert source.exists()
+        assert os.path.samefile(source, completed.ops[0].dst)
+
+
 async def test_execute_plan_full_flow(db_session, tmp_path):
     plan, dl_dir = await _planned_series_plan(db_session, tmp_path)
     plan = await execute_plan(db_session, plan.id)
@@ -762,6 +814,7 @@ async def test_refresh_and_cleanup_failures_keep_done(db_session, tmp_path, monk
     lib.section_key = "2"
     await db_session.commit()
 
+    assert (await replan_open_plans(db_session, reason="test server binding"))["rebuilt"] == 1
     plan = await execute_plan(db_session, plan.id)
     assert plan.status == "done"  # 失败只记日志，不改写计划状态
     mock_cleanup.assert_awaited_once()
@@ -841,6 +894,7 @@ async def test_execute_plan_hardlink_preserves_task_and_src(
     mock_refresh = AsyncMock()
     monkeypatch.setattr(organize_service, "refresh_library", mock_refresh)
 
+    assert (await replan_open_plans(db_session, reason="test server binding"))["rebuilt"] == 1
     plan = await execute_plan(db_session, plan.id)
     assert plan.status == "done"
     [op] = (
@@ -1019,8 +1073,8 @@ async def test_manifest_fallback_prepends_torrent_root(db_session, tmp_path):
     assert str(dl_dir / root / "ep04.mkv") in srcs
 
 
-async def test_manifest_fallback_filters_unsafe_paths(db_session, tmp_path):
-    """torrent 清单里的绝对路径 / .. 分量被过滤，不会越界匹配共享根外的文件。"""
+async def test_manifest_fallback_rejects_unsafe_paths(db_session, tmp_path):
+    """torrent 清单含不安全路径时整份拒绝，不执行安全子集。"""
     from app.schemas.notification import NotificationPayload
     from app.services.organize_service import _resolve_manifest
 
@@ -1039,13 +1093,8 @@ async def test_manifest_fallback_filters_unsafe_paths(db_session, tmp_path):
     await db_session.commit()
 
     payload = NotificationPayload.model_validate(notification.payload)
-    manifest = await _resolve_manifest(db_session, payload)
-    # "../outside.mkv" 被过滤；"/etc/passwd" 经根目录前缀化为
-    # "root/etc/passwd"（下载根内的相对路径，越界语义已消除）。
-    names = [e["name"] for e in (manifest or [])]
-    assert "../outside.mkv" not in names
-    assert "/etc/passwd" not in names
-    assert all(not Path(n).is_absolute() and ".." not in n.split("/") for n in names)
+    with pytest.raises(organize_service.PlanError, match="路径"):
+        await _resolve_manifest(db_session, payload)
     assert outside.exists()  # 未被动到（只是存在性检查，但路径必须未入选）
 
 
@@ -1161,7 +1210,7 @@ async def test_resolve_manifest_fetch_failure_continues(db_session, tmp_path, mo
 
 
 async def test_resolve_manifest_from_downloader_rpc(db_session, tmp_path, monkeypatch):
-    """torrent 缓存与 URL 均无 → 下载器 RPC 清单；绝对路径/盘符被过滤。"""
+    """torrent 缓存与 URL 均无 → RPC；混合清单拒绝，纯合法清单保留 length。"""
     from app.schemas.notification import NotificationPayload
     from app.services.organize_service import _resolve_manifest
 
@@ -1187,6 +1236,9 @@ async def test_resolve_manifest_from_downloader_rpc(db_session, tmp_path, monkey
         "app.clients.downloader.get_downloader_client", lambda d: wrapper
     )
     payload = NotificationPayload.model_validate(notification.payload)
+    with pytest.raises(organize_service.PlanError, match="路径"):
+        await _resolve_manifest(db_session, payload)
+    wrapper.get_torrent_files.return_value = {"files": [{"name": "safe.mkv", "length": 4}]}
     manifest = await _resolve_manifest(db_session, payload)
     assert manifest == [{"name": "safe.mkv", "size": 4}]
 
@@ -1227,7 +1279,7 @@ async def test_plan_failed_on_volume_resolution_error(db_session, tmp_path, monk
         db_session, _series_payload(str(dl_dir), torrent_name="Show.S01")
     )
     monkeypatch.setattr(
-        organize_service, "resolve_downloader_path",
+        "app.services.organize_source.resolve_downloader_path",
         Mock(side_effect=VolumeResolutionError("绑定不完整")),
     )
     stats = await plan_for_notifications(db_session, [notification])
@@ -1254,8 +1306,8 @@ async def test_plan_single_file_torrent(db_session, tmp_path):
     assert op.src == str(dl_dir / "Show.S01E04.mkv")
 
 
-async def test_plan_skips_nameless_payload_file(db_session, tmp_path):
-    """payload.files 里缺 name 的条目跳过，不阻断其余文件匹配。"""
+async def test_plan_rejects_nameless_payload_file(db_session, tmp_path):
+    """payload.files 里缺 name 拒绝整份清单，不能只执行其余文件。"""
     dl_dir = tmp_path / "downloads"
     _mkfile(dl_dir / "ep04.mkv", 300)
     lib = await _make_library(db_session, tmp_path / "lib")
@@ -1265,7 +1317,10 @@ async def test_plan_skips_nameless_payload_file(db_session, tmp_path):
     )
     notification = await _seed(db_session, payload)
     stats = await plan_for_notifications(db_session, [notification])
-    assert stats["planned"] == 1
+    assert stats["failed"] == 1
+    [plan] = await _plans(db_session)
+    assert plan.status == "failed"
+    assert "路径" in plan.error_message
 
 
 async def test_plan_fails_when_files_miss_and_no_scoped_dir(db_session, tmp_path):
@@ -1330,7 +1385,7 @@ async def test_scoped_source_dir_volume_error(db_session, tmp_path, monkeypatch)
         ],
     )
     monkeypatch.setattr(
-        organize_service, "resolve_downloader_path",
+        "app.services.organize_source.resolve_downloader_path",
         Mock(side_effect=VolumeResolutionError("绑定不完整")),
     )
     stats = await plan_for_notifications(db_session, [notification])
@@ -1573,8 +1628,10 @@ async def test_schedule_auto_execute_runs(db_session, monkeypatch):
         captured["coro"] = coro
         return Mock()
 
-    monkeypatch.setattr(organize_service.asyncio, "create_task", fake_create_task)
-    organize_service.schedule_auto_execute("plan-1")
+    # Restore global asyncio before DB fixture teardown can create its Tasks.
+    with monkeypatch.context() as task_patch:
+        task_patch.setattr(organize_service.asyncio, "create_task", fake_create_task)
+        organize_service.schedule_auto_execute("plan-1")
     await captured["coro"]
     executed.assert_awaited_once()
     session, plan_id = executed.await_args.args
@@ -1582,7 +1639,7 @@ async def test_schedule_auto_execute_runs(db_session, monkeypatch):
     assert plan_id == "plan-1"
 
 
-async def test_schedule_auto_execute_failure_logged(db_session, monkeypatch):
+async def test_schedule_auto_execute_failure_logged(db_session, monkeypatch, caplog):
     """auto_execute 后台任务异常只记日志，不向上传播。"""
     from app import database as db_mod
 
@@ -1609,9 +1666,12 @@ async def test_schedule_auto_execute_failure_logged(db_session, monkeypatch):
         captured["coro"] = coro
         return Mock()
 
-    monkeypatch.setattr(organize_service.asyncio, "create_task", fake_create_task)
-    organize_service.schedule_auto_execute("plan-1")
+    # Restore global asyncio before DB fixture teardown can create its Tasks.
+    with monkeypatch.context() as task_patch:
+        task_patch.setattr(organize_service.asyncio, "create_task", fake_create_task)
+        organize_service.schedule_auto_execute("plan-1")
     await captured["coro"]
+    assert "boom" in caplog.text
 
 
 async def test_execute_running_in_progress_rejected(db_session, tmp_path):
@@ -1648,6 +1708,8 @@ async def test_execute_plan_requires_category(db_session, tmp_path):
     plan = OrganizePlan(
         notification_id=notification.id, rule_id=rule.id, library_id=lib.id,
         status="pending", payload=notification.payload,
+        file_op="move", needs_category=True,
+        config_revision=await organize_service.configuration_revision(db_session),
     )
     db_session.add(plan)
     await db_session.commit()
@@ -1674,7 +1736,7 @@ async def test_execute_plan_volume_error_rejected(db_session, tmp_path, monkeypa
 
     plan, _ = await _planned_series_plan(db_session, tmp_path)
     monkeypatch.setattr(
-        organize_service, "resolve_downloader_path",
+        "app.services.organize_source.resolve_downloader_path",
         Mock(side_effect=VolumeResolutionError("存储卷不存在")),
     )
     with pytest.raises(OrganizeError, match="存储卷不存在"):
@@ -1835,3 +1897,36 @@ async def test_classify_requires_category_when_template_needs(db_session, tmp_pa
     [plan] = await _plans(db_session)
     with pytest.raises(OrganizeError, match="同时指定影片类别"):
         await classify_plan(db_session, plan.id, lib.id)
+
+
+@pytest.mark.parametrize("conflict", ["different_content", "duplicate_destination"])
+async def test_persisted_unsafe_plan_preserves_files_and_task(db_session, tmp_path, monkeypatch, conflict):
+    cleanup = AsyncMock()
+    monkeypatch.setattr(organize_service, "delete_task_after_organize", cleanup)
+    plan, _ = await _planned_series_plan(db_session, tmp_path)
+    [op] = (await db_session.execute(
+        select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+    )).scalars().all()
+    original = Path(op.src).read_bytes()
+    if conflict == "different_content":
+        Path(op.dst).parent.mkdir(parents=True, exist_ok=True)
+        Path(op.dst).write_bytes(b"y" * len(original))
+    else:
+        other = Path(op.src).with_name("other.mkv")
+        other.write_bytes(b"z" * len(original))
+        db_session.add(OrganizePlanOp(
+            plan_id=plan.id, seq=op.seq + 1, op_type="move",
+            src=str(other), dst=op.dst, size=len(original),
+        ))
+    await db_session.commit()
+    result = await execute_plan(db_session, plan.id)
+    assert result.status == "failed"
+    assert "前置门禁" in result.error_message
+    assert Path(op.src).read_bytes() == original
+    if conflict == "different_content":
+        assert Path(op.dst).read_bytes() == b"y" * len(original)
+    else:
+        assert other.read_bytes() == b"z" * len(original)
+        assert not Path(op.dst).exists()
+    cleanup.assert_not_awaited()
+    assert "cleanup" not in [a.action for a in await _audits(db_session, plan.id)]

@@ -2557,3 +2557,99 @@ async def test_retire_legacy_confirmation_decisions(db_session, channel, downloa
     assert legacy_after.status == "skipped"
     assert legacy_after.decided_at is not None
     assert normal_after.status == "pending"
+
+
+@pytest.mark.parametrize("autocommit", [False, True])
+async def test_failed_dispatch_transaction_does_not_poison_next_candidate(
+    db_session, channel, downloader, series, monkeypatch, autocommit,
+):
+    """Real NOT NULL violation; synthetic two-episode seed, no downloader RPC."""
+    agent = Agent(id=_uuid(), name="transaction recovery", channel_id=channel.id,
+                  downloader_id=downloader.id, status="active",
+                  scope_channel_wide=True, conflict_resolution="ask")
+    resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
+    db_session.add_all([agent, *resources])
+    if autocommit:
+        await db_session.commit()
+    else:
+        await db_session.flush()
+    await db_session.refresh(agent)
+    attempts = []
+
+    async def dispatch(agent, resource, db):
+        attempts.append(resource.id)
+        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
+                            downloader_id=downloader.id, status="downloading",
+                            download_dir=None if len(attempts) == 1 else "/synthetic/episode-two")
+        db.add(task)
+        await db.flush()
+        return task
+
+    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+    result = await process_resources(agent, resources, db_session, autocommit=autocommit)
+    assert len(result.errors) == 1
+    assert result.dispatched == 1
+    assert len(attempts) == 2
+    tasks = (await db_session.execute(select(DownloadTask))).scalars().all()
+    assert len(tasks) == 1
+    assert tasks[0].file_resource_id == resources[1].id
+    assert agent.name == "transaction recovery"
+    if not autocommit:
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        async with AsyncSession(bind=db_session.bind) as observer:
+            assert await observer.get(Agent, agent.id) is None
+        await db_session.commit()
+
+
+async def test_failed_candidate_is_retried_by_next_incremental_job(
+    db_session, channel, downloader, series, monkeypatch,
+):
+    from app.database import committed_session
+    from app.job_handlers import _handle_run_agent
+    from app.models.agent_run import AgentRun
+    from app.utils.time import utcnow
+
+    watermark = utcnow() - timedelta(days=1)
+    agent = Agent(id=_uuid(), name="incremental retry", channel_id=channel.id,
+                  downloader_id=downloader.id, status="active", last_consumed_at=watermark,
+                  scope_channel_wide=True, conflict_resolution="ask")
+    from app.models.work_collection import WorkCollection
+
+    collection = WorkCollection(id=_uuid(), title_cn="synthetic retry series")
+    db_session.add(collection)
+    series.collection_id = collection.id
+    series.start_date = datetime(2026, 1, 1).date()
+    series.is_anime = False
+    channel.required_metadata_fields = []
+    resources = [_make_resource(channel.id, series_id=series.id, episode=i) for i in (1, 2)]
+    db_session.add_all([agent, *resources])
+    await db_session.commit()
+    agent_id = agent.id
+    attempts = []
+
+    async def dispatch(agent, resource, unit):
+        attempts.append(resource.id)
+        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
+                            downloader_id=downloader.id, status="downloading",
+                            download_dir=None if len(attempts) == 1 else "/synthetic/retry")
+        unit.add(task)
+        await unit.flush()
+        return task
+
+    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
+    outcome = await _handle_run_agent({"agent_id": agent_id})
+    async with committed_session() as observer:
+        saved = await observer.get(Agent, agent_id)
+        assert saved.last_run_status == "failed", outcome
+        assert saved.last_consumed_at == watermark
+        [run] = (await observer.scalars(select(AgentRun))).all()
+        assert run.dispatched == 1 and len(run.errors) == 1
+    await _handle_run_agent({"agent_id": agent_id})
+    async with committed_session() as observer:
+        saved = await observer.get(Agent, agent_id)
+        assert saved.last_run_status == "success"
+        assert saved.last_consumed_at > watermark
+        tasks = (await observer.scalars(select(DownloadTask))).all()
+        assert {task.file_resource_id for task in tasks} == {r.id for r in resources}
+    assert len(attempts) == 3  # Previously committed episode is deduplicated.

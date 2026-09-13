@@ -79,3 +79,10 @@
 - 遵循 Conventional Branch v1.1.0：`<type>/<description>`，全小写 + 连字符；前缀 `feature|bugfix|hotfix|release|chore|ai|copilot|cursor|claude|codex`。
 - CI：开发分支走 ci-fast（lint + 单元/API，覆盖率 ≥95%），`develop`/`release/**` 走 ci-strict（另含集成测试，覆盖率 ≥85%）；推送 `main` 或 `v*` 标签触发 GHCR 双架构镜像发布。生产 Metadata 离线验收统一在 `tests/integration/metadata_corpus/`：Fast/发布门禁执行同一子集，Strict 两套 Compose 默认收集（单节点临时 Turso，分布式独立 corpus-postgres），失败同样上传审核/语义差异/JUnit；真实 LLM 三轮评测仍为显式 CLI，详见 ../testing/metadata-corpus.md。
 - 本地 pre-commit：`git config core.hooksPath githooks` 启用 `uv run ruff check .` 门禁。
+
+### 整理与频道调度安全补充
+
+- 整理源目标同大小不是可删源证据：完整内容一致（hardlink 要求同 inode）才可收敛；所有文件发布不覆盖并发目标，整份计划含旧计划执行前检查目标碰撞。详见 file-organization.md。
+- 各 worker/all 每 30 秒独立 DB→本地调度对账；无变更不重置下次运行时间。创建频道 commit 后首次入队，自动任务开始前复查启用状态。详见 business-logic.md「频道调度对账」。
+
+- 整理重建/分类/执行使用版本 CAS；执行/取消共享持久文件锁，文件线程结束与结果回写前不得释放。pending/failed 按当前配置重建 ops 后执行冻结 file_op，旧 running 缺模式拒绝猜测；所有 Web/worker 必须共享原锁域。详见 file-organization.md / conventions.md。

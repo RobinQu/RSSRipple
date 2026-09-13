@@ -213,7 +213,7 @@ fetch_and_link_metadata(resource, channel, db)
 **季号验证规则（season never guessed）**：季号只能来自标题季标记或经元数据证据验证，绝不猜测。
 
 - **Agent-free 链接路径**（Layer 2/3 与 Layer 4 链接成功后的统一链接后步骤 `reconcile_linked_series_resource`，以及 known-work 短路与 `manual_link_metadata`）：历史惯例推断与绝对集号定位之后若 `resource.season` 仍为 None，统一走共享 helper `resolve_missing_work(resource, entity, work=链接作品)`（metadata_episode_reconcile；`resolve_missing_season` 保留为兼容别名）。**链接作品自身身份是最强季证据**（`work_verified_season`：季作品即季——`season_number≠1` 直接可信；`season_number=1` 需单季证据才可信：legacy 惰性列的单季证据或 Bangumi `single_season_entry` 条目证据，`season_evidence_from_series` 对已关联 Bangumi 身份的作品恢复该证据）。裸标题尾缀（如中英标题同时以 `2` 或 `II` 结尾）不在抓取 pre-parser 阶段单独采信；作品链接后，仅当两个不同语言标题的尾缀一致、且作品元数据证明该季存在时，才将其作为经验证的季号。可验证 → 落对应季号；多季或季数未知 → `episode_confidence = "ambiguous"`（进入所属 Channel 的文件资源待确认）；系列级身份只解析到合集而季不可定时，资源由 `park_resource_on_collection` 挂合集待确认（清作品 FK、保留 `collection_id`）。合集资源同样适用上述标题验证与单季默认：`batch_scope` 为 NULL/`season` 且可验证季号时落 `season`，但**绝不标 ambiguous**（多季/无证据保持 season=None，走合集 coverage 待确认门禁）；`multi_season`/`franchise`/`movies` 与 `manual` 行不触碰；电影链接不受影响。torrent 内容检测的 season 分支（`maybe_inspect_torrent`）对已链接且可验证单季的作品同样补季号。存量剧集链接资源用 `scripts/reconcile_season_backfill.py`（dry-run 默认，`--apply` 执行）回填，候选含 scope 为 NULL/season 且缺季号的合集行，不创建 Agent PendingDecision。
-- **MetadataAgent 路径**（`_apply_verified_season_default`）：finalize 结果 `content_type=tv` 且 `inferred_season` 为空时，用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据做同一判定——恰为 1 季 → `season=1`；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 upsert 落库**之后**经 `reconcile_linked_series_resource` 完成绝对集号定位（沿合集成员）、单季算术与验证季默认；均得不到季号时落 `episode_confidence="ambiguous"`（合集与 manual 除外）或挂合集待确认。
+- **MetadataAgent 路径**（`_validate_inferred_season` + `_apply_verified_season_default`）：finalize 结果 `content_type=tv` 时先用 `matched_entity` 的 `number_of_seasons`/`seasons` 证据**确定性校验 LLM 给出的 `inferred_season`**——不在 `seasons` 列表内、超出 `number_of_seasons` 范围、或完全无季证据 → 丢弃该季号并置 `season_ambiguous=True`（season 0 特典是结构标记，不校验）；随后 `inferred_season` 为空时做同一判定——恰为 1 季 → `season=1` 并清除 ambiguous；否则置 `season_ambiguous=True` 载体（`ResourceMetadata` 字段，随 MetadataCache 往返）。`_apply_to_resource` 在 upsert 落库**之后**经 `reconcile_linked_series_resource` 完成绝对集号定位（沿合集成员）、单季算术与验证季默认；均得不到季号时落 `episode_confidence="ambiguous"`（合集与 manual 除外）或挂合集待确认。
 - **一致性交叉检查**（`apply_episode_reconcile`）：资源同时带 season 与 `absolute_episode` 且 confidence 非 `manual` 时，用 `locate_absolute_episode` 复核；绝对集号算术定位到的 (season, episode) 与现值不一致 → `episode_confidence="ambiguous"`（标题季标记与绝对算术冲突，绝不静默信一方）；locate 返回 None 视为无证据，不改动。
 - **历史优先 reconciliation**：已链接作品的单集 TV 资源先用同频道/同作品 `manual|reconciled` 记录推导发布组的 absolute 编号偏移，然后才走作品自身集数算术（季作品的 `number_of_episodes`；legacy 行回退惰性 seasons 列）。证据分两层：**近邻层**——只用目标 absolute 之前 ±2 窗口内的记录（同组相邻 manual 一条即可；跨组需双样本共识），防止同集平行资源互相强化错误解析；**远推层**——近邻无记录时放开距离窗口（双向、排除同 absolute 平行行），但规则只由人工修订锚定：全部 manual 行必须收敛到唯一 `(season, offset)` 约定、且与非 manual 历史不冲突，再经季集数 +2 容差校验才外推（一次人工修正即推广为该剧该发布规律的持久规则，跨周/跨季断档同样生效），冲突继续待确认。对于只有季号缺失的同集发布变体（如同组 E07 简体/繁体/简繁版），同频道+同作品+同发布组的同 episode 人工修订一条即可继承 season；无 manual 时至少两条结构化历史必须同季一致，有冲突绝不默认。**人工修订的即时推广**：`PATCH /resources/{id}/episode` 与 `PATCH /resources/{id}`（发送集号字段）提交前先跑 `heal_sibling_episodes`——同作品+同频道仍处 `ambiguous/raw` 的兄弟资源立即套用新约定批量修复（manual 行与批次不动），随本次定向运行一并派发，不再逐条等人修。全局 5 分钟 metadata backfill 同时扫描可修复的 `ambiguous/raw/reconciled/NULL` 行，修复后对 active Agent 定向运行（不推进水位线），以清理待确认决策并正常派发。
 - **LLM 指引**：系统/judge prompt 与 finalize 工具说明均要求——标题无季标记时必须依据工具结果的 `number_of_seasons`/`seasons` 验证（单季 → `inferred_season=1`；多季 → `ambiguous=true` + `ambiguous_candidates`），且输入带 `title_year` 提示时优先年份一致的候选（年份冲突 >±1 是反对证据）。
@@ -605,6 +605,12 @@ startup:
 
 任务队列使用 MemoryQueue（默认）或 RedisQueue（配置时），承载手动触发的 fetch/run 与全部周期任务；同 key 去重（分布式锁）保证同一 Channel/Agent/周期任务不会被并发执行。**web/worker 分离**（`APP_ROLE`）：web 进程只 HTTP + enqueue（`queue.start(consume=False)`）；worker 进程（`python -m app.worker`）跑调度器 + 消费队列。RedisQueue 必须先取得并发槽位，再以原子 `LMOVE` 把 job 从持久 backlog 移至该 consumer 的 processing 列表，禁止无界预取到进程内等待；consumer 以短 TTL 租约持续心跳，正常完成才从 processing 确认删除。worker 优雅退出时未完成 job 原样重新入队；进程崩溃时描述符仍留在 processing，其他 worker 在租约过期后通过全局恢复锁幂等重新入队，状态回退为 queued 且保留 active-key 去重锁，禁止产生永久 running 僵尸或窃取仍存活 consumer 的任务。旧版本遗留、没有可恢复描述符的 running 状态在升级启动时标记 failed 并释放 active 锁。`sync_progress`、`download_notifications`、`check_downloaders` 三类短周期运维 job 走队首优先级，避免下载状态与通知被 LLM 长任务积压。每个 job handler 执行前重读 `load_runtime_config`（进程本地缓存，跨进程设置变更靠此收敛）。分布式 compose 默认 1 web + 3 worker；standalone 单进程 `APP_ROLE=all` 行为不变。
 
+### 频道调度对账
+
+每个 worker/all 进程启动时及每 30 秒直接读取已提交的 Channel 调度列，差异更新本进程 APScheduler（`channel_schedule.reconcile_channel_jobs`）。这是本地维护，不能入共享队列或持有跨 worker 全局锁。抓取/作品刷新分别比较间隔：新增/变化注册（约 5 秒首次触发），无变化保留 next_run_time；active/error 均调度且互转不重置，inactive/已删除移除。对账 job 设置 coalesce=True、max_instances=1、misfire_grace_time=30；DB 故障保留现有 jobs 下轮重试，单频道非法配置隔离并记录。仅列查询避免 Channel selectin 全量关联。
+
+频道 API 不修改 web 内存调度。POST /channels 先 commit 再为非 inactive 频道首次入队（SCHEDULER_ENABLED=false 不入队）；自动抓取/刷新 payload 携带内部 scheduled=true，开始执行时重查频道存在/启用及刷新开关，陈旧自动任务跳过；手动抓取不受自动开关限制，已开始任务不取消。正常配置变更下一轮对账生效；沿用队列 active-key 并发去重，不承诺恰好执行一次。
+
 ### 下载状态同步
 
 每分钟由定时任务调用。注意：`TransmissionWrapper` 依赖 transmission-rpc **v7 的 snake_case 属性**（`t.percent_done`、`t.left_until_done`、`t.is_finished` 等；唯一例外是 camelCase 的 `t.hashString`），用 camelCase 访问会静默拿到 `getattr` 默认值（进度恒 0、`left_until_done` 恒 0），导致任务被误判 completed。
@@ -685,3 +691,19 @@ Mock downloader 面向本地开发和自动化测试；生产环境应使用 `tr
 - 特别篇文件统一映射到媒体库规范的 Season 0：文件名明确的 `SPxx` / `Special xx` / `OVA xx` / `OAD xx` 直接解析为 `S00Exx`；发布顺序式小数标签（`11.5`、`22.5`）不存入整数 episode 字段，而在作品关联后与 Episode 表的 Season 0 行按顺序一一校准。若作品源尚无 Season 0 数据但清单中存在明确 `.5` 插播标签，则按标签顺序映射为 `S00E01..N`；已有 Season 0 数据但数量不一致时保持未解析，禁止错配。单作品自动绑定和向导 SSE 确定性结果复用同一规则。
 
 ---
+
+
+季号不确定的持久化门禁：MetadataAgent 清除不受证据支持的 inferred_season 后，repository 将 season_ambiguous 传给季作品 upsert。若解析上下文/身份/主源证据仍不能定季，只建或复用合集并挂待确认；不得经历史“新作品默认 S1”或单成员标题兜底重新创建/链接季作品。已验证的季号（含合法单季回退）仍按正常路径处理，重试和缓存重放均遵循同一门禁。
+
+
+通知 tick 对 completed 任务逐个使用独立事务生成冻结快照；失败写入 NotificationBuildFailure 并按 30 秒起、最多 1800 秒的指数退避重试，成功清理记录。坏任务不阻断其他任务、已有整理计划及投递。失败记录并发与清理契约见 notifications.md。
+
+
+Agent 候选组事务：后台运行先提交选择事务，再逐组用独立事务保存派发/决策；一组失败不使后续组或父会话对象失效，成功统计在组事务提交后累加。本轮存在处理错误时保留原消费水位线，使增量失败资源可再次入选；已提交组走原有去重。API rules-preview 回填使用同一请求内 SAVEPOINT，任何候选内部持久化失败使整个保存事务回滚并返回 INTERNAL_SERVER_ERROR，不提交部分配置或推进水位线。下载器接受种子是事务外副作用，重试依赖其相同 infohash 幂等添加，已用真实 Transmission 验证；不声称可回滚已接受的 RPC。定向请求在队列繁忙时的持久合并与补偿另见待办 B9。
+
+
+### 资源修订的持久化定向补偿
+
+三个资源修订端点在资源修改的同一事务内，为当前频道 active Agent 写入 AgentResourceRequest，包含自动修复的兄弟资源；commit 后再尝试唤醒队列。队列忙碌去重或 broker 故障不会清除请求。启用的调度器每 5 秒分发到期请求，保留现有 agent key 去重。作业选择阶段读取请求版本并合入资源集合；成功完成按 id＋revision 确认，内部错误或异常按该版本记录 30 秒起、1800 秒封顶的指数退避。新修订重置退避，迟到旧失败不能改变新版本。纯请求补偿不推进增量水位线。
+
+暂停/error Agent 的已有请求保留，分发仅选择 active Agent；Agent/资源删除通过 FK 级联清除请求，频道不再匹配时分发器清除失效请求。请求确认表示已按当前规则处理，过滤、待确认或已有下载去重均可以成功确认，不承诺每个请求必有新下载。

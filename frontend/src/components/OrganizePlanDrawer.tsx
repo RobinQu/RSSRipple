@@ -225,6 +225,11 @@ export default function OrganizePlanDrawer({
             <Descriptions.Item label={t('organize.rule')}>
               {detail.rule_name ?? t('format.dash')}
             </Descriptions.Item>
+            <Descriptions.Item label={t('libraries.fileOp')}>
+              {detail.file_op && ['move', 'hardlink', 'copy'].includes(detail.file_op)
+                ? t(`libraries.fileOpDesc_${detail.file_op}`)
+                : t('common.unknown')}
+            </Descriptions.Item>
             <Descriptions.Item label={t('organize.library')}>
               {detail.library_name ?? t('format.dash')}
             </Descriptions.Item>

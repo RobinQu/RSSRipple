@@ -1,6 +1,6 @@
 """Agent API routes."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -163,12 +163,19 @@ async def _apply_backfill(
                     Channel.id == agent.channel_id
                 )
             )).scalar_one_or_none()
-            await process_resources(
+            result = await process_resources(
                 agent,
                 list(rows),
                 db,
                 required_metadata_fields=required_fields,
             )
+            if result.errors:
+                # Fail the outer save transaction. Advancing the watermark
+                # here would silently discard the user's failed selections.
+                raise HTTPException(status_code=500, detail={
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": "Backfill could not be saved. Retry after resolving the processing failure.",
+                })
     # Advance watermark to the channel's current max created_at (or now if the
     # channel is empty) so the next delta run doesn't re-scan old resources.
     max_created = (await db.execute(

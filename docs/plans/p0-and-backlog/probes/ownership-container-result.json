@@ -1,0 +1,10 @@
+{
+  "project": "rssripple-v2-volume-20260913-i",
+  "image": "rssripple-v0-tests:local",
+  "network": "none",
+  "shared_named_volume": true,
+  "live_owner_rejected": true,
+  "holder_exit_code": 137,
+  "recovery_hardlink_same_inode": true,
+  "cleanup_exit_code": 0
+}

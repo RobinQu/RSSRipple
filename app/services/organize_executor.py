@@ -1,33 +1,9 @@
-"""整理执行器（内置整理子系统 organize 的执行层）。
+"""Synchronous organize execution: validate, publish without overwrite, verify.
 
-逐条移植 vault-organizer ``executor.py`` 的安全不变量（见
-docs/design/file-organization.md「执行器不变量」）：
-
-- 前置门禁（:func:`precheck`）：执行前逐 op 复核磁盘现状与计划快照一致，
-  任一违例整体放弃，不触碰任何文件。
-- 幂等状态表（:func:`execute_ops` 逐 move op）：dst 存在且 size 匹配 =
-  已完成（move 模式下 src 残留且 size 相同则删 src 收敛；hardlink/copy
-  保留 src 保种）；src 在 dst 不在 = 执行文件操作；dst size 不符 = 冲突
-  failed，绝不覆盖；src/dst 双不在 = 数据丢失 failed。
-  ``src == dst`` 直接 done；keep 不触碰标 kept。
-- 移动策略（``file_op="move"``）：同文件系统 ``os.rename``（原子）；跨
-  文件系统（EXDEV）退化为 copy + size 校验 + 删源，校验失败删不完整 dst
-  报 failed；dst 父目录 ``mkdir(parents=True, exist_ok=True)``。
-- 硬链接（``file_op="hardlink"``）：``os.link``，源文件保留（保种）；
-  EXDEV/EPERM 等 OSError → 该 op failed 且带明确 error_message，**不静默
-  退化为 copy**（静默复制会偷偷翻倍存储并违背保种意图）。
-- 复制（``file_op="copy"``）：copy + size 校验（失败删不完整 dst 报
-  failed），源文件保留。
-- 后置校验（:func:`verify_done`）：全部文件 op 后复核每个 dst 存在且
-  size 一致；src 已消失仅对 move 校验（hardlink/copy 源文件本应保留）。
-- movedir（:func:`execute_movedir`）：目标已存在 = 冲突，绝不覆盖。
-- 空目录清理（:func:`cleanup_empty_dirs`）：``os.walk(topdown=False)``
-  自底向上 ``os.rmdir``（只删空目录），preserve 边界 = 下载根；
-  绝不 ``rm -rf``。hardlink/copy 计划跳过（源文件保留，目录本就不会空）。
-
-本模块只做同步文件 IO 与结果汇报，不接触数据库：op 执行结果与审计明细
-以 plain 数据返回，由 organize_service 在异步上下文里落库。串行化
-（单 asyncio.Lock）与崩溃恢复（running 重放）同样在 organize_service。
+The planner and executor share file-content and operation-path checks.
+Existing destinations authorize move source cleanup only after full content
+comparison (or shared inode). Cross-device move/copy stage verified files in
+an exclusive temporary destination before atomic publication. No DB access.
 """
 
 from __future__ import annotations
@@ -35,8 +11,20 @@ from __future__ import annotations
 import errno
 import os
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from app.services.organize_file_safety import (
+    FileSafetyError,
+    file_stamp,
+    plan_path_conflicts,
+    rename_noreplace,
+    require_equal_files,
+    require_unchanged,
+    unlink_verified_source,
+    validate_file_state,
+)
 
 
 @dataclass
@@ -76,37 +64,27 @@ class ExecutionOutcome:
 # ---------------------------------------------------------------- 前置门禁
 
 
-def precheck(ops: list[ExecOp]) -> list[str]:
-    """前置门禁：逐 op 复核磁盘现状与计划快照一致；返回违例描述列表（空 = 通过）。
-
-    规划与执行之间是异步的，文件系统可能有其他改动：src 缺失/大小变化、dst
-    冲突一律视为违例，调用方应整体放弃执行（不触碰任何文件）。已完成的 op
-    （dst 在且 size 匹配 / 目录已整体移走）视为幂等满足（重放收敛）。
-    """
-    violations: list[str] = []
+def precheck(ops: list[ExecOp], *, file_op: str = "move") -> list[str]:
+    """Reject the whole plan before mutation, including persisted legacy ops."""
+    violations = plan_path_conflicts(ops)
+    if violations:
+        return violations
     for op in ops:
         if op.op_type == "keep":
             continue
-        dst = op.dst
-        assert dst is not None
+        assert op.dst is not None
         if op.op_type == "movedir":
-            if os.path.exists(dst):
-                if not os.path.exists(op.src):
-                    continue  # 已完成：目录已整体移入
-                violations.append(f"目标目录已存在，拒绝覆盖：{dst}")
+            if os.path.lexists(op.dst):
+                if not os.path.lexists(op.src) and Path(op.dst).is_dir():
+                    continue
+                violations.append(f"目标目录已存在，拒绝覆盖：{op.dst}")
             elif not os.path.exists(op.src):
                 violations.append(f"源目录与目标目录均不存在：{op.src}")
             continue
-        dst_exists = os.path.exists(dst)
-        src_exists = os.path.exists(op.src)
-        if dst_exists:
-            if os.path.getsize(dst) == op.size:
-                continue  # 已完成（重放收敛）
-            violations.append(f"目标已存在且大小不符，拒绝覆盖：{dst}")
-        elif not src_exists:
-            violations.append(f"源文件与目标均不存在：{op.src}")
-        elif os.path.getsize(op.src) != op.size:
-            violations.append(f"源文件大小与计划快照不符（规划后已被改动）：{op.src}")
+        try:
+            validate_file_state(Path(op.src), Path(op.dst), op.size, file_op=file_op)
+        except (OSError, FileSafetyError) as exc:
+            violations.append(str(exc))
     return violations
 
 
@@ -114,115 +92,93 @@ def precheck(ops: list[ExecOp]) -> list[str]:
 
 
 def execute_ops(ops: list[ExecOp], *, file_op: str = "move") -> list[OpResult]:
-    """逐条执行文件 op；movedir 由 :func:`execute_movedir` 单独处理。
-
-    ``file_op``（来自命中规则）决定 plan op ``move`` 的实际文件操作：
-    ``move`` / ``hardlink`` / ``copy``；keep 不受影响。
-    """
+    """Apply file operations; any plan-graph conflict prevents all mutations."""
+    conflicts = plan_path_conflicts(ops)
+    if conflicts:
+        return [OpResult(op=op, status="failed", error="；".join(conflicts[:3])) for op in ops]
+    execute = {"move": _execute_move, "hardlink": _execute_hardlink, "copy": _execute_copy}[file_op]
     results: list[OpResult] = []
     for op in ops:
         if op.op_type == "keep":
             results.append(OpResult(op=op, status="kept"))
         elif op.op_type == "move":
-            if file_op == "hardlink":
-                results.append(_execute_hardlink(op))
-            elif file_op == "copy":
-                results.append(_execute_copy(op))
-            else:
-                results.append(_execute_move(op))
+            try:
+                results.append(execute(op))
+            except (OSError, FileSafetyError) as exc:
+                results.append(OpResult(op=op, status="failed", error=f"文件操作失败：{exc}"))
     return results
-
-
-def _state_table(op: ExecOp, src: Path, dst: Path) -> OpResult | None:
-    """三态共用的幂等状态表前置分支；返回 None = 就绪（src 在 dst 不在）。
-
-    调用方负责 ready 分支的实际文件操作。``src == dst`` 与冲突/数据丢失
-    三分支语义与 file_op 无关；hardlink/copy 的「已完成」不收敛 src
-    （保种），由调用方不再触达。
-    """
-    if src == dst:
-        return OpResult(op=op, status="done")
-    if dst.exists():
-        if dst.stat().st_size == op.size:
-            return OpResult(op=op, status="done")  # 已完成（重放收敛）
-        return OpResult(op=op, status="failed", error=f"目标已存在且大小不符，拒绝覆盖：{dst}")
-    if not src.exists():
-        return OpResult(op=op, status="failed", error=f"源文件与目标均不存在：{src}")
-    return None
 
 
 def _execute_move(op: ExecOp) -> OpResult:
     src, dst = Path(op.src), Path(op.dst) if op.dst else None
     assert dst is not None
-    if src == dst:
+    if validate_file_state(src, dst, op.size):
+        if os.path.lexists(src):
+            unlink_verified_source(src, dst, op.size)
         return OpResult(op=op, status="done")
 
-    dst_exists = dst.exists()
-    src_exists = src.exists()
-
-    if dst_exists:
-        dst_size = dst.stat().st_size
-        if dst_size == op.size:
-            # 已完成（重放收敛）：src 残留且确为同一文件则删除
-            if src_exists and src.stat().st_size == dst_size:
-                src.unlink()
-            return OpResult(op=op, status="done")
-        return OpResult(op=op, status="failed", error=f"目标已存在且大小不符，拒绝覆盖：{dst}")
-
-    if not src_exists:
-        return OpResult(op=op, status="failed", error=f"源文件与目标均不存在：{src}")
-
+    source_stamp = file_stamp(src)
     dst.parent.mkdir(parents=True, exist_ok=True)
+    require_unchanged(src, source_stamp)
     try:
-        os.rename(src, dst)
-    except OSError as e:
-        if e.errno != errno.EXDEV:
+        rename_noreplace(src, dst)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
             raise
-        # 跨文件系统：copy + size 校验 + 删 src
-        shutil.copyfile(src, dst)
-        if dst.stat().st_size != op.size:
-            dst.unlink(missing_ok=True)
-            return OpResult(op=op, status="failed", error=f"跨文件系统复制校验失败：{dst}")
-        src.unlink()
+        _copy_and_publish(src, dst, op.size)
+        # A fresh comparison also protects recovery after publish-before-unlink.
+        require_unchanged(src, source_stamp)
+        unlink_verified_source(src, dst, op.size)
     return OpResult(op=op, status="done")
 
 
 def _execute_hardlink(op: ExecOp) -> OpResult:
-    """硬链接：``os.link``，源文件保留（保种）。
-
-    跨文件系统/不支持（EXDEV/EPERM 等）→ 该 op failed 且带明确原因，
-    **不静默退化为 copy**（静默复制会偷偷翻倍存储并违背保种意图）。
-    """
     src, dst = Path(op.src), Path(op.dst) if op.dst else None
     assert dst is not None
-    early = _state_table(op, src, dst)
-    if early is not None:
-        return early
-
+    if validate_file_state(src, dst, op.size, file_op="hardlink"):
+        return OpResult(op=op, status="done")
     dst.parent.mkdir(parents=True, exist_ok=True)
     try:
-        os.link(src, dst)
-    except OSError as e:
-        return OpResult(
-            op=op, status="failed",
-            error=f"硬链接失败（{e.strerror or e}；不跨文件系统静默退化为 copy）：{dst}",
-        )
+        os.link(src, dst, follow_symlinks=False)
+    except OSError as exc:
+        return OpResult(op=op, status="failed", error=f"硬链接失败（不静默退化为 copy）：{exc}")
+    require_equal_files(src, dst, op.size, hardlink=True)
     return OpResult(op=op, status="done")
 
 
+def _copy_and_publish(src: Path, dst: Path, size: int) -> None:
+    """Only publish a verified, attempt-owned staging file; never overwrite."""
+    source_stamp = file_stamp(src)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(prefix=".rssripple-", suffix=".tmp", dir=dst.parent, delete=False) as temp:
+        staging = Path(temp.name)
+        staging_identity = file_stamp(staging)[:2]
+        try:
+            # Copy through the exclusive descriptor, never reopen a temp path
+            # for writing (a replacement path must not become an overwrite).
+            with src.open("rb") as source:
+                shutil.copyfileobj(source, temp, length=1024 * 1024)
+            temp.flush()
+            try:
+                require_unchanged(src, source_stamp)
+                _, verified = require_equal_files(src, staging, size)
+                if verified[:2] != staging_identity:
+                    raise FileSafetyError("临时文件身份变化")
+                require_unchanged(staging, verified)
+            except (OSError, FileSafetyError) as exc:
+                raise FileSafetyError(f"复制校验失败：{exc}") from exc
+            rename_noreplace(staging, dst)
+        finally:
+            # Only clean this attempt's inode, including on publication errors.
+            if os.path.lexists(staging) and file_stamp(staging)[:2] == staging_identity:
+                staging.unlink()
+
+
 def _execute_copy(op: ExecOp) -> OpResult:
-    """复制：copy + size 校验（失败删不完整 dst），源文件保留（保种）。"""
     src, dst = Path(op.src), Path(op.dst) if op.dst else None
     assert dst is not None
-    early = _state_table(op, src, dst)
-    if early is not None:
-        return early
-
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dst)
-    if dst.stat().st_size != op.size:
-        dst.unlink(missing_ok=True)
-        return OpResult(op=op, status="failed", error=f"复制校验失败：{dst}")
+    if not validate_file_state(src, dst, op.size, file_op="copy"):
+        _copy_and_publish(src, dst, op.size)
     return OpResult(op=op, status="done")
 
 
@@ -318,7 +274,7 @@ def run_execution(
     dir_ops = [op for op in ops if op.op_type == "movedir"]
 
     # 前置门禁：任一违例整体放弃，不触碰任何文件
-    violations = precheck(ops)
+    violations = precheck(ops, file_op=file_op)
     if violations:
         outcome.error = f"前置门禁未通过（文件系统与计划快照不一致）：{'；'.join(violations[:3])}"
         outcome.audits.append(

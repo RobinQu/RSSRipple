@@ -24,6 +24,26 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _resolve_static_file(full_path: str, *, base: Path | None = None) -> Path | None:
+    """Resolve a SPA request path to a file inside the static root, or None.
+
+    The catch-all route receives an already-decoded path (e.g. ``../config.py``
+    for ``/%2e%2e/config.py``), so ``base / full_path`` can escape the static
+    directory. The resolved candidate is therefore required to stay within the
+    root before it is served. ``base`` is injectable for tests.
+
+    Returns ``None`` for traversal attempts and missing files alike; the caller
+    must not fall back to a file outside the root.
+    """
+    root = (base if base is not None else STATIC_DIR).resolve()
+    candidate = (root / full_path).resolve()
+    if not candidate.is_relative_to(root):
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -333,12 +353,26 @@ if STATIC_DIR.exists():  # pragma: no cover
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        file_path = STATIC_DIR / full_path
-        if file_path.is_file():
-            if file_path.name == "index.html":
-                return spa_index_response()
-            return FileResponse(file_path)
-        return spa_index_response()
+        file_path = _resolve_static_file(full_path)
+        if file_path is None:
+            # A path that escapes the static root must never be served; a
+            # traversal attempt gets a hard 404 instead of the SPA shell so it
+            # cannot be used as an existence oracle. Normal client-side routes
+            # fall through to the index.
+            if ".." in Path(full_path).parts:
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "success": False,
+                        "data": None,
+                        "error": {"code": "NOT_FOUND", "message": "Not found"},
+                        "meta": {},
+                    },
+                )
+            return spa_index_response()
+        if file_path.name == "index.html":
+            return spa_index_response()
+        return FileResponse(file_path)
 else:
     @app.get("/")
     async def root():  # pragma: no cover

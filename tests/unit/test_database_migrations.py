@@ -1231,8 +1231,18 @@ class _FakePGConn:
     every PostgreSQL-only branch of ``_apply_light_migrations``."""
 
     def __init__(self, channel_rows):
+        from sqlalchemy.dialects.postgresql import dialect
+
+        self.dialect = dialect()
         self._channel_rows = channel_rows
         self.executed: list[str] = []
+
+    async def run_sync(self, function):
+        def execute(statement):
+            self.executed.append(str(statement))
+            return _FakeResult([])
+
+        return function(SimpleNamespace(dialect=self.dialect, execute=execute))
 
     def begin_nested(self):
         return _FakeSavepoint()
@@ -1284,6 +1294,7 @@ async def test_light_migrations_postgres_branches_fake_conn(monkeypatch):
     assert any("ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL" in q
                for q in conn.executed)
     assert any("ADD VALUE IF NOT EXISTS 'mock'" in q for q in conn.executed)
+    assert any("INSERT INTO organize_configuration" in q for q in conn.executed)
     assert any("download_tasks_agent_id_fkey" in q for q in conn.executed)
 
 

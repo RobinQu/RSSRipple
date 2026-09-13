@@ -16,13 +16,17 @@ docs/design/file-organization.md「扫描派生 Library」：
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import select
 
 from app.models.library import Library
+from app.models.storage_volume import StorageVolume
 from app.services.media_server_client import MediaServerError, get_client
+from app.utils.path_safety import PathSafetyError, relative_path, resolve_subpath
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,7 @@ def resolve_server_path(
     None（该路径待绑定）。语义同 P1 path_map 的最长前缀匹配，但目标是
     结构化卷引用而非字符串替换。
     """
+    server_path = _normalize_server_path(server_path) or ""
     best = None
     best_len = -1
     for binding in bindings:
@@ -57,8 +62,13 @@ def resolve_server_path(
                 best, best_len = binding, len(prefix)
     if best is None:
         return None
-    suffix = server_path[best_len:].strip("/")
-    parts = [p for p in ((best.subpath or "").strip("/"), suffix) if p]
+    suffix = server_path[best_len:]
+    if suffix.startswith("/"):
+        suffix = suffix[1:]  # exactly one separator; do not hide an absolute suffix
+    try:
+        parts = [relative_path(part) for part in (best.subpath, suffix) if part not in (None, "")]
+    except PathSafetyError as exc:
+        raise MediaServerError(f"媒体服务器 Location 路径无效：{exc}") from exc
     return best.volume_id, "/".join(parts) if parts else None
 
 
@@ -93,6 +103,37 @@ async def scan_server(db, server: Any) -> dict:
     """
     client = get_client(server)
     sections = await client.list_libraries()
+    # Validate the complete remote response before modifying any local row.
+    # Load all volumes once; path resolution (including symlinks) runs off-loop.
+    bindings = [SimpleNamespace(
+        volume_id=b.volume_id, server_path_prefix=b.server_path_prefix, subpath=b.subpath,
+    ) for b in server.bindings]
+    volume_ids = {binding.volume_id for binding in bindings}
+    volumes = {
+        volume.id: volume.mount_path
+        for volume in (await db.execute(
+            select(StorageVolume).where(StorageVolume.id.in_(volume_ids))
+        )).scalars().all()
+    }
+
+    def prepare():
+        locations = []
+        for section in sections:
+            for path in section["paths"]:
+                normalized = _normalize_server_path(path)
+                resolved = resolve_server_path(bindings, path)
+                if resolved:
+                    volume_id, subpath = resolved
+                    if volume_id not in volumes:
+                        raise MediaServerError("媒体服务器绑定的存储卷不存在")
+                    try:
+                        resolve_subpath(volumes[volume_id], subpath)
+                    except PathSafetyError as exc:
+                        raise MediaServerError(f"媒体库路径无效：{exc}") from exc
+                locations.append((section, normalized, resolved))
+        return locations
+
+    locations = await asyncio.to_thread(prepare)
     # 一次性载入该服务器既有 Library，按规范化幂等键建立索引（同时收敛
     # 历史上因路径差异产生的重复行到同一 key，只更新其一）。
     existing_rows = (
@@ -105,38 +146,35 @@ async def scan_server(db, server: Any) -> dict:
         index[(lib.section_key, _normalize_server_path(lib.server_path))] = lib
 
     stats = {"created": 0, "updated": 0, "unbound": 0}
-    for section in sections:
-        for path in section["paths"]:
-            norm_path = _normalize_server_path(path)
-            resolved = resolve_server_path(list(server.bindings), path)
-            volume_id, root_subpath = resolved if resolved else (None, None)
-            existing = index.get((section["key"], norm_path))
-            if existing is None:
-                db.add(Library(
-                    name=section["name"],
-                    media_server_id=server.id,
-                    section_key=section["key"],
-                    server_path=norm_path,
-                    volume_id=volume_id,
-                    root_subpath=root_subpath,
-                    kind=section["kind"],
-                ))
-                stats["created"] += 1
-                final_volume_id = volume_id
-            else:
-                # 重扫更新：显示名/类型以服务器现状为准；server_path 归一
-                # 收敛历史尾斜杠差异；绑定命中才更新解析结果，未命中保留
-                # 既有（可能是手工补绑定的）卷引用。
-                existing.name = section["name"]
-                existing.kind = section["kind"]
-                existing.server_path = norm_path
-                if volume_id is not None:
-                    existing.volume_id = volume_id
-                    existing.root_subpath = root_subpath
-                stats["updated"] += 1
-                final_volume_id = existing.volume_id
-            if final_volume_id is None:
-                stats["unbound"] += 1
+    for section, norm_path, resolved in locations:
+        volume_id, root_subpath = resolved if resolved else (None, None)
+        existing = index.get((section["key"], norm_path))
+        if existing is None:
+            db.add(Library(
+                name=section["name"],
+                media_server_id=server.id,
+                section_key=section["key"],
+                server_path=norm_path,
+                volume_id=volume_id,
+                root_subpath=root_subpath,
+                kind=section["kind"],
+            ))
+            stats["created"] += 1
+            final_volume_id = volume_id
+        else:
+            # 重扫更新：显示名/类型以服务器现状为准；server_path 归一
+            # 收敛历史尾斜杠差异；绑定命中才更新解析结果，未命中保留
+            # 既有（可能是手工补绑定的）卷引用。
+            existing.name = section["name"]
+            existing.kind = section["kind"]
+            existing.server_path = norm_path
+            if volume_id is not None:
+                existing.volume_id = volume_id
+                existing.root_subpath = root_subpath
+            stats["updated"] += 1
+            final_volume_id = existing.volume_id
+        if final_volume_id is None:
+            stats["unbound"] += 1
     await db.commit()
     logger.info(
         "[media-server] 服务器 %s 扫描完成：%s", server.name, stats

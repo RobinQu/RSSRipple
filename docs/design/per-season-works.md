@@ -239,3 +239,8 @@
 **前端**：季语义触点清单实证：SeriesDetail.tsx:106,219-220（分集表 season 列、N季M集）、WorkEditPage.tsx:97,147-148（number_of_seasons 表单）、ResourceEditWizard.tsx（行级 season 输入 L52/L1223、批量套季 L446-452、缺季校验 L486-487）、ChannelDetail.tsx:278-281。向导重构是前端最大工作项，其余为展示调整。
 
 **可迁移性总核验**：生产实测规模（121 series / 6 部实际跨季 / 2345 episodes / 1301 resources / 9 agent_works / 多季作品 season=NULL 资源仅 1 条）下，迁移脚本五步路由（合集→身份→季集合→拆分→重指向）每步都有既有先例（轻迁移机制、franchise get-or-create、dedup 重指向、backfill_search_text 收尾），无新增基础设施。
+
+
+### 显式季号不确定的 upsert 门禁
+
+`create_or_update_series_from_external(..., season_ambiguous=True)` 在无法由 season_hint、季身份、标题季标记或已验证单季证据确定季号时，仅保留合集身份，返回 None，由 repository 挂合集待确认。该标记防止模型越界季号被清除后，经旧默认 S1/单成员兜底重新落季作品；重复执行和缓存重放不可绕过。调用方已有可靠解析季号时可正常链接。

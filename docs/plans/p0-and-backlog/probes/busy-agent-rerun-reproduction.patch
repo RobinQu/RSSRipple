@@ -1,0 +1,62 @@
+--- a/tests/integration/organize/test_p0_queue_consumption.py
++++ b/tests/integration/organize/test_p0_queue_consumption.py
+@@ -83,3 +83,59 @@
+         await queue.stop()
+         if queue._run_tasks:
+             await asyncio.gather(*queue._run_tasks, return_exceptions=True)
++
++
++async def test_revision_while_agent_has_selected_resources_gets_followup_run(
++    db_session, session_factory, tmp_path, monkeypatch,
++):
++    from app.services import agent_service
++
++    case = next(case for case in load_corpus()[1]["cases"]
++                if case["id"] == "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b")
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="猫与龙")
++    db_session.add(collection)
++    series = TVSeries(id=str(uuid.uuid4()), title_cn="猫与龙", collection_id=collection.id, season_number=1)
++    chain = await _seed_chain(db_session, work=series, download_dir=str(tmp_path),
++                              resource_kw={"title_raw": case["input"]["title_raw"]})
++    chain.resource.series_id = None  # Controlled incomplete metadata; no RPC.
++    chain.resource.created_at = utcnow() - timedelta(days=2)
++    watermark = utcnow()
++    chain.agent.last_consumed_at = watermark
++    await db_session.commit()
++    selected, release = asyncio.Event(), asyncio.Event()
++    real_process = agent_service.process_resources
++
++    async def pause_first_run(*args, **kwargs):
++        if not selected.is_set():
++            selected.set()
++            await release.wait()
++        return await real_process(*args, **kwargs)
++
++    monkeypatch.setattr(agent_service, "process_resources", pause_first_run)
++    queue = MemoryQueue()
++    queue.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(queue_module, "task_queue", queue)
++    app = _build_test_app(session_factory)
++    await queue.start()
++    try:
++        await queue.enqueue("run_agent", f"agent:{chain.agent.id}", {"agent_id": chain.agent.id})
++        async with asyncio.timeout(10):
++            await selected.wait()  # Real job has committed selection and loaded its inputs.
++        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++            response = await client.patch(f"/api/v1/resources/{chain.resource.id}", json={"resolution": "2160p"})
++            assert response.status_code == 200, response.text
++        release.set()
++        async with asyncio.timeout(10):
++            await queue._queue.join()
++        async with session_factory() as observer:
++            resource = await observer.get(FileResource, chain.resource.id)
++            assert resource.resolution == "2160p"
++            agent = await observer.get(Agent, chain.agent.id)
++            assert agent.last_consumed_at == watermark
++            runs = (await observer.scalars(select(AgentRun).where(AgentRun.agent_id == agent.id))).all()
++            assert sorted(run.total_resources for run in runs) == [0, 1]
++    finally:
++        release.set()
++        await queue.stop()
++        if queue._run_tasks:
++            await asyncio.gather(*queue._run_tasks, return_exceptions=True)

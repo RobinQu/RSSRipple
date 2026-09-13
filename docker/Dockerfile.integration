@@ -1,0 +1,7 @@
+# Build from a locally available runtime image with the repository's lockfile.
+# Only this file, pyproject.toml and uv.lock are needed in the build context.
+ARG RUNTIME_IMAGE=rssripple-app:latest
+FROM ${RUNTIME_IMAGE}
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project

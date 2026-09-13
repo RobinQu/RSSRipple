@@ -1014,7 +1014,7 @@ class TestReparseMetadata:
         self, client, sample_channel, db_session_factory, monkeypatch,
     ):
         enqueue = AsyncMock(return_value={"job_id": "j1"})
-        monkeypatch.setattr("app.api.v1.resources.task_queue.enqueue", enqueue)
+        monkeypatch.setattr("app.services.task_queue.task_queue.enqueue", enqueue)
         rid = await _make_resource(db_session_factory, sample_channel.id)
         res = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
         assert res.status_code == 200
@@ -1029,11 +1029,31 @@ class TestReparseMetadata:
             r = await s.get(FileResource, rid)
             assert r.confirmation_ignored_at is not None
 
+    async def test_uses_live_queue_singleton(
+        self, client, sample_channel, db_session_factory, monkeypatch,
+    ):
+        """Regression: the endpoint must read the live queue via its module.
+
+        A stale ``from app.services.task_queue import task_queue`` binding
+        enqueues into the never-started import-time MemoryQueue, so the job
+        silently never runs. Replacing only the module attribute must be
+        observed by the endpoint.
+        """
+        from types import SimpleNamespace
+
+        import app.services.task_queue as tq_mod
+        enqueue = AsyncMock(return_value={"job_id": "j1"})
+        monkeypatch.setattr(tq_mod, "task_queue", SimpleNamespace(enqueue=enqueue))
+        rid = await _make_resource(db_session_factory, sample_channel.id)
+        res = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
+        assert res.status_code == 200
+        enqueue.assert_awaited_once()
+
     async def test_409_when_job_active(
         self, client, sample_channel, db_session_factory, monkeypatch,
     ):
         enqueue = AsyncMock(return_value=None)
-        monkeypatch.setattr("app.api.v1.resources.task_queue.enqueue", enqueue)
+        monkeypatch.setattr("app.services.task_queue.task_queue.enqueue", enqueue)
         rid = await _make_resource(db_session_factory, sample_channel.id)
         res = await client.post(f"/api/v1/resources/{rid}/reparse-metadata")
         assert res.status_code == 409
@@ -1170,7 +1190,7 @@ class TestParseCorrection:
         rid = await _make_resource(db_session_factory, sample_channel.id)
         enqueue = AsyncMock(return_value={"job_id": "j", "status": "queued"})
         monkeypatch.setattr(
-            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+            "app.services.task_queue.task_queue", SimpleNamespace(enqueue=enqueue),
         )
         res = await client.patch(
             f"/api/v1/resources/{rid}", json={"episode": 3},
@@ -2234,7 +2254,7 @@ class TestEpisodeCorrectionCollection:
         )
         enqueue = AsyncMock(return_value={"job_id": "j", "status": "queued"})
         monkeypatch.setattr(
-            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+            "app.services.task_queue.task_queue", SimpleNamespace(enqueue=enqueue),
         )
         res = await client.patch(
             f"/api/v1/resources/{rid}/episode", json={"episode": 3},
@@ -2265,7 +2285,7 @@ class TestEpisodeCorrectionCollection:
         )
         enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
         monkeypatch.setattr(
-            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+            "app.services.task_queue.task_queue", SimpleNamespace(enqueue=enqueue),
         )
         res = await client.patch(
             f"/api/v1/resources/{rid}/episode", json={"episode": 3},
@@ -2333,7 +2353,7 @@ class TestResourceAssociationsErrors:
         rid = await _make_resource(db_session_factory, sample_channel.id)
         enqueue = AsyncMock(return_value={"job_id": "j", "status": "queued"})
         monkeypatch.setattr(
-            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+            "app.services.task_queue.task_queue", SimpleNamespace(enqueue=enqueue),
         )
         res = await client.put(
             f"/api/v1/resources/{rid}/associations",
@@ -2363,7 +2383,7 @@ class TestResourceAssociationsErrors:
         rid = await _make_resource(db_session_factory, sample_channel.id)
         enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
         monkeypatch.setattr(
-            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+            "app.services.task_queue.task_queue", SimpleNamespace(enqueue=enqueue),
         )
         res = await client.put(
             f"/api/v1/resources/{rid}/associations",
@@ -2598,7 +2618,7 @@ class TestParseCorrectionSeasonSubtitleAndFailures:
         )
         enqueue = AsyncMock(side_effect=RuntimeError("queue down"))
         monkeypatch.setattr(
-            "app.api.v1.resources.task_queue", SimpleNamespace(enqueue=enqueue),
+            "app.services.task_queue.task_queue", SimpleNamespace(enqueue=enqueue),
         )
         res = await client.patch(f"/api/v1/resources/{rid}", json={"episode": 7})
         assert res.status_code == 200

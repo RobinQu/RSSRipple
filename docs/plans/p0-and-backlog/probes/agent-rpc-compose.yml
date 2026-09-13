@@ -1,0 +1,24 @@
+services:
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    environment:
+      PUID: '1000'
+      PGID: '1000'
+    ports: ['127.0.0.1::9091']
+    volumes:
+      - transmission-config:/config
+      - transmission-downloads:/downloads
+      - transmission-watch:/watch
+    healthcheck:
+      test: [CMD, curl, -o, /dev/null, 'http://localhost:9091/transmission/rpc']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [isolated]
+volumes:
+  transmission-config: {}
+  transmission-downloads: {}
+  transmission-watch: {}
+networks:
+  isolated:
+    internal: true

@@ -193,3 +193,12 @@ docker compose up -d
 4. **迁移后必校验**：`verify_search_parity.py` 的「0 表行数不一致」是数据完整性的硬性证明。
 5. **目标为空或 `--force`**：`migrate_to_postgres` 拒绝向非空目标插入（避免主键冲突与重复）。
 字幕组列表兼容迁移：`scripts/subtitle_groups_eval.py` 默认只读审计数据库中的联合发布值；`--export tests/fixtures/subtitle_groups.json` 生成与单测共享的真实样本，`--validate` 离线验证解析，`--apply` 为 `file_resources.subtitle_groups`/映射表回填并迁移 Agent、OrganizeRule、频道 field_mapping 中的旧 `subtitle_group` 规则。旧列保留为兼容镜像，迁移可重复执行。
+
+
+整理所有权升级新增 Plan 六个快照/版本字段及 OrganizeConfiguration 单例（含 lock_domain），轻迁移在 Turso MVCC 初始化后确保单例，重复执行不重置 revision。历史 file_op 保留 NULL，pending/failed 执行前重建，running 未知模式拒绝执行。此组关键列失败须中止启动；迁移和启动前应停止旧版本整理执行者，所有 Web/worker 一起升级，禁止不遵守共享锁的旧进程与新版本混跑。保留原共享锁目录，数据库和锁域恢复必须一致。
+
+
+通知生成失败隔离新增 `notification_build_failures` 表，由启动 `Base.metadata.create_all` 在 Turso/PostgreSQL 幂等建立，任务 FK 为 ON DELETE CASCADE、每任务唯一。升级不修改下载状态或既有通知；重复启动保留尝试次数和下次重试时间。回退旧程序可保留该表，但旧程序不会消费其中的退避状态。
+
+
+Agent 定向补偿新增 `agent_resource_requests` 表，由模型注册后的 `create_all` 为新装/旧库创建，无存量请求回填。PostgreSQL 与 Turso 均使用非空 `(agent_id,resource_id)` 联合唯一键及两个 ON DELETE CASCADE 外键；重复启动保留 revision、错误与重试时间，不重置待处理请求。

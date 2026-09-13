@@ -34,7 +34,23 @@ async def init_scheduler() -> None:  # pragma: no cover - wiring only
         logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
         return
     _scheduler = AsyncIOScheduler()
-    # All periodic jobs are queue-only: each tick enqueues a job with a stable
+    from app.services.agent_resource_requests import dispatch_pending_requests
+    from app.services.channel_schedule import CHANNEL_RECONCILE_SECONDS
+
+    _scheduler.add_job(
+        dispatch_pending_requests, trigger=IntervalTrigger(seconds=5),
+        id="agent_resource_dispatch", replace_existing=True, coalesce=True, max_instances=1,
+    )
+
+    # Each process must update its own in-memory schedule. Do not enqueue this
+    # callback or throttle it globally: that would heal only one worker.
+    _scheduler.add_job(
+        _reconcile_channel_schedules,
+        trigger=IntervalTrigger(seconds=CHANNEL_RECONCILE_SECONDS),
+        id="channel_schedule_reconcile", replace_existing=True,
+        coalesce=True, max_instances=1, misfire_grace_time=CHANNEL_RECONCILE_SECONDS,
+    )
+    # Business periodic jobs are queue-only: each tick enqueues a job with a stable
     # key (``job:<type>``) instead of running the function body in the
     # scheduler process. The queue's active-key dedup collapses concurrent
     # ticks (including duplicate schedulers across multiple workers) to a
@@ -142,26 +158,29 @@ async def shutdown_scheduler() -> None:  # pragma: no cover - wiring only
     logger.info("Scheduler shut down")
 
 
-async def setup_channel_jobs(db) -> None:  # pragma: no cover - wiring only
-    """Register interval jobs for all non-inactive channels at startup.
-
-    Channels in the ``error`` state (a previous fetch failed) are still
-    scheduled so they retry and recover when the feed becomes reachable again;
-    only ``inactive`` (paused) channels are skipped.
-    """
-    from sqlalchemy import select
-
+async def setup_channel_jobs(db) -> None:
+    """Initial reconciliation uses exactly the same diff as periodic updates."""
     from app.config import settings
-    from app.models.channel import Channel
+    from app.services.channel_schedule import reconcile_channel_jobs
 
-    if not settings.scheduler_enabled:
-        logger.info("Scheduler disabled; skipping channel fetch job setup")
+    if not settings.scheduler_enabled or _scheduler is None:
         return
-    result = await db.execute(select(Channel).where(Channel.status != "inactive"))
-    channels = result.scalars().all()
-    for ch in channels:
-        schedule_channel(ch)
-    logger.info("Scheduled %d channel fetch jobs", len(channels))
+    await reconcile_channel_jobs(
+        db, _scheduler, fetch_callback=_run_channel_fetch,
+        refresh_callback=_run_channel_works_refresh,
+    )
+
+
+async def _reconcile_channel_schedules() -> None:
+    from app.database import async_session_factory
+
+    try:
+        async with async_session_factory() as db:
+            await setup_channel_jobs(db)
+    except Exception:
+        # The database may temporarily be unreachable. Keep all existing jobs
+        # rather than treating an unavailable snapshot as an empty channel set.
+        logger.exception("[scheduler] channel reconciliation failed; retrying next tick")
 
 
 def schedule_channel(channel: Any) -> None:  # pragma: no cover - wiring only
@@ -227,7 +246,7 @@ async def _run_channel_fetch(channel_id: str) -> None:  # pragma: no cover - wir
         await task_queue.enqueue(
             "fetch_channel",
             f"channel:{channel_id}",
-            {"channel_id": channel_id},
+            {"channel_id": channel_id, "scheduled": True},
         )
     except Exception as e:
         logger.warning("Failed to enqueue fetch for channel %s: %s", channel_id, e)
@@ -341,7 +360,7 @@ async def _run_channel_works_refresh(channel_id: str) -> None:  # pragma: no cov
         await task_queue.enqueue(
             "refresh_channel_works",
             f"channel-refresh:{channel_id}",
-            {"channel_id": channel_id},
+            {"channel_id": channel_id, "scheduled": True},
         )
     except Exception as e:
         logger.warning(
@@ -575,16 +594,17 @@ async def _process_download_notifications() -> None:
 
     if not settings.notify_enabled:
         return
-    from sqlalchemy import select
+    from sqlalchemy import delete, select
 
     from app.database import committed_session
     from app.models.agent_webhook import AgentWebhook
     from app.models.download_notification import DownloadNotification
     from app.models.download_task import DownloadTask
+    from app.models.notification_build_failure import NotificationBuildFailure
     from app.models.organize_plan import OrganizePlan
     from app.models.organize_rule import OrganizeRule
+    from app.services.notification_build import build_task_notifications
     from app.services.notify_service import (
-        create_notification_for_task,
         deliver_due_deliveries,
         ensure_deliveries,
     )
@@ -608,21 +628,27 @@ async def _process_download_notifications() -> None:
                 .where(OrganizeRule.enabled.is_(True))
                 .exists()
             )
-            stmt = select(DownloadTask).where(
+            # A concurrent successful builder may have beaten failure marking.
+            await db.execute(delete(NotificationBuildFailure).where(
+                NotificationBuildFailure.download_task_id.in_(notified),
+            ))
+            await db.commit()
+            deferred = select(NotificationBuildFailure.id).where(
+                NotificationBuildFailure.download_task_id == DownloadTask.id,
+                NotificationBuildFailure.next_attempt_at > utcnow(),
+            ).exists()
+            stmt = select(DownloadTask.id).where(
                 DownloadTask.status == "completed",
                 DownloadTask.id.notin_(notified),
                 has_webhook | organize_active,
+                ~deferred,
             )
-            tasks = (await db.execute(stmt)).scalars().all()
-            enqueued = 0
-            created_notifications = []
-            for task in tasks:
-                notification, was_created = await create_notification_for_task(db, task)
-                if was_created:
-                    enqueued += 1
-                    if notification is not None:
-                        created_notifications.append(notification)
-                await db.commit()
+            task_ids = (await db.execute(stmt)).scalars().all()
+            created_ids = await build_task_notifications(task_ids)
+            enqueued = len(created_ids)
+            created_notifications = (await db.execute(select(DownloadNotification).where(
+                DownloadNotification.id.in_(created_ids),
+            ))).scalars().all() if created_ids else []
             # organize 规划步：补建通知之后、fan-out 之前；失败不中断 tick 其余阶段
             plan_targets = list(created_notifications)
             try:
@@ -671,6 +697,9 @@ async def _process_download_notifications() -> None:
                     stats["delivered"], stats["failed"], stats["skipped"],
                 )
         except Exception as e:
+            # The error is logged here rather than escaping committed_session;
+            # explicitly end the failed transaction before its normal exit.
+            await db.rollback()
             logger.warning("[notify] processing tick failed: %s", e)
 
 

@@ -311,7 +311,7 @@ def test_collect_files_volume_resolution_error():
         _collect_files(payload, broken)
 
 
-def test_collect_files_skips_empty_manifest_names(tmp_path):
+def test_collect_files_rejects_empty_manifest_names(tmp_path):
     dl_dir = tmp_path / "downloads"
     _mkfile(dl_dir / "ep04.mkv", 300)
     payload = NotificationPayload.model_validate(
@@ -319,6 +319,9 @@ def test_collect_files_skips_empty_manifest_names(tmp_path):
             str(dl_dir), files=[{"name": ""}, {"name": "ep04.mkv", "size": 1}]
         )
     )
+    with pytest.raises(PlanError, match="路径"):
+        _collect_files(payload, None)
+    payload.files = [{"name": "ep04.mkv", "size": 1}]
     files = _collect_files(payload, None)
     assert [f.rel for f in files] == ["ep04.mkv"]
     assert files[0].size == 300  # 真实磁盘大小覆盖清单值
@@ -334,7 +337,7 @@ def test_collect_files_manifest_miss_falls_back_to_torrent_dir(tmp_path, caplog)
             files=[{"name": "missing.mkv"}],
         )
     )
-    with caplog.at_level(logging.WARNING, logger="app.services.organize_service"):
+    with caplog.at_level(logging.WARNING, logger="app.services.organize_source"):
         files = _collect_files(payload, None)
     assert [f.rel for f in files] == ["ep04.mkv"]
     assert "均未命中" in caplog.text
@@ -472,7 +475,7 @@ async def test_resolve_manifest_empty_torrent_listing(db_session, tmp_path):
 async def test_resolve_manifest_fetch_failure_falls_back_to_rpc(
     db_session, tmp_path, monkeypatch
 ):
-    """torrent_url 拉取失败 → 回退下载器 RPC 清单；不安全条目被过滤。"""
+    """torrent_url 拉取失败 → RPC；混合清单整份拒绝，合法重试可用。"""
     payload = _series_payload(str(tmp_path / "downloads"))
     seed = await _seed(
         db_session, payload,
@@ -485,20 +488,23 @@ async def test_resolve_manifest_fetch_failure_falls_back_to_rpc(
         get_torrent_files=AsyncMock(return_value={
             "files": [
                 {"name": "ep04.mkv", "size": 100},
-                {"name": "", "size": 1},          # 空名剔除
-                {"name": "/abs/evil.mkv", "size": 1},  # 绝对路径剔除
-                {"name": "../up.mkv", "size": 1},      # .. 分量剔除
+                {"name": "", "size": 1},          # 空名拒绝
+                {"name": "/abs/evil.mkv", "size": 1},  # 绝对路径拒绝
+                {"name": "../up.mkv", "size": 1},      # .. 分量拒绝
             ]
         })
     )
     factory = lambda d: client  # noqa: E731
     monkeypatch.setattr("app.clients.downloader.get_downloader_client", factory)
 
+    with pytest.raises(PlanError, match="路径"):
+        await _resolve_manifest(db_session, NotificationPayload.model_validate(payload))
+    client.get_torrent_files.return_value = {"files": [{"name": "ep04.mkv", "size": 100}]}
     manifest = await _resolve_manifest(
         db_session, NotificationPayload.model_validate(payload)
     )
     assert manifest == [{"name": "ep04.mkv", "size": 100}]
-    fetch.assert_awaited_once()
+    assert fetch.await_count == 2
     # 拉取失败不写回 torrent_file 缓存
     await db_session.refresh(seed.resource)
     assert seed.resource.torrent_file is None
@@ -827,10 +833,10 @@ async def test_replan_single_failure_isolated(db_session, tmp_path, monkeypatch)
 
     original = organize_service._rebuild_plan
 
-    async def _flaky(db, plan, notification, rules, libraries):
+    async def _flaky(db, plan, notification, rules, libraries, config_revision):
         if notification.id == seed2.notification.id:
             raise RuntimeError("unexpected")
-        return await original(db, plan, notification, rules, libraries)
+        return await original(db, plan, notification, rules, libraries, config_revision)
 
     monkeypatch.setattr(organize_service, "_rebuild_plan", _flaky)
     stats = await replan_open_plans(db_session, reason="测试")
@@ -844,7 +850,7 @@ async def test_replan_single_failure_isolated(db_session, tmp_path, monkeypatch)
 
 async def test_schedule_auto_execute_background_failure_logged(db_session, caplog):
     """后台执行异常（计划不存在）只记日志，不抛出。"""
-    with caplog.at_level(logging.ERROR, logger="app.services.organize_service"):
+    with caplog.at_level(logging.ERROR, logger="app.services.organize_source"):
         schedule_auto_execute("missing-plan-id")
         for _ in range(100):
             if any(
@@ -981,7 +987,7 @@ async def test_execute_done_but_cleanup_returns_false(
     ctx = await _planned_plan(db_session, tmp_path)
     cleanup = AsyncMock(return_value=False)
     monkeypatch.setattr(organize_service, "delete_task_after_organize", cleanup)
-    with caplog.at_level(logging.ERROR, logger="app.services.organize_service"):
+    with caplog.at_level(logging.ERROR, logger="app.services.organize_source"):
         plan = await execute_plan(db_session, ctx.plan.id)
     assert plan.status == "done"
     cleanup.assert_awaited_once()

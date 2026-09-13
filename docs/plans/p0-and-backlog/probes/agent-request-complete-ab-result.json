@@ -1,0 +1,36 @@
+{
+  "batch": "B9",
+  "main_worktree_applied": true,
+  "production_deployed": false,
+  "unit_api": {
+    "passed": 3500,
+    "skipped": 14,
+    "warnings": 6,
+    "covered": 21066,
+    "valid": 21528,
+    "exit_code": 0
+  },
+  "integration": {
+    "passed": 3114,
+    "skipped": 17,
+    "warnings": 8,
+    "covered": 19361,
+    "valid": 21528,
+    "runner_exit_code": 0,
+    "coverage_exit_code": 0
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "source_hashes_unchanged": 436,
+  "project": "rssripple-v5-complete-20260913-ab",
+  "cleanup": "complete",
+  "artifacts": "/tmp/rssripple-v5-artifacts-ab",
+  "remaining_todo": {
+    "P1": 21,
+    "P2": 79,
+    "P3": 13
+  },
+  "v6_implementation_merged": false
+}

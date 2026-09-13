@@ -1,0 +1,38 @@
+--- a/tests/unit/test_agent_service.py
++++ b/tests/unit/test_agent_service.py
+@@ -2557,3 +2557,35 @@
+     assert legacy_after.status == "skipped"
+     assert legacy_after.decided_at is not None
+     assert normal_after.status == "pending"
++
++
++async def test_failed_dispatch_transaction_does_not_poison_next_candidate(
++    db_session, channel, downloader, series, monkeypatch,
++):
++    """Real NOT NULL violation; synthetic two-episode seed, no downloader RPC."""
++    agent = Agent(id=_uuid(), name="transaction recovery", channel_id=channel.id,
++                  downloader_id=downloader.id, status="active",
++                  scope_channel_wide=True, conflict_resolution="ask")
++    resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
++    db_session.add_all([agent, *resources])
++    await db_session.commit()
++    await db_session.refresh(agent)
++    attempts = []
++
++    async def dispatch(agent, resource, db):
++        attempts.append(resource.id)
++        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
++                            downloader_id=downloader.id, status="downloading",
++                            download_dir=None if len(attempts) == 1 else "/synthetic/episode-two")
++        db.add(task)
++        await db.flush()
++        return task
++
++    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
++    result = await process_resources(agent, resources, db_session, autocommit=True)
++    assert len(result.errors) == 1
++    assert result.dispatched == 1
++    assert len(attempts) == 2
++    tasks = (await db_session.execute(select(DownloadTask))).scalars().all()
++    assert len(tasks) == 1
++    assert tasks[0].file_resource_id == resources[1].id

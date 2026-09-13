@@ -1,0 +1,27 @@
+{
+  "backend": "PostgreSQL 16",
+  "data": "synthetic 300-byte media; no real media claim",
+  "O5": {
+    "plan_id": "05bfcb1f-dd29-4b2b-ac32-270325650d11",
+    "completed_executions": 2,
+    "actor_pids": [
+      1265594,
+      1265619
+    ]
+  },
+  "O2": {
+    "plan_id": "e9b01c1d-c4a0-4c69-9845-7a3b28da8f2f",
+    "planned_mode": "hardlink",
+    "executed_mode": "move",
+    "same_operation_rows": true,
+    "source_deleted": true
+  },
+  "O1": {
+    "plan_id": "ea744960-243c-4673-a1f8-954893f030bf",
+    "completed_before_rebuild_commit": true,
+    "final_plan_status": "done",
+    "final_op_statuses": [
+      "pending"
+    ]
+  }
+}

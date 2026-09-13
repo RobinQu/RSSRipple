@@ -1614,7 +1614,8 @@ async def _resolve_collection_member(
 
 
 async def create_or_update_series_from_external(
-    db: AsyncSession, data: dict, *, season_hint: int | None = None
+    db: AsyncSession, data: dict, *, season_hint: int | None = None,
+    season_ambiguous: bool = False,
 ) -> TVSeries | None:
     """Upsert a per-season TVSeries work from a matched entity (作品单季化 P3).
 
@@ -1643,6 +1644,9 @@ async def create_or_update_series_from_external(
     the resource on the collection for Channel confirmation (挂合集待确认)
     instead of guessing a season.
 
+    ``season_ambiguous`` preserves a rejected model inference through this
+    boundary: unresolved entities park even if a legacy default could select S1.
+
     On every successful upsert the incoming id(s) are written into the bag
     at their registry granularity; the primary column keeps its creator-wins
     semantics.
@@ -1670,6 +1674,21 @@ async def create_or_update_series_from_external(
         # slot — it stays unpinned (parked on the collection / fresh shell).
         if not _has_unresolved_title_qualifier(data):
             season = 1
+
+    # An explicitly rejected model season must not be resurrected by legacy
+    # single-member/title/fresh-work defaults further below. A real parsed or
+    # entity season above can still resolve ambiguity without guessing.
+    if season is None and season_ambiguous:
+        collection = await find_collection_for_entity(db, data)
+        if collection is None:
+            collection = await _create_series_collection(
+                db, data, preserve_full_title=_has_unresolved_title_qualifier(data)
+            )
+        await _bag_entity_ids_by_granularity(
+            db, work=None, collection=collection, data=data,
+            series_level_id=series_level_id,
+        )
+        return None
 
     # (1) Per-season identity → work identity bag.
     series: TVSeries | None = None

@@ -35,7 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -56,11 +56,28 @@ from app.models.organize_rule import OrganizeRule
 from app.schemas.notification import NotificationPayload
 from app.services.media_server_service import refresh_library
 from app.services.organize_executor import ExecOp, run_execution
+from app.services.organize_ownership import owned_thread
+from app.services.organize_plan_state import configuration_revision, reserve_revision
 from app.services.organize_planner import (
     DiskFile,
     OrganizePlanResult,
     PlanError,
     build_plan,
+)
+from app.services.organize_source import (
+    cleanup_paths as _cleanup_paths,
+)
+from app.services.organize_source import (
+    collect_files as _collect_files,
+)
+from app.services.organize_source import (
+    relative_name,
+    validate_execution_destinations,
+    validate_execution_sources,
+    validate_manifest,
+)
+from app.services.organize_source import (
+    scoped_source_dir as _scoped_source_dir,
 )
 from app.services.organize_template import PRESET_MOVIE, PRESET_TV
 from app.services.task_cleanup import (
@@ -69,7 +86,6 @@ from app.services.task_cleanup import (
 )
 from app.services.volume_service import (
     VolumeResolutionError,
-    resolve_downloader_path,
     resolve_library_recycle,
     resolve_library_root,
 )
@@ -115,13 +131,21 @@ def _library_ns(lib: Library) -> SimpleNamespace:
     """提取 Library 为 plain namespace；root_path 由卷引用动态解析
     （``volume.mount_path + root_subpath``），未绑定卷 → None（待绑定）。
     调用方须已 selectinload ``Library.volume``。"""
+    path_error = None
+    try:
+        root_path = resolve_library_root(lib)
+        recycle_path = resolve_library_recycle(lib)
+    except VolumeResolutionError as exc:
+        root_path = recycle_path = None
+        path_error = str(exc)
     return SimpleNamespace(
         id=lib.id,
         name=lib.name,
-        root_path=resolve_library_root(lib),
+        root_path=root_path,
+        path_error=path_error,
         kind=lib.kind,
         subtitle_lang_map=lib.subtitle_lang_map,
-        recycle_path=resolve_library_recycle(lib),
+        recycle_path=recycle_path,
     )
 
 
@@ -169,11 +193,16 @@ async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | No
         """解析 .torrent 清单；多文件种子补上 info/name 根目录分量——
         parse_torrent_files 的路径相对于种子根，而下载客户端落盘为
         ``download_dir/<info/name>/<文件>``（RPC 来源的清单已含根目录，
-        不需要这一步）。根名不安全（含路径分隔/. /..）时放弃补前缀。"""
+        不需要这一步）。不安全的根名导致整份清单拒绝。"""
         entries = parse_torrent_files(path)
         if not entries:
             return None
-        root = (read_torrent_root_name(path) or "").strip()
+        entries = validate_manifest(entries)
+        root = read_torrent_root_name(path) or ""
+        if root:
+            root = relative_name(root)
+            if "/" in root:
+                raise PlanError(f"种子根路径不能包含目录分隔符：{root!r}")
         if root and "/" not in root and "\\" not in root and root not in (".", ".."):
             return [
                 {"name": f"{root}/{e['name']}", "size": e.get("size", 0)}
@@ -221,104 +250,7 @@ async def _resolve_manifest(db, payload: NotificationPayload) -> list[dict] | No
     if not files:
         return None
 
-    # 只保留安全的相对路径（清单会拼到下载根下做存在性检查）：剔除空名、
-    # 绝对路径与含 . / .. 分量的路径，避免清单越界匹配共享根外的文件。
-    out: list[dict] = []
-    for entry in files:
-        name = (entry or {}).get("name") or ""
-        if not name or Path(name).is_absolute() or (len(name) > 1 and name[1] == ":"):
-            continue
-        parts = [p for p in re.split(r"[/\\]+", name) if p]
-        if not parts or any(p in (".", "..") for p in parts):
-            continue
-        out.append({
-            "name": "/".join(parts),
-            "size": entry.get("size") or entry.get("length") or 0,
-        })
-    return out or None
-
-
-def _collect_files(
-    payload: NotificationPayload, downloader: Any | None
-) -> list[DiskFile]:
-    """定位磁盘文件（同步，线程中运行）。优先 payload.files 清单（含
-    :func:`_resolve_manifest` 的 torrent 清单回退）逐项做存在性精确匹配，
-    缺失回退只扫种子独立目录（download_dir/torrent_name）——绝不扫共享
-    下载根。
-
-    移植自 vault-organizer ``worker.collect_files``；返回路径均为本进程
-    视角（已过下载器卷绑定解析），因此随后 build_plan 不再做翻译。
-    """
-    task = payload.task
-    download_dir = (task.download_dir if task else None) or ""
-    try:
-        base = Path(resolve_downloader_path(downloader, download_dir))
-    except VolumeResolutionError as e:
-        raise PlanError(str(e)) from e
-    tname = (task.torrent_name if task else None) or ""
-
-    if tname and (base / tname).is_file():
-        f = base / tname
-        return [DiskFile(path=str(f), size=f.stat().st_size, rel=tname)]
-
-    scoped_dir = bool(tname) and (base / tname).is_dir()
-    root = base / tname if scoped_dir else base
-
-    if payload.files:
-        files: list[DiskFile] = []
-        for entry in payload.files:
-            name = entry.get("name") or ""
-            if not name:
-                continue
-            for cand in (root / name, base / name):
-                if cand.is_file():
-                    files.append(
-                        DiskFile(
-                            path=str(cand), size=cand.stat().st_size, rel=name
-                        )
-                    )
-                    break
-        if files:
-            return files
-        logger.warning(
-            "[organize] payload.files 在磁盘上均未命中（%s）",
-            payload.notification_id,
-        )
-
-    if not scoped_dir:
-        raise PlanError(
-            "无法定位下载内容：文件清单缺失或在磁盘上均未命中，且种子独立目录"
-            f"不存在（torrent_name={tname!r}，download_dir={download_dir}），"
-            "拒绝扫描共享下载根以免误伤其他任务，请人工介入"
-        )
-    files = [
-        DiskFile(path=str(p), size=p.stat().st_size, rel=str(p.relative_to(root)))
-        for p in sorted(root.rglob("*"))
-        if p.is_file()
-    ]
-    if not files:
-        raise PlanError(f"下载目录无可整理文件：{root}")
-    return files
-
-
-def _cleanup_paths(
-    payload: NotificationPayload, downloader: Any | None
-) -> tuple[str | None, str | None]:
-    """执行后空目录清理的 (范围, 保留边界)：种子独立目录与卷解析后的下载根。
-
-    torrent_name 为空（清单定位的平铺/单文件种子直接落在共享下载根）时
-    返回 (None, None) 跳过清理——绝不以共享下载根为清理范围（会误删其他
-    任务留下的空目录）。
-    """
-    task = payload.task
-    download_dir = (task.download_dir if task else None) or ""
-    if not download_dir:
-        return None, None
-    base = resolve_downloader_path(downloader, download_dir)
-    tname = (task.torrent_name if task else None) or ""
-    if not tname:
-        return None, None
-    return os.path.join(base, tname), base
+    return validate_manifest(files)
 
 
 async def _resolve_downloader(db, payload: NotificationPayload) -> Any | None:
@@ -335,7 +267,7 @@ async def _resolve_downloader(db, payload: NotificationPayload) -> Any | None:
         return None
     downloader = (
         await db.execute(
-            select(DownloaderInstance)
+            select(DownloaderInstance).execution_options(populate_existing=True)
             .where(DownloaderInstance.id == task.downloader_id)
             .options(selectinload(DownloaderInstance.volume))
         )
@@ -377,21 +309,6 @@ def _collect_and_plan(
     )
 
 
-def _scoped_source_dir(payload: NotificationPayload, downloader: Any | None) -> str | None:
-    """种子独立目录（download_dir/torrent_name）的本进程视角绝对路径；
-    单文件种子或平铺在下载根（无独立目录）→ None（绝不以共享下载根为
-    movedir 源）。"""
-    task = payload.task
-    download_dir = (task.download_dir if task else None) or ""
-    try:
-        base = Path(resolve_downloader_path(downloader, download_dir))
-    except VolumeResolutionError as e:
-        raise PlanError(str(e)) from e
-    tname = (task.torrent_name if task else None) or ""
-    if tname and (base / tname).is_dir():
-        return str(base / tname)
-    return None
-
 
 # ---------------------------------------------------------------- 审计
 
@@ -417,9 +334,10 @@ async def plan_for_notifications(
     stats = {"planned": 0, "rebuilt": 0, "uncategorized": 0, "skipped": 0, "failed": 0}
     if not notifications:
         return stats
+    config_revision = await configuration_revision(db)
     rules = (
         await db.execute(
-            select(OrganizeRule)
+            select(OrganizeRule).execution_options(populate_existing=True)
             .where(OrganizeRule.enabled.is_(True))
             .order_by(OrganizeRule.priority, OrganizeRule.created_at)
         )
@@ -427,14 +345,16 @@ async def plan_for_notifications(
     if not rules:
         return stats
     libraries = (
-        await db.execute(select(Library).options(selectinload(Library.volume)))
+        await db.execute(select(Library).execution_options(populate_existing=True).options(
+            selectinload(Library.volume)
+        ))
     ).scalars().all()
     rule_ns = [_rule_ns(r) for r in rules]
-    lib_ns = {lib.id: _library_ns(lib) for lib in libraries}
+    lib_ns = {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries}
 
     for notification in notifications:
         try:
-            outcome = await _plan_one(db, notification, rule_ns, lib_ns)
+            outcome = await _plan_one(db, notification, rule_ns, lib_ns, config_revision)
         except Exception as e:  # noqa: BLE001 — 单条失败不影响本 tick 其余通知
             logger.error("[organize] 通知 %s 规划失败：%s", notification.id, e)
             stats["failed"] += 1
@@ -448,6 +368,7 @@ async def _plan_one(
     notification: DownloadNotification,
     rules: list[Any],
     libraries: dict[str, Any],
+    config_revision: int,
 ) -> str:
     existing = (
         await db.execute(
@@ -457,24 +378,27 @@ async def _plan_one(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        if existing.status in ("done", "running"):
+        if existing.status in ("done", "running", "cancelled"):
             return "skipped"
         # 快照未变：pending 无重建必要；failed 则仍重建——本函数只在被显式
         # 触发（tick 新建/补扫、regenerate、配置变更 replan）时拿到通知，
         # failed 计划多因磁盘状态等外部条件失败，快照不变也值得重试。
-        if existing.payload == notification.payload and existing.status != "failed":
+        if (
+            existing.payload == notification.payload and existing.status != "failed"
+            and existing.config_revision == config_revision
+        ):
             return "skipped"
-        return await _rebuild_plan(db, existing, notification, rules, libraries)
+        return await _rebuild_plan(db, existing, notification, rules, libraries, config_revision)
 
     payload = NotificationPayload.model_validate(notification.payload)
-    if not payload.files:
-        # 快照缺 files（生成时 RPC 不可用等）：回退 torrent 文件清单做
-        # 精确匹配，让平铺在共享下载根的单文件种子也能定位。
-        manifest = await _resolve_manifest(db, payload)
-        if manifest:
-            payload = payload.model_copy(update={"files": manifest})
-    downloader = await _resolve_downloader(db, payload)
     try:
+        if not payload.files:
+            # 快照缺 files（生成时 RPC 不可用等）：回退 torrent 文件清单做
+            # 精确匹配，让平铺在共享下载根的单文件种子也能定位。
+            manifest = await _resolve_manifest(db, payload)
+            if manifest:
+                payload = payload.model_copy(update={"files": manifest})
+        downloader = await _resolve_downloader(db, payload)
         result = await asyncio.to_thread(
             _collect_and_plan, payload, downloader, rules, libraries, None
         )
@@ -517,6 +441,9 @@ async def _plan_one(
         category=result.category,
         status="pending",
         payload=notification.payload,
+        file_op=result.rule.file_op if result.rule else None,
+        config_revision=config_revision,
+        needs_category=result.needs_category,
     )
     for i, op in enumerate(result.ops):
         plan.ops.append(
@@ -547,6 +474,7 @@ async def _rebuild_plan(
     notification: DownloadNotification,
     rules: list[Any],
     libraries: dict[str, Any],
+    config_revision: int,
 ) -> str:
     """通知 regenerate 后重建 pending/failed 计划。
 
@@ -556,18 +484,19 @@ async def _rebuild_plan(
     library_id 置空，绝不让规则指向停留在已不再匹配的旧规则上）。重建
     失败保留旧计划（下 tick 重试）。
     """
+    expected_revision = plan.revision
     payload = NotificationPayload.model_validate(notification.payload)
-    if not payload.files:
-        manifest = await _resolve_manifest(db, payload)
-        if manifest:
-            payload = payload.model_copy(update={"files": manifest})
-    downloader = await _resolve_downloader(db, payload)
-    category = plan.category
-    if plan.library_id and plan.rule_id is None and plan.library_id in libraries:
-        use_rules = [_synthetic_rule(plan.library_id, _preset_template(payload))]
-    else:
-        use_rules = rules
     try:
+        if not payload.files:
+            manifest = await _resolve_manifest(db, payload)
+            if manifest:
+                payload = payload.model_copy(update={"files": manifest})
+        downloader = await _resolve_downloader(db, payload)
+        category = plan.category
+        if plan.library_id and plan.manual_destination and plan.library_id in libraries:
+            use_rules = [_synthetic_rule(plan.library_id, _preset_template(payload))]
+        else:
+            use_rules = rules
         result = await asyncio.to_thread(
             _collect_and_plan, payload, downloader, use_rules, libraries, category
         )
@@ -577,6 +506,14 @@ async def _rebuild_plan(
         )
         return "failed"
 
+    if not await reserve_revision(
+        db, plan, expected_revision=expected_revision, config_revision=config_revision,
+        states=("pending", "failed"), status="pending", owner_token=None,
+        file_op=result.rule.file_op if result.rule else None,
+        needs_category=result.needs_category,
+    ):
+        return "skipped"
+    plan.config_revision = config_revision
     old_ops = (
         await db.execute(
             select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
@@ -630,9 +567,10 @@ async def replan_open_plans(db, *, reason: str) -> dict:
     dict ``{"rebuilt", "failed"}``。
     """
     stats = {"rebuilt": 0, "failed": 0}
+    config_revision = await configuration_revision(db)
     rules = (
         await db.execute(
-            select(OrganizeRule)
+            select(OrganizeRule).execution_options(populate_existing=True)
             .where(OrganizeRule.enabled.is_(True))
             .order_by(OrganizeRule.priority, OrganizeRule.created_at)
         )
@@ -649,16 +587,18 @@ async def replan_open_plans(db, *, reason: str) -> dict:
     if not plans:
         return stats
     libraries = (
-        await db.execute(select(Library).options(selectinload(Library.volume)))
+        await db.execute(select(Library).execution_options(populate_existing=True).options(
+            selectinload(Library.volume)
+        ))
     ).scalars().all()
     rule_ns = [_rule_ns(r) for r in rules]
-    lib_ns = {lib.id: _library_ns(lib) for lib in libraries}
+    lib_ns = {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries}
     for plan in plans:
         notification = plan.notification
         if notification is None:
             continue
         try:
-            outcome = await _rebuild_plan(db, plan, notification, rule_ns, lib_ns)
+            outcome = await _rebuild_plan(db, plan, notification, rule_ns, lib_ns, config_revision)
         except Exception as e:  # noqa: BLE001 — 单条失败不影响其余计划
             logger.error("[organize] 计划 %s 配置重建失败：%s", plan.id, e)
             stats["failed"] += 1
@@ -706,6 +646,30 @@ def schedule_auto_execute(plan_id: str) -> None:
 
 
 async def execute_plan(db, plan_id: str) -> OrganizePlan:
+    from app.config import settings
+    from app.services.organize_ownership import (
+        OwnershipBusyError,
+        OwnershipDomainError,
+        async_plan_lock,
+        finish_before_cancel,
+        registered_domain,
+    )
+
+    async def owned():
+        try:
+            directory = Path(settings.organize_lock_dir)
+            domain = await registered_domain(db, directory)
+            async with async_plan_lock(directory, plan_id, domain):
+                return await _execute_plan_owned(db, plan_id)
+        except OwnershipBusyError as exc:
+            raise OrganizeError(f"计划 {plan_id} 正在执行中") from exc
+        except OwnershipDomainError as exc:
+            raise OrganizeError(str(exc)) from exc
+
+    return await finish_before_cancel(owned())
+
+
+async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
     """执行单个计划（幂等）。返回执行后的计划。
 
     状态门禁：done 幂等短路；running 且本进程正在执行 → 拒绝；崩溃遗留的
@@ -714,7 +678,7 @@ async def execute_plan(db, plan_id: str) -> OrganizePlan:
     ——failed 是可重试的正常终态。
     """
     async with _executor_lock:
-        plan = await db.get(OrganizePlan, plan_id)
+        plan = await db.get(OrganizePlan, plan_id, populate_existing=True)
         if plan is None:
             raise OrganizeError(f"计划不存在：{plan_id}")
         if plan.status == "done":
@@ -723,28 +687,53 @@ async def execute_plan(db, plan_id: str) -> OrganizePlan:
             raise OrganizeError(f"计划 {plan_id} 正在执行中")
         if plan.status == "cancelled":
             raise OrganizeError(f"计划 {plan_id} 已取消")
+        current_revision = await configuration_revision(db)
+        if plan.status in ("pending", "failed") and (
+            plan.config_revision != current_revision or plan.file_op is None
+        ):
+            rules = (await db.execute(select(OrganizeRule).where(
+                OrganizeRule.enabled.is_(True)
+            ).order_by(OrganizeRule.priority, OrganizeRule.created_at).execution_options(
+                populate_existing=True
+            ))).scalars().all()
+            libraries = (await db.execute(select(Library).options(
+                selectinload(Library.volume)
+            ).execution_options(populate_existing=True))).scalars().all()
+            notification = await db.get(DownloadNotification, plan.notification_id, populate_existing=True)
+            if notification is None:
+                raise OrganizeError("计划通知不存在，无法重建")
+            result = await _rebuild_plan(
+                db, plan, notification, [_rule_ns(rule) for rule in rules],
+                {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries},
+                current_revision,
+            )
+            if result != "rebuilt":
+                raise OrganizeError("计划或配置已变更且重建未完成，请刷新后重试")
+            plan = await db.get(OrganizePlan, plan_id, populate_existing=True)
         if plan.library_id is None:
             raise OrganizeError(f"计划 {plan_id} 为待分类计划，请先指定目标库")
-        rule = await db.get(OrganizeRule, plan.rule_id) if plan.rule_id else None
-        # 无规则（人工分类直指目标库）= 合成 move 语义
-        file_op = rule.file_op if rule is not None else "move"
-        if (
-            rule is not None
-            and plan.category is None
-            and "{category}" in rule.path_template
-        ):
+        file_op = plan.file_op
+        if file_op not in ("move", "hardlink", "copy"):
+            raise OrganizeError("旧计划缺少执行方式快照，请先重建计划")
+        if plan.needs_category:
             raise OrganizeError(f"计划 {plan_id} 尚未指定影片类别，请先分类")
+        if plan.status != "running" and plan.config_revision != await configuration_revision(db):
+            raise OrganizeError("整理配置已变更，请先重建计划")
 
-        library = await db.get(
-            Library, plan.library_id,
-            options=[selectinload(Library.media_server)],
-        )
+        library = (await db.execute(
+            select(Library).execution_options(populate_existing=True).where(Library.id == plan.library_id).options(
+                selectinload(Library.media_server), selectinload(Library.volume)
+            )
+        )).scalar_one_or_none()
         if library is None:
             raise OrganizeError(f"计划 {plan_id} 的目标库不存在：{plan.library_id}")
         if library.volume_id is None:
             raise OrganizeError(
                 f"计划 {plan_id} 的目标库未绑定存储卷（待绑定），请先补绑定"
             )
+        library_view = await asyncio.to_thread(_library_ns, library)
+        if library_view.path_error:
+            raise OrganizeError(f"媒体库路径无效：{library_view.path_error}")
         payload = NotificationPayload.model_validate(plan.payload)
         download_task_id = payload.task.download_task_id if payload.task else None
 
@@ -764,25 +753,47 @@ async def execute_plan(db, plan_id: str) -> OrganizePlan:
         ]
         downloader = await _resolve_downloader(db, payload)
         try:
-            cleanup_root, preserve = _cleanup_paths(payload, downloader)
-        except VolumeResolutionError as e:
+            await asyncio.to_thread(
+                validate_execution_sources, payload, downloader, exec_ops
+            )
+            await asyncio.to_thread(
+                validate_execution_destinations, library_view, exec_ops
+            )
+            cleanup_root, preserve = await asyncio.to_thread(
+                _cleanup_paths, payload, downloader
+            )
+        except (VolumeResolutionError, PlanError) as e:
             raise OrganizeError(str(e)) from e
 
-        plan.status = "running"
-        plan.error_message = None
+        if not await reserve_revision(
+            db, plan, expected_revision=plan.revision,
+            config_revision=None if plan.status == "running" else plan.config_revision,
+            states=("pending", "failed", "running"), status="running",
+            owner_token=str(uuid.uuid4()), error_message=None,
+        ):
+            raise OrganizeError("计划或整理配置已变更，请刷新后重试")
+        execution_revision, execution_owner = plan.revision, plan.owner_token
+        _audit(db, plan.id, "execute_started", {
+            "revision": execution_revision, "owner_token": execution_owner,
+            "file_op": file_op,
+        })
         await db.commit()
 
         _executing_plan_ids.add(plan_id)
         try:
-            outcome = await asyncio.to_thread(
+            outcome = await owned_thread(
                 run_execution, exec_ops, file_op=file_op,
                 cleanup_root=cleanup_root, preserve=preserve,
             )
         except Exception as e:
             # 执行段未预期异常（如非 EXDEV 的 OSError）：落 failed 可重试，
             # 绝不让计划卡在 running。
-            plan.status = "failed"
-            plan.error_message = f"内部错误：{e}"[:2000]
+            if not await reserve_revision(
+                db, plan, expected_revision=execution_revision, expected_owner=execution_owner,
+                config_revision=None, states=("running",), status="failed", owner_token=None,
+                error_message=f"内部错误：{e}"[:2000],
+            ):
+                raise OrganizeError("执行所有权已变化，拒绝回写旧结果") from e
             _audit(db, plan.id, "execute",
                    {"status": "failed", "error": plan.error_message})
             await db.commit()
@@ -790,6 +801,13 @@ async def execute_plan(db, plan_id: str) -> OrganizePlan:
         finally:
             _executing_plan_ids.discard(plan_id)
 
+        # Reserve result ownership before modifying any op or audit row.
+        if not await reserve_revision(
+            db, plan, expected_revision=execution_revision, expected_owner=execution_owner,
+            config_revision=None, states=("running",),
+            status="done" if outcome.ok else "failed", owner_token=None,
+        ):
+            raise OrganizeError("执行所有权已变化，拒绝回写旧结果")
         # 回写 op 结果与审计
         result_by_key = {
             (r.op.op_type, r.op.src): (r.status, r.error)
@@ -893,6 +911,8 @@ async def classify_plan(
         raise OrganizeError(f"计划不存在：{plan_id}")
     if plan.status not in ("pending", "failed"):
         raise OrganizeError(f"计划 {plan_id} 当前状态（{plan.status}）不可分类")
+    expected_revision = plan.revision
+    config_revision = await configuration_revision(db)
     # The API may already have put this Library in the identity map through
     # ``plan.library`` without loading ``volume``. ``Session.get(options=...)``
     # then returns that instance unchanged and resolve_library_root triggers
@@ -900,7 +920,7 @@ async def classify_plan(
     # executes the selectin loader for the existing identity too.
     library = (
         await db.execute(
-            select(Library)
+            select(Library).execution_options(populate_existing=True)
             .where(Library.id == library_id)
             .options(selectinload(Library.volume))
         )
@@ -908,7 +928,7 @@ async def classify_plan(
     if library is None:
         raise OrganizeError(f"目标库不存在：{library_id}")
 
-    rule = await db.get(OrganizeRule, plan.rule_id) if plan.rule_id else None
+    rule = await db.get(OrganizeRule, plan.rule_id, populate_existing=True) if plan.rule_id else None
     payload = NotificationPayload.model_validate(plan.payload)
     template = rule.path_template if rule is not None else _preset_template(payload)
 
@@ -927,21 +947,22 @@ async def classify_plan(
         if op.op_type in ("move", "keep")
     ]
     if not disk_files:
-        if not payload.files:
-            # 与规划/重建同一回退：torrent 清单精确匹配（平铺单文件种子、
-            # 快照 torrent_name 缺失的多文件种子根目录布局）。
-            manifest = await _resolve_manifest(db, payload)
-            if manifest:
-                payload = payload.model_copy(update={"files": manifest})
-        downloader = await _resolve_downloader(db, payload)
         try:
+            if not payload.files:
+                # 与规划/重建同一回退：torrent 清单精确匹配（平铺单文件种子、
+                # 快照 torrent_name 缺失的多文件种子根目录布局）。
+                manifest = await _resolve_manifest(db, payload)
+                if manifest:
+                    payload = payload.model_copy(update={"files": manifest})
+            downloader = await _resolve_downloader(db, payload)
             disk_files = await asyncio.to_thread(
                 _collect_files, payload, downloader
             )
         except PlanError as e:
             raise OrganizeError(f"无法定位磁盘文件：{e}") from e
-    lib_ns = _library_ns(library)
+    lib_ns = await asyncio.to_thread(_library_ns, library)
     syn_rule = _synthetic_rule(library.id, template)
+    syn_rule.file_op = rule.file_op if rule else "move"
     # 旧计划的 movedir（合集回收站）op 携带着种子目录信息，重渲染时保留
     # 语义：目标按新库的回收站配置重算；新库未配置回收站则自然消失。
     source_dir = next((op.src for op in ops if op.op_type == "movedir"), None)
@@ -956,6 +977,14 @@ async def classify_plan(
     if result.needs_category:
         raise OrganizeError("模板包含 {category}，请同时指定影片类别")
 
+    if not await reserve_revision(
+        db, plan, expected_revision=expected_revision, config_revision=config_revision,
+        states=("pending", "failed"), status="pending", owner_token=None,
+        file_op=syn_rule.file_op, needs_category=False,
+    ):
+        raise OrganizeError("计划或整理配置已变更，请刷新后重试")
+    plan.config_revision = config_revision
+    plan.manual_destination = plan.rule_id is None
     for op in ops:
         await db.delete(op)
     await db.flush()

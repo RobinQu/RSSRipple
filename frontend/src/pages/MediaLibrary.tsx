@@ -323,6 +323,11 @@ export default function MediaLibrary() {
           <Text ellipsis={{ tooltip: record.rule_name || undefined }}>
             {record.rule_name ?? t('format.dash')}
           </Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {record.file_op && ['move', 'hardlink', 'copy'].includes(record.file_op)
+              ? t(`libraries.fileOp_${record.file_op}`)
+              : t('common.unknown')}
+          </Text>
           {record.library_id === null ? (
             <Text type="warning" style={{ fontSize: 12 }}>{t('organize.uncategorizedTag')}</Text>
           ) : (
@@ -658,14 +663,24 @@ export default function MediaLibrary() {
     {
       title: t('mediaServers.rootPath'),
       key: 'root_path',
-      render: (_, row) =>
-        row.rowType === 'library' && row.library.root_path ? (
-          <Text code ellipsis={{ tooltip: row.library.root_path }} style={{ maxWidth: 220 }}>
-            {row.library.root_path}
+      render: (_, row) => {
+        if (row.rowType !== 'library') return t('format.dash');
+        const { root_path, path_error } = row.library;
+        if (path_error) {
+          return (
+            <Text type="danger" ellipsis={{ tooltip: path_error }} style={{ maxWidth: 220 }}>
+              {t('mediaServers.invalidPath')}
+            </Text>
+          );
+        }
+        return root_path ? (
+          <Text code ellipsis={{ tooltip: root_path }} style={{ maxWidth: 220 }}>
+            {root_path}
           </Text>
         ) : (
           t('format.dash')
-        ),
+        );
+      },
     },
     {
       title: t('mediaServers.binding'),

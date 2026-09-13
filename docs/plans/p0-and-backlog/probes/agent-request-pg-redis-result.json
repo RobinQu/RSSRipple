@@ -1,0 +1,14 @@
+{
+  "backend": "PostgreSQL + Redis",
+  "writer_processes": 2,
+  "writes": 6,
+  "dispatch_processes": 2,
+  "initial_worker_processes": 2,
+  "active_jobs_during_race": 1,
+  "new_revision_preserved": 8,
+  "replacement_worker_completed": true,
+  "runs": 2,
+  "pending_requests": 0,
+  "old_schema_upgrade_repeated": true,
+  "fixture": "synthetic unlinked resource, no RPC"
+}

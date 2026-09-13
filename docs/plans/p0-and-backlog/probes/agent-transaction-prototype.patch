@@ -1,0 +1,315 @@
+--- a/app/services/agent_service.py
++++ b/app/services/agent_service.py
+@@ -802,6 +802,39 @@
+     return ("series", target_id, None, _BATCH_EPISODE_SENTINEL), (
+         "多个合集资源匹配 {title}（跨季包），内容相同，请选择一个版本"
+     )
++
++
++async def _process_candidate_group(agent, key, cands, db) -> bool:
++    """Dispatch one coverage group; return whether it created a decision."""
++    if len(cands) == 1:
++        await dispatch_download(agent, cands[0], db)
++        return False
++    else:
++        if agent.conflict_resolution == "ask":
++            if key[0] == "batch":
++                pd_key, reason = _batch_decision_key(key)
++                await create_pending_decision(
++                    agent, pd_key, cands, db, reason_override=reason
++                )
++            else:
++                await create_pending_decision(agent, key, cands, db)
++            return True
++        else:
++            # "auto": deterministic preference rules first — they only
++            # rank, never filter. A unique winner dispatches without
++            # any LLM call; a tied shortlist goes to the LLM pick
++            # (self-gated on llm_enabled + API key); the heuristic
++            # scorer stays the final fallback.
++            tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
++            if len(tier) == 1:
++                chosen = tier[0]
++            else:
++                picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
++                chosen = next((c for c in tier if c.id == picked_id), None)
++                if chosen is None:
++                    chosen = score_and_pick(tier, None, agent)
++            await dispatch_download(agent, chosen, db)
++            return False
+ 
+ 
+ async def process_resources(
+@@ -948,40 +981,31 @@
+         result.matched += 1
+         result.matched_resource_ids.append(resource.id)
+ 
++    if autocommit:
++        # Background callers own this transaction. Finish selection before
++        # independent candidate writers; preserve loaded objects on commit.
++        await db.commit()
+     for key, cands in candidates_by_key.items():
+         try:
+-            if len(cands) == 1:
+-                await dispatch_download(agent, cands[0], db)
++            if autocommit:
++                async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
++                    async with unit_db.begin():
++                        pending = await _process_candidate_group(agent, key, cands, unit_db)
++            else:
++                # A newly saved Agent may still be uncommitted in this request.
++                # Keep that state visible and isolate only the candidate writes.
++                async with db.begin_nested():
++                    pending = await _process_candidate_group(agent, key, cands, db)
++            if pending:
++                result.pending_decisions += 1
++            else:
+                 result.dispatched += 1
+-            else:
+-                if agent.conflict_resolution == "ask":
+-                    if key[0] == "batch":
+-                        pd_key, reason = _batch_decision_key(key)
+-                        await create_pending_decision(
+-                            agent, pd_key, cands, db, reason_override=reason
+-                        )
+-                    else:
+-                        await create_pending_decision(agent, key, cands, db)
+-                    result.pending_decisions += 1
+-                else:
+-                    # "auto": deterministic preference rules first — they only
+-                    # rank, never filter. A unique winner dispatches without
+-                    # any LLM call; a tied shortlist goes to the LLM pick
+-                    # (self-gated on llm_enabled + API key); the heuristic
+-                    # scorer stays the final fallback.
+-                    tier, _deciding = pick_by_preferences(cands, agent.pick_preferences)
+-                    if len(tier) == 1:
+-                        chosen = tier[0]
+-                    else:
+-                        picked_id, _pick_reason = await _generate_llm_pick(agent, tier, key)
+-                        chosen = next((c for c in tier if c.id == picked_id), None)
+-                        if chosen is None:
+-                            chosen = score_and_pick(tier, None, agent)
+-                    await dispatch_download(agent, chosen, db)
+-                    result.dispatched += 1
+-            if autocommit:
+-                await db.commit()
+         except Exception as e:
++            if not autocommit and (
++                not db.is_active or getattr(e, "connection_invalidated", False)
++            ):
++                # A lost outer transaction cannot safely continue a backfill.
++                raise
+             logger.exception("Failed to process candidates for %s: %s", key, e)
+             result.errors.append(str(e))
+ 
+--- a/app/job_handlers.py
++++ b/app/job_handlers.py
+@@ -215,7 +215,9 @@
+             ),
+         )
+ 
+-        if advance_to is not None:
++        if advance_to is not None and not run_result.errors:
++            # Keep failed incremental candidates eligible for the next run.
++            # Already committed groups are skipped by normal task dedup.
+             agent.last_consumed_at = advance_to
+ 
+         agent.last_run_at = utcnow()
+--- a/app/api/v1/agents.py
++++ b/app/api/v1/agents.py
+@@ -1,6 +1,6 @@
+ """Agent API routes."""
+ 
+-from fastapi import APIRouter, Depends, Query
++from fastapi import APIRouter, Depends, HTTPException, Query
+ from fastapi.responses import JSONResponse
+ from sqlalchemy import func, or_, select
+ from sqlalchemy.ext.asyncio import AsyncSession
+@@ -163,12 +163,19 @@
+                     Channel.id == agent.channel_id
+                 )
+             )).scalar_one_or_none()
+-            await process_resources(
++            result = await process_resources(
+                 agent,
+                 list(rows),
+                 db,
+                 required_metadata_fields=required_fields,
+             )
++            if result.errors:
++                # Fail the outer save transaction. Advancing the watermark
++                # here would silently discard the user's failed selections.
++                raise HTTPException(status_code=500, detail={
++                    "code": "INTERNAL_SERVER_ERROR",
++                    "message": "Backfill could not be saved. Retry after resolving the processing failure.",
++                })
+     # Advance watermark to the channel's current max created_at (or now if the
+     # channel is empty) so the next delta run doesn't re-scan old resources.
+     max_created = (await db.execute(
+--- a/tests/unit/test_agent_service.py
++++ b/tests/unit/test_agent_service.py
+@@ -2557,3 +2557,99 @@
+     assert legacy_after.status == "skipped"
+     assert legacy_after.decided_at is not None
+     assert normal_after.status == "pending"
++
++
++@pytest.mark.parametrize("autocommit", [False, True])
++async def test_failed_dispatch_transaction_does_not_poison_next_candidate(
++    db_session, channel, downloader, series, monkeypatch, autocommit,
++):
++    """Real NOT NULL violation; synthetic two-episode seed, no downloader RPC."""
++    agent = Agent(id=_uuid(), name="transaction recovery", channel_id=channel.id,
++                  downloader_id=downloader.id, status="active",
++                  scope_channel_wide=True, conflict_resolution="ask")
++    resources = [_make_resource(channel.id, series_id=series.id, episode=number) for number in (1, 2)]
++    db_session.add_all([agent, *resources])
++    if autocommit:
++        await db_session.commit()
++    else:
++        await db_session.flush()
++    await db_session.refresh(agent)
++    attempts = []
++
++    async def dispatch(agent, resource, db):
++        attempts.append(resource.id)
++        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
++                            downloader_id=downloader.id, status="downloading",
++                            download_dir=None if len(attempts) == 1 else "/synthetic/episode-two")
++        db.add(task)
++        await db.flush()
++        return task
++
++    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
++    result = await process_resources(agent, resources, db_session, autocommit=autocommit)
++    assert len(result.errors) == 1
++    assert result.dispatched == 1
++    assert len(attempts) == 2
++    tasks = (await db_session.execute(select(DownloadTask))).scalars().all()
++    assert len(tasks) == 1
++    assert tasks[0].file_resource_id == resources[1].id
++    assert agent.name == "transaction recovery"
++    if not autocommit:
++        from sqlalchemy.ext.asyncio import AsyncSession
++
++        async with AsyncSession(bind=db_session.bind) as observer:
++            assert await observer.get(Agent, agent.id) is None
++        await db_session.commit()
++
++
++async def test_failed_candidate_is_retried_by_next_incremental_job(
++    db_session, channel, downloader, series, monkeypatch,
++):
++    from app.database import committed_session
++    from app.job_handlers import _handle_run_agent
++    from app.models.agent_run import AgentRun
++    from app.utils.time import utcnow
++
++    watermark = utcnow() - timedelta(days=1)
++    agent = Agent(id=_uuid(), name="incremental retry", channel_id=channel.id,
++                  downloader_id=downloader.id, status="active", last_consumed_at=watermark,
++                  scope_channel_wide=True, conflict_resolution="ask")
++    from app.models.work_collection import WorkCollection
++
++    collection = WorkCollection(id=_uuid(), title_cn="synthetic retry series")
++    db_session.add(collection)
++    series.collection_id = collection.id
++    series.start_date = datetime(2026, 1, 1).date()
++    series.is_anime = False
++    channel.required_metadata_fields = []
++    resources = [_make_resource(channel.id, series_id=series.id, episode=i) for i in (1, 2)]
++    db_session.add_all([agent, *resources])
++    await db_session.commit()
++    agent_id = agent.id
++    attempts = []
++
++    async def dispatch(agent, resource, unit):
++        attempts.append(resource.id)
++        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
++                            downloader_id=downloader.id, status="downloading",
++                            download_dir=None if len(attempts) == 1 else "/synthetic/retry")
++        unit.add(task)
++        await unit.flush()
++        return task
++
++    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
++    outcome = await _handle_run_agent({"agent_id": agent_id})
++    async with committed_session() as observer:
++        saved = await observer.get(Agent, agent_id)
++        assert saved.last_run_status == "failed", outcome
++        assert saved.last_consumed_at == watermark
++        [run] = (await observer.scalars(select(AgentRun))).all()
++        assert run.dispatched == 1 and len(run.errors) == 1
++    await _handle_run_agent({"agent_id": agent_id})
++    async with committed_session() as observer:
++        saved = await observer.get(Agent, agent_id)
++        assert saved.last_run_status == "success"
++        assert saved.last_consumed_at > watermark
++        tasks = (await observer.scalars(select(DownloadTask))).all()
++        assert {task.file_resource_id for task in tasks} == {r.id for r in resources}
++    assert len(attempts) == 3  # Previously committed episode is deduplicated.
+--- a/tests/api/test_agents.py
++++ b/tests/api/test_agents.py
+@@ -1045,3 +1045,62 @@
+             for m in res.json()["data"][0]["matched_resources"]
+         }
+         assert marks == {r_cand.id: True, r_other.id: False}
++
++
++@pytest.mark.parametrize("existing", [False, True])
++async def test_backfill_failure_rolls_back_save_and_watermark(
++    client, channel_and_dl, db_session, monkeypatch, existing,
++):
++    from sqlalchemy import select
++
++    from app.models.agent import Agent
++    from app.models.download_task import DownloadTask
++    from app.models.file_resource import FileResource
++    from app.models.series import TVSeries
++    from app.models.work_collection import WorkCollection
++
++    ch_id, dl_id = channel_and_dl
++    collection = WorkCollection(id=_uuid(), title_cn="synthetic backfill")
++    series = TVSeries(id=_uuid(), title_cn="synthetic backfill", content_type="tv",
++                      start_date=date(2024, 1, 1), is_anime=False,
++                      collection_id=collection.id, season_number=1)
++    db_session.add_all([collection, series])
++    await db_session.flush()
++    resources = [FileResource(
++        id=_uuid(), channel_id=ch_id, guid=_uuid(), title_raw=f"synthetic - {episode:02}",
++        torrent_url=f"magnet:?xt=urn:btih:synthetic{episode}", series_id=series.id,
++        episode=episode, season=1, title_year=2024, search_title="synthetic backfill", is_batch=False,
++    ) for episode in (1, 2)]
++    db_session.add_all(resources)
++    await db_session.commit()
++    payload = {"name": "Original", "channel_id": ch_id, "downloader_id": dl_id,
++               "scope_channel_wide": True}
++    agent_id = None
++    if existing:
++        response = await client.post("/api/v1/agents", json=payload)
++        agent_id = response.json()["data"]["id"]
++    calls = []
++
++    async def dispatch(agent, resource, unit):
++        calls.append(resource.id)
++        task = DownloadTask(id=_uuid(), agent_id=agent.id, file_resource_id=resource.id,
++                            downloader_id=dl_id, status="downloading",
++                            download_dir=None if len(calls) == 1 else "/synthetic/backfill")
++        unit.add(task)
++        await unit.flush()
++        return task
++
++    monkeypatch.setattr("app.services.agent_service.dispatch_download", dispatch)
++    payload.update(name="Changed", dispatch_resource_ids=[r.id for r in resources])
++    response = await (client.put(f"/api/v1/agents/{agent_id}", json=payload) if existing
++                      else client.post("/api/v1/agents", json=payload))
++    assert response.status_code == 500, response.text
++    assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"
++    assert len(calls) == 2
++    assert (await db_session.scalars(select(DownloadTask))).all() == []
++    agents = (await db_session.scalars(select(Agent))).all()
++    if existing:
++        assert len(agents) == 1 and agents[0].name == "Original"
++        assert agents[0].last_consumed_at is None
++    else:
++        assert agents == []

@@ -1,0 +1,10 @@
+{
+  "backend": "PostgreSQL",
+  "fault": "deferred FK at COMMIT",
+  "flushes_succeeded": 2,
+  "persisted_tasks": 1,
+  "dispatched_counter": 1,
+  "errors": 1,
+  "parent_object_usable": true,
+  "fixture": "synthetic, no RPC or media"
+}

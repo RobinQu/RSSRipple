@@ -12,6 +12,16 @@
 > `app/` 后加 `--build`；跑完用 `... down -v --remove-orphans` 清理。CI 在专用
 > runner 上运行，不需要该隔离。
 
+## P0 补验与后续分批门禁（2026-09-12）
+
+2026-09-13 新增[本地完整隔离门禁](isolated-integration.md)：独立项目名之外，进一步隔离命名卷与运行时网络，避免原配置 `.env` / `./data` 宿主挂载；本地并存运行优先使用该配置。当前运行结果见 VALIDATION.md，不沿用下方历史计数。
+
+必要性论证、真实数据来源标准、集成通过条件和未完成证据见 [VALIDATION.md](../plans/p0-and-backlog/VALIDATION.md)。本轮新增 18 项：真实 torrent 清单整理 12 项、认证开启静态路径 5 项、真实内存队列到 AgentRun 持久化 1 项。与语料/整理既有套件合并 **1826 passed / 0 skipped / 1 既有 warning**，不等同于完整集成覆盖率门禁或所有 P0 集成补验完成。
+
+## 频道调度专项回归
+
+2026-09-12 新增 PostgreSQL＋Redis＋三 worker 的独立调度验收栈，操作与覆盖边界见 [scheduler-integration.md](scheduler-integration.md)。此专项不计入下列历史全量统计。
+
 ## 0. 2026-09 覆盖率门禁提升至 单元 ≥95% / 集成 ≥85%（验收完成）
 
 2026-09-09 将单元/API 覆盖率门禁从 80% 提升到 **95%**（ci-fast / ci-strict 的 `--cov-fail-under=95`），集成覆盖率门禁从 80% 提升到 **85%**（`docker-compose.test.yml` 的 coverage-report `--fail-under=85`，docs/design/branching.md 与 AGENTS.md 同步）。单元侧新增/扩展约 500+ 用例，覆盖 batch_content_analysis、metadata_service、metadata_search_agent、job_handlers、worker、fts、task_queue、organize_*、torrent_inspect、magnet_resolve、metadata_agent、resource_association、database.py 迁移等此前低覆盖模块，单元+API 合计 **97%**。集成侧修复 `test_episode_history_coverage.py::test_only_earlier_absolutes_within_distance_are_used`：该用例早于「manual 锚定的远推外推」特性（aa78259）撰写，其 abs-29 行被标记为 manual 后在新语义下成为合法远推锚（S3E8），改为 `reconciled` 后恢复原意图（仅近邻窗口内的绝对集号参与），集成合计 **90%**，`--fail-under=85` 通过。
@@ -238,3 +248,15 @@ tests/integration/
 ## 6. 历史
 
 原 16 文件 / 166 用例的逐用例清单（含每条验证点、依赖、问题标注）见本文件 git 历史的重组前版本（commit 之前的 INVENTORY.md）。
+
+
+2026-09-13 P0 分布式补验：独立 PostgreSQL/Redis/Web/三 worker 栈验证三次修订实际消费落库，以及全部 worker SIGKILL（退出码 137）→停机修改配置→重启连续抓取→重新启用自动刷新；全部通过。驱动与限制见 [scheduler-integration.md](scheduler-integration.md)，测试容器已清理。该记录不计入上方历史 pytest 用例数或完整集成覆盖率。
+
+
+通知生成隔离：`tests/integration/organize/test_notify_poison_task.py` 使用已审核真实种子/清单正例及显式坏 RPC、flush 后故障，断言部分写入回滚、正常新任务和已有投递继续、退避与到期恢复；媒体内容为合成字节。`test_notification_build_retry.py` 检查退避上限、取消/删除、实际旧 schema 升级和 FK 级联。独立 PostgreSQL 进程及 SQL 屏障验证脚本位于 `docs/plans/p0-and-backlog/probes/notification_*_pg_probe.py`，严格使用可丢弃专用项目；不能把进程内 Turso 通过替代 PostgreSQL 并发门禁。
+
+
+Agent 事务恢复：`tests/unit/test_agent_service.py` 的真实约束故障和实际 `_handle_run_agent` 两轮增量运行断言失败组回滚、正常组持久化、消费水位线保留、已成功组不重复派发；`tests/api/test_agents.py` 覆盖新建/编辑失败回填的请求原子性。独立 PostgreSQL 的真正 COMMIT 故障见 `probes/agent_commit_pg_probe.py`；已审核原始种子＋真实 Transmission 的后台和 API 重试见 `probes/agent_rpc_retry_probe.py`、`probes/agent_api_rpc_retry_probe.py`（均在 `docs/plans/p0-and-backlog/` 下），无媒体下载、须使用配套唯一项目及 internal 网络。
+
+
+B9 定向补偿回归：`test_p0_queue_consumption.py` 覆盖真实队列已选资源后修订及旧版本确认竞争；`test_agent_request_persistence.py` 覆盖真实 Turso 事务、版本与退避；`test_agent_request_failures.py` 覆盖三个 HTTP 端点原子失败、broker 故障、作业错误恢复和生命周期；`test_agent_request_scheduler.py` 覆盖实际 APScheduler 触发与兄弟资源修复。跨进程 PostgreSQL/Redis、升级与级联、审核种子的真实 Transmission 故障重试驱动位于 `docs/plans/p0-and-backlog/probes/agent_request_*_probe.py`。后者仅允许专用隔离环境，数据真实性与运行限制见 VALIDATION.md；专项通过不能代替完整 95%/85% 门禁。

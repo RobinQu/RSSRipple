@@ -221,6 +221,41 @@ def _title_year_hint(year: int) -> str:
     )
 
 
+def _validate_inferred_season(meta: ResourceMetadata) -> None:
+    """Deterministic backstop for the "season is never guessed" invariant.
+
+    The LLM's ``inferred_season`` is only trusted when the matched entity's
+    season evidence actually supports it. Without evidence a guess cannot be
+    verified, so it is dropped and the resource is marked ``season_ambiguous``
+    (routed to the "季号不确定" human decision) instead of creating/linking a
+    potentially wrong season work.
+
+    Season 0 (specials, the Plex convention emitted by the parser) is a
+    structural marker rather than a guess and is left untouched.
+    """
+    if meta.content_type != "tv" or not meta.found or meta.season is None:
+        return
+    if meta.season == 0:
+        return
+    entity = meta.matched_entity or {}
+    seasons_map = _seasons_map_from(entity)
+    if meta.season in seasons_map:
+        return
+    count = verified_season_count(entity)
+    if count is not None and 1 <= meta.season <= count:
+        return
+    logger.warning(
+        "[metadata_agent] dropped unverified inferred_season=%s for %r "
+        "(seasons=%s, number_of_seasons=%s)",
+        meta.season,
+        (meta.clean_title or "")[:80],
+        sorted(seasons_map),
+        entity.get("number_of_seasons"),
+    )
+    meta.season = None
+    meta.season_ambiguous = True
+
+
 def _apply_verified_season_default(meta: ResourceMetadata) -> None:
     """Verified season default: the season number is never guessed.
 
@@ -235,6 +270,9 @@ def _apply_verified_season_default(meta: ResourceMetadata) -> None:
         return
     if verified_season_count(meta.matched_entity) == 1:
         meta.season = 1
+        # A season pinned by evidence is no longer ambiguous, even if the
+        # validation step had flagged an unsupported inferred season earlier.
+        meta.season_ambiguous = False
     else:
         meta.season_ambiguous = True
 
@@ -783,6 +821,10 @@ class UnifiedMetadataAgent:
         if meta.matched_entity:
             meta.matched_entity.pop("categories", None)
 
+        # Deterministic season validation before the verified default: drop an
+        # inferred season the entity's evidence cannot support.
+        _validate_inferred_season(meta)
+
         # Verified season default (never guess; see helper docstring).
         _apply_verified_season_default(meta)
 
@@ -869,6 +911,9 @@ class UnifiedMetadataAgent:
         _normalize_finalize_dates(finalize_dict)
         await self._ensure_genre(finalize_dict)
         meta = ResourceMetadata.from_dict(finalize_dict)
+
+        # Same deterministic season validation as the production path.
+        _validate_inferred_season(meta)
 
         # Verified season default (never guess; see helper docstring).
         _apply_verified_season_default(meta)

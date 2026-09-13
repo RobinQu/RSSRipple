@@ -1,0 +1,28 @@
+{
+  "unit_api": {
+    "passed": 3500,
+    "skipped": 14,
+    "covered": 21016,
+    "valid": 21461,
+    "threshold": 95
+  },
+  "integration": {
+    "passed": 3096,
+    "skipped": 17,
+    "covered": 19282,
+    "valid": 21461,
+    "threshold": 85
+  },
+  "source_files": 712,
+  "source_hashes_unchanged": true,
+  "project": "rssripple-v34-complete-20260913-w",
+  "artifacts": "/tmp/rssripple-v34-artifacts-w",
+  "cleanup": "complete",
+  "closed": [
+    "process_resources transaction recovery",
+    "P1-B3",
+    "P1-O1",
+    "P1-O2",
+    "P1-O5"
+  ]
+}

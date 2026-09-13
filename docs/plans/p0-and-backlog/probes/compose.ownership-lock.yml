@@ -1,0 +1,24 @@
+x-runner: &runner
+  image: rssripple-v0-tests:local
+  working_dir: /work
+  environment:
+    PYTHONPATH: /work
+  volumes:
+    - ./app:/work/app:ro
+    - ./container_probe.py:/work/container_probe.py:ro
+    - lock-data:/locks
+  network_mode: none
+services:
+  holder:
+    <<: *runner
+    command: [/app/.venv/bin/python, container_probe.py, hold]
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "from pathlib import Path; assert Path('/locks/ready').exists()"]
+      interval: 1s
+      timeout: 3s
+      retries: 20
+  probe:
+    <<: *runner
+    command: [/app/.venv/bin/python, container_probe.py, check]
+volumes:
+  lock-data:

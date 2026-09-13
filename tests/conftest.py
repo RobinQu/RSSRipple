@@ -42,3 +42,11 @@ def _isolate_runtime_config_overrides():
     reset_to_env_defaults()
     yield
     reset_to_env_defaults()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_organize_lock_directory(tmp_path, monkeypatch):
+    """Never let local tests create ownership files in the application's data/."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "organize_lock_dir", str(tmp_path / "organize-locks"))

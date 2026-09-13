@@ -36,8 +36,9 @@ from app.schemas.file_resource import (
     ResourceFilesResponse,
     ResourceParseCorrectionRequest,
 )
+from app.services import task_queue as task_queue_module  # live queue singleton (replaced at startup)
+from app.services.agent_resource_requests import request_channel_resources, wake_agents
 from app.services.metadata_service import fetch_and_link_metadata
-from app.services.task_queue import task_queue
 from app.services.torrent_inspect import (
     ensure_torrent_cached,
     fetch_torrent_file,
@@ -766,6 +767,7 @@ async def correct_episode(
     # session and only sees committed data. Enqueuing first creates a race
     # where the worker reads the pre-correction ``episode_confidence`` and
     # keeps the resource behind the Channel confirmation gate.
+    requested_agent_ids = await request_channel_resources(db, channel_id, [resource_id, *healed_ids])
     await db.commit()
 
     # Re-cache a missing .torrent so the targeted rerun can rebuild file
@@ -778,21 +780,7 @@ async def correct_episode(
     # agent's current rules — bypassing the consumption watermark, since the
     # corrected resource may be old. The watermark is not advanced. Siblings
     # healed by the fresh convention ride along in the same targeted run.
-    channel = await db.get(Channel, channel_id, options=[
-        selectinload(Channel.agents),
-    ])
-    if channel:
-        for agent in channel.agents:
-            if agent.status == "active":
-                try:
-                    await task_queue.enqueue(
-                        "run_agent",
-                        f"agent:{agent.id}",
-                        {"agent_id": agent.id,
-                         "resource_ids": [resource_id, *healed_ids]},
-                    )
-                except Exception:
-                    pass
+    await wake_agents(requested_agent_ids, [resource_id, *healed_ids])
 
     # Re-fetch with relationships so Pydantic can serialize without lazy IO.
     resource = (await db.execute(
@@ -1023,7 +1011,7 @@ async def reparse_resource_metadata(
     resource.confirmation_ignored_at = utcnow()
     await db.commit()
 
-    job = await task_queue.enqueue(
+    job = await task_queue_module.task_queue.enqueue(
         "reprocess_resource_metadata",
         f"reprocess-resource:{resource_id}",
         {"resource_id": resource_id, "channel_id": channel_id},
@@ -1085,6 +1073,7 @@ async def update_resource_associations(
         )
 
     channel_id = resource.channel_id
+    requested_agent_ids = await request_channel_resources(db, channel_id, [resource_id])
     await db.commit()
 
     # Re-cache a missing .torrent so the targeted rerun can rebuild file
@@ -1092,7 +1081,7 @@ async def update_resource_associations(
     await _retry_torrent_cache(db, resource_id)
 
     try:
-        await task_queue.enqueue(
+        await task_queue_module.task_queue.enqueue(
             "refresh_resource_organize",
             f"resource-organize:{resource_id}",
             {"resource_id": resource_id},
@@ -1100,20 +1089,7 @@ async def update_resource_associations(
     except Exception:
         logger.exception("[associations] failed to enqueue organize refresh for %s", resource_id)
 
-    channel = await db.get(Channel, channel_id, options=[
-        selectinload(Channel.agents),
-    ])
-    if channel:
-        for agent in channel.agents:
-            if agent.status == "active":
-                try:
-                    await task_queue.enqueue(
-                        "run_agent",
-                        f"agent:{agent.id}",
-                        {"agent_id": agent.id, "resource_ids": [resource_id]},
-                    )
-                except Exception:
-                    pass
+    await wake_agents(requested_agent_ids, [resource_id])
 
     resource = (await db.execute(
         select(FileResource)
@@ -1363,27 +1339,14 @@ async def correct_parse_fields(
 
     # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
     # session and only sees committed data.
+    requested_agent_ids = await request_channel_resources(db, channel_id, [resource_id, *healed_ids])
     await db.commit()
 
     # Re-cache a missing .torrent so the targeted rerun can rebuild file
     # assignments (best-effort, never blocks the flow).
     await _retry_torrent_cache(db, resource_id)
 
-    channel = await db.get(Channel, channel_id, options=[
-        selectinload(Channel.agents),
-    ])
-    if channel:
-        for agent in channel.agents:
-            if agent.status == "active":
-                try:
-                    await task_queue.enqueue(
-                        "run_agent",
-                        f"agent:{agent.id}",
-                        {"agent_id": agent.id,
-                         "resource_ids": [resource_id, *healed_ids]},
-                    )
-                except Exception:
-                    pass
+    await wake_agents(requested_agent_ids, [resource_id, *healed_ids])
 
     # Re-fetch with relationships so Pydantic can serialize without lazy IO.
     resource = (await db.execute(

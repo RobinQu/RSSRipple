@@ -40,6 +40,8 @@ implementation. Changes to these areas must update the corresponding sub-documen
 | [testing/integration-inventory.md](testing/integration-inventory.md) | Integration suites, case counts, coverage gates, reorg history |
 | [testing/metadata-corpus.md](testing/metadata-corpus.md) | Production metadata offline acceptance corpus and review flow |
 | [testing/organize-integration.md](testing/organize-integration.md) | Organize integration tests and container-level half E2E |
+| [testing/scheduler-integration.md](testing/scheduler-integration.md) | Channel scheduling regression with PostgreSQL, Redis and three workers |
+| [testing/isolated-integration.md](testing/isolated-integration.md) | Full local integration gate with isolated volumes and offline runtime networking |
 | [testing/midscene-e2e.md](testing/midscene-e2e.md) | Midscene.js browser E2E suites |
 | [testing/web-ui-functional-cases.md](testing/web-ui-functional-cases.md) | Manual Web UI functional case checklist |
 

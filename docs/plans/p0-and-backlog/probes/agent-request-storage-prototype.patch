@@ -1,0 +1,1092 @@
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -1,6 +1,7 @@
+ """ORM models package - import all for SQLAlchemy discovery."""
+ 
+ from app.models.agent import Agent
++from app.models.agent_resource_request import AgentResourceRequest
+ from app.models.agent_run import AgentRun
+ from app.models.agent_suggestion import AgentSuggestion
+ from app.models.agent_webhook import AgentWebhook
+@@ -47,6 +48,7 @@
+     "Movie",
+     "AudioWork",
+     "Agent",
++    "AgentResourceRequest",
+     "AgentRun",
+     "AgentWork",
+     "AgentSuggestion",
+@@ -84,3 +86,4 @@
+ # classes above are already defined.
+ import app.services.organize_config_events as _organize_config_events  # noqa: E402, F401
+ import app.services.work_search_events as _work_search_events  # noqa: E402, F401
++
+--- /dev/null
++++ b/app/models/agent_resource_request.py
+@@ -0,0 +1,27 @@
++"""Durable requests to reconsider a resource using the Agent's current rules."""
++
++import uuid
++from datetime import datetime
++
++from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++
++class AgentResourceRequest(Base):
++    __tablename__ = "agent_resource_requests"
++    __table_args__ = (UniqueConstraint("agent_id", "resource_id", name="uq_agent_resource_request"),)
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    agent_id: Mapped[str] = mapped_column(String(36), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
++    resource_id: Mapped[str] = mapped_column(
++        String(36),
++        ForeignKey("file_resources.id", ondelete="CASCADE"),
++        nullable=False,
++    )
++    revision: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
++    requested_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
++    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
++    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
++    error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+--- /dev/null
++++ b/app/services/agent_resource_requests.py
+@@ -0,0 +1,170 @@
++"""Transactional request storage; queue delivery never owns acknowledgement."""
++
++import uuid
++from dataclasses import dataclass
++
++from sqlalchemy import delete, or_, select
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.agent_resource_request import AgentResourceRequest
++from app.utils.time import utcnow
++
++
++@dataclass(frozen=True)
++class RequestSnapshot:
++    id: str
++    revision: int
++    resource_id: str
++
++
++async def request_resources(db: AsyncSession, agent_ids: list[str], resource_ids: list[str]) -> None:
++    """Write with the resource edit transaction; never commit or enqueue here."""
++    table = AgentResourceRequest
++    insert = pg_insert if db.bind.dialect.name == "postgresql" else sqlite_insert
++    now = utcnow()
++    for agent_id in dict.fromkeys(agent_ids):
++        for resource_id in dict.fromkeys(resource_ids):
++            statement = (
++                insert(table)
++                .values(
++                    id=str(uuid.uuid4()),
++                    agent_id=agent_id,
++                    resource_id=resource_id,
++                    revision=1,
++                    requested_at=now,
++                    attempt_count=0,
++                )
++                .on_conflict_do_update(
++                    index_elements=["agent_id", "resource_id"],
++                    set_={
++                        "revision": table.revision + 1,
++                        "requested_at": now,
++                        "attempt_count": 0,
++                        "next_attempt_at": None,
++                        "error_message": None,
++                    },
++                )
++            )
++            await db.execute(statement)
++
++
++async def snapshot_requests(db: AsyncSession, agent_id: str) -> list[RequestSnapshot]:
++    from app.models.agent import Agent
++    from app.models.file_resource import FileResource
++
++    table = AgentResourceRequest
++    rows = (
++        await db.execute(
++            select(table.id, table.revision, table.resource_id)
++            .join(Agent, Agent.id == table.agent_id)
++            .join(FileResource, FileResource.id == table.resource_id)
++            .where(
++                table.agent_id == agent_id,
++                Agent.channel_id == FileResource.channel_id,
++                or_(table.next_attempt_at.is_(None), table.next_attempt_at <= utcnow()),
++            )
++        )
++    ).all()
++    return [RequestSnapshot(*row) for row in rows]
++
++
++async def acknowledge_requests(db: AsyncSession, requests: list[RequestSnapshot]) -> None:
++    """An older run must not delete a new edit or a recreated request row."""
++    for request in requests:
++        await db.execute(
++            delete(AgentResourceRequest).where(
++                AgentResourceRequest.id == request.id,
++                AgentResourceRequest.revision == request.revision,
++            )
++        )
++
++
++async def request_channel_resources(db: AsyncSession, channel_id: str, resource_ids: list[str]) -> list[str]:
++    from app.models.agent import Agent
++
++    agent_ids = list(
++        (
++            await db.scalars(
++                select(Agent.id).where(
++                    Agent.channel_id == channel_id,
++                    Agent.status == "active",
++                )
++            )
++        ).all()
++    )
++    await request_resources(db, agent_ids, resource_ids)
++    return agent_ids
++
++
++async def wake_agents(agent_ids: list[str], resource_ids: list[str] | None = None) -> None:
++    import logging
++
++    from app.services import task_queue
++
++    for agent_id in agent_ids:
++        try:
++            payload = {"agent_id": agent_id, "resource_ids": resource_ids or []}
++            if resource_ids is None:
++                payload["pending_requests"] = True
++            await task_queue.task_queue.enqueue("run_agent", f"agent:{agent_id}", payload)
++        except Exception:
++            logging.getLogger(__name__).exception("Could not enqueue persisted requests for Agent %s", agent_id)
++
++
++async def defer_requests(db: AsyncSession, requests: list[RequestSnapshot], message: str) -> None:
++    from datetime import timedelta
++
++    from sqlalchemy import update
++
++    table = AgentResourceRequest
++    for request in requests:
++        identity = (table.id == request.id, table.revision == request.revision)
++        attempts = await db.scalar(
++            update(table)
++            .where(*identity)
++            .values(
++                attempt_count=table.attempt_count + 1,
++                error_message=message[:2048],
++            )
++            .returning(table.attempt_count)
++        )
++        if attempts is not None:
++            delay = min(1800, 30 * 2 ** min(attempts - 1, 6))
++            await db.execute(update(table).where(*identity).values(next_attempt_at=utcnow() + timedelta(seconds=delay)))
++
++
++async def dispatch_pending_requests() -> None:
++    from sqlalchemy import or_
++
++    from app.database import committed_session
++    from app.models.agent import Agent
++    from app.models.file_resource import FileResource
++
++    table = AgentResourceRequest
++    async with committed_session() as db:
++        valid = (
++            select(Agent.id)
++            .join(FileResource, FileResource.channel_id == Agent.channel_id)
++            .where(
++                Agent.id == table.agent_id,
++                FileResource.id == table.resource_id,
++            )
++            .exists()
++        )
++        await db.execute(delete(table).where(~valid))
++        agent_ids = list(
++            (
++                await db.scalars(
++                    select(Agent.id)
++                    .join(table, table.agent_id == Agent.id)
++                    .where(
++                        Agent.status == "active",
++                        or_(table.next_attempt_at.is_(None), table.next_attempt_at <= utcnow()),
++                    )
++                    .distinct()
++                )
++            ).all()
++        )
++    await wake_agents(agent_ids)
+--- a/app/api/v1/resources.py
++++ b/app/api/v1/resources.py
+@@ -37,6 +37,7 @@
+     ResourceParseCorrectionRequest,
+ )
+ from app.services import task_queue as task_queue_module  # live queue singleton (replaced at startup)
++from app.services.agent_resource_requests import request_channel_resources, wake_agents
+ from app.services.metadata_service import fetch_and_link_metadata
+ from app.services.torrent_inspect import (
+     ensure_torrent_cached,
+@@ -766,6 +767,7 @@
+     # session and only sees committed data. Enqueuing first creates a race
+     # where the worker reads the pre-correction ``episode_confidence`` and
+     # keeps the resource behind the Channel confirmation gate.
++    requested_agent_ids = await request_channel_resources(db, channel_id, [resource_id, *healed_ids])
+     await db.commit()
+ 
+     # Re-cache a missing .torrent so the targeted rerun can rebuild file
+@@ -778,21 +780,7 @@
+     # agent's current rules — bypassing the consumption watermark, since the
+     # corrected resource may be old. The watermark is not advanced. Siblings
+     # healed by the fresh convention ride along in the same targeted run.
+-    channel = await db.get(Channel, channel_id, options=[
+-        selectinload(Channel.agents),
+-    ])
+-    if channel:
+-        for agent in channel.agents:
+-            if agent.status == "active":
+-                try:
+-                    await task_queue_module.task_queue.enqueue(
+-                        "run_agent",
+-                        f"agent:{agent.id}",
+-                        {"agent_id": agent.id,
+-                         "resource_ids": [resource_id, *healed_ids]},
+-                    )
+-                except Exception:
+-                    pass
++    await wake_agents(requested_agent_ids, [resource_id, *healed_ids])
+ 
+     # Re-fetch with relationships so Pydantic can serialize without lazy IO.
+     resource = (await db.execute(
+@@ -1085,6 +1073,7 @@
+         )
+ 
+     channel_id = resource.channel_id
++    requested_agent_ids = await request_channel_resources(db, channel_id, [resource_id])
+     await db.commit()
+ 
+     # Re-cache a missing .torrent so the targeted rerun can rebuild file
+@@ -1100,20 +1089,7 @@
+     except Exception:
+         logger.exception("[associations] failed to enqueue organize refresh for %s", resource_id)
+ 
+-    channel = await db.get(Channel, channel_id, options=[
+-        selectinload(Channel.agents),
+-    ])
+-    if channel:
+-        for agent in channel.agents:
+-            if agent.status == "active":
+-                try:
+-                    await task_queue_module.task_queue.enqueue(
+-                        "run_agent",
+-                        f"agent:{agent.id}",
+-                        {"agent_id": agent.id, "resource_ids": [resource_id]},
+-                    )
+-                except Exception:
+-                    pass
++    await wake_agents(requested_agent_ids, [resource_id])
+ 
+     resource = (await db.execute(
+         select(FileResource)
+@@ -1363,27 +1339,14 @@
+ 
+     # Commit BEFORE enqueuing the agent re-run: run_agent runs in its own
+     # session and only sees committed data.
++    requested_agent_ids = await request_channel_resources(db, channel_id, [resource_id, *healed_ids])
+     await db.commit()
+ 
+     # Re-cache a missing .torrent so the targeted rerun can rebuild file
+     # assignments (best-effort, never blocks the flow).
+     await _retry_torrent_cache(db, resource_id)
+ 
+-    channel = await db.get(Channel, channel_id, options=[
+-        selectinload(Channel.agents),
+-    ])
+-    if channel:
+-        for agent in channel.agents:
+-            if agent.status == "active":
+-                try:
+-                    await task_queue_module.task_queue.enqueue(
+-                        "run_agent",
+-                        f"agent:{agent.id}",
+-                        {"agent_id": agent.id,
+-                         "resource_ids": [resource_id, *healed_ids]},
+-                    )
+-                except Exception:
+-                    pass
++    await wake_agents(requested_agent_ids, [resource_id, *healed_ids])
+ 
+     # Re-fetch with relationships so Pydantic can serialize without lazy IO.
+     resource = (await db.execute(
+--- a/app/job_handlers.py
++++ b/app/job_handlers.py
+@@ -68,6 +68,7 @@
+     from app.models.movie import Movie
+     from app.models.resource_work_link import ResourceWorkLink
+     from app.models.series import TVSeries
++    from app.services.agent_resource_requests import acknowledge_requests, defer_requests, snapshot_requests
+     from app.services.agent_service import process_resources
+     from app.utils.time import utcnow
+ 
+@@ -97,6 +98,8 @@
+         if not agent:
+             raise RuntimeError(f"Agent {agent_id} not found")
+ 
++        request_snapshots = await snapshot_requests(session, agent_id)
++
+         run = AgentRun(agent_id=agent.id, status="running", started_at=utcnow())
+         session.add(run)
+         await session.flush()
+@@ -104,7 +107,7 @@
+         channel_id = agent.channel_id
+ 
+         advance_to = None
+-        if resource_ids:
++        if resource_ids or payload.get("pending_requests"):
+             # Targeted run (scenario ③, e.g. correct_episode): process exactly
+             # the given resources against the agent's *current* rules. Bypasses
+             # the watermark and does NOT advance it — the resource may be old,
+@@ -113,7 +116,7 @@
+                 select(FileResource.id)
+                 .where(
+                     FileResource.channel_id == channel_id,
+-                    FileResource.id.in_(resource_ids),
++                    FileResource.id.in_(resource_ids or []),
+                 )
+                 .order_by(FileResource.created_at.asc())
+             )
+@@ -165,98 +168,114 @@
+                 if rows:
+                     advance_to = max(r.created_at for r in rows)
+ 
++        selected_ids = list(dict.fromkeys([*selected_ids, *(r.resource_id for r in request_snapshots)]))
++
+     # Phase 2 (incremental commits): the slow part — filtering, LLM picks,
+     # Transmission RPCs. ``autocommit=True`` makes process_resources commit
+     # after each dispatch/decision, so the write lock is never held across an
+     # external call. The block-level retry of committed_session is safe here:
+     # every unit is idempotent (task dedup / decision upsert), so a re-run
+     # after a lock error just skips already-committed work.
+-    async with committed_session() as session:
+-        agent = await session.get(
+-            Agent, agent_id, options=[selectinload(Agent.channel)]
+-        )
+-        if not agent:
+-            raise RuntimeError(f"Agent {agent_id} not found")
+-        run = await session.get(AgentRun, run_id)
+-        if not run:
+-            raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
+-
+-        resources: list[FileResource] = []
+-        if selected_ids:
+-            result = await session.execute(
+-                select(FileResource)
+-                .where(FileResource.id.in_(selected_ids))
+-                # series/movie are read by the filter DSL (movie.rating …) and
+-                # the LLM pick summary — eager-load to avoid async lazy loads.
+-                # The work's collection feeds the series.collection /
+-                # movie.collection DSL fields, so chain-load it too; the
+-                # resource's own collection feeds the resource-level
+-                # ``collection`` field (franchise packs); work_links carry the
+-                # works of links-only multi-season packs (per-season works) —
+-                # chain-load the works so the DSL year fields can aggregate
+-                # across them.
+-                .options(
+-                    selectinload(FileResource.series).selectinload(TVSeries.collection),
+-                    selectinload(FileResource.movie).selectinload(Movie.collection),
+-                    selectinload(FileResource.collection),
+-                    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+-                    selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
++    try:
++        async with committed_session() as session:
++            agent = await session.get(
++                Agent, agent_id, options=[selectinload(Agent.channel)]
++            )
++            if not agent:
++                raise RuntimeError(f"Agent {agent_id} not found")
++            run = await session.get(AgentRun, run_id)
++            if not run:
++                raise RuntimeError(f"AgentRun {run_id} disappeared before finalisation")
++
++            resources: list[FileResource] = []
++            if selected_ids:
++                result = await session.execute(
++                    select(FileResource)
++                    .where(FileResource.id.in_(selected_ids))
++                    # series/movie are read by the filter DSL (movie.rating …) and
++                    # the LLM pick summary — eager-load to avoid async lazy loads.
++                    # The work's collection feeds the series.collection /
++                    # movie.collection DSL fields, so chain-load it too; the
++                    # resource's own collection feeds the resource-level
++                    # ``collection`` field (franchise packs); work_links carry the
++                    # works of links-only multi-season packs (per-season works) —
++                    # chain-load the works so the DSL year fields can aggregate
++                    # across them.
++                    .options(
++                        selectinload(FileResource.series).selectinload(TVSeries.collection),
++                        selectinload(FileResource.movie).selectinload(Movie.collection),
++                        selectinload(FileResource.collection),
++                        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
++                        selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
++                    )
++                    .order_by(FileResource.created_at.asc())
+                 )
+-                .order_by(FileResource.created_at.asc())
+-            )
+-            resources = list(result.scalars().all())
+-        run_result = await process_resources(
+-            agent,
+-            resources,
+-            session,
+-            autocommit=True,
+-            required_metadata_fields=(
+-                agent.channel.required_metadata_fields if agent.channel else None
+-            ),
+-        )
+-
+-        if advance_to is not None and not run_result.errors:
+-            # Keep failed incremental candidates eligible for the next run.
+-            # Already committed groups are skipped by normal task dedup.
+-            agent.last_consumed_at = advance_to
+-
+-        agent.last_run_at = utcnow()
+-        # More granular status so the UI can badge "待决策" instead of a
+-        # deceptively-green "success" when the run generated PDs but
+-        # dispatched nothing.
+-        if run_result.errors:
+-            agent.last_run_status = "failed"
+-        elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
+-            agent.last_run_status = "pending_decisions"
+-        else:
+-            agent.last_run_status = "success"
+-
+-        # Finalise the run record.
+-        run.status = agent.last_run_status
+-        run.finished_at = utcnow()
+-        run.scan_since = run_scan_since
+-        run.total_resources = run_result.total_resources
+-        run.matched = run_result.matched
+-        run.dispatched = run_result.dispatched
+-        run.pending_decisions = run_result.pending_decisions
+-        run.filter_failed = run_result.filter_failed
+-        run.duplicates_skipped = run_result.duplicates_skipped
+-        run.unrecognized = run_result.unrecognized
+-        run.matched_resource_ids = list(run_result.matched_resource_ids)
+-        run.errors = list(run_result.errors)
+-
+-        return {
+-            "agent_id": agent_id,
+-            "run_id": run.id,
+-            "total_resources": run_result.total_resources,
+-            "matched": run_result.matched,
+-            "dispatched": run_result.dispatched,
+-            "pending_decisions": run_result.pending_decisions,
+-            "filter_failed": run_result.filter_failed,
+-            "duplicates_skipped": run_result.duplicates_skipped,
+-            "unrecognized": run_result.unrecognized,
+-            "errors": run_result.errors,
+-        }
++                resources = list(result.scalars().all())
++            run_result = await process_resources(
++                agent,
++                resources,
++                session,
++                autocommit=True,
++                required_metadata_fields=(
++                    agent.channel.required_metadata_fields if agent.channel else None
++                ),
++            )
++
++            if run_result.errors:
++                await defer_requests(session, request_snapshots, "; ".join(run_result.errors))
++            else:
++                await acknowledge_requests(session, request_snapshots)
++
++            if advance_to is not None and not run_result.errors:
++                # Keep failed incremental candidates eligible for the next run.
++                # Already committed groups are skipped by normal task dedup.
++                agent.last_consumed_at = advance_to
++
++            agent.last_run_at = utcnow()
++            # More granular status so the UI can badge "待决策" instead of a
++            # deceptively-green "success" when the run generated PDs but
++            # dispatched nothing.
++            if run_result.errors:
++                agent.last_run_status = "failed"
++            elif run_result.dispatched == 0 and run_result.pending_decisions > 0:
++                agent.last_run_status = "pending_decisions"
++            else:
++                agent.last_run_status = "success"
++
++            # Finalise the run record.
++            run.status = agent.last_run_status
++            run.finished_at = utcnow()
++            run.scan_since = run_scan_since
++            run.total_resources = run_result.total_resources
++            run.matched = run_result.matched
++            run.dispatched = run_result.dispatched
++            run.pending_decisions = run_result.pending_decisions
++            run.filter_failed = run_result.filter_failed
++            run.duplicates_skipped = run_result.duplicates_skipped
++            run.unrecognized = run_result.unrecognized
++            run.matched_resource_ids = list(run_result.matched_resource_ids)
++            run.errors = list(run_result.errors)
++
++            return {
++                "agent_id": agent_id,
++                "run_id": run.id,
++                "total_resources": run_result.total_resources,
++                "matched": run_result.matched,
++                "dispatched": run_result.dispatched,
++                "pending_decisions": run_result.pending_decisions,
++                "filter_failed": run_result.filter_failed,
++                "duplicates_skipped": run_result.duplicates_skipped,
++                "unrecognized": run_result.unrecognized,
++                "errors": run_result.errors,
++            }
++
++    except Exception as error:
++        try:
++            async with committed_session() as failure_db:
++                await defer_requests(failure_db, request_snapshots, str(error))
++        except Exception:
++            logger.exception("Could not defer failed resource requests for Agent %s", agent_id)
++        raise
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -267,7 +286,6 @@
+ # external search call that never returns must not stall the whole
+ # batch - and with it the shared task queue.
+ _REFRESH_WORK_TIMEOUT = 120  # seconds
+-
+ 
+ async def _refresh_works_batch(
+     items: list[dict], source: str, override_manual_edits: bool = False,
+--- a/app/services/scheduler.py
++++ b/app/services/scheduler.py
+@@ -34,7 +34,13 @@
+         logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
+         return
+     _scheduler = AsyncIOScheduler()
++    from app.services.agent_resource_requests import dispatch_pending_requests
+     from app.services.channel_schedule import CHANNEL_RECONCILE_SECONDS
++
++    _scheduler.add_job(
++        dispatch_pending_requests, trigger=IntervalTrigger(seconds=5),
++        id="agent_resource_dispatch", replace_existing=True, coalesce=True, max_instances=1,
++    )
+ 
+     # Each process must update its own in-memory schedule. Do not enqueue this
+     # callback or throttle it globally: that would heal only one worker.
+--- a/tests/integration/organize/test_p0_queue_consumption.py
++++ b/tests/integration/organize/test_p0_queue_consumption.py
+@@ -10,6 +10,7 @@
+ from datetime import timedelta
+ 
+ import httpx
++import pytest
+ from sqlalchemy import select
+ 
+ from app.job_handlers import _handle_run_agent
+@@ -83,3 +84,86 @@
+         await queue.stop()
+         if queue._run_tasks:
+             await asyncio.gather(*queue._run_tasks, return_exceptions=True)
++
++
++@pytest.mark.parametrize("pending_before_start", [False, True])
++@pytest.mark.parametrize("method,suffix,body,field,value", [
++    ("PATCH", "", {"resolution": "2160p"}, "resolution", "2160p"),
++    ("PATCH", "/episode", {"episode": 10}, "episode", 10),
++    ("PUT", "/associations", {"is_batch": False, "works": [], "fields": {"resolution": "2160p"}},
++     "resolution", "2160p"),
++])
++async def test_revision_while_agent_has_selected_resources_gets_followup_run(
++    db_session, session_factory, tmp_path, monkeypatch, method, suffix, body, field, value, pending_before_start,
++):
++    from app.services import agent_service
++
++    case = next(case for case in load_corpus()[1]["cases"]
++                if case["id"] == "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b")
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="猫与龙")
++    db_session.add(collection)
++    series = TVSeries(id=str(uuid.uuid4()), title_cn="猫与龙", collection_id=collection.id, season_number=1)
++    chain = await _seed_chain(db_session, work=series, download_dir=str(tmp_path),
++                              resource_kw={"title_raw": case["input"]["title_raw"]})
++    chain.resource.series_id = None  # Controlled incomplete metadata; no RPC.
++    chain.resource.created_at = utcnow() - timedelta(days=2)
++    watermark = utcnow()
++    chain.agent.last_consumed_at = watermark
++    await db_session.commit()
++    from app.services.agent_resource_requests import request_resources
++
++    if pending_before_start:
++        async with session_factory() as writer:
++            await request_resources(writer, [chain.agent.id], [chain.resource.id])
++            await writer.commit()
++    selected, release = asyncio.Event(), asyncio.Event()
++    real_process = agent_service.process_resources
++
++    async def pause_first_run(*args, **kwargs):
++        if not selected.is_set():
++            selected.set()
++            await release.wait()
++        return await real_process(*args, **kwargs)
++
++    monkeypatch.setattr(agent_service, "process_resources", pause_first_run)
++    queue = MemoryQueue()
++    queue.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(queue_module, "task_queue", queue)
++    app = _build_test_app(session_factory)
++    await queue.start()
++    try:
++        await queue.enqueue("run_agent", f"agent:{chain.agent.id}", {"agent_id": chain.agent.id})
++        async with asyncio.timeout(10):
++            await selected.wait()  # Real job has committed selection and loaded its inputs.
++        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++            response = await client.request(method, f"/api/v1/resources/{chain.resource.id}{suffix}", json=body)
++            assert response.status_code == 200, response.text
++        from app.services.agent_resource_requests import snapshot_requests
++
++        async with session_factory() as observer:
++            [pending] = await snapshot_requests(observer, chain.agent.id)
++            assert pending.resource_id == chain.resource.id and pending.revision == (2 if pending_before_start else 1)
++        release.set()
++        async with asyncio.timeout(10):
++            await queue._queue.join()
++        from app.services.agent_resource_requests import dispatch_pending_requests
++
++        async with session_factory() as observer:
++            [remaining] = await snapshot_requests(observer, chain.agent.id)
++            assert remaining == pending  # The first run cannot acknowledge the newer edit.
++        await dispatch_pending_requests()  # Explicitly drive the periodic recovery tick.
++        async with asyncio.timeout(10):
++            await queue._queue.join()
++        async with session_factory() as observer:
++            resource = await observer.get(FileResource, chain.resource.id)
++            assert getattr(resource, field) == value
++            agent = await observer.get(Agent, chain.agent.id)
++            assert agent.last_consumed_at == watermark
++            runs = (await observer.scalars(select(AgentRun).where(AgentRun.agent_id == agent.id))).all()
++            assert sorted(run.total_resources for run in runs) == ([1, 1] if pending_before_start else [0, 1])
++            assert await snapshot_requests(observer, agent.id) == []
++    finally:
++        release.set()
++        await queue.stop()
++        if queue._run_tasks:
++            await asyncio.gather(*queue._run_tasks, return_exceptions=True)
+--- /dev/null
++++ b/tests/integration/organize/test_agent_request_persistence.py
+@@ -0,0 +1,84 @@
++"""Real transaction/constraint checks; synthetic resource identity only."""
++import uuid
++
++from sqlalchemy import delete, select
++
++from app.models.agent import Agent
++from app.models.agent_resource_request import AgentResourceRequest
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.agent_resource_requests import acknowledge_requests, request_resources, snapshot_requests
++from tests.integration.organize.test_organize_pipeline import _seed_chain
++
++
++async def test_requests_are_atomic_versioned_and_cascade(db_session, session_factory, tmp_path):
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="synthetic request")
++    db_session.add(collection)
++    series = TVSeries(id=str(uuid.uuid4()), title_cn="synthetic request", collection_id=collection.id, season_number=1)
++    chain = await _seed_chain(db_session, work=series, download_dir=str(tmp_path), resource_kw={"season": 1, "episode": 1})
++    await db_session.commit()
++    agent_id, resource_id = chain.agent.id, chain.resource.id
++    async with session_factory() as writer:
++        await request_resources(writer, [agent_id], [resource_id])
++        # Closing without commit simulates a failed resource save.
++    async with session_factory() as observer:
++        assert await snapshot_requests(observer, agent_id) == []
++    async with session_factory() as writer:
++        await request_resources(writer, [agent_id, agent_id], [resource_id, resource_id])
++        await writer.commit()
++        [first] = await snapshot_requests(writer, agent_id)
++        assert first.revision == 1
++    async with session_factory() as writer:
++        await request_resources(writer, [agent_id], [resource_id])
++        await writer.commit()
++        [second] = await snapshot_requests(writer, agent_id)
++        assert second.id == first.id and second.revision == 2
++        await acknowledge_requests(writer, [first])
++        await writer.commit()
++        assert await snapshot_requests(writer, agent_id) == [second]
++        await acknowledge_requests(writer, [second])
++        await writer.commit()
++        await request_resources(writer, [agent_id], [resource_id])
++        await writer.commit()
++        [third] = await snapshot_requests(writer, agent_id)
++        assert third.id != second.id and third.revision == 1
++        await acknowledge_requests(writer, [first, second])
++        await writer.commit()
++        assert await snapshot_requests(writer, agent_id) == [third]
++        await writer.execute(delete(Agent).where(Agent.id == agent_id))
++        await writer.commit()
++    async with session_factory() as observer:
++        assert await observer.scalar(select(AgentResourceRequest.id)) is None
++
++
++async def test_backoff_cap_and_new_revision_bypasses_old_failure(
++    db_session, session_factory, tmp_path, monkeypatch,
++):
++    from datetime import datetime, timedelta
++
++    from app.services import agent_resource_requests as requests
++    from tests.integration.organize.test_agent_request_failures import seed
++
++    chain = await seed(db_session, tmp_path)
++    now = datetime(2026, 9, 13)
++    monkeypatch.setattr(requests, "utcnow", lambda: now)
++    async with session_factory() as writer:
++        await requests.request_resources(writer, [chain.agent.id], [chain.resource.id])
++        await writer.commit()
++        [original] = await requests.snapshot_requests(writer, chain.agent.id)
++        for attempt in range(1, 10):
++            await requests.defer_requests(writer, [original], "synthetic processing failure")
++            await writer.commit()
++            row = await writer.get(AgentResourceRequest, original.id, populate_existing=True)
++            assert row.attempt_count == attempt
++            assert row.next_attempt_at == now + timedelta(seconds=min(1800, 30 * 2 ** (attempt - 1)))
++            assert await requests.snapshot_requests(writer, chain.agent.id) == []
++        await requests.request_resources(writer, [chain.agent.id], [chain.resource.id])
++        await writer.commit()
++        [edited] = await requests.snapshot_requests(writer, chain.agent.id)
++        assert edited.revision == original.revision + 1
++        await requests.defer_requests(writer, [original], "late stale failure")
++        await writer.commit()
++        row = await writer.get(AgentResourceRequest, original.id, populate_existing=True)
++        assert row.attempt_count == 0 and row.next_attempt_at is None and row.error_message is None
++        assert await requests.snapshot_requests(writer, chain.agent.id) == [edited]
+--- /dev/null
++++ b/tests/integration/organize/test_agent_request_failures.py
+@@ -0,0 +1,201 @@
++"""Actual API/queue/database failure boundaries; synthetic unlinked metadata."""
++import asyncio
++import uuid
++
++import httpx
++import pytest
++from sqlalchemy import select
++
++from app.job_handlers import _handle_run_agent
++from app.models.agent_resource_request import AgentResourceRequest
++from app.models.agent_run import AgentRun
++from app.models.file_resource import FileResource
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services import agent_resource_requests as requests
++from app.services import task_queue as queue_module
++from app.services.task_queue import MemoryQueue
++from tests.api.conftest import _build_test_app
++from tests.integration.organize.test_organize_pipeline import _seed_chain
++
++
++async def seed(db, tmp_path):
++    collection = WorkCollection(id=str(uuid.uuid4()), title_cn="synthetic request failure")
++    db.add(collection)
++    series = TVSeries(id=str(uuid.uuid4()), title_cn="synthetic request failure",
++                      collection_id=collection.id, season_number=1)
++    chain = await _seed_chain(db, work=series, download_dir=str(tmp_path), resource_kw={})
++    chain.resource.series_id = None
++    await db.commit()
++    return chain
++
++
++@pytest.mark.parametrize("method,suffix,body", [
++    ("PATCH", "", {"resolution": "2160p"}),
++    ("PATCH", "/episode", {"episode": 10}),
++    ("PUT", "/associations", {"is_batch": False, "works": [], "fields": {"resolution": "2160p"}}),
++])
++async def test_request_write_failure_rolls_back_resource_edit(
++    db_session, session_factory, tmp_path, monkeypatch, method, suffix, body,
++):
++    chain = await seed(db_session, tmp_path)
++    before = (chain.resource.resolution, chain.resource.episode)
++    real_record = requests.request_channel_resources
++
++    async def failed_record(*args):
++        await real_record(*args)
++        raise RuntimeError("injected failure after real request INSERT")
++
++    monkeypatch.setattr("app.api.v1.resources.request_channel_resources", failed_record)
++    app = _build_test_app(session_factory)
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
++                                 base_url="http://test") as client:
++        response = await client.request(method, f"/api/v1/resources/{chain.resource.id}{suffix}", json=body)
++        assert response.status_code == 500, response.text
++    async with session_factory() as observer:
++        row = await observer.get(FileResource, chain.resource.id)
++        assert (row.resolution, row.episode) == before
++        assert await observer.scalar(select(AgentResourceRequest.id)) is None
++
++
++async def test_queue_outage_keeps_request_for_replacement_worker(db_session, session_factory, tmp_path, monkeypatch):
++    chain = await seed(db_session, tmp_path)
++
++    class UnavailableQueue:
++        async def enqueue(self, *args, **kwargs):
++            raise ConnectionError("explicit broker outage")
++
++    monkeypatch.setattr(queue_module, "task_queue", UnavailableQueue())
++    app = _build_test_app(session_factory)
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++        response = await client.patch(f"/api/v1/resources/{chain.resource.id}", json={"resolution": "2160p"})
++        assert response.status_code == 200, response.text
++    async with session_factory() as observer:
++        [pending] = await requests.snapshot_requests(observer, chain.agent.id)
++        assert pending.resource_id == chain.resource.id
++    worker = MemoryQueue()
++    worker.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(queue_module, "task_queue", worker)
++    await worker.start()
++    try:
++        await requests.dispatch_pending_requests()
++        async with asyncio.timeout(10):
++            await worker._queue.join()
++        async with session_factory() as observer:
++            assert await requests.snapshot_requests(observer, chain.agent.id) == []
++            [run] = (await observer.scalars(select(AgentRun))).all()
++            assert run.total_resources == 1 and run.status == "success"
++    finally:
++        await worker.stop()
++        if worker._run_tasks:
++            await asyncio.gather(*worker._run_tasks, return_exceptions=True)
++
++
++@pytest.mark.parametrize("failure_mode", ["result", "exception"])
++async def test_failed_job_defers_only_its_requests_and_recovers_when_due(
++    db_session, session_factory, tmp_path, monkeypatch, failure_mode,
++):
++    from datetime import timedelta
++
++    from app.services import agent_service
++    from app.utils.time import utcnow
++
++    bad = await seed(db_session, tmp_path / "bad")
++    good = await seed(db_session, tmp_path / "good")
++    now = utcnow()
++    monkeypatch.setattr(requests, "utcnow", lambda: now)
++    async with session_factory() as writer:
++        await requests.request_resources(writer, [bad.agent.id], [bad.resource.id])
++        await requests.request_resources(writer, [good.agent.id], [good.resource.id])
++        await writer.commit()
++    real_process = agent_service.process_resources
++    fail = True
++
++    async def process(agent, resources, *args, **kwargs):
++        if agent.id == bad.agent.id and fail:
++            if failure_mode == "exception":
++                raise RuntimeError("controlled job failure")
++            return agent_service.RunResult(total_resources=len(resources), errors=["controlled job failure"])
++        return await real_process(agent, resources, *args, **kwargs)
++
++    monkeypatch.setattr(agent_service, "process_resources", process)
++    worker = MemoryQueue()
++    worker.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(queue_module, "task_queue", worker)
++    await worker.start()
++    try:
++        await requests.dispatch_pending_requests()
++        async with asyncio.timeout(10):
++            await worker._queue.join()
++        async with session_factory() as observer:
++            [pending] = (await observer.scalars(select(AgentResourceRequest))).all()
++            assert pending.agent_id == bad.agent.id and pending.attempt_count == 1
++            assert pending.next_attempt_at == now + timedelta(seconds=30)
++            assert "controlled job failure" in pending.error_message
++            [good_run] = (await observer.scalars(select(AgentRun).where(AgentRun.agent_id == good.agent.id))).all()
++            assert good_run.status == "success"
++            assert len((await observer.scalars(select(AgentRun))).all()) == 2
++        await requests.dispatch_pending_requests()
++        async with asyncio.timeout(10):
++            await worker._queue.join()
++        async with session_factory() as observer:
++            assert len((await observer.scalars(select(AgentRun))).all()) == 2
++        now += timedelta(seconds=31)
++        fail = False
++        await requests.dispatch_pending_requests()
++        async with asyncio.timeout(10):
++            await worker._queue.join()
++        async with session_factory() as observer:
++            assert await observer.scalar(select(AgentResourceRequest.id)) is None
++            runs = (await observer.scalars(select(AgentRun))).all()
++            assert len(runs) == 3 and sum(run.status == "success" for run in runs) == 2
++    finally:
++        await worker.stop()
++        if worker._run_tasks:
++            await asyncio.gather(*worker._run_tasks, return_exceptions=True)
++
++
++async def test_paused_agent_retains_request_and_channel_change_discards_stale_request(
++    db_session, session_factory, tmp_path, monkeypatch,
++):
++    from app.models.agent import Agent
++
++    chain = await seed(db_session, tmp_path / "original")
++    other = await seed(db_session, tmp_path / "other")
++    async with session_factory() as writer:
++        await requests.request_resources(writer, [chain.agent.id], [chain.resource.id])
++        agent = await writer.get(Agent, chain.agent.id)
++        agent.status = "paused"
++        await writer.commit()
++    worker = MemoryQueue()
++    worker.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(queue_module, "task_queue", worker)
++    await worker.start()
++    try:
++        await requests.dispatch_pending_requests()
++        assert await worker.list_jobs() == []
++        async with session_factory() as writer:
++            assert await writer.scalar(select(AgentResourceRequest.id)) is not None
++            agent = await writer.get(Agent, chain.agent.id)
++            agent.status = "active"
++            await writer.commit()
++        await requests.dispatch_pending_requests()
++        async with asyncio.timeout(10):
++            await worker._queue.join()
++        async with session_factory() as writer:
++            assert await writer.scalar(select(AgentResourceRequest.id)) is None
++            await requests.request_resources(writer, [chain.agent.id], [chain.resource.id])
++            agent = await writer.get(Agent, chain.agent.id)
++            agent.channel_id = other.agent.channel_id
++            await writer.commit()
++        await requests.dispatch_pending_requests()
++        async with asyncio.timeout(10):
++            await worker._queue.join()
++        async with session_factory() as observer:
++            assert await observer.scalar(select(AgentResourceRequest.id)) is None
++            runs = (await observer.scalars(select(AgentRun))).all()
++            assert len(runs) == 1 and runs[0].total_resources == 1
++    finally:
++        await worker.stop()
++        if worker._run_tasks:
++            await asyncio.gather(*worker._run_tasks, return_exceptions=True)
+--- /dev/null
++++ b/tests/integration/organize/test_agent_request_scheduler.py
+@@ -0,0 +1,113 @@
++"""Real scheduler recovery and real sibling healing; synthetic episode metadata."""
++
++import asyncio
++import uuid
++
++import httpx
++import pytest
++from sqlalchemy import select
++
++from app.config import settings
++from app.job_handlers import _handle_run_agent
++from app.models.agent_resource_request import AgentResourceRequest
++from app.models.agent_run import AgentRun
++from app.models.file_resource import FileResource
++from app.services import agent_resource_requests as requests
++from app.services import scheduler
++from app.services import task_queue as queue_module
++from app.services.task_queue import MemoryQueue
++from app.utils.time import utcnow
++from tests.api.conftest import _build_test_app
++from tests.integration.organize.test_agent_request_failures import seed
++
++
++async def test_real_scheduler_recovers_persisted_request(db_session, session_factory, tmp_path, monkeypatch):
++    chain = await seed(db_session, tmp_path)
++    await requests.request_resources(db_session, [chain.agent.id], [chain.resource.id])
++    await db_session.commit()
++    worker = MemoryQueue()
++    worker.register("run_agent", _handle_run_agent)
++    monkeypatch.setattr(queue_module, "task_queue", worker)
++    monkeypatch.setattr(settings, "scheduler_enabled", True)
++    monkeypatch.setattr(scheduler, "_scheduler", None)
++    await worker.start()
++    try:
++        await scheduler.init_scheduler()
++        active = scheduler.get_scheduler()
++        job = active.get_job("agent_resource_dispatch")
++        assert job is not None and job.func is requests.dispatch_pending_requests
++        assert job.trigger.interval.total_seconds() == 5
++        assert job.coalesce and job.max_instances == 1
++        # Advance only this registered job; APScheduler invokes the actual callback.
++        for other in active.get_jobs():
++            if other.id != job.id:
++                active.pause_job(other.id)
++        active.modify_job(job.id, next_run_time=utcnow())
++        async with asyncio.timeout(10):
++            while True:
++                async with session_factory() as observer:
++                    run = await observer.scalar(select(AgentRun).where(AgentRun.status == "success"))
++                    if run:
++                        assert run.total_resources == 1
++                        assert await observer.scalar(select(AgentResourceRequest.id)) is None
++                        break
++                await asyncio.sleep(0.02)
++    finally:
++        await scheduler.shutdown_scheduler()
++        await worker.stop()
++        if worker._run_tasks:
++            await asyncio.gather(*worker._run_tasks, return_exceptions=True)
++
++
++@pytest.mark.parametrize(
++    "suffix,body",
++    [
++        ("/episode", {"episode": 6, "season": 1, "absolute_episode": 30}),
++        ("", {"episode": 6, "season": 1, "absolute_episode": 30}),
++    ],
++)
++async def test_healed_sibling_is_persisted_with_edit_during_queue_outage(
++    db_session,
++    session_factory,
++    tmp_path,
++    monkeypatch,
++    suffix,
++    body,
++):
++    chain = await seed(db_session, tmp_path)
++    chain.resource.series_id = chain.work.id
++    chain.resource.episode = 30
++    chain.resource.absolute_episode = 30
++    chain.resource.season = 1
++    chain.resource.episode_confidence = "ambiguous"
++    chain.resource.subtitle_group = "synthetic-group"
++    sibling = FileResource(
++        id=str(uuid.uuid4()),
++        channel_id=chain.channel.id,
++        series_id=chain.work.id,
++        guid=str(uuid.uuid4()),
++        title_raw="synthetic absolute episode 31",
++        torrent_url="magnet:?xt=urn:btih:synthetic",
++        season=1,
++        episode=31,
++        absolute_episode=31,
++        episode_confidence="ambiguous",
++        subtitle_group="synthetic-group",
++    )
++    db_session.add(sibling)
++    await db_session.commit()
++
++    class UnavailableQueue:
++        async def enqueue(self, *args, **kwargs):
++            raise ConnectionError("explicit broker outage")
++
++    monkeypatch.setattr(queue_module, "task_queue", UnavailableQueue())
++    app = _build_test_app(session_factory)
++    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++        response = await client.patch(f"/api/v1/resources/{chain.resource.id}{suffix}", json=body)
++        assert response.status_code == 200, response.text
++    async with session_factory() as observer:
++        healed = await observer.get(FileResource, sibling.id)
++        assert (healed.season, healed.episode, healed.episode_confidence) == (1, 7, "reconciled")
++        pending = await requests.snapshot_requests(observer, chain.agent.id)
++        assert {row.resource_id for row in pending} == {chain.resource.id, sibling.id}

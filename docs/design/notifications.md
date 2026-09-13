@@ -202,3 +202,10 @@ Agent 详情页"通知记录" Tab：webhook 多注册列表（添加/编辑/删�
 ## 环境变量
 
 `NOTIFY_ENABLED`（默认 true，总开关/熔断）、`NOTIFY_MAX_ATTEMPTS`（5）、`NOTIFY_RETRY_BASE_SECONDS`（30）、`NOTIFY_RETENTION_DAYS`（30）。webhook 超时为代码常量 180s，非环境变量。
+
+
+## 通知快照生成失败的隔离与重试
+
+生成快照按 download_task_id 使用独立事务；一项失败不回滚其他任务，也不中断已有通知的整理规划和 webhook 投递。失败事务不保留空快照，不把 completed 下载任务改成 error。生成失败由 NotificationBuildFailure 持久记录；首次等待 30 秒，此后指数退避，上限 1800 秒，无自动终止次数。到期后仍满足 completed 和消费者启用条件的任务重新入选。
+
+生成成功与删除该任务的失败记录在同一事务提交。并发失败记录按任务唯一键原子累加 attempt_count；如果成功通知先提交、迟到失败记录随后提交，下一 tick 清除已有通知对应的失败记录。任务取消或删除后不再生成；删除任务级联删除失败记录。失败记录自身无法保存时记录日志并继续后续任务，不承诺该项可持久退避。该退避独立于 WebhookDelivery 的投递次数及状态机。

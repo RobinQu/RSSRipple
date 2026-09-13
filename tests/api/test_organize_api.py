@@ -856,7 +856,7 @@ async def test_execute_allows_stale_running(
 ):
     """崩溃遗留的 running（本进程未在执行）可重放；正在执行的拒绝。"""
     plan = await _seed_plan_with_op(
-        db_session, movie_seed["notification"], library, status="running"
+        db_session, movie_seed["notification"], library, status="running", file_op="move"
     )
     schedule = MagicMock()
     monkeypatch.setattr(
@@ -872,6 +872,49 @@ async def test_execute_allows_stale_running(
     resp = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "ALREADY_RUNNING"
+
+
+async def test_execute_rejects_shared_owner_and_unknown_legacy_mode(
+    client, db_session, library, movie_seed, monkeypatch, tmp_path,
+):
+    from app.config import settings
+    from app.services.organize_ownership import plan_lock
+
+    plan = await _seed_plan_with_op(
+        db_session, movie_seed["notification"], library, status="running", file_op="hardlink",
+    )
+    monkeypatch.setattr(settings, "organize_lock_dir", str(tmp_path))
+    schedule = MagicMock()
+    monkeypatch.setattr("app.services.organize_service.schedule_auto_execute", schedule)
+    with plan_lock(tmp_path, plan.id):
+        response = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "ALREADY_RUNNING"
+    schedule.assert_not_called()
+    plan.file_op = None
+    await db_session.commit()
+    response = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "INVALID_STATE"
+    schedule.assert_not_called()
+
+
+async def test_plan_response_uses_frozen_operation_semantics(
+    client, db_session, library, rule, movie_seed,
+):
+    plan = await _seed_plan_with_op(
+        db_session, movie_seed["notification"], library, rule=rule,
+        file_op="hardlink", needs_category=False,
+    )
+    rule.file_op = "move"
+    await db_session.commit()
+    response = await client.get(f"/api/v1/organize/plans/{plan.id}")
+    assert response.status_code == 200
+    result = response.json()["data"]
+    assert result["file_op"] == "hardlink"
+    assert result["revision"] == 0
+    assert result["needs_category"] is False
+    assert result["pending_reason"] is None
 
 
 async def test_execute_rejects_uncategorized(
@@ -1298,3 +1341,35 @@ async def test_classify_organize_error_returns_422(
         json={"library_id": library.id, "category": "Horror"},
     )
     assert resp.status_code == 422
+
+
+async def test_library_update_with_pending_plan_preserves_loaded_server(
+    client, db_session, library, rule, movie_seed,
+):
+    from app.models.media_server import MediaServerInstance
+
+    server = MediaServerInstance(id=_uuid(), name="linked server", type="plex", url="http://example.invalid")
+    db_session.add(server)
+    library.media_server_id = server.id
+    await db_session.commit()
+    db_session.expunge(server)
+    del server
+    await _make_plan(db_session, movie_seed["notification"], library, rule)
+    response = await client.put(f"/api/v1/libraries/{library.id}", json={"recycle_subpath": "recycle-bin"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["media_server_name"] == "linked server"
+    assert data["recycle_subpath"] == "recycle-bin"
+
+
+async def test_replan_rollback_preserves_library_response(client, library, monkeypatch):
+    from app.services import organize_service
+
+    async def failed_replan(session, *, reason):
+        await session.rollback()
+        raise RuntimeError("replan transaction failed")
+
+    monkeypatch.setattr(organize_service, "replan_open_plans", failed_replan)
+    response = await client.put(f"/api/v1/libraries/{library.id}", json={"recycle_subpath": "recycle-bin"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["recycle_subpath"] == "recycle-bin"

@@ -1,0 +1,1703 @@
+--- a/.env.example
++++ b/.env.example
+@@ -97,3 +97,6 @@
+ # SMB_PASSWORD=
+ # SMB_UID=1000
+ # SMB_GID=1000
++
++# 所有 Web/worker 必须共享此目录及文件锁；禁止运行中删除、复制或替换。
++ORGANIZE_LOCK_DIR=data/organize-locks
+--- a/app/api/v1/organize.py
++++ b/app/api/v1/organize.py
+@@ -17,6 +17,7 @@
+ 
+ import asyncio
+ import logging
++from pathlib import Path
+ from types import SimpleNamespace
+ 
+ from fastapi import APIRouter, Depends, Query
+@@ -588,10 +589,9 @@
+         return "unclassified"
+     if plan.library is not None and plan.library.volume_id is None:
+         return "unbound"
+-    if (
+-        plan.rule is not None
+-        and plan.category is None
+-        and "{category}" in plan.rule.path_template
++    if plan.needs_category or (
++        plan.file_op is None and plan.rule is not None
++        and plan.category is None and "{category}" in plan.rule.path_template
+     ):
+         return "unclassified"
+     return None
+@@ -605,6 +605,9 @@
+     ops = sorted(plan.ops, key=lambda o: o.seq)
+     item = OrganizePlanListItem(
+         id=plan.id,
++        revision=plan.revision,
++        file_op=plan.file_op,
++        needs_category=plan.needs_category,
+         notification_id=plan.notification_id,
+         rule_id=plan.rule_id,
+         rule_name=plan.rule.name if plan.rule else None,
+@@ -703,8 +706,19 @@
+             409, "INVALID_STATE",
+             f"计划当前状态（{plan.status}）不可执行，仅 pending/failed/running 可执行",
+         )
+-    if plan.status == "running" and organize_service.is_plan_executing(plan.id):
++    from app.config import settings
++    from app.services.organize_ownership import OwnershipDomainError, is_plan_owned, registered_domain
++
++    directory = Path(settings.organize_lock_dir)
++    try:
++        domain = await registered_domain(db, directory)
++        busy = organize_service.is_plan_executing(plan.id) or await is_plan_owned(directory, plan.id, domain)
++    except OwnershipDomainError as exc:
++        return _error(409, "INVALID_STATE", str(exc))
++    if busy:
+         return _error(409, "ALREADY_RUNNING", "计划正在执行中")
++    if plan.status == "running" and plan.file_op not in ("move", "hardlink", "copy"):
++        return _error(409, "INVALID_STATE", "旧 running 计划缺少执行方式快照，不能自动恢复")
+     if plan.library_id is None:
+         return _error(
+             409, "INVALID_STATE", "待分类计划请先指定目标库（classify）再执行"
+@@ -714,10 +728,9 @@
+             409, "INVALID_STATE",
+             "目标库未绑定存储卷（待绑定），请先补绑定再执行",
+         )
+-    if (
+-        plan.rule is not None
+-        and plan.category is None
+-        and "{category}" in plan.rule.path_template
++    if plan.needs_category or (
++        plan.file_op is None and plan.rule is not None
++        and plan.category is None and "{category}" in plan.rule.path_template
+     ):
+         return _error(
+             409, "INVALID_STATE", "计划尚未指定影片类别，请先分类（classify）"
+@@ -772,6 +785,30 @@
+     body: OrganizeCancelRequest | None = None,
+     db: AsyncSession = Depends(get_db),
+ ):
++    from app.config import settings
++    from app.services.organize_ownership import (
++        OwnershipBusyError,
++        OwnershipDomainError,
++        async_plan_lock,
++        finish_before_cancel,
++        registered_domain,
++    )
++
++    async def owned():
++        try:
++            directory = Path(settings.organize_lock_dir)
++            domain = await registered_domain(db, directory)
++            async with async_plan_lock(directory, plan_id, domain):
++                return await _cancel_plan_owned(plan_id, body, db)
++        except OwnershipBusyError:
++            return _error(409, "ALREADY_RUNNING", "计划正在执行中，不可取消")
++        except OwnershipDomainError as exc:
++            return _error(409, "INVALID_STATE", str(exc))
++
++    return await finish_before_cancel(owned())
++
++
++async def _cancel_plan_owned(plan_id, body, db):
+     """取消 pending/failed 及崩溃遗留的 running 计划 → cancelled；done 409。
+ 
+     可选附带动作（body）：``delete_task`` 同时删除关联下载任务（任务行置
+@@ -782,6 +819,7 @@
+     plan = await _get_plan_or_404(db, plan_id)
+     if isinstance(plan, JSONResponse):
+         return plan
++    await db.refresh(plan)
+     if plan.status not in ("pending", "failed", "running"):
+         return _error(
+             409, "INVALID_STATE",
+@@ -789,6 +827,17 @@
+         )
+     if plan.status == "running" and organize_service.is_plan_executing(plan.id):
+         return _error(409, "ALREADY_RUNNING", "计划正在执行中，不可取消")
++    from app.services.organize_plan_state import reserve_revision
++
++    from_status = plan.status
++    if not await reserve_revision(
++        db, plan, expected_revision=plan.revision, config_revision=None,
++        states=("pending", "failed", "running"), status="cancelled", owner_token=None,
++    ):
++        return _error(409, "INVALID_STATE", "计划已变更，请刷新后重试")
++    # Publish cancellation before any external deletion; the shared lock is
++    # retained through cleanup and auditing, including caller cancellation.
++    await db.commit()
+     opts = body or OrganizeCancelRequest()
+     delete_task = opts.delete_task or opts.delete_data
+     task_cleaned: bool | None = None
+@@ -808,8 +857,6 @@
+                 task_cleaned = await delete_task_after_organize(
+                     db, notification.download_task_id
+                 )
+-    from_status = plan.status
+-    plan.status = "cancelled"
+     detail: dict = {"from_status": from_status}
+     if delete_task:
+         detail.update(
+--- a/app/config.py
++++ b/app/config.py
+@@ -51,6 +51,7 @@
+     # When set, poster URLs returned by LLM are downloaded and stored here,
+     # and the DB pointer is updated to the local /posters/<file> path.
+     poster_cache_dir: str = "data/posters"
++    organize_lock_dir: str = "data/organize-locks"
+ 
+     # Torrent file cache — .torrent files fetched for content inspection
+     # (file-listing batch analysis) are stored here as
+--- a/app/database.py
++++ b/app/database.py
+@@ -386,8 +386,10 @@
+     repeatedly: we probe the current columns and skip when the target is
+     already there.
+     """
+-    is_turso = is_turso_url(settings.database_url)
+-    is_postgres = "postgresql" in settings.database_url
++    # Inspect the actual connection, including legacy SQLite migrations; a
++    # settings override must not select another backend's catalog queries.
++    is_turso = conn.dialect.name == "sqlite"
++    is_postgres = conn.dialect.name == "postgresql"
+ 
+     if is_postgres:
+         # Media files commonly exceed PostgreSQL INTEGER's 2 GiB ceiling.
+@@ -399,6 +401,13 @@
+ 
+     # Column additions: (table, column_name, ddl_type_and_default)
+     additions: list[tuple[str, str, str]] = [
++        ("organize_configuration", "lock_domain", "VARCHAR(36)"),
++        ("organize_plans", "file_op", "VARCHAR(16)"),
++        ("organize_plans", "needs_category", "BOOLEAN NOT NULL DEFAULT FALSE"),
++        ("organize_plans", "manual_destination", "BOOLEAN NOT NULL DEFAULT FALSE"),
++        ("organize_plans", "revision", "BIGINT NOT NULL DEFAULT 0"),
++        ("organize_plans", "config_revision", "BIGINT"),
++        ("organize_plans", "owner_token", "VARCHAR(36)"),
+         ("file_resources", "is_batch",
+          "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
+         ("file_resources", "episode_start", "INTEGER"),
+@@ -581,9 +590,19 @@
+             existing = set()
+         if column in existing:
+             continue
++        if table in ("organize_plans", "organize_configuration"):
++            # Ownership/version columns are safety-critical: a partial schema
++            # must fail startup rather than silently run old semantics.
++            await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
++            logger.info("[migrate] added column %s.%s", table, column)
++            continue
+         async with _best_effort(conn, f"add column {table}.{column}"):
+             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+             logger.info("[migrate] added column %s.%s", table, column)
++
++    from app.services.organize_config_events import ensure_configuration
++
++    await conn.run_sync(ensure_configuration)
+ 
+     # Dashboard hot-path indexes.  Keep these in the light migration as
+     # create_all only creates indexes for brand-new databases.
+--- a/app/db_turso_dialect.py
++++ b/app/db_turso_dialect.py
+@@ -4,14 +4,17 @@
+ resolve the class path without a circular import (the registry loads lazily at
+ engine-creation time, which happens while ``app.database`` is initializing).
+ 
+-Two patches on top of pyturso's stock ``AioTursoDialect``:
++Compatibility patches on top of pyturso's stock ``AioTursoDialect``:
+ 
+ 1. ``has_stop`` — ``SQLiteDialect_aiosqlite.__init__`` probes this aiosqlite-
+    specific attribute; pyturso's adapter doesn't define it.
+ 2. ``supports_statement_cache`` — opt into SQL compilation caching, same as
+    the aiosqlite dialect.
++3. Discard only the physical connection after a write conflict; Turso may
++   retain a stale read snapshot after a failed SAVEPOINT and rollback.
+ """
+ 
++from sqlalchemy import event
+ from sqlalchemy.dialects import registry
+ from turso.sqlalchemy.dialect import AioTursoDialect, AsyncAdapt_turso_dbapi
+ 
+@@ -31,6 +34,24 @@
+         return _PatchedTursoDbapi(turso.aio, turso)
+ 
+ 
++@event.listens_for(CompatAioTursoDialect, "handle_error")
++def _discard_conflicted_connection(context):
++    """A failed Turso SAVEPOINT can leave a stale read snapshot after rollback.
++
++    Discard only that physical connection; keep the original DBAPI exception
++    so existing transaction-level retry policies still decide what to replay.
++    Never invalidate unrelated connections or turn arbitrary SQL errors into
++    transient failures.
++    """
++    error = context.original_exception
++    if not isinstance(error, context.dialect.dbapi.DatabaseError):
++        return
++    message = str(error).lower()
++    if "database is locked" in message or "write-write conflict" in message:
++        context.is_disconnect = True
++        context.invalidate_pool_on_disconnect = False
++
++
+ def register() -> None:
+     """Register the patched dialect for ``sqlite+aioturso://`` URLs."""
+     registry.register("sqlite.aioturso", "app.db_turso_dialect", "CompatAioTursoDialect")
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -23,6 +23,7 @@
+ from app.models.metadata_cache import MetadataCache
+ from app.models.movie import Movie
+ from app.models.organize_audit import OrganizeAuditEntry
++from app.models.organize_configuration import OrganizeConfiguration
+ from app.models.organize_plan import OrganizePlan
+ from app.models.organize_plan_op import OrganizePlanOp
+ from app.models.organize_rule import OrganizeRule
+@@ -73,9 +74,11 @@
+     "OrganizePlan",
+     "OrganizePlanOp",
+     "OrganizeAuditEntry",
++    "OrganizeConfiguration",
+ ]
+ 
+ # Register ORM event hooks that keep search indexes in sync (Turso fts_outbox
+ # enqueue + PostgreSQL search_text maintenance). Imported last so the model
+ # classes above are already defined.
++import app.services.organize_config_events as _organize_config_events  # noqa: E402, F401
+ import app.services.work_search_events as _work_search_events  # noqa: E402, F401
+--- /dev/null
++++ b/app/models/organize_configuration.py
+@@ -0,0 +1,15 @@
++"""Transactionally version configuration that can change organize plans."""
++from sqlalchemy import BigInteger, String
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++CONFIGURATION_ID = "b72934dd-04bd-4cc3-8a68-ab1957b78027"
++
++
++class OrganizeConfiguration(Base):
++    __tablename__ = "organize_configuration"
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True)
++    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
++    lock_domain: Mapped[str | None] = mapped_column(String(36), nullable=True)
+--- a/app/models/organize_plan.py
++++ b/app/models/organize_plan.py
+@@ -10,7 +10,7 @@
+ import uuid
+ from datetime import datetime
+ 
+-from sqlalchemy import JSON, DateTime, ForeignKey, String, func
++from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, false, func
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -50,6 +50,13 @@
+     )
+     # 创建时冻结的完整通知快照，执行的唯一依据。
+     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
++    # NULL on legacy rows is unknown, never implicitly interpreted as move.
++    file_op: Mapped[str | None] = mapped_column(String(16), nullable=True)
++    needs_category: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
++    manual_destination: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
++    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
++    config_revision: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
++    owner_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+     error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+     executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+     created_at: Mapped[datetime] = mapped_column(
+--- a/app/schemas/organize.py
++++ b/app/schemas/organize.py
+@@ -176,6 +176,9 @@
+     """List row: no payload, carries display joins and an ops summary."""
+ 
+     id: str
++    revision: int = 0
++    file_op: str | None = None
++    needs_category: bool = False
+     notification_id: str
+     rule_id: str | None
+     rule_name: str | None = None
+--- /dev/null
++++ b/app/services/organize_config_events.py
+@@ -0,0 +1,59 @@
++"""Advance organize configuration in the same transaction as its writers.
++
++ORM changes and bulk ORM UPDATE/DELETE are covered. Migration/admin raw SQL
++must explicitly advance the revision if it changes live configuration.
++"""
++from sqlalchemy import event, inspect, update
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++from sqlalchemy.orm import Session
++
++from app.models.downloader import DownloaderInstance
++from app.models.library import Library
++from app.models.organize_configuration import CONFIGURATION_ID, OrganizeConfiguration
++from app.models.organize_rule import OrganizeRule
++from app.models.storage_volume import StorageVolume
++
++_FIELDS = {
++    OrganizeRule: {"priority", "enabled", "filter", "library_id", "path_template", "file_op", "auto_execute"},
++    Library: {"volume_id", "root_subpath", "recycle_subpath", "subtitle_lang_map", "media_server_id", "section_key"},
++    StorageVolume: {"mount_path"},
++    DownloaderInstance: {"download_dir", "volume_id", "volume_subpath"},
++}
++_TABLES = {model.__tablename__ for model in _FIELDS}
++
++
++def ensure_configuration(connection):
++    insert = pg_insert if connection.dialect.name == "postgresql" else sqlite_insert
++    connection.execute(insert(OrganizeConfiguration.__table__).values(
++        id=CONFIGURATION_ID, revision=0,
++    ).on_conflict_do_nothing(index_elements=["id"]))
++
++
++def _advance(connection):
++    ensure_configuration(connection)
++    connection.execute(update(OrganizeConfiguration.__table__).where(
++        OrganizeConfiguration.id == CONFIGURATION_ID,
++    ).values(revision=OrganizeConfiguration.revision + 1))
++
++
++@event.listens_for(Session, "before_flush")
++def _configuration_flush(session, flush_context, instances):
++    for obj in session.new | session.dirty | session.deleted:
++        fields = _FIELDS.get(type(obj))
++        if fields is None:
++            continue
++        if obj in session.new or obj in session.deleted or any(
++            inspect(obj).attrs[field].history.has_changes() for field in fields
++        ):
++            _advance(session.connection())
++            return
++
++
++@event.listens_for(Session, "do_orm_execute")
++def _configuration_bulk(execute_state):
++    if not (execute_state.is_update or execute_state.is_delete):
++        return
++    table = getattr(execute_state.statement, "table", None)
++    if table is not None and table.name in _TABLES:
++        _advance(execute_state.session.connection())
+--- /dev/null
++++ b/app/services/organize_ownership.py
+@@ -0,0 +1,184 @@
++"""Prototype: persistent shared lock file plus cancellation-safe lifetime."""
++import asyncio
++import contextvars
++import fcntl
++import functools
++import hashlib
++import os
++import stat
++from contextlib import asynccontextmanager, contextmanager
++from pathlib import Path
++from uuid import UUID, uuid4
++
++from sqlalchemy import select, update
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.organize_configuration import CONFIGURATION_ID, OrganizeConfiguration
++from app.services.organize_config_events import ensure_configuration
++
++
++class OwnershipBusyError(Exception):
++    pass
++
++
++class OwnershipDomainError(Exception):
++    pass
++
++
++def _read_domain(root):
++    fd = os.open(".domain", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=root)
++    try:
++        if not stat.S_ISREG(os.fstat(fd).st_mode):
++            raise OwnershipDomainError("整理锁目录身份文件不是普通文件")
++        value = os.read(fd, 64).decode("ascii")
++        if str(UUID(value, version=4)) != value:
++            raise OwnershipDomainError("整理锁目录身份文件无效")
++        return value
++    finally:
++        os.close(fd)
++
++
++def _domain(directory, *, initialize):
++    if initialize:
++        directory.mkdir(parents=True, exist_ok=True)
++    root = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
++    try:
++        try:
++            return _read_domain(root)
++        except FileNotFoundError:
++            if not initialize:
++                raise OwnershipDomainError("整理锁目录缺少已注册身份，禁止创建另一套锁") from None
++        value = str(uuid4())
++        staging = f".domain-{value}.tmp"
++        fd = os.open(staging, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
++        try:
++            assert os.write(fd, value.encode("ascii")) == len(value)
++            os.fsync(fd)
++            try:
++                os.link(staging, ".domain", src_dir_fd=root, dst_dir_fd=root, follow_symlinks=False)
++                os.fsync(root)
++            except FileExistsError:
++                pass
++        finally:
++            os.close(fd)
++            os.unlink(staging, dir_fd=root)
++        return _read_domain(root)
++    finally:
++        os.close(root)
++
++
++async def registered_domain(db, directory):
++    """Register only before first use; never recreate a missing registered domain.
++
++    A separate transaction avoids committing unrelated caller edits. All
++    workers must see the original marker and persistent lock inodes; copying
++    a live lock directory to another filesystem is explicitly unsupported.
++    """
++    async with AsyncSession(bind=db.bind, expire_on_commit=False) as registration:
++        expected = await registration.scalar(select(OrganizeConfiguration.lock_domain).where(
++            OrganizeConfiguration.id == CONFIGURATION_ID,
++        ))
++        try:
++            actual = await owned_thread(_domain, directory, initialize=expected is None)
++        except (OSError, ValueError, UnicodeError) as exc:
++            raise OwnershipDomainError(f"整理锁目录不可用：{exc}") from exc
++        if expected is None:
++            await (await registration.connection()).run_sync(ensure_configuration)
++            await registration.execute(update(OrganizeConfiguration).where(
++                OrganizeConfiguration.id == CONFIGURATION_ID,
++                OrganizeConfiguration.lock_domain.is_(None),
++            ).values(lock_domain=actual))
++            await registration.commit()
++            expected = await registration.scalar(select(OrganizeConfiguration.lock_domain).where(
++                OrganizeConfiguration.id == CONFIGURATION_ID,
++            ))
++        if expected != actual:
++            raise OwnershipDomainError("整理锁目录与数据库注册身份不一致，请使用所有 worker 共享的原目录")
++        return expected
++
++
++async def is_plan_owned(directory: Path, plan_id: str, expected_domain=None):
++    """Advisory HTTP feedback; execution must independently acquire ownership."""
++    async def probe():
++        try:
++            async with async_plan_lock(directory, plan_id, expected_domain):
++                return False
++        except OwnershipBusyError:
++            return True
++    return await finish_before_cancel(probe())
++
++
++async def owned_thread(function, *args, **kwargs):
++    """Wait for the real thread even if shutdown cancels the inner owner task.
++
++    Use inside finish_before_cancel: the outer operation reports cancellation
++    after finalization. A raw executor Future is not an asyncio Task, so
++    asyncio's shutdown cancellation cannot independently cancel that work.
++    """
++    context = contextvars.copy_context()
++    call = functools.partial(function, *args, **kwargs)
++    future = asyncio.get_running_loop().run_in_executor(None, context.run, call)
++    while not future.done():
++        try:
++            await asyncio.shield(future)
++        except asyncio.CancelledError:
++            continue
++    return future.result()
++
++
++@asynccontextmanager
++async def async_plan_lock(directory: Path, plan_id: str, expected_domain=None):
++    # Caller shields the whole operation, including acquisition and release.
++    await owned_thread(directory.mkdir, parents=True, exist_ok=True)
++    manager = plan_lock(directory, plan_id, expected_domain)
++    try:
++        await owned_thread(manager.__enter__)
++    except (OSError, ValueError, UnicodeError) as exc:
++        raise OwnershipDomainError(f"整理锁目录不可用：{exc}") from exc
++    try:
++        yield
++    finally:
++        await owned_thread(manager.__exit__, None, None, None)
++
++
++@contextmanager
++def plan_lock(directory: Path, plan_id: str, expected_domain=None):
++    # Directory provisioning/volume validation is a separate startup concern.
++    name = hashlib.sha256(plan_id.encode("utf-8")).hexdigest() + ".lock"
++    root = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
++    fd = None
++    try:
++        if expected_domain is not None and _read_domain(root) != expected_domain:
++            raise OwnershipDomainError("整理锁目录身份在获取锁前发生变化")
++        fd = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=root)
++        if not stat.S_ISREG(os.fstat(fd).st_mode):
++            raise ValueError("ownership lock must be a regular file")
++        try:
++            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++        except BlockingIOError as exc:
++            raise OwnershipBusyError(plan_id) from exc
++        yield
++    finally:
++        if fd is not None:
++            os.close(fd)
++        os.close(root)
++    # Never unlink: unlink/recreate splits ownership between different inodes.
++
++
++async def finish_before_cancel(operation):
++    """A cancelled caller cannot release ownership while its thread still runs.
++
++    The operation includes DB finalization and closing the lock. Inner errors
++    take precedence over deferred caller cancellation so failures stay visible.
++    """
++    task = asyncio.create_task(operation)
++    cancelled = False
++    while not task.done():
++        try:
++            await asyncio.shield(task)
++        except asyncio.CancelledError:
++            cancelled = True
++    result = task.result()
++    if cancelled:
++        raise asyncio.CancelledError
++    return result
+--- /dev/null
++++ b/app/services/organize_plan_state.py
+@@ -0,0 +1,39 @@
++"""Atomic plan revision transitions; filesystem ownership is a separate guard."""
++from sqlalchemy import select, update
++from sqlalchemy.orm.attributes import set_committed_value
++
++from app.models.organize_configuration import CONFIGURATION_ID, OrganizeConfiguration
++from app.models.organize_plan import OrganizePlan
++
++
++async def configuration_revision(db):
++    revision = await db.scalar(select(OrganizeConfiguration.revision).where(
++        OrganizeConfiguration.id == CONFIGURATION_ID,
++    ))
++    return revision if revision is not None else 0
++
++
++async def reserve_revision(db, plan, *, expected_revision, config_revision, states, expected_owner=None, **values):
++    """Reserve before changing operations. Caller commits all changes together.
++
++    A running recovery can pass config_revision=None only while holding the
++    shared file lock; its previously frozen operation semantics are retained.
++    """
++    conditions = [OrganizePlan.id == plan.id, OrganizePlan.revision == expected_revision,
++                  OrganizePlan.status.in_(states)]
++    if expected_owner is not None:
++        conditions.append(OrganizePlan.owner_token == expected_owner)
++    if config_revision is not None:
++        current = select(OrganizeConfiguration.revision).where(
++            OrganizeConfiguration.id == CONFIGURATION_ID,
++        ).scalar_subquery()
++        conditions.append(current == config_revision)
++    changed = await db.scalar(update(OrganizePlan).where(*conditions).values(
++        revision=OrganizePlan.revision + 1, **values,
++    ).returning(OrganizePlan.revision).execution_options(synchronize_session=False))
++    if changed is None:
++        return False
++    set_committed_value(plan, "revision", changed)
++    for key, value in values.items():
++        set_committed_value(plan, key, value)
++    return True
+--- a/app/services/organize_service.py
++++ b/app/services/organize_service.py
+@@ -35,6 +35,7 @@
+ import asyncio
+ import logging
+ import os
++import uuid
+ from pathlib import Path
+ from types import SimpleNamespace
+ from typing import Any
+@@ -55,6 +56,8 @@
+ from app.schemas.notification import NotificationPayload
+ from app.services.media_server_service import refresh_library
+ from app.services.organize_executor import ExecOp, run_execution
++from app.services.organize_ownership import owned_thread
++from app.services.organize_plan_state import configuration_revision, reserve_revision
+ from app.services.organize_planner import (
+     DiskFile,
+     OrganizePlanResult,
+@@ -264,7 +267,7 @@
+         return None
+     downloader = (
+         await db.execute(
+-            select(DownloaderInstance)
++            select(DownloaderInstance).execution_options(populate_existing=True)
+             .where(DownloaderInstance.id == task.downloader_id)
+             .options(selectinload(DownloaderInstance.volume))
+         )
+@@ -331,9 +334,10 @@
+     stats = {"planned": 0, "rebuilt": 0, "uncategorized": 0, "skipped": 0, "failed": 0}
+     if not notifications:
+         return stats
++    config_revision = await configuration_revision(db)
+     rules = (
+         await db.execute(
+-            select(OrganizeRule)
++            select(OrganizeRule).execution_options(populate_existing=True)
+             .where(OrganizeRule.enabled.is_(True))
+             .order_by(OrganizeRule.priority, OrganizeRule.created_at)
+         )
+@@ -341,14 +345,16 @@
+     if not rules:
+         return stats
+     libraries = (
+-        await db.execute(select(Library).options(selectinload(Library.volume)))
++        await db.execute(select(Library).execution_options(populate_existing=True).options(
++            selectinload(Library.volume)
++        ))
+     ).scalars().all()
+     rule_ns = [_rule_ns(r) for r in rules]
+     lib_ns = {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries}
+ 
+     for notification in notifications:
+         try:
+-            outcome = await _plan_one(db, notification, rule_ns, lib_ns)
++            outcome = await _plan_one(db, notification, rule_ns, lib_ns, config_revision)
+         except Exception as e:  # noqa: BLE001 — 单条失败不影响本 tick 其余通知
+             logger.error("[organize] 通知 %s 规划失败：%s", notification.id, e)
+             stats["failed"] += 1
+@@ -362,6 +368,7 @@
+     notification: DownloadNotification,
+     rules: list[Any],
+     libraries: dict[str, Any],
++    config_revision: int,
+ ) -> str:
+     existing = (
+         await db.execute(
+@@ -371,14 +378,17 @@
+         )
+     ).scalar_one_or_none()
+     if existing is not None:
+-        if existing.status in ("done", "running"):
++        if existing.status in ("done", "running", "cancelled"):
+             return "skipped"
+         # 快照未变：pending 无重建必要；failed 则仍重建——本函数只在被显式
+         # 触发（tick 新建/补扫、regenerate、配置变更 replan）时拿到通知，
+         # failed 计划多因磁盘状态等外部条件失败，快照不变也值得重试。
+-        if existing.payload == notification.payload and existing.status != "failed":
++        if (
++            existing.payload == notification.payload and existing.status != "failed"
++            and existing.config_revision == config_revision
++        ):
+             return "skipped"
+-        return await _rebuild_plan(db, existing, notification, rules, libraries)
++        return await _rebuild_plan(db, existing, notification, rules, libraries, config_revision)
+ 
+     payload = NotificationPayload.model_validate(notification.payload)
+     try:
+@@ -431,6 +441,9 @@
+         category=result.category,
+         status="pending",
+         payload=notification.payload,
++        file_op=result.rule.file_op if result.rule else None,
++        config_revision=config_revision,
++        needs_category=result.needs_category,
+     )
+     for i, op in enumerate(result.ops):
+         plan.ops.append(
+@@ -461,6 +474,7 @@
+     notification: DownloadNotification,
+     rules: list[Any],
+     libraries: dict[str, Any],
++    config_revision: int,
+ ) -> str:
+     """通知 regenerate 后重建 pending/failed 计划。
+ 
+@@ -470,6 +484,7 @@
+     library_id 置空，绝不让规则指向停留在已不再匹配的旧规则上）。重建
+     失败保留旧计划（下 tick 重试）。
+     """
++    expected_revision = plan.revision
+     payload = NotificationPayload.model_validate(notification.payload)
+     try:
+         if not payload.files:
+@@ -478,7 +493,7 @@
+                 payload = payload.model_copy(update={"files": manifest})
+         downloader = await _resolve_downloader(db, payload)
+         category = plan.category
+-        if plan.library_id and plan.rule_id is None and plan.library_id in libraries:
++        if plan.library_id and plan.manual_destination and plan.library_id in libraries:
+             use_rules = [_synthetic_rule(plan.library_id, _preset_template(payload))]
+         else:
+             use_rules = rules
+@@ -491,6 +506,14 @@
+         )
+         return "failed"
+ 
++    if not await reserve_revision(
++        db, plan, expected_revision=expected_revision, config_revision=config_revision,
++        states=("pending", "failed"), status="pending", owner_token=None,
++        file_op=result.rule.file_op if result.rule else None,
++        needs_category=result.needs_category,
++    ):
++        return "skipped"
++    plan.config_revision = config_revision
+     old_ops = (
+         await db.execute(
+             select(OrganizePlanOp).where(OrganizePlanOp.plan_id == plan.id)
+@@ -544,9 +567,10 @@
+     dict ``{"rebuilt", "failed"}``。
+     """
+     stats = {"rebuilt": 0, "failed": 0}
++    config_revision = await configuration_revision(db)
+     rules = (
+         await db.execute(
+-            select(OrganizeRule)
++            select(OrganizeRule).execution_options(populate_existing=True)
+             .where(OrganizeRule.enabled.is_(True))
+             .order_by(OrganizeRule.priority, OrganizeRule.created_at)
+         )
+@@ -563,7 +587,9 @@
+     if not plans:
+         return stats
+     libraries = (
+-        await db.execute(select(Library).options(selectinload(Library.volume)))
++        await db.execute(select(Library).execution_options(populate_existing=True).options(
++            selectinload(Library.volume)
++        ))
+     ).scalars().all()
+     rule_ns = [_rule_ns(r) for r in rules]
+     lib_ns = {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries}
+@@ -572,7 +598,7 @@
+         if notification is None:
+             continue
+         try:
+-            outcome = await _rebuild_plan(db, plan, notification, rule_ns, lib_ns)
++            outcome = await _rebuild_plan(db, plan, notification, rule_ns, lib_ns, config_revision)
+         except Exception as e:  # noqa: BLE001 — 单条失败不影响其余计划
+             logger.error("[organize] 计划 %s 配置重建失败：%s", plan.id, e)
+             stats["failed"] += 1
+@@ -620,6 +646,30 @@
+ 
+ 
+ async def execute_plan(db, plan_id: str) -> OrganizePlan:
++    from app.config import settings
++    from app.services.organize_ownership import (
++        OwnershipBusyError,
++        OwnershipDomainError,
++        async_plan_lock,
++        finish_before_cancel,
++        registered_domain,
++    )
++
++    async def owned():
++        try:
++            directory = Path(settings.organize_lock_dir)
++            domain = await registered_domain(db, directory)
++            async with async_plan_lock(directory, plan_id, domain):
++                return await _execute_plan_owned(db, plan_id)
++        except OwnershipBusyError as exc:
++            raise OrganizeError(f"计划 {plan_id} 正在执行中") from exc
++        except OwnershipDomainError as exc:
++            raise OrganizeError(str(exc)) from exc
++
++    return await finish_before_cancel(owned())
++
++
++async def _execute_plan_owned(db, plan_id: str) -> OrganizePlan:
+     """执行单个计划（幂等）。返回执行后的计划。
+ 
+     状态门禁：done 幂等短路；running 且本进程正在执行 → 拒绝；崩溃遗留的
+@@ -628,7 +678,7 @@
+     ——failed 是可重试的正常终态。
+     """
+     async with _executor_lock:
+-        plan = await db.get(OrganizePlan, plan_id)
++        plan = await db.get(OrganizePlan, plan_id, populate_existing=True)
+         if plan is None:
+             raise OrganizeError(f"计划不存在：{plan_id}")
+         if plan.status == "done":
+@@ -637,20 +687,41 @@
+             raise OrganizeError(f"计划 {plan_id} 正在执行中")
+         if plan.status == "cancelled":
+             raise OrganizeError(f"计划 {plan_id} 已取消")
++        current_revision = await configuration_revision(db)
++        if plan.status in ("pending", "failed") and (
++            plan.config_revision != current_revision or plan.file_op is None
++        ):
++            rules = (await db.execute(select(OrganizeRule).where(
++                OrganizeRule.enabled.is_(True)
++            ).order_by(OrganizeRule.priority, OrganizeRule.created_at).execution_options(
++                populate_existing=True
++            ))).scalars().all()
++            libraries = (await db.execute(select(Library).options(
++                selectinload(Library.volume)
++            ).execution_options(populate_existing=True))).scalars().all()
++            notification = await db.get(DownloadNotification, plan.notification_id, populate_existing=True)
++            if notification is None:
++                raise OrganizeError("计划通知不存在，无法重建")
++            result = await _rebuild_plan(
++                db, plan, notification, [_rule_ns(rule) for rule in rules],
++                {lib.id: await asyncio.to_thread(_library_ns, lib) for lib in libraries},
++                current_revision,
++            )
++            if result != "rebuilt":
++                raise OrganizeError("计划或配置已变更且重建未完成，请刷新后重试")
++            plan = await db.get(OrganizePlan, plan_id, populate_existing=True)
+         if plan.library_id is None:
+             raise OrganizeError(f"计划 {plan_id} 为待分类计划，请先指定目标库")
+-        rule = await db.get(OrganizeRule, plan.rule_id) if plan.rule_id else None
+-        # 无规则（人工分类直指目标库）= 合成 move 语义
+-        file_op = rule.file_op if rule is not None else "move"
+-        if (
+-            rule is not None
+-            and plan.category is None
+-            and "{category}" in rule.path_template
+-        ):
++        file_op = plan.file_op
++        if file_op not in ("move", "hardlink", "copy"):
++            raise OrganizeError("旧计划缺少执行方式快照，请先重建计划")
++        if plan.needs_category:
+             raise OrganizeError(f"计划 {plan_id} 尚未指定影片类别，请先分类")
++        if plan.status != "running" and plan.config_revision != await configuration_revision(db):
++            raise OrganizeError("整理配置已变更，请先重建计划")
+ 
+         library = (await db.execute(
+-            select(Library).where(Library.id == plan.library_id).options(
++            select(Library).execution_options(populate_existing=True).where(Library.id == plan.library_id).options(
+                 selectinload(Library.media_server), selectinload(Library.volume)
+             )
+         )).scalar_one_or_none()
+@@ -694,21 +765,35 @@
+         except (VolumeResolutionError, PlanError) as e:
+             raise OrganizeError(str(e)) from e
+ 
+-        plan.status = "running"
+-        plan.error_message = None
++        if not await reserve_revision(
++            db, plan, expected_revision=plan.revision,
++            config_revision=None if plan.status == "running" else plan.config_revision,
++            states=("pending", "failed", "running"), status="running",
++            owner_token=str(uuid.uuid4()), error_message=None,
++        ):
++            raise OrganizeError("计划或整理配置已变更，请刷新后重试")
++        execution_revision, execution_owner = plan.revision, plan.owner_token
++        _audit(db, plan.id, "execute_started", {
++            "revision": execution_revision, "owner_token": execution_owner,
++            "file_op": file_op,
++        })
+         await db.commit()
+ 
+         _executing_plan_ids.add(plan_id)
+         try:
+-            outcome = await asyncio.to_thread(
++            outcome = await owned_thread(
+                 run_execution, exec_ops, file_op=file_op,
+                 cleanup_root=cleanup_root, preserve=preserve,
+             )
+         except Exception as e:
+             # 执行段未预期异常（如非 EXDEV 的 OSError）：落 failed 可重试，
+             # 绝不让计划卡在 running。
+-            plan.status = "failed"
+-            plan.error_message = f"内部错误：{e}"[:2000]
++            if not await reserve_revision(
++                db, plan, expected_revision=execution_revision, expected_owner=execution_owner,
++                config_revision=None, states=("running",), status="failed", owner_token=None,
++                error_message=f"内部错误：{e}"[:2000],
++            ):
++                raise OrganizeError("执行所有权已变化，拒绝回写旧结果") from e
+             _audit(db, plan.id, "execute",
+                    {"status": "failed", "error": plan.error_message})
+             await db.commit()
+@@ -716,6 +801,13 @@
+         finally:
+             _executing_plan_ids.discard(plan_id)
+ 
++        # Reserve result ownership before modifying any op or audit row.
++        if not await reserve_revision(
++            db, plan, expected_revision=execution_revision, expected_owner=execution_owner,
++            config_revision=None, states=("running",),
++            status="done" if outcome.ok else "failed", owner_token=None,
++        ):
++            raise OrganizeError("执行所有权已变化，拒绝回写旧结果")
+         # 回写 op 结果与审计
+         result_by_key = {
+             (r.op.op_type, r.op.src): (r.status, r.error)
+@@ -819,6 +911,8 @@
+         raise OrganizeError(f"计划不存在：{plan_id}")
+     if plan.status not in ("pending", "failed"):
+         raise OrganizeError(f"计划 {plan_id} 当前状态（{plan.status}）不可分类")
++    expected_revision = plan.revision
++    config_revision = await configuration_revision(db)
+     # The API may already have put this Library in the identity map through
+     # ``plan.library`` without loading ``volume``. ``Session.get(options=...)``
+     # then returns that instance unchanged and resolve_library_root triggers
+@@ -826,7 +920,7 @@
+     # executes the selectin loader for the existing identity too.
+     library = (
+         await db.execute(
+-            select(Library)
++            select(Library).execution_options(populate_existing=True)
+             .where(Library.id == library_id)
+             .options(selectinload(Library.volume))
+         )
+@@ -834,7 +928,7 @@
+     if library is None:
+         raise OrganizeError(f"目标库不存在：{library_id}")
+ 
+-    rule = await db.get(OrganizeRule, plan.rule_id) if plan.rule_id else None
++    rule = await db.get(OrganizeRule, plan.rule_id, populate_existing=True) if plan.rule_id else None
+     payload = NotificationPayload.model_validate(plan.payload)
+     template = rule.path_template if rule is not None else _preset_template(payload)
+ 
+@@ -868,6 +962,7 @@
+             raise OrganizeError(f"无法定位磁盘文件：{e}") from e
+     lib_ns = await asyncio.to_thread(_library_ns, library)
+     syn_rule = _synthetic_rule(library.id, template)
++    syn_rule.file_op = rule.file_op if rule else "move"
+     # 旧计划的 movedir（合集回收站）op 携带着种子目录信息，重渲染时保留
+     # 语义：目标按新库的回收站配置重算；新库未配置回收站则自然消失。
+     source_dir = next((op.src for op in ops if op.op_type == "movedir"), None)
+@@ -882,6 +977,14 @@
+     if result.needs_category:
+         raise OrganizeError("模板包含 {category}，请同时指定影片类别")
+ 
++    if not await reserve_revision(
++        db, plan, expected_revision=expected_revision, config_revision=config_revision,
++        states=("pending", "failed"), status="pending", owner_token=None,
++        file_op=syn_rule.file_op, needs_category=False,
++    ):
++        raise OrganizeError("计划或整理配置已变更，请刷新后重试")
++    plan.config_revision = config_revision
++    plan.manual_destination = plan.rule_id is None
+     for op in ops:
+         await db.delete(op)
+     await db.flush()
+--- a/app/services/scheduler.py
++++ b/app/services/scheduler.py
+@@ -684,6 +684,9 @@
+                     stats["delivered"], stats["failed"], stats["skipped"],
+                 )
+         except Exception as e:
++            # The error is logged here rather than escaping committed_session;
++            # explicitly end the failed transaction before its normal exit.
++            await db.rollback()
+             logger.warning("[notify] processing tick failed: %s", e)
+ 
+ 
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -395,12 +395,12 @@
+ 
+ | Method | Path | 说明 |
+ |--------|------|------|
+-| GET | `/organize/plans` | 计划列表（分页；`status`（非法值 422）/`library_id` 过滤；created_at 倒序；列表项不含 payload，带 `rule_name`/`library_name`、`ops_summary {total,move,keep,movedir}` 与派生 `pending_reason: "unclassified" \| "unbound" \| null`——library 未定/缺 category → unclassified，目标库未绑定卷 → unbound，仅 pending 计划派生） |
++| GET | `/organize/plans` | 计划列表（分页；`status`（非法值 422）/`library_id` 过滤；created_at 倒序；列表项不含 payload，带 `revision`/`file_op`/`needs_category`、`rule_name`/`library_name`、`ops_summary {total,move,keep,movedir}` 与派生 `pending_reason: "unclassified" \| "unbound" \| null`——library 未定/缺 category → unclassified，目标库未绑定卷 → unbound，仅 pending 计划派生） |
+ | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + audit_entries 时间线（同带 `pending_reason`） |
+-| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；pending/failed 及崩溃遗留 running 可执行，本进程执行中的 running → **409 `ALREADY_RUNNING`**，done/cancelled / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
++| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；pending/failed 及崩溃遗留 running 可执行，共享锁域内任一进程正在执行的计划 → **409 `ALREADY_RUNNING`**，done/cancelled / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
+ | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
+ | POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：重渲染全部 op 的 dst 并复位 pending；非 pending/failed → 409；library 不存在 → 404；重渲染失败（如模板含 `{category}` 但未指定）→ 422 |
+-| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划 → cancelled（记 audit）；本进程执行中的 running → **409 `ALREADY_RUNNING`**；done/cancelled → **409 `INVALID_STATE`**。可选 body `{delete_task, delete_data}`：`delete_task=true` 同时删除关联下载任务（移除下载器 torrent、任务行置 cancelled，保留磁盘数据，与 `DELETE /tasks/{id}?delete_data=false` 共用 `task_cleanup` 实现）；`delete_data=true` 蕴含删除任务并连同磁盘数据一起删除；清理失败不阻断取消，结果随响应 `task_cleaned` 返回（未请求删除时为 null） |
++| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划 → cancelled（记 audit）；共享锁域内任一进程正在执行的计划 → **409 `ALREADY_RUNNING`**；done/cancelled → **409 `INVALID_STATE`**。可选 body `{delete_task, delete_data}`：`delete_task=true` 同时删除关联下载任务（移除下载器 torrent、任务行置 cancelled，保留磁盘数据，与 `DELETE /tasks/{id}?delete_data=false` 共用 `task_cleanup` 实现）；`delete_data=true` 蕴含删除任务并连同磁盘数据一起删除；清理失败不阻断取消，结果随响应 `task_cleaned` 返回（未请求删除时为 null） |
+ | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
+ 
+ ### File Resources
+@@ -502,3 +502,6 @@
+ | DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（collection_id 置空） |
+ 
+ ---
++
++
++整理计划列表/详情的 `file_op` 是当前计划版本的冻结模式（历史未知为 null），`needs_category` 来自相同版本；不能用当前规则覆盖。执行 202 前探测跨进程忙碌，实际后台执行仍必须独立取得所有权；旧 running 缺模式或锁域无效返回 409 INVALID_STATE。pending/failed 配置过期由执行入口先重建当前版本。取消需同一共享锁与状态 CAS，提交 cancelled 后才可清理任务/数据，失败结果不回写过期版本。
+--- a/docs/design/constraints.md
++++ b/docs/design/constraints.md
+@@ -84,3 +84,5 @@
+ 
+ - 整理源目标同大小不是可删源证据：完整内容一致（hardlink 要求同 inode）才可收敛；所有文件发布不覆盖并发目标，整份计划含旧计划执行前检查目标碰撞。详见 file-organization.md。
+ - 各 worker/all 每 30 秒独立 DB→本地调度对账；无变更不重置下次运行时间。创建频道 commit 后首次入队，自动任务开始前复查启用状态。详见 business-logic.md「频道调度对账」。
++
++- 整理重建/分类/执行使用版本 CAS；执行/取消共享持久文件锁，文件线程结束与结果回写前不得释放。pending/failed 按当前配置重建 ops 后执行冻结 file_op，旧 running 缺模式拒绝猜测；所有 Web/worker 必须共享原锁域。详见 file-organization.md / conventions.md。
+--- a/docs/design/conventions.md
++++ b/docs/design/conventions.md
+@@ -23,6 +23,7 @@
+   - `BANGUMI_API_KEY`：Bangumi 数据源与 is_anime 第一层验证（可选；token 即启用，无独立开关，亦可在设置页覆盖配置）。
+   - `BANGUMI_API_BASE`：Bangumi API 基础地址（默认 `https://api.bgm.tv/v0`）；可指向自建镜像或集成测试的 mock 服务。
+   - `WEB_FALLBACK_ENABLED` / `TMDB_ENABLED` / `WIKIPEDIA_ENABLED`：来源启用开关；`WEB_FALLBACK_ENABLED` 只控制受可信站点约束的 Wigolo 网络搜索回退。
++  - `ORGANIZE_LOCK_DIR`：整理所有权锁目录，默认 `data/organize-locks`；Web 和所有 worker 必须共享原目录及文件锁 inode。默认单宿主 Compose 的 app-data 卷可用；禁止运行中清理、复制或替换，跨宿主/未经验证的远程 flock 不受支持。目录身份与 DB 注册不符时拒绝操作。
+   - `POSTER_CACHE_DIR`：海报缓存目录，挂载到 `/posters`（默认 `./data/posters`）。
+   - `TORRENT_CACHE_DIR`：通道 A 下载缓存的 .torrent 文件目录（默认 `./data/torrents`，文件名 `<resource_id>.torrent`；写盘前必须完成 bencode/info 清单校验，已有缓存读取前同样校验，HTML/损坏等无效缓存会删除并允许重新获取；`FileResource.torrent_file` 记有效路径，任务创建时本地推送字节）。
+   - `MAGNET_RESOLVE_ENABLED`（默认 `true`）/ `MAGNET_RESOLVE_TIMEOUT_SECONDS`（默认 `900`）/ `MAGNET_RESOLVE_CONCURRENCY`（默认 `4`）/ `MAGNET_RESOLVE_MAX_ATTEMPTS`（默认 `1`，首次失败后的自动重试次数，手动重试不限）：magnet 元数据解析（libtorrent 仅取元数据重建 .torrent 进同一缓存目录，状态落 `FileResource.magnet_resolve_*` 列）。`MAGNET_RESOLVE_DEFAULT_TRACKERS`（JSON 字符串列表）：注入每次解析尝试的默认公共 tracker（TPB 等抓取的 magnet 无 `tr=` 参数，否则只靠 DHT）；默认清单以 `http://tracker.opentrackr.org:1337/announce` 打头（tier 0 优先尝试）——DHT 与 udp:// tracker 均需 UDP 出网（防火墙常封），http 形式走 TCP，UDP 被封锁的部署也能解析。`MAGNET_RESOLVE_CACHE_MIRRORS`（JSON 字符串列表，默认 `["https://itorrents.org/torrent/{infohash}.torrent"]`，空列表关闭）：infohash 缓存镜像快速路径——按 `{infohash}` 模板（小写 40 位十六进制 v1 SHA-1）HTTPS GET 缓存的 .torrent，秒级解析；**镜像对未知 hash 会 200 返回无关 torrent，响应使用前一律重算 v1 infohash 比对**。
+@@ -45,3 +46,5 @@
+ - **幂等性**：Channel 抓取以 guid 去重；手动触发的 run/fetch 以分布式锁保证同一资源不会重复入队；Transmission add_torrent 以 torrent 哈希幂等（RPC 本身支持）。
+ 
+ ---
++
++Turso 兼容层遇到写锁/写写冲突时淘汰该物理连接，避免 SAVEPOINT 失败后的旧读取快照进入连接池；原异常仍传播，由事务边界 rollback 和既有策略决定重试，不自动重放任意语句。
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -804,3 +804,10 @@
+ 三张普通表 `tv_series_fts` / `movie_fts` / `audio_work_fts`（`entity_id` PK + 规范化标题列），其上建 `CREATE INDEX ... USING fts (…) WITH (tokenizer='ngram')` 由引擎自动跟踪 DML。仅缓存 `search_text` 同源的规范化内容，可随时从基表重建（`rebuild_*_fts` / `backfill_fts_if_empty`）；同步 = `search_*_fts` **读前先 drain outbox**（read-your-writes：刚提交的作品立即可搜）+ `_drain_fts_outbox`（每 30 秒批量化兜底，覆盖脚本/非 API 写入）+ `_reconcile_fts`（每小时全量对账兜底，修补绕过 outbox 的路径）。PostgreSQL 无此表。
+ 
+ ---
++
++
++## 整理计划版本与配置单例
++
++整理模型完整关系见 [file-organization.md](file-organization.md)。`OrganizePlan` 增加可空 String(16) `file_op`、非空 Boolean `needs_category`/`manual_destination`（服务端 false）、非空 BigInteger `revision`（服务端 0）、可空 BigInteger `config_revision`、可空 String(36) `owner_token`。历史未知模式保留 NULL，执行前重建或拒绝；不能迁移成 move。
++
++`OrganizeConfiguration`（`organize_configuration`）是内部单例：UUID v4 主键 `b72934dd-04bd-4cc3-8a68-ab1957b78027`，非空 BigInteger `revision`（服务端 0），可空 String(36) `lock_domain`。配置与版本同事务写入；锁域首次使用注册，后续不能自动改指另一目录。两后端启动轻迁移幂等添加字段并确保单例存在，关键列失败中止启动。
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -193,3 +193,6 @@
+ 4. **迁移后必校验**：`verify_search_parity.py` 的「0 表行数不一致」是数据完整性的硬性证明。
+ 5. **目标为空或 `--force`**：`migrate_to_postgres` 拒绝向非空目标插入（避免主键冲突与重复）。
+ 字幕组列表兼容迁移：`scripts/subtitle_groups_eval.py` 默认只读审计数据库中的联合发布值；`--export tests/fixtures/subtitle_groups.json` 生成与单测共享的真实样本，`--validate` 离线验证解析，`--apply` 为 `file_resources.subtitle_groups`/映射表回填并迁移 Agent、OrganizeRule、频道 field_mapping 中的旧 `subtitle_group` 规则。旧列保留为兼容镜像，迁移可重复执行。
++
++
++整理所有权升级新增 Plan 六个快照/版本字段及 OrganizeConfiguration 单例（含 lock_domain），轻迁移在 Turso MVCC 初始化后确保单例，重复执行不重置 revision。历史 file_op 保留 NULL，pending/failed 执行前重建，running 未知模式拒绝执行。此组关键列失败须中止启动；迁移和启动前应停止旧版本整理执行者，所有 Web/worker 一起升级，禁止不遵守共享锁的旧进程与新版本混跑。保留原共享锁目录，数据库和锁域恢复必须一致。
+--- a/docs/design/file-organization.md
++++ b/docs/design/file-organization.md
+@@ -187,7 +187,13 @@
+     category: str | None                 # 电影类别目录名（模板含 {category} 时使用）；
+                                          # 可人工指定/修正（classify 端点）
+     status: str                          # "pending" | "running" | "done" | "failed" | "cancelled"
+-    payload: dict                        # 创建时冻结的完整通知快照，执行唯一依据
++    payload: dict                        # 通知快照，与本次规划配置一起确定执行内容
++    file_op: str | None                  # 本版本 move/hardlink/copy；历史 NULL 不猜 move
++    needs_category: bool                 # 本版本缺类别标志，默认 false
++    manual_destination: bool             # 人工分类标志，默认 false；不以 rule_id=NULL 推断
++    revision: int (BIGINT)                # 计划版本，默认 0；状态转换/重建 CAS 递增
++    config_revision: int | None          # 生成当前 ops 的配置版本；历史 NULL 需重建
++    owner_token: str | None              # running 执行者 UUID；结果回写需匹配
+     error_message: str | None            # 最近失败原因（前置门禁/冲突/校验，带前 3 条明细）
+     executed_at: datetime | None
+     created_at / updated_at
+@@ -276,7 +282,7 @@
+ 
+ 重建均落 `plan_rebuilt` 审计；命中 `auto_execute` 规则的重建与新建一样随后台自动执行。
+ 
+-并发模型沿用 vault-organizer：单 `asyncio.Lock` 串行化规划与执行，阻塞文件操作经 `asyncio.to_thread` 跑线程，不卡事件循环；批量执行锁内逐计划顺序执行，单个失败不影响其余。
++并发模型：规划与重建在提交处使用版本 CAS；执行与取消使用跨进程共享文件锁，进程内执行仍串行。阻塞文件操作在线程中运行，取消需等待真实线程结束再释放所有权；批量执行逐计划处理，单个失败不影响其余。详见下文「计划版本与执行所有权」。
+ 
+ ## 执行器不变量
+ 
+@@ -292,7 +298,7 @@
+ - **后置校验**：全部文件 op 后复核每个 dst 存在且 size 一致；src 已消失仅对 move 校验（hardlink/copy 源文件本应保留）；任一不符 → failed（可修复后重执行，幂等）。
+ - **movedir**：目录级移动，目标已存在 = 冲突违例，绝不覆盖；平铺在下载根的散文件不产生 movedir；仅 move 语义，hardlink/copy 计划不产 movedir。当前唯一产生场景：**合集（batch）+ move 计划且目标库配置了回收站目录**（`Library.recycle_subpath`，卷内相对路径，媒体库设置「其他设置」表单经文件夹选择器设置；NULL = 默认原地保留）——正片/字幕移走后，种子目录内的剩余文件（特典、附件等 keep 部分）随整个种子目录移入 ``<卷挂载点>/<recycle_subpath>/<种子目录名>``；无 keep 剩余时不产 op（空目录照常自底向上清理）。规划期冲突预检拒绝已存在的回收目标；执行期 movedir 在全部文件 op + 后置校验之后执行，源目录已空视为无需移动。
+ - **空目录清理**：`os.walk(topdown=False)` 自底向上 `os.rmdir`（只删空目录，非空自然失败跳过），preserve 边界 = 经下载器卷绑定解析的下载根；**绝不 `rm -rf`**。hardlink/copy 计划恒跳过（源文件保留保种，目录本就不会空）；torrent_name 为空（清单定位的平铺/单文件种子落在共享下载根）同样恒跳过——绝不以共享下载根为清理范围。
+-- **崩溃恢复**：running 计划可重放（幂等收敛：已移动的视为完成、跨盘 move 发布后遗留 src 仅在完整内容一致时删除、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
++- **崩溃恢复**：running 计划只有取得共享文件锁且 file_op 快照完整才可重放（幂等收敛：已移动的视为完成、跨盘 move 发布后遗留 src 仅在完整内容一致时删除、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
+ 
+ ## API（前缀 /api/v1）
+ 
+@@ -349,10 +355,10 @@
+ |--------|------|------|
+ | GET | `/organize/plans` | 计划列表（分页；`status` / `library_id` 过滤；created_at 倒序；列表项不含 payload，带 ops 摘要与 `pending_reason: "unclassified" \| "unbound" \| null` 派生字段） |
+ | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + 关联 library/rule 信息 |
+-| POST | `/organize/plans/{id}/execute` | 执行单个计划（幂等；done 短路、崩溃遗留 running 可重放、本进程执行中的 running 拒绝 409 `ALREADY_RUNNING`、待分类/待绑定拒绝）；异步后台执行，返回 202 + 当前状态 |
++| POST | `/organize/plans/{id}/execute` | 执行单个计划（幂等；done 短路、崩溃遗留 running 可重放、持有共享文件锁的活动计划 拒绝 409 `ALREADY_RUNNING`、待分类/待绑定拒绝）；异步后台执行，返回 202 + 当前状态 |
+ | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
+ | POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：改写计划并重渲染全部 op 的 dst；pending/failed 可改 |
+-| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划（→ cancelled；done 拒绝 409；本进程执行中的 running 拒绝 409 `ALREADY_RUNNING`）。可选 body `{delete_task, delete_data}` 附带删除关联下载任务（`delete_data=true` 蕴含删除任务并连同磁盘数据；复用 `task_cleanup` 实现，清理失败不阻断取消，结果随响应 `task_cleaned` 返回） |
++| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划（→ cancelled；done 拒绝 409；持有共享文件锁的活动计划 拒绝 409 `ALREADY_RUNNING`）。可选 body `{delete_task, delete_data}` 附带删除关联下载任务（`delete_data=true` 蕴含删除任务并连同磁盘数据；复用 `task_cleanup` 实现，清理失败不阻断取消，结果随响应 `task_cleaned` 返回） |
+ | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
+ 
+ ## 配置
+@@ -389,3 +395,14 @@
+ | R3 | `file_op` 开放 hardlink/copy（已实现）：schema 三值、执行器 `os.link`/copy+校验、EXDEV/EPERM failed 不静默退化、执行后清理按 file_op 分流（move=删任务 / hardlink·copy=保种+恢复做种）、后置校验与空目录清理相应调整 |
+ 
+ vault-organizer 仓库在 R2 功能对等后归档（README 指向本文档）；外部 webhook 消费者仍受支持，其设计文档（architecture/planner/executor/configuration/deployment）中的不变量已由本文档吸收。
++
++
++### 计划版本与执行所有权
++
++`OrganizeConfiguration` 单例保存全局配置 `revision` 与共享锁目录 `lock_domain`。规则的路由/模板/模式/自动执行、库的绑定/路径/字幕映射/媒体刷新目标、卷挂载点和下载器路径映射变更，在同一配置事务推进 revision（包括 ORM 批量 UPDATE/DELETE）；备注及在线状态不失效计划。管理脚本用原始 SQL 改这些配置时也必须在同事务推进版本。
++
++pending/failed 计划在执行前发现配置版本过期或旧 file_op 缺失时，先按当前配置重建并提交全部 ops，再读取冻结模式执行。重建、分类以旧 revision、pending/failed 状态和当前配置版本 CAS，命中后才同事务替换 ops、快照和审计。不得用新规则的模式执行旧 ops；done/running/cancelled 不被重建覆盖。`rule_id=NULL` 可能来自规则删除，只有 manual_destination 才代表已人工选择目标。
++
++执行与取消都取得 `ORGANIZE_LOCK_DIR` 中该计划的持久文件锁。执行抢占以 revision/状态/配置版本 CAS 写入新 owner_token；完成/失败回写必须同时匹配该 token、revision 与 running。文件锁覆盖文件线程、结果提交及后续任务清理；协程取消必须等实际文件线程结束，不能提前释放锁。DB 断连本身不证明执行者停止，不能仅凭 DB 锁释放或租约超时接管。活动执行期间取消（包括 delete_data）返回 ALREADY_RUNNING，零清理副作用；非活动取消先 CAS 提交 cancelled，再按请求清理。
++
++锁目录使用原子发布的 `.domain` 身份文件并在数据库注册，缺失/不匹配拒绝执行和取消。默认单宿主 Docker 共享 app-data 命名卷满足锁共享；所有 Web/worker 必须使用同一 Linux 文件锁域。目录与锁文件不可在运行中删除、复制或替换，不能把 UUID 相同当作独立文件系统共享锁的证明。跨宿主和未验证 flock 语义的远程挂载不属于该实现支持的所有权部署；见 conventions.md。
+--- a/docs/design/frontend.md
++++ b/docs/design/frontend.md
+@@ -54,3 +54,5 @@
+ - 文件映射应用 LLM 结果时优先使用服务端校验的 `candidate_key`（`series|movie:<UUID>`）直接匹配向导作品；仅对无 candidate_key 的旧缓存使用展示标题归一化回退，不能再因 original_title 与英文/中文别名不同而丢弃整组映射。
+ 
+ ---
++
++变更计划列表及详情显示计划冻结的 file_op（移动/硬链接/复制；历史未知显示未知）；详情说明相应删任务或保种行为，不从当前规则推断模式。
+--- a/frontend/src/components/OrganizePlanDrawer.tsx
++++ b/frontend/src/components/OrganizePlanDrawer.tsx
+@@ -225,6 +225,11 @@
+             <Descriptions.Item label={t('organize.rule')}>
+               {detail.rule_name ?? t('format.dash')}
+             </Descriptions.Item>
++            <Descriptions.Item label={t('libraries.fileOp')}>
++              {detail.file_op && ['move', 'hardlink', 'copy'].includes(detail.file_op)
++                ? t(`libraries.fileOpDesc_${detail.file_op}`)
++                : t('common.unknown')}
++            </Descriptions.Item>
+             <Descriptions.Item label={t('organize.library')}>
+               {detail.library_name ?? t('format.dash')}
+             </Descriptions.Item>
+--- a/frontend/src/pages/MediaLibrary.tsx
++++ b/frontend/src/pages/MediaLibrary.tsx
+@@ -322,6 +322,11 @@
+         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+           <Text ellipsis={{ tooltip: record.rule_name || undefined }}>
+             {record.rule_name ?? t('format.dash')}
++          </Text>
++          <Text type="secondary" style={{ fontSize: 12 }}>
++            {record.file_op && ['move', 'hardlink', 'copy'].includes(record.file_op)
++              ? t(`libraries.fileOp_${record.file_op}`)
++              : t('common.unknown')}
+           </Text>
+           {record.library_id === null ? (
+             <Text type="warning" style={{ fontSize: 12 }}>{t('organize.uncategorizedTag')}</Text>
+--- a/frontend/src/types/index.ts
++++ b/frontend/src/types/index.ts
+@@ -1398,6 +1398,9 @@
+ 
+ export interface OrganizePlanListItem {
+   id: string;
++  revision: number;
++  file_op: 'move' | 'hardlink' | 'copy' | null;
++  needs_category: boolean;
+   notification_id: string;
+   rule_id: string | null;
+   rule_name: string | null;
+--- a/tests/api/test_organize_api.py
++++ b/tests/api/test_organize_api.py
+@@ -856,7 +856,7 @@
+ ):
+     """崩溃遗留的 running（本进程未在执行）可重放；正在执行的拒绝。"""
+     plan = await _seed_plan_with_op(
+-        db_session, movie_seed["notification"], library, status="running"
++        db_session, movie_seed["notification"], library, status="running", file_op="move"
+     )
+     schedule = MagicMock()
+     monkeypatch.setattr(
+@@ -872,6 +872,49 @@
+     resp = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
+     assert resp.status_code == 409
+     assert resp.json()["error"]["code"] == "ALREADY_RUNNING"
++
++
++async def test_execute_rejects_shared_owner_and_unknown_legacy_mode(
++    client, db_session, library, movie_seed, monkeypatch, tmp_path,
++):
++    from app.config import settings
++    from app.services.organize_ownership import plan_lock
++
++    plan = await _seed_plan_with_op(
++        db_session, movie_seed["notification"], library, status="running", file_op="hardlink",
++    )
++    monkeypatch.setattr(settings, "organize_lock_dir", str(tmp_path))
++    schedule = MagicMock()
++    monkeypatch.setattr("app.services.organize_service.schedule_auto_execute", schedule)
++    with plan_lock(tmp_path, plan.id):
++        response = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
++        assert response.status_code == 409
++        assert response.json()["error"]["code"] == "ALREADY_RUNNING"
++    schedule.assert_not_called()
++    plan.file_op = None
++    await db_session.commit()
++    response = await client.post(f"/api/v1/organize/plans/{plan.id}/execute")
++    assert response.status_code == 409
++    assert response.json()["error"]["code"] == "INVALID_STATE"
++    schedule.assert_not_called()
++
++
++async def test_plan_response_uses_frozen_operation_semantics(
++    client, db_session, library, rule, movie_seed,
++):
++    plan = await _seed_plan_with_op(
++        db_session, movie_seed["notification"], library, rule=rule,
++        file_op="hardlink", needs_category=False,
++    )
++    rule.file_op = "move"
++    await db_session.commit()
++    response = await client.get(f"/api/v1/organize/plans/{plan.id}")
++    assert response.status_code == 200
++    result = response.json()["data"]
++    assert result["file_op"] == "hardlink"
++    assert result["revision"] == 0
++    assert result["needs_category"] is False
++    assert result["pending_reason"] is None
+ 
+ 
+ async def test_execute_rejects_uncategorized(
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -42,3 +42,11 @@
+     reset_to_env_defaults()
+     yield
+     reset_to_env_defaults()
++
++
++@pytest.fixture(autouse=True)
++def _isolate_organize_lock_directory(tmp_path, monkeypatch):
++    """Never let local tests create ownership files in the application's data/."""
++    from app.config import settings
++
++    monkeypatch.setattr(settings, "organize_lock_dir", str(tmp_path / "organize-locks"))
+--- a/tests/integration/organize/test_organize_service_coverage2.py
++++ b/tests/integration/organize/test_organize_service_coverage2.py
+@@ -833,10 +833,10 @@
+ 
+     original = organize_service._rebuild_plan
+ 
+-    async def _flaky(db, plan, notification, rules, libraries):
++    async def _flaky(db, plan, notification, rules, libraries, config_revision):
+         if notification.id == seed2.notification.id:
+             raise RuntimeError("unexpected")
+-        return await original(db, plan, notification, rules, libraries)
++        return await original(db, plan, notification, rules, libraries, config_revision)
+ 
+     monkeypatch.setattr(organize_service, "_rebuild_plan", _flaky)
+     stats = await replan_open_plans(db_session, reason="测试")
+--- a/tests/integration/organize/test_p0_real_manifest.py
++++ b/tests/integration/organize/test_p0_real_manifest.py
+@@ -18,6 +18,7 @@
+ from app.models.episode import Episode
+ from app.models.organize_plan import OrganizePlan
+ from app.models.organize_plan_op import OrganizePlanOp
++from app.models.organize_rule import OrganizeRule
+ from app.models.series import TVSeries
+ from app.models.work_collection import WorkCollection
+ from app.services.organize_service import execute_plan
+@@ -37,7 +38,7 @@
+ 
+ 
+ @pytest.mark.parametrize("mode", ["move", "copy", "hardlink"])
+-@pytest.mark.parametrize("scenario", ["new", "identical_target", "different_tail", "legacy_collision"])
++@pytest.mark.parametrize("scenario", ["new", "identical_target", "different_tail", "legacy_collision", "config_changed"])
+ async def test_real_manifest_file_safety(
+     db_session, session_factory, shared_volume, rpc_mocks, refresh_mock,
+     mode, scenario, record_testsuite_property,
+@@ -98,6 +99,8 @@
+         assert plan.status == "pending", plan.error_message
+         [op] = await _ops(session, plan.id)
+         assert Path(op.src) == src and op.size == len(body)
++        assert plan.file_op == mode
++        effective_mode = mode
+         dst = Path(op.dst)
+         assert "s01e10" in dst.name.lower()
+         if scenario in {"identical_target", "different_tail"}:
+@@ -114,7 +117,20 @@
+                 src=str(other), dst=op.dst, size=len(body),
+             ))
+             await session.commit()  # imitate an old unsafe persisted plan
++        if scenario == "config_changed":
++            # Real reviewed manifest through the rule-commit-before-rebuild
++            # window: execution must replace the old ops before switching mode.
++            effective_mode = {"move": "copy", "copy": "hardlink", "hardlink": "move"}[mode]
++            rule = await session.get(OrganizeRule, plan.rule_id)
++            rule.file_op = effective_mode
++            await session.commit()
++            record_testsuite_property("initial_file_op", mode)
++            record_testsuite_property("effective_file_op", effective_mode)
+         result = await execute_plan(session, plan.id)
++        if scenario == "config_changed":
++            assert result.file_op == effective_mode
++            assert result.revision >= 3
++            assert op.id not in {current.id for current in await _ops(session, plan.id)}
+         task = await session.get(DownloadTask, chain.task.id)
+         actions = await _audit_actions(session, plan.id)
+         if scenario in {"different_tail", "legacy_collision"}:
+@@ -136,11 +152,11 @@
+         else:
+             assert result.status == "done", result.error_message
+             assert dst.read_bytes() == body
+-            assert src.exists() == (mode != "move")
+-            if mode == "hardlink":
++            assert src.exists() == (effective_mode != "move")
++            if effective_mode == "hardlink":
+                 assert src.stat().st_ino == dst.stat().st_ino
+-            assert task.status == ("cancelled" if mode == "move" else "completed")
+-            if mode == "move":
++            assert task.status == ("cancelled" if effective_mode == "move" else "completed")
++            if effective_mode == "move":
+                 rpc_mocks.remove.assert_awaited_once_with(42, delete_data=False)
+             else:
+                 rpc_mocks.remove.assert_not_awaited()
+--- /dev/null
++++ b/tests/integration/organize/test_turso_snapshot_recovery.py
+@@ -0,0 +1,48 @@
++"""Real Turso SAVEPOINT conflict: a pooled connection must see later commits.
++
++Synthetic counter rows reproduce notify fan-out vs organize execution without
++SQL mocks or sleeps. The failed connection is deliberately read, rolled back,
++and reused after a second independent commit, as in the automatic pipeline.
++"""
++
++import pytest
++from sqlalchemy import text
++from sqlalchemy.exc import OperationalError
++from sqlalchemy.ext.asyncio import create_async_engine
++
++from app.database import normalize_database_url
++
++
++@pytest.mark.asyncio
++async def test_savepoint_lock_failure_does_not_reuse_stale_snapshot(tmp_path):
++    engine = create_async_engine(normalize_database_url(
++        f"sqlite+aioturso:///{tmp_path / 'snapshot.db'}"
++    ))
++    try:
++        async with engine.begin() as connection:
++            await connection.execute(text("PRAGMA journal_mode='mvcc'"))
++            await connection.execute(text(
++                "CREATE TABLE counter (id INTEGER PRIMARY KEY, value INTEGER)"
++            ))
++            await connection.execute(text("INSERT INTO counter VALUES (1, 0)"))
++        async with engine.connect() as reader, engine.connect() as writer:
++            statement = text("SELECT value FROM counter WHERE id = 1")
++            assert await reader.scalar(statement) == 0
++            writer_connection = writer.sync_connection.connection.dbapi_connection
++            nested = await reader.begin_nested()
++            await writer.execute(text("UPDATE counter SET value = 1 WHERE id = 1"))
++            await writer.commit()
++            with pytest.raises(OperationalError, match="database is locked"):
++                await reader.execute(text("INSERT INTO counter VALUES (2, 0) RETURNING id"))
++            await nested.rollback()
++            await reader.rollback()
++            assert await reader.scalar(statement) == 1
++            await reader.rollback()
++            await writer.execute(text("UPDATE counter SET value = 2 WHERE id = 1"))
++            await writer.commit()
++            # Old driver behavior keeps reading 1 even after repeated rollback.
++            assert await reader.scalar(statement) == 2
++            assert await reader.scalar(text("SELECT count(*) FROM counter")) == 1
++            assert writer.sync_connection.connection.dbapi_connection is writer_connection
++    finally:
++        await engine.dispose()
+--- a/tests/unit/test_database_migrations.py
++++ b/tests/unit/test_database_migrations.py
+@@ -1231,8 +1231,18 @@
+     every PostgreSQL-only branch of ``_apply_light_migrations``."""
+ 
+     def __init__(self, channel_rows):
++        from sqlalchemy.dialects.postgresql import dialect
++
++        self.dialect = dialect()
+         self._channel_rows = channel_rows
+         self.executed: list[str] = []
++
++    async def run_sync(self, function):
++        def execute(statement):
++            self.executed.append(str(statement))
++            return _FakeResult([])
++
++        return function(SimpleNamespace(dialect=self.dialect, execute=execute))
+ 
+     def begin_nested(self):
+         return _FakeSavepoint()
+@@ -1284,6 +1294,7 @@
+     assert any("ALTER TABLE libraries ALTER COLUMN root_path DROP NOT NULL" in q
+                for q in conn.executed)
+     assert any("ADD VALUE IF NOT EXISTS 'mock'" in q for q in conn.executed)
++    assert any("INSERT INTO organize_configuration" in q for q in conn.executed)
+     assert any("download_tasks_agent_id_fkey" in q for q in conn.executed)
+ 
+ 
+--- /dev/null
++++ b/tests/unit/test_organize_config_revision.py
+@@ -0,0 +1,60 @@
++"""Real DB transaction tests for organize configuration invalidation."""
++from sqlalchemy import select, update
++
++from app.models.downloader import DownloaderInstance
++from app.models.library import Library
++from app.models.organize_configuration import CONFIGURATION_ID, OrganizeConfiguration
++from app.models.storage_volume import StorageVolume
++
++
++async def revision(db):
++    return await db.scalar(select(OrganizeConfiguration.revision).where(
++        OrganizeConfiguration.id == CONFIGURATION_ID,
++    ))
++
++
++async def test_config_revision_is_seeded_and_transactional(db_session):
++    from app.services.organize_config_events import ensure_configuration
++
++    await (await db_session.connection()).run_sync(ensure_configuration)
++    await db_session.commit()
++    assert await revision(db_session) == 0
++    volume = StorageVolume(name="media", mount_path="/test/media")
++    db_session.add(volume)
++    await db_session.commit()
++    initial = await revision(db_session)
++    assert initial == 1
++    volume.remark = "display-only change"
++    await db_session.commit()
++    assert await revision(db_session) == initial
++    volume.mount_path = "/test/new-media"
++    await db_session.flush()
++    assert await revision(db_session) == initial + 1
++    await db_session.rollback()
++    assert await revision(db_session) == initial
++
++
++async def test_bulk_library_update_invalidates_in_same_transaction(db_session):
++    library = Library(name="media", root_subpath="tv")
++    db_session.add(library)
++    await db_session.commit()
++    initial = await revision(db_session)
++    await db_session.execute(update(Library).where(Library.id == library.id).values(root_subpath="changed"))
++    assert await revision(db_session) == initial + 1
++    await db_session.rollback()
++    assert await revision(db_session) == initial
++
++
++async def test_downloader_status_does_not_invalidate_plans(db_session):
++    downloader = DownloaderInstance(
++        name="test", type="transmission", url="http://example.invalid", download_dir="/downloads",
++    )
++    db_session.add(downloader)
++    await db_session.commit()
++    initial = await revision(db_session)
++    downloader.status = "connected"
++    await db_session.commit()
++    assert await revision(db_session) == initial
++    downloader.download_dir = "/downloads/new"
++    await db_session.commit()
++    assert await revision(db_session) == initial + 1
+--- /dev/null
++++ b/tests/unit/test_organize_lock_domain.py
+@@ -0,0 +1,37 @@
++import pytest
++
++from app.services.organize_ownership import OwnershipDomainError, plan_lock, registered_domain
++
++
++async def test_lock_domain_rejects_second_directory_and_missing_marker(db_session, tmp_path):
++    first, second = tmp_path / "shared", tmp_path / "private-worker"
++    domain = await registered_domain(db_session, first)
++    assert await registered_domain(db_session, first) == domain
++    second.mkdir()
++    with pytest.raises(OwnershipDomainError, match="缺少已注册身份"):
++        await registered_domain(db_session, second)
++    assert not (second / ".domain").exists()
++    (first / ".domain").unlink()
++    with pytest.raises(OwnershipDomainError, match="缺少已注册身份"):
++        await registered_domain(db_session, first)
++    assert not (first / ".domain").exists()
++
++
++async def test_lock_domain_rechecked_on_open_directory(db_session, tmp_path):
++    import uuid
++
++    domain = await registered_domain(db_session, tmp_path)
++    (tmp_path / ".domain").write_text(str(uuid.uuid4()))
++    with pytest.raises(OwnershipDomainError, match="身份.*变化"):
++        with plan_lock(tmp_path, "test-plan", domain):
++            pytest.fail("mismatched directory acquired")
++
++
++async def test_lock_domain_rejects_symlink(db_session, tmp_path):
++    real = tmp_path / "real"
++    real.mkdir()
++    link = tmp_path / "link"
++    link.symlink_to(real, target_is_directory=True)
++    with pytest.raises(OwnershipDomainError, match="目录不可用"):
++        await registered_domain(db_session, link)
++    assert list(real.iterdir()) == []
+--- /dev/null
++++ b/tests/unit/test_organize_migration.py
+@@ -0,0 +1,84 @@
++"""Upgrade the actual old table shape and preserve unknown historical modes."""
++import uuid
++
++from sqlalchemy import MetaData, inspect, select, text, update
++from sqlalchemy.ext.asyncio import create_async_engine
++
++import app.models  # noqa: F401
++from app.database import Base, _apply_light_migrations, normalize_database_url
++from app.models.organize_configuration import CONFIGURATION_ID, OrganizeConfiguration
++from app.models.organize_plan import OrganizePlan
++
++NEW_COLUMNS = {
++    "file_op", "needs_category", "manual_destination", "revision", "config_revision", "owner_token",
++}
++
++
++async def check_upgrade(engine):
++    legacy = MetaData()
++    for table in Base.metadata.sorted_tables:
++        if table.name != "organize_configuration":
++            table.to_metadata(legacy)
++    old_plan = legacy.tables["organize_plans"]
++    for name in NEW_COLUMNS:
++        old_plan._columns.remove(old_plan.c[name])
++    ids = {name: str(uuid.uuid4()) for name in ("channel", "downloader", "resource", "task", "notification", "plan")}
++    async with engine.begin() as conn:
++        await conn.run_sync(legacy.create_all)
++        columns = await conn.run_sync(lambda sync: {
++            column["name"] for column in inspect(sync).get_columns("organize_plans")
++        })
++        assert not (columns & NEW_COLUMNS), "upgrade test requires a genuinely old schema"
++        assert not await conn.run_sync(lambda sync: inspect(sync).has_table("organize_configuration"))
++        if conn.dialect.name == "sqlite":
++            await conn.execute(text("PRAGMA journal_mode='mvcc'"))
++        await conn.execute(legacy.tables["channels"].insert().values(
++            id=ids["channel"], name="migration", type="rss_feed", url="https://example.invalid/feed", field_mapping={},
++        ))
++        await conn.execute(legacy.tables["downloader_instances"].insert().values(
++            id=ids["downloader"], name="migration", type="mock", url="", download_dir="/downloads",
++        ))
++        await conn.execute(legacy.tables["file_resources"].insert().values(
++            id=ids["resource"], channel_id=ids["channel"], guid="migration", title_raw="synthetic migration fixture",
++            torrent_url="magnet:?xt=urn:btih:synthetic",
++        ))
++        await conn.execute(legacy.tables["download_tasks"].insert().values(
++            id=ids["task"], file_resource_id=ids["resource"], downloader_id=ids["downloader"],
++            download_dir="/downloads", status="completed",
++        ))
++        await conn.execute(legacy.tables["download_notifications"].insert().values(
++            id=ids["notification"], download_task_id=ids["task"], payload={"migration_sentinel": True},
++        ))
++        await conn.execute(old_plan.insert().values(
++            id=ids["plan"], notification_id=ids["notification"], status="running",
++            payload={"migration_sentinel": True},
++        ))
++    for attempt in range(2):
++        async with engine.begin() as conn:
++            await conn.run_sync(Base.metadata.create_all)
++            await _apply_light_migrations(conn)
++            row = (await conn.execute(select(OrganizePlan.__table__).where(
++                OrganizePlan.id == ids["plan"],
++            ))).mappings().one()
++            assert row["status"] == "running"
++            assert row["payload"] == {"migration_sentinel": True}
++            assert row["file_op"] is None and row["config_revision"] is None
++            assert row["owner_token"] is None and row["revision"] == 0
++            assert row["needs_category"] is False and row["manual_destination"] is False
++            revision = await conn.scalar(select(OrganizeConfiguration.revision))
++            assert revision == (0 if attempt == 0 else 77)
++            await conn.execute(update(OrganizeConfiguration).where(
++                OrganizeConfiguration.id == CONFIGURATION_ID,
++            ).values(revision=77))
++
++
++async def test_old_organize_plan_upgrade_is_idempotent(tmp_path, monkeypatch):
++    from app.config import settings
++
++    url = normalize_database_url(f"sqlite+aioturso:///{tmp_path / 'upgrade.db'}")
++    monkeypatch.setattr(settings, "database_url", url)
++    engine = create_async_engine(url)
++    try:
++        await check_upgrade(engine)
++    finally:
++        await engine.dispose()
+--- a/tests/unit/test_organize_service.py
++++ b/tests/unit/test_organize_service.py
+@@ -11,7 +11,9 @@
+ 
+ from __future__ import annotations
+ 
++import asyncio
+ import os
++import threading
+ import uuid
+ from pathlib import Path
+ from types import SimpleNamespace
+@@ -19,6 +21,7 @@
+ 
+ import pytest
+ from sqlalchemy import select
++from sqlalchemy.ext.asyncio import async_sessionmaker
+ from sqlalchemy.orm import selectinload
+ 
+ from app.models.download_notification import DownloadNotification
+@@ -680,6 +683,55 @@
+     return plan, dl_dir
+ 
+ 
++@pytest.mark.parametrize("cancel_inner_owner", [False, True])
++async def test_execute_plan_cancellation_retains_owner_until_finalize(
++    db_session, db_engine, tmp_path, monkeypatch, cancel_inner_owner,
++):
++    plan, downloads = await _planned_series_plan(db_session, tmp_path, file_op="hardlink")
++    entered = threading.Event()
++    release = threading.Event()
++    real_execution = organize_service.run_execution
++
++    def paused(*args, **kwargs):
++        entered.set()
++        if not release.wait(20):
++            raise TimeoutError("executor was not released")
++        return real_execution(*args, **kwargs)
++
++    monkeypatch.setattr(organize_service, "run_execution", paused)
++    baseline_tasks = asyncio.all_tasks()
++    operation = asyncio.create_task(execute_plan(db_session, plan.id))
++    try:
++        assert await asyncio.to_thread(entered.wait, 20)
++        operation.cancel()
++        if cancel_inner_owner:
++            # asyncio.run shutdown cancels both the caller and its shielded
++            # owner Task. Executor Futures themselves are not Tasks.
++            inner = asyncio.all_tasks() - baseline_tasks - {operation}
++            assert inner
++            for task in inner:
++                task.cancel()
++        await asyncio.sleep(0)
++        operation.cancel()
++        await asyncio.sleep(0)
++        assert not operation.done()
++        factory = async_sessionmaker(db_engine, expire_on_commit=False)
++        async with factory() as contender:
++            with pytest.raises(OrganizeError, match="正在执行中"):
++                await execute_plan(contender, plan.id)
++    finally:
++        release.set()
++    with pytest.raises(asyncio.CancelledError):
++        await operation
++    async with factory() as reader:
++        completed = await reader.get(OrganizePlan, plan.id)
++        assert completed.status == "done"
++        assert all(op.status == "done" for op in completed.ops)
++        source = downloads / "Show.S01/ep04.mkv"
++        assert source.exists()
++        assert os.path.samefile(source, completed.ops[0].dst)
++
++
+ async def test_execute_plan_full_flow(db_session, tmp_path):
+     plan, dl_dir = await _planned_series_plan(db_session, tmp_path)
+     plan = await execute_plan(db_session, plan.id)
+@@ -762,6 +814,7 @@
+     lib.section_key = "2"
+     await db_session.commit()
+ 
++    assert (await replan_open_plans(db_session, reason="test server binding"))["rebuilt"] == 1
+     plan = await execute_plan(db_session, plan.id)
+     assert plan.status == "done"  # 失败只记日志，不改写计划状态
+     mock_cleanup.assert_awaited_once()
+@@ -841,6 +894,7 @@
+     mock_refresh = AsyncMock()
+     monkeypatch.setattr(organize_service, "refresh_library", mock_refresh)
+ 
++    assert (await replan_open_plans(db_session, reason="test server binding"))["rebuilt"] == 1
+     plan = await execute_plan(db_session, plan.id)
+     assert plan.status == "done"
+     [op] = (
+@@ -1649,6 +1703,8 @@
+     plan = OrganizePlan(
+         notification_id=notification.id, rule_id=rule.id, library_id=lib.id,
+         status="pending", payload=notification.payload,
++        file_op="move", needs_category=True,
++        config_revision=await organize_service.configuration_revision(db_session),
+     )
+     db_session.add(plan)
+     await db_session.commit()

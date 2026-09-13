@@ -1470,6 +1470,7 @@
     "server": "所属服务器",
     "serverPath": "服务器路径",
     "rootPath": "解析根目录",
+    "invalidPath": "路径配置无效",
     "binding": "绑定状态",
     "bound": "已绑定",
     "unbound": "待绑定",

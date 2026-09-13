@@ -1197,10 +1197,11 @@ def _run_to_completion(agent_id: str, body: dict | None = None, timeout: int = 1
             time.sleep(2)
         r = _api(f"/api/v1/agents/{agent_id}/run", method="post", json=body)
     assert r.status_code == 200, f"run failed: {r.text}"
+    job_id = r.json()["data"]["job_id"]
     deadline = time.time() + timeout
     while time.time() < deadline:
         st = _api(f"/api/v1/agents/{agent_id}/run-status").json()["data"]
-        if st.get("status") in ("done", "failed"):
+        if st.get("job_id") == job_id and st.get("status") in ("done", "failed"):
             return st
         time.sleep(2)
     raise TimeoutError(f"agent run did not finish for {agent_id}")
@@ -1235,26 +1236,32 @@ class TestAgentRun:
         assert _api("/api/v1/agents/no-such/run-status").status_code == 404
 
     def test_runs_history_annotations(self, env):
-        # A full-history windowed run matches every linked resource; the
-        # already-dispatched ones are flagged dispatched in the run history.
-        st = _run_to_completion(env["auto_agent"], {"scan_since": None})
+        # Use a fresh agent: earlier tests can already have dispatched every
+        # episode for the module's auto_agent. Dedup happens before matched
+        # accounting, so a replay of that agent legitimately has matched=0.
+        agent_id = _create_agent(
+            env["ch_linked"], env["mock_dl"], conflict_resolution="auto"
+        )
+        st = _run_to_completion(agent_id, {"scan_since": None})
         assert st["status"] == "done", f"run failed: {st.get('error')}"
 
         r = _api(
-            f"/api/v1/agents/{env['auto_agent']}/runs",
+            f"/api/v1/agents/{agent_id}/runs",
             params={"page_size": 50},
         )
         assert r.status_code == 200
         rows = r.json()["data"]
         assert rows, "no run history after a completed run"
-        latest = rows[0]
+        # Turso's server timestamp can tie within a second. Verify the
+        # requested run, not whichever tied row happens to sort first.
+        latest = next(row for row in rows if row["id"] == st["result"]["run_id"])
         assert latest["matched"] >= 1
         assert latest["matched_resources"], "matched resources not hydrated"
         assert any(m["dispatched"] for m in latest["matched_resources"])
 
         # non_empty filter keeps only productive runs.
         r = _api(
-            f"/api/v1/agents/{env['auto_agent']}/runs",
+            f"/api/v1/agents/{agent_id}/runs",
             params={"non_empty": "true", "page_size": 50},
         )
         assert r.status_code == 200
@@ -1264,6 +1271,12 @@ class TestAgentRun:
                 or row["pending_decisions"] > 0
                 or row["status"] in ("running", "failed")
             )
+
+        replay = _run_to_completion(agent_id, {"scan_since": None})
+        assert replay["status"] == "done", replay
+        assert replay["result"]["matched"] == 0
+        assert replay["result"]["duplicates_skipped"] >= 1
+        assert replay["result"]["dispatched"] == 0
 
     def test_runs_pending_decision_marks(self, env):
         # The ask agent's full-history run re-confirms the per-episode

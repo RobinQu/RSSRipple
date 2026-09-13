@@ -1,0 +1,7 @@
+{
+  "schema": "actual upgraded PostgreSQL",
+  "nonnullable_key": true,
+  "pair_unique": true,
+  "resource_delete_cascade": true,
+  "agent_delete_cascade": true
+}

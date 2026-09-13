@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from app.utils.path_safety import PathSafetyError, resolve_subpath
+
 
 class VolumeResolutionError(Exception):
     """卷绑定解析失败（卷不存在 / 绑定不完整 / 路径不在下载根之下）。"""
@@ -79,23 +81,23 @@ def resolve_library_root(library: Any) -> str | None:
     volume = getattr(library, "volume", None)
     if volume is None:
         return None
-    base = volume.mount_path.rstrip("/")
-    subpath = (getattr(library, "root_subpath", None) or "").strip("/")
-    return f"{base}/{subpath}" if subpath else base
+    try:
+        return resolve_subpath(volume.mount_path, getattr(library, "root_subpath", None))
+    except PathSafetyError as exc:
+        raise VolumeResolutionError(str(exc)) from exc
 
 
 def resolve_library_recycle(library: Any) -> str | None:
-    """Library 回收站目录动态解析 = ``volume.mount_path + recycle_subpath``。
-
-    与库根同卷；``recycle_subpath`` 为空（默认）或卷未绑定 → None（合集
-    move 计划的剩余文件原地保留，不产生 movedir op）。
-    """
-    subpath = (getattr(library, "recycle_subpath", None) or "").strip("/")
-    if not subpath:
-        return None
+    """Resolve an optional recycle directory, rejecting escapes from the volume."""
     if library is None or not getattr(library, "volume_id", None):
+        return None
+    subpath = getattr(library, "recycle_subpath", None)
+    if subpath in (None, ""):
         return None
     volume = getattr(library, "volume", None)
     if volume is None:
         return None
-    return f"{volume.mount_path.rstrip('/')}/{subpath}"
+    try:
+        return resolve_subpath(volume.mount_path, subpath)
+    except PathSafetyError as exc:
+        raise VolumeResolutionError(str(exc)) from exc

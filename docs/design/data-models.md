@@ -804,3 +804,20 @@ class FtsOutbox(Base):
 三张普通表 `tv_series_fts` / `movie_fts` / `audio_work_fts`（`entity_id` PK + 规范化标题列），其上建 `CREATE INDEX ... USING fts (…) WITH (tokenizer='ngram')` 由引擎自动跟踪 DML。仅缓存 `search_text` 同源的规范化内容，可随时从基表重建（`rebuild_*_fts` / `backfill_fts_if_empty`）；同步 = `search_*_fts` **读前先 drain outbox**（read-your-writes：刚提交的作品立即可搜）+ `_drain_fts_outbox`（每 30 秒批量化兜底，覆盖脚本/非 API 写入）+ `_reconcile_fts`（每小时全量对账兜底，修补绕过 outbox 的路径）。PostgreSQL 无此表。
 
 ---
+
+
+## 整理计划版本与配置单例
+
+整理模型完整关系见 [file-organization.md](file-organization.md)。`OrganizePlan` 增加可空 String(16) `file_op`、非空 Boolean `needs_category`/`manual_destination`（服务端 false）、非空 BigInteger `revision`（服务端 0）、可空 BigInteger `config_revision`、可空 String(36) `owner_token`。历史未知模式保留 NULL，执行前重建或拒绝；不能迁移成 move。
+
+`OrganizeConfiguration`（`organize_configuration`）是内部单例：UUID v4 主键 `b72934dd-04bd-4cc3-8a68-ab1957b78027`，非空 BigInteger `revision`（服务端 0），可空 String(36) `lock_domain`。配置与版本同事务写入；锁域首次使用注册，后续不能自动改指另一目录。两后端启动轻迁移幂等添加字段并确保单例存在，关键列失败中止启动。
+
+
+### NotificationBuildFailure（通知生成失败）
+
+表 `notification_build_failures`：UUID v4 字符串主键 `id`；`download_task_id` 非空、唯一、引用 `download_tasks.id ON DELETE CASCADE`；`attempt_count` 非空整数、server default 1；`next_attempt_at` 非空 UTC DateTime 并建索引；`error_message` 非空 String(2048)；`updated_at` 非空 UTC DateTime，默认当前时间、每次失败更新。它仅记录生成快照的失败，不是 DownloadNotification 或 WebhookDelivery 的替代品；成功后删除。
+
+
+### AgentResourceRequest（持久化定向重跑请求）
+
+`agent_resource_requests` 使用 UUID v4 字符串主键；`agent_id`、`resource_id` 非空并分别 FK CASCADE，二者联合唯一。`revision` 非空默认 1，每次新修订原子递增；`requested_at` 为 UTC；`attempt_count` 非空默认 0；`next_attempt_at` 可空 UTC 且有索引；`error_message` 可空、最长 2048。新修订保留行 id、重置错误与退避；消费确认必须同时匹配 id 与 revision，防止旧运行删除新修订或删除后重建的请求。

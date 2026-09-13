@@ -1,6 +1,7 @@
 """ORM models package - import all for SQLAlchemy discovery."""
 
 from app.models.agent import Agent
+from app.models.agent_resource_request import AgentResourceRequest
 from app.models.agent_run import AgentRun
 from app.models.agent_suggestion import AgentSuggestion
 from app.models.agent_webhook import AgentWebhook
@@ -22,7 +23,9 @@ from app.models.library import Library
 from app.models.media_server import MediaServerBinding, MediaServerInstance
 from app.models.metadata_cache import MetadataCache
 from app.models.movie import Movie
+from app.models.notification_build_failure import NotificationBuildFailure
 from app.models.organize_audit import OrganizeAuditEntry
+from app.models.organize_configuration import OrganizeConfiguration
 from app.models.organize_plan import OrganizePlan
 from app.models.organize_plan_op import OrganizePlanOp
 from app.models.organize_rule import OrganizeRule
@@ -45,6 +48,7 @@ __all__ = [
     "Movie",
     "AudioWork",
     "Agent",
+    "AgentResourceRequest",
     "AgentRun",
     "AgentWork",
     "AgentSuggestion",
@@ -53,6 +57,7 @@ __all__ = [
     "DownloaderInstance",
     "DownloadTask",
     "DownloadNotification",
+    "NotificationBuildFailure",
     "PendingDecision",
     "ResourceWorkLink",
     "ResourceFileAssignment",
@@ -73,9 +78,11 @@ __all__ = [
     "OrganizePlan",
     "OrganizePlanOp",
     "OrganizeAuditEntry",
+    "OrganizeConfiguration",
 ]
 
 # Register ORM event hooks that keep search indexes in sync (Turso fts_outbox
 # enqueue + PostgreSQL search_text maintenance). Imported last so the model
 # classes above are already defined.
+import app.services.organize_config_events as _organize_config_events  # noqa: E402, F401
 import app.services.work_search_events as _work_search_events  # noqa: E402, F401

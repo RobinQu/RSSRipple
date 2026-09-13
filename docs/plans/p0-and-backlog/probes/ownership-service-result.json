@@ -1,0 +1,8 @@
+{
+  "O5": {
+    "plan_id": "23a2fc45-bbe1-4f59-b6b4-7148fba945b0",
+    "completed_executions": 1,
+    "second_process_rejected_before_executor": true
+  },
+  "scope": "prototype service integration; O1/O2 unresolved"
+}

@@ -2177,7 +2177,10 @@ async def test_series_history_context_none_without_match(monkeypatch, db_session
 # Batch 2: season verification (never guess the season)
 # ---------------------------------------------------------------------------
 
-from app.services.metadata_agent import _apply_verified_season_default  # noqa: E402
+from app.services.metadata_agent import (  # noqa: E402
+    _apply_verified_season_default,
+    _validate_inferred_season,
+)
 from app.services.metadata_episode_reconcile import (  # noqa: E402
     season_evidence_from_series,
     verified_season_count,
@@ -2338,6 +2341,103 @@ class TestVerifiedSeasonDefault:
         nf = ResourceMetadata(clean_title="X", content_type="tv", found=False)
         _apply_verified_season_default(nf)
         assert nf.season is None and nf.season_ambiguous is False
+
+
+class TestValidateInferredSeason:
+    """_validate_inferred_season: an LLM-supplied season is only kept when the
+    matched entity's evidence supports it; otherwise it is dropped + marked
+    ambiguous (never create/link a guessed season)."""
+
+    def test_season_within_explicit_count_kept(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=3,
+            matched_entity={"number_of_seasons": 4},
+        )
+        _validate_inferred_season(meta)
+        assert meta.season == 3
+        assert meta.season_ambiguous is False
+
+    def test_season_present_in_map_kept(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=2,
+            matched_entity={"seasons": [
+                {"season_number": 1, "episode_count": 12},
+                {"season_number": 2, "episode_count": 12},
+            ]},
+        )
+        _validate_inferred_season(meta)
+        assert meta.season == 2
+        assert meta.season_ambiguous is False
+
+    def test_hallucinated_season_dropped(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=4,
+            matched_entity={"number_of_seasons": 2},
+        )
+        _validate_inferred_season(meta)
+        assert meta.season is None
+        assert meta.season_ambiguous is True
+
+    def test_season_absent_from_map_dropped(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=5,
+            matched_entity={"seasons": [
+                {"season_number": 1, "episode_count": 12},
+            ]},
+        )
+        _validate_inferred_season(meta)
+        assert meta.season is None
+        assert meta.season_ambiguous is True
+
+    def test_no_season_evidence_dropped(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=1,
+            matched_entity={"title_cn": "X"},
+        )
+        _validate_inferred_season(meta)
+        assert meta.season is None
+        assert meta.season_ambiguous is True
+
+    def test_specials_season_zero_kept(self):
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=0,
+            matched_entity={"number_of_seasons": 3},
+        )
+        _validate_inferred_season(meta)
+        assert meta.season == 0
+        assert meta.season_ambiguous is False
+
+    def test_then_verified_default_recovers_single_season(self):
+        # LLM guessed season 4 on a provably single-season work: the guess is
+        # dropped, then the verified default pins the only real season.
+        meta = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=4,
+            matched_entity={"number_of_seasons": 1},
+        )
+        _validate_inferred_season(meta)
+        _apply_verified_season_default(meta)
+        assert meta.season == 1
+        assert meta.season_ambiguous is False
+
+    def test_movie_not_found_and_no_season_untouched(self):
+        movie = ResourceMetadata(
+            clean_title="X", content_type="movie", found=True, season=2,
+            matched_entity={"number_of_seasons": 1},
+        )
+        _validate_inferred_season(movie)
+        assert movie.season == 2 and movie.season_ambiguous is False
+        nf = ResourceMetadata(
+            clean_title="X", content_type="tv", found=False, season=2,
+            matched_entity={"number_of_seasons": 1},
+        )
+        _validate_inferred_season(nf)
+        assert nf.season == 2 and nf.season_ambiguous is False
+        none_season = ResourceMetadata(
+            clean_title="X", content_type="tv", found=True, season=None,
+            matched_entity={"number_of_seasons": 2},
+        )
+        _validate_inferred_season(none_season)
+        assert none_season.season is None and none_season.season_ambiguous is False
 
 
 # ---------------------------------------------------------------------------

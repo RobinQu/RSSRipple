@@ -191,29 +191,22 @@ class TestChannelsCRUD:
         # status stays 'active' (the channel's existing value), not 'inactive'
         assert res.json()["data"]["status"] == "active"
 
-    async def test_update_channel_reschedules_to_apply_new_settings(
+    async def test_update_channel_persists_settings_without_web_scheduler(
         self, client, sample_channel, monkeypatch
     ):
-        # Editing fetch_interval / metadata_source must reset the background
-        # task so the new settings take effect.
         from app.services import scheduler as sched_mod
 
-        captured: dict = {}
-
-        def fake_reschedule(ch):
-            captured["channel_id"] = ch.id
-            captured["fetch_interval"] = ch.fetch_interval
-            captured["metadata_source"] = ch.metadata_source
-
-        monkeypatch.setattr(sched_mod, "reschedule_channel", fake_reschedule)
+        schedule = MagicMock()
+        monkeypatch.setattr(sched_mod, "reschedule_channel", schedule)
         res = await client.put(
             f"/api/v1/channels/{sample_channel.id}",
             json={"fetch_interval": 600, "metadata_source": "tmdb"},
         )
         assert res.status_code == 200
-        assert captured.get("channel_id") == sample_channel.id
-        assert captured.get("fetch_interval") == 600
-        assert captured.get("metadata_source") == "tmdb"
+        schedule.assert_not_called()
+        got = await client.get(f"/api/v1/channels/{sample_channel.id}")
+        assert got.json()["data"]["fetch_interval"] == 600
+        assert got.json()["data"]["metadata_source"] == "tmdb"
 
     async def test_delete_channel(self, client, sample_channel):
         res = await client.delete(f"/api/v1/channels/{sample_channel.id}")
@@ -541,6 +534,46 @@ class TestMetadataSources:
 
 
 class TestCreateAutoFetch:
+    async def test_initial_fetch_sees_committed_channel(self, client, db_session_factory, monkeypatch):
+        """A fast consumer using a different transaction must see the new row."""
+        from sqlalchemy import select
+
+        from app.config import settings
+        from app.models.channel import Channel
+        from app.services import task_queue as tq_mod
+
+        monkeypatch.setattr(settings, "scheduler_enabled", True)
+        observed = []
+
+        async def consume(job_type, key, payload):
+            async with db_session_factory() as worker:
+                observed.append((await worker.execute(
+                    select(Channel.id).where(Channel.id == payload["channel_id"])
+                )).scalar_one_or_none())
+            return {"status": "queued"}
+
+        queue = MagicMock(enqueue=AsyncMock(side_effect=consume))
+        monkeypatch.setattr(tq_mod, "task_queue", queue)
+        with patch("app.api.v1.channels.validate_rss_url", AsyncMock(return_value=(True, "ok", 1, 1))):
+            res = await client.post("/api/v1/channels", json=_channel_payload())
+        assert res.status_code == 201
+        assert observed == [res.json()["data"]["id"]]
+        assert res.json()["meta"]["fetch_triggered"] is True
+        assert queue.enqueue.call_args.args[2]["scheduled"] is True
+
+    async def test_inactive_channel_does_not_auto_fetch(self, client, monkeypatch):
+        from app.config import settings
+        from app.services import task_queue as tq_mod
+
+        monkeypatch.setattr(settings, "scheduler_enabled", True)
+        queue = MagicMock(enqueue=AsyncMock())
+        monkeypatch.setattr(tq_mod, "task_queue", queue)
+        with patch("app.api.v1.channels.validate_rss_url", AsyncMock(return_value=(True, "ok", 1, 1))):
+            res = await client.post("/api/v1/channels", json={**_channel_payload(), "status": "inactive"})
+        assert res.status_code == 201
+        assert res.json()["meta"]["fetch_triggered"] is False
+        queue.enqueue.assert_not_called()
+
     async def test_create_enqueues_initial_fetch(self, client):
         """Creating a channel auto-triggers a fetch_channel job."""
         with patch(

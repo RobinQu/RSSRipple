@@ -576,3 +576,29 @@ async def test_search_fullwidth_query_normalization(db_session, sample_series):
     await upsert_series_fts(db_session, sample_series)
     # Full-width letters are NFKC-folded to ASCII and lowercased before search.
     assert sample_series.id in await search_series_fts(db_session, "ＴＥＳＴ ＳＥＲＩＥＳ")
+
+
+async def test_pre_search_drain_failure_preserves_caller_transaction(db_session, sample_series, monkeypatch):
+    from sqlalchemy import select, text
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models.series import TVSeries
+    from app.services import fts
+
+    await db_session.commit()
+    original_title = sample_series.title_en
+    series_id = sample_series.id
+    await db_session.scalar(select(TVSeries.id).where(TVSeries.id == series_id))
+    sample_series.title_en = "uncommitted caller title"
+
+    async def connection_failure(session):
+        await session.execute(text("SELECT 1"))
+        await (await session.connection()).invalidate()
+        raise OperationalError("DELETE FROM fts_outbox", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(fts, "drain_fts_outbox", connection_failure)
+    await fts._drain_pending_changes(db_session)
+    assert await db_session.scalar(select(TVSeries.title_en).where(TVSeries.id == series_id)) == "uncommitted caller title"
+    async with AsyncSession(bind=db_session.bind) as other:
+        assert await other.scalar(select(TVSeries.title_en).where(TVSeries.id == series_id)) == original_title

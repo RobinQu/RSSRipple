@@ -557,141 +557,110 @@ async def test_process_download_notifications_disabled(db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_process_download_notifications_tick_failure_swallowed(
-    db_session, monkeypatch
+    db_session, monkeypatch, caplog
 ):
-    import app.config as cfg_mod
-    monkeypatch.setattr(cfg_mod, "settings", SimpleNamespace(notify_enabled=True))
-    factory = _ctx_factory(db_session)
-    import app.database as dbmod
-    monkeypatch.setattr(dbmod, "async_session_factory", factory)
+    """A failed delivery stage is reached, logged, and its transaction ends."""
+    from sqlalchemy import text
 
+    import app.config as cfg_mod
+
+    monkeypatch.setattr(cfg_mod.settings, "notify_enabled", True)
     with patch(
-        "app.services.notify_service.create_notification_for_task",
-        new=AsyncMock(side_effect=RuntimeError("boom")),
-    ):
-        await sch._process_download_notifications()  # must not raise
+        "app.services.notify_service.ensure_deliveries",
+        new=AsyncMock(side_effect=RuntimeError("injected fan-out failure")),
+    ) as fan_out:
+        await sch._process_download_notifications()
+    fan_out.assert_awaited_once()
+    assert "injected fan-out failure" in caplog.text
+    assert await db_session.scalar(text("SELECT 1")) == 1
 
 
 @pytest.mark.asyncio
 async def test_process_download_notifications_full_tick(
     db_session, _seed, monkeypatch
 ):
-    """A completed task with an enabled webhook flows through the whole tick:
-    notification creation, organize planning, fan-out and delivery."""
+    """Newly committed snapshots are reloaded before planning and fan-out."""
     import app.config as cfg_mod
-    monkeypatch.setattr(cfg_mod, "settings", SimpleNamespace(notify_enabled=True))
-    factory = _ctx_factory(db_session)
-    import app.database as dbmod
-    monkeypatch.setattr(dbmod, "async_session_factory", factory)
-
     from app.models.agent_webhook import AgentWebhook
     from app.models.download_notification import DownloadNotification
 
-    webhook = AgentWebhook(
-        id=_uuid(), agent_id=_seed.agent.id, url="http://example.com/hook",
-        enabled=True,
-    )
-    db_session.add(webhook)
+    monkeypatch.setattr(cfg_mod.settings, "notify_enabled", True)
+    db_session.add(AgentWebhook(
+        id=_uuid(), agent_id=_seed.agent.id, url="http://example.invalid/hook",
+        enabled=True, mock=True,
+    ))
     _seed.t_done.status = "completed"
-    _seed.t_done.completed_at = datetime.now(UTC)
     await db_session.commit()
+    notification_id = _uuid()
 
-    notif = DownloadNotification(
-        id=_uuid(), agent_id=_seed.agent.id,
-        download_task_id=_seed.t_done.id,
-        payload={"version": 2, "task_id": _seed.t_done.id},
-    )
-
-    async def _create_notification(db, task):
-        return notif, True
-
-    async def _plan_for_notifications(db, targets):
-        return {"planned": 1, "rebuilt": 0, "uncategorized": 0,
-                "skipped": 0, "failed": 0}
+    async def create_snapshot(db, task):
+        notification = DownloadNotification(
+            id=notification_id, agent_id=task.agent_id, download_task_id=task.id,
+            payload={"version": 2, "task_id": task.id},
+        )
+        db.add(notification)
+        await db.flush()
+        return notification, True
 
     with patch(
-        "app.services.notify_service.create_notification_for_task",
-        new=AsyncMock(side_effect=_create_notification),
-    ), patch(
+        "app.services.notification_build.create_notification_for_task",
+        new=AsyncMock(side_effect=create_snapshot),
+    ) as create, patch(
         "app.services.organize_service.plan_for_notifications",
-        new=AsyncMock(side_effect=_plan_for_notifications),
-    ), patch(
-        "app.services.notify_service.ensure_deliveries",
-        new=AsyncMock(return_value=2),
-    ), patch(
+        new=AsyncMock(return_value={"planned": 1, "rebuilt": 0, "uncategorized": 0,
+                                   "skipped": 0, "failed": 0}),
+    ) as planner, patch(
+        "app.services.notify_service.ensure_deliveries", new=AsyncMock(return_value=1),
+    ) as fan_out, patch(
         "app.services.notify_service.deliver_due_deliveries",
-        new=AsyncMock(return_value={"delivered": 1, "failed": 0, "skipped": 1}),
-    ):
+        new=AsyncMock(return_value={"delivered": 1, "failed": 0, "skipped": 0}),
+    ) as deliver:
         await sch._process_download_notifications()
+    create.assert_awaited_once()
+    planner.assert_awaited_once()
+    assert [row.id for row in planner.await_args.args[1]] == [notification_id]
+    assert (await db_session.get(DownloadNotification, notification_id)).download_task_id == _seed.t_done.id
+    fan_out.assert_awaited_once()
+    deliver.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_process_download_notifications_orphan_scan_failure(
-    db_session, _seed, monkeypatch
+    db_session, monkeypatch, caplog
 ):
-    """The organize orphan back-scan failure is non-fatal (logged only)."""
+    """Failure of the actual orphan query still reaches both delivery stages."""
+    from sqlalchemy.sql.selectable import Select
+
     import app.config as cfg_mod
-    monkeypatch.setattr(cfg_mod, "settings", SimpleNamespace(notify_enabled=True))
-    factory = _ctx_factory(db_session)
     import app.database as dbmod
-    monkeypatch.setattr(dbmod, "async_session_factory", factory)
-
-    from app.models.agent_webhook import AgentWebhook
-
-    webhook = AgentWebhook(
-        id=_uuid(), agent_id=_seed.agent.id, url="http://example.com/hook",
-        enabled=True,
-    )
-    db_session.add(webhook)
-    await db_session.commit()
-
-    async def _create_notification(db, task):
-        return None, False
-
-    # Patch only the ORPHAN query (the second SELECT of DownloadNotification
-    # inside the try block) to raise; the task query must still succeed.
-    from sqlalchemy import select
-
     from app.models.download_notification import DownloadNotification
 
+    monkeypatch.setattr(cfg_mod.settings, "notify_enabled", True)
+    monkeypatch.setattr(dbmod, "async_session_factory", _ctx_factory(db_session))
     real_execute = db_session.execute
-    call_count = 0
+    failures = 0
 
-    async def _selective_fail_execute(stmt, *a, **kw):
-        nonlocal call_count
-        # First select on DownloadNotification is the `notified` subquery in
-        # the task stmt; failing it would break the whole tick. Only fail the
-        # orphan back-scan (second standalone DownloadNotification select that
-        # has no join and no `status` filter).
-        if isinstance(stmt, select) and stmt.whereclause is not None:
+    async def fail_orphan_query(statement, *args, **kwargs):
+        nonlocal failures
+        if isinstance(statement, Select) and any(
+            desc.get("entity") is DownloadNotification for desc in statement.column_descriptions
+        ) and "organize_plans" in str(statement):
+            failures += 1
+            raise RuntimeError("injected orphan scan failure")
+        return await real_execute(statement, *args, **kwargs)
 
-            has_task_table = any(
-                col.table.key == "download_tasks" for col in stmt.whereclause.get_children(
-                    **{"iterate": True}
-                ) if hasattr(col, "table")
-            )
-            if not has_task_table and any(
-                isinstance(desc, DownloadNotification)
-                for desc in getattr(stmt, "_entities", [])
-            ):
-                raise RuntimeError("orphan scan failed")
-        return await real_execute(stmt, *a, **kw)
-
-    db_session.execute = _selective_fail_execute  # type: ignore[method-assign]
-    try:
-        with patch(
-            "app.services.notify_service.create_notification_for_task",
-            new=AsyncMock(side_effect=_create_notification),
-        ), patch(
-            "app.services.notify_service.ensure_deliveries",
-            new=AsyncMock(return_value=0),
-        ), patch(
-            "app.services.notify_service.deliver_due_deliveries",
-            new=AsyncMock(return_value={"delivered": 0, "failed": 0, "skipped": 0}),
-        ):
-            await sch._process_download_notifications()  # must not raise
-    finally:
-        db_session.execute = real_execute  # type: ignore[method-assign]
+    monkeypatch.setattr(db_session, "execute", fail_orphan_query)
+    with patch(
+        "app.services.notify_service.ensure_deliveries", new=AsyncMock(return_value=0),
+    ) as fan_out, patch(
+        "app.services.notify_service.deliver_due_deliveries",
+        new=AsyncMock(return_value={"delivered": 0, "failed": 0, "skipped": 0}),
+    ) as deliver:
+        await sch._process_download_notifications()
+    assert failures == 1
+    assert "injected orphan scan failure" in caplog.text
+    fan_out.assert_awaited_once()
+    deliver.assert_awaited_once()
 
 
 def test_get_scheduler_uninitialized_raises():

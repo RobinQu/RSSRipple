@@ -26,8 +26,9 @@ vault-organizer 的独立部署形态在功能对等后归档（见"分期路线
 ### TODO：跨目标多作品分组子计划（长期方案）
 
 当前 `OrganizePlan` 的 `rule_id/library_id/category` 是计划级字段，因此短期方案刻意不支持同一下载包跨媒体库或使用不同 file_op。长期改造必须新增 `OrganizePlanGroup`（父计划 1:N，分组持有 `work_type/work_id/rule_id/library_id/category/file_op/status`，现有 ops 改挂 group），并完成：父状态聚合；分组级分类/执行/重试；按卷独立磁盘空间门禁；多个 MediaServer Section 刷新；所有分组终态成功后才清理下载任务/源目录；取消、审计和 regenerate 的分组幂等重建；旧单组计划迁移。该 TODO 未完成前，跨目标多作品计划必须保持 failed，不得自动降级。
-- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单过滤绝对路径与 `.`/`..` 分量）；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
-- **冲突绝不覆盖**：规划预检与执行前置门禁两道防线，目标已存在且 size 不符一律拒绝。
+- **只扫种子独立目录**：文件定位只扫 `download_dir/torrent_name`（或文件清单逐项存在性精确匹配）；**绝不扫描共享下载根**——那里混放所有任务的文件。清单来源顺序：payload `files` 快照 → torrent 清单回退（`resource.torrent_file` 缓存 → `torrent_url` 拉取 → 下载器 RPC，见 `_resolve_manifest`；回退清单也须整份校验）；torrent_name 为空时**不做任何目录遍历**，只按清单精确匹配，匹配不到即规划失败。
+- **输入路径边界**：所有来源先校验完整 files 与 torrent_name，禁绝对/驱动器路径、空名、非字符串、控制字符、首尾空白及 `.`/`..` 分量。任一非法项拒绝整个计划，不过滤后执行其余文件；原始 torrent 条目先校验再补根名。候选及枚举结果经解析后必须仍在下载根内（含目录/文件符号链接）；种子目录不得指回共享根。校验集中于 organize_source/path_safety；新规划拒绝落 failed/零 ops，清单回退错误也纳入持久化错误边界。
+- **冲突绝不覆盖**：规划预检与执行前置门禁两道防线，同计划目标重叠或影响其他源一律拒绝；已有文件目标按内容/inode 验证，文件发布原子不覆盖。
 - **清空目录只走 `os.rmdir` 自底向上**（只删空目录），**绝不 `rm -rf`**。
 - **合集缺集拒绝整理**：合集覆盖度校验不过即规划失败，绝不硬猜、绝不静默丢失（语义见下文"规划"）。
 
@@ -100,6 +101,8 @@ class MediaServerBinding(Base):
 - Plex：`GET /library/sections`（取 type=movie/show 的 section：key、title、Location 列表）。
 - Emby/Jellyfin：`GET /Library/VirtualFolders`（Name、Locations[]、CollectionType=movies/tvshows；需管理员 API key）。
 - 每 `(section, location)` 幂等 upsert 一个 Library；**多 Location 的 section 拆成每 location 一条 Library**。server 视角根路径经该服务器的 bindings 最长前缀匹配解析为 `(volume_id, root_subpath)`；未命中绑定 → 新 Library 落 `volume_id=NULL` 的**待绑定**状态，UI 引导补绑定后重扫（或就地解析已有待绑定行）。幂等键中 `server_path` **规范化**（去首尾空白、去尾部斜杠），避免同一 Location 因尾部斜杠/空白差异被误判为新增而重复建库；重扫时**未命中绑定不覆盖既有 `volume_id`/`root_subpath`**（手工补绑定在重扫后保留，只有命中 binding 才更新解析结果）。
+- 扫描在任何新增/更新前校验全部 Location 的绑定子路径与后缀，并验证解析后仍在所属卷内（包括符号链接）；危险路径返回既有 502 `MEDIA_SERVER_ERROR`，整批无写入，不留下前半批更新。卷信息一次读取，路径 I/O 在线程中完成。
+- 历史库行在使用时同样校验 root/recycle 路径。无效库的 API 响应保留绑定字段，`root_path=null`、`path_error` 说明原因；`bound` 仍只表示存在卷绑定。规划只拒绝实际命中的坏库，无关库/通知仍可处理；媒体库页面显示路径错误并可从现有设置入口修复。
 
 ### Library（媒体库，扫描派生）
 
@@ -184,7 +187,13 @@ class OrganizePlan(Base):
     category: str | None                 # 电影类别目录名（模板含 {category} 时使用）；
                                          # 可人工指定/修正（classify 端点）
     status: str                          # "pending" | "running" | "done" | "failed" | "cancelled"
-    payload: dict                        # 创建时冻结的完整通知快照，执行唯一依据
+    payload: dict                        # 通知快照，与本次规划配置一起确定执行内容
+    file_op: str | None                  # 本版本 move/hardlink/copy；历史 NULL 不猜 move
+    needs_category: bool                 # 本版本缺类别标志，默认 false
+    manual_destination: bool             # 人工分类标志，默认 false；不以 rule_id=NULL 推断
+    revision: int (BIGINT)                # 计划版本，默认 0；状态转换/重建 CAS 递增
+    config_revision: int | None          # 生成当前 ops 的配置版本；历史 NULL 需重建
+    owner_token: str | None              # running 执行者 UUID；结果回写需匹配
     error_message: str | None            # 最近失败原因（前置门禁/冲突/校验，带前 3 条明细）
     executed_at: datetime | None
     created_at / updated_at
@@ -246,7 +255,7 @@ class OrganizeAuditEntry(Base):
 
 - **绝不扫描共享下载根**：优先按 payload `files` 清单定位；清单缺失（RPC 降级）先回退 torrent 文件清单（`_resolve_manifest`：torrent 缓存 → torrent_url 拉取 → 下载器 RPC，过滤绝对路径与 `.`/`..` 分量；.torrent 解析的清单相对于种子根，多文件种子补上 `info/name` 根目录分量以匹配 `download_dir/<根目录>/<文件>` 落盘布局）逐项精确匹配，再退回扫描 `download_dir/torrent_name`（经下载器卷绑定解析后）；皆无 → 规划失败。
 - **合集缺集拒绝整理**：合集逐文件解析 (season, episode)（文件名 SxxExx / E09 / EP09 / 第09話 / 裸方括号 `[01]`（含 vN 修订号）→ 目录分量 → `resource.season` → `work.season_number` 回退链（v2 快照：季作品即季，后者兜底）），覆盖度校验「期望集 ⊆ 已解析集」，缺集 / 重复集号 / 无校验依据 → 规划失败，绝不硬猜。期望集来自**这一季作品自身**（作品单季化后不再有逐季 `seasons` 数据）：`episode_start/end` 优先 → 季作品的 Episode 行 / `number_of_episodes` → **本地文件清单推导**（已解析集同季时取 min..max 连续区间，中间缺集仍拒绝——torrent 文件清单本地可缓存，合集范围解析以实际内容为准）→ 皆无才视为无校验依据。解析不出集号的视频按特典 keep。**按 `batch_scope` 分流**：`NULL`/`"season"` 维持上述单季语义；`"multi_season"` 终态经权威文件关联（`file_associations`）**按季作品拆分**（`_plan_same_target_multi_work`：每个关联季作品独立成组，逐组复用单季校验与模板渲染）；无权威关联的 legacy 快照按文件解析季号分组、以本地文件清单推导的 min..max 区间逐组校验（该季已解析集 <2 无法构成区间时只记 warning 跳过该季——多季包边界信息不全，不整个拒绝；不回退 `resource.season`——该 scope 下恒为 NULL）；`"franchise"` 资源四作品 FK 全空（payload.work 为 None），规划直接落 `library_id=null` 的 pending（pending_reason=unclassified，待人工指定库），不进 `_plan_batch`、不抛 PlanError——等成员作品链接成熟后再支持自动整理。
-- **冲突预检**：move op 的 dst 已存在且 size 与源不符 → 规划失败（绝不覆盖）；size 相符视为已移动的重放，交执行器收敛。
+- **冲突预检**：move op 的 dst 已存在且 size 与源不符 → 规划失败（绝不覆盖）；size 相符仍须按文件操作语义验证内容或 inode，不能单凭大小收敛。
 
 ## 触发与执行链路
 
@@ -262,7 +271,7 @@ class OrganizeAuditEntry(Base):
    |---|---|---|
    | `move` | 移动（EXDEV 退化为 copy+校验+删源） | 任务清理：调内部任务删除 service 函数（与 `DELETE /tasks/{id}?delete_data=false` 同一实现，不再走 HTTP 回环）+ 源目录空目录清理 |
    | `hardlink` | `os.link`，源文件保留；EXDEV/EPERM → op failed + 明确 error_message，**不静默退化为 copy**（静默复制会偷偷翻倍存储并违背保种意图） | 保种：不删任务、不清源目录；恢复快照时停过的做种（`resume_torrent` RPC，与 `POST /tasks/{id}/resume` 同一 RPC，幂等） |
-   | `copy` | 复制 + size 校验（失败删不完整 dst），源文件保留 | 同 hardlink（保种 + 恢复做种） |
+   | `copy` | 独占临时文件复制 + 完整内容校验 + 原子不覆盖发布，源文件保留 | 同 hardlink（保种 + 恢复做种） |
    - 清理/恢复均为 best-effort，失败只记日志不改写计划状态。
    - **媒体服务器刷新**（三种 file_op 一致）：经 `Library → MediaServerInstance` 寻址（天然支持多服务器/多类型），按 adapter 分 type——Plex 优先**按触及目录 partial refresh**（`GET /library/sections/{section_key}/refresh?path=...`），失败或不适用退整库刷新；Emby/Jellyfin 走对应 refresh 端点。服务器停用/未配置/刷新失败一律 best-effort：只记日志，不改写计划状态。
 
@@ -273,22 +282,23 @@ class OrganizeAuditEntry(Base):
 
 重建均落 `plan_rebuilt` 审计；命中 `auto_execute` 规则的重建与新建一样随后台自动执行。
 
-并发模型沿用 vault-organizer：单 `asyncio.Lock` 串行化规划与执行，阻塞文件操作经 `asyncio.to_thread` 跑线程，不卡事件循环；批量执行锁内逐计划顺序执行，单个失败不影响其余。
+并发模型：规划与重建在提交处使用版本 CAS；执行与取消使用跨进程共享文件锁，进程内执行仍串行。阻塞文件操作在线程中运行，取消需等待真实线程结束再释放所有权；批量执行逐计划处理，单个失败不影响其余。详见下文「计划版本与执行所有权」。
 
 ## 执行器不变量
 
-逐条保留 vault-organizer executor 语义：
+在 vault-organizer 原始语义上增加完整内容校验及不覆盖发布：
 
 - **执行前状态门禁**：`done` → 幂等短路；`running` 且本进程正在执行 → 拒绝（状态检查与 running 过渡在锁内原子完成，内存态区分「真正执行中」与「崩溃遗留的 running」，后者可重放）；待分类 / 待绑定计划（library 未定、category 未定或目标库未绑定卷）→ 拒绝执行。
-- **前置门禁（precheck）**：执行前逐 op 复核磁盘与快照一致（规划与执行之间文件系统可能被改动）——dst 存在且 size 匹配 = 已完成通过；src 在且 size 一致、dst 不在 = 就绪；src size 不符 / dst size 不符 / 双不在 / movedir 目标目录冲突 = **违例**。任一违例 → 整个计划 failed，**不触碰任何文件**；修复磁盘后重新触发即可。
-- **幂等状态表**（逐 move op，三种 file_op 共用）：dst 存在 size 匹配 = 已完成（move 模式下 src 残留且 size 相同 → 删 src 收敛，size 不同不删、dst 为权威；hardlink/copy 保留 src 保种）；src 在 dst 不在 = 执行文件操作；dst size 不符 = 冲突 failed，**绝不覆盖**；双不在 = 数据丢失 failed。`src == dst` 直接 done；`keep` 不触碰标 kept。
-- **移动策略**（`file_op="move"`）：同文件系统 `os.rename`（原子）；跨文件系统（EXDEV）退化为 copy + size 校验 + 删源，校验失败删不完整 dst 报 failed；dst 父目录 `mkdir(parents=True, exist_ok=True)`。
-- **硬链接**（`file_op="hardlink"`）：`os.link`，源文件保留；EXDEV/EPERM 等 OSError → 该 op failed + 明确 error_message，**不静默退化为 copy**。
-- **复制**（`file_op="copy"`）：copy + size 校验（失败删不完整 dst 报 failed），源文件保留。
+- **整计划路径门禁**：planner 在单作品/多作品全部 ops（含最终 movedir）组装后、executor 在执行旧计划前，共用 `organize_file_safety.plan_path_conflicts`。真实父目录路径归一化后，不同操作写同目标、文件/目录目标重叠、目标占其他源、路径循环均拒绝；保留正片先搬出、keep 文件随源目录后移的合法流程。错误带路径与操作序号，不自动合并/改名。
+- **前置门禁（precheck）**：逐 op 复核文件与计划快照；任何违例整个计划 failed，不触碰文件。move/copy 源目标都在时必须完整分块比较（无缓存、无浅比较）；比较前后核对 dev/inode/size/mtime/ctime，读取错误或变化失败并保源。hardlink 已有目标必须同 inode。同步 IO 均在线程中执行。
+- **幂等状态表**：同路径也须存在且大小正确；同 inode 可证明一致。move 源目标都在且内容一致才删源收敛（删除前再次校验）；不同大小/不同内容一律 failed，绝不以目标为权威删源。copy 保源，hardlink 要求同 inode。只有目标存在时，仅 move 保留大小检查作为旧计划恢复判据（不能事后证明内容，不执行删源）；copy/hardlink 缺保种源则 failed。两者皆无 failed，keep 不触碰。
+- **文件移动与发布**：优先 `renameat2(RENAME_NOREPLACE)`，预检后新出现的目标不被覆盖。原生调用因 `ENOSYS/EINVAL/EOPNOTSUPP` 不可用时（本地 Docker ZFS 根已复现），普通文件改用 `link` 原子发布，再校验身份/大小/mtime 与双方 inode，最后删除源名称；目标竞争仍失败，绝不退回可覆盖的 rename。发布后崩溃可留下同 inode 双名称，由既有内容验证恢复；源名称删除与发布并非同一个原子操作。安全链接也不支持时明确 failed，目录不使用该文件回退。跨盘 move（EXDEV）与 copy 先写目标目录中的独占 `.rssripple-*.tmp` 描述符，完整验证且源未变化后再发布；move 发布成功后才删源。失败只清理本次仍属同 inode 的临时文件，保留其他文件；崩溃遗留临时文件不自动当成功。
+- **执行前路径复查**：持久化旧计划也检查全部源仍在当前下载根内、文件目标在当前库根内、movedir 目标在当前回收站内，禁止操作这些根本身。检查在线程中完成；失败返回 OrganizeError，不执行文件/任务清理。检查可捕获规划后已发生的目录链接替换，不等于描述符级防护，不能承诺抵御与检查/操作同时发生的恶意目录替换。
+- **硬链接**：`os.link`，源保留；EXDEV/EPERM 失败且不静默改成 copy。发布后确认同 inode。普通文件符号链接在文件状态门禁被拒绝（不跟随最终文件链接）。
 - **后置校验**：全部文件 op 后复核每个 dst 存在且 size 一致；src 已消失仅对 move 校验（hardlink/copy 源文件本应保留）；任一不符 → failed（可修复后重执行，幂等）。
 - **movedir**：目录级移动，目标已存在 = 冲突违例，绝不覆盖；平铺在下载根的散文件不产生 movedir；仅 move 语义，hardlink/copy 计划不产 movedir。当前唯一产生场景：**合集（batch）+ move 计划且目标库配置了回收站目录**（`Library.recycle_subpath`，卷内相对路径，媒体库设置「其他设置」表单经文件夹选择器设置；NULL = 默认原地保留）——正片/字幕移走后，种子目录内的剩余文件（特典、附件等 keep 部分）随整个种子目录移入 ``<卷挂载点>/<recycle_subpath>/<种子目录名>``；无 keep 剩余时不产 op（空目录照常自底向上清理）。规划期冲突预检拒绝已存在的回收目标；执行期 movedir 在全部文件 op + 后置校验之后执行，源目录已空视为无需移动。
 - **空目录清理**：`os.walk(topdown=False)` 自底向上 `os.rmdir`（只删空目录，非空自然失败跳过），preserve 边界 = 经下载器卷绑定解析的下载根；**绝不 `rm -rf`**。hardlink/copy 计划恒跳过（源文件保留保种，目录本就不会空）；torrent_name 为空（清单定位的平铺/单文件种子落在共享下载根）同样恒跳过——绝不以共享下载根为清理范围。
-- **崩溃恢复**：running 计划可重放（幂等收敛：已移动的视为完成、半完成 copy 删残留 src、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
+- **崩溃恢复**：running 计划只有取得共享文件锁且 file_op 快照完整才可重放（幂等收敛：已移动的视为完成、跨盘 move 发布后遗留 src 仅在完整内容一致时删除、冲突仍 failed）；failed 可反复重试收敛；任一 op failed 计划即 failed，已完成 op 不回滚。
 
 ## API（前缀 /api/v1）
 
@@ -345,10 +355,10 @@ class OrganizeAuditEntry(Base):
 |--------|------|------|
 | GET | `/organize/plans` | 计划列表（分页；`status` / `library_id` 过滤；created_at 倒序；列表项不含 payload，带 ops 摘要与 `pending_reason: "unclassified" \| "unbound" \| null` 派生字段） |
 | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + 关联 library/rule 信息 |
-| POST | `/organize/plans/{id}/execute` | 执行单个计划（幂等；done 短路、崩溃遗留 running 可重放、本进程执行中的 running 拒绝 409 `ALREADY_RUNNING`、待分类/待绑定拒绝）；异步后台执行，返回 202 + 当前状态 |
+| POST | `/organize/plans/{id}/execute` | 执行单个计划（幂等；done 短路、崩溃遗留 running 可重放、持有共享文件锁的活动计划 拒绝 409 `ALREADY_RUNNING`、待分类/待绑定拒绝）；异步后台执行，返回 202 + 当前状态 |
 | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
 | POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：改写计划并重渲染全部 op 的 dst；pending/failed 可改 |
-| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划（→ cancelled；done 拒绝 409；本进程执行中的 running 拒绝 409 `ALREADY_RUNNING`）。可选 body `{delete_task, delete_data}` 附带删除关联下载任务（`delete_data=true` 蕴含删除任务并连同磁盘数据；复用 `task_cleanup` 实现，清理失败不阻断取消，结果随响应 `task_cleaned` 返回） |
+| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划（→ cancelled；done 拒绝 409；持有共享文件锁的活动计划 拒绝 409 `ALREADY_RUNNING`）。可选 body `{delete_task, delete_data}` 附带删除关联下载任务（`delete_data=true` 蕴含删除任务并连同磁盘数据；复用 `task_cleanup` 实现，清理失败不阻断取消，结果随响应 `task_cleaned` 返回） |
 | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 
 ## 配置
@@ -369,7 +379,7 @@ class OrganizeAuditEntry(Base):
 ## 部署（共享卷与逻辑卷）
 
 - **compose 启动时**把宿主/远程存储挂载进 RSSRipple 容器（如 `/storage/<name>`），**运行时**建逻辑卷记录指向这些挂载点（`StorageVolume.mount_path`）；下载器与媒体服务器的路径差异全部由卷绑定/绑定表消解。
-- 下载目录与媒体库尽量落在**同一文件系统/同一 SMB share** 下，保证 `os.rename` 原子；跨文件系统触发 EXDEV 复制回退（大文件走两遍 I/O/网络），应避免。
+- 下载目录与媒体库尽量落在**同一文件系统/同一 SMB share** 下，使用文件原子不覆盖重命名；跨文件系统触发 EXDEV 复制回退（完整校验会增加多轮 I/O/网络），应避免。
 - 数据库文件约束不变（conventions.md）：媒体/下载文件可在网络共享上，Turso/SQLite 库文件必须本地盘。
 - `docker-compose.yml` 与部署文档相应更新：内置 Transmission 服务与 app 服务挂同一命名卷（可挂**不同路径**——如 Transmission 挂 `/downloads`、app 挂 `/storage/main/downloads`——e2e 经下载器卷绑定表达，顺便验证解析链路）。
 - **集成测试方案**：docker-compose 将同一共享卷挂载到内置 Transmission 与 RSSRipple 容器（不同挂载点 + 配置卷绑定），跑「mock 频道 → 下载完成 → 通知 → 规划落库 → 执行 → 断言文件落位与任务清理」全链路；媒体服务器侧用 mock adapter 验证扫描派生与刷新寻址。
@@ -385,3 +395,16 @@ class OrganizeAuditEntry(Base):
 | R3 | `file_op` 开放 hardlink/copy（已实现）：schema 三值、执行器 `os.link`/copy+校验、EXDEV/EPERM failed 不静默退化、执行后清理按 file_op 分流（move=删任务 / hardlink·copy=保种+恢复做种）、后置校验与空目录清理相应调整 |
 
 vault-organizer 仓库在 R2 功能对等后归档（README 指向本文档）；外部 webhook 消费者仍受支持，其设计文档（architecture/planner/executor/configuration/deployment）中的不变量已由本文档吸收。
+
+
+### 计划版本与执行所有权
+
+`OrganizeConfiguration` 单例保存全局配置 `revision` 与共享锁目录 `lock_domain`。规则的路由/模板/模式/自动执行、库的绑定/路径/字幕映射/媒体刷新目标、卷挂载点和下载器路径映射变更，在同一配置事务推进 revision（包括 ORM 批量 UPDATE/DELETE）；备注及在线状态不失效计划。管理脚本用原始 SQL 改这些配置时也必须在同事务推进版本。
+
+pending/failed 计划在执行前发现配置版本过期或旧 file_op 缺失时，先按当前配置重建并提交全部 ops，再读取冻结模式执行。重建、分类以旧 revision、pending/failed 状态和当前配置版本 CAS，命中后才同事务替换 ops、快照和审计。不得用新规则的模式执行旧 ops；done/running/cancelled 不被重建覆盖。`rule_id=NULL` 可能来自规则删除，只有 manual_destination 才代表已人工选择目标。
+
+执行与取消都取得 `ORGANIZE_LOCK_DIR` 中该计划的持久文件锁。执行抢占以 revision/状态/配置版本 CAS 写入新 owner_token；完成/失败回写必须同时匹配该 token、revision 与 running。文件锁覆盖文件线程、结果提交及后续任务清理；协程取消必须等实际文件线程结束，不能提前释放锁。DB 断连本身不证明执行者停止，不能仅凭 DB 锁释放或租约超时接管。活动执行期间取消（包括 delete_data）返回 ALREADY_RUNNING，零清理副作用；非活动取消先 CAS 提交 cancelled，再按请求清理。
+
+锁目录使用原子发布的 `.domain` 身份文件并在数据库注册，缺失/不匹配拒绝执行和取消。默认单宿主 Docker 共享 app-data 命名卷满足锁共享；所有 Web/worker 必须使用同一 Linux 文件锁域。目录与锁文件不可在运行中删除、复制或替换，不能把 UUID 相同当作独立文件系统共享锁的证明。跨宿主和未验证 flock 语义的远程挂载不属于该实现支持的所有权部署；见 conventions.md。
+
+配置变更提交后的附带重规划使用独立数据库会话；刷新或回滚不得使配置 API 响应会话的已加载对象失效。

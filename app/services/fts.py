@@ -301,8 +301,14 @@ async def _drain_pending_changes(db: AsyncSession) -> None:
     and no-ops on an empty outbox / non-Turso backends, so this is one cheap
     SELECT on the common read path.
     """
+    if not _fts_available(db):
+        return
     try:
-        await drain_fts_outbox(db)
+        # Index committed changes in a separate transaction. A failed drain
+        # must neither invalidate the search caller nor commit its pending edits.
+        async with AsyncSession(bind=db.bind, expire_on_commit=False) as drain_db:
+            await drain_fts_outbox(drain_db)
+            await drain_db.commit()
     except Exception as e:
         logger.warning("[fts] pre-search drain failed: %s", e)
 

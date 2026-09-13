@@ -1,6 +1,6 @@
 """整理规划器（内置整理子系统 organize 的规划层）。
 
-纯函数 + 只读文件 IO（冲突预检的 ``os.path.exists/stat``）：不落库、不访问
+纯函数 + 只读文件 IO（冲突预检的路径、状态与完整内容比较）：不落库、不访问
 数据库、不移动任何文件。输入 = 冻结的通知快照 + 调用方收集的磁盘文件清单
 + 有序规则列表 + Library 集合；输出 = 有序 op 列表，或「待分类」信号
 （无规则匹配 → ``rule=None``；模板含 ``{category}`` 但类别未定 →
@@ -30,11 +30,13 @@ import os
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from app.schemas.notification import NotificationPayload
 from app.services.filter_engine import evaluate_filter_config
+from app.services.organize_file_safety import FileSafetyError, plan_path_conflicts, validate_file_state
 from app.services.organize_parser import (
     FileKind,
     classify,
@@ -384,6 +386,9 @@ def build_plan(
     if library is None:
         raise PlanError(f"规则 {matched.name!r} 指向的 Library 不存在：{matched.library_id}")
 
+    if getattr(library, "path_error", None):
+        raise PlanError(f"媒体库路径无效：{library.path_error}")
+
     # 目标库未绑定卷（root_path 未解析出 = 待绑定）：不落 ops，由上层落
     # 「待绑定」pending 计划（pending_reason=unbound），补绑定后重渲染。
     if getattr(library, "root_path", None) is None:
@@ -440,7 +445,7 @@ def build_plan(
             reason="合集剩余文件移入回收站",
         ))
 
-    _check_conflicts(ops)
+    _check_conflicts(ops, file_op=matched.file_op)
     return OrganizePlanResult(
         ops=ops, rule=matched, library=library, category=category
     )
@@ -547,7 +552,6 @@ def _plan_same_target_multi_work(
 
     assert common is not None
     merged_ops.extend(_keep(item, "未能唯一归属到作品，原地保留") for item in leftovers)
-    _check_conflicts(merged_ops)
     recycle_path = getattr(common.library, "recycle_path", None)
     if (
         getattr(common.rule, "file_op", None) == "move"
@@ -559,6 +563,7 @@ def _plan_same_target_multi_work(
             dst=os.path.join(recycle_path, os.path.basename(source_dir.rstrip("/"))),
             size=0, reason="多作品合集剩余文件移入回收站",
         ))
+    _check_conflicts(merged_ops, file_op=common.rule.file_op)
     return OrganizePlanResult(
         ops=merged_ops, rule=common.rule, library=common.library,
         category=common.category,
@@ -583,18 +588,21 @@ def _keep(f: DiskFile, reason: str) -> PlanOp:
     return PlanOp(op_type="keep", src=f.path, dst=None, size=f.size, reason=reason)
 
 
-def _check_conflicts(ops: list[PlanOp]) -> None:
-    """冲突预检：move 目标已存在且 size 不符 → 拒绝（绝不覆盖）；
-    movedir 目标目录已存在 → 拒绝（绝不覆盖）。"""
+def _check_conflicts(ops: list[PlanOp], *, file_op: str = "move") -> None:
+    """Check the complete operation graph and any existing destination files."""
+    conflicts = plan_path_conflicts(ops)
+    if conflicts:
+        raise PlanError("；".join(conflicts[:3]))
     for op in ops:
+        if op.dst is None or not os.path.lexists(op.dst):
+            continue
         if op.op_type == "movedir":
-            if op.dst is not None and op.dst != op.src and os.path.exists(op.dst):
-                raise PlanError(f"回收站目标目录已存在，拒绝覆盖：{op.dst}")
-            continue
-        if op.op_type != "move" or op.dst is None or op.dst == op.src:
-            continue
-        if os.path.exists(op.dst) and os.path.getsize(op.dst) != op.size:
-            raise PlanError(f"目标已存在且大小不符，拒绝覆盖：{op.dst}")
+            raise PlanError(f"回收站目标目录已存在，拒绝覆盖：{op.dst}")
+        if op.op_type == "move":
+            try:
+                validate_file_state(Path(op.src), Path(op.dst), op.size, file_op=file_op)
+            except (OSError, FileSafetyError) as exc:
+                raise PlanError(str(exc)) from exc
 
 
 def _subtitle_ops(

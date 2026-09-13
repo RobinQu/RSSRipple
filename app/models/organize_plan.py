@@ -10,7 +10,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, func
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, false, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -50,6 +50,13 @@ class OrganizePlan(Base):
     )
     # 创建时冻结的完整通知快照，执行的唯一依据。
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # NULL on legacy rows is unknown, never implicitly interpreted as move.
+    file_op: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    needs_category: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    manual_destination: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    revision: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    config_revision: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    owner_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

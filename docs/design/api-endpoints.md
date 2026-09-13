@@ -125,6 +125,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 | POST | `/channels/preview-feed` | 预览 RSS 源，可选附带 field_mapping 预览解析结果（不落库） |
 | POST | `/channels/analyze-url-stream` | 基于 URL 的 SSE 流式分析（创建频道前使用，无需 channel_id） |
 
+频道调度：创建事务提交成功后才尝试首次自动抓取；inactive 或 SCHEDULER_ENABLED=false 不自动入队，`meta.fetch_triggered` 反映首次入队结果。更新/删除后的周期任务由各 worker 每 30 秒对账同步，无需重启 worker；接口不操作 web 本地调度器。ChannelUpdate 当前不接受 status（不能通过 PUT 暂停/恢复）；数据库中 inactive 状态由同一对账机制移除周期任务。
+
 频道创建/更新的元数据字段：`metadata_source` 仅接受 `wikipedia | tmdb | bangumi`（其他值 422）；`metadata_fallback_sources` 为网络搜索回退（wigolo）的有序站点白名单（JSON 数组，元素必须是注册表站点名 wikipedia/tmdb/bangumi/mal/anilist/imdb/douban，未知值 422；`null`=默认顺序，`[]`=禁用回退）。`default_is_anime`（「默认标记为 Anime」，默认 false）：Create 接受、Response 透出，**创建后不可改**——PUT 提交不同值返回 422 VALIDATION_ERROR，同值幂等放行。
 
 频道资源列表响应额外返回派发结果三字段：`has_download_task`（该资源曾创建过任意 `DownloadTask` 即为 true，任意当前状态）；`download_status`（该资源**最新**一条 DownloadTask 的**有效**派发结果，从未派发为 null，多任务按 `created_at` 取最新）——原始 status 不可直接信：organize 清理（`task_cleanup.delete_task_after_organize`）会把已完成任务置 cancelled，`completed_at` 才是真实完成标记（与 agent_service `_task_occupies_download_slot` 同口径），故 `completed_at` 非空时按计划状态归并为 `organized`（OrganizePlan done）/ `completed`，`cancelled` 仅当 `completed_at` 为 NULL（真实取消），其余状态透传；`pending_decision`（该资源是本频道任一 Agent 当前 pending 的 PendingDecision 候选时为 true），供打「待决策」标。
@@ -369,6 +371,8 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更新：无 POST（手工注册移除）；响应中 `root_path` 为派生展示字段（`volume.mount_path + root_subpath` 解析结果，未绑定为 null），`bound` 为绑定状态。
 
+历史 root/recycle 路径不安全时返回 `root_path=null`、`path_error` 原因（正常为 null），不会使整个列表失败；bound 仍表示有卷绑定。扫描结果中危险的已绑定 Location 返回 502 `MEDIA_SERVER_ERROR`，整个扫描批次无新增/更新。
+
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/libraries` | 库列表（不分页，量小；每项含 `pending_plan_count`、`bound`、派生 `root_path`；`unbound=true` 过滤待绑定） |
@@ -391,12 +395,12 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 
 | Method | Path | 说明 |
 |--------|------|------|
-| GET | `/organize/plans` | 计划列表（分页；`status`（非法值 422）/`library_id` 过滤；created_at 倒序；列表项不含 payload，带 `rule_name`/`library_name`、`ops_summary {total,move,keep,movedir}` 与派生 `pending_reason: "unclassified" \| "unbound" \| null`——library 未定/缺 category → unclassified，目标库未绑定卷 → unbound，仅 pending 计划派生） |
+| GET | `/organize/plans` | 计划列表（分页；`status`（非法值 422）/`library_id` 过滤；created_at 倒序；列表项不含 payload，带 `revision`/`file_op`/`needs_category`、`rule_name`/`library_name`、`ops_summary {total,move,keep,movedir}` 与派生 `pending_reason: "unclassified" \| "unbound" \| null`——library 未定/缺 category → unclassified，目标库未绑定卷 → unbound，仅 pending 计划派生） |
 | GET | `/organize/plans/{id}` | 详情：完整 payload 快照 + ops 数组 + audit_entries 时间线（同带 `pending_reason`） |
-| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；pending/failed 及崩溃遗留 running 可执行，本进程执行中的 running → **409 `ALREADY_RUNNING`**，done/cancelled / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
+| POST | `/organize/plans/{id}/execute` | 后台执行（**202** + 当前状态）；pending/failed 及崩溃遗留 running 可执行，共享锁域内任一进程正在执行的计划 → **409 `ALREADY_RUNNING`**，done/cancelled / 待分类 / 缺 category / 待绑定 → **409 `INVALID_STATE`** |
 | POST | `/organize/plans/execute-batch` | 批量执行 `{plan_ids: [...]}` → `{results: [{plan_id, status}]}`；锁内逐个，单个失败不影响其余 |
 | POST | `/organize/plans/{id}/classify` | 待分类计划人工指定 `{library_id, category?}`：重渲染全部 op 的 dst 并复位 pending；非 pending/failed → 409；library 不存在 → 404；重渲染失败（如模板含 `{category}` 但未指定）→ 422 |
-| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划 → cancelled（记 audit）；本进程执行中的 running → **409 `ALREADY_RUNNING`**；done/cancelled → **409 `INVALID_STATE`**。可选 body `{delete_task, delete_data}`：`delete_task=true` 同时删除关联下载任务（移除下载器 torrent、任务行置 cancelled，保留磁盘数据，与 `DELETE /tasks/{id}?delete_data=false` 共用 `task_cleanup` 实现）；`delete_data=true` 蕴含删除任务并连同磁盘数据一起删除；清理失败不阻断取消，结果随响应 `task_cleaned` 返回（未请求删除时为 null） |
+| POST | `/organize/plans/{id}/cancel` | 取消 pending/failed 及崩溃遗留 running 计划 → cancelled（记 audit）；共享锁域内任一进程正在执行的计划 → **409 `ALREADY_RUNNING`**；done/cancelled → **409 `INVALID_STATE`**。可选 body `{delete_task, delete_data}`：`delete_task=true` 同时删除关联下载任务（移除下载器 torrent、任务行置 cancelled，保留磁盘数据，与 `DELETE /tasks/{id}?delete_data=false` 共用 `task_cleanup` 实现）；`delete_data=true` 蕴含删除任务并连同磁盘数据一起删除；清理失败不阻断取消，结果随响应 `task_cleaned` 返回（未请求删除时为 null） |
 | GET | `/organize/audit` | 审计条目分页（`plan_id` 过滤；最新在前） |
 
 ### File Resources
@@ -498,3 +502,12 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（collection_id 置空） |
 
 ---
+
+
+整理计划列表/详情的 `file_op` 是当前计划版本的冻结模式（历史未知为 null），`needs_category` 来自相同版本；不能用当前规则覆盖。执行 202 前探测跨进程忙碌，实际后台执行仍必须独立取得所有权；旧 running 缺模式或锁域无效返回 409 INVALID_STATE。pending/failed 配置过期由执行入口先重建当前版本。取消需同一共享锁与状态 CAS，提交 cancelled 后才可清理任务/数据，失败结果不回写过期版本。
+
+
+Agent 新建/编辑的 rules-preview 回填若发生内部候选持久化错误，返回 500 INTERNAL_SERVER_ERROR 并回滚本次保存（配置、订阅、任务和水位线均不部分提交）；错误响应不回显底层 SQL。客户端可在问题修正后重试所选资源。普通未回填保存及空数组推进水位线的既有语义不变。下载器已接收的种子不能随数据库回滚，重复提交由下载器按 infohash 去重。
+
+
+资源修订补偿：`PATCH /resources/{id}/episode`、`PATCH /resources/{id}`、`PUT /resources/{id}/associations` 将资源及 active Agent 的持久重跑请求一起提交；前两者包含自动修复的兄弟资源。请求写入失败回滚修改；提交后队列忙碌或不可用仍返回保存成功，由周期分发补偿。响应结构不变，保存成功不代表下载已派发。

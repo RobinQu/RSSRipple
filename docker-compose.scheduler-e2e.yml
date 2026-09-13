@@ -1,0 +1,95 @@
+# Dedicated deterministic scheduler regression. Always use -p <unique-name>.
+# No host ports, production volumes, .env secrets, or external metadata calls.
+x-app: &app
+  image: ${SCHEDULER_TEST_IMAGE:-rssripple-scheduler-test:local}
+  build: .
+  volumes:
+    - ./app:/app/app:ro
+    - ./scripts/scheduler_e2e.py:/app/scripts/scheduler_e2e.py:ro
+    - ./scripts/scheduler_revision_e2e.py:/app/scripts/scheduler_revision_e2e.py:ro
+    - ./scripts/scheduler_recovery_e2e.py:/app/scripts/scheduler_recovery_e2e.py:ro
+    - ./tests/fixtures/metadata_corpus_v2/manifest.json:/app/tests/fixtures/metadata_corpus_v2/manifest.json:ro
+    - ./tests/fixtures/metadata_corpus_v2/candidates.json.gz:/app/tests/fixtures/metadata_corpus_v2/candidates.json.gz:ro
+  environment: &environment
+    DATABASE_URL: postgresql+asyncpg://scheduler:scheduler@postgres:5432/scheduler_test
+    QUEUE_BACKEND: redis
+    REDIS_URL: redis://redis:6379/0
+    AUTH_ENABLED: "false"
+    SCHEDULER_ENABLED: "true"
+    DB_MIGRATE_ON_STARTUP: "false"
+    MAGNET_RESOLVE_ENABLED: "false"
+    NOTIFY_ENABLED: "false"
+    LLM_API_KEY: ""
+    TMDB_API_KEY: ""
+    BANGUMI_API_KEY: ""
+    POSTER_CACHE_DIR: /tmp/posters
+  networks: [scheduler-test]
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scheduler
+      POSTGRES_PASSWORD: scheduler
+      POSTGRES_DB: scheduler_test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U scheduler -d scheduler_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [scheduler-test]
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    networks: [scheduler-test]
+  migrate:
+    <<: *app
+    command: [/app/.venv/bin/python, -m, app.migrate]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  feed:
+    <<: *app
+    command: [/app/.venv/bin/python, scripts/scheduler_e2e.py, --serve-feed]
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8080/requests', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  web:
+    <<: *app
+    environment:
+      <<: *environment
+      APP_ROLE: web
+    command: [/app/.venv/bin/python, -m, uvicorn, app.main:app, --host, 0.0.0.0, --port, "9001"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      feed: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:9001/health', timeout=3)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  worker:
+    <<: *app
+    environment:
+      <<: *environment
+      APP_ROLE: worker
+    command: [/app/.venv/bin/python, -m, app.worker]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      feed: {condition: service_healthy}
+  check:
+    <<: *app
+    command: [/app/.venv/bin/python, -u, scripts/scheduler_e2e.py]
+    depends_on:
+      web: {condition: service_healthy}
+
+networks:
+  scheduler-test:
+    internal: true

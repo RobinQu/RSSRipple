@@ -475,6 +475,9 @@ class TestLibraryPaths:
     def test_root_resolution(self):
         volume = SimpleNamespace(mount_path="/mnt/media/")
         lib = SimpleNamespace(volume_id="v1", volume=volume, root_subpath="/tv/")
+        with pytest.raises(VolumeResolutionError):
+            resolve_library_root(lib)
+        lib.root_subpath = "tv"
         assert resolve_library_root(lib) == "/mnt/media/tv"
         lib.root_subpath = None
         assert resolve_library_root(lib) == "/mnt/media"
@@ -495,6 +498,9 @@ class TestLibraryPaths:
         lib = SimpleNamespace(
             recycle_subpath="/recycle/", volume_id="v1", volume=volume
         )
+        with pytest.raises(VolumeResolutionError):
+            resolve_library_recycle(lib)
+        lib.recycle_subpath = "recycle"
         assert resolve_library_recycle(lib) == "/mnt/media/recycle"
 
 

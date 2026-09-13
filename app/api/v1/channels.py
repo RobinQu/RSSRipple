@@ -123,12 +123,10 @@ async def create_channel(
     await db.flush()
     await db.refresh(channel)
 
-    # Schedule the channel if active
-    try:
-        from app.services.scheduler import reschedule_channel
-        reschedule_channel(channel)
-    except Exception:
-        logger.debug("Scheduler not ready; skipping schedule for new channel", exc_info=True)
+    # Commit before another process can consume the initial fetch. Periodic
+    # jobs are reconciled from this committed state by each worker.
+    await db.commit()
+    await db.refresh(channel)
 
     # Auto-trigger an initial fetch so the new channel starts pulling data
     # immediately instead of waiting for the first scheduler tick. Fire-and-
@@ -138,11 +136,11 @@ async def create_channel(
     from app.config import settings
 
     fetch_triggered = False
-    if settings.scheduler_enabled:
+    if settings.scheduler_enabled and channel.status != "inactive":
         try:
             from app.services.task_queue import task_queue
             job = await task_queue.enqueue(
-                "fetch_channel", f"channel:{channel.id}", {"channel_id": channel.id}
+                "fetch_channel", f"channel:{channel.id}", {"channel_id": channel.id, "scheduled": True}
             )
             fetch_triggered = job is not None
         except Exception:
@@ -323,12 +321,6 @@ async def update_channel(
 
     await db.refresh(channel)
 
-    try:
-        from app.services.scheduler import reschedule_channel
-        reschedule_channel(channel)
-    except Exception:
-        logger.debug("Scheduler not ready; skipping reschedule", exc_info=True)
-
     return success_response(ChannelResponse.model_validate(channel).model_dump())
 
 
@@ -337,11 +329,6 @@ async def delete_channel(channel_id: str, db: AsyncSession = Depends(get_db)):
     channel = await db.get(Channel, channel_id)
     if not channel:
         return _not_found()
-    try:
-        from app.services.scheduler import unschedule_channel
-        unschedule_channel(channel_id)
-    except Exception:
-        pass
     await db.delete(channel)
     return success_response({"deleted": True})
 

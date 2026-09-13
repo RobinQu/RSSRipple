@@ -386,8 +386,10 @@ async def _apply_light_migrations(conn) -> None:
     repeatedly: we probe the current columns and skip when the target is
     already there.
     """
-    is_turso = is_turso_url(settings.database_url)
-    is_postgres = "postgresql" in settings.database_url
+    # Inspect the actual connection, including legacy SQLite migrations; a
+    # settings override must not select another backend's catalog queries.
+    is_turso = conn.dialect.name == "sqlite"
+    is_postgres = conn.dialect.name == "postgresql"
 
     if is_postgres:
         # Media files commonly exceed PostgreSQL INTEGER's 2 GiB ceiling.
@@ -399,6 +401,13 @@ async def _apply_light_migrations(conn) -> None:
 
     # Column additions: (table, column_name, ddl_type_and_default)
     additions: list[tuple[str, str, str]] = [
+        ("organize_configuration", "lock_domain", "VARCHAR(36)"),
+        ("organize_plans", "file_op", "VARCHAR(16)"),
+        ("organize_plans", "needs_category", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("organize_plans", "manual_destination", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("organize_plans", "revision", "BIGINT NOT NULL DEFAULT 0"),
+        ("organize_plans", "config_revision", "BIGINT"),
+        ("organize_plans", "owner_token", "VARCHAR(36)"),
         ("file_resources", "is_batch",
          "BOOLEAN NOT NULL DEFAULT 0" if is_turso else "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("file_resources", "episode_start", "INTEGER"),
@@ -581,9 +590,19 @@ async def _apply_light_migrations(conn) -> None:
             existing = set()
         if column in existing:
             continue
+        if table in ("organize_plans", "organize_configuration"):
+            # Ownership/version columns are safety-critical: a partial schema
+            # must fail startup rather than silently run old semantics.
+            await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+            logger.info("[migrate] added column %s.%s", table, column)
+            continue
         async with _best_effort(conn, f"add column {table}.{column}"):
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
+
+    from app.services.organize_config_events import ensure_configuration
+
+    await conn.run_sync(ensure_configuration)
 
     # Dashboard hot-path indexes.  Keep these in the light migration as
     # create_all only creates indexes for brand-new databases.
