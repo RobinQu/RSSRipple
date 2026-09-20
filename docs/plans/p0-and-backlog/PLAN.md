@@ -9,11 +9,13 @@
 
 本次用户要求收尾 B9 并合入本地主干，再保留后续修复入口。P0 与 V1–V4 已通过完整验收；B9 的 ab 轮完整单元/API（97.85%）与隔离集成（89.93%）也已通过，测试项目已清理，B9 已从 TODO 删除。有效实现已提交本地 main（代码提交 `4c804ed`）；最终证据见 VALIDATION.md 的 B9 收尾节。
 
-下次从 [TODO.md](TODO.md) 继续，每批先验证必要性和方案，再执行严格集成门禁。下一批优先复核 P1 元数据身份接地：已保存 [V6 方案](V6-IDENTITY-GROUNDING.md) 和 [独立原型补丁](probes/metadata-identity-grounding-prototype.patch)，**原型实现未合入**。补丁以 B9 工作树为基线；应用前检查当前文件与补丁上下文，不要直接覆盖后续改动。临时副本 `/tmp/rssripple-v6-grounding-work` 可加速续接，但不应依赖其长期存在。
+V6 身份接地已完成完整验收：单元/API 3540 passed（97.84%），完整集成 3136 passed（89.81%），应用退出与证据导出/清理完成。原 P0-4 两项已从 TODO 删除；证据见 [V6](V6-IDENTITY-GROUNDING.md) 和 VALIDATION.md 最终验收节。
 
-V6 已有六项红测及修正后 33 项专项通过；下一步是实际 process→upsert→身份袋的数据库验证、真实录制语料正例，并补缓存、Wikipedia ReAct 回退、alt_external_ids 等身份入口。旧缓存 generation=6 会直接应用成功结果，别名身份会进入身份袋，必须继续审计这些路径。B4 租约重复执行、B7 提交顺序/水位线、AgentRun 崩溃回收均仍在 TODO，不能用 B9 的请求补偿结果视为这些问题已解决。
+下次优先续接 V7 合集归属：独立副本 `/tmp/rssripple-v7-collection-work` 的完整单元/API an 仍在运行，句柄在 `/tmp/rssripple-v7-gates-an.json`；保持冻结源码，待终态后复审、同步、完整集成。V8 的 D1 已有双库专项证据，但 API 冲突/恢复流程/完整门禁未完成。两批均未应用主工作树，实现与证据分别见 V7-COLLECTION-INVARIANTS.md 和 V8-COLLECTION-SEASON-INDEX.md。
 
 所有本地 Compose 测试必须显式唯一 `-p`；完整验证须包含应用正常退出、覆盖率合并/导出和项目清理。此前失败轮保留为失败证据，不能被后续定向通过覆盖。
+
+V8 已独立复现并细化下一项 P1-D1，见 [合集单季唯一约束](V8-COLLECTION-SEASON-INDEX.md)：原实现四项真实 Turso 红测，模型＋轻迁移原型六项通过，PG 启动/升级/写入竞争已通过；升级恢复流程与 API 竞争仍待验证。未应用 root，不影响 V6/V7 冻结源码。
 
 ## 1. 评审背景
 
@@ -27,7 +29,7 @@ V6 已有六项红测及修正后 33 项专项通过；下一步是实际 proces
 | P0-1 | SPA catch-all 路径遍历（未认证任意文件读取） | 已修复 |
 | P0-2 | 资源修订端点向"死队列"入队，定向运行永不执行 | 已修复 |
 | P0-3 | LLM `inferred_season` 未对照季证据校验 | 已修复 |
-| P0-4 | 维基 judge / TMDB ReAct 身份未接地 | 降为 P1，待办（见 TODO.md） |
+| P0-4 | 维基 judge / TMDB ReAct 身份未接地 | 复核为 P1，已在 V6 修复并完成验收 |
 | P0-5 | `FileResource` 工作 FK 互斥无 DB 约束 | 降为 P2，待办（§3 为历史数据依据） |
 | P0-6 | 剧集必属合集的创建/删除路径可产生孤儿 | 降为 P1，待办（§3 为历史数据依据） |
 
@@ -280,3 +282,31 @@ B9 ab 完整单元/API 已结束，退出 0：**3500 passed、14 skipped、6 war
 两份 JUnit 的 failures/errors 均为 0；436 个被测源文件运行前后哈希一致。全仓 Ruff 与差异空白检查通过。两个应用 SIGINT 后均正常退出 0；原始四路覆盖率、合并数据和 XML 已导出到 `/tmp/rssripple-v5-artifacts-ab`，JUnit 为 `/tmp/rssripple-v5-unit-ab.xml`、`/tmp/rssripple-v5-integration-ab.xml`；日志为 `/tmp/rssripple-v5-unit-ab.log`、`/tmp/rssripple-v5-integration-ab.log`、`/tmp/rssripple-v5-coverage-ab.log`。唯一项目 `rssripple-v5-complete-20260913-ab` 的容器、网络及临时卷全部清理。
 
 机器可读结果见 [B9 验收摘要](probes/agent-request-complete-ab-result.json)。之前记录的运行中状态为历史，不再代表当前状态。此次收尾不关闭 B4、B7、AgentRun 崩溃回收或元数据身份接地；剩余 P1 21 项、P2 79 项、P3 13 项，共 113 项。下次入口见 PLAN.md 开头和 V6-IDENTITY-GROUNDING.md，V6 仅保存方案、复现与原型补丁，未合入运行代码。
+
+
+## 2026-09-19：身份袋与缓存必要性续验（独立原型）
+
+主干仍为 `02865b2`，B9 已完成；本轮实现仅在独立 V6 副本。新增真实 Turso 的生产 `process → upsert → WorkExternalId` 集成，外部来源与 LLM 明确使用合成数据。Wikipedia 首轮 **2 failed、2 passed，2.71 秒**：合法主身份与非法主身份行为正确，但伪造 alt_external_ids 和 generation=6 的旧成功缓存均实际写入非法身份。补修后连同已有专项 **37 passed、1 warning，5.79 秒**。扩展 TMDB 后又复现其伪造别名落库（**1 failed、7 passed，4.04 秒**），修正后两源四场景及既有专项 **41 passed、1 warning，7.64 秒**。
+
+方案因此补充：Wikipedia 仅保留选中证据的语言别名（证据为空也必须清掉模型别名），来源/页面 URL 来自证据；TMDB 当前工具不提供跨源身份，清掉模型 alt_external_ids/Wikipedia URL，规范 primary source/id；缓存代际从 6 升至 7，旧成功缓存重新走来源校验。合法身份重复处理保持同一电影与唯一身份袋行。该缓存变更仅使旧结果失效，不自动修复历史已落库的污染身份；不得把它说成已清理存量污染。
+
+报告分别为 `/tmp/rssripple-v6-persistence-red.xml`、`/tmp/rssripple-v6-persistence-green.xml`、`/tmp/rssripple-v6-tmdb-persistence-red.xml`、`/tmp/rssripple-v6-both-sources-green.xml`。公开 Wikipedia API 的匿名只读录制尝试返回 HTTP 403，未生成成功录制，不能当作真实来源验收。现有数据库证据足以继续修复，不构成整项阻塞。
+
+扩大 MetadataAgent 单元/集成回归已开始：`/tmp/rssripple-v6-expanded-20260919.log`，尚未有最终结果。仍需 Wikipedia ReAct 回退接地、合法跨语言别名正例、畸形 entity 边界、PostgreSQL 实际落库、真实来源语料及完整门禁。原型补丁与哈希已更新；两个身份接地 TODO 不关闭。
+
+扩大回归已结束：**294 passed、1 warning，71.55 秒，退出 0**（`/tmp/rssripple-v6-expanded-20260919.xml`）。另行 Wikipedia ReAct 必要性测试 **2 failed、1 passed、1 warning，0.77 秒**（`/tmp/rssripple-v6-wiki-react-red.xml`）：已观察身份正例通过，但未知 pageid 与错误语言版本仍被回退图接受。该红测已保存进原型补丁，尚未修复；不得将 294 项通过解释为完整接地完成。下一轮先统一 judge/ReAct 的 Wikipedia 身份选择与别名清理，再补失败工具、页面 URL/语言和合法跨语言别名的正反例。主工作树运行代码仍为已验证 B9，未合入本原型。
+
+
+## 2026-09-19：Wikipedia ReAct 与三入口双库续验
+
+必要性来自上轮两个实际回退图红测。原型现已让 judge 和 ReAct 共用按 `(lang,pageid)` 选择身份与可信别名的函数；ReAct 仅接受成功 Wikipedia 工具响应，并从返回的 Wikipedia 页面 URL 确定语言版本。旧裸 ID 仅能匹配唯一语言身份；同页搜索/详情多次出现不构成歧义，保留详情类别和可信 langlink 身份，清掉模型别名、来源及 URL。初步 **44 passed、1 warning，7.27 秒**，`/tmp/rssripple-v6-react-green.xml`。
+
+补正常跨语言别名、同页多观察、跨语言同号歧义、错误工具状态/失败响应/无语言 URL/假 Wikipedia 域名及畸形 entity 测试后，扩大回归 **308 passed、1 warning，65.45 秒**（`/tmp/rssripple-v6-react-expanded.xml`）。旧 `_run_react` 成功测试原本只有 `external_id=x` 且无工具证据，已补真实形状的 search 调用/响应，并保持 finalize 提取和诊断断言；没有放松接地约束。
+
+数据库矩阵扩大到 Wikipedia judge、真实 judge→ReAct 回退和 TMDB ReAct 三入口，分别检查合法身份、非法主身份、伪造别名、可信别名和旧缓存；Turso **15 passed，6.91 秒**（`/tmp/rssripple-v6-all-paths.xml`），独立 PostgreSQL **15 场景通过、退出 0**。同一生产 process/upsert/cache/身份袋路径验证无非法身份、合法关联稳定、重复执行不重复建档；TMDB 工具无跨源身份，trusted_alias 场景仍只保留其主 ID。
+
+[PostgreSQL 驱动](probes/identity_pg_probe.py) 与 [结果](probes/identity-pg-result.json) 已保存；日志 `/tmp/rssripple-v6-identity-pg-ac.log`。驱动会清空指定测试库，必须在已应用原型且无业务 .env 的独立副本运行，显式 `IDENTITY_PROBE_DATABASE_URL=postgresql+asyncpg://organize_test:organize_test@127.0.0.1:<临时端口>/organize_test`、`PYTHONPATH=.`；仅接受回环地址及专用库身份。使用 [已有测试 Compose](probes/agent-request-replay-compose.yml) 的 postgres 服务并指定唯一 `-p`。本轮 `rssripple-v6-grounding-20260919-ac` 容器及网络已全部清理。
+
+这批数据为合成来源/LLM＋真实数据库实现，不称为真实来源录制。匿名 Wikipedia REST 页面身份录制接口也返回 HTTP 403；尚未取得成功的来源录制。原型共 9 个实现/测试文件，补丁与 `/tmp/rssripple-v6-grounding-state.json` 已同步，主工作树运行代码未改。下一轮继续审查畸形工具数据边界和可用真实来源回放，完成权威文档同步及完整 95%/85% 门禁后才能关闭两项 P1；上轮“ReAct 尚未修复”是历史状态。
+
+V6 有效代码、测试与权威契约已提交本地 main：`7fd8121`。尚未推送远端。

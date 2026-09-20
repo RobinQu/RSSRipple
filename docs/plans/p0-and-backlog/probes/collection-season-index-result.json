@@ -1,0 +1,71 @@
+{
+  "status": "prototype only; not accepted or merged",
+  "fixture": "synthetic works; real temporary Turso database and production create_tables",
+  "files": {
+    "app/models/series.py": "44fb96cf7e3588d03bb6ab502a15db60f346391f4c1f196d2698590259290040",
+    "app/database.py": "503d4ed02d76dc25c2c7217e15bbde7024c66e03bfbdf3098240c29f662d898d",
+    "tests/unit/test_collection_season_index.py": "c24433a67e9230101c2ff069824c70cf233308e05edfaa19fd43bc996139942d"
+  },
+  "root_before": {
+    "app/models/series.py": "579ad66dcba912af3db6bf5bf86311165207507b6fa15d4b903d8bc161489c0f",
+    "app/database.py": "7e20f748e8fb49a2880f5055cd6c6f2e850a8a5f28a3d8e8dac49237a6ea8e66",
+    "tests/unit/test_collection_season_index.py": null
+  },
+  "runs": {
+    "baseline": {
+      "junit": "/tmp/rssripple-v8-index-baseline.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "4",
+      "skipped": "0",
+      "tests": "4",
+      "time": "8.873",
+      "timestamp": "2026-09-20T01:06:45.097124+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "expanded": {
+      "junit": "/tmp/rssripple-v8-index-expanded.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "4",
+      "time": "8.837",
+      "timestamp": "2026-09-20T01:06:08.182052+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "migration-green": {
+      "junit": "/tmp/rssripple-v8-index-migration-green.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "4",
+      "time": "8.770",
+      "timestamp": "2026-09-20T01:07:44.050151+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "boundaries": {
+      "junit": "/tmp/rssripple-v8-index-boundaries.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "5",
+      "time": "10.362",
+      "timestamp": "2026-09-20T01:08:23.361300+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "populated": {
+      "junit": "/tmp/rssripple-v8-index-populated.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "6",
+      "time": "11.037",
+      "timestamp": "2026-09-20T01:11:26.581991+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  }
+}

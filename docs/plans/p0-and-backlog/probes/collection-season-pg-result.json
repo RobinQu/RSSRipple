@@ -1,0 +1,23 @@
+{
+  "fixture": "synthetic works, real disposable PostgreSQL and production startup",
+  "fresh_concurrent_process_startup": [
+    0,
+    0
+  ],
+  "populated_concurrent_process_upgrade": [
+    0,
+    0
+  ],
+  "populated_identity_and_episode_preserved": true,
+  "duplicate_seasons_rejected": [
+    0,
+    1,
+    3
+  ],
+  "second_writer_blocked": true,
+  "second_writer_sqlstate": "23505",
+  "conflicting_upgrade_preserves_all_rows": true,
+  "project": "rssripple-v8-index-20260920-ao",
+  "exit_code": 0,
+  "cleanup": "complete"
+}

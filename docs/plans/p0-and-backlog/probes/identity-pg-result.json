@@ -1,0 +1,85 @@
+{
+  "backend": "PostgreSQL",
+  "passed": 15,
+  "cases": [
+    {
+      "source": "wikipedia",
+      "variant": "valid",
+      "passed": true
+    },
+    {
+      "source": "wikipedia",
+      "variant": "invalid_primary",
+      "passed": true
+    },
+    {
+      "source": "wikipedia",
+      "variant": "forged_alias",
+      "passed": true
+    },
+    {
+      "source": "wikipedia",
+      "variant": "trusted_alias",
+      "passed": true
+    },
+    {
+      "source": "wikipedia",
+      "variant": "old_cache",
+      "passed": true
+    },
+    {
+      "source": "wikipedia_react",
+      "variant": "valid",
+      "passed": true
+    },
+    {
+      "source": "wikipedia_react",
+      "variant": "invalid_primary",
+      "passed": true
+    },
+    {
+      "source": "wikipedia_react",
+      "variant": "forged_alias",
+      "passed": true
+    },
+    {
+      "source": "wikipedia_react",
+      "variant": "trusted_alias",
+      "passed": true
+    },
+    {
+      "source": "wikipedia_react",
+      "variant": "old_cache",
+      "passed": true
+    },
+    {
+      "source": "tmdb",
+      "variant": "valid",
+      "passed": true
+    },
+    {
+      "source": "tmdb",
+      "variant": "invalid_primary",
+      "passed": true
+    },
+    {
+      "source": "tmdb",
+      "variant": "forged_alias",
+      "passed": true
+    },
+    {
+      "source": "tmdb",
+      "variant": "trusted_alias",
+      "passed": true
+    },
+    {
+      "source": "tmdb",
+      "variant": "old_cache",
+      "passed": true
+    }
+  ],
+  "fixture": "synthetic source/LLM; real process/upsert/cache/identity bag",
+  "project": "rssripple-v6-grounding-20260920-ah",
+  "scope": "final implementation with production search candidate shape",
+  "cleanup": "complete"
+}

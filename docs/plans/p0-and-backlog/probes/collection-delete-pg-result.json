@@ -1,0 +1,13 @@
+{
+  "backend": "PostgreSQL",
+  "statuses": [
+    200,
+    404
+  ],
+  "second_blocked": true,
+  "remaining_collections": 1,
+  "member_has_valid_collection": true,
+  "fixture": "synthetic rows; actual endpoint transactions and pg_blocking_pids",
+  "project": "rssripple-v7-collection-20260920-ak",
+  "cleanup": "complete"
+}

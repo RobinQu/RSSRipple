@@ -1,0 +1,33 @@
+{
+  "batch": "V6",
+  "unit_api": {
+    "passed": 3540,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 1557.0,
+    "exit_code": 0,
+    "covered": 21159,
+    "valid": 21627
+  },
+  "integration": {
+    "passed": 3129,
+    "failed": 7,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1728.31,
+    "runner_exit_code": 1,
+    "coverage_exit_code": 0,
+    "covered": 19413,
+    "valid": 21627
+  },
+  "main_worktree_applied": true,
+  "committed": false,
+  "project": "rssripple-v6-complete-20260920-ai",
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "cleanup": "complete",
+  "artifacts": "/tmp/rssripple-v6-artifacts-ai",
+  "acceptance": false
+}

@@ -1,0 +1,15 @@
+{
+  "backend": "PostgreSQL",
+  "concurrent_repair_counts": [
+    3,
+    0
+  ],
+  "second_query_started_while_first_held_row_locks": true,
+  "idempotent_rerun": true,
+  "resource_and_season_consistent": true,
+  "delete_rehomes_and_cleans_bag": true,
+  "preloaded_parent": true,
+  "fixture": "synthetic ORM rows; real PostgreSQL",
+  "project": "rssripple-v7-collection-20260920-ak",
+  "cleanup": "complete"
+}

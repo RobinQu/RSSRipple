@@ -1,5 +1,15 @@
 --- a/app/services/metadata_wiki_judge.py
 +++ b/app/services/metadata_wiki_judge.py
+@@ -18,8 +18,8 @@
+ import re
+ from typing import Any
+ 
++from app.services.metadata_identity_evidence import ground_wikipedia_identity
+ from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT
+-from app.services.metadata_source_registry import parse_wikipedia_id
+ from app.services.metadata_sources import normalize_metadata_source_type
+ from app.services.metadata_web_fallback import web_fallback_judge
+ from app.services.metadata_wiki_classify import (
 @@ -226,8 +226,8 @@
          return_exceptions=True,
      )
@@ -24,10 +34,12 @@
              top.append({"query": q, "lang": lang, **cand})
              if len(top) >= 6:
                  break
-@@ -498,39 +498,43 @@
+@@ -496,41 +496,26 @@
+     # find the evidence page with that page_id and copy its categories (plus
+     # a description if missing).
      if finalize_dict.get("found"):
-         me = finalize_dict.get("matched_entity") or {}
-         ext_id = me.get("external_id") or ""
+-        me = finalize_dict.get("matched_entity") or {}
+-        ext_id = me.get("external_id") or ""
 -        _, pid = parse_wikipedia_id(ext_id)
 -        if pid:
 -            for e in evidence:
@@ -61,24 +73,11 @@
 -                        # page's wikitext (LLM judge schema stays unchanged).
 -                        await _attach_wikipedia_content(me, e)
 -                    break
-+        lang, pid = parse_wikipedia_id(ext_id)
-+        matches = [e for e in evidence if pid and str(e.get("page_id")) == pid
-+                   and (lang is None or e.get("lang") == lang)]
-+        # Legacy bare IDs are safe only when the observed edition is unambiguous.
-+        if len(matches) != 1:
-+            finalize_dict.update(found=False, matched_entity=None,
-+                                 reason="No matching Wikipedia identity in search evidence")
-+        else:
-+            e = matches[0]
-+            me["categories"] = list(e.get("categories", [])[:10])
++        finalize_dict, e = ground_wikipedia_identity(finalize_dict, evidence)
++        if e is not None:
++            me = finalize_dict["matched_entity"]
 +            if not me.get("description"):
 +                me["description"] = (e.get("summary") or "")[:500] or None
-+            # Language-qualify the pageid (pageids are per-edition)
-+            # and carry the page URL for display/wikidata resolution.
-+            if e.get("lang"):
-+                me["external_id"] = f"wikipedia:{e['lang']}:{pid}"
-+            if not me.get("wikipedia_url") and e.get("url"):
-+                me["wikipedia_url"] = e.get("url")
 +            # Cross-language bridge: backfill the other language's
 +            # title slot and carry all langlink titles as alt_titles
 +            # so the upsert's title fallback can converge per-language
@@ -86,10 +85,6 @@
 +            xl = _cross_language_titles(e)
 +            if xl["alt_titles"]:
 +                me["alt_titles"] = xl["alt_titles"]
-+            # P3: langlink pageids join the identity bag at upsert.
-+            alt_ids = _wikipedia_alt_external_ids(e)
-+            if alt_ids:
-+                me["alt_external_ids"] = alt_ids
 +            if not me.get("title_cn") and xl["title_cn"]:
 +                me["title_cn"] = xl["title_cn"]
 +            if not me.get("title_en") and xl["title_en"]:
@@ -103,7 +98,7 @@
      finalize_dict.setdefault("content_type", "tv")
 --- a/app/services/metadata_agent.py
 +++ b/app/services/metadata_agent.py
-@@ -1020,10 +1020,12 @@
+@@ -1020,10 +1020,16 @@
              )
  
          messages = result.get("messages", [])
@@ -116,26 +111,39 @@
 +            from app.services.metadata_identity_evidence import ground_tmdb_identity
 +
 +            finalize = ground_tmdb_identity(finalize, messages)
++        elif source == "wikipedia":
++            from app.services.metadata_identity_evidence import ground_wikipedia_react_identity
++
++            finalize = ground_wikipedia_react_identity(finalize, messages)
 +        return finalize, self._extract_search_info(messages)
  
      async def _run_search_then_judge(
          self,
 --- /dev/null
 +++ b/app/services/metadata_identity_evidence.py
-@@ -0,0 +1,44 @@
-+"""Validate model-selected TMDB identity against successful tool results."""
+@@ -0,0 +1,145 @@
++"""Validate model-selected identities against successful source evidence."""
++
 +import json
 +import re
++from urllib.parse import urlsplit
 +
 +from langchain_core.messages import ToolMessage
 +
 +
-+def ground_tmdb_identity(finalize: dict, messages: list) -> dict:
-+    if not finalize.get("found"):
-+        return finalize
-+    identities: set[tuple[str, str]] = set()
++def _numeric_id(value: object) -> str | None:
++    if isinstance(value, bool) or not isinstance(value, (int, str)):
++        return None
++    raw = str(value)
++    if not re.fullmatch(r"[0-9]+", raw):
++        return None
++    # String normalization avoids exceptions on oversized model-generated ints.
++    return raw.lstrip("0") or None
++
++
++def _tool_rows(messages: list, names: set[str]):
 +    for message in messages:
-+        if not isinstance(message, ToolMessage) or message.name not in {"search_tmdb", "get_tmdb_details"}:
++        if not isinstance(message, ToolMessage) or message.name not in names:
 +            continue
 +        if message.status == "error" or not isinstance(message.content, str):
 +            continue
@@ -146,27 +154,119 @@
 +        if not isinstance(payload, dict) or payload.get("success") is not True:
 +            continue
 +        data = payload.get("data")
-+        rows = data if isinstance(data, list) else [data]
-+        for row in rows:
-+            if not isinstance(row, dict) or row.get("media_type") not in {"tv", "movie"}:
-+                continue
-+            raw_id = row.get("tmdb_id")
-+            if raw_id is None:
-+                external_id = row.get("external_id")
-+                if isinstance(external_id, str) and re.fullmatch(r"tmdb:[0-9]+", external_id):
-+                    raw_id = external_id[5:]
-+            if isinstance(raw_id, bool) or not isinstance(raw_id, (int, str)):
-+                continue
-+            if re.fullmatch(r"[0-9]+", str(raw_id)) and int(raw_id) > 0:
-+                identities.add((row["media_type"], str(int(raw_id))))
++        for row in data if isinstance(data, list) else [data]:
++            if isinstance(row, dict):
++                yield row
++
++
++def ground_tmdb_identity(finalize: dict, messages: list) -> dict:
++    if not finalize.get("found"):
++        return finalize
++    identities: set[tuple[str, str]] = set()
++    for row in _tool_rows(messages, {"search_tmdb", "get_tmdb_details"}):
++        # Search returns normalized candidates (content_type); details retain
++        # TMDB's media_type field. Reject contradictory evidence explicitly.
++        media_type = row.get("media_type", row.get("content_type"))
++        if media_type not in ("tv", "movie"):
++            continue
++        if "content_type" in row and row["content_type"] != media_type:
++            continue
++        raw_id = row.get("tmdb_id")
++        if raw_id is None:
++            external_id = row.get("external_id")
++            if isinstance(external_id, str) and external_id.startswith("tmdb:"):
++                raw_id = external_id[5:]
++        identity_id = _numeric_id(raw_id)
++        if identity_id is not None:
++            identities.add((media_type, identity_id))
 +    entity = finalize.get("matched_entity")
 +    external_id = entity.get("external_id") if isinstance(entity, dict) else None
 +    match = re.fullmatch(r"tmdb:([0-9]+)", external_id) if isinstance(external_id, str) else None
-+    identity = (finalize.get("content_type"), str(int(match[1]))) if match else None
++    content_type = finalize.get("content_type")
++    identity = (content_type, _numeric_id(match[1])) if match and isinstance(content_type, str) else None
 +    if identity not in identities:
-+        return {**finalize, "found": False, "matched_entity": None,
-+                "reason": "No matching TMDB identity and media type in tool evidence"}
-+    return finalize
++        return {
++            **finalize,
++            "found": False,
++            "matched_entity": None,
++            "reason": "No matching TMDB identity and media type in tool evidence",
++        }
++    # These TMDB tools expose no cross-source identity evidence. Never retain
++    # model-authored aliases or Wikipedia URLs alongside a grounded primary ID.
++    grounded = {**entity, "external_id": f"tmdb:{identity[1]}", "external_source": "tmdb", "alt_external_ids": []}
++    grounded.pop("wikipedia_url", None)
++    return {**finalize, "matched_entity": grounded}
++
++
++def ground_wikipedia_identity(finalize: dict, evidence: list[dict]) -> tuple[dict, dict | None]:
++    """Share language-qualified identity selection between judge and ReAct."""
++    from app.services.metadata_source_registry import parse_wikipedia_id
++
++    if not finalize.get("found"):
++        return finalize, None
++    entity = finalize.get("matched_entity")
++    external_id = entity.get("external_id") if isinstance(entity, dict) else None
++    lang, pid = parse_wikipedia_id(external_id if isinstance(external_id, str) else None)
++    pid = _numeric_id(pid)
++    pages: dict[tuple[str, str], dict] = {}
++    for entry in evidence:
++        if not isinstance(entry, dict):
++            continue
++        edition, page_id = entry.get("lang"), _numeric_id(entry.get("page_id"))
++        if not isinstance(edition, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", edition):
++            continue
++        if page_id is None:
++            continue
++        key = (edition, page_id)
++        # A search and a later detail response are observations of one page.
++        # Empty search fields must not erase richer detail evidence.
++        pages.setdefault(key, {}).update({k: v for k, v in entry.items() if v not in (None, "", [], {})})
++        pages[key]["page_id"] = page_id
++    matches = [
++        entry for (edition, page_id), entry in pages.items() if page_id == pid and (lang is None or lang == edition)
++    ]
++    if len(matches) != 1:
++        return {
++            **finalize,
++            "found": False,
++            "matched_entity": None,
++            "reason": "No unique matching Wikipedia identity in source evidence",
++        }, None
++    entry = matches[0]
++    aliases = []
++    language_ids = entry.get("langlink_pageids")
++    for edition, raw_id in (language_ids if isinstance(language_ids, dict) else {}).items():
++        alias = f"wikipedia:{edition}:{raw_id}"
++        alias_lang, alias_id = parse_wikipedia_id(alias)
++        alias_id = _numeric_id(alias_id)
++        if alias_lang and alias_id:
++            aliases.append({"source": "wikipedia", "id": f"wikipedia:{alias_lang}:{alias_id}"})
++    categories = entry.get("categories")
++    categories = [value for value in categories if isinstance(value, str)] if isinstance(categories, list) else []
++    grounded = {
++        **entity,
++        "external_source": "wikipedia",
++        "external_id": f"wikipedia:{entry['lang']}:{entry['page_id']}",
++        "wikipedia_url": entry.get("url"),
++        "alt_external_ids": aliases,
++        "categories": categories[:10],
++    }
++    return {**finalize, "matched_entity": grounded}, entry
++
++
++def ground_wikipedia_react_identity(finalize: dict, messages: list) -> dict:
++    evidence = []
++    for row in _tool_rows(messages, {"search_wikipedia", "get_wikipedia_page"}):
++        if not isinstance(row.get("url"), str):
++            continue
++        try:
++            host = urlsplit(row["url"]).hostname or ""
++        except ValueError:
++            continue
++        match = re.fullmatch(r"([a-z][a-z0-9-]*)\.wikipedia\.org", host)
++        if match:
++            evidence.append({**row, "lang": match[1]})
++    return ground_wikipedia_identity(finalize, evidence)[0]
 --- a/tests/unit/test_metadata_wiki_judge.py
 +++ b/tests/unit/test_metadata_wiki_judge.py
 @@ -170,7 +170,7 @@
@@ -212,8 +312,9 @@
          patch(f"{_JUDGE}._execute_search_wikipedia", search),
 --- /dev/null
 +++ b/tests/unit/test_metadata_identity_grounding.py
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,113 @@
 +"""Untrusted model identities must be grounded in successful tool evidence."""
++
 +import json
 +from unittest.mock import AsyncMock, MagicMock, patch
 +
@@ -225,77 +326,1092 @@
 +from tests.unit.test_metadata_wiki_judge import _model, _runner
 +
 +
-+@pytest.mark.parametrize('identity', ['wikipedia:en:999', 'wikipedia:zh:123', 'wikipedia:bogus'])
++@pytest.mark.parametrize("identity", ["wikipedia:en:999", "wikipedia:zh:123", "wikipedia:bogus"])
 +async def test_judge_rejects_identity_absent_from_language_qualified_evidence(identity):
 +    runner, builder = _runner()
-+    search = AsyncMock(return_value={'success': True, 'data': [{'title': 'Different ZZZ', 'page_id': 123}]})
-+    page = AsyncMock(return_value={'success': True, 'data': {'categories': ['TV series'], 'summary': 'series'}})
-+    model = _model({'found': True, 'content_type': 'tv', 'matched_entity': {'external_id': identity}})
-+    with patch.object(wiki, '_candidate_queries', return_value=[('input', 'en')]), \
-+            patch.object(wiki, '_execute_search_wikipedia', search), \
-+            patch.object(wiki, '_execute_get_wikipedia_page', page):
-+        result, _ = await wiki.run_search_then_judge(model, 'input', react_runner=runner, msg_builder=builder)
-+    assert result['found'] is False
-+    assert result.get('matched_entity') is None
++    search = AsyncMock(return_value={"success": True, "data": [{"title": "Different ZZZ", "page_id": 123}]})
++    page = AsyncMock(return_value={"success": True, "data": {"categories": ["TV series"], "summary": "series"}})
++    model = _model({"found": True, "content_type": "tv", "matched_entity": {"external_id": identity}})
++    with (
++        patch.object(wiki, "_candidate_queries", return_value=[("input", "en")]),
++        patch.object(wiki, "_execute_search_wikipedia", search),
++        patch.object(wiki, "_execute_get_wikipedia_page", page),
++    ):
++        result, _ = await wiki.run_search_then_judge(model, "input", react_runner=runner, msg_builder=builder)
++    assert result["found"] is False
++    assert result.get("matched_entity") is None
 +
 +
 +async def test_same_pageid_in_two_editions_retains_both_candidates_and_exact_identity():
 +    runner, builder = _runner()
++
 +    async def search(query, lang):
-+        return {'success': True, 'data': [{'title': 'Different ' + lang, 'page_id': 123}]}
++        return {"success": True, "data": [{"title": "Different " + lang, "page_id": 123}]}
++
 +    async def page(title, lang):
-+        return {'success': True, 'data': {'categories': [lang + ' category'], 'summary': lang + ' summary'}}
++        return {"success": True, "data": {"categories": [lang + " category"], "summary": lang + " summary"}}
++
 +    page_mock = AsyncMock(side_effect=page)
-+    model = _model({'found': True, 'content_type': 'movie',
-+                    'matched_entity': {'external_id': 'wikipedia:ja:123'}})
-+    with patch.object(wiki, '_candidate_queries', return_value=[('input', 'en'), ('input', 'ja')]), \
-+            patch.object(wiki, '_execute_search_wikipedia', side_effect=search), \
-+            patch.object(wiki, '_execute_get_wikipedia_page', page_mock):
-+        result, _ = await wiki.run_search_then_judge(model, 'input', react_runner=runner, msg_builder=builder)
++    model = _model({"found": True, "content_type": "movie", "matched_entity": {"external_id": "wikipedia:ja:123"}})
++    with (
++        patch.object(wiki, "_candidate_queries", return_value=[("input", "en"), ("input", "ja")]),
++        patch.object(wiki, "_execute_search_wikipedia", side_effect=search),
++        patch.object(wiki, "_execute_get_wikipedia_page", page_mock),
++    ):
++        result, _ = await wiki.run_search_then_judge(model, "input", react_runner=runner, msg_builder=builder)
 +    assert page_mock.await_count == 2
-+    assert result['matched_entity']['external_id'] == 'wikipedia:ja:123'
-+    assert result['matched_entity']['categories'] == ['ja category']
++    assert result["matched_entity"]["external_id"] == "wikipedia:ja:123"
++    assert result["matched_entity"]["categories"] == ["ja category"]
 +
 +
-+@pytest.mark.parametrize('identity,kind', [('tmdb:999', 'tv'), ('tmdb:111', 'movie')])
++@pytest.mark.parametrize("identity,kind", [("tmdb:999", "tv"), ("tmdb:111", "movie")])
 +async def test_tmdb_react_rejects_id_or_media_type_not_in_tool_evidence(identity, kind):
 +    agent = UnifiedMetadataAgent()
-+    final = {'found': True, 'content_type': kind,
-+             'matched_entity': {'external_id': identity, 'external_source': 'tmdb'}}
++    final = {
++        "found": True,
++        "content_type": kind,
++        "matched_entity": {"external_id": identity, "external_source": "tmdb"},
++    }
 +    messages = [
-+        ToolMessage(content=json.dumps({'success': True, 'data': [
-+            {'tmdb_id': 111, 'external_id': 'tmdb:111', 'media_type': 'tv'}]}),
-+            name='search_tmdb', tool_call_id='search'),
-+        AIMessage(content='', tool_calls=[{'id': 'final', 'name': 'finalize',
-+                                           'args': {'result_json': json.dumps(final)}}]),
++        ToolMessage(
++            content=json.dumps(
++                {"success": True, "data": [{"tmdb_id": 111, "external_id": "tmdb:111", "media_type": "tv"}]}
++            ),
++            name="search_tmdb",
++            tool_call_id="search",
++        ),
++        AIMessage(
++            content="", tool_calls=[{"id": "final", "name": "finalize", "args": {"result_json": json.dumps(final)}}]
++        ),
 +    ]
-+    agent._agent_for_source = MagicMock(return_value=MagicMock(ainvoke=AsyncMock(return_value={'messages': messages})))
-+    result, _ = await agent._run_react('input', 'tmdb')
-+    assert result['found'] is False
-+    assert result.get('matched_entity') is None
++    agent._agent_for_source = MagicMock(return_value=MagicMock(ainvoke=AsyncMock(return_value={"messages": messages})))
++    result, _ = await agent._run_react("input", "tmdb")
++    assert result["found"] is False
++    assert result.get("matched_entity") is None
 +
 +
-+@pytest.mark.parametrize('name,payload,status,expected', [
-+    ('search_tmdb', {'success': True, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'success', True),
-+    ('search_tmdb', {'success': True, 'data': [{'external_id': 'tmdb:111', 'media_type': 'tv'}]}, 'success', True),
-+    ('get_tmdb_details', {'success': True, 'data': {'tmdb_id': 111, 'media_type': 'tv'}}, 'success', True),
-+    ('search_tmdb', {'success': False, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'success', False),
-+    ('search_tmdb', {'success': True, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'error', False),
-+    ('search_tmdb', {'success': True, 'data': [{'tmdb_id': 111}]}, 'success', False),
-+    ('finalize', {'success': True, 'data': [{'tmdb_id': 111, 'media_type': 'tv'}]}, 'success', False),
-+    ('search_tmdb', {'success': True, 'data': [None, 'malformed', {'tmdb_id': True, 'media_type': 'tv'}]}, 'success', False),
-+    ('search_tmdb', 'invalid json', 'success', False),
-+])
++@pytest.mark.parametrize(
++    "name,payload,status,expected",
++    [
++        ("search_tmdb", {"success": True, "data": [{"tmdb_id": 111, "media_type": "tv"}]}, "success", True),
++        ("search_tmdb", {"success": True, "data": [{"external_id": "tmdb:111", "media_type": "tv"}]}, "success", True),
++        ("get_tmdb_details", {"success": True, "data": {"tmdb_id": 111, "media_type": "tv"}}, "success", True),
++        ("search_tmdb", {"success": False, "data": [{"tmdb_id": 111, "media_type": "tv"}]}, "success", False),
++        ("search_tmdb", {"success": True, "data": [{"tmdb_id": 111, "media_type": "tv"}]}, "error", False),
++        ("search_tmdb", {"success": True, "data": [{"tmdb_id": 111}]}, "success", False),
++        ("finalize", {"success": True, "data": [{"tmdb_id": 111, "media_type": "tv"}]}, "success", False),
++        (
++            "search_tmdb",
++            {"success": True, "data": [None, "malformed", {"tmdb_id": True, "media_type": "tv"}]},
++            "success",
++            False,
++        ),
++        ("search_tmdb", "invalid json", "success", False),
++    ],
++)
 +def test_tmdb_grounding_accepts_only_successful_typed_source_evidence(name, payload, status, expected):
 +    from app.services.metadata_identity_evidence import ground_tmdb_identity
 +
-+    final = {'found': True, 'content_type': 'tv', 'matched_entity': {'external_id': 'tmdb:111'}}
-+    message = ToolMessage(content=json.dumps(payload) if not isinstance(payload, str) else payload,
-+                          name=name, tool_call_id='evidence', status=status)
++    final = {"found": True, "content_type": "tv", "matched_entity": {"external_id": "tmdb:111"}}
++    message = ToolMessage(
++        content=json.dumps(payload) if not isinstance(payload, str) else payload,
++        name=name,
++        tool_call_id="evidence",
++        status=status,
++    )
 +    result = ground_tmdb_identity(final, [message])
-+    assert result['found'] is expected
++    assert result["found"] is expected
 +    if expected:
-+        assert result['matched_entity']['external_id'] == 'tmdb:111'
++        assert result["matched_entity"]["external_id"] == "tmdb:111"
 +    else:
-+        assert result['matched_entity'] is None
-+    assert final['found'] is True  # validation does not mutate caller input
++        assert result["matched_entity"] is None
++    assert final["found"] is True  # validation does not mutate caller input
+--- a/app/models/metadata_cache.py
++++ b/app/models/metadata_cache.py
+@@ -42,7 +42,9 @@
+ #       source lists none, so genre-less verdicts should not reappear.
+ #   6 — bind web fallback identities to shown candidates; filter before query
+ #       early-stop and reject ungrounded identity/episode-list payloads.
+-METADATA_CACHE_GENERATION = 6
++#   7 — bind primary/alternate identities to source evidence; invalidate
++#       cached model identities produced before grounding enforcement.
++METADATA_CACHE_GENERATION = 7
+ 
+ 
+ class MetadataCache(Base):
+--- /dev/null
++++ b/tests/integration/metadata/test_identity_persistence.py
+@@ -0,0 +1,149 @@
++"""Real process/upsert/cache/identity-bag boundary; source and LLM are synthetic."""
++
++import json
++import uuid
++from unittest.mock import AsyncMock, MagicMock
++
++import pytest
++from langchain_core.messages import AIMessage, ToolMessage
++from sqlalchemy import select
++
++from app.models.channel import Channel
++from app.models.file_resource import FileResource
++from app.models.metadata_cache import MetadataCache
++from app.models.movie import Movie
++from app.models.work_external_id import WorkExternalId
++from app.services import metadata_wiki_judge as wiki
++from app.services.metadata_agent import UnifiedMetadataAgent
++from tests.unit.test_agent_service import TEST_FIELD_MAPPING
++from tests.unit.test_metadata_wiki_judge import _model
++
++
++@pytest.mark.parametrize("source", ["wikipedia", "wikipedia_react", "tmdb"])
++@pytest.mark.parametrize("variant", ["valid", "invalid_primary", "forged_alias", "trusted_alias", "old_cache"])
++async def test_process_persists_only_evidenced_identity(db_session, monkeypatch, variant, source):
++    primary_source = "tmdb" if source == "tmdb" else "wikipedia"
++    channel = Channel(
++        id=str(uuid.uuid4()),
++        name="identity persistence",
++        url="https://example.invalid/rss",
++        field_mapping=TEST_FIELD_MAPPING,
++        metadata_source=primary_source,
++        metadata_fallback_sources=[],
++    )
++    resource = FileResource(
++        id=str(uuid.uuid4()),
++        channel_id=channel.id,
++        guid=str(uuid.uuid4()),
++        title_raw="Synthetic grounding film release",
++        torrent_url="https://example.invalid/file.torrent",
++    )
++    db_session.add_all([channel, resource])
++    await db_session.commit()
++    prefix = "tmdb" if source == "tmdb" else "wikipedia:en"
++    identity = f"{prefix}:999" if variant == "invalid_primary" else f"{prefix}:123"
++    entity = {
++        "external_id": identity,
++        "external_source": primary_source,
++        "title_en": "Synthetic Grounding Film",
++        "genre": ["Animation"],
++    }
++    if variant in ("forged_alias", "trusted_alias"):
++        entity["alt_external_ids"] = [{"source": "wikipedia", "id": "wikipedia:ja:999"}]
++    final = {
++        "found": True,
++        "content_type": "movie",
++        "clean_title": "Synthetic Grounding Film",
++        "matched_entity": entity,
++    }
++    model = _model(final)
++    monkeypatch.setattr(wiki, "_candidate_queries", lambda *args: [("synthetic query", "en")])
++    monkeypatch.setattr(
++        wiki,
++        "_execute_search_wikipedia",
++        AsyncMock(return_value={"success": True, "data": [{"page_id": 123, "title": "Unrelated page title"}]}),
++    )
++    monkeypatch.setattr(
++        wiki,
++        "_execute_get_wikipedia_page",
++        AsyncMock(
++            return_value={
++                "success": True,
++                "data": {
++                    "page_id": 123,
++                    "categories": ["Animated films"],
++                    "summary": "Synthetic evidence for an animated film.",
++                    "langlink_pageids": {"ja": 456} if variant == "trusted_alias" else {},
++                },
++            }
++        ),
++    )
++    agent = UnifiedMetadataAgent()
++    agent._model = model
++    if source in ("tmdb", "wikipedia_react"):
++        monkeypatch.setattr("app.services.runtime_config._overrides", {"tmdb_api_key": ""})
++        if source == "tmdb":
++            observed = ToolMessage(
++                content=json.dumps({"success": True, "data": [{"external_id": "tmdb:123", "content_type": "movie"}]}),
++                name="search_tmdb",
++                tool_call_id="search",
++            )
++        else:
++            # Exercise production judge -> ReAct fallback, not a mocked validator.
++            monkeypatch.setattr(wiki, "_candidate_queries", lambda *args: [])
++            observed = ToolMessage(
++                content=json.dumps(
++                    {
++                        "success": True,
++                        "data": {
++                            "page_id": 123,
++                            "url": "https://en.wikipedia.org/wiki/Synthetic_film",
++                            "categories": ["Animated films"],
++                            "langlink_pageids": {"ja": 456} if variant == "trusted_alias" else {},
++                        },
++                    }
++                ),
++                name="get_wikipedia_page",
++                tool_call_id="page",
++            )
++        messages = [
++            observed,
++            AIMessage(
++                content="", tool_calls=[{"name": "finalize", "id": "final", "args": {"result_json": json.dumps(final)}}]
++            ),
++        ]
++        model = MagicMock(ainvoke=AsyncMock(return_value={"messages": messages}))
++        agent._agent_for_source = MagicMock(return_value=model)
++    if variant == "old_cache":
++        db_session.add(
++            MetadataCache(
++                title=resource.title_raw,
++                source=f"metadata_agent:{primary_source}",
++                generation=6,
++                content_type="movie",
++                metadata_json={**final, "matched_entity": {**entity, "external_id": f"{prefix}:999"}},
++            )
++        )
++        await db_session.commit()
++    result = await agent.process(resource, channel, db_session)
++    await db_session.commit()
++    ids = (await db_session.scalars(select(WorkExternalId))).all()
++    assert all(row.external_id not in {"wikipedia:en:999", "wikipedia:ja:999", "tmdb:999"} for row in ids)
++    if variant == "invalid_primary":
++        assert not result.found and resource.movie_id is None
++        assert await db_session.scalar(select(Movie.id)) is None
++        assert ids == []
++    else:
++        assert result.found and resource.movie_id is not None
++        expected_ids = {f"{prefix}:123"}
++        if variant == "trusted_alias" and primary_source == "wikipedia":
++            expected_ids.add("wikipedia:ja:456")
++        assert {row.external_id for row in ids} == expected_ids
++        assert len((await db_session.scalars(select(Movie))).all()) == 1
++        original_id = resource.movie_id
++        await agent.process(resource, channel, db_session)
++        await db_session.commit()
++        assert resource.movie_id == original_id
++        assert len((await db_session.scalars(select(Movie))).all()) == 1
++        assert {row.external_id for row in (await db_session.scalars(select(WorkExternalId))).all()} == expected_ids
++    model.ainvoke.assert_awaited_once()
+--- /dev/null
++++ b/tests/unit/test_metadata_wiki_react_grounding.py
+@@ -0,0 +1,125 @@
++"""The Wikipedia fallback graph must enforce the same identity boundary as judge."""
++
++import json
++from unittest.mock import AsyncMock, MagicMock
++
++import pytest
++from langchain_core.messages import AIMessage, ToolMessage
++
++from app.services.metadata_agent import UnifiedMetadataAgent
++
++
++@pytest.mark.parametrize(
++    "identity,expected",
++    [
++        ("wikipedia:en:123", True),
++        ("wikipedia:en:999", False),
++        ("wikipedia:zh:123", False),
++    ],
++)
++async def test_wikipedia_react_grounding(identity, expected):
++    agent = UnifiedMetadataAgent()
++    final = {
++        "found": True,
++        "content_type": "movie",
++        "matched_entity": {"external_id": identity, "external_source": "wikipedia"},
++    }
++    messages = [
++        ToolMessage(
++            name="search_wikipedia",
++            tool_call_id="search",
++            content=json.dumps(
++                {
++                    "success": True,
++                    "data": [
++                        {
++                            "page_id": 123,
++                            "title": "Synthetic film",
++                            "url": "https://en.wikipedia.org/wiki/Synthetic_film",
++                        }
++                    ],
++                }
++            ),
++        ),
++        AIMessage(
++            content="", tool_calls=[{"name": "finalize", "id": "final", "args": {"result_json": json.dumps(final)}}]
++        ),
++    ]
++    agent._agent_for_source = MagicMock(return_value=MagicMock(ainvoke=AsyncMock(return_value={"messages": messages})))
++    result, _ = await agent._run_react("input", "wikipedia")
++    assert result["found"] is expected
++    if not expected:
++        assert result.get("matched_entity") is None
++
++
++def tool(data, *, name="search_wikipedia", success=True, status="success"):
++    return ToolMessage(
++        name=name, tool_call_id="evidence", status=status, content=json.dumps({"success": success, "data": data})
++    )
++
++
++@pytest.mark.parametrize(
++    "name,success,status,url",
++    [
++        ("search_wikipedia", False, "success", "https://en.wikipedia.org/wiki/Test"),
++        ("search_wikipedia", True, "error", "https://en.wikipedia.org/wiki/Test"),
++        ("finalize", True, "success", "https://en.wikipedia.org/wiki/Test"),
++        ("search_wikipedia", True, "success", "https://en.wikipedia.org.attacker.invalid/wiki/Test"),
++        ("search_wikipedia", True, "success", None),
++    ],
++)
++def test_failed_or_unqualified_tool_evidence_is_rejected(name, success, status, url):
++    from app.services.metadata_identity_evidence import ground_wikipedia_react_identity
++
++    final = {"found": True, "matched_entity": {"external_id": "wikipedia:en:123"}}
++    result = ground_wikipedia_react_identity(
++        final, [tool([{"page_id": 123, "url": url}], name=name, success=success, status=status)]
++    )
++    assert not result["found"] and result["matched_entity"] is None
++
++
++def test_duplicate_observations_preserve_details_and_trusted_language_aliases():
++    from app.services.metadata_identity_evidence import ground_wikipedia_react_identity
++
++    final = {
++        "found": True,
++        "matched_entity": {
++            "external_id": "wikipedia:123",
++            "alt_external_ids": [{"source": "wikipedia", "id": "wikipedia:ja:999"}],
++            "wikipedia_url": "https://evil.invalid",
++            "external_source": "tmdb",
++        },
++    }
++    page = {"page_id": 123, "url": "https://en.wikipedia.org/wiki/Test"}
++    detail = {**page, "categories": ["Animated films"], "langlink_pageids": {"ja": 456}}
++    result = ground_wikipedia_react_identity(
++        final, [tool([page]), tool(detail, name="get_wikipedia_page"), tool([page])]
++    )
++    entity = result["matched_entity"]
++    assert result["found"]
++    assert entity["external_id"] == "wikipedia:en:123"
++    assert entity["external_source"] == "wikipedia"
++    assert entity["wikipedia_url"] == page["url"]
++    assert entity["categories"] == ["Animated films"]
++    assert entity["alt_external_ids"] == [{"source": "wikipedia", "id": "wikipedia:ja:456"}]
++    assert final["matched_entity"]["external_source"] == "tmdb"
++
++
++def test_bare_page_id_rejected_when_two_editions_share_number():
++    from app.services.metadata_identity_evidence import ground_wikipedia_react_identity
++
++    result = ground_wikipedia_react_identity(
++        {"found": True, "matched_entity": {"external_id": "wikipedia:123"}},
++        [tool([{"page_id": 123, "url": f"https://{lang}.wikipedia.org/wiki/Test"} for lang in ("en", "ja")])],
++    )
++    assert not result["found"] and result["matched_entity"] is None
++
++
++@pytest.mark.parametrize("entity", [None, [], "invalid", {"external_id": 123}])
++def test_malformed_entity_fails_closed(entity):
++    from app.services.metadata_identity_evidence import ground_wikipedia_identity
++
++    result, page = ground_wikipedia_identity(
++        {"found": True, "matched_entity": entity}, [{"page_id": 123, "lang": "en"}]
++    )
++    assert not result["found"] and result["matched_entity"] is None and page is None
+--- a/tests/unit/test_metadata_agent.py
++++ b/tests/unit/test_metadata_agent.py
+@@ -3061,16 +3061,19 @@
+     agent = UnifiedMetadataAgent()
+     fake = MagicMock()
+     fake.ainvoke = AsyncMock(return_value={"messages": [
++        _ai_message("search_wikipedia", {"query": "Show", "lang": "en"}),
++        _tool_message("search_wikipedia", {"success": True, "data": [
++            {"page_id": 123, "url": "https://en.wikipedia.org/wiki/Show"}]}, "search_wikipedia"),
+         _ai_message("finalize", {"result_json": (
+             '{"found": true, "clean_title": "Show", "content_type": "tv", '
+-            '"matched_entity": {"external_id": "x"}}'
++            '"matched_entity": {"external_id": "wikipedia:en:123"}}'
+         )}),
+     ]})
+     agent._agent_for_source = MagicMock(return_value=fake)
+     finalize_dict, info = await agent._run_react("msg", "wikipedia")
+     assert finalize_dict["found"] is True
+-    assert finalize_dict["matched_entity"]["external_id"] == "x"
+-    assert info == {"method": None, "data_sources_used": [], "source_errors": {}, "error": None}
++    assert finalize_dict["matched_entity"]["external_id"] == "wikipedia:en:123"
++    assert info == {"method": "wikipedia", "data_sources_used": ["wikipedia"], "source_errors": {}, "error": None}
+ 
+ 
+ async def test_run_react_invocation_failure_is_wrapped_transient():
+--- /dev/null
++++ b/tests/unit/test_metadata_evidence_shapes.py
+@@ -0,0 +1,66 @@
++"""Malformed external/model data must not crash identity verification."""
++
++import json
++
++import pytest
++from langchain_core.messages import ToolMessage
++
++from app.services.metadata_identity_evidence import ground_tmdb_identity, ground_wikipedia_identity
++
++
++@pytest.mark.parametrize("media_type", [[], {}, ["tv"]])
++def test_tmdb_non_scalar_media_type_is_rejected(media_type):
++    message = ToolMessage(
++        name="search_tmdb",
++        tool_call_id="search",
++        content=json.dumps({"success": True, "data": [{"tmdb_id": 123, "media_type": media_type}]}),
++    )
++    result = ground_tmdb_identity(
++        {"found": True, "content_type": "tv", "matched_entity": {"external_id": "tmdb:123"}}, [message]
++    )
++    assert not result["found"] and result["matched_entity"] is None
++
++
++@pytest.mark.parametrize("content_type", [[], {}, ["tv"]])
++def test_tmdb_non_scalar_final_type_is_rejected(content_type):
++    message = ToolMessage(
++        name="search_tmdb",
++        tool_call_id="search",
++        content=json.dumps({"success": True, "data": [{"tmdb_id": 123, "media_type": "tv"}]}),
++    )
++    result = ground_tmdb_identity(
++        {"found": True, "content_type": content_type, "matched_entity": {"external_id": "tmdb:123"}}, [message]
++    )
++    assert not result["found"]
++
++
++def test_tmdb_unbounded_model_number_is_rejected_without_integer_conversion():
++    result = ground_tmdb_identity(
++        {"found": True, "content_type": "tv", "matched_entity": {"external_id": "tmdb:" + "9" * 5000}}, []
++    )
++    assert not result["found"]
++
++
++@pytest.mark.parametrize("aliases,categories", [("invalid", 123), ([123], [None, {}, "Animated films"])])
++def test_wikipedia_malformed_optional_enrichment_is_ignored(aliases, categories):
++    result, _ = ground_wikipedia_identity(
++        {"found": True, "matched_entity": {"external_id": "wikipedia:en:123"}},
++        [{"lang": "en", "page_id": 123, "langlink_pageids": aliases, "categories": categories}],
++    )
++    assert result["found"] and result["matched_entity"]["alt_external_ids"] == []
++    assert all(isinstance(category, str) for category in result["matched_entity"]["categories"])
++
++
++def test_wikipedia_non_object_evidence_is_ignored():
++    result, _ = ground_wikipedia_identity(
++        {"found": True, "matched_entity": {"external_id": "wikipedia:en:123"}}, [None, "invalid", 123]
++    )
++    assert not result["found"]
++
++
++def test_wikipedia_numeric_identity_is_canonical_and_duplicate_observation_is_not_ambiguous():
++    result, _ = ground_wikipedia_identity(
++        {"found": True, "matched_entity": {"external_id": "wikipedia:en:000123"}},
++        [{"lang": "en", "page_id": 123}, {"lang": "en", "page_id": "00123"}],
++    )
++    assert result["found"] and result["matched_entity"]["external_id"] == "wikipedia:en:123"
+--- /dev/null
++++ b/tests/integration/metadata/test_identity_source_http.py
+@@ -0,0 +1,110 @@
++"""Real local HTTP → production TMDB adapter → evidence validator.
++
++TMDB protocol responses and model selections are synthetic. No external API
++or real credentials are used. Persistence has its own three-source matrix.
++"""
++
++import json
++import socket
++import subprocess
++import sys
++import time
++
++import httpx
++import pytest
++from langchain_core.messages import ToolMessage
++
++from app.services import metadata_search_agent
++from app.services.metadata_identity_evidence import ground_tmdb_identity
++from app.services.metadata_source_io import _execute_search_tmdb
++from tests.integration.server.source_redirect import redirect_tmdb
++
++
++@pytest.fixture(scope="module")
++def tmdb_http():
++    with socket.socket() as listener:
++        listener.bind(("127.0.0.1", 0))
++        port = listener.getsockname()[1]
++        command = (
++            "from fastapi import FastAPI; import uvicorn; "
++            "from tests.integration.server.mock_tmdb import router; "
++            "app=FastAPI(); app.include_router(router); "
++            f"uvicorn.run(app, fd={listener.fileno()}, log_level='error')"
++        )
++        process = subprocess.Popen([sys.executable, "-c", command], pass_fds=(listener.fileno(),))
++        base = f"http://127.0.0.1:{port}/tmdb/3"
++        try:
++            for _ in range(100):
++                assert process.poll() is None, "source fixture server exited"
++                try:
++                    if httpx.get(base + "/configuration", timeout=0.2).status_code == 200:
++                        break
++                except httpx.TransportError:
++                    pass
++                time.sleep(0.05)
++            else:
++                pytest.fail("source fixture did not become healthy")
++            yield base
++        finally:
++            process.terminate()
++            try:
++                process.wait(timeout=5)
++            except subprocess.TimeoutExpired:
++                process.kill()
++                process.wait()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "identity,kind,expected",
++    [
++        ("tmdb:900001", "tv", True),
++        ("tmdb:900003", "movie", True),
++        ("tmdb:999999", "tv", False),
++        ("tmdb:900001", "movie", False),
++        ("mock-exa-daemons-drama-cd", "drama_cd", False),
++    ],
++)
++async def test_http_identity_evidence(tmdb_http, monkeypatch, identity, kind, expected):
++    monkeypatch.setattr(metadata_search_agent, "TMDB_BASE", tmdb_http)
++    monkeypatch.setattr(metadata_search_agent, "_TMDB_GENRE_MAP", None)
++    monkeypatch.setattr("app.services.runtime_config._overrides", {"tmdb_api_key": "mock-tmdb"})
++    monkeypatch.setattr(metadata_search_agent, "_cache_get", lambda *a: None)
++    monkeypatch.setattr(metadata_search_agent, "_cache_set", lambda *a: None)
++    payload = await _execute_search_tmdb("mock search query")
++    assert payload["success"] is True
++    assert {row["external_id"] for row in payload["data"]} == {"tmdb:900001", "tmdb:900002", "tmdb:900003"}
++    result = ground_tmdb_identity(
++        {"found": True, "content_type": kind, "matched_entity": {"external_id": identity}},
++        [ToolMessage(name="search_tmdb", tool_call_id="source", content=json.dumps(payload))],
++    )
++    assert result["found"] is expected
++
++
++def test_redirect_preserves_query_and_other_hosts():
++    request = httpx.Request("GET", "https://api.themoviedb.org/3/search/multi?query=x&api_key=mock")
++    redirect_tmdb(request)
++    assert str(request.url) == "http://test-server:8080/tmdb/3/search/multi?query=x&api_key=mock"
++    assert request.headers["host"] == "test-server:8080"
++    other = httpx.Request("GET", "https://example.org/test")
++    redirect_tmdb(other)
++    assert str(other.url) == "https://example.org/test"
++
++
++def test_conflicting_source_type_is_rejected():
++    result = ground_tmdb_identity(
++        {"found": True, "content_type": "tv", "matched_entity": {"external_id": "tmdb:900001"}},
++        [
++            ToolMessage(
++                name="search_tmdb",
++                tool_call_id="source",
++                content=json.dumps(
++                    {
++                        "success": True,
++                        "data": [{"external_id": "tmdb:900001", "media_type": "tv", "content_type": "movie"}],
++                    }
++                ),
++            )
++        ],
++    )
++    assert result["found"] is False
+--- /dev/null
++++ b/tests/integration/server/mock_tmdb.py
+@@ -0,0 +1,59 @@
++"""Synthetic TMDB protocol fixtures; IDs are test data, not recorded identities."""
++
++from fastapi import APIRouter, HTTPException
++
++router = APIRouter(prefix="/tmdb/3")
++WORKS = {
++    900001: {"media_type": "tv", "name": "黄泉使者", "original_name": "Daemons of the Shadow Realm"},
++    900002: {"media_type": "tv", "name": "葬送的芙莉莲", "original_name": "Frieren: Beyond Journey's End"},
++    900003: {
++        "media_type": "movie",
++        "title": "黄泉使者 剧场版",
++        "original_title": "Daemons of the Shadow Realm: The Movie",
++    },
++}
++
++
++def _work(identity: int) -> dict:
++    return {
++        "id": identity,
++        **WORKS[identity],
++        "genre_ids": [16, 28],
++        "original_language": "ja",
++        "origin_country": ["JP"],
++        "vote_average": 8.4,
++        "number_of_seasons": 1,
++        "seasons": [{"season_number": 1, "episode_count": 12}],
++        "belongs_to_collection": None,
++    }
++
++
++@router.get("/search/multi")
++def search(query: str):
++    # Only the mock model's explicit source query gets these candidates.
++    # Ordinary local/source matching must still exercise its not-found path.
++    return {"results": [_work(i) for i in WORKS] if query == "mock search query" else []}
++
++
++@router.get("/configuration")
++def configuration():
++    return {"images": {"secure_base_url": "https://image.tmdb.org/t/p/"}}
++
++
++@router.get("/genre/{media_type}/list")
++def genres(media_type: str):
++    return {"genres": [{"id": 16, "name": "Animation"}, {"id": 28, "name": "Action"}]}
++
++
++@router.get("/{media_type}/{identity}")
++def details(media_type: str, identity: int):
++    if identity not in WORKS or WORKS[identity]["media_type"] != media_type:
++        raise HTTPException(404)
++    return _work(identity)
++
++
++@router.get("/tv/{identity}/season/{season}")
++def season_details(identity: int, season: int):
++    if identity not in WORKS or WORKS[identity]["media_type"] != "tv" or season != 1:
++        raise HTTPException(404)
++    return {"episodes": [{"episode_number": n, "season_number": 1, "name": f"Episode {n}"} for n in range(1, 13)]}
+--- /dev/null
++++ b/tests/integration/server/source_redirect.py
+@@ -0,0 +1,37 @@
++"""Test-only HTTP routing, installed solely by the mock-LLM app entrypoint.
++
++Keep the production source adapters, HTTP decoding and evidence generation.
++Only TMDB's network destination changes; no metadata/validator is patched.
++"""
++
++import httpx
++
++
++def redirect_tmdb(request: httpx.Request) -> None:
++    if request.url.host == "api.themoviedb.org":
++        request.url = request.url.copy_with(
++            scheme="http",
++            host="test-server",
++            port=8080,
++            path="/tmdb" + request.url.path,
++        )
++        request.headers["host"] = "test-server:8080"
++
++
++async def redirect_tmdb_async(request: httpx.Request) -> None:
++    redirect_tmdb(request)
++
++
++def install() -> None:
++    class SourceClient(httpx.Client):
++        def __init__(self, *args, **kwargs):
++            super().__init__(*args, **kwargs)
++            self.event_hooks["request"].append(redirect_tmdb)
++
++    class AsyncSourceClient(httpx.AsyncClient):
++        def __init__(self, *args, **kwargs):
++            super().__init__(*args, **kwargs)
++            self.event_hooks["request"].append(redirect_tmdb_async)
++
++    httpx.Client = SourceClient
++    httpx.AsyncClient = AsyncSourceClient
+--- /dev/null
++++ b/tests/integration/server/llm_app.py
+@@ -0,0 +1,6 @@
++"""Isolated integration entrypoint: real application with test source HTTP routing."""
++from tests.integration.server.source_redirect import install
++
++install()
++
++from app.main import app  # noqa: E402,F401
+--- a/tests/integration/server/main.py
++++ b/tests/integration/server/main.py
+@@ -27,6 +27,7 @@
+ from .mock_emby import router as mock_emby_router
+ from .mock_llm import router as mock_llm_router
+ from .mock_plex import router as mock_plex_router
++from .mock_tmdb import router as mock_tmdb_router
+ from .rss_server import (
+     generate_dmhy_feed,
+     generate_eztv_feed,
+@@ -53,6 +54,7 @@
+ app.include_router(mock_plex_router)
+ app.include_router(mock_emby_router)
+ app.include_router(mock_bangumi_router)
++app.include_router(mock_tmdb_router)
+ 
+ # ─── Global State ────────────────────────────────────────────────────
+ 
+--- a/tests/integration/server/mock_llm.py
++++ b/tests/integration/server/mock_llm.py
+@@ -75,15 +75,17 @@
+     (the agent prompt includes it) so tests can route a feed's resources to
+     the movie / audio-work upsert paths without dedicated feeds.
+     """
+-    text = "\n".join(str(m.get("content", "")) for m in messages)
++    # Route by the requested work, not names in the source candidate list.
++    text = "\n".join(str(m.get("content", "")) for m in messages
++                     if m.get("role") in ("system", "user"))
+     canned = None
+     if "mockmovie" in text:
+         canned = {
+             "clean_title": "黄泉使者 剧场版",
+             "entity": {
+                 "content_type": "movie",
+-                "external_id": "mock-exa-daemons-movie",
+-                "external_source": "exa",
++                "external_id": "tmdb:900003",
++                "external_source": "tmdb",
+                 "title_cn": "黄泉使者 剧场版",
+                 "title_en": "Daemons of the Shadow Realm: The Movie",
+                 "description": "Mock LLM movie metadata result for integration tests.",
+@@ -110,8 +112,8 @@
+             "clean_title": "葬送的芙莉莲",
+             "entity": {
+                 "content_type": "tv",
+-                "external_id": "mock-exa-frieren",
+-                "external_source": "exa",
++                "external_id": "tmdb:900002",
++                "external_source": "tmdb",
+                 "title_cn": "葬送的芙莉莲",
+                 "title_en": "Frieren: Beyond Journey's End",
+                 "description": "Mock LLM metadata result for integration tests.",
+@@ -124,8 +126,8 @@
+             "clean_title": "黄泉使者",
+             "entity": {
+                 "content_type": "tv",
+-                "external_id": "mock-exa-daemons",
+-                "external_source": "exa",
++                "external_id": "tmdb:900001",
++                "external_source": "tmdb",
+                 "title_cn": "黄泉使者",
+                 "title_en": "Daemons of the Shadow Realm",
+                 "description": "Mock LLM metadata result for integration tests.",
+--- a/tests/integration/http/test_llm_mock.py
++++ b/tests/integration/http/test_llm_mock.py
+@@ -298,10 +298,11 @@
+ 
+ @pytest.fixture(scope="class")
+ def _fake_tmdb_key():
+-    """Fake TMDB key on app-llm: the channel source must be one of the
+-    two supported sources (wikipedia/tmdb); a fake key keeps the search tool
+-    failing fast and deterministic while the mock LLM's canned finalize
+-    drives the verdict. Restored (cleared) afterwards."""
++    """Use synthetic TMDB HTTP responses from the isolated test server.
++
++    The app-llm entrypoint routes TMDB requests there; no real API key is used.
++    Restored (cleared) afterwards.
++    """
+     r = _api(
+         "/api/v1/system-settings", method="put", json={"tmdb_api_key": "mock-tmdb"}
+     )
+@@ -344,8 +345,8 @@
+ 
+             # The canned entity was upserted as a series
+             r = _api("/api/v1/series", params={"page_size": 100, "title": "黄泉使者"})
+-            series = [s for s in r.json()["data"] if s.get("external_id") == "mock-exa-daemons"]
+-            assert series, "expected the mock-exa-daemons series to be created"
++            series = [s for s in r.json()["data"] if s.get("external_id") == "tmdb:900001#s1"]
++            assert series, "expected the tmdb:900001 series to be created"
+             series_id = series[0]["id"]
+             assert all(res["series_id"] == series_id for res in linked)
+         finally:
+@@ -424,7 +425,7 @@
+             assert r.status_code == 200, f"search failed: {r.text}"
+             results = r.json()["data"]["results"]
+             assert results, "expected candidates from the mock agent"
+-            assert results[0]["external_id"] == "mock-exa-daemons"
++            assert results[0]["external_id"] == "tmdb:900001"
+ 
+             # Unknown title → empty candidate list (found=false)
+             r = search_metadata_request(
+@@ -475,9 +476,9 @@
+             r = _api("/api/v1/movies", params={"page_size": 100, "title": "黄泉使者"})
+             movies = [
+                 m for m in r.json()["data"]
+-                if m.get("external_id") == "mock-exa-daemons-movie"
++                if m.get("external_id") == "tmdb:900003"
+             ]
+-            assert movies, "expected the mock-exa-daemons-movie movie to be created"
++            assert movies, "expected the tmdb:900003 movie to be created"
+             movie_id = movies[0]["id"]
+ 
+             r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
+@@ -488,13 +489,8 @@
+         finally:
+             _api(f"/api/v1/channels/{ch_id}", method="delete")
+ 
+-    def test_agent_links_canned_audio_work(self, _fake_tmdb_key):
+-        """Audio verdict (drama_cd) → AudioWork row + audio_work_id links.
+-
+-        Same routing trick as the movie test, via the ``mockaudio`` keyword,
+-        on the S4 feed (小书痴的下克上) — again a feed no other app-llm test
+-        touches, to keep the raw_title-keyed MetadataCache isolated.
+-        """
++    def test_agent_rejects_unsupported_tmdb_audio(self, _fake_tmdb_key):
++        """TMDB TV/movie evidence cannot justify a fabricated audio identity."""
+         r = _api(
+             "/api/v1/channels",
+             method="post",
+@@ -520,14 +516,13 @@
+                 w for w in r.json()["data"]
+                 if w.get("external_id") == "mock-exa-daemons-drama-cd"
+             ]
+-            assert works, "expected the mock drama-cd audio work to be created"
+-            work_id = works[0]["id"]
++            assert not works, "unsupported TMDB audio verdict must not create a work"
+ 
+             r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
+             resources = r.json().get("data", [])
+             linked = [res for res in resources if res.get("audio_work_id")]
+-            assert linked, "mock agent should link resources to the canned audio work"
+-            assert all(res["audio_work_id"] == work_id for res in linked)
++            assert resources
++            assert not linked, "ungrounded audio identity must not link resources"
+         finally:
+             _api(f"/api/v1/channels/{ch_id}", method="delete")
+ 
+--- a/tests/integration/http/test_genre_unification.py
++++ b/tests/integration/http/test_genre_unification.py
+@@ -326,11 +326,11 @@
+     def test_canned_genre_clamped_to_closed_set(self):
+         """Canned finalize genre ["Anime", "Action"] → stored ["Animation", "Action"].
+ 
+-        Uses the tmdb channel source with a fake key: the search tool fails
+-        fast offline, and the mock LLM's canned finalize (found=true) drives
+-        the upsert regardless — fully deterministic. Reuses the S0 feed
++        Uses the tmdb channel source with a fake key and synthetic source
++        HTTP responses. The mock finalize selects an observed identity.
++        Reuses the S0 feed
+         (黄泉使者) from test_llm_mock.py: whether the verdict comes from a
+-        fresh mock ReAct run or the gen-3 MetadataCache, the stored genre
++        fresh mock ReAct run or the current MetadataCache, the stored genre
+         must already be canonical either way.
+         """
+         r = _llm_api(
+@@ -339,6 +339,7 @@
+             json={"tmdb_api_key": "mock-tmdb"},
+         )
+         assert r.status_code == 200, f"set fake key failed: {r.text}"
++        ch_id = None
+         try:
+             r = _llm_api(
+                 "/api/v1/channels",
+@@ -354,13 +355,6 @@
+             )
+             assert r.status_code == 201, f"create channel failed: {r.text}"
+             ch_id = r.json()["data"]["id"]
+-        finally:
+-            _llm_api(
+-                "/api/v1/system-settings",
+-                method="put",
+-                json={"tmdb_api_key": ""},
+-            )
+-        try:
+             _llm_api(f"/api/v1/channels/{ch_id}/fetch", method="post")
+             deadline_result = None
+             import time
+@@ -376,11 +370,13 @@
+ 
+             r = _llm_api("/api/v1/series", params={"page_size": 100, "title": "黄泉使者"})
+             series = [
+-                s for s in r.json()["data"] if s.get("external_id") == "mock-exa-daemons"
++                s for s in r.json()["data"] if s.get("external_id") == "tmdb:900001#s1"
+             ]
+-            assert series, "expected the mock-exa-daemons series to exist"
++            assert series, "expected the tmdb:900001 series to exist"
+             assert series[0]["genre"] == ["Animation", "Action"], (
+                 f"genre should be clamped to the closed set: {series[0]['genre']}"
+             )
+         finally:
+-            _llm_api(f"/api/v1/channels/{ch_id}", method="delete")
++            _llm_api("/api/v1/system-settings", method="put", json={"tmdb_api_key": ""})
++            if ch_id is not None:
++                _llm_api(f"/api/v1/channels/{ch_id}", method="delete")
+--- a/tests/integration/http/test_coverage_supplement.py
++++ b/tests/integration/http/test_coverage_supplement.py
+@@ -539,7 +539,7 @@
+         return data
+ 
+     def test_refresh_tmdb_source_not_found(self, _fake_source_keys):
+-        """tmdb ReAct: search_tmdb tool errors (fake key) → found=False."""
++        """TMDB ReAct: no matching requested work in synthetic candidates → found=False."""
+         sid = ensure_series("覆盖率检索不到剧集", "Coverage Unfindable Series", api=_llm_api)
+         data = self._refresh(sid, "tmdb")
+         assert data["filled"] == []
+@@ -573,4 +573,4 @@
+         assert r.status_code == 200, r.text
+         candidates = r.json()["data"]["candidates"]
+         assert candidates
+-        assert candidates[0]["external_id"] == "mock-exa-daemons"
++        assert candidates[0]["external_id"] == "tmdb:900001"
+--- a/docker-compose.integration-isolated.yml
++++ b/docker-compose.integration-isolated.yml
+@@ -91,7 +91,7 @@
+     - --data-file=/app/data/.coverage.integration-llm
+     - -m
+     - uvicorn
+-    - app.main:app
++    - tests.integration.server.llm_app:app
+     - --host
+     - 0.0.0.0
+     - --port
+--- a/docker-compose.test.yml
++++ b/docker-compose.test.yml
+@@ -84,12 +84,13 @@
+       - BANGUMI_API_KEY=mock-bangumi-key
+       - BANGUMI_API_BASE=http://test-server:8080/bangumi/v0
+     volumes:
+-      - ./data:/app/data
+-      - ./.coveragerc:/app/.coveragerc:ro
+-    command:
+-      - "sh"
+-      - "-c"
+-      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.integration-llm -m uvicorn app.main:app --host 0.0.0.0 --port 9001"
++      - ./tests:/app/tests:ro
++      - ./data:/app/data
++      - ./.coveragerc:/app/.coveragerc:ro
++    command:
++      - "sh"
++      - "-c"
++      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.integration-llm -m uvicorn tests.integration.server.llm_app:app --host 0.0.0.0 --port 9001"
+     depends_on:
+       test-server:
+         condition: service_healthy
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -270,6 +270,14 @@
+ 2. **接线**：`_attach_tmdb_episode_list` 在 tmdb ReAct finalize 后（`process` 与 `process_title_only` 两处）触发——仅当 found=True、content_type=tv、matched_entity 携带 tmdb id 且有 `seasons` 且无 `episode_list` 时填充；回退实体 seasons 已剥离，天然不触发（单源规则）。`episode_list` 复用 P2 消费路径（`create_or_update_series_from_external` → `upsert_episodes`），随 MetadataCache 往返。
+ 3. **回填**：`scripts/tmdb_episodes_backfill.py`（dry-run 默认，`--apply` 执行，批量提交）对 canonical `tmdb:` 身份的 TVSeries 跑同一抓取 + `upsert_episodes`；`series.seasons` 缺失时用 TMDB details 补齐输入（不改写 series 字段）。
+ 
++### 主来源身份接地
++
++Wikipedia judge 和 Wikipedia ReAct 回退共用身份证据选择：按 `(语言版本,pageid)` 去重，主身份必须对应已观察页面；旧裸 pageid 仅在语言唯一时接受并规范化。ReAct 仅采纳成功来源工具的页面数据，语言取自返回的 Wikipedia 页面 URL。重复搜索/详情响应归并为同一页面；类别、页面 URL 和跨语言别名取自来源数据，不能沿用模型编造的身份字段。
++
++TMDB ReAct 仅采纳成功 `search_tmdb`/`get_tmdb_details` 工具消息。搜索候选使用 `external_id/content_type`，详情使用 `tmdb_id/media_type`；必须同时匹配数字 ID 与 TV/movie 类型，互相冲突的类型不提供证据。现有 TMDB 工具未提供跨来源身份，模型输出的别名和 Wikipedia URL 均清除。错误状态、失败工具、畸形数据、无类型身份不能作为依据。
++
++无法确认主身份时，保留标题与诊断，返回可重试的 `found=False` 并清空实体，阻止写入作品及身份袋。缓存 generation=7 使旧 verdict 懒失效，不能据此声称已经清理历史写入的错误身份；已有作品清理需要独立审计。
++
+ ### genre 归一化（统一分类标签）
+ 
+ 作品 genre 统一为 **TMDB 封闭分类集（27 类）英文 canonical 名**，权威清单一处定义在 `app/services/genre_registry.py`（取值约定见 data-models.md「genre 取值约定」）。多数据源归一靠"prompt 注入 + 出口钳制"而非逐源映射表：
+@@ -278,7 +286,7 @@
+ - **兜底推断**：`_ensure_genre`（`metadata_agent.py`）在钳制后仍无 genre 且 matched_entity 有 description 时，用 `genre_inference_system_prompt()` 发一次低成本 LLM 调用按简介分类，结果再过 `normalize_genres`；失败静默不阻塞匹配。由此 judge 留空、auto-link 无 LLM、回退仅身份三条路径产出的作品都能拿到标签。
+ - **出口钳制**：统一 finalize 消费点 `_clamp_finalize_genre`（`metadata_agent.py`，`process` 与 `process_title_only` 各一处）对 `matched_entity["genre"]` 调 `normalize_genres`——id 直译、大小写不敏感、少量别名，表外值丢弃（debug 日志），空结果置 None 视为"未提供"，genre 绝不阻塞匹配。TMDB 直连的 `_tmdb_genre_map` 动态拉取与注册表取交集、失败回退注册表静态表。同一消费点紧跟 `_normalize_finalize_dates`：确定性日期键名归一——series/tv 无 `start_date` 时依次从 `first_air_date`/`release_date` 补（TMDB 工具结果带 `first_air_date`，LLM 不总按 prompt 键名抄录），movie 对称补 `release_date`；只补空缺、绝不覆盖已有值。
+ - **写回**：`metadata_service` 全部 genre 写入点（series/movie/audio 的新建/更新、刷新管线 `apply_work_metadata` 填空）先过 `normalize_genres`；非空才覆盖，归一化为空不清空旧值。
+-- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 6（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底；6=网络回退候选身份与季集出口保护），旧缓存惰性失效重跑。
++- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 7（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底；6=网络回退候选身份与季集出口保护；7=Wikipedia/TMDB 主来源身份接地及别名证据约束），旧缓存惰性失效重跑。
+ - **存量**：`scripts/genre_backfill.py`——模式 A（默认）就地规范化既有 genre 数组；模式 B（`--refresh-empty`）对仍为空的 series/movie 调 `refresh_work_by_source` 重跑补齐（身份源为 wikipedia/tmdb 时用原源，否则回退 wikipedia 标题判定；有网络/LLM 成本，`--limit/--delay` 限速）。
+ - **消费面**：通知 payload `work.genre` 快照同样归一化；Filter DSL 新增 `series.genre`/`movie.genre`（list-of-string 逐元素语义，见 filter-dsl.md）。
+ 
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -780,7 +780,7 @@
+     updated_at: datetime
+ ```
+ 
+-**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 6；gen 6 = web fallback 白名单前置、输出身份绑定可见候选及季集/身份袋字段出口保护）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。缓存失效不等于修复已有作品身份，不触发存量作品批量重绑。
++**逻辑版本化**：`METADATA_CACHE_GENERATION`（当前 7；gen 7 = Wikipedia/TMDB 主来源身份与可信别名接地；gen 6 = web fallback 白名单前置、输出身份绑定可见候选及季集/身份袋字段出口保护）标记产生缓存 verdict 的分类/判定逻辑版本。读取时 `generation != 当前版本` 的行视为未命中并懒删除——任何分类器、judge 提示词、匹配规则的变更只需 bump 该常量，旧逻辑产生的 verdict 即全部作废，不会短路修复后的代码。缓存失效不等于修复已有作品身份，不触发存量作品批量重绑。
+ 
+ ### FtsOutbox（全文检索变更日志 - 仅 Turso 使用）
+ 
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -260,3 +260,8 @@
+ 
+ 
+ B9 定向补偿回归：`test_p0_queue_consumption.py` 覆盖真实队列已选资源后修订及旧版本确认竞争；`test_agent_request_persistence.py` 覆盖真实 Turso 事务、版本与退避；`test_agent_request_failures.py` 覆盖三个 HTTP 端点原子失败、broker 故障、作业错误恢复和生命周期；`test_agent_request_scheduler.py` 覆盖实际 APScheduler 触发与兄弟资源修复。跨进程 PostgreSQL/Redis、升级与级联、审核种子的真实 Transmission 故障重试驱动位于 `docs/plans/p0-and-backlog/probes/agent_request_*_probe.py`。后者仅允许专用隔离环境，数据真实性与运行限制见 VALIDATION.md；专项通过不能代替完整 95%/85% 门禁。
++
++
++元数据身份接地回归：`tests/integration/metadata/test_identity_persistence.py` 对 Wikipedia judge、Wikipedia ReAct、TMDB ReAct 三入口，验证合法/非法主身份、伪造/可信别名、旧缓存五类场景；执行真实 process/upsert/cache/身份袋路径及重复处理幂等性。`test_identity_source_http.py` 启动随机 loopback 端口来源服务，验证生产 TMDB 搜索适配器字段契约与接地的正负例。PostgreSQL 矩阵驱动为 `docs/plans/p0-and-backlog/probes/identity_pg_probe.py`，只允许专用临时数据库。
++
++容器 mock-LLM 实例使用 `tests.integration.server.llm_app:app` 测试入口，将 TMDB HTTP 请求转发给测试服务的合成协议端点；生产 app 入口不变。模型仍必须选择来源候选，音频等未获 TMDB 证据的身份必须拒绝。来源响应与模型为合成数据，不能称作真实来源录制；HTTP、数据库和生产适配器实际执行。仍要求合法正例、未知/类型冲突负例和完整 95%/85% 覆盖率门禁；Compose 必须使用唯一项目名。
+--- a/tests/integration/metadata/test_metadata_wiki_judge_coverage.py
++++ b/tests/integration/metadata/test_metadata_wiki_judge_coverage.py
+@@ -340,7 +340,7 @@
+     attach.assert_awaited_once()
+ 
+ 
+-async def test_judge_found_without_evidence_match_keeps_entity(monkeypatch):
++async def test_judge_found_without_evidence_match_rejects_entity(monkeypatch):
+     _patch_queries(monkeypatch, [("q", "zh")])
+     _patch_wiki(
+         monkeypatch,
+@@ -359,9 +359,9 @@
+     result, info = await mwj.run_search_then_judge(
+         judge, "RAW", react_runner=_react(), msg_builder=_msg_builder,
+     )
+-    # The judged pageid is not in the evidence → nothing is overlaid, and the
+-    # movie content type never triggers the TV-only wikitext attach.
+-    assert result["matched_entity"]["external_id"] == "wikipedia:999"
++    # An unobserved identity must not reach the repository or content attach.
++    assert result["found"] is False
++    assert result["matched_entity"] is None
+     attach.assert_not_awaited()
+     assert info["method"] == "search_then_judge"
+ 
+--- a/tests/integration/organize/test_p0_season_persistence.py
++++ b/tests/integration/organize/test_p0_season_persistence.py
+@@ -1,6 +1,6 @@
+ """P0-3 model boundary -> real ReAct graph -> validator -> repository -> DB.
+ 
+-Only the chat model is substituted. Raw resource input comes from a captured
++The chat model and source response are substituted. Raw input comes from a captured
+ case; the model verdict and season evidence are explicit fault injections,
+ not recorded source answers or semantic gold for the captured resource.
+ """
+@@ -8,6 +8,7 @@
+ import json
+ import socket
+ import uuid
++from unittest.mock import AsyncMock
+ 
+ import pytest
+ from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+@@ -45,7 +46,7 @@
+     (1, 2, 1), (99, 2, None), (99, None, None), (99, 1, 1),
+     (None, None, None), (None, 1, 1),
+ ])
+-async def test_model_season_cannot_pollute_persisted_work(db_session, inferred, count, expected):
++async def test_model_season_cannot_pollute_persisted_work(db_session, monkeypatch, inferred, count, expected):
+     case = next(case for case in load_corpus()[1]["cases"]
+                 if case["id"] == "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b")
+     channel = Channel(id=str(uuid.uuid4()), name="season-boundary", type="rss_feed",
+@@ -64,7 +65,16 @@
+         entity["number_of_seasons"] = count
+     verdict = {"found": True, "clean_title": "季号边界测试", "content_type": "tv",
+                "inferred_season": inferred, "inferred_episode": 10, "matched_entity": entity}
++    # Run the actual graph's source tool before finalize, so this test reaches
++    # the season validator with a grounded identity. Source data are synthetic.
++    source = AsyncMock(return_value={"success": True, "data": [{
++        "external_id": entity["external_id"], "content_type": "tv",
++        "number_of_seasons": count,
++    }]})
++    monkeypatch.setattr("app.services.metadata_agent._execute_search_tmdb", source)
+     model = ToolModel(responses=[
++        AIMessage(content="", tool_calls=[{"name": "search_tmdb", "id": "season-source",
++                                          "args": {"query": "季号边界测试"}}]),
+         AIMessage(content="", tool_calls=[{"name": "finalize", "id": "season-verdict",
+                                           "args": {"result_json": json.dumps(verdict)}}]),
+         AIMessage(content="finished"),
+@@ -73,6 +83,7 @@
+     agent._model = model
+     result = await agent.process(resource, channel, db_session, force_refresh=True)
+     await db_session.commit()
++    source.assert_awaited_once()
+     assert result.found
+     assert result.season == expected
+     assert result.season_ambiguous == (expected is None)

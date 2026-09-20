@@ -1,0 +1,65 @@
+{
+  "batch": "V6 identity grounding",
+  "main_worktree_applied": false,
+  "fixtures": "Synthetic provider and model data; actual source HTTP adapters, application and databases",
+  "results": {
+    "expanded_before_http": {
+      "tests": 326.0,
+      "failures": 0.0,
+      "errors": 0.0,
+      "skipped": 0.0,
+      "time": 82.999,
+      "artifact": "/tmp/rssripple-v6-final-expanded.xml"
+    },
+    "source_http_red": {
+      "tests": 6.0,
+      "failures": 2.0,
+      "errors": 0.0,
+      "skipped": 0.0,
+      "time": 0.784,
+      "artifact": "/tmp/rssripple-v6-source-http-red.xml"
+    },
+    "source_http_green": {
+      "tests": 62.0,
+      "failures": 0.0,
+      "errors": 0.0,
+      "skipped": 0.0,
+      "time": 7.479,
+      "artifact": "/tmp/rssripple-v6-source-http-green.xml"
+    },
+    "container_ae": {
+      "tests": 6.0,
+      "failures": 4.0,
+      "errors": 0.0,
+      "skipped": 0.0,
+      "time": 119.503,
+      "artifact": "/tmp/rssripple-v6-http-ae.xml"
+    },
+    "container_af": {
+      "tests": 6.0,
+      "failures": 2.0,
+      "errors": 0.0,
+      "skipped": 0.0,
+      "time": 117.192,
+      "artifact": "/tmp/rssripple-v6-http-af.xml"
+    },
+    "container_ag": {
+      "tests": 6.0,
+      "failures": 0.0,
+      "errors": 0.0,
+      "skipped": 0.0,
+      "time": 117.468,
+      "exit_code": 0,
+      "artifact": "/tmp/rssripple-v6-http-ag.xml",
+      "project": "rssripple-v6-http-20260920-ag",
+      "cleanup": "complete"
+    }
+  },
+  "pending": [
+    "PostgreSQL after source HTTP fix",
+    "final review and apply",
+    "full unit/API >=95%",
+    "full integration >=85%"
+  ],
+  "historical_identity_cleanup": false
+}

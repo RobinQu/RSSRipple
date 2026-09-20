@@ -1,0 +1,896 @@
+--- a/app/api/v1/series.py
++++ b/app/api/v1/series.py
+@@ -12,7 +12,7 @@
+ from app.schemas.series import TVSeriesCreate, TVSeriesResponse, TVSeriesUpdate
+ from app.services import fts as fts_service
+ from app.services.external_ids import add_external_id
+-from app.services.metadata_service import mark_manually_edited
++from app.services.metadata_service import _create_series_collection, mark_manually_edited
+ 
+ router = APIRouter()
+ 
+@@ -68,7 +68,9 @@
+     body: TVSeriesCreate,
+     db: AsyncSession = Depends(get_db),
+ ):
+-    series = TVSeries(**body.model_dump())
++    data = body.model_dump()
++    collection = await _create_series_collection(db, data)
++    series = TVSeries(**data, collection_id=collection.id)
+     db.add(series)
+     await db.flush()
+     await db.refresh(series)
+--- /dev/null
++++ b/tests/api/test_collection_invariants.py
+@@ -0,0 +1,319 @@
++"""Production API and real database: every season work retains a collection."""
++
++from sqlalchemy import select
++
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++
++
++async def test_manual_series_creation_has_collection(client, db_session_factory):
++    response = await client.post("/api/v1/series", json={"title_en": "Synthetic Season Work"})
++    assert response.status_code == 201
++    identity = response.json()["data"]["id"]
++    async with db_session_factory() as db:
++        series = await db.get(TVSeries, identity)
++        assert series.collection_id is not None
++        collection = await db.get(WorkCollection, series.collection_id)
++        assert collection is not None
++        assert collection.external_source == "series_group"
++
++
++async def test_delete_collection_does_not_orphan_member(client, db_session_factory):
++    collection_response = await client.post("/api/v1/collections", json={"title_cn": "合成合集"})
++    assert collection_response.status_code == 201
++    old_id = collection_response.json()["data"]["id"]
++    series_response = await client.post("/api/v1/series", json={"title_en": "Synthetic Member"})
++    assert series_response.status_code == 201
++    series_id = series_response.json()["data"]["id"]
++    attached = await client.post(
++        f"/api/v1/collections/{old_id}/works",
++        json={
++            "work_type": "series",
++            "work_id": series_id,
++        },
++    )
++    assert attached.status_code == 201
++    response = await client.delete(f"/api/v1/collections/{old_id}")
++    assert response.status_code == 200
++    async with db_session_factory() as db:
++        assert await db.get(WorkCollection, old_id) is None
++        member = await db.get(TVSeries, series_id)
++        assert member.collection_id is not None
++        assert member.collection_id != old_id
++        assert await db.get(WorkCollection, member.collection_id) is not None
++        assert not (await db.scalars(select(TVSeries).where(TVSeries.collection_id.is_(None)))).all()
++
++
++async def test_detach_series_keeps_a_shell_collection(client, db_session_factory):
++    response = await client.post("/api/v1/collections", json={"title_cn": "待拆分合集"})
++    assert response.status_code == 201
++    old_id = response.json()["data"]["id"]
++    response = await client.post("/api/v1/series", json={"title_en": "Synthetic Detached Season"})
++    assert response.status_code == 201
++    series_id = response.json()["data"]["id"]
++    attached = await client.post(
++        f"/api/v1/collections/{old_id}/works",
++        json={
++            "work_type": "series",
++            "work_id": series_id,
++        },
++    )
++    assert attached.status_code == 201
++    response = await client.delete(f"/api/v1/collections/{old_id}/works/{series_id}", params={"work_type": "series"})
++    assert response.status_code == 200
++    async with db_session_factory() as db:
++        member = await db.get(TVSeries, series_id)
++        assert member.collection_id is not None
++        assert member.collection_id != old_id
++        assert await db.get(WorkCollection, member.collection_id) is not None
++        assert await db.get(WorkCollection, old_id) is not None
++
++
++async def test_delete_collection_removes_its_identity_bag(client, db_session_factory):
++    from app.models.work_external_id import WorkExternalId
++
++    response = await client.post("/api/v1/collections", json={"title_cn": "身份合集"})
++    assert response.status_code == 201
++    old_id = response.json()["data"]["id"]
++    async with db_session_factory() as db:
++        db.add(
++            WorkExternalId(
++                work_type="collection", work_id=old_id, source="wikipedia", external_id="wikipedia:en:900007"
++            )
++        )
++        await db.commit()
++    response = await client.delete(f"/api/v1/collections/{old_id}")
++    assert response.status_code == 200
++    async with db_session_factory() as db:
++        assert await db.get(WorkCollection, old_id) is None
++        assert not (
++            await db.scalars(
++                select(WorkExternalId).where(
++                    WorkExternalId.work_type == "collection",
++                    WorkExternalId.work_id == old_id,
++                )
++            )
++        ).all()
++
++
++async def test_delete_collection_preserves_manual_resource_links(client, db_session_factory, sample_channel):
++    import uuid
++
++    from app.models.file_resource import FileResource
++    from app.models.resource_file_assignment import ResourceFileAssignment
++    from app.models.resource_work_link import ResourceWorkLink
++
++    response = await client.post("/api/v1/collections", json={"title_cn": "带资源合集"})
++    assert response.status_code == 201
++    old_id = response.json()["data"]["id"]
++    response = await client.post("/api/v1/series", json={"title_en": "Synthetic Linked Season"})
++    assert response.status_code == 201
++    series_id = response.json()["data"]["id"]
++    attached = await client.post(
++        f"/api/v1/collections/{old_id}/works",
++        json={
++            "work_type": "series",
++            "work_id": series_id,
++        },
++    )
++    assert attached.status_code == 201
++    resource_id = str(uuid.uuid4())
++    async with db_session_factory() as db:
++        db.add(
++            FileResource(
++                id=resource_id,
++                channel_id=sample_channel.id,
++                guid=resource_id,
++                title_raw="Synthetic season batch",
++                torrent_url="https://example.invalid/test.torrent",
++                collection_id=old_id,
++                is_batch=True,
++                batch_scope="season",
++            )
++        )
++        await db.flush()
++        db.add(ResourceWorkLink(resource_id=resource_id, series_id=series_id, source="manual"))
++        db.add(
++            ResourceFileAssignment(
++                resource_id=resource_id,
++                file_path="episode01.mkv",
++                series_id=series_id,
++                season=1,
++                episode_start=1,
++                episode_end=1,
++                source="manual",
++            )
++        )
++        await db.commit()
++    response = await client.delete(f"/api/v1/collections/{old_id}")
++    assert response.status_code == 200
++    async with db_session_factory() as db:
++        member = await db.get(TVSeries, series_id)
++        resource = await db.get(FileResource, resource_id)
++        assert member.collection_id is not None
++        assert resource.collection_id == member.collection_id
++        links = (await db.scalars(select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource_id))).all()
++        assignments = (
++            await db.scalars(select(ResourceFileAssignment).where(ResourceFileAssignment.resource_id == resource_id))
++        ).all()
++        assert [(r.series_id, r.source) for r in links] == [(series_id, "manual")]
++        assert [(r.series_id, r.file_path, r.source) for r in assignments] == [(series_id, "episode01.mkv", "manual")]
++
++
++async def test_multi_work_resource_does_not_guess_new_collection(client, db_session_factory, sample_channel):
++    import uuid
++
++    from app.models.file_resource import FileResource
++    from app.models.resource_work_link import ResourceWorkLink
++
++    response = await client.post("/api/v1/collections", json={"title_cn": "多作品合集"})
++    assert response.status_code == 201
++    old_id = response.json()["data"]["id"]
++    identities = []
++    for season, title in enumerate(["Synthetic One", "Synthetic Two"], 1):
++        response = await client.post("/api/v1/series", json={"title_en": title})
++        assert response.status_code == 201
++        identity = response.json()["data"]["id"]
++        identities.append(identity)
++        async with db_session_factory() as db:
++            member = await db.get(TVSeries, identity)
++            member.season_number = season
++            await db.commit()
++        response = await client.post(
++            f"/api/v1/collections/{old_id}/works",
++            json={
++                "work_type": "series",
++                "work_id": identity,
++            },
++        )
++        assert response.status_code == 201
++    resource_id = str(uuid.uuid4())
++    async with db_session_factory() as db:
++        db.add(
++            FileResource(
++                id=resource_id,
++                channel_id=sample_channel.id,
++                guid=resource_id,
++                title_raw="Synthetic multiple works",
++                torrent_url="https://example.invalid/multi.torrent",
++                collection_id=old_id,
++                is_batch=True,
++                batch_scope="multi_season",
++            )
++        )
++        await db.flush()
++        for identity in identities:
++            db.add(ResourceWorkLink(resource_id=resource_id, series_id=identity, source="manual"))
++        await db.commit()
++    response = await client.delete(f"/api/v1/collections/{old_id}")
++    assert response.status_code == 200
++    async with db_session_factory() as db:
++        parents = list(await db.scalars(select(TVSeries.collection_id).where(TVSeries.id.in_(identities))))
++        assert len(set(parents)) == 2 and None not in parents
++        resource = await db.get(FileResource, resource_id)
++        assert resource.collection_id is None
++        links = (await db.scalars(select(ResourceWorkLink).where(ResourceWorkLink.resource_id == resource_id))).all()
++        assert {link.series_id for link in links} == set(identities)
++        assert all(link.source == "manual" for link in links)
++
++
++async def test_delete_rolls_back_rehoming_on_cleanup_failure(client, db_session_factory, monkeypatch):
++    import pytest
++
++    from app.services import collection_lifecycle
++
++    response = await client.post("/api/v1/collections", json={"title_cn": "事务合集"})
++    assert response.status_code == 201
++    old_id = response.json()["data"]["id"]
++    response = await client.post("/api/v1/series", json={"title_en": "Synthetic Rollback Season"})
++    assert response.status_code == 201
++    identity = response.json()["data"]["id"]
++    response = await client.post(
++        f"/api/v1/collections/{old_id}/works",
++        json={
++            "work_type": "series",
++            "work_id": identity,
++        },
++    )
++    assert response.status_code == 201
++    async with db_session_factory() as db:
++        before = set(await db.scalars(select(WorkCollection.id)))
++
++    async def fail_cleanup(db, *args):
++        # Verify the mutation really happened before simulating downstream failure.
++        member = await db.get(TVSeries, identity)
++        assert member.collection_id != old_id
++        raise RuntimeError("injected collection cleanup failure")
++
++    monkeypatch.setattr(collection_lifecycle, "delete_external_ids_for_work", fail_cleanup)
++    with pytest.raises(RuntimeError, match="injected collection cleanup failure"):
++        await client.delete(f"/api/v1/collections/{old_id}")
++    async with db_session_factory() as db:
++        assert set(await db.scalars(select(WorkCollection.id))) == before
++        member = await db.get(TVSeries, identity)
++        assert member.collection_id == old_id
++
++
++async def test_orphan_backfill_is_idempotent_and_reconciles_resources(db_session_factory, monkeypatch, sample_channel):
++    import uuid
++
++    from app.models.file_resource import FileResource
++    from app.services.collection_lifecycle import backfill_orphan_collections
++
++    monkeypatch.setattr("app.database.async_session_factory", db_session_factory)
++    identity = str(uuid.uuid4())
++    resource_id = str(uuid.uuid4())
++    async with db_session_factory() as db:
++        db.add(TVSeries(id=identity, title_en="Synthetic Legacy Orphan", season_number=2))
++        await db.flush()
++        db.add(
++            FileResource(
++                id=resource_id,
++                channel_id=sample_channel.id,
++                guid=resource_id,
++                title_raw="Synthetic S02E01",
++                torrent_url="https://example.invalid/legacy.torrent",
++                series_id=identity,
++                season=2,
++                episode=1,
++            )
++        )
++        await db.commit()
++    assert await backfill_orphan_collections() == 1
++    async with db_session_factory() as db:
++        member = await db.get(TVSeries, identity)
++        parent = member.collection_id
++        assert parent is not None
++        resource = await db.get(FileResource, resource_id)
++        assert resource.collection_id == parent
++        assert member.season_number == resource.season == 2
++    assert await backfill_orphan_collections() == 0
++    async with db_session_factory() as db:
++        assert (await db.get(TVSeries, identity)).collection_id == parent
++        assert len(list(await db.scalars(select(WorkCollection.id)))) == 1
++
++
++async def test_remove_preloaded_collection_does_not_null_rehomed_members(db_session_factory):
++    from sqlalchemy.orm import selectinload
++
++    from app.services.collection_lifecycle import remove_collection
++
++    async with db_session_factory() as db:
++        collection = WorkCollection(title_cn='预加载合集')
++        db.add(collection)
++        await db.flush()
++        member = TVSeries(title_en='Synthetic Preloaded Member', collection_id=collection.id)
++        db.add(member)
++        await db.commit()
++        collection_id, member_id = collection.id, member.id
++    async with db_session_factory() as db:
++        collection = await db.scalar(select(WorkCollection).where(WorkCollection.id == collection_id)
++                                     .options(selectinload(WorkCollection.series)))
++        assert [member.id for member in collection.series] == [member_id]
++        await remove_collection(db, collection)
++        await db.commit()
++    async with db_session_factory() as db:
++        member = await db.get(TVSeries, member_id)
++        assert member.collection_id is not None
++        assert member.collection_id != collection_id
++        assert await db.get(WorkCollection, collection_id) is None
+--- /dev/null
++++ b/app/services/collection_lifecycle.py
+@@ -0,0 +1,170 @@
++"""Transactional collection changes, preserving season and resource identities."""
++
++from collections import defaultdict
++
++from sqlalchemy import or_, select, update
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.services.external_ids import delete_external_ids_for_work
++
++
++async def rehome_series(db: AsyncSession, series: TVSeries) -> None:
++    from app.services.metadata_service import _create_series_collection
++
++    shell = await _create_series_collection(
++        db,
++        {
++            "title_cn": series.title_cn,
++            "title_en": series.title_en,
++            "original_title": series.original_title,
++            "alt_titles": series.aliases,
++            "poster_url": series.poster_url,
++            "description": series.description,
++        },
++    )
++    # Keep both the FK and loaded back-populated collections consistent.
++    # Otherwise deleting a preloaded old collection nullifies this member again.
++    series.collection = shell
++    await db.flush()
++
++
++async def reconcile_resources(
++    db: AsyncSession,
++    collection_id: str | None,
++    series_ids: list[str],
++    movie_ids: list[str],
++    *,
++    deleting: bool,
++) -> None:
++    """Recompute only affected pointers; keep manual work/file mappings intact.
++
++    A resource spanning multiple new collections has no unique collection.
++    Unassigned collection-only resources stay with an existing collection, or
++    lose that pointer when it is deleted; no work/season is invented.
++    """
++    terms = [FileResource.series_id.in_(series_ids), FileResource.movie_id.in_(movie_ids)]
++    for model in (ResourceWorkLink, ResourceFileAssignment):
++        terms.append(
++            FileResource.id.in_(
++                select(model.resource_id).where(
++                    or_(
++                        model.series_id.in_(series_ids),
++                        model.movie_id.in_(movie_ids),
++                    )
++                )
++            )
++        )
++    if deleting:
++        terms.append(FileResource.collection_id == collection_id)
++    cursor = ""
++    while True:
++        resources = (
++            await db.execute(
++                select(
++                    FileResource.id,
++                    FileResource.series_id,
++                    FileResource.movie_id,
++                )
++                .where(or_(*terms), FileResource.id > cursor)
++                .order_by(FileResource.id)
++                .limit(100)
++            )
++        ).all()
++        if not resources:
++            return
++        ids = [row.id for row in resources]
++        targets = defaultdict(set)
++        for row in resources:
++            if row.series_id:
++                targets[row.id].add(("series", row.series_id))
++            if row.movie_id:
++                targets[row.id].add(("movie", row.movie_id))
++        for model in (ResourceWorkLink, ResourceFileAssignment):
++            rows = (
++                await db.execute(
++                    select(model.resource_id, model.series_id, model.movie_id).where(model.resource_id.in_(ids))
++                )
++            ).all()
++            for row in rows:
++                if row.series_id:
++                    targets[row.resource_id].add(("series", row.series_id))
++                if row.movie_id:
++                    targets[row.resource_id].add(("movie", row.movie_id))
++        works = set().union(*targets.values()) if targets else set()
++        collections = {}
++        for kind, model in [("series", TVSeries), ("movie", Movie)]:
++            work_ids = [identity for work_kind, identity in works if work_kind == kind]
++            for identity, parent in (
++                await db.execute(select(model.id, model.collection_id).where(model.id.in_(work_ids)))
++            ).all():
++                collections[(kind, identity)] = parent
++        updates = defaultdict(list)
++        for resource_id in ids:
++            if not targets[resource_id] and not deleting:
++                continue
++            parents = {collections.get(work) for work in targets[resource_id]}
++            parent = next(iter(parents)) if len(parents) == 1 else None
++            updates[parent].append(resource_id)
++        for parent, resource_ids in updates.items():
++            await db.execute(update(FileResource).where(FileResource.id.in_(resource_ids)).values(collection_id=parent))
++        cursor = ids[-1]
++
++
++async def remove_collection(db: AsyncSession, collection: WorkCollection) -> None:
++    members = (await db.scalars(select(TVSeries).where(TVSeries.collection_id == collection.id))).all()
++    series_ids = [member.id for member in members]
++    movie_ids = list(await db.scalars(select(Movie.id).where(Movie.collection_id == collection.id)))
++    for member in members:
++        await rehome_series(db, member)
++    await db.execute(update(Movie).where(Movie.collection_id == collection.id).values(collection_id=None))
++    await reconcile_resources(db, collection.id, series_ids, movie_ids, deleting=True)
++    await delete_external_ids_for_work(db, "collection", collection.id)
++    await db.delete(collection)
++    await db.flush()
++
++
++async def detach_member(db: AsyncSession, collection_id: str, work: TVSeries | Movie) -> None:
++    is_series = isinstance(work, TVSeries)
++    if is_series:
++        await rehome_series(db, work)
++    else:
++        work.collection_id = None
++        await db.flush()
++    await reconcile_resources(
++        db, collection_id, [work.id] if is_series else [], [] if is_series else [work.id], deleting=False
++    )
++
++
++async def repair_orphan_batch(db: AsyncSession) -> int:
++    """Lock one bounded batch; the caller owns commit/rollback."""
++    members = list(
++        await db.scalars(
++            select(TVSeries).where(TVSeries.collection_id.is_(None)).order_by(TVSeries.id).limit(100).with_for_update()
++        )
++    )
++    for member in members:
++        await rehome_series(db, member)
++    if members:
++        await reconcile_resources(db, None, [member.id for member in members], [], deleting=False)
++    return len(members)
++
++
++async def backfill_orphan_collections() -> int:
++    from app import database
++
++    async def repair_one_batch():
++        async with database.async_session_factory() as db:
++            count = await repair_orphan_batch(db)
++            await db.commit()
++            return count
++
++    total = 0
++    while count := await database.retry_on_lock(repair_one_batch):
++        total += count
++    return total
+--- a/app/api/v1/collections.py
++++ b/app/api/v1/collections.py
+@@ -10,7 +10,6 @@
+ from fastapi import APIRouter, Depends, Query
+ from fastapi.responses import JSONResponse
+ from sqlalchemy import func, or_, select
+-from sqlalchemy import update as sql_update
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.orm import selectinload
+ 
+@@ -188,7 +187,7 @@
+     body: WorkCollectionUpdate,
+     db: AsyncSession = Depends(get_db),
+ ):
+-    collection = await db.get(WorkCollection, collection_id)
++    collection = await db.get(WorkCollection, collection_id, with_for_update=True)
+     if not collection:
+         return _not_found()
+     for key, value in body.model_dump(exclude_unset=True).items():
+@@ -200,21 +199,12 @@
+ 
+ @router.delete("/collections/{collection_id}")
+ async def delete_collection(collection_id: str, db: AsyncSession = Depends(get_db)):
+-    collection = await db.get(WorkCollection, collection_id)
+-    if not collection:
+-        return _not_found()
+-    # Detach member works (set NULL), then delete the collection itself.
+-    await db.execute(
+-        sql_update(TVSeries)
+-        .where(TVSeries.collection_id == collection_id)
+-        .values(collection_id=None)
+-    )
+-    await db.execute(
+-        sql_update(Movie)
+-        .where(Movie.collection_id == collection_id)
+-        .values(collection_id=None)
+-    )
+-    await db.delete(collection)
++    collection = await db.get(WorkCollection, collection_id, with_for_update=True)
++    if not collection:
++        return _not_found()
++    from app.services.collection_lifecycle import remove_collection
++
++    await remove_collection(db, collection)
+     await db.commit()
+     return success_response({"deleted": True})
+ 
+@@ -251,6 +241,30 @@
+                 "error": {"code": "NOT_FOUND", "message": "Work not found"},
+             },
+         )
++    # Shell absorption writes both parents. Lock them in a common order
++    # before taking the member lock, so opposite moves cannot deadlock.
++    parent_ids = {collection_id}
++    if work.collection_id:
++        parent_ids.add(work.collection_id)
++    locked = {
++        parent.id: parent
++        for parent in await db.scalars(
++            select(WorkCollection).where(WorkCollection.id.in_(parent_ids))
++            .order_by(WorkCollection.id).with_for_update()
++            .execution_options(populate_existing=True)
++        )
++    }
++    collection = locked.get(collection_id)
++    if collection is None:
++        return _not_found()
++    work = await db.get(model, body.work_id, with_for_update=True, populate_existing=True)
++    if work is None:
++        return _not_found()
++    if work.collection_id is not None and work.collection_id not in locked:
++        return JSONResponse(status_code=409, content={
++            "success": False, "data": None,
++            "error": {"code": "INVALID_STATE", "message": "Work changed collections; retry attachment."},
++        })
+     if work.collection_id == collection_id:
+         # Already a member of THIS collection — idempotent attach.
+         return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
+@@ -289,7 +303,7 @@
+     work_type: str = Query(..., description="'series' or 'movie'"),
+     db: AsyncSession = Depends(get_db),
+ ):
+-    collection = await db.get(WorkCollection, collection_id)
++    collection = await db.get(WorkCollection, collection_id, with_for_update=True)
+     if not collection:
+         return _not_found()
+     model = _work_model(work_type)
+@@ -305,7 +319,7 @@
+                 },
+             },
+         )
+-    work = await db.get(model, work_id)
++    work = await db.get(model, work_id, with_for_update=True)
+     if work is None or work.collection_id != collection_id:
+         return JSONResponse(
+             status_code=404,
+@@ -315,6 +329,7 @@
+                 "error": {"code": "NOT_FOUND", "message": "Work not found in this collection"},
+             },
+         )
+-    work.collection_id = None
+-    await db.flush()
++    from app.services.collection_lifecycle import detach_member
++
++    await detach_member(db, collection_id, work)
+     return success_response({"detached": True, "work_type": work_type, "work_id": work_id})
+--- a/app/database.py
++++ b/app/database.py
+@@ -280,6 +280,9 @@
+     """Create all database tables (drop-and-recreate dev strategy)."""
+     if "postgresql" in settings.database_url:
+         await _create_tables_postgres()
++        from app.services.collection_lifecycle import backfill_orphan_collections
++
++        await backfill_orphan_collections()
+         # Backfill search_text for rows created before the column/event hook
+         # existed (needed for the pg_trgm indexes).
+         from app.services.fts import backfill_search_text
+@@ -303,6 +306,10 @@
+         else:
+             await conn.run_sync(Base.metadata.create_all)
+             await _apply_light_migrations(conn)
++
++    from app.services.collection_lifecycle import backfill_orphan_collections
++
++    await backfill_orphan_collections()
+ 
+     if is_turso_url(settings.database_url):
+         # One-time backfill for databases whose FTS shadow tables predate the
+--- a/tests/api/test_collections.py
++++ b/tests/api/test_collections.py
+@@ -79,7 +79,8 @@
+         assert res.status_code == 200
+         assert (await client.get(f"/api/v1/collections/{cid}")).status_code == 404
+         await db_session.refresh(sample_series)
+-        assert sample_series.collection_id is None
++        assert sample_series.collection_id is not None
++        assert sample_series.collection_id != cid
+ 
+ 
+ class TestCollectionAttach:
+@@ -100,7 +101,8 @@
+         )
+         assert res.status_code == 200
+         await db_session.refresh(sample_series)
+-        assert sample_series.collection_id is None
++        assert sample_series.collection_id is not None
++        assert sample_series.collection_id != cid
+ 
+     async def test_attach_occupied_work_returns_409(self, client, sample_movie):
+         c1 = (await client.post(
+--- a/tests/unit/test_database_migrations.py
++++ b/tests/unit/test_database_migrations.py
+@@ -543,8 +543,25 @@
+ 
+ async def test_create_tables_turso_path(db_engine):
+     from app.database import create_tables
+-
++    from app.models.series import TVSeries
++    from app.models.work_collection import WorkCollection
++
++    factory = async_sessionmaker(db_engine, expire_on_commit=False)
++    identity = str(uuid.uuid4())
++    async with factory() as db:
++        db.add(TVSeries(id=identity, title_en="Synthetic Startup Orphan", season_number=3))
++        await db.commit()
+     await create_tables()
++    async with factory() as db:
++        member = await db.get(TVSeries, identity)
++        parent = member.collection_id
++        assert parent is not None
++        assert member.season_number == 3
++        assert await db.get(WorkCollection, parent) is not None
++    await create_tables()
++    async with factory() as db:
++        assert (await db.get(TVSeries, identity)).collection_id == parent
++        assert await db.scalar(select(func.count()).select_from(WorkCollection)) == 1
+     async with db_engine.begin() as conn:
+         cols = (await conn.execute(text("PRAGMA table_info(tv_series)"))).fetchall()
+         assert "season_number" in {row[1] for row in cols}
+@@ -1310,6 +1327,7 @@
+ async def test_create_tables_postgres_branch(monkeypatch):
+     import app.database as db_mod
+     from app.config import settings
++    from app.services import collection_lifecycle
+     from app.services import fts as fts_mod
+ 
+     monkeypatch.setattr(
+@@ -1322,7 +1340,15 @@
+ 
+     monkeypatch.setattr(db_mod, "_create_tables_postgres", _fake_create)
+ 
++    async def _fake_orphans():
++        assert called.get("create")
++        called["orphans"] = True
++        return 0
++
++    monkeypatch.setattr(collection_lifecycle, "backfill_orphan_collections", _fake_orphans)
++
+     async def _fake_backfill(session):
++        assert called.get("orphans")
+         called["backfill"] = True
+ 
+     monkeypatch.setattr(fts_mod, "backfill_search_text", _fake_backfill)
+@@ -1339,7 +1365,7 @@
+ 
+     monkeypatch.setattr(db_mod, "async_session_factory", lambda: _Session())
+     await db_mod.create_tables()
+-    assert called == {"create": True, "backfill": True, "commit": True}
++    assert called == {"create": True, "orphans": True, "backfill": True, "commit": True}
+ 
+ 
+ async def test_retry_on_lock_unreachable(monkeypatch):
+--- /dev/null
++++ b/tests/api/test_collection_resource_boundaries.py
+@@ -0,0 +1,83 @@
++"""Real API/DB coverage of collection cleanup across resource pages and media."""
++import uuid
++
++import pytest
++from sqlalchemy import select
++
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++
++
++@pytest.mark.parametrize('operation', ['delete', 'detach'])
++@pytest.mark.parametrize('kind', ['series', 'movie'])
++@pytest.mark.parametrize('binding', ['direct', 'work_link', 'file_assignment'])
++async def test_collection_resource_pages(
++    client, db_session_factory, sample_channel, operation, kind, binding,
++):
++    model = TVSeries if kind == 'series' else Movie
++    key = 'series_id' if kind == 'series' else 'movie_id'
++    async with db_session_factory() as db:
++        old = WorkCollection(title_cn='Synthetic old group')
++        other = WorkCollection(title_cn='Unrelated control group')
++        db.add_all([old, other])
++        await db.flush()
++        work = model(title_en='Synthetic paginated work', collection_id=old.id)
++        if kind == 'series':
++            work.season_number = 2
++        db.add(work)
++        await db.flush()
++        old_id, other_id, work_id = old.id, other.id, work.id
++        ids = [str(uuid.uuid4()) for _ in range(103)]
++        stray_id, control_id = str(uuid.uuid4()), str(uuid.uuid4())
++        rows = []
++        for identity in ids + [stray_id, control_id]:
++            fields = {key: work_id} if binding == 'direct' and identity in ids else {}
++            rows.append(FileResource(
++                id=identity, guid=identity, channel_id=sample_channel.id,
++                title_raw='Synthetic resource boundary', torrent_url='https://example.invalid/data.torrent',
++                collection_id=other_id if identity == control_id else old_id, **fields,
++            ))
++        db.add_all(rows)
++        await db.flush()
++        if binding != 'direct':
++            for identity in ids:
++                fields = {key: work_id}
++                if binding == 'work_link':
++                    db.add(ResourceWorkLink(resource_id=identity, source='manual', **fields))
++                else:
++                    db.add(ResourceFileAssignment(resource_id=identity, file_path='episode.mkv',
++                                                  season=2 if kind == 'series' else None,
++                                                  source='manual', **fields))
++        await db.commit()
++    if operation == 'delete':
++        response = await client.delete(f'/api/v1/collections/{old_id}')
++    else:
++        response = await client.delete(f'/api/v1/collections/{old_id}/works/{work_id}',
++                                       params={'work_type': kind})
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        work = await db.get(model, work_id)
++        expected = work.collection_id
++        if kind == 'series':
++            assert expected not in (None, old_id)
++            assert work.season_number == 2
++            assert await db.get(WorkCollection, expected) is not None
++        else:
++            assert expected is None
++        resources = list(await db.scalars(select(FileResource).where(FileResource.id.in_(ids))))
++        assert len(resources) == 103
++        assert all(resource.collection_id == expected for resource in resources)
++        if binding == 'direct':
++            assert all(getattr(resource, key) == work_id for resource in resources)
++        else:
++            mapping_model = ResourceWorkLink if binding == 'work_link' else ResourceFileAssignment
++            mappings = list(await db.scalars(select(mapping_model).where(mapping_model.resource_id.in_(ids))))
++            assert len(mappings) == 103
++            assert all(getattr(mapping, key) == work_id and mapping.source == 'manual' for mapping in mappings)
++        assert (await db.get(FileResource, control_id)).collection_id == other_id
++        assert (await db.get(FileResource, stray_id)).collection_id == (None if operation == 'delete' else old_id)
++        assert (await db.get(WorkCollection, old_id) is None) == (operation == 'delete')
+--- a/docs/design/per-season-works.md
++++ b/docs/design/per-season-works.md
+@@ -244,3 +244,12 @@
+ ### 显式季号不确定的 upsert 门禁
+ 
+ `create_or_update_series_from_external(..., season_ambiguous=True)` 在无法由 season_hint、季身份、标题季标记或已验证单季证据确定季号时，仅保留合集身份，返回 None，由 repository 挂合集待确认。该标记防止模型越界季号被清除后，经旧默认 S1/单成员兜底重新落季作品；重复执行和缓存重放不可绕过。调用方已有可靠解析季号时可正常链接。
++
++
++### 季作品合集的创建、删除与解绑
++
++手工 POST /series 与元数据 upsert 一样，在同一事务创建 series_group 壳合集。删除合集或解绑其中的季作品，为每个被移出的季作品建立新壳并保留原 season_number；Movie 可以无合集。壳名称和别名复用现有构造规则，不依据同名合并不确定作品。ORM 修改 collection 关系对象，避免已加载的旧父子关系在删除时重新清空外键。
++
++资源按现有作品 FK、resource_work_links 和 resource_file_assignments 的完整目标集合重算合集指针；全部已指派作品同属唯一合集时才设置，否则 collection_id 为空。人工 links/assignments 保留。删除原合集时，只有合集归属而没有作品依据的资源清除该指针；单独解绑作品不会改动这类仍属原合集的资源。资源按 UUID 游标每批最多 100 条处理，避免更新后用 offset 跳页。删除旧合集时同时清理其身份袋；失败整体回滚。
++
++合集修改取得目标合集行锁；attach 涉及壳吸收时按合集 ID 顺序锁定来源和目标，再锁作品并重读归属。归属已经变为未锁定第三个合集时返回 409 INVALID_STATE；等待期间目标被删除时返回 404。Turso 由已有事务锁冲突重试保证失败事务不部分提交。此行为不等于所有写入者均受数据库 NOT NULL 约束；遗留孤儿由启动回填修复。
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -467,7 +467,7 @@
+ | Method | Path | 说明 |
+ |--------|------|------|
+ | GET | `/series` | 列表（分页，支持 title 模糊搜索） |
+-| POST | `/series` | 手动创建剧集元数据（极少使用） |
++| POST | `/series` | 手动创建季作品，并在同一事务建立 series_group 壳合集 |
+ | GET | `/series/{id}` | 剧集详情（含 episodes、资源数、任务数） |
+ | PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，见上）；`content_type` 显式改为非 tv（如 movie）时，联动清除该剧集下资源残留的 `episode_confidence="ambiguous"`（置 null——非 tv 作品无集号/季号问题） |
+ | DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
+@@ -497,9 +497,9 @@
+ | GET | `/collections/{id}` | 合集详情（含 `works`: `[{id, title, year, type}]`；`?include_parts=true` 且合集为 `tmdb_collection` 源时额外返回 `untracked_parts`: `[{tmdb_id, title, year, poster_url}]` —— TMDB collection parts 中本地库未收录的作品，按需拉取、进程内 10 分钟缓存、不落库；拉取失败返回空数组） |
+ | GET | `/collections/{id}/works` | 合集成员作品分页列表（`page`/`page_size`；每项与 `GET /works` 相同的归一化结构，content_type 为 `tv`/`movie`；**季作品在前按 `season_number` 升序**（特典 0 居首），电影在后按 created_at 倒序） |
+ | PATCH | `/collections/{id}` | 更新合集（title_cn/title_en/description/poster_url） |
+-| DELETE | `/collections/{id}` | 删除合集（成员作品的 collection_id 置空，不删作品） |
++| DELETE | `/collections/{id}` | 删除合集（季作品重挂新壳，电影可无合集；同步资源及身份袋，不删作品） |
+ | POST | `/collections/{id}/works` | 挂载作品（body: `{work_type: "series"\|"movie", work_id}`；重复挂载同合集幂等） |
+-| DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（collection_id 置空） |
++| DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（季作品重挂新壳，电影 collection_id 置空；保留作品和文件指派） |
+ 
+ ---
+ 
+@@ -511,3 +511,6 @@
+ 
+ 
+ 资源修订补偿：`PATCH /resources/{id}/episode`、`PATCH /resources/{id}`、`PUT /resources/{id}/associations` 将资源及 active Agent 的持久重跑请求一起提交；前两者包含自动修复的兄弟资源。请求写入失败回滚修改；提交后队列忙碌或不可用仍返回保存成功，由周期分发补偿。响应结构不变，保存成功不代表下载已派发。
++
++
++合集生命周期：删除与解绑保留作品 UUID、季号、人工 work_links/file_assignments；关联多新合集的资源清空单一合集指针，不猜归属。无作品依据的 collection-only 资源在删除合集时清指针，单独解绑成员时保留原合集。所有变更同事务提交。attach 在锁定来源/目标后重读成员，若已移到其他未锁定合集返回 409 INVALID_STATE；等待期间目标不存在返回 404。并发重复删除只允许一个成功，后续请求返回 404。
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -202,3 +202,10 @@
+ 
+ 
+ Agent 定向补偿新增 `agent_resource_requests` 表，由模型注册后的 `create_all` 为新装/旧库创建，无存量请求回填。PostgreSQL 与 Turso 均使用非空 `(agent_id,resource_id)` 联合唯一键及两个 ON DELETE CASCADE 外键；重复启动保留 revision、错误与重试时间，不重置待处理请求。
++
++
++### 启动时修复孤儿季作品
++
++两个后端在 schema 轻迁移后执行合集归属回填，随后执行既有 FTS/search_text 回填。每批最多读取 100 个 collection_id IS NULL 的 TVSeries，保留原季号建立壳合集并同步已有作品关联资源；每批独立事务提交，重跑不再创建已修复作品的壳。
++
++PostgreSQL 用 FOR UPDATE 串行处理同一批孤儿，多个启动者不会重复建壳；Turso 用既有 retry_on_lock 在新会话中重试锁冲突。回填失败回滚当前批次，不静默跳过。此步骤不猜季、不合并同名作品，也不创建 uq_tv_series_collection_season；部分唯一索引仍须在季拆分/重复数据收敛后建立，不能把这次回填当作 D1/D2 全部 schema 修复。
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -715,3 +715,8 @@
+ 三个资源修订端点在资源修改的同一事务内，为当前频道 active Agent 写入 AgentResourceRequest，包含自动修复的兄弟资源；commit 后再尝试唤醒队列。队列忙碌去重或 broker 故障不会清除请求。启用的调度器每 5 秒分发到期请求，保留现有 agent key 去重。作业选择阶段读取请求版本并合入资源集合；成功完成按 id＋revision 确认，内部错误或异常按该版本记录 30 秒起、1800 秒封顶的指数退避。新修订重置退避，迟到旧失败不能改变新版本。纯请求补偿不推进增量水位线。
+ 
+ 暂停/error Agent 的已有请求保留，分发仅选择 active Agent；Agent/资源删除通过 FK 级联清除请求，频道不再匹配时分发器清除失效请求。请求确认表示已按当前规则处理，过滤、待确认或已有下载去重均可以成功确认，不承诺每个请求必有新下载。
++
++
++### 合集生命周期事务
++
++手工创建季作品需同事务创建壳合集。合集删除和成员解绑通过 collection_lifecycle 重挂季作品、按完整作品目标重算资源合集、保留人工 work_links/文件指派；删除同时清理合集身份袋。电影无合集是合法状态。无法唯一归属的资源清除单一合集指针，不能任选成员所属合集。源/目标合集按固定顺序加锁后再锁成员，避免反向壳吸收死锁；所有下游写入异常整体回滚。启动的孤儿回填分批加锁并幂等，详见 per-season-works.md 与 db-migration.md。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -265,3 +265,8 @@
+ 元数据身份接地回归：`tests/integration/metadata/test_identity_persistence.py` 对 Wikipedia judge、Wikipedia ReAct、TMDB ReAct 三入口，验证合法/非法主身份、伪造/可信别名、旧缓存五类场景；执行真实 process/upsert/cache/身份袋路径及重复处理幂等性。`test_identity_source_http.py` 启动随机 loopback 端口来源服务，验证生产 TMDB 搜索适配器字段契约与接地的正负例。PostgreSQL 矩阵驱动为 `docs/plans/p0-and-backlog/probes/identity_pg_probe.py`，只允许专用临时数据库。
+ 
+ 容器 mock-LLM 实例使用 `tests.integration.server.llm_app:app` 测试入口，将 TMDB HTTP 请求转发给测试服务的合成协议端点；生产 app 入口不变。模型仍必须选择来源候选，音频等未获 TMDB 证据的身份必须拒绝。来源响应与模型为合成数据，不能称作真实来源录制；HTTP、数据库和生产适配器实际执行。仍要求合法正例、未知/类型冲突负例和完整 95%/85% 覆盖率门禁；Compose 必须使用唯一项目名。
++
++
++合集归属回归：tests/api/test_collection_invariants.py 覆盖真实 API→commit→重新读库的创建/删除/解绑、身份袋清理、人工关联保留、多作品不猜合集、故障回滚、回填幂等及预加载父子关系。test_collection_resource_boundaries.py 每场景植入 103 条资源，交叉覆盖电影/剧集、删除/解绑、直接 FK/work_links/文件指派，验证跨页处理及不相关资源不变。test_database_migrations.py 对实际 Turso create_tables 连跑两次验证旧孤儿修复，PG 分支单测只验证调用顺序。
++
++PostgreSQL 实际回填并发、预加载关系、重复删除及反向壳吸收的驱动位于 docs/plans/p0-and-backlog/probes/collection*_pg_probe.py。它们会清空明确指定的回环地址 organize_test 专用库，必须配独立 Compose 项目；禁止指向业务库。数据为明确的合成 ORM 行，SQL/事务/锁行为真实。专项不替代完整单元/API 95% 与隔离集成 85% 门禁。

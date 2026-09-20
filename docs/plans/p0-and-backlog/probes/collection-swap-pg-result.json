@@ -1,0 +1,17 @@
+{
+  "backend": "PostgreSQL",
+  "ordered_probe": true,
+  "results": [
+    {
+      "status": 201
+    },
+    {
+      "status": 404
+    }
+  ],
+  "second_blocked": true,
+  "remaining_collections": 1,
+  "members_preserved": true,
+  "project": "rssripple-v7-collection-20260920-am",
+  "cleanup": "complete"
+}

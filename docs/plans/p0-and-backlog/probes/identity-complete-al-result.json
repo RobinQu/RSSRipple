@@ -1,0 +1,36 @@
+{
+  "batch": "V6",
+  "unit_api": {
+    "passed": 3540,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 1557.0,
+    "exit_code": 0,
+    "covered": 21159,
+    "valid": 21627
+  },
+  "integration": {
+    "passed": 3136,
+    "failed": 0,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1724.08,
+    "runner_exit_code": 0,
+    "coverage_exit_code": 0,
+    "covered": 19424,
+    "valid": 21627
+  },
+  "main_worktree_applied": true,
+  "committed": true,
+  "project": "rssripple-v6-complete-20260920-al",
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "cleanup": "complete",
+  "artifacts": "/tmp/rssripple-v6-artifacts-al",
+  "acceptance": true,
+  "source_files_unchanged": 490,
+  "review": "Passed correctness, identity trust boundaries, cache invalidation, rollback/persistence, dependencies and regression review; Ruff and whitespace checks passed",
+  "commit": "7fd8121"
+}

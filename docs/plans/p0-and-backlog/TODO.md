@@ -23,32 +23,13 @@
 
 - [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py:430-440,557-565`）。
 
-### P0-4（现 P1） 元数据身份未接地（维基 judge + TMDB ReAct）
-
-- [ ] **维基 judge 接地**：`app/services/metadata_wiki_judge.py:498-534`。judge `found` 时，若
-      `parse_wikipedia_id` 得到的 `pid` 为空，或该 `(lang, pid)` 不在 `evidence` 的完整页面身份集合内，
-      则 `external_id` 原样保留 LLM 值；随后 `_validate_matched_entity_kind`（`metadata_wiki_classify.py:145-147`）
-      因无 categories 直接放行。⇒ 存在编造的 `wikipedia:{lang}:{pid}` 进入落库和身份袋写入链路的风险
-      （`add_external_id` 对已存在 id 拒绝改指，`external_ids.py:173-182`）。
-      **修复**：搜索去重、证据选择统一按 `(lang,pageid)`；旧裸 pageid 仅在证据唯一确定语言时接受；found 但主身份无法在 evidence 中定位时降级 `found=False`、清 `matched_entity`，
-      `reason` 用可重试 not_found 措辞（对齐 `_validate_matched_entity_kind`）。
-      **验收**：非法/跨语言同号身份拒绝、合法证据保留；真实 process→upsert→身份袋验证无非法写入。继续审计 ReAct 回退、旧缓存和 alt_external_ids，避免绕过；原型与待补验证见 [V6 方案](V6-IDENTITY-GROUNDING.md)。
-
-- [ ] **TMDB 接地**：`app/services/metadata_agent.py:980-1105`（`_run_react`）。finalize 的
-      `matched_entity.external_id` 完全来自 LLM。`_search_tmdb` 返回 `external_id="tmdb:<id>"`/`tmdb_id`，
-      `_execute_get_tmdb_details` 返回 `tmdb_id`，但 `_extract_search_info` 只用于错误分类、不收集 id。
-      **修复**：新增工具证据收集，汇总成功 ToolMessage 中带 `media_type` 的 TMDB 身份；读取
-      `search_tmdb.data[].tmdb_id|external_id` 与 `get_tmdb_details.data.tmdb_id`；只接受成功返回的 `(media_type,id)` 证据；source=tmdb 且 found 时，
-      `matched_entity.external_id` 的 `tmdb:<id>` 不在集合内即降级 `found=False`。
-      **验收**：ID 或 tv/movie 类型不匹配、失败工具、无类型证据均拒绝；合法搜索/详情证据可落库且幂等。补真实录制语料与身份袋集成，见 [V6 方案](V6-IDENTITY-GROUNDING.md)。
-      **文档**：`docs/design/business-logic.md` 匹配/身份接地章节同步。
-
 ### P0-6（现 P1） 剧集合集归属的创建/删除路径
 
 - [ ] `POST /series`（`app/api/v1/series.py:66-75`）创建后挂 `series_group` 壳合集
       （复用 `metadata_service._create_series_collection` 语义或抽 helper）。
 - [ ] `DELETE /collections`（`app/api/v1/collections.py:206-217`）不得把成员置 NULL 造成孤儿：
       为被解绑 `TVSeries` 建/复用壳合集并重挂；同步重指 `FileResource.collection_id`；`Movie` 保持可 NULL。
+- [ ] `DELETE /collections/{collection_id}/works/{work_id}?work_type=series` 同样直接置空合集，须与删除合集一起重挂壳合集；电影仍可为空。2026-09-20 三条实际 API 的孤儿红测及边界见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。
 - [ ] 启动幂等回填：`TVSeries.collection_id IS NULL` 时建壳合集并挂接（历史快照 0 行，实施前复核，须幂等）。
       `DB NOT NULL` 为可选硬化，暂缓（所有读取处对 NULL 安全）。
 - **验收**：API 测试断言新建 series 有合集、删集合后无孤儿、回填幂等。
@@ -60,6 +41,7 @@
 - [ ] **P1-D1 新装库缺 `(collection_id, season_number)` 唯一索引**：`uq_tv_series_collection_season`
       仅由 `scripts/season_split_migration.py:122` 创建，`app/database.py:546-551` 不在 `create_tables` 建。
       **修复**：在 `create_tables`/轻量迁移幂等创建该部分唯一索引（Turso/PG 两库）。
+      **续接**：[V8 方案与证据](V8-COLLECTION-SEASON-INDEX.md)：真实 Turso 四项红测、六项通过；PG 双进程启动/升级/竞争写入通过。API 冲突、恢复流程与完整门禁未完成，不关闭。
 - [ ] **P1-D2 轻量迁移的 FK 列无 FOREIGN KEY 约束**：`app/database.py:453/477/503/510` 用裸 `ADD COLUMN`，
       `create_all` 不 ALTER，升级库永久缺 FK 与 `ON DELETE` 语义，与新装库漂移。
       **修复**：迁移补齐 FK 或统一走表重建；加 schema 对等测试。
@@ -71,7 +53,7 @@
       **修复**：与 P1-M5 合并设计覆盖度感知、无 NULL 歧义的决策键，再加 pending 部分唯一索引及 SAVEPOINT。普通 nullable 联合唯一索引不能阻止重复（SQLite 内存复现已确认）。
 - [ ] **P1-D6 删除路径泄漏身份袋 / 丢手工映射**：`DELETE /series|/movies|/collections` 不调用
       `delete_external_ids_for_work`（遗孤行导致命中即 miss 且无法重登记）；`resource_work_links` CASCADE
-      静默丢手工映射；删合集漏清 `file_resources.collection_id`。**修复**：删除时显式清理/转移。
+      静默丢手工映射；删合集漏清 `file_resources.collection_id`。**修复**：删除时显式清理/转移。合集身份袋遗留与资源 FK 删除失败已由 V7 真实 API 复现，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。
 ### 后台执行 / 调度 / 队列
 
 - [ ] **P1-B4 Redis consumer lease 过期致重复执行**：lease 15s/heartbeat 5s（`app/services/task_queue.py:43-44`），
