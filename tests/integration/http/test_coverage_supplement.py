@@ -539,7 +539,7 @@ class TestMetadataSourceRefresh:
         return data
 
     def test_refresh_tmdb_source_not_found(self, _fake_source_keys):
-        """tmdb ReAct: search_tmdb tool errors (fake key) → found=False."""
+        """TMDB ReAct: no matching requested work in synthetic candidates → found=False."""
         sid = ensure_series("覆盖率检索不到剧集", "Coverage Unfindable Series", api=_llm_api)
         data = self._refresh(sid, "tmdb")
         assert data["filled"] == []
@@ -573,4 +573,4 @@ class TestMetadataSourceRefresh:
         assert r.status_code == 200, r.text
         candidates = r.json()["data"]["candidates"]
         assert candidates
-        assert candidates[0]["external_id"] == "mock-exa-daemons"
+        assert candidates[0]["external_id"] == "tmdb:900001"

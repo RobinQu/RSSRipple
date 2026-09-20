@@ -326,11 +326,11 @@ class TestGenreMockLLMClamping:
     def test_canned_genre_clamped_to_closed_set(self):
         """Canned finalize genre ["Anime", "Action"] → stored ["Animation", "Action"].
 
-        Uses the tmdb channel source with a fake key: the search tool fails
-        fast offline, and the mock LLM's canned finalize (found=true) drives
-        the upsert regardless — fully deterministic. Reuses the S0 feed
+        Uses the tmdb channel source with a fake key and synthetic source
+        HTTP responses. The mock finalize selects an observed identity.
+        Reuses the S0 feed
         (黄泉使者) from test_llm_mock.py: whether the verdict comes from a
-        fresh mock ReAct run or the gen-3 MetadataCache, the stored genre
+        fresh mock ReAct run or the current MetadataCache, the stored genre
         must already be canonical either way.
         """
         r = _llm_api(
@@ -339,6 +339,7 @@ class TestGenreMockLLMClamping:
             json={"tmdb_api_key": "mock-tmdb"},
         )
         assert r.status_code == 200, f"set fake key failed: {r.text}"
+        ch_id = None
         try:
             r = _llm_api(
                 "/api/v1/channels",
@@ -354,13 +355,6 @@ class TestGenreMockLLMClamping:
             )
             assert r.status_code == 201, f"create channel failed: {r.text}"
             ch_id = r.json()["data"]["id"]
-        finally:
-            _llm_api(
-                "/api/v1/system-settings",
-                method="put",
-                json={"tmdb_api_key": ""},
-            )
-        try:
             _llm_api(f"/api/v1/channels/{ch_id}/fetch", method="post")
             deadline_result = None
             import time
@@ -376,11 +370,13 @@ class TestGenreMockLLMClamping:
 
             r = _llm_api("/api/v1/series", params={"page_size": 100, "title": "黄泉使者"})
             series = [
-                s for s in r.json()["data"] if s.get("external_id") == "mock-exa-daemons"
+                s for s in r.json()["data"] if s.get("external_id") == "tmdb:900001#s1"
             ]
-            assert series, "expected the mock-exa-daemons series to exist"
+            assert series, "expected the tmdb:900001 series to exist"
             assert series[0]["genre"] == ["Animation", "Action"], (
                 f"genre should be clamped to the closed set: {series[0]['genre']}"
             )
         finally:
-            _llm_api(f"/api/v1/channels/{ch_id}", method="delete")
+            _llm_api("/api/v1/system-settings", method="put", json={"tmdb_api_key": ""})
+            if ch_id is not None:
+                _llm_api(f"/api/v1/channels/{ch_id}", method="delete")

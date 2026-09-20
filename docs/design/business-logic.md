@@ -270,6 +270,14 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 2. **接线**：`_attach_tmdb_episode_list` 在 tmdb ReAct finalize 后（`process` 与 `process_title_only` 两处）触发——仅当 found=True、content_type=tv、matched_entity 携带 tmdb id 且有 `seasons` 且无 `episode_list` 时填充；回退实体 seasons 已剥离，天然不触发（单源规则）。`episode_list` 复用 P2 消费路径（`create_or_update_series_from_external` → `upsert_episodes`），随 MetadataCache 往返。
 3. **回填**：`scripts/tmdb_episodes_backfill.py`（dry-run 默认，`--apply` 执行，批量提交）对 canonical `tmdb:` 身份的 TVSeries 跑同一抓取 + `upsert_episodes`；`series.seasons` 缺失时用 TMDB details 补齐输入（不改写 series 字段）。
 
+### 主来源身份接地
+
+Wikipedia judge 和 Wikipedia ReAct 回退共用身份证据选择：按 `(语言版本,pageid)` 去重，主身份必须对应已观察页面；旧裸 pageid 仅在语言唯一时接受并规范化。ReAct 仅采纳成功来源工具的页面数据，语言取自返回的 Wikipedia 页面 URL。重复搜索/详情响应归并为同一页面；类别、页面 URL 和跨语言别名取自来源数据，不能沿用模型编造的身份字段。
+
+TMDB ReAct 仅采纳成功 `search_tmdb`/`get_tmdb_details` 工具消息。搜索候选使用 `external_id/content_type`，详情使用 `tmdb_id/media_type`；必须同时匹配数字 ID 与 TV/movie 类型，互相冲突的类型不提供证据。现有 TMDB 工具未提供跨来源身份，模型输出的别名和 Wikipedia URL 均清除。错误状态、失败工具、畸形数据、无类型身份不能作为依据。
+
+无法确认主身份时，保留标题与诊断，返回可重试的 `found=False` 并清空实体，阻止写入作品及身份袋。缓存 generation=7 使旧 verdict 懒失效，不能据此声称已经清理历史写入的错误身份；已有作品清理需要独立审计。
+
 ### genre 归一化（统一分类标签）
 
 作品 genre 统一为 **TMDB 封闭分类集（27 类）英文 canonical 名**，权威清单一处定义在 `app/services/genre_registry.py`（取值约定见 data-models.md「genre 取值约定」）。多数据源归一靠"prompt 注入 + 出口钳制"而非逐源映射表：
@@ -278,7 +286,7 @@ tmdb 主源频道的**季/集内容一律来自 TMDB API 本身**（同一源一
 - **兜底推断**：`_ensure_genre`（`metadata_agent.py`）在钳制后仍无 genre 且 matched_entity 有 description 时，用 `genre_inference_system_prompt()` 发一次低成本 LLM 调用按简介分类，结果再过 `normalize_genres`；失败静默不阻塞匹配。由此 judge 留空、auto-link 无 LLM、回退仅身份三条路径产出的作品都能拿到标签。
 - **出口钳制**：统一 finalize 消费点 `_clamp_finalize_genre`（`metadata_agent.py`，`process` 与 `process_title_only` 各一处）对 `matched_entity["genre"]` 调 `normalize_genres`——id 直译、大小写不敏感、少量别名，表外值丢弃（debug 日志），空结果置 None 视为"未提供"，genre 绝不阻塞匹配。TMDB 直连的 `_tmdb_genre_map` 动态拉取与注册表取交集、失败回退注册表静态表。同一消费点紧跟 `_normalize_finalize_dates`：确定性日期键名归一——series/tv 无 `start_date` 时依次从 `first_air_date`/`release_date` 补（TMDB 工具结果带 `first_air_date`，LLM 不总按 prompt 键名抄录），movie 对称补 `release_date`；只补空缺、绝不覆盖已有值。
 - **写回**：`metadata_service` 全部 genre 写入点（series/movie/audio 的新建/更新、刷新管线 `apply_work_metadata` 填空）先过 `normalize_genres`；非空才覆盖，归一化为空不清空旧值。
-- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 6（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底；6=网络回退候选身份与季集出口保护），旧缓存惰性失效重跑。
+- **缓存**：judge schema/指令变更属 verdict 逻辑变更，`METADATA_CACHE_GENERATION` 当前为 7（3=genre 入 schema + 钳制；4=prompt 改尽力推测 + `_ensure_genre` 兜底；6=网络回退候选身份与季集出口保护；7=Wikipedia/TMDB 主来源身份接地及别名证据约束），旧缓存惰性失效重跑。
 - **存量**：`scripts/genre_backfill.py`——模式 A（默认）就地规范化既有 genre 数组；模式 B（`--refresh-empty`）对仍为空的 series/movie 调 `refresh_work_by_source` 重跑补齐（身份源为 wikipedia/tmdb 时用原源，否则回退 wikipedia 标题判定；有网络/LLM 成本，`--limit/--delay` 限速）。
 - **消费面**：通知 payload `work.genre` 快照同样归一化；Filter DSL 新增 `series.genre`/`movie.genre`（list-of-string 逐元素语义，见 filter-dsl.md）。
 

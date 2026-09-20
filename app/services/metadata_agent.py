@@ -1020,10 +1020,16 @@ class UnifiedMetadataAgent:
             )
 
         messages = result.get("messages", [])
-        return (
-            self._extract_finalize_result(messages),
-            self._extract_search_info(messages),
-        )
+        finalize = self._extract_finalize_result(messages)
+        if source == "tmdb":
+            from app.services.metadata_identity_evidence import ground_tmdb_identity
+
+            finalize = ground_tmdb_identity(finalize, messages)
+        elif source == "wikipedia":
+            from app.services.metadata_identity_evidence import ground_wikipedia_react_identity
+
+            finalize = ground_wikipedia_react_identity(finalize, messages)
+        return finalize, self._extract_search_info(messages)
 
     async def _run_search_then_judge(
         self,

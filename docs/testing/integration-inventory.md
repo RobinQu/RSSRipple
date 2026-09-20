@@ -260,3 +260,8 @@ Agent 事务恢复：`tests/unit/test_agent_service.py` 的真实约束故障和
 
 
 B9 定向补偿回归：`test_p0_queue_consumption.py` 覆盖真实队列已选资源后修订及旧版本确认竞争；`test_agent_request_persistence.py` 覆盖真实 Turso 事务、版本与退避；`test_agent_request_failures.py` 覆盖三个 HTTP 端点原子失败、broker 故障、作业错误恢复和生命周期；`test_agent_request_scheduler.py` 覆盖实际 APScheduler 触发与兄弟资源修复。跨进程 PostgreSQL/Redis、升级与级联、审核种子的真实 Transmission 故障重试驱动位于 `docs/plans/p0-and-backlog/probes/agent_request_*_probe.py`。后者仅允许专用隔离环境，数据真实性与运行限制见 VALIDATION.md；专项通过不能代替完整 95%/85% 门禁。
+
+
+元数据身份接地回归：`tests/integration/metadata/test_identity_persistence.py` 对 Wikipedia judge、Wikipedia ReAct、TMDB ReAct 三入口，验证合法/非法主身份、伪造/可信别名、旧缓存五类场景；执行真实 process/upsert/cache/身份袋路径及重复处理幂等性。`test_identity_source_http.py` 启动随机 loopback 端口来源服务，验证生产 TMDB 搜索适配器字段契约与接地的正负例。PostgreSQL 矩阵驱动为 `docs/plans/p0-and-backlog/probes/identity_pg_probe.py`，只允许专用临时数据库。
+
+容器 mock-LLM 实例使用 `tests.integration.server.llm_app:app` 测试入口，将 TMDB HTTP 请求转发给测试服务的合成协议端点；生产 app 入口不变。模型仍必须选择来源候选，音频等未获 TMDB 证据的身份必须拒绝。来源响应与模型为合成数据，不能称作真实来源录制；HTTP、数据库和生产适配器实际执行。仍要求合法正例、未知/类型冲突负例和完整 95%/85% 覆盖率门禁；Compose 必须使用唯一项目名。

@@ -1,6 +1,6 @@
 """P0-3 model boundary -> real ReAct graph -> validator -> repository -> DB.
 
-Only the chat model is substituted. Raw resource input comes from a captured
+The chat model and source response are substituted. Raw input comes from a captured
 case; the model verdict and season evidence are explicit fault injections,
 not recorded source answers or semantic gold for the captured resource.
 """
@@ -8,6 +8,7 @@ not recorded source answers or semantic gold for the captured resource.
 import json
 import socket
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
@@ -45,7 +46,7 @@ def deny_network(monkeypatch):
     (1, 2, 1), (99, 2, None), (99, None, None), (99, 1, 1),
     (None, None, None), (None, 1, 1),
 ])
-async def test_model_season_cannot_pollute_persisted_work(db_session, inferred, count, expected):
+async def test_model_season_cannot_pollute_persisted_work(db_session, monkeypatch, inferred, count, expected):
     case = next(case for case in load_corpus()[1]["cases"]
                 if case["id"] == "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b")
     channel = Channel(id=str(uuid.uuid4()), name="season-boundary", type="rss_feed",
@@ -64,7 +65,16 @@ async def test_model_season_cannot_pollute_persisted_work(db_session, inferred, 
         entity["number_of_seasons"] = count
     verdict = {"found": True, "clean_title": "季号边界测试", "content_type": "tv",
                "inferred_season": inferred, "inferred_episode": 10, "matched_entity": entity}
+    # Run the actual graph's source tool before finalize, so this test reaches
+    # the season validator with a grounded identity. Source data are synthetic.
+    source = AsyncMock(return_value={"success": True, "data": [{
+        "external_id": entity["external_id"], "content_type": "tv",
+        "number_of_seasons": count,
+    }]})
+    monkeypatch.setattr("app.services.metadata_agent._execute_search_tmdb", source)
     model = ToolModel(responses=[
+        AIMessage(content="", tool_calls=[{"name": "search_tmdb", "id": "season-source",
+                                          "args": {"query": "季号边界测试"}}]),
         AIMessage(content="", tool_calls=[{"name": "finalize", "id": "season-verdict",
                                           "args": {"result_json": json.dumps(verdict)}}]),
         AIMessage(content="finished"),
@@ -73,6 +83,7 @@ async def test_model_season_cannot_pollute_persisted_work(db_session, inferred, 
     agent._model = model
     result = await agent.process(resource, channel, db_session, force_refresh=True)
     await db_session.commit()
+    source.assert_awaited_once()
     assert result.found
     assert result.season == expected
     assert result.season_ambiguous == (expected is None)

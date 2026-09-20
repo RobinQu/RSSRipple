@@ -340,7 +340,7 @@ async def test_judge_found_enriches_matched_entity_from_evidence(monkeypatch):
     attach.assert_awaited_once()
 
 
-async def test_judge_found_without_evidence_match_keeps_entity(monkeypatch):
+async def test_judge_found_without_evidence_match_rejects_entity(monkeypatch):
     _patch_queries(monkeypatch, [("q", "zh")])
     _patch_wiki(
         monkeypatch,
@@ -359,9 +359,9 @@ async def test_judge_found_without_evidence_match_keeps_entity(monkeypatch):
     result, info = await mwj.run_search_then_judge(
         judge, "RAW", react_runner=_react(), msg_builder=_msg_builder,
     )
-    # The judged pageid is not in the evidence → nothing is overlaid, and the
-    # movie content type never triggers the TV-only wikitext attach.
-    assert result["matched_entity"]["external_id"] == "wikipedia:999"
+    # An unobserved identity must not reach the repository or content attach.
+    assert result["found"] is False
+    assert result["matched_entity"] is None
     attach.assert_not_awaited()
     assert info["method"] == "search_then_judge"
 

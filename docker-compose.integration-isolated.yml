@@ -91,7 +91,7 @@ services:
     - --data-file=/app/data/.coverage.integration-llm
     - -m
     - uvicorn
-    - app.main:app
+    - tests.integration.server.llm_app:app
     - --host
     - 0.0.0.0
     - --port

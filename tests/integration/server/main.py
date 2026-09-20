@@ -27,6 +27,7 @@ from .mock_bangumi import router as mock_bangumi_router
 from .mock_emby import router as mock_emby_router
 from .mock_llm import router as mock_llm_router
 from .mock_plex import router as mock_plex_router
+from .mock_tmdb import router as mock_tmdb_router
 from .rss_server import (
     generate_dmhy_feed,
     generate_eztv_feed,
@@ -53,6 +54,7 @@ app.include_router(mock_llm_router)
 app.include_router(mock_plex_router)
 app.include_router(mock_emby_router)
 app.include_router(mock_bangumi_router)
+app.include_router(mock_tmdb_router)
 
 # ─── Global State ────────────────────────────────────────────────────
 

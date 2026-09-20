@@ -42,7 +42,9 @@ from app.database import Base
 #       source lists none, so genre-less verdicts should not reappear.
 #   6 — bind web fallback identities to shown candidates; filter before query
 #       early-stop and reject ungrounded identity/episode-list payloads.
-METADATA_CACHE_GENERATION = 6
+#   7 — bind primary/alternate identities to source evidence; invalidate
+#       cached model identities produced before grounding enforcement.
+METADATA_CACHE_GENERATION = 7
 
 
 class MetadataCache(Base):

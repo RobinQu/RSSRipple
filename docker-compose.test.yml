@@ -84,12 +84,13 @@ services:
       - BANGUMI_API_KEY=mock-bangumi-key
       - BANGUMI_API_BASE=http://test-server:8080/bangumi/v0
     volumes:
+      - ./tests:/app/tests:ro
       - ./data:/app/data
       - ./.coveragerc:/app/.coveragerc:ro
     command:
       - "sh"
       - "-c"
-      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.integration-llm -m uvicorn app.main:app --host 0.0.0.0 --port 9001"
+      - "exec uv run --no-project --with coverage coverage run --rcfile=/app/.coveragerc --data-file=/app/data/.coverage.integration-llm -m uvicorn tests.integration.server.llm_app:app --host 0.0.0.0 --port 9001"
     depends_on:
       test-server:
         condition: service_healthy

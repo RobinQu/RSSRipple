@@ -298,10 +298,11 @@ MIKANANI_S2_URL = f"{TEST_SERVER}/rss/mikanani?series=2"  # 药屋少女的呢�
 
 @pytest.fixture(scope="class")
 def _fake_tmdb_key():
-    """Fake TMDB key on app-llm: the channel source must be one of the
-    two supported sources (wikipedia/tmdb); a fake key keeps the search tool
-    failing fast and deterministic while the mock LLM's canned finalize
-    drives the verdict. Restored (cleared) afterwards."""
+    """Use synthetic TMDB HTTP responses from the isolated test server.
+
+    The app-llm entrypoint routes TMDB requests there; no real API key is used.
+    Restored (cleared) afterwards.
+    """
     r = _api(
         "/api/v1/system-settings", method="put", json={"tmdb_api_key": "mock-tmdb"}
     )
@@ -344,8 +345,8 @@ class TestMetadataAgentMock:
 
             # The canned entity was upserted as a series
             r = _api("/api/v1/series", params={"page_size": 100, "title": "黄泉使者"})
-            series = [s for s in r.json()["data"] if s.get("external_id") == "mock-exa-daemons"]
-            assert series, "expected the mock-exa-daemons series to be created"
+            series = [s for s in r.json()["data"] if s.get("external_id") == "tmdb:900001#s1"]
+            assert series, "expected the tmdb:900001 series to be created"
             series_id = series[0]["id"]
             assert all(res["series_id"] == series_id for res in linked)
         finally:
@@ -424,7 +425,7 @@ class TestMetadataAgentMock:
             assert r.status_code == 200, f"search failed: {r.text}"
             results = r.json()["data"]["results"]
             assert results, "expected candidates from the mock agent"
-            assert results[0]["external_id"] == "mock-exa-daemons"
+            assert results[0]["external_id"] == "tmdb:900001"
 
             # Unknown title → empty candidate list (found=false)
             r = search_metadata_request(
@@ -475,9 +476,9 @@ class TestMetadataAgentMock:
             r = _api("/api/v1/movies", params={"page_size": 100, "title": "黄泉使者"})
             movies = [
                 m for m in r.json()["data"]
-                if m.get("external_id") == "mock-exa-daemons-movie"
+                if m.get("external_id") == "tmdb:900003"
             ]
-            assert movies, "expected the mock-exa-daemons-movie movie to be created"
+            assert movies, "expected the tmdb:900003 movie to be created"
             movie_id = movies[0]["id"]
 
             r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
@@ -488,13 +489,8 @@ class TestMetadataAgentMock:
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 
-    def test_agent_links_canned_audio_work(self, _fake_tmdb_key):
-        """Audio verdict (drama_cd) → AudioWork row + audio_work_id links.
-
-        Same routing trick as the movie test, via the ``mockaudio`` keyword,
-        on the S4 feed (小书痴的下克上) — again a feed no other app-llm test
-        touches, to keep the raw_title-keyed MetadataCache isolated.
-        """
+    def test_agent_rejects_unsupported_tmdb_audio(self, _fake_tmdb_key):
+        """TMDB TV/movie evidence cannot justify a fabricated audio identity."""
         r = _api(
             "/api/v1/channels",
             method="post",
@@ -520,14 +516,13 @@ class TestMetadataAgentMock:
                 w for w in r.json()["data"]
                 if w.get("external_id") == "mock-exa-daemons-drama-cd"
             ]
-            assert works, "expected the mock drama-cd audio work to be created"
-            work_id = works[0]["id"]
+            assert not works, "unsupported TMDB audio verdict must not create a work"
 
             r = _api(f"/api/v1/channels/{ch_id}/resources", params={"page_size": 100})
             resources = r.json().get("data", [])
             linked = [res for res in resources if res.get("audio_work_id")]
-            assert linked, "mock agent should link resources to the canned audio work"
-            assert all(res["audio_work_id"] == work_id for res in linked)
+            assert resources
+            assert not linked, "ungrounded audio identity must not link resources"
         finally:
             _api(f"/api/v1/channels/{ch_id}", method="delete")
 

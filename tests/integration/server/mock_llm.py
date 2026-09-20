@@ -75,15 +75,17 @@ def _finalize_result(messages: list) -> dict:
     (the agent prompt includes it) so tests can route a feed's resources to
     the movie / audio-work upsert paths without dedicated feeds.
     """
-    text = "\n".join(str(m.get("content", "")) for m in messages)
+    # Route by the requested work, not names in the source candidate list.
+    text = "\n".join(str(m.get("content", "")) for m in messages
+                     if m.get("role") in ("system", "user"))
     canned = None
     if "mockmovie" in text:
         canned = {
             "clean_title": "黄泉使者 剧场版",
             "entity": {
                 "content_type": "movie",
-                "external_id": "mock-exa-daemons-movie",
-                "external_source": "exa",
+                "external_id": "tmdb:900003",
+                "external_source": "tmdb",
                 "title_cn": "黄泉使者 剧场版",
                 "title_en": "Daemons of the Shadow Realm: The Movie",
                 "description": "Mock LLM movie metadata result for integration tests.",
@@ -110,8 +112,8 @@ def _finalize_result(messages: list) -> dict:
             "clean_title": "葬送的芙莉莲",
             "entity": {
                 "content_type": "tv",
-                "external_id": "mock-exa-frieren",
-                "external_source": "exa",
+                "external_id": "tmdb:900002",
+                "external_source": "tmdb",
                 "title_cn": "葬送的芙莉莲",
                 "title_en": "Frieren: Beyond Journey's End",
                 "description": "Mock LLM metadata result for integration tests.",
@@ -124,8 +126,8 @@ def _finalize_result(messages: list) -> dict:
             "clean_title": "黄泉使者",
             "entity": {
                 "content_type": "tv",
-                "external_id": "mock-exa-daemons",
-                "external_source": "exa",
+                "external_id": "tmdb:900001",
+                "external_source": "tmdb",
                 "title_cn": "黄泉使者",
                 "title_en": "Daemons of the Shadow Realm",
                 "description": "Mock LLM metadata result for integration tests.",

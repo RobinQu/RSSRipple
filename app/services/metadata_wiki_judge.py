@@ -18,8 +18,8 @@ import logging
 import re
 from typing import Any
 
+from app.services.metadata_identity_evidence import ground_wikipedia_identity
 from app.services.metadata_prompts import _JUDGE_SYSTEM_PROMPT
-from app.services.metadata_source_registry import parse_wikipedia_id
 from app.services.metadata_sources import normalize_metadata_source_type
 from app.services.metadata_web_fallback import web_fallback_judge
 from app.services.metadata_wiki_classify import (
@@ -226,8 +226,8 @@ async def run_search_then_judge(
         return_exceptions=True,
     )
     source_errors: dict[str, str] = {}
-    # Collect top candidates (dedup by page_id) across variants.
-    seen_pids: set = set()
+    # Page IDs are unique only within a language edition.
+    seen_pids: set[tuple[str, str]] = set()
     top: list[dict] = []
     for (q, lang), res in zip(queries, raw_results):
         if isinstance(res, Exception):
@@ -242,10 +242,10 @@ async def run_search_then_judge(
             continue
         for cand in res.get("data", [])[:3]:
             pid = cand.get("page_id")
-            if pid and pid in seen_pids:
+            if pid and (lang, str(pid)) in seen_pids:
                 continue
             if pid:
-                seen_pids.add(pid)
+                seen_pids.add((lang, str(pid)))
             top.append({"query": q, "lang": lang, **cand})
             if len(top) >= 6:
                 break
@@ -496,41 +496,26 @@ async def run_search_then_judge(
     # find the evidence page with that page_id and copy its categories (plus
     # a description if missing).
     if finalize_dict.get("found"):
-        me = finalize_dict.get("matched_entity") or {}
-        ext_id = me.get("external_id") or ""
-        _, pid = parse_wikipedia_id(ext_id)
-        if pid:
-            for e in evidence:
-                if str(e.get("page_id")) == str(pid):
-                    me["categories"] = list(e.get("categories", [])[:10])
-                    if not me.get("description"):
-                        me["description"] = (e.get("summary") or "")[:500] or None
-                    # Language-qualify the pageid (pageids are per-edition)
-                    # and carry the page URL for display/wikidata resolution.
-                    if e.get("lang"):
-                        me["external_id"] = f"wikipedia:{e['lang']}:{pid}"
-                    if not me.get("wikipedia_url") and e.get("url"):
-                        me["wikipedia_url"] = e.get("url")
-                    # Cross-language bridge: backfill the other language's
-                    # title slot and carry all langlink titles as alt_titles
-                    # so the upsert's title fallback can converge per-language
-                    # wiki pages of the same work onto one row.
-                    xl = _cross_language_titles(e)
-                    if xl["alt_titles"]:
-                        me["alt_titles"] = xl["alt_titles"]
-                    # P3: langlink pageids join the identity bag at upsert.
-                    alt_ids = _wikipedia_alt_external_ids(e)
-                    if alt_ids:
-                        me["alt_external_ids"] = alt_ids
-                    if not me.get("title_cn") and xl["title_cn"]:
-                        me["title_cn"] = xl["title_cn"]
-                    if not me.get("title_en") and xl["title_en"]:
-                        me["title_en"] = xl["title_en"]
-                    if finalize_dict.get("content_type") == "tv":
-                        # P2: deterministic seasons/episodes from the judged
-                        # page's wikitext (LLM judge schema stays unchanged).
-                        await _attach_wikipedia_content(me, e)
-                    break
+        finalize_dict, e = ground_wikipedia_identity(finalize_dict, evidence)
+        if e is not None:
+            me = finalize_dict["matched_entity"]
+            if not me.get("description"):
+                me["description"] = (e.get("summary") or "")[:500] or None
+            # Cross-language bridge: backfill the other language's
+            # title slot and carry all langlink titles as alt_titles
+            # so the upsert's title fallback can converge per-language
+            # wiki pages of the same work onto one row.
+            xl = _cross_language_titles(e)
+            if xl["alt_titles"]:
+                me["alt_titles"] = xl["alt_titles"]
+            if not me.get("title_cn") and xl["title_cn"]:
+                me["title_cn"] = xl["title_cn"]
+            if not me.get("title_en") and xl["title_en"]:
+                me["title_en"] = xl["title_en"]
+            if finalize_dict.get("content_type") == "tv":
+                # P2: deterministic seasons/episodes from the judged
+                # page's wikitext (LLM judge schema stays unchanged).
+                await _attach_wikipedia_content(me, e)
             finalize_dict["matched_entity"] = me
     finalize_dict.setdefault("clean_title", "")
     finalize_dict.setdefault("content_type", "tv")

@@ -3061,16 +3061,19 @@ async def test_run_react_success_extracts_finalize():
     agent = UnifiedMetadataAgent()
     fake = MagicMock()
     fake.ainvoke = AsyncMock(return_value={"messages": [
+        _ai_message("search_wikipedia", {"query": "Show", "lang": "en"}),
+        _tool_message("search_wikipedia", {"success": True, "data": [
+            {"page_id": 123, "url": "https://en.wikipedia.org/wiki/Show"}]}, "search_wikipedia"),
         _ai_message("finalize", {"result_json": (
             '{"found": true, "clean_title": "Show", "content_type": "tv", '
-            '"matched_entity": {"external_id": "x"}}'
+            '"matched_entity": {"external_id": "wikipedia:en:123"}}'
         )}),
     ]})
     agent._agent_for_source = MagicMock(return_value=fake)
     finalize_dict, info = await agent._run_react("msg", "wikipedia")
     assert finalize_dict["found"] is True
-    assert finalize_dict["matched_entity"]["external_id"] == "x"
-    assert info == {"method": None, "data_sources_used": [], "source_errors": {}, "error": None}
+    assert finalize_dict["matched_entity"]["external_id"] == "wikipedia:en:123"
+    assert info == {"method": "wikipedia", "data_sources_used": ["wikipedia"], "source_errors": {}, "error": None}
 
 
 async def test_run_react_invocation_failure_is_wrapped_transient():

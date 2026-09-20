@@ -170,7 +170,7 @@ async def test_judge_found_enriches_matched_entity_from_evidence():
     assert info["error"] is None
 
 
-async def test_judge_found_with_unknown_page_id_keeps_entity_unchanged():
+async def test_judge_found_with_unknown_page_id_rejects_entity():
     rr, mb = _runner()
     search_p, page_p, _, _ = _wiki_patches(
         search_return={
@@ -189,9 +189,9 @@ async def test_judge_found_with_unknown_page_id_keeps_entity_unchanged():
         finalize, info = await wj.run_search_then_judge(
             model, "abcd show", react_runner=rr, msg_builder=mb
         )
-    assert finalize["found"] is True
+    assert finalize["found"] is False
     assert finalize["clean_title"] == ""  # setdefault applied
-    assert finalize["matched_entity"] == {"external_id": "wikipedia:999"}
+    assert finalize["matched_entity"] is None
     assert info["method"] == "search_then_judge"
 
 
@@ -306,7 +306,8 @@ async def test_page_fetch_exception_is_recorded_and_judge_still_runs():
         search_return={"success": True, "data": [{"title": "Zzz Qqq", "page_id": 1}]},
         page_side_effect=RuntimeError("page fetch failed"),
     )
-    model = _model({"found": True, "clean_title": "Zzz", "content_type": "tv"})
+    model = _model({"found": True, "clean_title": "Zzz", "content_type": "tv",
+                    "matched_entity": {"external_id": "wikipedia:en:1"}})
     with search_p, page_p:
         finalize, info = await wj.run_search_then_judge(
             model, "abcd show", react_runner=rr, msg_builder=mb
@@ -328,7 +329,8 @@ async def test_top_candidates_capped_at_six():
         {"success": True, "data": candidates[6:9]},
     ])
     page = AsyncMock(return_value={"data": {}})
-    model = _model({"found": True, "clean_title": "x", "content_type": "tv"})
+    model = _model({"found": True, "clean_title": "x", "content_type": "tv",
+                    "matched_entity": {"external_id": "wikipedia:en:1"}})
     with (
         patch(f"{_JUDGE}._candidate_queries", return_value=queries),
         patch(f"{_JUDGE}._execute_search_wikipedia", search),
