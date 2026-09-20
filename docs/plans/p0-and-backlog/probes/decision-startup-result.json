@@ -1,0 +1,19 @@
+{
+  "turso": {
+    "passed": 58,
+    "skipped": 3,
+    "warnings": 2,
+    "seconds": 21.43,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-startup-do.xml"
+  },
+  "postgresql": {
+    "passed": 11,
+    "skipped": 1,
+    "warnings": 1,
+    "seconds": 5.68,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-startup-dp.xml",
+    "cleanup": "complete"
+  }
+}

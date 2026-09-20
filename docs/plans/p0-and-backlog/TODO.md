@@ -27,12 +27,9 @@
 
 ### 数据模型 / 持久化
 
-- [ ] **P1-D4 `PendingDecision` 无唯一约束 + check-then-insert**：`app/models/pending_decision.py:14-16`
-      仅非唯一索引；`app/services/agent_service.py:503-548` 先查后插。队列已按 agent key 去重，普通运行不因 3 worker 必然并发；直接回填/API 并发仍可竞争。
-      **修复**：与 P1-M5 合并设计覆盖度感知、无 NULL 歧义的决策键，再加 pending 部分唯一索引及 SAVEPOINT。普通 nullable 联合唯一索引不能阻止重复；两个真实 PG 连接已复现同槽双提交，M4/M5 也已用实际 pipeline 复现，续接 [V11](V11-DECISION-COVERAGE.md)。
 - [ ] **P1-D6 删除路径泄漏身份袋 / 丢手工映射**：`DELETE /series|/movies` 不调用
       `delete_external_ids_for_work`（遗孤行导致命中即 miss 且无法重登记）；`resource_work_links` CASCADE
-      静默丢手工映射。**修复**：删除时显式清理/转移。合集删除部分已在 V7 完整验收；此条仅保留剧集/电影删除与手工映射策略，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。
+      静默丢手工映射。**修复**：删除时显式清理/转移。合集删除部分已在 V7 完整验收；此条仅保留剧集/电影删除与手工映射策略，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。已用真实 API/Turso 四例复现身份残留阻断重新登记、人工链接/文件指派被删除；续接 [V12 必要性与方案](V12-WORK-DELETION.md)，已有局部原型与 PG 竞争证据，决策归档及完整门禁尚未完成。
 ### 后台执行 / 调度 / 队列
 
 - [ ] **P1-B4 Redis consumer lease 过期致重复执行**：lease 15s/heartbeat 5s（`app/services/task_queue.py:43-44`），
@@ -49,10 +46,6 @@
 - [ ] **P1-M3 维基整体故障被缓存为 `not_found`**：judge 路径硬编码 `"error": None`
       （`app/services/metadata_wiki_judge.py:481/545`），`_classify_failure` 看不到瞬态信号。
       **修复**：区分部分语言失败与所有可信路径失败，只有瞬态整体失败不缓存；成功证据不因其他源错误被丢弃。同步检查 TMDB 搜索吞异常后缓存空列表的路径。
-- [ ] **P1-M4 季包覆盖键忽略集数区间**：`app/services/agent_service.py:697-706`，半季包与整季包判重复。
-      **修复**：覆盖键纳入 episode 区间。
-- [ ] **P1-M5 links-only 多季包共享一个决策槽**：`app/services/agent_service.py:781-804,915`，
-      不同多季包塌缩为同一 `PendingDecision`，可能派发错误包。**修复**：覆盖度感知的幂等键。
 
 ### 安全
 

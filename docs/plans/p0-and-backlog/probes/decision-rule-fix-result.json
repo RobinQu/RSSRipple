@@ -1,0 +1,129 @@
+{
+  "directory": "/tmp/rssripple-v11-rules-fd",
+  "baseline_directory": "/tmp/rssripple-v11-decisions",
+  "files": {
+    "app/services/decision_review.py": {
+      "before": "e6bf028c639551cb980b368e7e40ce5e619eb8d534333f166bc9c65a7ff8d96f",
+      "after": "3b6079677c6c6d87c23e8f4ac4282c56e8b2f6e0d8330a1d852dd9375a7d0773"
+    },
+    "app/api/v1/agents.py": {
+      "before": "9b7ce8fe3a0eb82e2ded176e452886ecc696eda3917e0fd27f9abf76cadb1337",
+      "after": "5142fb28ee02dc5cfd3ab169cf9508b3a7ee495f1b49b962a6199bcd4fec5562"
+    },
+    "tests/api/test_agents.py": {
+      "before": "8c69536c8221ba99393944d99f527d5b81d35bd6250085eb7dc02c79dcf05211",
+      "after": "d343ede3698fb9fe6eefde812135555465060378ed1e0cc56029c25a1b355d82"
+    },
+    "docs/design/business-logic.md": {
+      "before": "dc5709420b52703f2116c108d42187927ff01dbc211c07ec6ea25e366d63b1e9",
+      "after": "3ef40742a5f050a6e67d26b9a3ec06c89d0131c6c9e459c5010b83e9bd67bed9"
+    }
+  },
+  "cases": [
+    {
+      "mutation": "channel",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "subscription",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "api_create",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "api_update",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "api_delete",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    }
+  ],
+  "pg_project": "rssripple-v11-rules-20260920-fe",
+  "pg_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "api_initial": {
+    "junit": "/tmp/rssripple-v11-rules-fd.xml",
+    "passed": 81,
+    "failed": 3,
+    "seconds": 113.02,
+    "exit_code": 1,
+    "reason": "unkeyed/single-candidate run-history fixtures"
+  },
+  "api_retry": {
+    "session_id": 36693,
+    "log": "/tmp/rssripple-v11-rules-ff.log",
+    "junit": "/tmp/rssripple-v11-rules-ff.xml",
+    "status": "complete",
+    "passed": 84,
+    "seconds": 137.56,
+    "exit_code": 0
+  },
+  "status": "validated scoped delta integrated into current independent prototype; full acceptance pending",
+  "reverse_interleaving": {
+    "project": "rssripple-v11-rule-model-20260920-fg",
+    "cases": [
+      {
+        "mutation": "channel",
+        "model_edit_committed": true,
+        "dispatch_calls": 0,
+        "ok": false,
+        "error": "Decision candidate requires Channel metadata confirmation",
+        "final_status": "pending"
+      },
+      {
+        "mutation": "subscription",
+        "model_edit_committed": true,
+        "dispatch_calls": 0,
+        "ok": false,
+        "error": "Decision candidate no longer matches current Agent rules",
+        "final_status": "pending"
+      },
+      {
+        "mutation": "api_update",
+        "model_edit_committed": true,
+        "dispatch_calls": 0,
+        "ok": false,
+        "error": "Decision candidate no longer matches current Agent rules",
+        "final_status": "pending"
+      },
+      {
+        "mutation": "api_delete",
+        "model_edit_committed": true,
+        "dispatch_calls": 0,
+        "ok": false,
+        "error": "Decision candidate no longer matches current Agent rules",
+        "final_status": "pending"
+      }
+    ],
+    "exit_code": 0,
+    "cleanup_exit_code": 0
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "session_id": 63542,
+  "project": "rssripple-v11-complete-20260920-gb",
+  "directory": "/tmp/rssripple-v11-integration-gb",
+  "source_manifest": "/tmp/rssripple-v11-integration-gb-source.json",
+  "source_files": 2967,
+  "log": "/tmp/rssripple-v11-integration-gb.log",
+  "status": "completed failed",
+  "startup_exit_code": 0,
+  "required_coverage": 85,
+  "remaining": "runner terminal; SIGINT both apps and verify exit0; coverage-report; export app data; source verification; down volumes; no premature success claim",
+  "exit_code": 1,
+  "passed": 3139,
+  "failed": 3,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 1709.78,
+  "coverage_exit_code": 0,
+  "covered": 20004,
+  "valid": 22482,
+  "coverage_percent": 88.98,
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "cleanup_exit_code": 0,
+  "artifacts": "/tmp/rssripple-v11-artifacts-gb",
+  "source_unchanged": true
+}

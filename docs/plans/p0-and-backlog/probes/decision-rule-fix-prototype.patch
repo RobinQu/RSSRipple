@@ -1,0 +1,159 @@
+--- a/app/services/decision_review.py
++++ b/app/services/decision_review.py
+@@ -181,6 +181,15 @@
+     if not decision.decision_key or not decision.decision_scope:
+         return 'Decision requires identity review'
+     if lock_resources:
++        from app.models.agent_work import AgentWork
++        from app.models.channel import Channel
++
++        # Agent is already locked by the final-confirmation caller. API work
++        # writers use that same parent lock before changing membership.
++        channel_id = await db.scalar(select(Agent.channel_id).where(Agent.id == decision.agent_id))
++        await db.execute(select(Channel.id).where(Channel.id == channel_id).with_for_update(read=True))
++        await db.execute(select(AgentWork.id).where(AgentWork.agent_id == decision.agent_id)
++                         .order_by(AgentWork.id).with_for_update(read=True))
+         # Caller holds Agent then decision locks. Lock candidates in a stable
+         # order before reloading evidence, and keep locks through dispatch.
+         await db.execute(select(FileResource.id).where(
+--- a/app/api/v1/agents.py
++++ b/app/api/v1/agents.py
+@@ -386,6 +386,7 @@
+ 
+ @router.put("/agents/{agent_id}")
+ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depends(get_db)):
++    await _lock_agent_rules(db, agent_id)
+     agent = (await db.execute(
+         select(Agent).where(Agent.id == agent_id).options(
+             selectinload(Agent.works),
+@@ -807,6 +808,12 @@
+ # AgentWork CRUD
+ # ---------------------------------------------------------------------------
+ 
++async def _lock_agent_rules(db: AsyncSession, agent_id: str) -> None:
++    """Serialize rule/membership edits with final decision confirmation."""
++    with db.no_autoflush:
++        await db.execute(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
++
++
+ async def _get_work(agent_id: str, work_id: str, db: AsyncSession) -> AgentWork | None:
+     res = await db.execute(
+         select(AgentWork).where(AgentWork.id == work_id, AgentWork.agent_id == agent_id)
+@@ -835,6 +842,7 @@
+ 
+ @router.post("/agents/{agent_id}/works", status_code=201)
+ async def create_work(agent_id: str, body: AgentWorkCreate, db: AsyncSession = Depends(get_db)):
++    await _lock_agent_rules(db, agent_id)
+     agent = await db.get(Agent, agent_id)
+     if not agent:
+         return JSONResponse(status_code=404, content=_not_found("Agent"))
+@@ -881,6 +889,7 @@
+ async def update_work(
+     agent_id: str, work_id: str, body: AgentWorkUpdate, db: AsyncSession = Depends(get_db)
+ ):
++    await _lock_agent_rules(db, agent_id)
+     work = await _get_work(agent_id, work_id, db)
+     if work is None:
+         return JSONResponse(status_code=404, content=_not_found("AgentWork"))
+@@ -899,6 +908,7 @@
+ 
+ @router.delete("/agents/{agent_id}/works/{work_id}")
+ async def delete_work(agent_id: str, work_id: str, db: AsyncSession = Depends(get_db)):
++    await _lock_agent_rules(db, agent_id)
+     work = await _get_work(agent_id, work_id, db)
+     if work is None:
+         return JSONResponse(status_code=404, content=_not_found("AgentWork"))
+--- a/tests/api/test_agents.py
++++ b/tests/api/test_agents.py
+@@ -11,6 +11,32 @@
+ 
+ def _uuid():
+     return str(uuid.uuid4())
++
++
++async def _run_decision(db, agent_id, channel_id, candidate_ids=(), *, decision_id=None):
++    """A real synthetic choice for run-history presentation assertions."""
++    from app.models.file_resource import FileResource
++    from app.models.movie import Movie
++    from app.models.pending_decision import PendingDecision
++    from app.services.decision_store import choice_identity
++
++    movie = Movie(title_cn="Synthetic run conflict", release_date=date(2020, 1, 1), is_anime=False)
++    db.add(movie)
++    await db.flush()
++    ids = list(candidate_ids)
++    while len(ids) < 2:
++        resource = FileResource(id=_uuid(), channel_id=channel_id, guid=_uuid(),
++                                title_raw="Synthetic alternative", torrent_url="magnet:?xt=synthetic")
++        db.add(resource)
++        await db.flush()
++        ids.append(resource.id)
++    for identity in ids:
++        resource = await db.get(FileResource, identity)
++        resource.movie_id = movie.id
++    key, scope = choice_identity("movie", movie.id, None, None)
++    return PendingDecision(id=decision_id or _uuid(), agent_id=agent_id, movie_id=movie.id,
++                           status="pending", candidates=ids, reason="Synthetic conflict",
++                           decision_key=key, decision_scope=scope)
+ 
+ 
+ TEST_FIELD_MAPPING = {
+@@ -518,7 +544,6 @@
+     async def test_list_agent_runs_non_empty_filter(self, client, channel_and_dl, db_session):
+         """GET /agents/{id}/runs?non_empty=true hides routine no-op runs."""
+         from app.models.agent_run import AgentRun
+-        from app.models.pending_decision import PendingDecision
+ 
+         ch_id, dl_id = channel_and_dl
+         create = await client.post("/api/v1/agents", json={
+@@ -548,9 +573,7 @@
+         # An open pending decision keeps the frozen run status visible as-is;
+         # with none, the read-time correction would present it as "success".
+         async with db_session.begin():
+-            db_session.add(PendingDecision(
+-                agent_id=aid, status="pending", candidates=["x"], reason="冲突",
+-            ))
++            db_session.add(await _run_decision(db_session, aid, ch_id))
+         res = await client.get(f"/api/v1/agents/{aid}/runs?non_empty=true")
+         assert res.status_code == 200
+         assert res.json()["meta"]["total"] == 4
+@@ -968,10 +991,7 @@
+             ))
+         did = _uuid()
+         async with db_session_factory() as s:
+-            s.add(PendingDecision(
+-                id=did, agent_id=aid, status="pending",
+-                candidates=[r1.id, r2.id], reason="冲突",
+-            ))
++            s.add(await _run_decision(s, aid, ch_id, [r1.id, r2.id], decision_id=did))
+             await s.commit()
+ 
+         # While a pending decision exists: run status stays as snapshotted and
+@@ -1008,7 +1028,6 @@
+         get pending_decision=false even while a decision is open."""
+         from app.models.agent_run import AgentRun
+         from app.models.file_resource import FileResource
+-        from app.models.pending_decision import PendingDecision
+ 
+         ch_id, dl_id = channel_and_dl
+         create = await client.post("/api/v1/agents", json={
+@@ -1034,10 +1053,7 @@
+                 matched_resource_ids=[r_cand.id, r_other.id],
+             ))
+         async with db_session_factory() as s:
+-            s.add(PendingDecision(
+-                id=_uuid(), agent_id=aid, status="pending",
+-                candidates=[r_cand.id], reason="冲突",
+-            ))
++            s.add(await _run_decision(s, aid, ch_id, [r_cand.id]))
+             await s.commit()
+         res = await client.get(f"/api/v1/agents/{aid}/runs")
+         marks = {
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -739,3 +739,5 @@
+ 最终确认还按固定表顺序（作品链接、文件指派）与各行 ID 锁定现有子记录，阻止已有指派 UPDATE/DELETE 绕过资源行锁；资源父行锁覆盖新增子记录的 FK 检查。批量覆盖重新加载须同时加载电影、剧集、合集等资格判断依赖，避免 populate_existing 丢弃元数据关系而错误拒绝合法电影包。文件指派更新边界已有双连接验证；关联 INSERT/DELETE 已分别通过双连接锁阻止及提交后放行验证；作品元数据和实际编辑/合并写路径的锁顺序仍需专项覆盖。
+ 
+ 最终确认在资源和子关联引用稳定后，按固定模型顺序与主键锁定关联剧集、电影、音频作品及合集（共享行锁），再加载资格证据。涵盖资源平面字段及链接/指派引用；作品所属合集在作品锁定后读取。共享锁阻止资格所依赖的元数据在确认事务内更新。电影上映日期已通过双连接专项；剧集/合集及实际业务写路径锁顺序仍需扩大验证。
++
++最终确认在 Agent/决策锁之后、候选资源锁之前取得频道与现有 AgentWork 的共享行锁，重新加载必填字段和订阅过滤规则。Agent 更新及 AgentWork 增删改 API 在读取/修改规则前取得与确认一致的 Agent NO KEY UPDATE 锁，协调订阅成员新增；不将 Agent 锁升级成 FOR UPDATE，避免阻断持久请求的外键 KEY SHARE。此协议要求应用内订阅写路径遵守父锁；直接外部 SQL 新增订阅不在协作锁保证范围。频道/现有订阅 UPDATE 和实际订阅 API 函数增删改已通过双连接边界验证，HTTP 中间件与其他写路径仍需扩大。

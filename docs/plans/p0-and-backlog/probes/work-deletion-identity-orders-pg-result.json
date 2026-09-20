@@ -1,0 +1,33 @@
+{
+  "status": "scoped_pass_not_D6_acceptance",
+  "cases": [
+    {
+      "kind": "series",
+      "producer_first": true,
+      "orphan": false
+    },
+    {
+      "kind": "series",
+      "producer_first": false,
+      "orphan": false
+    },
+    {
+      "kind": "movie",
+      "producer_first": true,
+      "orphan": false
+    },
+    {
+      "kind": "movie",
+      "producer_first": false,
+      "orphan": false
+    }
+  ],
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "log": "/tmp/rssripple-v12-deletion-gu.log",
+  "limitations": [
+    "existing child row updates not locked",
+    "pending decision rekey not implemented",
+    "full regression gates incomplete"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "project": "rssripple-v11-edit-20260920-fh",
+  "result": {
+    "dispatch_resolutions": [
+      "720p"
+    ],
+    "request_revisions": [
+      1
+    ],
+    "final_status": "decided",
+    "editor_flushed_before_agent_lock": true,
+    "confirmation_parent_lock_observed": true
+  },
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "initial_attempt": "fh script schema import failed before interleaving; corrected in fi",
+  "scope": "actual resource PATCH function and transactional request storage, two real PG connections; downloader, cache fetch and wakeup replaced; synthetic candidates",
+  "log": "/tmp/rssripple-v11-edit-fi.log"
+}

@@ -1,0 +1,27 @@
+{
+  "red": {
+    "writer_blocked_during_dispatch": false,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "writer_succeeds_after_commit": true
+  },
+  "green": {
+    "writer_blocked_during_dispatch": true,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "writer_succeeds_after_commit": true
+  },
+  "regression": {
+    "passed": 44,
+    "seconds": 21.01,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-work-eu.xml"
+  },
+  "project": "rssripple-v11-work-20260920-es",
+  "cleanup_exit_code": 0,
+  "scope": "actual PG connections; movie release_date UPDATE; synthetic data; model/download mocked"
+}

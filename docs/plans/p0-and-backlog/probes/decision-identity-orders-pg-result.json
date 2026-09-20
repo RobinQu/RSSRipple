@@ -1,0 +1,30 @@
+{
+  "project": "rssripple-v11-orders-20260920-gc",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "cases": [
+    {
+      "mode": "create_first",
+      "events": [
+        "merge_busy",
+        "merged"
+      ],
+      "pending_count": 1,
+      "candidates_preserved": true,
+      "old_recommendation_absent": true
+    },
+    {
+      "mode": "model_wait",
+      "events": [
+        "merged",
+        "model_returned_after_merge",
+        "stale_model_identity_rejected"
+      ],
+      "pending_count": 1,
+      "candidates_preserved": true,
+      "old_recommendation_absent": true
+    }
+  ],
+  "scope": "actual PG sessions and create/merge production functions; synthetic resources and model output; manual fresh transaction retry, not full job-handler retry proof",
+  "log": "/tmp/rssripple-v11-orders-gc.log"
+}

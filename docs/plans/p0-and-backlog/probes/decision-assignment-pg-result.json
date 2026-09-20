@@ -1,0 +1,28 @@
+{
+  "red": {
+    "writer_blocked_during_dispatch": false,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "writer_succeeds_after_commit": true
+  },
+  "green": {
+    "writer_blocked_during_dispatch": true,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "writer_succeeds_after_commit": true
+  },
+  "regression": {
+    "passed": 46,
+    "seconds": 17.24,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-assignment-eq.xml"
+  },
+  "cleanup_exit_code": 0,
+  "project": "rssripple-v11-assignment-20260920-en",
+  "scope": "actual PG connections; synthetic movie-pack assignments; model/download mocked",
+  "initial_attempt": "en stopped before dispatch due to batch reload dropping movie metadata; not concurrency evidence"
+}

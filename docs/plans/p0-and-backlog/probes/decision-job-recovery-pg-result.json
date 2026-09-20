@@ -1,0 +1,20 @@
+{
+  "project": "rssripple-v11-job-20260920-ge",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "result": {
+    "first_errors": [
+      "Decision candidates changed identity; regroup current resources before retry"
+    ],
+    "second_pending": 1,
+    "watermark_held_then_advanced": true,
+    "requests_deferred_then_acknowledged": true,
+    "run_statuses": [
+      "failed",
+      "pending_decisions"
+    ],
+    "candidates_preserved": true
+  },
+  "log": "/tmp/rssripple-v11-job-ge.log",
+  "scope": "actual _handle_run_agent, process_resources, request snapshot/defer/ack and work merge on real PG; synthetic resources/model; request clock advanced after observing real persisted backoff; direct job invocation, not broker/worker crash recovery"
+}

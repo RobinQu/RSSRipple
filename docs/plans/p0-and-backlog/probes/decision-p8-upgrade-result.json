@@ -1,0 +1,36 @@
+{
+  "project": "rssripple-v11-p8-20260920-eh",
+  "postgres": {
+    "junit": "/tmp/rssripple-v11-p8-ej.xml",
+    "passed": 12,
+    "skipped": 1,
+    "seconds": 6.55,
+    "exit_code": 0,
+    "skip": "Turso-specific CLI file-lock test"
+  },
+  "turso": {
+    "junit": "/tmp/rssripple-v11-p8-ek.xml",
+    "passed": 1,
+    "seconds": 0.64,
+    "exit_code": 0
+  },
+  "first_postgres_attempt": {
+    "log": "/tmp/rssripple-v11-p8-eh.log",
+    "passed": 11,
+    "failed": 1,
+    "reason": "synthetic parsed_at timezone incompatibility before migration; fixture now leaves unrelated parsed_at empty"
+  },
+  "cleanup_exit_code": 0,
+  "data": "synthetic candidates in actual pre-key pending_decisions tables",
+  "assertions": [
+    "P8 failure rolls back decision fingerprint, resource work references, season numbers and created season works",
+    "subsequent P8 preserves original candidate list and pending status without installing columns",
+    "review splits mixed-season slot into two scopes preserving all four candidates",
+    "explicit approved review installs keys and archives the original pending row"
+  ],
+  "remaining": [
+    "resource/link/assignment concurrent mutations",
+    "full unit/API and isolated integration gates",
+    "review and main merge"
+  ]
+}

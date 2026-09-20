@@ -1,0 +1,9 @@
+{
+  "passed": 40,
+  "seconds": 16.0,
+  "exit_code": 0,
+  "junit": "/tmp/rssripple-v11-dedup-ex.xml",
+  "scope": "all metadata_dedup and decision_rekey tests; real synthetic two-candidate pending groups",
+  "resolved_prior_failures": 3,
+  "remaining_agent_service_failures": 22
+}

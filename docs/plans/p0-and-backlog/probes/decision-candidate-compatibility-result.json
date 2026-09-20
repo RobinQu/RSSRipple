@@ -1,0 +1,11 @@
+{
+  "junit": "/tmp/rssripple-v11-candidates-ez.xml",
+  "passed": 12,
+  "deselected": 98,
+  "seconds": 5.1,
+  "exit_code": 0,
+  "resolved_prior_failures": 10,
+  "remaining_prior_agent_failures": 12,
+  "data": "explicit synthetic candidate pairs and separate season works",
+  "remaining": "batch process and links-only coverage fixtures; full gates and concurrency scope still pending"
+}

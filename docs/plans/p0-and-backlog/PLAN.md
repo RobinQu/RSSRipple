@@ -15,7 +15,7 @@ V7 合集归属已完成完整验收：单元/API 3561 passed（97.82%），完�
 
 [V8 D1](V8-COLLECTION-SEASON-INDEX.md) 与 [V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已完成联合 bg 验收：完整单元/API 3612 passed（97.76%），完整集成 3136 passed（89.66%），应用退出、报告导出和项目清理均完成；2891 个冻结文件未变。D1/D2 已从 pending-only TODO 删除，有效实现已提交本地 main：`6ab0548`。
 
-[V10 D3](V10-RETIRED-SEASON-FIELDS.md) 已通过完整验收：单元/API 3648 passed（97.75%），集成 3141 passed（89.70%），应用正常退出、报告导出和项目清理完成。D3 已从 TODO 删除，27 文件有效实现已提交本地 main：`6852cf0`。当前续接 [V11 D4/M4/M5](V11-DECISION-COVERAGE.md)：独立原型已完成覆盖/持久键/确认资格/部分并发验证，尚缺迁移、rekey、资源并发和完整门禁，不得合入主运行代码。
+[V10 D3](V10-RETIRED-SEASON-FIELDS.md) 已通过完整验收：单元/API 3648 passed（97.75%），集成 3141 passed（89.70%），应用正常退出、报告导出和项目清理完成。D3 已从 TODO 删除，27 文件有效实现已提交本地 main：`6852cf0`。V11 D4/M4/M5 已完成完整门禁并合入本地 main：`11ee930`（单元/API 3746 passed、97.49%；完整集成 3142 passed、89.02%）。三项已从 TODO 删除。下一批续接 [V12 D6](V12-WORK-DELETION.md)：身份、人工引用及覆盖度有局部修复，删除后决策仍 pending 的红测待修复；V12 运行代码尚未合入。
 
 
 所有本地 Compose 测试必须显式唯一 `-p`；完整验证须包含应用正常退出、覆盖率合并/导出和项目清理。此前失败轮保留为失败证据，不能被后续定向通过覆盖。

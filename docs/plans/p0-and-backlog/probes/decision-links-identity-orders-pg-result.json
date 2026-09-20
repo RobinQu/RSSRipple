@@ -1,0 +1,50 @@
+{
+  "project": "rssripple-v11-links-20260920-gd",
+  "exit_code": 0,
+  "cleanup_exit_code": 0,
+  "cases": [
+    {
+      "mode": "create_first",
+      "events": [
+        "merge_busy",
+        "merged"
+      ],
+      "pending_count": 1,
+      "candidates_preserved": true,
+      "old_recommendation_absent": true
+    },
+    {
+      "mode": "model_wait",
+      "events": [
+        "merged",
+        "model_returned_after_merge",
+        "stale_model_identity_rejected"
+      ],
+      "pending_count": 1,
+      "candidates_preserved": true,
+      "old_recommendation_absent": true
+    },
+    {
+      "mode": "links_create_first",
+      "events": [
+        "merge_busy",
+        "merged"
+      ],
+      "pending_count": 1,
+      "candidates_preserved": true,
+      "old_recommendation_absent": true
+    },
+    {
+      "mode": "links_model_wait",
+      "events": [
+        "merged",
+        "model_returned_after_merge",
+        "stale_model_identity_rejected"
+      ],
+      "pending_count": 1,
+      "candidates_preserved": true,
+      "old_recommendation_absent": true
+    }
+  ],
+  "scope": "actual PG two-session production create/merge with links-only multi-movie assignments; synthetic work/resource/model; explicit fresh-session retry; no full job recovery claim"
+}

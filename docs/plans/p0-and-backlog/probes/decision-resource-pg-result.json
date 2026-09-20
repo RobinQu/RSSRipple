@@ -1,0 +1,27 @@
+{
+  "red": {
+    "writer_blocked_during_dispatch": false,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "writer_succeeds_after_commit": true
+  },
+  "green": {
+    "writer_blocked_during_dispatch": true,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "writer_succeeds_after_commit": true
+  },
+  "api": {
+    "passed": 23,
+    "seconds": 11.63,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-resource-em.xml"
+  },
+  "project": "rssripple-v11-resource-20260920-el",
+  "cleanup_exit_code": 0,
+  "scope": "actual PG connections; synthetic candidates, mocked model and dispatch; resource row mutation only"
+}

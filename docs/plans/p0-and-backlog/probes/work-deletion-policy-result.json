@@ -1,0 +1,94 @@
+{
+  "status": "partial_prototype_not_accepted",
+  "baseline": "V11 working prototype /tmp/rssripple-v11-rules-fd; not standalone main patch",
+  "directory": "/tmp/rssripple-v12-implementation-gl",
+  "files": {
+    "app/services/work_deletion.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "965d99cd69fe53634f92001d73981d00695bd22f99d91d7d8e8b113908009afd"
+    },
+    "app/api/v1/series.py": {
+      "baseline_sha256": "fa5511bdc9ea2ccf2f3ea9e3a01d096ff865a5a801d9e0eef9084a4d6d571461",
+      "prototype_sha256": "dbeb7021a73d62199e124713068ce7f40328d7dada8d15e61e4876c03097e473"
+    },
+    "app/api/v1/movies.py": {
+      "baseline_sha256": "fe50e6ffe8d6b8f39df3666e189dc93bdcca528c1199639b5c6ed184ae759255",
+      "prototype_sha256": "ab7be26dbd87acea68edd3a30d5b0505e130fecd24c123f3607dc41621c3ef75"
+    },
+    "tests/api/test_work_deletion_review.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "008befa493533ec7b63bc63375c1e937a9dc7c7fb4d749ca300924cb7cb7b440"
+    },
+    "tests/integration/season_model/test_work_deletion_captured_review.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "056979f788e6c2af98f691c683e7e8bb484896bedc5977643c8a827722b9def2"
+    },
+    "app/services/external_ids.py": {
+      "baseline_sha256": "cc7978509371f1fec00eb7cdfb35079dd8e2e5bc40b17294351044d5c789a30d",
+      "prototype_sha256": "7cd44a5fc3d4f68160ac52365d264ec14da785185f7393e4a2bf1fc7ca9c76dd"
+    },
+    "tests/api/test_work_deletion_stale_identity.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "a4015ead2f50107a3533744eb870b4b06b215190fc4b7694e8ed7d64b7817438"
+    },
+    "tests/api/test_work_deletion_coverage.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "5b0f325ee4fad256368081e30f8928e80c5c98f7271b69e16bfae0b96a5ad0a2"
+    },
+    "docs/design/api-endpoints.md": {
+      "baseline_sha256": "e1b9034e6c6f8322e282bb6bb66d371ae0283fc0f222ee3d0b60ff653e39074d",
+      "prototype_sha256": "b55abd2dce00b9ec76cb81e397c15ea242dbec9c1eb51e06953b8cbcf037a451"
+    },
+    "docs/design/business-logic.md": {
+      "baseline_sha256": "f31a81fa093a3987f087184a32537de73c6198f16ab793a2c6592a09cbccd4f7",
+      "prototype_sha256": "df68bccfc356772d2f2d883f5ab1355d45254fd133d324868dd6a90e44150e12"
+    },
+    "tests/api/test_work_deletion_decisions.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "35d66c44a0cac7c4da911e9085a37ee32a13c4f949cebc66acab84c9dfa51328"
+    }
+  },
+  "junit": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "8",
+      "time": "5.466",
+      "timestamp": "2026-09-20T09:13:54.522696+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  ],
+  "log": "/tmp/rssripple-v12-policy-gm.log",
+  "runner_exit": "not recovered: process handle expired; JUnit and terminal log inspected",
+  "remaining": [
+    "concurrent reference and identity registration protection",
+    "pending decision identity lifecycle",
+    "full regression and integration gates",
+    "authoritative API and business documentation"
+  ],
+  "additional_validation": {
+    "run": "gn",
+    "status": "original sandbox process still live; gp separately validates new identity change and all policy tests",
+    "session_id": 29997,
+    "log": "/tmp/rssripple-v12-policy-gn.log",
+    "scope": "6 additional independent reference cases; 14 total expected",
+    "prior_gm_scope": "8 tests before independent reference cases were added"
+  },
+  "latest_validation": {
+    "run": "gy",
+    "passed": 41,
+    "warnings": 1,
+    "seconds": 17.63,
+    "exit_code": 0,
+    "scope": "before new decisions test"
+  },
+  "decision_necessity": {
+    "run": "gz",
+    "failed": 1,
+    "seconds": 0.69,
+    "exit_code": 1,
+    "finding": "deleted work choice remains pending"
+  }
+}

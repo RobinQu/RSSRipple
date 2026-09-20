@@ -1,0 +1,57 @@
+{
+  "batch": "V12 candidate / P1-D6",
+  "status": "necessity reproduced, no implementation",
+  "baseline_main": "357070726d067f40c4c9f37a1e6a486d238b0cd2",
+  "directory": "/tmp/rssripple-v12-deletion",
+  "test_sha256": "e43e15f87fc301402596674f5076fdefe22360078bb91a9fa14f36fed8af8fb6",
+  "junit": "/tmp/rssripple-v12-deletion-gg.xml",
+  "exit_code": 1,
+  "failed": 4,
+  "seconds": 5.5,
+  "failures": [
+    {
+      "test": "test_deleted_work_releases_external_identity[series]",
+      "message": "AssertionError: {'leftover_identity_rows': 1, 'replacement_registered': False}\nassert (not [<app.models.work_external_id.WorkExternalId object at 0x7f7a8d5f7750>])"
+    },
+    {
+      "test": "test_deleted_work_releases_external_identity[movie]",
+      "message": "AssertionError: {'leftover_identity_rows': 1, 'replacement_registered': False}\nassert (not [<app.models.work_external_id.WorkExternalId object at 0x7f7a8c0fe520>])"
+    },
+    {
+      "test": "test_manual_file_mapping_blocks_unreviewed_work_delete[series]",
+      "message": "AssertionError: {'status': 200, 'link_retained': False, 'assignment_retained': False}\nassert (200 == 409)\n +  where 200 = <Response [200 OK]>.status_code"
+    },
+    {
+      "test": "test_manual_file_mapping_blocks_unreviewed_work_delete[movie]",
+      "message": "AssertionError: {'status': 200, 'link_retained': False, 'assignment_retained': False}\nassert (200 == 409)\n +  where 200 = <Response [200 OK]>.status_code"
+    }
+  ],
+  "captured_context": {
+    "fixture": "tests/fixtures/prod_works_v1.json",
+    "sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+    "links": 213,
+    "manual_links": 4,
+    "assignments": 3765,
+    "manual_assignments": 95,
+    "identity_rows": 249,
+    "limitation": "read-only captured snapshot counts, not replayed deletion or current production claim"
+  },
+  "data": "API tests use synthetic fixtures and actual Turso writes; real snapshot unchanged",
+  "captured_replay": {
+    "junit": "/tmp/rssripple-v12-captured-gh.xml",
+    "failed": 2,
+    "seconds": 5.63,
+    "exit_code": 1,
+    "failures": [
+      {
+        "test": "test_captured_manual_evidence_survives_unreviewed_work_delete[1d721de9-dbf9-46af-977a-fda92eb336c1-ResourceWorkLink]",
+        "message": "AssertionError: {'status': 200, 'captured_manual_rows': 1, 'retained_rows': 0, 'work_retained': False}\nassert (200 == 409)\n +  where 200 = <Response [200 OK]>.status_code"
+      },
+      {
+        "test": "test_captured_manual_evidence_survives_unreviewed_work_delete[4bc342c7-4701-4d95-afbe-0e6b976cd9bd-ResourceFileAssignment]",
+        "message": "AssertionError: {'status': 200, 'captured_manual_rows': 26, 'retained_rows': 0, 'work_retained': False}\nassert (200 == 409)\n +  where 200 = <Response [200 OK]>.status_code"
+      }
+    ],
+    "scope": "unchanged captured work graph, independent Turso database per case, real HTTP DELETE; 1 manual link and 26 manual assignments lost on successful deletion"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "work_deleted": true,
+  "orphan_identity_retained": true,
+  "delete_waited_on_real_pg_lock": true,
+  "status": "necessity_red",
+  "exit_code": 1,
+  "baseline": "V12 policy prototype with owner FOR KEY SHARE registration check",
+  "scope": "actual delete_movie endpoint function and add_external_id in separate PostgreSQL sessions; synthetic work",
+  "compatibility": {
+    "passed": 59,
+    "seconds": 14.42,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v12-identities-gq.xml"
+  },
+  "isolated_project_cleanup_exit": 0
+}

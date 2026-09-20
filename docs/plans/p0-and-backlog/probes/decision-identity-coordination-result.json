@@ -1,0 +1,60 @@
+{
+  "pg_project": "rssripple-v11-identity-20260920-fs",
+  "pg_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "race_result": {
+    "rejections": [
+      "coordination_busy",
+      "stale_identity"
+    ],
+    "discovered_agents": [],
+    "pending": [
+      {
+        "id": "7ce5450d-97cd-49b6-8b40-dc1b2ed65dbd",
+        "movie_id": "3aecf36a-d7bc-49ae-9cd2-4e49cf5b89fd",
+        "scope": {
+          "episode": null,
+          "kind": "movie",
+          "season": null,
+          "version": 1,
+          "work_id": "3aecf36a-d7bc-49ae-9cd2-4e49cf5b89fd"
+        }
+      }
+    ],
+    "canonical_after_merge": true
+  },
+  "lock_matrix": {
+    "concurrent_creators": true,
+    "merge_rejected_while_creators": true,
+    "creator_rejected_while_merge": true,
+    "rollback_releases_lock": true
+  },
+  "initial_unit": {
+    "passed": 15,
+    "failed": 2,
+    "junit": "/tmp/rssripple-v11-identity-fr.xml",
+    "reason": "historical misclassified TV-without-episode fixture now rejected by normal creation"
+  },
+  "unit_after": {
+    "passed": 17,
+    "seconds": 8.19,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-identity-ft.xml"
+  },
+  "expanded": {
+    "session_id": 56604,
+    "junit": "/tmp/rssripple-v11-identity-expanded-fv.xml",
+    "log": "/tmp/rssripple-v11-identity-expanded-fv.log",
+    "status": "complete",
+    "exit_code": 1,
+    "passed": 158,
+    "failed": 2,
+    "skipped": 1,
+    "seconds": 68.11,
+    "failures": [
+      "test_create_pending_decision_series_no_episode",
+      "test_create_pending_decision_legacy_3tuple_key"
+    ]
+  },
+  "remaining": "expanded compatibility; actual create-first and model-period merge/retry boundary tests; full unit/API and integration gates"
+}

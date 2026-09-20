@@ -1,0 +1,188 @@
+{
+  "expanded": {
+    "junit": "/tmp/rssripple-v11-expanded-ev.xml",
+    "passed": 118,
+    "failed": 42,
+    "seconds": 66.058,
+    "exit_code": 1,
+    "failures": [
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_list_decisions",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_list_filter_status",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_single_candidate_legacy_row_is_not_actionable",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_confirm_bad_resource_id_returns_400",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_skip_marks_skipped",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_confirm_dispatches_download",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_ai_pick_dispatches_picked",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_ai_pick_no_pick_returns_400",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_batch_skip",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisions.test_batch_ai_dispatches",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisionSerializationWithSeries.test_confirm_with_series_returns_200",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestDecisionSerializationWithSeries.test_skip_with_series_returns_200",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestLastRunStatusReset.test_skip_resets_status_when_no_pending_left",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestLastRunStatusReset.test_skip_keeps_status_when_pending_remain",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestLastRunStatusReset.test_confirm_resets_status_when_no_pending_left",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestLastRunStatusReset.test_batch_skip_resets_status_when_no_pending_left",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.api.test_decisions.TestLastRunStatusReset.test_other_statuses_untouched",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.unit.test_metadata_dedup.test_merge_duplicate_series_drops_conflicting_children",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.unit.test_metadata_dedup.test_merge_duplicate_series_repoints_unique_pending_decision",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.unit.test_metadata_dedup.test_merge_duplicate_movies_repoints_agent_works_and_decisions",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_same_season_versions_auto_dispatches_one",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_different_seasons_do_not_conflict",
+        "message": "assert 0 == 2"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_multi_season_same_coverage_conflicts",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_same_coverage_skipped",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_organized_completed_task_still_skipped",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_unfinished_cancelled_task_is_retryable",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_different_coverage_dispatches",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestProcessResources.test_ambiguous_batch_resource_skips_episode_gate",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_dispatches_when_a_linked_work_is_subscribed",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_out_of_scope_when_no_linked_work_subscribed",
+        "message": "assert 1 == 0"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_same_link_set_conflicts_different_set_dispatches",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_cross_run_same_link_set_skipped",
+        "message": "assert 0 == 1"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_sets_fields",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_movie_no_episode",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_series_no_episode",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_season_aware_key",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_legacy_3tuple_key",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_idempotent_movie",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_unknown_series_uses_episode_only_reason",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_create_pending_decision_skip_llm",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_batch_coverage_key_legacy_unsplit_series_uses_parsed_season",
+        "message": "AssertionError: assert None == ('season', 2)"
+      },
+      {
+        "test": "tests.unit.test_agent_service.test_retire_legacy_confirmation_decisions",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+      }
+    ]
+  },
+  "api_after_fixture_repair": {
+    "junit": "/tmp/rssripple-v11-api-ew.xml",
+    "passed": 58,
+    "seconds": 32.7,
+    "exit_code": 0
+  },
+  "remaining_known_failures": 25,
+  "remaining_scope": "metadata dedup 3, agent service 22; no later passing run yet",
+  "fixture_policy": "explicit synthetic valid work identity/season/key; original endpoint behavior assertions retained; no constraint bypass"
+}

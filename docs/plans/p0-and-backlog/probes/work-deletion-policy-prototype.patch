@@ -1,0 +1,622 @@
+--- /dev/null
++++ b/app/services/work_deletion.py
+@@ -0,0 +1,80 @@
++"""Reference checks shared by explicit series/movie deletion endpoints."""
++from sqlalchemy import func, or_, select
++from sqlalchemy.exc import DBAPIError
++
++from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++
++
++async def manual_deletion_references(db, kind, work_id):
++    """Count manual evidence that requires explicit reassignment before delete.
++
++    Called inside the deletion transaction. These checks establish the policy;
++    the caller must first lock the target and its current reference rows.
++    """
++    if kind not in {"series", "movie"}:
++        raise ValueError("Unsupported deletable work type")
++    counts = {}
++    for name, model in (
++        ("manual_work_links", ResourceWorkLink),
++        ("manual_file_assignments", ResourceFileAssignment),
++        ("manual_title_mappings", ChannelRawTitleMapping),
++    ):
++        query = select(func.count()).select_from(model).where(getattr(model, kind + "_id") == work_id)
++        if model is not ChannelRawTitleMapping:
++            query = query.where(model.source == "manual")
++        count = await db.scalar(query)
++        if count:
++            counts[name] = count
++    return counts
++
++
++class WorkDeletionBusyError(Exception):
++    """A concurrent transaction owns the deletion target; retry after rollback."""
++
++
++async def lock_deletion_target(db, model, work_id):
++    """Protect identity cleanup before deleting the polymorphic bag owner.
++
++    NOWAIT prevents waiting for a producer that may already hold resource locks.
++    The owner lock serializes new FK references; existing reference rows and
++    resource parents are then locked without waiting before manual checks.
++    """
++    try:
++        target = await db.scalar(
++            select(model)
++            .where(model.id == work_id)
++            .with_for_update(nowait=True)
++            .execution_options(populate_existing=True)
++        )
++        if target is None:
++            return None
++        from app.models.agent_work import AgentWork
++        from app.models.file_resource import FileResource
++        from app.models.movie import Movie
++        from app.models.pending_decision import PendingDecision
++
++        kind = "movie" if model is Movie else "series"
++        field = kind + "_id"
++        # Existing source-only edits need child locks: they do not recheck the
++        # work FK. Every reverse-order lock is NOWAIT to release this work lock
++        # rather than wait behind a resource/decision owner awaiting the work.
++        resources = select(FileResource.id).where(or_(
++            getattr(FileResource, field) == work_id,
++            FileResource.work_links.any(getattr(ResourceWorkLink, field) == work_id),
++            FileResource.file_assignments.any(getattr(ResourceFileAssignment, field) == work_id),
++        ))
++        await db.execute(resources.order_by(FileResource.id).with_for_update(nowait=True))
++        for child in (ResourceWorkLink, ResourceFileAssignment, ChannelRawTitleMapping, AgentWork, PendingDecision):
++            await db.execute(
++                select(child.id)
++                .where(getattr(child, field) == work_id)
++                .order_by(child.id)
++                .with_for_update(nowait=True)
++            )
++        return target
++    except DBAPIError as exc:
++        if getattr(exc.orig, "sqlstate", None) != "55P03":
++            raise
++        raise WorkDeletionBusyError from exc
+--- a/app/api/v1/series.py
++++ b/app/api/v1/series.py
+@@ -235,7 +235,19 @@
+     from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+     from app.models.file_resource import FileResource
+     from app.models.pending_decision import PendingDecision
+-    series = await db.get(TVSeries, series_id)
++    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
++
++    try:
++        series = await lock_deletion_target(db, TVSeries, series_id)
++    except WorkDeletionBusyError:
++        await db.rollback()
++        return JSONResponse(status_code=409, content={
++            "success": False, "data": None, "meta": {},
++            "error": {
++                "code": "INVALID_STATE",
++                "message": "Work is being modified; retry deletion after the current operation finishes.",
++            },
++        })
+     if not series:
+         return JSONResponse(
+             status_code=404,
+@@ -245,6 +257,20 @@
+                 "error": {"code": "NOT_FOUND", "message": "Series not found"},
+             },
+         )
++
++    from app.services.external_ids import delete_external_ids_for_work
++    from app.services.work_deletion import manual_deletion_references
++
++    references = await manual_deletion_references(db, "series", series_id)
++    if references:
++        return JSONResponse(status_code=409, content={
++            "success": False, "data": None, "meta": {},
++            "error": {
++                "code": "DELETE_BLOCKED",
++                "message": "Reassign or remove manual resource mappings before deleting this work.",
++                "details": references,
++            },
++        })
+ 
+     # Constraint check: block if any AgentWork references this series
+     aw_cnt = (await db.execute(
+@@ -275,6 +301,16 @@
+         .where(ChannelRawTitleMapping.series_id == series_id)
+         .values(series_id=None)
+     )
++    # Keep the file listing evidence: losing a target makes batch coverage
++    # unknown, rather than silently shrinking the package to surviving works.
++    from app.models.resource_file_assignment import ResourceFileAssignment
++
++    await db.execute(
++        sql_update(ResourceFileAssignment)
++        .where(ResourceFileAssignment.series_id == series_id)
++        .values(series_id=None)
++    )
++    await delete_external_ids_for_work(db, "series", series_id)
+     await db.delete(series)
+     await db.commit()
+     return success_response({"deleted": True})
+--- a/app/api/v1/movies.py
++++ b/app/api/v1/movies.py
+@@ -202,7 +202,19 @@
+     from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+     from app.models.file_resource import FileResource
+     from app.models.pending_decision import PendingDecision
+-    movie = await db.get(Movie, movie_id)
++    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
++
++    try:
++        movie = await lock_deletion_target(db, Movie, movie_id)
++    except WorkDeletionBusyError:
++        await db.rollback()
++        return JSONResponse(status_code=409, content={
++            "success": False, "data": None, "meta": {},
++            "error": {
++                "code": "INVALID_STATE",
++                "message": "Work is being modified; retry deletion after the current operation finishes.",
++            },
++        })
+     if not movie:
+         return JSONResponse(
+             status_code=404,
+@@ -212,6 +224,20 @@
+                 "error": {"code": "NOT_FOUND", "message": "Movie not found"},
+             },
+         )
++
++    from app.services.external_ids import delete_external_ids_for_work
++    from app.services.work_deletion import manual_deletion_references
++
++    references = await manual_deletion_references(db, "movie", movie_id)
++    if references:
++        return JSONResponse(status_code=409, content={
++            "success": False, "data": None, "meta": {},
++            "error": {
++                "code": "DELETE_BLOCKED",
++                "message": "Reassign or remove manual resource mappings before deleting this work.",
++                "details": references,
++            },
++        })
+ 
+     # Constraint check: block if any AgentWork references this movie
+     aw_cnt = (await db.execute(
+@@ -241,6 +267,16 @@
+         .where(ChannelRawTitleMapping.movie_id == movie_id)
+         .values(movie_id=None)
+     )
++    # Keep the file listing evidence: losing a target makes batch coverage
++    # unknown, rather than silently shrinking the package to surviving works.
++    from app.models.resource_file_assignment import ResourceFileAssignment
++
++    await db.execute(
++        sql_update(ResourceFileAssignment)
++        .where(ResourceFileAssignment.movie_id == movie_id)
++        .values(movie_id=None)
++    )
++    await delete_external_ids_for_work(db, "movie", movie_id)
+     await db.delete(movie)
+     await db.commit()
+     return success_response({"deleted": True})
+--- /dev/null
++++ b/tests/api/test_work_deletion_review.py
+@@ -0,0 +1,193 @@
++"""Necessity review: real API/DB, explicitly synthetic work associations."""
++
++import uuid
++
++import pytest
++from sqlalchemy import select
++
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.external_ids import add_external_id
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_deleted_work_releases_external_identity(client, db_session_factory, sample_series, sample_movie, kind):
++    work = sample_series if kind == "series" else sample_movie
++    async with db_session_factory() as db:
++        assert await add_external_id(db, kind, work.id, "tmdb", "987654321")
++        await db.commit()
++    route = "series" if kind == "series" else "movies"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        leftovers = list(
++            await db.scalars(
++                select(WorkExternalId).where(
++                    WorkExternalId.work_type == kind,
++                    WorkExternalId.work_id == work.id,
++                )
++            )
++        )
++        replacement = type(work)(title_cn="Synthetic replacement")
++        if kind == "series":
++            collection = WorkCollection(title_cn="Synthetic replacement collection")
++            db.add(collection)
++            await db.flush()
++            replacement.collection_id = collection.id
++            replacement.season_number = 1
++        db.add(replacement)
++        await db.flush()
++        registered = await add_external_id(db, kind, replacement.id, "tmdb", "987654321")
++        assert not leftovers and registered, {
++            "leftover_identity_rows": len(leftovers),
++            "replacement_registered": registered,
++        }
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_manual_file_mapping_blocks_unreviewed_work_delete(
++    client,
++    db_session_factory,
++    sample_channel,
++    sample_series,
++    sample_movie,
++    kind,
++):
++    work = sample_series if kind == "series" else sample_movie
++    async with db_session_factory() as db:
++        resource = FileResource(
++            id=str(uuid.uuid4()),
++            channel_id=sample_channel.id,
++            guid=str(uuid.uuid4()),
++            title_raw="Synthetic manual placement",
++            torrent_url="magnet:?xt=urn:btih:synthetic",
++        )
++        db.add(resource)
++        await db.flush()
++        link = ResourceWorkLink(resource_id=resource.id, source="manual", **{kind + "_id": work.id})
++        assignment = ResourceFileAssignment(
++            resource_id=resource.id, file_path="synthetic.mkv", source="manual", **{kind + "_id": work.id}
++        )
++        db.add_all([link, assignment])
++        await db.commit()
++        link_id, assignment_id = link.id, assignment.id
++    route = "series" if kind == "series" else "movies"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
++    async with db_session_factory() as db:
++        remaining_link = await db.get(ResourceWorkLink, link_id)
++        remaining_assignment = await db.get(ResourceFileAssignment, assignment_id)
++        observed = dict(
++            status=response.status_code,
++            link_retained=remaining_link is not None,
++            assignment_retained=remaining_assignment is not None,
++        )
++        assert response.status_code == 409 and remaining_link and remaining_assignment, observed
++    assert response.json()["error"]["code"] == "DELETE_BLOCKED"
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_identity_cleanup_failure_rolls_back_work_and_resource(
++    client,
++    db_session_factory,
++    sample_channel,
++    sample_series,
++    sample_movie,
++    kind,
++    monkeypatch,
++):
++    import httpx
++
++    import app.services.external_ids as identities
++    from tests.api.conftest import _build_test_app
++
++    work = sample_series if kind == "series" else sample_movie
++    async with db_session_factory() as db:
++        assert await add_external_id(db, kind, work.id, "tmdb", "987654322")
++        resource = FileResource(
++            channel_id=sample_channel.id,
++            guid=str(uuid.uuid4()),
++            title_raw="Synthetic rollback reference",
++            torrent_url="magnet:?xt=urn:btih:synthetic",
++            **{kind + "_id": work.id},
++        )
++        db.add(resource)
++        await db.commit()
++        resource_id = resource.id
++    real_cleanup = identities.delete_external_ids_for_work
++
++    async def fail_after_cleanup(db, work_type, work_id):
++        await real_cleanup(db, work_type, work_id)
++        raise RuntimeError("synthetic failure after identity deletion")
++
++    monkeypatch.setattr(identities, "delete_external_ids_for_work", fail_after_cleanup)
++    app = _build_test_app(db_session_factory)
++    async with httpx.AsyncClient(
++        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
++        base_url="http://test",
++    ) as api:
++        route = "series" if kind == "series" else "movies"
++        response = await api.delete(f"/api/v1/{route}/{work.id}")
++        assert response.status_code == 500
++    async with db_session_factory() as db:
++        assert await db.get(type(work), work.id) is not None
++        current = await db.get(FileResource, resource_id)
++        assert getattr(current, kind + "_id") == work.id
++        assert (
++            await db.scalar(
++                select(WorkExternalId.id).where(
++                    WorkExternalId.work_type == kind,
++                    WorkExternalId.work_id == work.id,
++                )
++            )
++            is not None
++        )
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++@pytest.mark.parametrize("reference", ["work_links", "file_assignments", "title_mappings"])
++async def test_each_manual_reference_independently_blocks_delete(
++    client, db_session_factory, sample_channel, sample_series, sample_movie, kind, reference
++):
++    from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
++
++    work = sample_series if kind == "series" else sample_movie
++    target = {kind + "_id": work.id}
++    async with db_session_factory() as db:
++        if reference == "title_mappings":
++            row = ChannelRawTitleMapping(
++                channel_id=sample_channel.id,
++                raw_title="Synthetic manual title",
++                search_title_key="synthetic-manual-title",
++                **target,
++            )
++        else:
++            resource = FileResource(
++                channel_id=sample_channel.id,
++                guid=str(uuid.uuid4()),
++                title_raw="Synthetic independent reference",
++                torrent_url="magnet:?xt=urn:btih:synthetic",
++            )
++            db.add(resource)
++            await db.flush()
++            if reference == "work_links":
++                row = ResourceWorkLink(resource_id=resource.id, source="manual", **target)
++            else:
++                row = ResourceFileAssignment(
++                    resource_id=resource.id, file_path="synthetic.mkv", source="manual", **target
++                )
++        db.add(row)
++        await db.commit()
++        row_id = row.id
++    route = "series" if kind == "series" else "movies"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
++    assert response.status_code == 409, response.text
++    assert response.json()["error"]["code"] == "DELETE_BLOCKED"
++    assert response.json()["error"]["details"] == {"manual_" + reference: 1}
++    async with db_session_factory() as db:
++        assert await db.get(type(work), work.id) is not None
++        retained = await db.get(type(row), row_id)
++        assert retained is not None
++        assert getattr(retained, kind + "_id") == work.id
+--- /dev/null
++++ b/tests/integration/season_model/test_work_deletion_captured_review.py
+@@ -0,0 +1,47 @@
++"""Deletion necessity on the unchanged captured graph, not synthetic mappings."""
++
++import hashlib
++
++import httpx
++import pytest
++from sqlalchemy import select
++
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from tests.api.conftest import _build_test_app
++
++from .conftest import open_fixture_db
++from .loader import FIXTURE_PATH
++
++pytestmark = pytest.mark.asyncio(loop_scope="module")
++
++
++@pytest.mark.parametrize(
++    "work_id,model",
++    [
++        ("1d721de9-dbf9-46af-977a-fda92eb336c1", ResourceWorkLink),
++        ("4bc342c7-4701-4d95-afbe-0e6b976cd9bd", ResourceFileAssignment),
++    ],
++)
++async def test_captured_manual_evidence_survives_unreviewed_work_delete(tmp_path, work_id, model):
++    assert hashlib.sha256(FIXTURE_PATH.read_bytes()).hexdigest() == (
++        "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32"
++    )
++    async with open_fixture_db(tmp_path / "captured-deletion.db") as handle:
++        async with handle.factory() as db:
++            assert await db.get(TVSeries, work_id) is not None
++            before = set(await db.scalars(select(model.id).where(model.series_id == work_id, model.source == "manual")))
++            assert before
++        app = _build_test_app(handle.factory)
++        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++            response = await client.delete(f"/api/v1/series/{work_id}")
++        async with handle.factory() as db:
++            retained = set(await db.scalars(select(model.id).where(model.id.in_(before))))
++            work_retained = await db.get(TVSeries, work_id) is not None
++        assert response.status_code == 409 and retained == before and work_retained, {
++            "status": response.status_code,
++            "captured_manual_rows": len(before),
++            "retained_rows": len(retained),
++            "work_retained": work_retained,
++        }
+--- a/app/services/external_ids.py
++++ b/app/services/external_ids.py
+@@ -120,6 +120,16 @@
+     if norm is None:
+         return False
+     src, canon = norm
++
++    # Identity bags have a polymorphic owner and therefore no database FK.
++    # Keep an existing owner alive until this transaction commits; a stale
++    # producer must never recreate identities after a committed deletion.
++    model = _WORK_MODELS[work_type]
++    owner_id = await db.scalar(
++        select(model.id).where(model.id == work_id).with_for_update(read=True, key_share=True)
++    )
++    if owner_id is None:
++        return False
+ 
+     existing = (await db.execute(
+         select(WorkExternalId).where(
+--- /dev/null
++++ b/tests/api/test_work_deletion_stale_identity.py
+@@ -0,0 +1,27 @@
++"""Deletion identity invariant using real DB/API and synthetic registry IDs."""
++
++import pytest
++from sqlalchemy import select
++
++from app.models.work_external_id import WorkExternalId
++from app.services.external_ids import add_external_id
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_stale_identity_registration_cannot_recreate_deleted_owner(
++    client, db_session_factory, sample_series, sample_movie, kind
++):
++    work = sample_series if kind == "series" else sample_movie
++    route = "series" if kind == "series" else "movies"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
++    assert response.status_code == 200, response.text
++    # A worker that captured the identity before DELETE must not insert an orphan
++    # after DELETE commits. This is a deterministic ordering, not a concurrency simulation.
++    async with db_session_factory() as db:
++        registered = await add_external_id(db, kind, work.id, "tmdb", "987654323")
++        await db.commit()
++    async with db_session_factory() as db:
++        orphan = await db.scalar(select(WorkExternalId.id).where(
++            WorkExternalId.work_type == kind, WorkExternalId.work_id == work.id
++        ))
++        assert not registered and orphan is None
+--- /dev/null
++++ b/tests/api/test_work_deletion_coverage.py
+@@ -0,0 +1,46 @@
++"""A deleted work must not silently shrink a known batch into a smaller batch."""
++
++import uuid
++
++from sqlalchemy import select
++
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.services.resource_coverage import batch_coverage, load_batch_coverage
++
++
++async def test_delete_preserves_unassigned_file_and_unknown_batch(
++    client, db_session_factory, sample_channel, sample_movie
++):
++    async with db_session_factory() as db:
++        survivor = Movie(title_cn="Synthetic surviving movie")
++        resource = FileResource(
++            channel_id=sample_channel.id, guid=str(uuid.uuid4()),
++            title_raw="Synthetic two movie batch", torrent_url="magnet:?xt=urn:btih:synthetic",
++            is_batch=True, batch_scope="movies",
++        )
++        db.add_all([survivor, resource])
++        await db.flush()
++        db.add_all([
++            ResourceWorkLink(resource_id=resource.id, movie_id=work_id, source="auto")
++            for work_id in (sample_movie.id, survivor.id)
++        ])
++        db.add_all([
++            ResourceFileAssignment(resource_id=resource.id, movie_id=work_id, file_path=path, source="auto")
++            for work_id, path in [(sample_movie.id, "deleted.mkv"), (survivor.id, "surviving.mkv")]
++        ])
++        await db.commit()
++        rid = resource.id
++        await load_batch_coverage(db, [resource])
++        assert batch_coverage(resource) is not None
++    response = await client.delete(f"/api/v1/movies/{sample_movie.id}")
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        resource = await db.get(FileResource, rid)
++        await load_batch_coverage(db, [resource])
++        rows = list(await db.scalars(select(ResourceFileAssignment).where(ResourceFileAssignment.resource_id == rid)))
++        assert {row.file_path for row in rows} == {"deleted.mkv", "surviving.mkv"}
++        assert next(row for row in rows if row.file_path == "deleted.mkv").movie_id is None
++        assert batch_coverage(resource) is None
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -474,7 +474,7 @@
+ | POST | `/series` | 手动创建季作品，并在同一事务建立 series_group 壳合集 |
+ | GET | `/series/{id}` | 剧集详情（含 episodes、资源数、任务数） |
+ | PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，见上）；`content_type` 显式改为非 tv（如 movie）时，联动清除该剧集下资源残留的 `episode_confidence="ambiguous"`（置 null——非 tv 作品无集号/季号问题） |
+-| DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
++| DELETE | `/series/{id}` | 删除剧集；AgentWork 或人工作品链接、文件映射、标题映射引用时返回 409 DELETE_BLOCKED。允许删除时同事务清理身份袋、解除资源与自动文件映射的作品绑定，保留文件路径与资源 |
+ 
+ ### Movies
+ 
+@@ -486,7 +486,7 @@
+ | POST | `/movies` | 手动创建电影元数据 |
+ | GET | `/movies/{id}` | 电影详情 |
+ | PUT | `/movies/{id}` | 更新电影元数据；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，语义同 PUT `/series/{id}`） |
+-| DELETE | `/movies/{id}` | 删除电影 |
++| DELETE | `/movies/{id}` | 删除电影；引用保护及身份/自动文件映射处理同剧集删除 |
+ 
+ 系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，剧集条目另带 `season_number`，供详情页季切换器按季排序跳转；来自本地库共享 collection_id 查询）。响应顶层同时暴露 `external_id`/`external_source`、`canonical_name`/`wikipedia_url`（Wikipedia 实际 URL，优先于 curid 回退），以及服务端计算的 `source_links`（`[{source, label, url}]`，由站点注册表 `metadata_source_registry.build_source_links` 生成，支持旧复合形 `TMDB:NNN; IMDb:ttNNN` 拆分，TMDB 链接按 tv/movie 区分路径）——前端详情页直接渲染，不再自行解析。
+ 
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -744,3 +744,9 @@
+ ### 待决策创建与作品身份变更协调（V11 原型）
+ 
+ PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级共享 advisory 锁；作品合并/rekey 在扫描 pending 之前获取同一域的排他锁。均使用 try-lock，冲突必须回滚整个业务事务后重试，不能在已有业务锁下等待该锁。创建并行，作品身份变更暂时排斥创建；Turso 使用原生写冲突检测。获取协调权限后，创建重新加载候选并核验 canonical scope，拒绝已过期身份。后台失败不推进消费水位线；回填失败回滚外层保存。此协议仍处原型验证阶段，完整并发与集成门禁未验收。
++
++### 作品删除与身份存活（D6 原型，尚未验收）
++
++剧集/电影删除遇到 AgentWork 或人工 link/assignment/raw-title mapping 时阻断。人工引用错误 details 按非零计数返回 manual_work_links、manual_file_assignments、manual_title_mappings。允许删除时，在同一事务中解除资源工作 FK、清理身份袋并删除作品；自动文件映射保留路径及文件证据、将目标置空，因此存在未分配文件的包保持未知覆盖度。身份登记必须检查作品存活，PG 以 KEY SHARE 保持目标到事务结束。
++
++删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。当前原型仍未解决既有子行更新与 Agent/决策/资源的完整锁序；身份登记交错已验证，不代表全部并发验收。
+--- /dev/null
++++ b/tests/api/test_work_deletion_decisions.py
+@@ -0,0 +1,38 @@
++"""Deletion must archive obsolete choices without erasing human history."""
++
++from sqlalchemy import select
++
++from app.models.agent import Agent
++from app.models.decision_migration import DecisionMigration
++from app.models.pending_decision import PendingDecision
++from app.services.agent_service import create_pending_decision
++from tests.unit.test_agent_service import _make_resource
++
++
++async def test_deleted_movie_expires_choice_and_archives_original_identity(
++    client, db_session_factory, sample_channel, sample_downloader, sample_movie
++):
++    async with db_session_factory() as db:
++        agent = Agent(
++            name="Synthetic deletion choice", channel_id=sample_channel.id,
++            downloader_id=sample_downloader.id, scope_channel_wide=True,
++        )
++        resources = [
++            _make_resource(sample_channel.id, movie_id=sample_movie.id, season=None, episode=None)
++            for _ in range(2)
++        ]
++        db.add_all([agent, *resources])
++        await db.flush()
++        await create_pending_decision(agent, ("movie", sample_movie.id, None), resources, db, skip_llm=True)
++        row = await db.scalar(select(PendingDecision).where(PendingDecision.agent_id == agent.id))
++        decision_id, candidates, scope = row.id, list(row.candidates), dict(row.decision_scope)
++        await db.commit()
++    response = await client.delete(f"/api/v1/movies/{sample_movie.id}")
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        row = await db.get(PendingDecision, decision_id)
++        assert row.status == "expired"
++        assert row.candidates == candidates
++        assert row.decision_scope == scope
++        archives = list(await db.scalars(select(DecisionMigration)))
++        assert any(decision_id in archive.result.get("superseded_ids", []) for archive in archives)

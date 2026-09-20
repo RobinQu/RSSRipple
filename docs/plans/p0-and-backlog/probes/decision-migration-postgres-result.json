@@ -1,0 +1,8 @@
+{
+  "passed": 8,
+  "warnings": 1,
+  "seconds": 3.71,
+  "exit_code": 0,
+  "junit": "/tmp/rssripple-v11-migration-dg.xml",
+  "cleanup": "complete"
+}

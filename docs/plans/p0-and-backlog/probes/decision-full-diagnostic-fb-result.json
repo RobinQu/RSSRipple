@@ -1,0 +1,103 @@
+{
+  "session_id": 7667,
+  "log": "/tmp/rssripple-v11-diagnostic-fb.log",
+  "junit": "/tmp/rssripple-v11-diagnostic-fb.xml",
+  "source_manifest": "/tmp/rssripple-v11-diagnostic-fb-source.json",
+  "source_files": 521,
+  "status": "completed, diagnostic only; no coverage gate",
+  "instructions": "poll existing session 7667; do not restart on observation timeout or mutate replica until terminal",
+  "exit_code": 1,
+  "passed": 3729,
+  "failed": 9,
+  "errors": 8,
+  "skipped": 15,
+  "seconds": 1635.61,
+  "source_unchanged": true,
+  "failures": [
+    {
+      "test": "tests.unit.test_decision_coverage_review.test_distinct_link_sets_remain_two_decisions",
+      "type": "failure",
+      "message": "AttributeError: 'str' object has no attribute 'season_number'"
+    },
+    {
+      "test": "tests.unit.test_scheduler.test_cleanup_expired_expires_decisions_and_deletes_tasks",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at, id]\n[parameters: ('2bf992f4-db4a-4d82-b883-ef3a6626f201', 'e90ad20f-8730-44d2-b258-6048742d6613', None, None, None, None, None, '[\"5abf2deb-bf72-40a8-a831-e8484e5a7f90\", \"3bcd4349-8639-47ba-b205-33494398a34e\"]', '冲突', None, None, None, 'pending', '2026-09-19 07:43:27.746526', None, 'a2a87baa-4c66-4e10-a73d-9ea0777d7fef', 'e90ad20f-8730-44d2-b258-6048742d6613', None, None, None, None, None, '[\"5abf2deb-bf72-40a8-a831-e8484e5a7f90\"]', '冲突2', None, None, None, 'pending', '2026-09-21 07:43:27.746610', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_agents.TestAgentsCRUD.test_list_agent_runs_non_empty_filter",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('3a617fa6-7cb3-493e-ba56-d30b4e7da0b0', '5780f5f7-b50b-4e04-aae5-6361b32c036e', None, None, None, None, None, '[\"x\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_agents.TestAgentRunsPendingDecisionCorrection.test_pending_run_kept_and_marked_then_corrected",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('5ea721c6-4b37-41bb-abad-ed9b603b1534', '68ec63c7-45a9-4170-82dd-5b700221d071', None, None, None, None, None, '[\"e9969246-ffe1-4f6f-9632-8b9bb6d9ac65\", \"cfa78ad0-6233-42fa-af27-c1e6b92ace8b\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_agents.TestAgentRunsPendingDecisionCorrection.test_unrelated_resources_not_marked",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('2648f830-3bf1-437b-b41a-ef4fddfc638a', '6d485ec8-ec1f-4dfc-9869-203744123df0', None, None, None, None, None, '[\"1d4f5853-0b0b-4919-bb81-f3773b489840\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_api_coverage3.TestDecisionsMore.test_list_with_candidates",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('7363750f-02e6-40df-b1aa-5c55753a0fcf', '4378a4de-b5e3-4ae7-a3cd-79ee50551e21', None, None, None, None, None, '[\"c5859226-0f8c-40a2-bc76-da0d76c1867c\", \"1dcae097-1e7a-4775-8103-b6f7e340193f\"]', 'x', None, None, None, 'pending', '2026-09-27 07:45:57.377185', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_api_coverage3.TestDecisionsMore.test_confirm_missing_agent_or_resource",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('769bf57b-ed34-44c0-9195-d127e129739e', '4809af2e-a483-4d5d-9173-19b5b40b35fa', None, None, None, None, None, '[\"e18e7655-011c-4ed3-ab5f-d4ae2118ad84\"]', 'x', None, None, None, 'pending', '2026-09-27 07:45:58.110875', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_api_coverage3.TestDashboardPopulatedFull.test_dashboard_full",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('1c486ee2-9240-440d-b16a-4b1b3c1b31b0', '17146f62-2a35-4d0b-b85c-e8e06eaf7c48', '5dc1e8db-8ad6-44bf-a3b8-b9e6aea8dfe1', None, 1, None, None, '[\"a164c134-8e95-4581-9011-473c05c8dfc3\", \"44e08ca8-6655-49a0-bb4c-6467edc96270\"]', 'c', None, None, None, 'pending', '2026-09-27 07:45:58.843319', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_overview_does_not_contact_downloader",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('29402622-ce1c-41a0-8f91-f66b65ad4819', '61f3a16f-4585-4e7e-a702-54abe15353d8', '22fa6d46-0133-4f1a-8f1b-9a06e15fc87b', None, 1, None, None, '[\"01d04760-1ecc-4a4b-b145-c7346506893b\", \"a2ac326b-8d1a-47a6-9995-e33f5ba8adc2\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:31.197616', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_dashboard_groups_by_series_movie_unknown",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('e814089c-cdc5-43ab-a74f-d0132654ab1f', '09d489d2-221d-4fe6-bf08-731bf6e44a62', '0d01ad20-f924-4724-a738-4dd56579bad6', None, 1, None, None, '[\"e2643d08-70de-42b0-9c56-176380ab3e07\", \"f4a3cf9d-29a1-4d43-b35c-acd74dffbaef\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:32.464136', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_dashboard_with_movie_group",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('0bca03b5-261a-4fed-8480-51c7015bb583', 'e703dca2-7e77-43fb-8560-01daaee7c1af', '2f78a795-8cee-418d-b1d7-ebac0737b3a3', None, 1, None, None, '[\"cc89e7d3-0783-449e-af8c-4fdd52d4cafc\", \"89817480-1c2c-48e3-b0c1-848535d907c9\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:33.796914', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_pending_decision_carries_candidate_resources",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('2c83bf50-2ef6-426d-b513-a26ddc03a4c6', '6dd8a062-2b28-439c-abbd-f4b9f383177b', '314251ca-0a5d-418f-aaa4-aae52d465def', None, 1, None, None, '[\"f5bd0eb9-9b85-4397-af46-8632d246732f\", \"bf459dc4-a6db-4b8a-ae26-76a386671a4a\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:35.011051', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_pending_decisions_have_independent_pagination_and_true_total",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('f7bdea56-7c34-449b-bc14-07ee79085d7a', '78681241-5f8d-49f9-a5bb-b3d46d8e4c9e', '3b70b95a-3a3e-4c1c-9d4a-a5c5857e4283', None, 1, None, None, '[\"57b69315-38c4-428a-bcd0-cfb1308f4169\", \"088993cc-056c-4d49-b114-35ff82482a1e\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:36.228192', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_dashboard_can_batch_ignore_decisions",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('0b92d1e3-87b2-4b74-9ae9-0c4bee7df62f', '908463fe-6019-4a3e-a0dd-d18811654aeb', 'd220c0fe-7c3e-4d4c-83eb-ec09e50dac7e', None, 1, None, None, '[\"4da7a8c2-e1e5-44b9-a2d6-11cc24730f84\", \"b2648034-660a-4627-a908-dcf5f71704fd\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:42.251129', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardUntrackedTorrents.test_untracked_torrents_form_own_group",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('414178b2-cfc2-4f26-ac0d-a2a3f0a76fb3', 'ffa324d8-9427-4ac9-9596-6d47b831c925', '0ada8712-839b-4a2d-a20d-019cf52d3463', None, 1, None, None, '[\"564033fd-b075-414d-b294-4749e35b33c5\", \"f8640fc3-fd60-41a5-87c4-70161eb479d6\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:46.306453', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_dashboard_extra.TestDashboardUntrackedTorrents.test_unreachable_downloader_does_not_break_dashboard",
+      "type": "error",
+      "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('4382c1ad-6900-497e-9532-de365a09d1de', 'aa31e59c-ee36-4830-86fa-67b6d8dd57d1', '589720cd-12ed-432a-9d23-29c8770af106', None, 1, None, None, '[\"4c882fd7-81c2-4d9a-8dd2-a6e803af4435\", \"9562ceec-b8f5-4074-8620-5bc49fc56606\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:48.406982', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+    },
+    {
+      "test": "tests.api.test_resources.TestResourceList.test_list_reports_latest_task_status_and_pending_decision",
+      "type": "failure",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('d4c59d0c-e4e9-492e-a285-666a7e6b6b73', '4c1ef81a-86d1-44ed-b1e1-c979cff5aaa7', None, None, None, None, None, '[\"e9435dbb-4212-4700-bef7-68d0c544aee7\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    }
+  ]
+}

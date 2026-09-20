@@ -1,0 +1,7 @@
+{
+  "ddl_rollback": true,
+  "idempotent_install": true,
+  "insert_update_null_rejected": true,
+  "historical_columns_preserved": true,
+  "wrong_index_rejected": true
+}

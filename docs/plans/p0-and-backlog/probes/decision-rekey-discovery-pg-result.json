@@ -1,0 +1,26 @@
+{
+  "project": "rssripple-v11-discovery-20260920-fo",
+  "result": {
+    "discovered_agents": [],
+    "pending": [
+      {
+        "id": "1bc6de9f-e507-4bd1-b506-6b240f02b962",
+        "movie_id": "62e086c7-e175-45ab-9b12-115d92a60e28",
+        "scope": {
+          "episode": null,
+          "kind": "movie",
+          "season": null,
+          "version": 1,
+          "work_id": "c23437c6-ae7e-4a61-b85c-6d7693fc33a6"
+        }
+      }
+    ],
+    "canonical_after_merge": false
+  },
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "status": "confirmed unfixed race; new pending choice missed after discovery",
+  "initial_attempt": "fo failed before race due to aware parsed_at in PG fixture; fp corrected and reached race",
+  "log": "/tmp/rssripple-v11-discovery-fp.log",
+  "scope": "two actual PG connections; actual merge and create_pending_decision; synthetic works/resources; skip_llm=True; no downloader calls"
+}

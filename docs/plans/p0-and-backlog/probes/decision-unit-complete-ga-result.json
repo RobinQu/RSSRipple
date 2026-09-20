@@ -1,0 +1,26 @@
+{
+  "session_id": 20821,
+  "directory": "/tmp/rssripple-v11-gate-fz",
+  "source_manifest": "/tmp/rssripple-v11-gate-fz-source.json",
+  "source_files": 523,
+  "junit": "/tmp/rssripple-v11-unit-ga.xml",
+  "coverage": "/tmp/rssripple-v11-unit-ga-coverage.xml",
+  "log": "/tmp/rssripple-v11-unit-ga.log",
+  "status": "complete",
+  "required_coverage": 95,
+  "coverage_config_sha256": "35e925c8ebcd1b7d1698aef47667db3ca7d0ab32e8611c9c6495ed35a0718033",
+  "discarded_fz": {
+    "session_id": 77103,
+    "exit_code": 143,
+    "reason": "copy ignore matched .coveragerc; terminated confirmed before corrected ga start; not acceptance"
+  },
+  "exit_code": 0,
+  "passed": 3746,
+  "skipped": 15,
+  "warnings": 6,
+  "seconds": 1718.46,
+  "covered": 21918,
+  "valid": 22482,
+  "coverage_percent": 97.49,
+  "source_unchanged": true
+}

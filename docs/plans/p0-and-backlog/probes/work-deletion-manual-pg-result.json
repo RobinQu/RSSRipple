@@ -1,0 +1,39 @@
+{
+  "status": "scoped_pass_not_acceptance",
+  "red": {
+    "exit_code": 1,
+    "cases": [
+      {
+        "reference": "resource_work_links",
+        "work_retained": false,
+        "manual_target_retained": false
+      },
+      {
+        "reference": "resource_file_assignments",
+        "work_retained": false,
+        "manual_target_retained": false
+      }
+    ]
+  },
+  "green": {
+    "exit_code": 0,
+    "cases": [
+      {
+        "reference": "resource_work_links",
+        "work_retained": true,
+        "manual_target_retained": true
+      },
+      {
+        "reference": "resource_file_assignments",
+        "work_retained": true,
+        "manual_target_retained": true
+      }
+    ]
+  },
+  "limitations": [
+    "movie-only references in this PG probe",
+    "delete-first ordering still needs validation",
+    "pending decision scope lifecycle unresolved"
+  ],
+  "cleanup_exit_code": 0
+}

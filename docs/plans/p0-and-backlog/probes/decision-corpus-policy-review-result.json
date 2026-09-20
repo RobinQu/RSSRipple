@@ -1,0 +1,24 @@
+{
+  "initial_loader_fix": {
+    "junit": "/tmp/rssripple-v11-corpus-gi.xml",
+    "passed": 61,
+    "failed": 1,
+    "seconds": 5.98,
+    "exit_code": 1
+  },
+  "after_review": {
+    "junit": "/tmp/rssripple-v11-corpus-gj.xml",
+    "passed": 62,
+    "seconds": 5.73,
+    "exit_code": 0
+  },
+  "review_change": {
+    "changed_fixture_files": [
+      "metadata_corpus_v2/reviews.json"
+    ],
+    "before_sha256": "05c2ab7b694bef3b8d21eb7239a08bc3836ec495bae648b6d7b7ef44149e35bf",
+    "after_sha256": "faa7c6cda84fea227c603c6ea13ff11e97cbfb63cb7b199345354fa615996d23",
+    "reason": "Existing gold retains an unbound Battle Stage 3 file; V11 policy requires coverage confirmation. Raw captures and all remaining expected fields unchanged."
+  },
+  "scope": "Only confirmation kinds and evidence note changed in gold; all other expected fields and raw fixture files byte-preserved"
+}

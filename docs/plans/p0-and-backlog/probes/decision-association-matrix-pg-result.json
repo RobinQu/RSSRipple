@@ -1,0 +1,45 @@
+{
+  "project": "rssripple-v11-associations-20260920-er",
+  "cases": [
+    {
+      "mutation": "assignment_insert",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "assignment_delete",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "link_insert",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "link_delete",
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    }
+  ],
+  "runner_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "data": "synthetic movie-pack candidates; actual PostgreSQL 16 transactions; LLM and download mocked",
+  "scope": "direct child INSERT/DELETE during dispatch; does not prove all application lock ordering"
+}

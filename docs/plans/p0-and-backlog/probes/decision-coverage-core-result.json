@@ -1,25 +1,61 @@
 {
-  "directory": "/tmp/rssripple-v11-decisions",
-  "status": "12-file independent prototype:22 tests pass;PG two-connection merge+constraints pass;upgrade migration/confirmation checks/full gates not implemented",
+  "directory": "/tmp/rssripple-v11-rules-fd",
+  "status": "V11 unit/API ga accepted; gb full integration failed 3 tests with complete artifacts/cleanup; 62 scoped checks passed after fixture and evidence-backed gold review; gk full integration running",
   "files": {
-    "app/services/resource_coverage.py": "bae32b80f2d90446bbe159c8ccb2caa02f0018e7afe145c8eee1f3e9e3a73e78",
+    "app/services/resource_coverage.py": "35b4eeafd7c3708750526d5f2ecb4cb5954b7ecd269f736145c17ec914564646",
     "tests/unit/test_resource_coverage.py": "4e652749536ed0231596f28cd2cd99dfd825f163b10992a0972ab1a69ed7fe05",
     "app/services/agent_service.py": "020c41dde8049d37a0dc37b59ee1dd2c4cdf9d559a75f50b3c520304878bb2b8",
     "app/services/resource_confirmation.py": "58f9a3d7ce7d316f3f58f95f824d756df3901b902517e8cba258c01425bba945",
-    "tests/unit/test_decision_coverage_review.py": "6af79e504e76c381038ec80f54b56e975e76fdb58ec8990512faa946a2bacbb8",
+    "tests/unit/test_decision_coverage_review.py": "0d51d3b856653b7421ca7689de5d7e3a5cdc4dde1a8260c08702e2ba9331908e",
     "app/api/v1/dashboard.py": "14d2c81966cc1d49ebc85044322b66de2062a82eb9a2a95a269f61dcbe542db1",
     "app/services/fetch_service.py": "8406ad47b6e9d0334172bb6743dc398aada312bf31a4e529ea5d20507f4c42dd",
     "tests/api/test_coverage_confirmation.py": "c87f6a0645831a40e8b21b5534507e36febf7a64aff08b947c5b7aea03bf98e8",
     "tests/unit/test_resource_confirmation.py": "bea3c1293e0cbe9a45ed339ae3f1a31226b06312c41905ac10cf75498fdb287d",
-    "tests/api/test_dashboard_extra.py": "1797cdf0f3a144ec72f15d6868fcbb7c1eddf50bbfe1094f64e72c6a84bf12f0",
+    "tests/api/test_dashboard_extra.py": "b0aaae1e51cc6a72b65b336e338f823180efea67c30039a7d1aa7bcc963b32cd",
     "app/models/pending_decision.py": "405de813be5da6a9e672be24934a8b5a5d8264bab71ca9a4d922d86381f4c77e",
-    "app/services/decision_store.py": "7b597fe79089c9e1fc50c228a6164e970cd0c22a344dc06619c9871576208345",
-    "app/services/decision_review.py": "36bfd0a14afe89d4258cbfd0b4791cc81452436305c64bd1ccab180157b8a924",
+    "app/services/decision_store.py": "20d90b3950603cd5b0eefbb95e0985e5919ac023a762301c919eb4532be5ef0b",
+    "app/services/decision_review.py": "3b6079677c6c6d87c23e8f4ac4282c56e8b2f6e0d8330a1d852dd9375a7d0773",
     "tests/unit/test_decision_review.py": "1b2854dd00322e1fd3f6b3029fc2f988df09051324a7a1b20825f0b1cefebd14",
-    "app/api/v1/decisions.py": "53d5239f131c9945d6112564f1585c899c44751a0dabd21c3d3260e6f4cbd6a9",
-    "tests/api/test_decision_scope.py": "c0255b3e7e44622b1f361796e039cb7de3b3da40742a8585a5dad4663dbc0342",
+    "app/api/v1/decisions.py": "744f91ca2ee2cd8ac56d5caba5de853ba03fa233f200413a58b93d055ecf4777",
+    "tests/api/test_decision_scope.py": "4ca577e1004d59c531a53eb9fe990c774e79f9cc375ae8b11993eeaa06c12b39",
     "tests/api/test_decision_batch_transactions.py": "41790a758df4cb17fd179c91944c4e5f105b6a3176f5ef9cd141f855db070b7f",
-    "tests/api/test_decision_terminal_state.py": "5e1f0a3a552c2f4d50922c5c6e2465375718b7b22217bb86d5d4f4f674c70697"
+    "tests/api/test_decision_terminal_state.py": "5e1f0a3a552c2f4d50922c5c6e2465375718b7b22217bb86d5d4f4f674c70697",
+    "app/services/decision_schema.py": "0652875519a7879fcb6113b3c8cfdc9fb5025cefe63df13e410732db23e45707",
+    "tests/unit/test_decision_schema.py": "6b945696e93ff31966167cee32accee087548b131366d6b33aa53f0dbbcb7616",
+    "app/models/decision_migration.py": "f8cba1347ca3871336b3ec877fb474b7b1c377faeaff34d0c124c1e3e749a710",
+    "app/models/__init__.py": "9b5dacff5ed07f69999855bcb94feae6d3efca04321c76c4c4f29ae811a4cb32",
+    "app/services/decision_migration.py": "f4acbabdcb833d9a057f857ad2fcd008442664bcf7f88a3fa45dd37c7853867b",
+    "tests/unit/test_decision_migration.py": "cd49e177bfc143a0e946eb7b1f7b920474d027acadd1047d5693ce3db4c4bea3",
+    "docs/design/data-models.md": "e63330a4ec76a1c97b83e5287fa54eaa994ce5dc7833a1e3850a7ca3d09fd632",
+    "docs/design/db-migration.md": "14ff1840c6544e8e921bfba82e31a9a2fbb2adf88823cb071933f41bd75bfcd3",
+    "scripts/review_pending_decisions.py": "be93366d792d5236e1468dbec8204b928503a0fa4097fd1953d27637c7ebefe5",
+    "app/database.py": "95cd1672fdd95b5ff49645a9a718dfc704d14cb12f16bd29c86fe2192d695d7b",
+    "app/services/decision_rekey.py": "9d0ad4fb36ea8ac3a7328afe800ffb9f3f26c7773761c52655e9e451d70808a0",
+    "app/services/metadata_dedup.py": "3b1a5e647c4c6f43e310c1015d02f45e4ab246b0a765df0b1edd82c620adec4a",
+    "tests/unit/test_decision_rekey.py": "e3b85f0ba4caa1d46b088f0bdf1cf0218d9c6881556cf934d953755066e21d67",
+    "docs/design/business-logic.md": "f31a81fa093a3987f087184a32537de73c6198f16ab793a2c6592a09cbccd4f7",
+    "scripts/season_split_migration.py": "e67f227350f110514fdc2499ec76367b786c21367563e476d6923ebbafe1f81c",
+    "tests/unit/test_season_split_migration.py": "1f887a5cb2cc6d1f91f4a714a8a085fed2ed49d42532615d83bdde71aebb2da4",
+    "tests/api/test_decisions.py": "ae7fe3a9e9f079235a15d4f1c7a4ec46604aaacd88fa9990d4d56d0ebe9cae77",
+    "tests/unit/test_metadata_dedup.py": "b8a65ecf16e241b5863887bd08b4fe648c10995cf7748e19f46852c5cbb2a3ae",
+    "tests/unit/test_agent_service.py": "8654d282e6ce98809efb98d5a186af70b9fea5f85ad1951e1595c061f22d8c26",
+    "docs/design/constraints.md": "9c8151ca28fdda3a001a78daf51f401161d364e17f9db7fc91dce2dcad6cf59e",
+    "app/api/v1/agents.py": "5142fb28ee02dc5cfd3ab169cf9508b3a7ee495f1b49b962a6199bcd4fec5562",
+    "tests/api/test_agents.py": "d343ede3698fb9fe6eefde812135555465060378ed1e0cc56029c25a1b355d82",
+    "docs/design/api-endpoints.md": "e1b9034e6c6f8322e282bb6bb66d371ae0283fc0f222ee3d0b60ff653e39074d",
+    "docs/design/per-season-works.md": "9c2c4aeb0f1ad3121b387cec290356e5da9ebce580f7f604e5cc8a5a4ae39ba6",
+    "docs/testing/integration-inventory.md": "405f840efdc0611d78d22108105a6f42a0148dd9e3af060907996e1b143623f7",
+    "tests/api/test_api_coverage3.py": "88f81dc77f1f942b8173ceccb4d9b6b132291ababf9f240a9773ae0342db1f86",
+    "tests/unit/test_scheduler.py": "be8c1c1457f3a069fc6b299a7c1da7d33fc555859defa93084309a9ab7b99c4f",
+    "tests/api/test_resources.py": "47099840660c88b5f3d67ae7043bb7a676c0dba0dfff8f5625c224fc3d517f4e",
+    "tests/integration/season_model/test_decision_coverage_captured.py": "a9441fedca68b51b59efa4d7f3b8cf4b054bab16d6d39843d72cae4cd1980573",
+    "tests/integration/organize/test_scheduler_coverage.py": "b9b250f37405cc6711e86d642d3a8b639a713410408a50a043df3827fbaa15bd",
+    "app/services/decision_identity_lock.py": "129b3526b3130cc5b7edeeea2f92120cf6ba459181613e925b472026579bf74f",
+    "tests/integration/metadata/test_agent_service_coverage.py": "ad60feda9cd196cfe64f04d5bd7ca5ed91300d752944d14ff5687f731e02fd1f",
+    "tests/integration/metadata/test_metadata_dedup_coverage.py": "5c056399cac84f0bd1cbe451d6718fd0311dd2935a4c7ce683a883985b0fd18d",
+    "tests/integration/metadata/test_misc_services_coverage.py": "d3ea505dceb8100b5abd35aa770f2f7426e842c1d53e64735e9b87eade149af9",
+    "tests/metadata_corpus/runner.py": "f884d353c5887fa093af232bb051e006c4304d08c7724e713f46bcd00d0449b2",
+    "tests/fixtures/metadata_corpus_v2/reviews.json": "faa7c6cda84fea227c603c6ea13ff11e97cbfb63cb7b199345354fa615996d23"
   },
   "root_before": {
     "app/services/resource_coverage.py": null,
@@ -39,7 +75,43 @@
     "app/api/v1/decisions.py": "7fbabef4482d60185e40f5f80764425760e3dd27f03c56f302113d3f6cef9177",
     "tests/api/test_decision_scope.py": null,
     "tests/api/test_decision_batch_transactions.py": null,
-    "tests/api/test_decision_terminal_state.py": null
+    "tests/api/test_decision_terminal_state.py": null,
+    "app/services/decision_schema.py": null,
+    "tests/unit/test_decision_schema.py": null,
+    "app/models/__init__.py": "ed4076d0861296810fd782a5a2ed6cfb72f64f04a367a5da930bec799b01b0ab",
+    "app/models/decision_migration.py": null,
+    "app/services/decision_migration.py": null,
+    "docs/design/data-models.md": "a3b3d7ca00f83fc16c4ccb5df0b5717f535891fecdba5ebadcd0f7ba69ec1548",
+    "docs/design/db-migration.md": "c5535c25539f429488972cdeb54301247cf3509810b88b69a36d7a4f286c7a00",
+    "tests/unit/test_decision_migration.py": null,
+    "scripts/review_pending_decisions.py": null,
+    "app/database.py": "950d59340ce496814e14bdaee60cf682b09da324b4e5592480e822d0b932c395",
+    "app/services/decision_rekey.py": null,
+    "app/services/metadata_dedup.py": "ac58d8d4c737fd4ae839c47f7067b86596e21d3b1c2bdd51f9bf61607d094b94",
+    "docs/design/business-logic.md": "0d67b76ab832a31b1ba08f18c79d7e3f64d17bd89be69ecf7979e1cbf4d78f77",
+    "tests/unit/test_decision_rekey.py": null,
+    "scripts/season_split_migration.py": "93e23e52effe18556365adb001f3545c98f37efb903ce47c75924f68aefa5a8c",
+    "tests/unit/test_season_split_migration.py": "b30f8f644da02f1c34483753d59a2e378c2eeb913110f1f242c5139fac0d641e",
+    "tests/api/test_decisions.py": "8ea8b9103677103a8105f0a0344aa05de3e251c060eec299d1aede985cf865c8",
+    "tests/unit/test_metadata_dedup.py": "2689c66969b27d5b35874f82398afed8e5866bd6b153bd8bd69a59355b804a39",
+    "tests/unit/test_agent_service.py": "8321f438ee37ce932d6cb96fa8af8c0a6b4ec896bc538f61136d26fb6a0dc199",
+    "docs/design/constraints.md": "64342fa5c24188ff385ec707fb57e406cea158e8da1bc4569156c02d706a8547",
+    "app/api/v1/agents.py": "9b7ce8fe3a0eb82e2ded176e452886ecc696eda3917e0fd27f9abf76cadb1337",
+    "tests/api/test_agents.py": "8c69536c8221ba99393944d99f527d5b81d35bd6250085eb7dc02c79dcf05211",
+    "docs/design/api-endpoints.md": "2dcd63afa317510074f96ee391281f530686330cce6c83b89d6e7f26c531639c",
+    "docs/design/per-season-works.md": "d3c9b1b82915043d0be8cec6abbf8efba728e40171626b3e14e4aba4ffc2840c",
+    "docs/testing/integration-inventory.md": "4d204894c0f8985b7ecc4beb056bb9480fe266307f4f53dbe94104370c0112a5",
+    "tests/api/test_api_coverage3.py": "e7b38a528f9451eb41fdb602390e88ad3464c713584f156de524991c972dc724",
+    "tests/api/test_resources.py": "d5b9544ec386ef6dcbc410cc332062a97b398ab0360f435a33b083c8d88a7196",
+    "tests/integration/season_model/test_decision_coverage_captured.py": null,
+    "tests/unit/test_scheduler.py": "cb15f6c456a4c1334715810416cbea469eae8a9be33e42d0cc3b937598dea98e",
+    "tests/integration/organize/test_scheduler_coverage.py": "39b2cbb72f04d7824492394dbc7bfabe3f22420f2b1f196be1aacaf012554890",
+    "app/services/decision_identity_lock.py": null,
+    "tests/integration/metadata/test_agent_service_coverage.py": "3241015c9d8ba2069aaeea810b9ed641549cd5dab07728503c22970d10655690",
+    "tests/integration/metadata/test_metadata_dedup_coverage.py": "5f19185cc950a74767a03438d34ed36866f9e6c179e469649924f91be42ad0fc",
+    "tests/fixtures/metadata_corpus_v2/reviews.json": "05c2ab7b694bef3b8d21eb7239a08bc3836ec495bae648b6d7b7ef44149e35bf",
+    "tests/integration/metadata/test_misc_services_coverage.py": "970aaf3c883ad2188c3f37ff33aa15985520b9a81600bdfe8832085e041e193d",
+    "tests/metadata_corpus/runner.py": "397f343db9e03737f1b603469fafa8d0c3119bce14550dd2936819d6c16e4c44"
   },
   "results": {
     "bj": {
@@ -328,6 +400,159 @@
       "seconds": 11.99,
       "exit_code": 0,
       "junit": "/tmp/rssripple-v11-prepare-cr.xml"
+    },
+    "v10_rebase_cu": {
+      "passed": 89,
+      "warnings": 1,
+      "seconds": 31.89,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-rebase-cu.xml"
+    },
+    "schema_cx": {
+      "passed": 2,
+      "warnings": 1,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-schema-cx.xml",
+      "limitations": "ordinary Turso transaction; no startup integration or reviewed pending-data apply; PostgreSQL untested"
+    },
+    "schema_guards_red_cy": {
+      "failed": 3,
+      "passed": 3,
+      "seconds": 0.21,
+      "exit_code": 1
+    },
+    "schema_guards_dc": {
+      "passed": 6,
+      "warnings": 1,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-schema-dc.xml"
+    },
+    "schema_postgres_db": {
+      "ddl_rollback": true,
+      "idempotent_install": true,
+      "insert_update_null_rejected": true,
+      "historical_columns_preserved": true,
+      "wrong_index_rejected": true
+    },
+    "schema_postgres_cleanup": "complete",
+    "reviewed_migration_dd": {
+      "passed": 3,
+      "warnings": 1,
+      "seconds": 1.25,
+      "exit_code": 0
+    },
+    "reviewed_migration_de": {
+      "passed": 17,
+      "warnings": 1,
+      "seconds": 2.48,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-migration-de.xml"
+    },
+    "migration_boundary_df": {
+      "passed": 8,
+      "warnings": 1,
+      "seconds": 2.82,
+      "exit_code": 0
+    },
+    "migration_postgres_dg": {
+      "passed": 8,
+      "warnings": 1,
+      "seconds": 3.71,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-migration-dg.xml",
+      "cleanup": "complete"
+    },
+    "migration_cli_di": {
+      "passed": 9,
+      "warnings": 1,
+      "seconds": 5.58,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-migration-cli-di.xml"
+    },
+    "batch_migration_dj": {
+      "failed": 2,
+      "passed": 9,
+      "seconds": 7.07,
+      "exit_code": 1,
+      "cause": "legacy fixture selected Agent with eager pending_decisions before key columns exist"
+    },
+    "batch_migration_dk": {
+      "passed": 11,
+      "warnings": 1,
+      "seconds": 6.26,
+      "exit_code": 0
+    },
+    "stored_key_red_dl": {
+      "failed": 1,
+      "passed": 6,
+      "seconds": 0.25,
+      "exit_code": 1
+    },
+    "stored_key_dm": {
+      "passed": 26,
+      "warnings": 1,
+      "seconds": 9.57,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-key-dm.xml"
+    },
+    "startup_turso_do": {
+      "passed": 58,
+      "skipped": 3,
+      "warnings": 2,
+      "seconds": 21.43,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-startup-do.xml"
+    },
+    "postgres_batches_dn": {
+      "passed": 8,
+      "failed": 2,
+      "skipped": 1,
+      "seconds": 5.25,
+      "exit_code": 1,
+      "cause": "legacy fixture used TEXT instead of original decision_status enum"
+    },
+    "startup_postgres_dp": {
+      "passed": 11,
+      "skipped": 1,
+      "warnings": 1,
+      "seconds": 5.68,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-startup-dp.xml",
+      "cleanup": "complete"
+    },
+    "movie_rekey_red_dq": {
+      "failed": 1,
+      "seconds": 0.61,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v11-rekey-red-dq.xml"
+    },
+    "movie_rekey_dr": {
+      "passed": 1,
+      "warnings": 1,
+      "seconds": 0.6,
+      "exit_code": 0
+    },
+    "movie_rekey_ds": {
+      "passed": 13,
+      "skipped": 1,
+      "warnings": 1,
+      "seconds": 8.94,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-rekey-ds.xml"
+    },
+    "links_only_rekey_red_dt": {
+      "failed": 1,
+      "passed": 2,
+      "seconds": 1.51,
+      "exit_code": 1
+    },
+    "links_only_rekey_du": {
+      "passed": 22,
+      "skipped": 1,
+      "warnings": 1,
+      "seconds": 12.5,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-links-du.xml"
     }
   },
   "limitations": [
@@ -354,5 +579,1230 @@
       4
     ],
     "scope": "synthetic data; two real PostgreSQL connections; real production create and commits; LLM replaced by barrier"
+  },
+  "base": "local main 7f8492a including accepted V10 code 6852cf0; own 18-file prototype retained; combination regression pending",
+  "cross_type_rekey_validation": {
+    "previous": "/tmp/rssripple-v11-cross-dw.log",
+    "previous_passed": 13,
+    "latest": "/tmp/rssripple-v11-reverse-dy.xml",
+    "passed": 15,
+    "seconds": 6.86,
+    "exit_code": 0,
+    "data": "explicit synthetic fixtures; actual Turso database and production merge services",
+    "interrupted_attempt": {
+      "log": "/tmp/rssripple-v11-reverse-dx.log",
+      "exit_code": 143,
+      "reason": "explicitly terminated before rerun after fixing test import; no pass claim"
+    }
+  },
+  "p8_rekey_validation": {
+    "fixture_error": "dz missing required reason; not defect evidence",
+    "red": {
+      "log": "/tmp/rssripple-v11-p8-ea.log",
+      "failed": 1,
+      "passed": 1,
+      "seconds": 1.07,
+      "finding": "two seasons remain in one pending choice after actual split"
+    },
+    "green": {
+      "junit": "/tmp/rssripple-v11-p8-eb.xml",
+      "passed": 17,
+      "seconds": 7.72,
+      "exit_code": 0
+    },
+    "expanded": {
+      "junit": "/tmp/rssripple-v11-p8-ec.xml",
+      "passed": 20,
+      "seconds": 9.56,
+      "exit_code": 0
+    },
+    "remaining": "old schema without decision key columns needs P8-before-review upgrade path and actual old-table tests; full gates and concurrent mutation still pending"
+  },
+  "old_schema_p8_validation": {
+    "red": "/tmp/rssripple-v11-p8-ee.log",
+    "intermediate": "/tmp/rssripple-v11-p8-ef.log",
+    "green": "/tmp/rssripple-v11-p8-eg.xml",
+    "passed": 32,
+    "skipped": 1,
+    "seconds": 18.08,
+    "exit_code": 0,
+    "data": "synthetic candidates in actual old Turso table without key/scope",
+    "remaining": "concurrent resource/association mutation, complete gates and main acceptance",
+    "dual_backend": {
+      "project": "rssripple-v11-p8-20260920-eh",
+      "postgres": {
+        "junit": "/tmp/rssripple-v11-p8-ej.xml",
+        "passed": 12,
+        "skipped": 1,
+        "seconds": 6.55,
+        "exit_code": 0,
+        "skip": "Turso-specific CLI file-lock test"
+      },
+      "turso": {
+        "junit": "/tmp/rssripple-v11-p8-ek.xml",
+        "passed": 1,
+        "seconds": 0.64,
+        "exit_code": 0
+      },
+      "first_postgres_attempt": {
+        "log": "/tmp/rssripple-v11-p8-eh.log",
+        "passed": 11,
+        "failed": 1,
+        "reason": "synthetic parsed_at timezone incompatibility before migration; fixture now leaves unrelated parsed_at empty"
+      },
+      "cleanup_exit_code": 0,
+      "data": "synthetic candidates in actual pre-key pending_decisions tables",
+      "assertions": [
+        "P8 failure rolls back decision fingerprint, resource work references, season numbers and created season works",
+        "subsequent P8 preserves original candidate list and pending status without installing columns",
+        "review splits mixed-season slot into two scopes preserving all four candidates",
+        "explicit approved review installs keys and archives the original pending row"
+      ],
+      "remaining": [
+        "resource/link/assignment concurrent mutations",
+        "full unit/API and isolated integration gates",
+        "review and main merge"
+      ]
+    }
+  },
+  "resource_concurrency_validation": {
+    "red": {
+      "writer_blocked_during_dispatch": false,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    "green": {
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    "api": {
+      "passed": 23,
+      "seconds": 11.63,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-resource-em.xml"
+    },
+    "project": "rssripple-v11-resource-20260920-el",
+    "cleanup_exit_code": 0,
+    "scope": "actual PG connections; synthetic candidates, mocked model and dispatch; resource row mutation only"
+  },
+  "assignment_concurrency_validation": {
+    "red": {
+      "writer_blocked_during_dispatch": false,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    "green": {
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    "regression": {
+      "passed": 46,
+      "seconds": 17.24,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-assignment-eq.xml"
+    },
+    "cleanup_exit_code": 0,
+    "project": "rssripple-v11-assignment-20260920-en",
+    "scope": "actual PG connections; synthetic movie-pack assignments; model/download mocked",
+    "initial_attempt": "en stopped before dispatch due to batch reload dropping movie metadata; not concurrency evidence"
+  },
+  "association_matrix_validation": {
+    "project": "rssripple-v11-associations-20260920-er",
+    "cases": [
+      {
+        "mutation": "assignment_insert",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "assignment_delete",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "link_insert",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "link_delete",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      }
+    ],
+    "runner_exit_code": 0,
+    "cleanup_exit_code": 0,
+    "data": "synthetic movie-pack candidates; actual PostgreSQL 16 transactions; LLM and download mocked",
+    "scope": "direct child INSERT/DELETE during dispatch; does not prove all application lock ordering"
+  },
+  "work_metadata_validation": {
+    "red": {
+      "writer_blocked_during_dispatch": false,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    "green": {
+      "writer_blocked_during_dispatch": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    "regression": {
+      "passed": 44,
+      "seconds": 21.01,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-work-eu.xml"
+    },
+    "project": "rssripple-v11-work-20260920-es",
+    "cleanup_exit_code": 0,
+    "scope": "actual PG connections; movie release_date UPDATE; synthetic data; model/download mocked"
+  },
+  "expanded_compatibility": {
+    "expanded": {
+      "junit": "/tmp/rssripple-v11-expanded-ev.xml",
+      "passed": 118,
+      "failed": 42,
+      "seconds": 66.058,
+      "exit_code": 1,
+      "failures": [
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_list_decisions",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_list_filter_status",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_single_candidate_legacy_row_is_not_actionable",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_confirm_bad_resource_id_returns_400",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_skip_marks_skipped",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_confirm_dispatches_download",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_ai_pick_dispatches_picked",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_ai_pick_no_pick_returns_400",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_batch_skip",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisions.test_batch_ai_dispatches",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisionSerializationWithSeries.test_confirm_with_series_returns_200",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestDecisionSerializationWithSeries.test_skip_with_series_returns_200",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestLastRunStatusReset.test_skip_resets_status_when_no_pending_left",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestLastRunStatusReset.test_skip_keeps_status_when_pending_remain",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestLastRunStatusReset.test_confirm_resets_status_when_no_pending_left",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestLastRunStatusReset.test_batch_skip_resets_status_when_no_pending_left",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.api.test_decisions.TestLastRunStatusReset.test_other_statuses_untouched",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.unit.test_metadata_dedup.test_merge_duplicate_series_drops_conflicting_children",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.unit.test_metadata_dedup.test_merge_duplicate_series_repoints_unique_pending_decision",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.unit.test_metadata_dedup.test_merge_duplicate_movies_repoints_agent_works_and_decisions",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_same_season_versions_auto_dispatches_one",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_different_seasons_do_not_conflict",
+          "message": "assert 0 == 2"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_multi_season_same_coverage_conflicts",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_same_coverage_skipped",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_organized_completed_task_still_skipped",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_unfinished_cancelled_task_is_retryable",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_batch_cross_run_different_coverage_dispatches",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestProcessResources.test_ambiguous_batch_resource_skips_episode_gate",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_dispatches_when_a_linked_work_is_subscribed",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_out_of_scope_when_no_linked_work_subscribed",
+          "message": "assert 1 == 0"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_same_link_set_conflicts_different_set_dispatches",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.TestLinksOnlyMultiSeasonPack.test_cross_run_same_link_set_skipped",
+          "message": "assert 0 == 1"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_sets_fields",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_movie_no_episode",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_series_no_episode",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_season_aware_key",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_legacy_3tuple_key",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_idempotent_movie",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_unknown_series_uses_episode_only_reason",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_create_pending_decision_skip_llm",
+          "message": "ValueError: A pending choice requires at least two distinct candidates"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_batch_coverage_key_legacy_unsplit_series_uses_parsed_season",
+          "message": "AssertionError: assert None == ('season', 2)"
+        },
+        {
+          "test": "tests.unit.test_agent_service.test_retire_legacy_confirmation_decisions",
+          "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)"
+        }
+      ]
+    },
+    "api_after_fixture_repair": {
+      "junit": "/tmp/rssripple-v11-api-ew.xml",
+      "passed": 58,
+      "seconds": 32.7,
+      "exit_code": 0
+    },
+    "remaining_known_failures": 25,
+    "remaining_scope": "metadata dedup 3, agent service 22; no later passing run yet",
+    "fixture_policy": "explicit synthetic valid work identity/season/key; original endpoint behavior assertions retained; no constraint bypass"
+  },
+  "dedup_compatibility": {
+    "passed": 40,
+    "seconds": 16.0,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v11-dedup-ex.xml",
+    "scope": "all metadata_dedup and decision_rekey tests; real synthetic two-candidate pending groups",
+    "resolved_prior_failures": 3,
+    "remaining_agent_service_failures": 22
+  },
+  "candidate_compatibility": {
+    "junit": "/tmp/rssripple-v11-candidates-ez.xml",
+    "passed": 12,
+    "deselected": 98,
+    "seconds": 5.1,
+    "exit_code": 0,
+    "resolved_prior_failures": 10,
+    "remaining_prior_agent_failures": 12,
+    "data": "explicit synthetic candidate pairs and separate season works",
+    "remaining": "batch process and links-only coverage fixtures; full gates and concurrency scope still pending"
+  },
+  "batch_compatibility": {
+    "junit": "/tmp/rssripple-v11-agent-fa.xml",
+    "passed": 110,
+    "seconds": 39.39,
+    "exit_code": 0,
+    "resolved_prior_failures": 12,
+    "remaining_prior_expanded_failures": 0,
+    "scope": "complete test_agent_service.py; synthetic explicit intervals and per-season assignments; no full gate claim"
+  },
+  "rule_concurrency_red": {
+    "project": "rssripple-v11-rules-20260920-fc",
+    "red_cases": [
+      {
+        "mutation": "channel",
+        "writer_blocked_during_dispatch": false,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "subscription",
+        "writer_blocked_during_dispatch": false,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      }
+    ],
+    "exit_code": 1,
+    "cleanup_exit_code": 0,
+    "scope": "real PG connections, synthetic candidates, model/download mocked",
+    "status": "confirmed unfixed races; do not claim rule stability"
+  },
+  "full_range_diagnostic": {
+    "session_id": 7667,
+    "log": "/tmp/rssripple-v11-diagnostic-fb.log",
+    "junit": "/tmp/rssripple-v11-diagnostic-fb.xml",
+    "source_manifest": "/tmp/rssripple-v11-diagnostic-fb-source.json",
+    "source_files": 521,
+    "status": "completed, diagnostic only; no coverage gate",
+    "instructions": "poll existing session 7667; do not restart on observation timeout or mutate replica until terminal",
+    "exit_code": 1,
+    "passed": 3729,
+    "failed": 9,
+    "errors": 8,
+    "skipped": 15,
+    "seconds": 1635.61,
+    "source_unchanged": true,
+    "failures": [
+      {
+        "test": "tests.unit.test_decision_coverage_review.test_distinct_link_sets_remain_two_decisions",
+        "type": "failure",
+        "message": "AttributeError: 'str' object has no attribute 'season_number'"
+      },
+      {
+        "test": "tests.unit.test_scheduler.test_cleanup_expired_expires_decisions_and_deletes_tasks",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at, id]\n[parameters: ('2bf992f4-db4a-4d82-b883-ef3a6626f201', 'e90ad20f-8730-44d2-b258-6048742d6613', None, None, None, None, None, '[\"5abf2deb-bf72-40a8-a831-e8484e5a7f90\", \"3bcd4349-8639-47ba-b205-33494398a34e\"]', '冲突', None, None, None, 'pending', '2026-09-19 07:43:27.746526', None, 'a2a87baa-4c66-4e10-a73d-9ea0777d7fef', 'e90ad20f-8730-44d2-b258-6048742d6613', None, None, None, None, None, '[\"5abf2deb-bf72-40a8-a831-e8484e5a7f90\"]', '冲突2', None, None, None, 'pending', '2026-09-21 07:43:27.746610', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_agents.TestAgentsCRUD.test_list_agent_runs_non_empty_filter",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('3a617fa6-7cb3-493e-ba56-d30b4e7da0b0', '5780f5f7-b50b-4e04-aae5-6361b32c036e', None, None, None, None, None, '[\"x\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_agents.TestAgentRunsPendingDecisionCorrection.test_pending_run_kept_and_marked_then_corrected",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('5ea721c6-4b37-41bb-abad-ed9b603b1534', '68ec63c7-45a9-4170-82dd-5b700221d071', None, None, None, None, None, '[\"e9969246-ffe1-4f6f-9632-8b9bb6d9ac65\", \"cfa78ad0-6233-42fa-af27-c1e6b92ace8b\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_agents.TestAgentRunsPendingDecisionCorrection.test_unrelated_resources_not_marked",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('2648f830-3bf1-437b-b41a-ef4fddfc638a', '6d485ec8-ec1f-4dfc-9869-203744123df0', None, None, None, None, None, '[\"1d4f5853-0b0b-4919-bb81-f3773b489840\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_api_coverage3.TestDecisionsMore.test_list_with_candidates",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('7363750f-02e6-40df-b1aa-5c55753a0fcf', '4378a4de-b5e3-4ae7-a3cd-79ee50551e21', None, None, None, None, None, '[\"c5859226-0f8c-40a2-bc76-da0d76c1867c\", \"1dcae097-1e7a-4775-8103-b6f7e340193f\"]', 'x', None, None, None, 'pending', '2026-09-27 07:45:57.377185', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_api_coverage3.TestDecisionsMore.test_confirm_missing_agent_or_resource",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('769bf57b-ed34-44c0-9195-d127e129739e', '4809af2e-a483-4d5d-9173-19b5b40b35fa', None, None, None, None, None, '[\"e18e7655-011c-4ed3-ab5f-d4ae2118ad84\"]', 'x', None, None, None, 'pending', '2026-09-27 07:45:58.110875', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_api_coverage3.TestDashboardPopulatedFull.test_dashboard_full",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('1c486ee2-9240-440d-b16a-4b1b3c1b31b0', '17146f62-2a35-4d0b-b85c-e8e06eaf7c48', '5dc1e8db-8ad6-44bf-a3b8-b9e6aea8dfe1', None, 1, None, None, '[\"a164c134-8e95-4581-9011-473c05c8dfc3\", \"44e08ca8-6655-49a0-bb4c-6467edc96270\"]', 'c', None, None, None, 'pending', '2026-09-27 07:45:58.843319', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_overview_does_not_contact_downloader",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('29402622-ce1c-41a0-8f91-f66b65ad4819', '61f3a16f-4585-4e7e-a702-54abe15353d8', '22fa6d46-0133-4f1a-8f1b-9a06e15fc87b', None, 1, None, None, '[\"01d04760-1ecc-4a4b-b145-c7346506893b\", \"a2ac326b-8d1a-47a6-9995-e33f5ba8adc2\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:31.197616', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_dashboard_groups_by_series_movie_unknown",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('e814089c-cdc5-43ab-a74f-d0132654ab1f', '09d489d2-221d-4fe6-bf08-731bf6e44a62', '0d01ad20-f924-4724-a738-4dd56579bad6', None, 1, None, None, '[\"e2643d08-70de-42b0-9c56-176380ab3e07\", \"f4a3cf9d-29a1-4d43-b35c-acd74dffbaef\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:32.464136', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_dashboard_with_movie_group",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('0bca03b5-261a-4fed-8480-51c7015bb583', 'e703dca2-7e77-43fb-8560-01daaee7c1af', '2f78a795-8cee-418d-b1d7-ebac0737b3a3', None, 1, None, None, '[\"cc89e7d3-0783-449e-af8c-4fdd52d4cafc\", \"89817480-1c2c-48e3-b0c1-848535d907c9\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:33.796914', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_pending_decision_carries_candidate_resources",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('2c83bf50-2ef6-426d-b513-a26ddc03a4c6', '6dd8a062-2b28-439c-abbd-f4b9f383177b', '314251ca-0a5d-418f-aaa4-aae52d465def', None, 1, None, None, '[\"f5bd0eb9-9b85-4397-af46-8632d246732f\", \"bf459dc4-a6db-4b8a-ae26-76a386671a4a\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:35.011051', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_pending_decisions_have_independent_pagination_and_true_total",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('f7bdea56-7c34-449b-bc14-07ee79085d7a', '78681241-5f8d-49f9-a5bb-b3d46d8e4c9e', '3b70b95a-3a3e-4c1c-9d4a-a5c5857e4283', None, 1, None, None, '[\"57b69315-38c4-428a-bcd0-cfb1308f4169\", \"088993cc-056c-4d49-b114-35ff82482a1e\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:36.228192', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardPopulated.test_dashboard_can_batch_ignore_decisions",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('0b92d1e3-87b2-4b74-9ae9-0c4bee7df62f', '908463fe-6019-4a3e-a0dd-d18811654aeb', 'd220c0fe-7c3e-4d4c-83eb-ec09e50dac7e', None, 1, None, None, '[\"4da7a8c2-e1e5-44b9-a2d6-11cc24730f84\", \"b2648034-660a-4627-a908-dcf5f71704fd\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:42.251129', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardUntrackedTorrents.test_untracked_torrents_form_own_group",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('414178b2-cfc2-4f26-ac0d-a2a3f0a76fb3', 'ffa324d8-9427-4ac9-9596-6d47b831c925', '0ada8712-839b-4a2d-a20d-019cf52d3463', None, 1, None, None, '[\"564033fd-b075-414d-b294-4749e35b33c5\", \"f8640fc3-fd60-41a5-87c4-70161eb479d6\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:46.306453', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_dashboard_extra.TestDashboardUntrackedTorrents.test_unreachable_downloader_does_not_break_dashboard",
+        "type": "error",
+        "message": "failed on setup with \"sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('4382c1ad-6900-497e-9532-de365a09d1de', 'aa31e59c-ee36-4830-86fa-67b6d8dd57d1', '589720cd-12ed-432a-9d23-29c8770af106', None, 1, None, None, '[\"4c882fd7-81c2-4d9a-8dd2-a6e803af4435\", \"9562ceec-b8f5-4074-8620-5bc49fc56606\"]', '冲突', None, None, None, 'pending', '2026-09-27 07:48:48.406982', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)\""
+      },
+      {
+        "test": "tests.api.test_resources.TestResourceList.test_list_reports_latest_task_status_and_pending_decision",
+        "type": "failure",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('d4c59d0c-e4e9-492e-a285-666a7e6b6b73', '4c1ef81a-86d1-44ed-b1e1-c979cff5aaa7', None, None, None, None, None, '[\"e9435dbb-4212-4700-bef7-68d0c544aee7\"]', '冲突', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      }
+    ]
+  },
+  "rule_lock_fix": {
+    "directory": "/tmp/rssripple-v11-rules-fd",
+    "baseline_directory": "/tmp/rssripple-v11-decisions",
+    "files": {
+      "app/services/decision_review.py": {
+        "before": "e6bf028c639551cb980b368e7e40ce5e619eb8d534333f166bc9c65a7ff8d96f",
+        "after": "3b6079677c6c6d87c23e8f4ac4282c56e8b2f6e0d8330a1d852dd9375a7d0773"
+      },
+      "app/api/v1/agents.py": {
+        "before": "9b7ce8fe3a0eb82e2ded176e452886ecc696eda3917e0fd27f9abf76cadb1337",
+        "after": "5142fb28ee02dc5cfd3ab169cf9508b3a7ee495f1b49b962a6199bcd4fec5562"
+      },
+      "tests/api/test_agents.py": {
+        "before": "8c69536c8221ba99393944d99f527d5b81d35bd6250085eb7dc02c79dcf05211",
+        "after": "d343ede3698fb9fe6eefde812135555465060378ed1e0cc56029c25a1b355d82"
+      },
+      "docs/design/business-logic.md": {
+        "before": "dc5709420b52703f2116c108d42187927ff01dbc211c07ec6ea25e366d63b1e9",
+        "after": "3ef40742a5f050a6e67d26b9a3ec06c89d0131c6c9e459c5010b83e9bd67bed9"
+      }
+    },
+    "cases": [
+      {
+        "mutation": "channel",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "subscription",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "api_create",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "api_update",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      },
+      {
+        "mutation": "api_delete",
+        "writer_blocked_during_dispatch": true,
+        "dispatch_calls": 1,
+        "ok": true,
+        "error": null,
+        "final_status": "decided",
+        "writer_succeeds_after_commit": true
+      }
+    ],
+    "pg_project": "rssripple-v11-rules-20260920-fe",
+    "pg_exit_code": 0,
+    "cleanup_exit_code": 0,
+    "api_initial": {
+      "junit": "/tmp/rssripple-v11-rules-fd.xml",
+      "passed": 81,
+      "failed": 3,
+      "seconds": 113.02,
+      "exit_code": 1,
+      "reason": "unkeyed/single-candidate run-history fixtures"
+    },
+    "api_retry": {
+      "session_id": 36693,
+      "log": "/tmp/rssripple-v11-rules-ff.log",
+      "junit": "/tmp/rssripple-v11-rules-ff.xml",
+      "status": "complete",
+      "passed": 84,
+      "seconds": 137.56,
+      "exit_code": 0
+    },
+    "status": "validated scoped delta integrated into current independent prototype; full acceptance pending",
+    "reverse_interleaving": {
+      "project": "rssripple-v11-rule-model-20260920-fg",
+      "cases": [
+        {
+          "mutation": "channel",
+          "model_edit_committed": true,
+          "dispatch_calls": 0,
+          "ok": false,
+          "error": "Decision candidate requires Channel metadata confirmation",
+          "final_status": "pending"
+        },
+        {
+          "mutation": "subscription",
+          "model_edit_committed": true,
+          "dispatch_calls": 0,
+          "ok": false,
+          "error": "Decision candidate no longer matches current Agent rules",
+          "final_status": "pending"
+        },
+        {
+          "mutation": "api_update",
+          "model_edit_committed": true,
+          "dispatch_calls": 0,
+          "ok": false,
+          "error": "Decision candidate no longer matches current Agent rules",
+          "final_status": "pending"
+        },
+        {
+          "mutation": "api_delete",
+          "model_edit_committed": true,
+          "dispatch_calls": 0,
+          "ok": false,
+          "error": "Decision candidate no longer matches current Agent rules",
+          "final_status": "pending"
+        }
+      ],
+      "exit_code": 0,
+      "cleanup_exit_code": 0
+    }
+  },
+  "resource_edit_lock_order": {
+    "project": "rssripple-v11-edit-20260920-fh",
+    "result": {
+      "dispatch_resolutions": [
+        "720p"
+      ],
+      "request_revisions": [
+        1
+      ],
+      "final_status": "decided",
+      "editor_flushed_before_agent_lock": true,
+      "confirmation_parent_lock_observed": true
+    },
+    "exit_code": 0,
+    "cleanup_exit_code": 0,
+    "initial_attempt": "fh script schema import failed before interleaving; corrected in fi",
+    "scope": "actual resource PATCH function and transactional request storage, two real PG connections; downloader, cache fetch and wakeup replaced; synthetic candidates",
+    "log": "/tmp/rssripple-v11-edit-fi.log"
+  },
+  "authority_contract_sync": {
+    "files": [
+      "docs/design/business-logic.md",
+      "docs/design/per-season-works.md",
+      "docs/design/api-endpoints.md",
+      "docs/testing/integration-inventory.md"
+    ],
+    "captured_fixture_sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+    "status": "updated in prototype; complete acceptance still pending"
+  },
+  "coverage_helper_compatibility": {
+    "junit": "/tmp/rssripple-v11-coverage-fj.xml",
+    "exit_code": 0,
+    "suites": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "8",
+        "time": "3.537",
+        "timestamp": "2026-09-20T08:01:09.569148+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    ],
+    "change": "Pass season work objects to canonical pack helper; remove duplicate assignment reconstruction; preserve distinct coverage/candidate set assertions."
+  },
+  "api_coverage_compatibility": {
+    "junit": "/tmp/rssripple-v11-api-fk.xml",
+    "exit_code": 0,
+    "passed": 9,
+    "skipped": 3,
+    "seconds": 5.17,
+    "resolved_diagnostic_failures": 3,
+    "remaining_diagnostic_failures_errors": 10,
+    "scope": "synthetic keyed fixtures; missing-resource case has two distinct nonexistent resources and an existing movie; original HTTP assertions retained"
+  },
+  "remaining_fixture_compatibility": {
+    "junit": "/tmp/rssripple-v11-remaining-fl.xml",
+    "exit_code": 0,
+    "passed": 163,
+    "skipped": 8,
+    "warnings": 1,
+    "seconds": 71.26,
+    "resolved_diagnostic_failures_errors": 10,
+    "remaining_original_diagnostic_failures_errors": 0,
+    "scope": "complete scheduler/dashboard_extra/resources files, synthetic fixtures; full suite not rerun"
+  },
+  "captured_replay": {
+    "session_id": 79839,
+    "junit": "/tmp/rssripple-v11-captured-fm.xml",
+    "log": "/tmp/rssripple-v11-captured-fm.log",
+    "status": "complete",
+    "exit_code": 0,
+    "suites": [
+      {
+        "name": "pytest",
+        "errors": "0",
+        "failures": "0",
+        "skipped": "0",
+        "tests": "1",
+        "time": "1.526",
+        "timestamp": "2026-09-20T08:08:45.140262+00:00",
+        "hostname": "dl-workstation-albert"
+      }
+    ],
+    "scope": "unchanged captured pre-split graph, 101 batch rows loaded, exact complete/incomplete 1-7 evidence pair checked; three terminal decisions preserved; read-only SQL verified"
+  },
+  "integration_diagnostic_fn": {
+    "passed": 46,
+    "failed": 22,
+    "seconds": 20.75,
+    "exit_code": 1,
+    "junit": "/tmp/rssripple-v11-integration-fn.xml",
+    "failures": [
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_reason_override_template",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_series_season_filled_from_work",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_series_without_episode_reason",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_series_episode_reason_without_work",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_non_override_reason_without_braces",
+        "message": "ValueError: A pending choice requires at least two distinct candidates"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_movie_pack",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_season_pack_without_work_is_unknown",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_season_pack_per_season_work",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_season_pack_legacy_unsplit_uses_parsed_season",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_multi_season_links_carried",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_multi_season_links_carried_empty_is_unknown",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_multi_season_legacy_fk_uses_batch_seasons",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_franchise_scope_has_no_coverage",
+        "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestFindActiveBatchDuplicate.test_movie_pack_match",
+        "message": "assert (None is not None)"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.TestFindActiveBatchDuplicate.test_links_carried_pack_match",
+        "message": "assert (None is not None)"
+      },
+      {
+        "test": "tests.integration.metadata.test_agent_service_coverage.test_retire_legacy_confirmation_decisions",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at, id]\n[parameters: ('c17dec9c-807d-48a4-be7a-bb3928441f36', 'ccef166f-729d-41dc-b762-327acaf85795', None, None, None, None, None, '[\"r1\"]', '集号不确定，请人工确认', None, None, None, 'pending', '2030-01-01 00:00:00.000000', None, '2cee29cd-d2a9-44af-92ae-359259ecb4be', 'ccef166f-729d-41dc-b762-327acaf85795', None, None, None, None, None, '[\"r1\", \"r2\"]', '多个资源匹配 剧集A 第01集', None, None, None, 'pending', '2030-01-01 00:00:00.000000', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_merge_series_enriches_survivor_and_resolves_child_collisions",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('14f03663-d6cb-4a4c-9381-9a8b415b754b', 'ea14647e-f451-4c2b-8982-823d89580eea', 'b97eb807-479f-418b-b5a9-e8765c0f75c3', None, 1, 1, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_merge_movie_enriches_survivor_and_resolves_child_collisions",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('e83e3e75-8661-44f6-8236-3d6273bf81cd', '324dd7bb-a506-4631-a88d-7c7f65bfe13c', None, '82c22f72-9bc5-4a43-8ceb-11a564621717', 1, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_cross_type_keeps_series_with_episode_evidence",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('d5520b2e-fb52-4d43-9362-be299b355793', 'a3b633d4-2742-49fc-8a03-69153ec75694', None, '7e9ede0e-3d88-4b0d-9b4f-0e837a694785', 3, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_cross_type_keeps_movie_without_episode_evidence",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('ab6d60f4-69f3-4d27-b403-85a6aa2b3fcc', '1d958252-a685-44a6-b192-1a497469f672', 'e2691540-6962-480c-9b0f-601aad4c4a10', None, None, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_rehome_series_as_movie_moves_references_and_bag",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('cf87d9ec-952a-42d6-b94d-a6e639df692f', 'c15ebe96-4ea7-49fc-aabf-aebbccbddf6d', 'a66d5679-60f0-40d3-b393-2a8213ff6225', None, None, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "test": "tests.integration.organize.test_scheduler_coverage.test_cleanup_expired_decisions_tasks_and_notifications",
+        "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('402142ea-30bd-45d5-b59d-3bcb0109918d', 'efa99bf1-70f4-48bd-a3e0-11c314ba6b60', None, None, None, None, None, '[]', 'stale', None, None, None, 'pending', '2026-09-19 08:11:01.691068', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      }
+    ]
+  },
+  "rekey_discovery_race": {
+    "project": "rssripple-v11-discovery-20260920-fo",
+    "result": {
+      "discovered_agents": [],
+      "pending": [
+        {
+          "id": "1bc6de9f-e507-4bd1-b506-6b240f02b962",
+          "movie_id": "62e086c7-e175-45ab-9b12-115d92a60e28",
+          "scope": {
+            "episode": null,
+            "kind": "movie",
+            "season": null,
+            "version": 1,
+            "work_id": "c23437c6-ae7e-4a61-b85c-6d7693fc33a6"
+          }
+        }
+      ],
+      "canonical_after_merge": false
+    },
+    "exit_code": 1,
+    "cleanup_exit_code": 0,
+    "status": "confirmed unfixed race; new pending choice missed after discovery",
+    "initial_attempt": "fo failed before race due to aware parsed_at in PG fixture; fp corrected and reached race",
+    "log": "/tmp/rssripple-v11-discovery-fp.log",
+    "scope": "two actual PG connections; actual merge and create_pending_decision; synthetic works/resources; skip_llm=True; no downloader calls"
+  },
+  "integration_scheduler_compatibility": {
+    "junit": "/tmp/rssripple-v11-scheduler-fq.xml",
+    "exit_code": 0,
+    "passed": 7,
+    "seconds": 2.95,
+    "remaining_fn_failures": 21
+  },
+  "identity_coordination_fix": {
+    "pg_project": "rssripple-v11-identity-20260920-fs",
+    "pg_exit_code": 0,
+    "cleanup_exit_code": 0,
+    "race_result": {
+      "rejections": [
+        "coordination_busy",
+        "stale_identity"
+      ],
+      "discovered_agents": [],
+      "pending": [
+        {
+          "id": "7ce5450d-97cd-49b6-8b40-dc1b2ed65dbd",
+          "movie_id": "3aecf36a-d7bc-49ae-9cd2-4e49cf5b89fd",
+          "scope": {
+            "episode": null,
+            "kind": "movie",
+            "season": null,
+            "version": 1,
+            "work_id": "3aecf36a-d7bc-49ae-9cd2-4e49cf5b89fd"
+          }
+        }
+      ],
+      "canonical_after_merge": true
+    },
+    "lock_matrix": {
+      "concurrent_creators": true,
+      "merge_rejected_while_creators": true,
+      "creator_rejected_while_merge": true,
+      "rollback_releases_lock": true
+    },
+    "initial_unit": {
+      "passed": 15,
+      "failed": 2,
+      "junit": "/tmp/rssripple-v11-identity-fr.xml",
+      "reason": "historical misclassified TV-without-episode fixture now rejected by normal creation"
+    },
+    "unit_after": {
+      "passed": 17,
+      "seconds": 8.19,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-identity-ft.xml"
+    },
+    "expanded": {
+      "session_id": 56604,
+      "junit": "/tmp/rssripple-v11-identity-expanded-fv.xml",
+      "log": "/tmp/rssripple-v11-identity-expanded-fv.log",
+      "status": "complete",
+      "exit_code": 1,
+      "passed": 158,
+      "failed": 2,
+      "skipped": 1,
+      "seconds": 68.11,
+      "failures": [
+        "test_create_pending_decision_series_no_episode",
+        "test_create_pending_decision_legacy_3tuple_key"
+      ]
+    },
+    "remaining": "expanded compatibility; actual create-first and model-period merge/retry boundary tests; full unit/API and integration gates"
+  },
+  "agent_identity_contract_compatibility": {
+    "initial": {
+      "junit": "/tmp/rssripple-v11-agent-fw.xml",
+      "exit_code": 1,
+      "passed": 151,
+      "failed": 3,
+      "seconds": 50.11
+    },
+    "agent_integration": {
+      "junit": "/tmp/rssripple-v11-agent-fx.xml",
+      "exit_code": 0,
+      "passed": 44,
+      "seconds": 9.32
+    },
+    "dedup_integration": {
+      "junit": "/tmp/rssripple-v11-dedup-fy.xml",
+      "exit_code": 0,
+      "passed": 17,
+      "seconds": 5.9
+    },
+    "remaining_original_fn_failures": 0,
+    "remaining_original_fv_failures": 0,
+    "scope": "original diagnosed failures repaired with scoped evidence; no full gate result yet"
+  },
+  "unit_gate_ga": {
+    "session_id": 20821,
+    "directory": "/tmp/rssripple-v11-gate-fz",
+    "source_manifest": "/tmp/rssripple-v11-gate-fz-source.json",
+    "source_files": 523,
+    "junit": "/tmp/rssripple-v11-unit-ga.xml",
+    "coverage": "/tmp/rssripple-v11-unit-ga-coverage.xml",
+    "log": "/tmp/rssripple-v11-unit-ga.log",
+    "status": "complete",
+    "required_coverage": 95,
+    "coverage_config_sha256": "35e925c8ebcd1b7d1698aef47667db3ca7d0ab32e8611c9c6495ed35a0718033",
+    "discarded_fz": {
+      "session_id": 77103,
+      "exit_code": 143,
+      "reason": "copy ignore matched .coveragerc; terminated confirmed before corrected ga start; not acceptance"
+    },
+    "exit_code": 0,
+    "passed": 3746,
+    "skipped": 15,
+    "warnings": 6,
+    "seconds": 1718.46,
+    "covered": 21918,
+    "valid": 22482,
+    "coverage_percent": 97.49,
+    "source_unchanged": true
+  },
+  "identity_order_verification": {
+    "project": "rssripple-v11-orders-20260920-gc",
+    "exit_code": 0,
+    "cleanup_exit_code": 0,
+    "cases": [
+      {
+        "mode": "create_first",
+        "events": [
+          "merge_busy",
+          "merged"
+        ],
+        "pending_count": 1,
+        "candidates_preserved": true,
+        "old_recommendation_absent": true
+      },
+      {
+        "mode": "model_wait",
+        "events": [
+          "merged",
+          "model_returned_after_merge",
+          "stale_model_identity_rejected"
+        ],
+        "pending_count": 1,
+        "candidates_preserved": true,
+        "old_recommendation_absent": true
+      }
+    ],
+    "scope": "actual PG sessions and create/merge production functions; synthetic resources and model output; manual fresh transaction retry, not full job-handler retry proof",
+    "log": "/tmp/rssripple-v11-orders-gc.log"
+  },
+  "integration_gate_gb": {
+    "session_id": 63542,
+    "project": "rssripple-v11-complete-20260920-gb",
+    "directory": "/tmp/rssripple-v11-integration-gb",
+    "source_manifest": "/tmp/rssripple-v11-integration-gb-source.json",
+    "source_files": 2967,
+    "log": "/tmp/rssripple-v11-integration-gb.log",
+    "status": "completed failed",
+    "startup_exit_code": 0,
+    "required_coverage": 85,
+    "remaining": "runner terminal; SIGINT both apps and verify exit0; coverage-report; export app data; source verification; down volumes; no premature success claim",
+    "exit_code": 1,
+    "passed": 3139,
+    "failed": 3,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1709.78,
+    "coverage_exit_code": 0,
+    "covered": 20004,
+    "valid": 22482,
+    "coverage_percent": 88.98,
+    "app_exit_codes": [
+      0,
+      0
+    ],
+    "cleanup_exit_code": 0,
+    "artifacts": "/tmp/rssripple-v11-artifacts-gb",
+    "source_unchanged": true
+  },
+  "links_identity_order_verification": {
+    "project": "rssripple-v11-links-20260920-gd",
+    "exit_code": 0,
+    "cleanup_exit_code": 0,
+    "cases": [
+      {
+        "mode": "create_first",
+        "events": [
+          "merge_busy",
+          "merged"
+        ],
+        "pending_count": 1,
+        "candidates_preserved": true,
+        "old_recommendation_absent": true
+      },
+      {
+        "mode": "model_wait",
+        "events": [
+          "merged",
+          "model_returned_after_merge",
+          "stale_model_identity_rejected"
+        ],
+        "pending_count": 1,
+        "candidates_preserved": true,
+        "old_recommendation_absent": true
+      },
+      {
+        "mode": "links_create_first",
+        "events": [
+          "merge_busy",
+          "merged"
+        ],
+        "pending_count": 1,
+        "candidates_preserved": true,
+        "old_recommendation_absent": true
+      },
+      {
+        "mode": "links_model_wait",
+        "events": [
+          "merged",
+          "model_returned_after_merge",
+          "stale_model_identity_rejected"
+        ],
+        "pending_count": 1,
+        "candidates_preserved": true,
+        "old_recommendation_absent": true
+      }
+    ],
+    "scope": "actual PG two-session production create/merge with links-only multi-movie assignments; synthetic work/resource/model; explicit fresh-session retry; no full job recovery claim"
+  },
+  "job_identity_recovery": {
+    "project": "rssripple-v11-job-20260920-ge",
+    "exit_code": 0,
+    "cleanup_exit_code": 0,
+    "result": {
+      "first_errors": [
+        "Decision candidates changed identity; regroup current resources before retry"
+      ],
+      "second_pending": 1,
+      "watermark_held_then_advanced": true,
+      "requests_deferred_then_acknowledged": true,
+      "run_statuses": [
+        "failed",
+        "pending_decisions"
+      ],
+      "candidates_preserved": true
+    },
+    "log": "/tmp/rssripple-v11-job-ge.log",
+    "scope": "actual _handle_run_agent, process_resources, request snapshot/defer/ack and work merge on real PG; synthetic resources/model; request clock advanced after observing real persisted backoff; direct job invocation, not broker/worker crash recovery"
+  },
+  "quality_review_preliminary": {
+    "status": "preliminary review; full gates still pending",
+    "skill": "/home/robinqu/.agents/skills/code-review-and-quality/SKILL.md",
+    "scope": "current independent prototype app/tests/scripts; not a merge approval",
+    "correctness": [
+      "Canonical coverage retains intervals/gaps, refuses unknown and unsplit legacy works",
+      "Pending key uses versioned JSON digest and partial unique index",
+      "New writers refresh resource identity after model work",
+      "Manual/AI/batch confirmation refreshes identity, rules and required metadata before dispatch",
+      "Offline migration checks fresh review fingerprint, archives before-images and preserves terminal history"
+    ],
+    "concurrency": [
+      "PG shared/exclusive try-advisory protocol avoids waiting under preexisting row locks",
+      "PG empty-slot, reverse ordering, model-window and links-only cases passed",
+      "Real job handler held watermark/deferred requests, then recovered by current identity",
+      "Existing raw SQL subscription inserts are outside cooperative API locking contract"
+    ],
+    "architecture": [
+      "Coverage, persisted choice, review, rekey and offline apply are separated by lifecycle",
+      "Offline migration and online rekey duplicate scope-to-flat-field projection; small common helper extraction remains a review improvement, no observed behavior divergence"
+    ],
+    "security": [
+      "No new external dependencies",
+      "DDL identifiers and advisory function names are internal constants; dynamic values bound",
+      "Offline apply requires explicit fingerprint/supersede flags and stopped writers/backup CLI confirmation"
+    ],
+    "performance": [
+      "Coverage loads and resource lookups use batches of 100",
+      "Work-rekey discovers pending rows in pages of 100",
+      "Global identity lock permits concurrent creators; rare work merges temporarily reject all creators, an explicit throughput tradeoff"
+    ],
+    "lint": {
+      "command": "ruff check app tests scripts",
+      "exit_code": 0,
+      "note": "ruff check . on temp prototype includes historical scratch probes outside tracked patch and reports 42 issues; no claim of whole-root lint pass"
+    },
+    "remaining": [
+      "Complete unit/API >=95%",
+      "Complete isolated integration >=85%, app exit0, export and cleanup",
+      "Validate final applied tree, remove stale comments and evaluate projection duplication before merge"
+    ]
+  },
+  "corpus_policy_review": {
+    "initial_loader_fix": {
+      "junit": "/tmp/rssripple-v11-corpus-gi.xml",
+      "passed": 61,
+      "failed": 1,
+      "seconds": 5.98,
+      "exit_code": 1
+    },
+    "after_review": {
+      "junit": "/tmp/rssripple-v11-corpus-gj.xml",
+      "passed": 62,
+      "seconds": 5.73,
+      "exit_code": 0
+    },
+    "review_change": {
+      "changed_fixture_files": [
+        "metadata_corpus_v2/reviews.json"
+      ],
+      "before_sha256": "05c2ab7b694bef3b8d21eb7239a08bc3836ec495bae648b6d7b7ef44149e35bf",
+      "after_sha256": "faa7c6cda84fea227c603c6ea13ff11e97cbfb63cb7b199345354fa615996d23",
+      "reason": "Existing gold retains an unbound Battle Stage 3 file; V11 policy requires coverage confirmation. Raw captures and all remaining expected fields unchanged."
+    },
+    "scope": "Only confirmation kinds and evidence note changed in gold; all other expected fields and raw fixture files byte-preserved"
+  },
+  "integration_gate_gk": {
+    "project": "rssripple-v11-complete-20260920-gk",
+    "directory": "/tmp/rssripple-v11-integration-gk",
+    "session_id": 2584,
+    "source_manifest": "/tmp/rssripple-v11-integration-gk-source.json",
+    "log": "/tmp/rssripple-v11-integration-gk.log",
+    "status": "running",
+    "startup_exit_code": 0,
+    "changes_since_gb": [
+      "tests/integration/metadata/test_misc_services_coverage.py",
+      "tests/metadata_corpus/runner.py",
+      "tests/fixtures/metadata_corpus_v2/reviews.json"
+    ],
+    "runtime_unchanged_since_ga": true
   }
 }

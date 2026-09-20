@@ -1,0 +1,52 @@
+{
+  "status": "approved for local main merge",
+  "skill": "/home/robinqu/.agents/skills/code-review-and-quality/SKILL.md",
+  "scope": "54 applied files byte-identical to accepted frozen integration tree",
+  "correctness": [
+    "Canonical coverage retains intervals/gaps, refuses unknown and unsplit legacy works",
+    "Pending key uses versioned JSON digest and partial unique index",
+    "New writers refresh resource identity after model work",
+    "Manual/AI/batch confirmation refreshes identity, rules and required metadata before dispatch",
+    "Offline migration checks fresh review fingerprint, archives before-images and preserves terminal history"
+  ],
+  "concurrency": [
+    "PG shared/exclusive try-advisory protocol avoids waiting under preexisting row locks",
+    "PG empty-slot, reverse ordering, model-window and links-only cases passed",
+    "Real job handler held watermark/deferred requests, then recovered by current identity",
+    "Existing raw SQL subscription inserts are outside cooperative API locking contract"
+  ],
+  "architecture": [
+    "Coverage, persisted choice, review, rekey and offline apply are separated by lifecycle",
+    "Offline migration and online rekey retain identical small scope projections; no divergence found. Extraction is optional and deferred to avoid unrelated runtime changes in this correctness batch."
+  ],
+  "security": [
+    "No new external dependencies",
+    "DDL identifiers and advisory function names are internal constants; dynamic values bound",
+    "Offline apply requires explicit fingerprint/supersede flags and stopped writers/backup CLI confirmation"
+  ],
+  "performance": [
+    "Coverage loads and resource lookups use batches of 100",
+    "Work-rekey discovers pending rows in pages of 100",
+    "Global identity lock permits concurrent creators; rare work merges temporarily reject all creators, an explicit throughput tradeoff"
+  ],
+  "lint": {
+    "command": "ruff check .",
+    "exit_code": 0
+  },
+  "remaining": [],
+  "acceptance": {
+    "unit_api": "3746 passed, 15 skipped, 97.49%, exit 0",
+    "integration": "3142 passed, 17 skipped, 89.02%, exit 0",
+    "application_exits": [
+      0,
+      0
+    ],
+    "export_exit": 0,
+    "cleanup_exit": 0,
+    "frozen_files_unchanged": 2967
+  },
+  "limitations": [
+    "Requires reviewed offline migration for existing pending rows; startup refuses unreviewed legacy pending data",
+    "D6 deletion lifecycle is a separately reproduced open issue; no V12 code included"
+  ]
+}

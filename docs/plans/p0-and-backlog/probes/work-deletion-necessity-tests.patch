@@ -1,0 +1,141 @@
+--- /dev/null
++++ b/tests/api/test_work_deletion_review.py
+@@ -0,0 +1,88 @@
++"""Necessity review: real API/DB, explicitly synthetic work associations."""
++
++import uuid
++
++import pytest
++from sqlalchemy import select
++
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.external_ids import add_external_id
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_deleted_work_releases_external_identity(client, db_session_factory, sample_series, sample_movie, kind):
++    work = sample_series if kind == "series" else sample_movie
++    async with db_session_factory() as db:
++        assert await add_external_id(db, kind, work.id, "tmdb", "987654321")
++        await db.commit()
++    route = "series" if kind == "series" else "movies"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
++    assert response.status_code == 200, response.text
++    async with db_session_factory() as db:
++        leftovers = list(
++            await db.scalars(
++                select(WorkExternalId).where(
++                    WorkExternalId.work_type == kind,
++                    WorkExternalId.work_id == work.id,
++                )
++            )
++        )
++        replacement = type(work)(title_cn="Synthetic replacement")
++        if kind == "series":
++            collection = WorkCollection(title_cn="Synthetic replacement collection")
++            db.add(collection)
++            await db.flush()
++            replacement.collection_id = collection.id
++            replacement.season_number = 1
++        db.add(replacement)
++        await db.flush()
++        registered = await add_external_id(db, kind, replacement.id, "tmdb", "987654321")
++        assert not leftovers and registered, {
++            "leftover_identity_rows": len(leftovers),
++            "replacement_registered": registered,
++        }
++
++
++@pytest.mark.parametrize("kind", ["series", "movie"])
++async def test_manual_file_mapping_blocks_unreviewed_work_delete(
++    client,
++    db_session_factory,
++    sample_channel,
++    sample_series,
++    sample_movie,
++    kind,
++):
++    work = sample_series if kind == "series" else sample_movie
++    async with db_session_factory() as db:
++        resource = FileResource(
++            id=str(uuid.uuid4()),
++            channel_id=sample_channel.id,
++            guid=str(uuid.uuid4()),
++            title_raw="Synthetic manual placement",
++            torrent_url="magnet:?xt=urn:btih:synthetic",
++        )
++        db.add(resource)
++        await db.flush()
++        link = ResourceWorkLink(resource_id=resource.id, source="manual", **{kind + "_id": work.id})
++        assignment = ResourceFileAssignment(
++            resource_id=resource.id, file_path="synthetic.mkv", source="manual", **{kind + "_id": work.id}
++        )
++        db.add_all([link, assignment])
++        await db.commit()
++        link_id, assignment_id = link.id, assignment.id
++    route = "series" if kind == "series" else "movies"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
++    async with db_session_factory() as db:
++        remaining_link = await db.get(ResourceWorkLink, link_id)
++        remaining_assignment = await db.get(ResourceFileAssignment, assignment_id)
++        observed = dict(
++            status=response.status_code,
++            link_retained=remaining_link is not None,
++            assignment_retained=remaining_assignment is not None,
++        )
++        assert response.status_code == 409 and remaining_link and remaining_assignment, observed
++    assert response.json()["error"]["code"] == "DELETE_BLOCKED"
+--- /dev/null
++++ b/tests/integration/season_model/test_work_deletion_captured_review.py
+@@ -0,0 +1,47 @@
++"""Deletion necessity on the unchanged captured graph, not synthetic mappings."""
++
++import hashlib
++
++import httpx
++import pytest
++from sqlalchemy import select
++
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from tests.api.conftest import _build_test_app
++
++from .conftest import open_fixture_db
++from .loader import FIXTURE_PATH
++
++pytestmark = pytest.mark.asyncio(loop_scope="module")
++
++
++@pytest.mark.parametrize(
++    "work_id,model",
++    [
++        ("1d721de9-dbf9-46af-977a-fda92eb336c1", ResourceWorkLink),
++        ("4bc342c7-4701-4d95-afbe-0e6b976cd9bd", ResourceFileAssignment),
++    ],
++)
++async def test_captured_manual_evidence_survives_unreviewed_work_delete(tmp_path, work_id, model):
++    assert hashlib.sha256(FIXTURE_PATH.read_bytes()).hexdigest() == (
++        "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32"
++    )
++    async with open_fixture_db(tmp_path / "captured-deletion.db") as handle:
++        async with handle.factory() as db:
++            assert await db.get(TVSeries, work_id) is not None
++            before = set(await db.scalars(select(model.id).where(model.series_id == work_id, model.source == "manual")))
++            assert before
++        app = _build_test_app(handle.factory)
++        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
++            response = await client.delete(f"/api/v1/series/{work_id}")
++        async with handle.factory() as db:
++            retained = set(await db.scalars(select(model.id).where(model.id.in_(before))))
++            work_retained = await db.get(TVSeries, work_id) is not None
++        assert response.status_code == 409 and retained == before and work_retained, {
++            "status": response.status_code,
++            "captured_manual_rows": len(before),
++            "retained_rows": len(retained),
++            "work_retained": work_retained,
++        }

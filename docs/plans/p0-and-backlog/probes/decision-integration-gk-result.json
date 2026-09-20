@@ -1,0 +1,29 @@
+{
+  "status": "complete_gate_pass_merge_review_pending",
+  "run": "gk",
+  "passed": 3142,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 1699.48,
+  "runner_exit": 0,
+  "application_exits": [
+    0,
+    0
+  ],
+  "coverage_exit": 0,
+  "coverage": {
+    "covered": 20013,
+    "valid": 22482,
+    "percent": 89.02,
+    "threshold": 85
+  },
+  "export_exit": 0,
+  "artifacts": "/tmp/rssripple-v11-artifacts-gk",
+  "frozen_source_verification": {
+    "files": 2967,
+    "changed": []
+  },
+  "log": "/tmp/rssripple-v11-integration-gk.log",
+  "coverage_log": "/tmp/rssripple-v11-coverage-gk.log",
+  "cleanup_exit": 0
+}

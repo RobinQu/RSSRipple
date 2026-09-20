@@ -1,0 +1,9 @@
+{
+  "junit": "/tmp/rssripple-v11-agent-fa.xml",
+  "passed": 110,
+  "seconds": 39.39,
+  "exit_code": 0,
+  "resolved_prior_failures": 12,
+  "remaining_prior_expanded_failures": 0,
+  "scope": "complete test_agent_service.py; synthetic explicit intervals and per-season assignments; no full gate claim"
+}

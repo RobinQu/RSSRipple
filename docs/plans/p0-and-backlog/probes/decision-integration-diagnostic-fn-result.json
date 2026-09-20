@@ -1,0 +1,97 @@
+{
+  "passed": 46,
+  "failed": 22,
+  "seconds": 20.75,
+  "exit_code": 1,
+  "junit": "/tmp/rssripple-v11-integration-fn.xml",
+  "failures": [
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_reason_override_template",
+      "message": "ValueError: A pending choice requires at least two distinct candidates"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_series_season_filled_from_work",
+      "message": "ValueError: A pending choice requires at least two distinct candidates"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_series_without_episode_reason",
+      "message": "ValueError: A pending choice requires at least two distinct candidates"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_series_episode_reason_without_work",
+      "message": "ValueError: A pending choice requires at least two distinct candidates"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestCreatePendingDecision.test_non_override_reason_without_braces",
+      "message": "ValueError: A pending choice requires at least two distinct candidates"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_movie_pack",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_season_pack_without_work_is_unknown",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_season_pack_per_season_work",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_season_pack_legacy_unsplit_uses_parsed_season",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_multi_season_links_carried",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_multi_season_links_carried_empty_is_unknown",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_multi_season_legacy_fk_uses_batch_seasons",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestBatchCoverageKey.test_franchise_scope_has_no_coverage",
+      "message": "AttributeError: 'types.SimpleNamespace' object has no attribute 'is_batch'"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestFindActiveBatchDuplicate.test_movie_pack_match",
+      "message": "assert (None is not None)"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.TestFindActiveBatchDuplicate.test_links_carried_pack_match",
+      "message": "assert (None is not None)"
+    },
+    {
+      "test": "tests.integration.metadata.test_agent_service_coverage.test_retire_legacy_confirmation_decisions",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at, id]\n[parameters: ('c17dec9c-807d-48a4-be7a-bb3928441f36', 'ccef166f-729d-41dc-b762-327acaf85795', None, None, None, None, None, '[\"r1\"]', '集号不确定，请人工确认', None, None, None, 'pending', '2030-01-01 00:00:00.000000', None, '2cee29cd-d2a9-44af-92ae-359259ecb4be', 'ccef166f-729d-41dc-b762-327acaf85795', None, None, None, None, None, '[\"r1\", \"r2\"]', '多个资源匹配 剧集A 第01集', None, None, None, 'pending', '2030-01-01 00:00:00.000000', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_merge_series_enriches_survivor_and_resolves_child_collisions",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('14f03663-d6cb-4a4c-9381-9a8b415b754b', 'ea14647e-f451-4c2b-8982-823d89580eea', 'b97eb807-479f-418b-b5a9-e8765c0f75c3', None, 1, 1, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_merge_movie_enriches_survivor_and_resolves_child_collisions",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('e83e3e75-8661-44f6-8236-3d6273bf81cd', '324dd7bb-a506-4631-a88d-7c7f65bfe13c', None, '82c22f72-9bc5-4a43-8ceb-11a564621717', 1, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_cross_type_keeps_series_with_episode_evidence",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('d5520b2e-fb52-4d43-9362-be299b355793', 'a3b633d4-2742-49fc-8a03-69153ec75694', None, '7e9ede0e-3d88-4b0d-9b4f-0e837a694785', 3, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_cross_type_keeps_movie_without_episode_evidence",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('ab6d60f4-69f3-4d27-b403-85a6aa2b3fcc', '1d958252-a685-44a6-b192-1a497469f672', 'e2691540-6962-480c-9b0f-601aad4c4a10', None, None, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.integration.metadata.test_metadata_dedup_coverage.test_rehome_series_as_movie_moves_references_and_bag",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('cf87d9ec-952a-42d6-b94d-a6e639df692f', 'c15ebe96-4ea7-49fc-aabf-aebbccbddf6d', 'a66d5679-60f0-40d3-b393-2a8213ff6225', None, None, None, None, '[]', 'conflict', None, None, None, 'pending', None, None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    },
+    {
+      "test": "tests.integration.organize.test_scheduler_coverage.test_cleanup_expired_decisions_tasks_and_notifications",
+      "message": "sqlalchemy.exc.IntegrityError: (turso.lib.IntegrityError) CHECK constraint failed: ck_pending_decision_key (19)\n[SQL: INSERT INTO pending_decisions (id, agent_id, series_id, movie_id, episode, season, decision_key, candidates, reason, llm_suggestion, llm_picked_resource_id, decided_resource_id, status, expires_at, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at]\n[parameters: ('402142ea-30bd-45d5-b59d-3bcb0109918d', 'efa99bf1-70f4-48bd-a3e0-11c314ba6b60', None, None, None, None, None, '[]', 'stale', None, None, None, 'pending', '2026-09-19 08:11:01.691068', None)]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    }
+  ]
+}

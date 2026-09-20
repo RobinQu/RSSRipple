@@ -1,0 +1,27 @@
+{
+  "project": "rssripple-v11-rules-20260920-fc",
+  "red_cases": [
+    {
+      "mutation": "channel",
+      "writer_blocked_during_dispatch": false,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    },
+    {
+      "mutation": "subscription",
+      "writer_blocked_during_dispatch": false,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided",
+      "writer_succeeds_after_commit": true
+    }
+  ],
+  "exit_code": 1,
+  "cleanup_exit_code": 0,
+  "scope": "real PG connections, synthetic candidates, model/download mocked",
+  "status": "confirmed unfixed races; do not claim rule stability"
+}
