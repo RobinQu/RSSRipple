@@ -1,0 +1,11 @@
+{
+  "directory": "/tmp/rssripple-v10-integration-bx",
+  "project": "rssripple-v10-complete-20260920-bz",
+  "source_manifest": "/tmp/rssripple-v10-source-bx.json",
+  "test_session": 26134,
+  "test_log": "/tmp/rssripple-v10-integration-bz.log",
+  "state": "accepted, cleaned",
+  "test_exit_code": 0,
+  "coverage_exit_code": 0,
+  "cleanup": "complete"
+}

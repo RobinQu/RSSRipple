@@ -43,38 +43,10 @@ def _ensure_mock_downloader() -> str:
 
 
 def _ensure_series(title_cn: str, title_en: str) -> str:
-    """Get or create a TV series by title (avoids duplicate rows confusing
-    the exact-match auto-link)."""
-    r = _api("/api/v1/series", params={"page_size": 100, "title": title_cn})
-    if r.status_code == 200:
-        for s in r.json().get("data", []):
-            if s.get("title_cn") == title_cn:
-                updates = {}
-                if not s.get("start_date"):
-                    updates["start_date"] = "2023-01-01"
-                if s.get("is_anime") is None:
-                    updates["is_anime"] = True
-                if not s.get("number_of_seasons"):
-                    updates["number_of_seasons"] = 1
-                if updates:
-                    updated = _api(
-                        f"/api/v1/series/{s['id']}", method="put", json=updates
-                    )
-                    assert updated.status_code == 200, updated.text
-                return s["id"]
-    r = _api(
-        "/api/v1/series",
-        method="post",
-        json={
-            "title_cn": title_cn,
-            "title_en": title_en,
-            "start_date": "2023-01-01",
-            "is_anime": True,
-            "number_of_seasons": 1,
-        },
-    )
-    assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
-    return r.json()["data"]["id"]
+    from tests.integration.http._http import ensure_series
+
+    return ensure_series(title_cn, title_en, single_season_entry=True, api=_api)
+
 
 
 @pytest.fixture(scope="class")

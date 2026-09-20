@@ -34,7 +34,7 @@ SERIES_TITLE_CN = "黄泉使者"
 def _tx_env():
     """Agent that dispatched real torrents to the transmission service."""
     series_id = ensure_series(
-        SERIES_TITLE_CN, "Daemons of the Shadow Realm", number_of_seasons=1
+        SERIES_TITLE_CN, "Daemons of the Shadow Realm", single_season_entry=True
     )
     # Dedicated downloader at the compose transmission port — do NOT reuse
     # _ensure_downloader (other suites register unreachable downloaders and

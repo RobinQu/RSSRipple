@@ -35,6 +35,7 @@ from tests.integration.http._http import (
     TEST_SERVER,
     _api,
     _poll_fetch,
+    single_season_fixture_fields,
 )
 
 MIKANANI_S3_URL = f"{TEST_SERVER}/rss/mikanani?series=3"  # 咒术回战 (linked channel)
@@ -143,7 +144,7 @@ def _track_series(
     title_cn: str,
     title_en: str,
     *,
-    number_of_seasons: int | None = 1,
+    single_season_entry: bool = True,
     number_of_episodes: int | None = None,
 ) -> str:
     """ensure_series variant that registers the work for teardown: created
@@ -157,13 +158,13 @@ def _track_series(
                 original = {
                     k: s.get(k)
                     for k in (
-                        "number_of_seasons", "start_date", "is_anime",
+                        "external_id", "external_source", "start_date", "is_anime",
                         "number_of_episodes",
                     )
                 }
                 updates = {}
-                if number_of_seasons is not None and s.get("number_of_seasons") != number_of_seasons:
-                    updates["number_of_seasons"] = number_of_seasons
+                if single_season_entry:
+                    updates.update(single_season_fixture_fields(s))
                 if not s.get("start_date"):
                     updates["start_date"] = "2023-01-01"
                 if s.get("is_anime") is None:
@@ -181,8 +182,8 @@ def _track_series(
         "start_date": "2023-01-01",
         "is_anime": True,
     }
-    if number_of_seasons is not None:
-        payload["number_of_seasons"] = number_of_seasons
+    if single_season_entry:
+        payload.update(single_season_fixture_fields())
     if number_of_episodes is not None:
         payload["number_of_episodes"] = number_of_episodes
     r = _api("/api/v1/series", method="post", json=payload)

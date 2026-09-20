@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 
 import httpx
 
@@ -291,58 +292,50 @@ def _ensure_downloader() -> str:
 # ── Series seeding ─────────────────────────────────────────────────────────
 
 
+def single_season_fixture_fields(existing: dict | None = None) -> dict:
+    """Synthetic Bangumi subject identity for a known single-season fixture.
+
+    These IDs are generated test data, never recorded/live provider evidence.
+    The app already recognizes Bangumi subject granularity without retired
+    work counts. Preserve an existing subject identity when one is present.
+    """
+    if existing and existing.get("external_source") == "bangumi" and existing.get("external_id"):
+        return {}
+    return {"external_source": "bangumi", "external_id": f"bangumi:{uuid.uuid4().int}"}
+
+
 def ensure_series(
     title_cn: str,
     title_en: str,
-    number_of_seasons: int | None = None,
+    single_season_entry: bool = False,
     api=_api,
     *,
     start_date: str = "2023-01-01",
     is_anime: bool = True,
 ) -> str:
-    """Get-or-create a series by exact title_cn; returns the series id.
+    """Get/create by exact title, optionally with synthetic season-subject evidence.
 
-    Since 81a9d06, Layer-3 auto-link abandons top-1 linking when >1 local
-    works share a normalized title — so tests must never blindly POST a
-    duplicate. When ``number_of_seasons`` is given, the row is also brought
-    to that value (create or update): it supplies the single-season evidence
-    ``resolve_missing_season`` needs to land ``season=1`` instead of marking
-    season-less resources ``episode_confidence=ambiguous`` (which routes them
-    to a PendingDecision instead of dispatch).
-    ``api`` allows reusing the helper against the app-llm instance.
+    The seed is synthetic metadata even when RSS/torrent fixtures are captured
+    data. Never send retired seasons/number_of_seasons to the work API.
     """
     r = api("/api/v1/series", params={"page_size": 100, "title": title_cn})
     if r.status_code == 200:
-        for s in r.json().get("data", []):
-            if s.get("title_cn") == title_cn:
-                sid = s["id"]
-                break
-        else:
-            sid = None
-        if sid is not None:
-            updates = {}
-            if number_of_seasons is not None and s.get("number_of_seasons") != number_of_seasons:
-                updates["number_of_seasons"] = number_of_seasons
-            if not s.get("start_date"):
+        for work in r.json().get("data", []):
+            if work.get("title_cn") != title_cn:
+                continue
+            sid = work["id"]
+            updates = single_season_fixture_fields(work) if single_season_entry else {}
+            if not work.get("start_date"):
                 updates["start_date"] = start_date
-            if s.get("is_anime") is None:
+            if work.get("is_anime") is None:
                 updates["is_anime"] = is_anime
             if updates:
-                r = api(
-                    f"/api/v1/series/{sid}",
-                    method="put",
-                    json=updates,
-                )
+                r = api(f"/api/v1/series/{sid}", method="put", json=updates)
                 assert r.status_code == 200, f"series update failed: {r.text}"
             return sid
-    payload: dict = {
-        "title_cn": title_cn,
-        "title_en": title_en,
-        "start_date": start_date,
-        "is_anime": is_anime,
-    }
-    if number_of_seasons is not None:
-        payload["number_of_seasons"] = number_of_seasons
+    payload = dict(title_cn=title_cn, title_en=title_en, start_date=start_date, is_anime=is_anime)
+    if single_season_entry:
+        payload.update(single_season_fixture_fields())
     r = api("/api/v1/series", method="post", json=payload)
     assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
     return r.json()["data"]["id"]

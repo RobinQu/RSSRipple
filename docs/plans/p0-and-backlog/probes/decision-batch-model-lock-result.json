@@ -1,0 +1,39 @@
+{
+  "red": {
+    "other_transaction_updated_agent_during_second_model": false,
+    "dispatch_calls": 1,
+    "model_calls": 2,
+    "response": {
+      "success": true,
+      "data": {
+        "processed": 2,
+        "dispatched": 1,
+        "skipped": 0,
+        "failed": 1,
+        "errors": [
+          "b424fcd2-bc12-4208-b1c0-8365fde80776: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.LockNotAvailableError'>: canceling statement due to lock timeout\n[SQL: UPDATE agents SET name=$1::VARCHAR, updated_at=now() WHERE agents.id = $2::VARCHAR]\n[parameters: ('Concurrent update', 'b8e54340-cb1a-47f1-9c7e-fb74265aca49')]\n(Background on this error at: https://sqlalche.me/e/20/dbapi)"
+        ]
+      },
+      "error": null,
+      "meta": {}
+    }
+  },
+  "green": {
+    "other_transaction_updated_agent_during_second_model": true,
+    "dispatch_calls": 2,
+    "model_calls": 2,
+    "response": {
+      "success": true,
+      "data": {
+        "processed": 2,
+        "dispatched": 2,
+        "skipped": 0,
+        "failed": 0,
+        "errors": []
+      },
+      "error": null,
+      "meta": {}
+    }
+  },
+  "scope": "two actual PG sessions; second model callback updates Agent under 1500ms lock_timeout; model and dispatch mocked; synthetic candidates"
+}

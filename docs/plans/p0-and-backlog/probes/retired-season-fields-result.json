@@ -30,7 +30,7 @@
       "number_of_seasons"
     ]
   },
-  "pending": "Rebased combined V8/V9; 68 combination regressions passed; complete unit/API starting; not applied root",
+  "pending": "bx targeted passed; bz full integration running; runtime unchanged from passing bh unit gate",
   "files": {
     "app/schemas/series.py": "4bc3cf0b62058d375e1cc1aebd297fc65d46e410dc0eac12175c654e35776960",
     "app/services/metadata_dedup.py": "ac58d8d4c737fd4ae839c47f7067b86596e21d3b1c2bdd51f9bf61607d094b94",
@@ -46,7 +46,19 @@
     "tests/api/test_retired_season_fields.py": "07c5d7ebf8842858843386c8b0d7a5704fccfd4df2178e1fcf87d3b8ebe7b02a",
     "tests/integration/season_model/test_retired_field_review.py": "d6f926f5abcb1a4cd1cc210d3ef9ddc4d8aca48f3e83e5b9766aa57f1d18332b",
     "tests/unit/test_metadata_dedup.py": "2689c66969b27d5b35874f82398afed8e5866bd6b153bd8bd69a59355b804a39",
-    "tests/unit/test_retired_season_cleanup.py": "ac36f3dc82bd763a9ec1b612d13ec74b5bdb2cc74a81bf946e568a4b8a356e2f"
+    "tests/unit/test_retired_season_cleanup.py": "ac36f3dc82bd763a9ec1b612d13ec74b5bdb2cc74a81bf946e568a4b8a356e2f",
+    "tests/integration/http/_http.py": "5b359e2ec5be1bc79d46779f60e77271fba7f6adb4b551083b5c8f3067e6ce4e",
+    "tests/integration/http/test_agent_dispatch.py": "96f48a1fa4378835d843de66aacf7e27998db68416a246550f0506a240c2adaa",
+    "tests/integration/http/test_api_coverage2.py": "97b766cf5c7508a5d2136ac490d917fa7c66f56ccdf73e338d894773bf8759cb",
+    "tests/integration/http/test_api_coverage2_llm.py": "3c2c4de672c0fd5a05c4257e0a176003ef7fe5793f2d4f293242e37afbad3f9d",
+    "tests/integration/http/test_batch_dispatch.py": "0a2f61b2cd3cbc47ca4015a12c44504be552f17f5467f27d4806b663d0f3d654",
+    "tests/integration/http/test_decisions_flow.py": "39d1ea28844bc06443597e3d2f79f1d24b85f06feb33dc8ef634ee9b0ee537a0",
+    "tests/integration/http/test_e2e_pipeline.py": "1b32d5de8ee80391e1e4ca03cca08e325398b608ba7801aa6596ac2f3047283b",
+    "tests/integration/http/test_llm_mock.py": "8a234720afad890f023ce02af4596206c14f56ed3845e72231ade51f57fd9f5f",
+    "tests/integration/http/test_retired_season_fields.py": "19f21f381b9a52bf4e8af611639796f9aff7bd0b5b72185c2ff012c845042b11",
+    "tests/integration/http/test_tasks_api.py": "cc881c5703812283d56020c66ee9a975203d64889cd8363b82cddd3fdfc4c498",
+    "tests/integration/http/test_transmission_actions.py": "d117aece8fc88caebe22128cbba7a862d9a9b7c7299f866096251c6056ca6213",
+    "tests/integration/metadata/test_metadata_dedup_coverage.py": "5f19185cc950a74767a03438d34ed36866f9e6c179e469649924f91be42ad0fc"
   },
   "root_before": {
     "app/schemas/series.py": "3babc47dea4308b0a8e213592e8968d967a46149fcb6e22a1988a4a34c00d2f1",
@@ -63,7 +75,19 @@
     "tests/integration/season_model/test_retired_field_review.py": null,
     "docs/design/db-migration.md": "02ef95a4be6e454c81ed857ae2d526d6547b99044ac7e6686ea0062dc6b5bb4a",
     "docs/design/per-season-works.md": "1df570cae7b95d46590588526936e4e3166548c74bc99cb4acb646699c40388b",
-    "docs/testing/integration-inventory.md": "174c3a6f1d01793998932c62f5b7fd747946538074a854fc333b739a66803ae8"
+    "docs/testing/integration-inventory.md": "174c3a6f1d01793998932c62f5b7fd747946538074a854fc333b739a66803ae8",
+    "tests/integration/http/_http.py": "7034a9b90a6d13102c1f253265b0f13319fb86bea93951ac6d1b0cb9c3e710ca",
+    "tests/integration/http/test_agent_dispatch.py": "f87f8ed335299af3bed8287cebc0f88536c56885a43b9ffe646d0704e8a6f04f",
+    "tests/integration/http/test_api_coverage2.py": "d193392e46e7fccad4e6c1ed22d34df22f4bfd73f1b0051cecd4208ed7bd76f3",
+    "tests/integration/http/test_api_coverage2_llm.py": "18e56034e7c2c13b17a9e930e4d5b186b505b1cd81f626b316308cc0dbefbbc5",
+    "tests/integration/http/test_batch_dispatch.py": "dd042470aae73b9d319294fefdf8c48490031f5855e05222cbb879cbfde80c9c",
+    "tests/integration/http/test_decisions_flow.py": "8460b494356e6fc5066497a013d579397557a5cf68776b091ec4f03997c65984",
+    "tests/integration/http/test_e2e_pipeline.py": "ff5e17daeafe06c485e4c36a12d56aa566cea11b6b19f741f0ccea22ba176a89",
+    "tests/integration/http/test_llm_mock.py": "e4a9c4abd90db2dfabcb745a83a3ae12f64dbb7d318b96ac3d6c4d40abef6554",
+    "tests/integration/http/test_retired_season_fields.py": null,
+    "tests/integration/http/test_tasks_api.py": "0abb4ff0f602a6f8b6b44ef10aef25162bf9fdc5a95a08f060c1766efc531f29",
+    "tests/integration/http/test_transmission_actions.py": "b9e07fac9f1f54fbcdd62ac8faa4efcbfcba1ceeee3041bf190361a0470c36cf",
+    "tests/integration/metadata/test_metadata_dedup_coverage.py": "2e3acb2acba76a61c3a70e0eb30c90a2172c6f676da6c5eb8483f78a67c7d945"
   },
   "green": {
     "junit": "/tmp/rssripple-v10-write-guards-green.xml",
@@ -116,5 +140,17 @@
     "timestamp": "2026-09-20T03:50:13.882578+00:00",
     "hostname": "dl-workstation-albert"
   },
-  "source_manifest": "/tmp/rssripple-v10-source-bh.json"
+  "source_manifest": "/tmp/rssripple-v10-source-bh.json",
+  "targeted_bx": {
+    "passed": 12,
+    "seconds": 216.54,
+    "exit_code": 0,
+    "app_exit_codes": [
+      0,
+      0
+    ],
+    "cleanup": "complete",
+    "frozen_files": 2998
+  },
+  "full_integration_state": "/tmp/rssripple-v10-gates-bz.json"
 }

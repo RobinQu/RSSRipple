@@ -461,8 +461,6 @@ async def _merge_series_group(
             survivor.genre = d.genre
         if survivor.number_of_episodes is None and d.number_of_episodes is not None:
             survivor.number_of_episodes = d.number_of_episodes
-        if survivor.number_of_seasons is None and d.number_of_seasons is not None:
-            survivor.number_of_seasons = d.number_of_seasons
         # Collection membership survives the merge: the survivor keeps its
         # own; only inherit a duplicate's when the survivor has none.
         if inherited_collection_id is None and d.collection_id is not None:

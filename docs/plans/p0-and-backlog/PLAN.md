@@ -15,7 +15,7 @@ V7 合集归属已完成完整验收：单元/API 3561 passed（97.82%），完�
 
 [V8 D1](V8-COLLECTION-SEASON-INDEX.md) 与 [V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已完成联合 bg 验收：完整单元/API 3612 passed（97.76%），完整集成 3136 passed（89.66%），应用退出、报告导出和项目清理均完成；2891 个冻结文件未变。D1/D2 已从 pending-only TODO 删除，有效实现已提交本地 main：`6ab0548`。
 
-当前续接 [V10 D3](V10-RETIRED-SEASON-FIELDS.md)：15 文件独立原型已通过 302 项扩大回归及继承 V8/V9 后的 68 项组合回归；实际 PG 清理并发/回滚/CLI 验证通过。完整单元/API bh 已通过（3648 passed，97.75%），集成 bp 为 3016 passed / 3 failed / 115 errors，旧 HTTP 助手仍提交退役季数及旧 dedup 断言需修正，句柄 `/tmp/rssripple-v10-gates-bh.json`、`/tmp/rssripple-v10-gates-bp.json`，尚未应用 root。随后处理 [V11](V11-DECISION-COVERAGE.md)，其覆盖度及持久键仅为未验收原型。
+[V10 D3](V10-RETIRED-SEASON-FIELDS.md) 已通过完整验收：单元/API 3648 passed（97.75%），集成 3141 passed（89.70%），应用正常退出、报告导出和项目清理完成。D3 已从 TODO 删除，27 文件有效实现已同步本地 main 工作树，待提交。当前续接 [V11 D4/M4/M5](V11-DECISION-COVERAGE.md)：独立原型已完成覆盖/持久键/确认资格/部分并发验证，尚缺迁移、rekey、资源并发和完整门禁，不得合入主运行代码。
 
 
 所有本地 Compose 测试必须显式唯一 `-p`；完整验证须包含应用正常退出、覆盖率合并/导出和项目清理。此前失败轮保留为失败证据，不能被后续定向通过覆盖。
@@ -327,8 +327,16 @@ V6 有效代码、测试与权威契约已提交本地 main：`7fd8121`。尚未
 
 ## 本地 main 合入确认（2026-09-20）
 
-已通过 `git merge-base --is-ancestor 4c804ed main` 核实：P0 与 B9 有效代码均已包含在本地 main 的提交 `4c804ed` 中。后续 V6 身份接地为 `7fd8121`，V7 合集归属为 `e535e1f`。原 P0-5 已复核降为 P2，继续保留 TODO，不宣称完成。远端尚未推送；当前 V8/V9 工作区改动不属于已验收提交。
+已通过 `git merge-base --is-ancestor 4c804ed main` 核实：P0 与 B9 有效代码均已包含在本地 main 的提交 `4c804ed` 中。后续 V6 身份接地为 `7fd8121`，V7 合集归属为 `e535e1f`。原 P0-5 已复核降为 P2，继续保留 TODO，不宣称完成。本次再次核验上述提交以及 V8/V9 的 `6ab0548` 均为本地 main 的祖先；核验时 HEAD 为 `fccfe2b`，工作区干净。本地 main 比 origin/main 超前 7 个提交，尚未推送远端。V10/V11 仍为未验收原型，不属于已合入的运行代码。
 
 ## 下一批必要性证据（2026-09-20，V11）
 
 [V11 决策覆盖度](V11-DECISION-COVERAGE.md) 已复现 M4 半季/整季键冲突、M5 两组跨季包在实际 pipeline 落入同一待决策，以及 D4 两个真实 PG 连接空槽并发插入两行。原型仅包含复现与设计，无运行代码改动；隔离 PG 项目 bi 已清理。先完成 V8/V9 与 V10 验收，再依此细化覆盖描述、历史迁移和确认端点的并发契约。
+
+## V10 D3 最终验收（2026-09-20，bz）
+
+完整单元/API bh：**3648 passed、14 skipped、6 warnings，97.75%（21349/21841）**，退出 0。完整集成 bz：**3141 passed、17 skipped、8 warnings，1669.61 秒，89.70%（19591/21841）**，测试与覆盖率汇总均退出 0。2998 个冻结文件未变；相比 bh 只有集成夹具改动，运行代码及单元/API 保持一致，因此继承 bh 完整门禁。两应用 SIGINT 后均退出 0，报告导出 `/tmp/rssripple-v10-artifacts-bz`，项目清理退出 0。
+
+按 code-review-and-quality 复核 API 拒绝边界、清理事务/锁顺序、审阅指纹和幂等、未知季号不猜测、真实录制保留及合成身份标注；无新增依赖。27 个实现/测试/权威文档文件核对基线与最终哈希后同步本地 main 工作树，全仓 Ruff 和差异检查通过。D3 已从 pending-only TODO 删除。存量清理工具已验证，不等于已执行生产清理；生产数据库未改动。原失败 bp 证据保留，不能解释为成功轮。
+
+机器摘要见 probes/retired-season-complete-bz-result.json。后续 V11 D4/M4/M5 仍为未验收原型，下一步先继承 V10 已验收基线并复验，再处理资源/指派并发、旧库迁移与 rekey。

@@ -269,7 +269,8 @@ def work_verified_season(series) -> int | None:
     rows (legacy rows all carry the column default 1), so they are trusted
     directly. ``season_number == 1`` is ambiguous between a genuine season-1
     work and a legacy row, and is only trusted with single-season evidence
-    (legacy columns or a Bangumi entry identity). Unsplit legacy multi-season
+    (legacy columns, a Bangumi entry identity, or explicit manual season
+    confirmation). Unsplit legacy multi-season
     rows never yield a value — their season must come from other evidence.
     """
     if series is None:
@@ -281,6 +282,14 @@ def work_verified_season(series) -> int | None:
         return None
     if is_unsplit_legacy_series(series):
         return None
+    # An explicitly reviewed season identity survives retiring count=1.
+    # The legacy guard stays first: a manual marker cannot bypass multi-season evidence.
+    protected = getattr(series, "manually_edited_fields", None)
+    if (
+        isinstance(protected, list) and "season_number" in protected
+        and getattr(series, "season_number", None) is not None
+    ):
+        return n
     if n != 1:
         return n
     if verified_season_count(season_evidence_from_series(series)) == 1:

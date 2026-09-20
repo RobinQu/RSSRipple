@@ -1,270 +1,291 @@
---- /dev/null
-+++ b/app/services/resource_coverage.py
-@@ -0,0 +1,141 @@
-+"""Exact batch coverage from authoritative assignments or explicit title bounds.
+--- a/app/api/v1/dashboard.py
++++ b/app/api/v1/dashboard.py
+@@ -202,6 +202,7 @@
+         # the confirmation policy reads works off the link table instead.
+         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
++        selectinload(FileResource.file_assignments),
+     )
+     page_start = (page - 1) * page_size
+     page_end = page_start + page_size
+--- a/app/api/v1/decisions.py
++++ b/app/api/v1/decisions.py
+@@ -1,5 +1,8 @@
+ """PendingDecision API routes."""
+ 
 +
-+No lazy loading or network calls. Callers must load work_links and
-+file_assignments; an unloaded relation is unknown, never an empty manifest.
-+Dispatch uses this descriptor; persistent decision keys remain a separate migration.
-+"""
-+from sqlalchemy import inspect
++from copy import deepcopy
++from dataclasses import dataclass
+ 
+ from fastapi import APIRouter, Depends, Query
+ from fastapi.responses import JSONResponse
+@@ -20,11 +23,19 @@
+     DecisionActionResponse,
+     PendingDecisionResponse,
+ )
++from app.services.decision_review import current_choice_error
+ from app.services.decision_service import maybe_reset_agent_run_status
+ from app.services.resource_confirmation import LEGACY_CONFIRMATION_REASON_PREFIXES
+ from app.utils.time import utcnow
+ 
+ router = APIRouter()
 +
-+from app.services.filter_engine import loaded_relation
-+from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
++def _invalid_choice(message):
++    return JSONResponse(status_code=409, content={
++        "success": False, "data": None,
++        "error": {"code": "INVALID_STATE", "message": message}, "meta": {},
++    })
 +
+ 
+ def _choice_decision_filter():
+     """SQL predicate excluding legacy resource-metadata confirmation rows."""
+@@ -47,25 +58,42 @@
+     )
+ 
+ 
+-async def _ai_pick_and_dispatch(
++async def _lock_current_decision(decision, db):
++    """Use the same parent-before-decision order as pending-choice writers."""
++    from app.models.agent import Agent
 +
-+def _loaded(obj, name):
-+    state = inspect(obj, raiseerr=False)
-+    if state is not None and name in state.unloaded:
-+        return None
-+    return loaded_relation(obj, name)
-+
-+
-+def merge_intervals(intervals):
-+    """Canonical union without expanding episode numbers or filling gaps."""
-+    merged = []
-+    for lo, hi in sorted(intervals):
-+        if merged and lo <= merged[-1][1] + 1:
-+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
-+        else:
-+            merged.append((lo, hi))
-+    return tuple(merged)
-+
-+
-+def _interval(start, end):
-+    if start is None:
-+        start = end
-+    if end is None:
-+        end = start
-+    if not all(type(value) is int and value >= 0 for value in (start, end)) or start > end:
-+        return None
-+    return start, end
-+
-+
-+def batch_coverage(resource):
-+    """Return sorted work/season/interval tuples, or None for unknown coverage.
-+
-+    File assignments are authoritative when present: bad/incomplete bindings
-+    cannot fall back to a broader title interval. Each linked work must be
-+    represented. This does not independently certify torrent completeness;
-+    that remains the upstream association/manifest validation contract.
-+    """
-+    if not resource.is_batch:
-+        return None
-+    links = _loaded(resource, 'work_links')
-+    assignments = _loaded(resource, 'file_assignments')
-+    if links is None or assignments is None:
-+        return None
-+    targets = set()
-+    target_seasons = {}
-+    for obj in [resource, *links]:
-+        series_id, movie_id = obj.series_id, obj.movie_id
-+        if series_id and movie_id:
-+            return None
-+        if series_id:
-+            work = _loaded(obj, 'series')
-+            season = getattr(work, 'season_number', None)
-+            if work is None or work.id != series_id or type(season) is not int or season < 0:
-+                return None
-+            if is_unsplit_legacy_series(work):
-+                return None
-+            if series_id in target_seasons and target_seasons[series_id] != season:
-+                return None
-+            target_seasons[series_id] = season
-+            targets.add(('series', series_id))
-+        if movie_id:
-+            targets.add(('movie', movie_id))
-+    if not targets:
-+        return None
-+    if assignments:
-+        groups = {}
-+        seen = set()
-+        for row in assignments:
-+            if row.series_id and not row.movie_id:
-+                target = ('series', row.series_id)
-+                interval = _interval(row.episode_start, row.episode_end)
-+                if target not in targets or interval is None or type(row.season) is not int or row.season < 0:
-+                    return None
-+                if row.season != target_seasons[row.series_id]:
-+                    return None
-+                seen.add(target)
-+                groups.setdefault((*target, row.season), []).append(interval)
-+            elif row.movie_id and not row.series_id:
-+                target = ('movie', row.movie_id)
-+                if target not in targets:
-+                    return None
-+                seen.add(target)
-+                groups.setdefault((*target, None), [])
-+            else:
-+                return None
-+        if seen != targets:
-+            return None
-+        # A season-work ID may never contain multiple seasons. Even a
-+        # legacy unsplit row is held for migration rather than guessed.
-+        seasons = {}
-+        for kind, identity, season in groups:
-+            if kind == 'series':
-+                if identity in seasons and seasons[identity] != season:
-+                    return None
-+                seasons[identity] = season
-+        return tuple((*key, merge_intervals(values)) for key, values in sorted(groups.items()))
-+    if len(targets) != 1:
-+        return None
-+    kind, identity = next(iter(targets))
-+    if kind == 'movie':
-+        return ((kind, identity, None, ()),)
-+    if resource.batch_scope != 'season' or type(resource.season) is not int or resource.season < 0:
-+        return None
-+    # Both title bounds must be explicit. A lone start is not proof of a
-+    # one-episode pack, unlike a per-file assignment with one endpoint.
-+    if resource.episode_start is None or resource.episode_end is None:
-+        return None
-+    if resource.season != target_seasons[identity]:
-+        return None
-+    interval = _interval(resource.episode_start, resource.episode_end)
-+    return ((kind, identity, resource.season, (interval,)),) if interval is not None else None
++    with db.no_autoflush:
++        await db.scalar(select(Agent.id).where(Agent.id == decision.agent_id).with_for_update(key_share=True))
++        return await db.scalar(select(PendingDecision).where(
++            PendingDecision.id == decision.id
++        ).with_for_update().execution_options(populate_existing=True))
 +
 +
-+async def load_batch_coverage(db, resources):
-+    """Load coverage in bounded groups before synchronous policy evaluation."""
-+    from sqlalchemy import select
-+    from sqlalchemy.orm import selectinload
-+
-+    from app.models.file_resource import FileResource
-+    from app.models.resource_work_link import ResourceWorkLink
-+
-+    ids = sorted({r.id for r in resources if r.is_batch and r.id})
-+    for offset in range(0, len(ids), 100):
-+        await db.execute(
-+            select(FileResource).where(FileResource.id.in_(ids[offset:offset + 100])).options(
-+                selectinload(FileResource.series),
-+                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
-+                selectinload(FileResource.file_assignments),
-+            ).execution_options(populate_existing=True)
-+        )
---- /dev/null
-+++ b/tests/unit/test_resource_coverage.py
-@@ -0,0 +1,120 @@
-+
-+import pytest
-+
-+from app.models.file_resource import FileResource
-+from app.models.resource_file_assignment import ResourceFileAssignment
-+from app.models.resource_work_link import ResourceWorkLink
-+from app.models.series import TVSeries
-+from app.services.resource_coverage import batch_coverage, merge_intervals
++@dataclass(frozen=True)
++class PreparedChoice:
++    candidate_ids: frozenset[str]
++    scope: dict
++    picked_id: str
 +
 +
-+def resource(start=1, end=12):
-+    r = FileResource(is_batch=True, batch_scope='season', series_id='s1', season=1,
-+                     episode_start=start, episode_end=end)
-+    r.series = TVSeries(id="s1", season_number=1)
-+    r.work_links = []
-+    r.file_assignments = []
-+    return r
++async def _prepare_ai_choice(
+     decision: PendingDecision, db: AsyncSession
+-) -> tuple[bool, str | None]:
+-    """Resolve a pending decision by letting the LLM pick a candidate.
+-
+-    Reuses the cached ``llm_picked_resource_id`` when present; otherwise asks
+-    the LLM now. Returns ``(ok, error)``.
+-    """
++) -> tuple[PreparedChoice | None, str | None]:
++    """Compute a recommendation without acquiring write locks or changing rows."""
+     from app.models.agent import Agent
+     from app.services.agent_service import (
+         _generate_llm_pick,
+-        dispatch_download,
+         pick_by_preferences,
+     )
+ 
++    if error := await current_choice_error(decision, db):
++        return None, error
+     agent = await db.get(Agent, decision.agent_id)
+     if not agent:
+-        return False, f"Agent {decision.agent_id} not found"
+-
++        return None, f"Agent {decision.agent_id} not found"
++
++    candidate_snapshot = set(decision.candidates or [])
++    scope_snapshot = deepcopy(decision.decision_scope)
+     picked_id = decision.llm_picked_resource_id
+     if not picked_id or picked_id not in (decision.candidates or []):
+         cands = (await db.execute(
+@@ -80,7 +108,7 @@
+             )
+         )).scalars().all()
+         if not cands:
+-            return False, "No candidates to pick from"
++            return None, "No candidates to pick from"
+         # Deterministic preference rules first (rank-only): a unique winner
+         # needs no LLM call; a remaining tie goes to the LLM on the narrowed
+         # tier.
+@@ -94,17 +122,37 @@
+                 if decision.series_id
+                 else ("movie", decision.movie_id, None, None),
+             )
+-        decision.llm_picked_resource_id = picked_id
+         if not picked_id:
+-            return False, "AI 未能给出选择，请手动确认"
+-
+-    resource = await db.get(FileResource, picked_id)
++            return None, "AI 未能给出选择，请手动确认"
++
++    if picked_id not in candidate_snapshot:
++        return None, "AI returned a resource outside the candidate set"
++    return PreparedChoice(frozenset(candidate_snapshot), scope_snapshot, picked_id), None
 +
 +
-+def assignment(start, end, *, work='s1', season=1):
-+    return ResourceFileAssignment(series_id=work, season=season, episode_start=start,
-+                                  episode_end=end, file_path=f'{work}-{start}.mkv')
++async def _ai_pick_and_dispatch(decision, db, *, prepared=None):
++    from app.models.agent import Agent
++    from app.services.agent_service import dispatch_download
 +
++    choice, error = prepared if prepared is not None else await _prepare_ai_choice(decision, db)
++    if choice is None:
++        return False, error
++    decision = await _lock_current_decision(decision, db)
++    if decision is None:
++        return False, "Decision no longer exists"
++    if set(decision.candidates or []) != choice.candidate_ids or decision.decision_scope != choice.scope:
++        return False, "Decision candidates changed while computing the recommendation"
++    if error := await current_choice_error(decision, db):
++        return False, error
++    decision.llm_picked_resource_id = choice.picked_id
++    resource = await db.get(FileResource, choice.picked_id)
+     if not resource:
+-        return False, f"Picked resource {picked_id} not found"
+-
++        return False, f"Picked resource {choice.picked_id} not found"
 +
-+def test_half_full_and_unknown_are_distinct():
-+    assert batch_coverage(resource(end=6)) != batch_coverage(resource())
-+    assert batch_coverage(resource(end=None)) is None
-+    assert batch_coverage(resource(start=None)) is None
++    agent = await db.get(Agent, decision.agent_id)
+     await dispatch_download(agent, resource, db)
+     decision.status = "decided"
+-    decision.decided_resource_id = picked_id
++    decision.decided_resource_id = choice.picked_id
+     decision.decided_at = utcnow()
+     return True, None
+ 
+@@ -164,6 +212,8 @@
+     from app.models.agent import Agent
+     from app.services.agent_service import dispatch_download
+     decision = await db.get(PendingDecision, decision_id)
++    if decision is not None:
++        decision = await _lock_current_decision(decision, db)
+     if not decision:
+         return JSONResponse(
+             status_code=404,
+@@ -187,6 +237,8 @@
+                 "meta": {},
+             },
+         )
++    if error := await current_choice_error(decision, db):
++        return _invalid_choice(error)
+     if body.resource_id not in decision.candidates:
+         return JSONResponse(
+             status_code=400,
+@@ -227,6 +279,8 @@
+ @router.post("/decisions/{decision_id}/skip")
+ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
+     decision = await db.get(PendingDecision, decision_id)
++    if decision is not None:
++        decision = await _lock_current_decision(decision, db)
+     if not decision:
+         return JSONResponse(
+             status_code=404,
+@@ -237,6 +291,8 @@
+                 "meta": {},
+             },
+         )
++    if decision.status != "pending":
++        return _invalid_choice("Decision is no longer pending")
+     if not _is_choice_decision(decision):
+         return JSONResponse(
+             status_code=409,
+@@ -303,6 +359,8 @@
+                 "meta": {},
+             },
+         )
++    if error := await current_choice_error(decision, db):
++        return _invalid_choice(error)
+     ok, err = await _ai_pick_and_dispatch(decision, db)
+     if not ok:
+         await db.rollback()
+@@ -349,24 +407,55 @@
+     )).scalars().all()
+     rows = [row for row in queried_rows if _is_choice_decision(row)]
+ 
++    # Finish all network/model work before the first item acquires write locks.
++    recommendations = {}
++    if body.action == "ai":
++        for dec in rows:
++            try:
++                recommendations[dec.id] = await _prepare_ai_choice(dec, db)
++            except Exception as exc:
++                from app.database import _is_retryable_lock_error
 +
++                if (_is_retryable_lock_error(exc) or not db.is_active
++                        or getattr(exc, "connection_invalidated", False)):
++                    raise
++                recommendations[dec.id] = (None, str(exc))
 +
-+def test_authoritative_gaps_survive_minmax_title_summary():
-+    r = resource()
-+    r.file_assignments = [assignment(1, 3), assignment(5, 12)]
-+    assert batch_coverage(r) == (('series', 's1', 1, ((1, 3), (5, 12))),)
-+    assert batch_coverage(r) != batch_coverage(resource())
++    class RejectedChoiceError(Exception):
++        """Roll back the item even when its action returns a policy failure."""
 +
+     resp = BatchDecisionResponse()
+     for dec in rows:
++        # Save scalars before a failed flush expires the ORM object's state.
++        decision_id = dec.id
+         resp.processed += 1
+         try:
++            async with db.begin_nested():
++                if body.action == "skip":
++                    dec = await _lock_current_decision(dec, db)
++                    if dec is None or dec.status != "pending" or not _is_choice_decision(dec):
++                        raise RejectedChoiceError("Decision is no longer a pending choice")
++                    dec.status = "skipped"
++                    dec.decided_at = utcnow()
++                else:
++                    ok, err = await _ai_pick_and_dispatch(dec, db, prepared=recommendations[decision_id])
++                    if not ok:
++                        raise RejectedChoiceError(err or "Decision rejected")
++                await db.flush()
+             if body.action == "skip":
+-                dec.status = "skipped"
+-                dec.decided_at = utcnow()
+                 resp.skipped += 1
+             else:
+-                ok, err = await _ai_pick_and_dispatch(dec, db)
+-                if ok:
+-                    resp.dispatched += 1
+-                else:
+-                    resp.failed += 1
+-                    resp.errors.append(f"{dec.id}: {err}")
++                resp.dispatched += 1
+         except Exception as e:  # noqa: BLE001
++            from app.database import _is_retryable_lock_error
 +
-+def test_adjacent_overlapping_intervals_are_canonical_without_expansion():
-+    assert merge_intervals([(5, 10**9), (3, 5), (1, 2)]) == ((1, 10**9),)
-+
-+
-+@pytest.mark.parametrize('start,end', [(None, None), (-1, 3), (4, 3), (True, 3), (1, '3')])
-+def test_invalid_assignment_cannot_fall_back_to_title(start, end):
-+    r = resource()
-+    r.file_assignments = [assignment(start, end)]
-+    assert batch_coverage(r) is None
-+
-+
-+def test_different_link_sets_and_order_independence():
-+    r = resource()
-+    r.series_id = None
-+    r.batch_scope = 'multi_season'
-+    r.work_links = [ResourceWorkLink(series_id=s, series=TVSeries(id=s, season_number=n))
-+                    for s,n in [('s2',2),('s1',1)]]
-+    r.file_assignments = [assignment(1, 12, work='s2', season=2), assignment(1, 12)]
-+    first = batch_coverage(r)
-+    r.work_links.reverse()
-+    r.file_assignments.reverse()
-+    assert batch_coverage(r) == first
-+    r.file_assignments[0].series_id = 's3'
-+    assert batch_coverage(r) is None
-+
-+
-+def test_missing_work_assignment_is_unknown():
-+    r = resource()
-+    r.work_links = [ResourceWorkLink(series_id='s2')]
-+    r.file_assignments = [assignment(1, 12)]
-+    assert batch_coverage(r) is None
-+
-+
-+def test_cross_season_legacy_cannot_be_declared_a_season_work():
-+    r = resource()
-+    r.file_assignments = [assignment(1, 12), assignment(1, 12, season=2)]
-+    assert batch_coverage(r) is None
-+
-+
-+def test_unloaded_relations_do_not_guess_empty_manifest():
-+    r = FileResource(is_batch=True, batch_scope='season', series_id='s1', season=1,
-+                     episode_start=1, episode_end=12)
-+    assert batch_coverage(r) is None
-+
-+
-+def test_wrong_single_assignment_season_is_unknown():
-+    r = resource()
-+    r.file_assignments = [assignment(1, 12, season=2)]
-+    assert batch_coverage(r) is None
-+
-+
-+def test_title_season_must_match_work_identity():
-+    r = resource()
-+    r.season = 2
-+    assert batch_coverage(r) is None
-+
-+
-+def test_legacy_work_identity_is_not_reinterpreted_as_single_season():
-+    r = resource()
-+    r.series.number_of_seasons = 2
-+    assert batch_coverage(r) is None
-+
-+
-+async def test_unloaded_work_never_issues_lazy_sql(db_session, db_engine, sample_channel):
-+    from sqlalchemy import event
-+    r = resource()
-+    r.channel_id = sample_channel.id
-+    r.title_raw = "Synthetic unloaded work"
-+    r.guid = "synthetic-unloaded-work"
-+    r.torrent_url = "https://example.invalid/torrent"
-+    r.series.title_cn = "Synthetic single season"
-+    db_session.add(r)
-+    await db_session.flush()
-+    db_session.expire(r, ["series"])
-+    statements = []
-+    def capture(conn, cursor, statement, parameters, context, executemany):
-+        statements.append(statement)
-+    event.listen(db_engine.sync_engine, "before_cursor_execute", capture)
-+    try:
-+        assert batch_coverage(r) is None
-+    finally:
-+        event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
-+    assert statements == []
++            # A SAVEPOINT cannot recover a lost outer transaction. Let the
++            # request boundary roll back/retry it rather than report success.
++            if (_is_retryable_lock_error(e) or not db.is_active
++                    or getattr(e, "connection_invalidated", False)):
++                raise
+             resp.failed += 1
+-            resp.errors.append(f"{dec.id}: {e}")
++            resp.errors.append(f"{decision_id}: {e}")
+     await maybe_reset_agent_run_status(db, agent_id)
+     await db.commit()
+     return success_response(resp.model_dump())
+--- a/app/models/pending_decision.py
++++ b/app/models/pending_decision.py
+@@ -3,7 +3,7 @@
+ import uuid
+ from datetime import datetime
+ 
+-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, func
++from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -12,6 +12,9 @@
+ class PendingDecision(Base):
+     __tablename__ = "pending_decisions"
+     __table_args__ = (
++        CheckConstraint("status != 'pending' OR decision_key IS NOT NULL", name="ck_pending_decision_key"),
++        Index("uq_pending_decisions_agent_key", "agent_id", "decision_key", unique=True,
++              sqlite_where=text("status = 'pending'"), postgresql_where=text("status = 'pending'")),
+         Index("ix_pending_decisions_status_created", "status", "created_at", "id"),
+     )
+ 
+@@ -31,6 +34,8 @@
+     # Season of the disputed episode (NULL = movie / season-less series).
+     # Part of the idempotency key so S1E3 and S4E3 don't collide.
+     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    decision_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
++    decision_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
+     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 --- a/app/services/agent_service.py
 +++ b/app/services/agent_service.py
 @@ -5,7 +5,7 @@
@@ -475,6 +496,328 @@
  
      rule_set = _build_rule_set(agent)
      candidates_by_key: dict[tuple, list[FileResource]] = {}
+@@ -988,9 +923,19 @@
+     for key, cands in candidates_by_key.items():
+         try:
+             if autocommit:
+-                async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
+-                    async with unit_db.begin():
+-                        pending = await _process_candidate_group(agent, key, cands, unit_db)
++                from app.database import retry_on_lock
++
++                async def write_candidate():
++                    async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
++                        async with unit_db.begin():
++                            return await _process_candidate_group(agent, key, cands, unit_db)
++
++                if agent.conflict_resolution == "ask" and len(cands) >= 2:
++                    # This branch only persists a choice; it cannot send a
++                    # download RPC. Retry the complete fresh transaction.
++                    pending = await retry_on_lock(write_candidate)
++                else:
++                    pending = await write_candidate()
+             else:
+                 # A newly saved Agent may still be uncommitted in this request.
+                 # Keep that state visible and isolate only the candidate writes.
+@@ -1001,8 +946,11 @@
+             else:
+                 result.dispatched += 1
+         except Exception as e:
++            from app.database import _is_retryable_lock_error
++
+             if not autocommit and (
+-                not db.is_active or getattr(e, "connection_invalidated", False)
++                _is_retryable_lock_error(e)
++                or not db.is_active or getattr(e, "connection_invalidated", False)
+             ):
+                 # A lost outer transaction cannot safely continue a backfill.
+                 raise
+--- /dev/null
++++ b/app/services/decision_review.py
+@@ -0,0 +1,172 @@
++"""Read-only review of legacy decisions before adding strict pending keys.
++
++Decisions are mappings so old schemas need not already contain the new columns.
++No pending row is silently discarded or classified using its old nullable slot.
++"""
++import hashlib
++import json
++
++from app.services.decision_store import choice_identity
++from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
++from app.services.resource_coverage import _loaded, batch_coverage
++
++
++def resource_choice(resource):
++    """Canonical current identity; unknown or contradictory evidence is held."""
++    if resource.series_id and resource.movie_id:
++        return None
++    if resource.is_batch:
++        coverage = batch_coverage(resource)
++        if coverage is None:
++            return None
++        kind = 'movie' if resource.movie_id else resource.batch_scope
++        return choice_identity('series', None, None, -1, (kind, coverage))
++    if resource.movie_id:
++        return choice_identity('movie', resource.movie_id, None, None)
++    if resource.series_id:
++        work = _loaded(resource, 'series')
++        if (work is None or work.id != resource.series_id or is_unsplit_legacy_series(work)
++                or type(work.season_number) is not int or work.season_number < 0
++                or type(resource.episode) is not int or resource.episode < 0
++                or resource.episode_confidence == 'ambiguous'
++                or resource.season != work.season_number):
++            return None
++        return choice_identity('series', work.id, work.season_number, resource.episode)
++    return None
++
++
++def review_decisions(decisions, resources):
++    """Return a deterministic proposal, never authorization to mutate data.
++
++    Mixed historical slots split by actual candidates; identical scopes merge
++    across rows of the same agent. Singleton groups and missing/unknown evidence
++    require review. Every original row (including user decisions) is retained.
++    """
++    originals = sorted(decisions, key=lambda row: row['id'])
++    groups, blocked = {}, []
++    for row in originals:
++        if row['status'] != 'pending':
++            continue
++        ids = row.get('candidates')
++        if not isinstance(ids, list) or any(not isinstance(rid, str) for rid in ids):
++            blocked.append(dict(decision_id=row['id'], reason='invalid_candidates'))
++            continue
++        if not ids:
++            blocked.append(dict(decision_id=row['id'], reason='empty_candidates'))
++        for rid in sorted(set(ids)):
++            resource = resources.get(rid)
++            identity = resource_choice(resource) if resource is not None else None
++            if identity is None:
++                blocked.append(dict(decision_id=row['id'], resource_id=rid,
++                                    reason='missing_resource' if resource is None else 'unknown_coverage'))
++                continue
++            key, scope = identity
++            group = groups.setdefault((row['agent_id'], key), dict(
++                agent_id=row['agent_id'], decision_key=key, decision_scope=scope,
++                candidates=set(), source_decision_ids=set()))
++            if group['decision_scope'] != scope:
++                raise ValueError('Decision digest collision or inconsistent canonical scope')
++            group['candidates'].add(rid)
++            group['source_decision_ids'].add(row['id'])
++    proposals = []
++    for _, group in sorted(groups.items()):
++        group['candidates'] = sorted(group['candidates'])
++        group['source_decision_ids'] = sorted(group['source_decision_ids'])
++        group['requires_review'] = len(group['candidates']) < 2
++        proposals.append(group)
++    report = dict(version=1, original_decisions=originals, proposed_groups=proposals, blocked=blocked)
++    # Fingerprint includes original decision state and derived resource identity.
++    # The apply path must re-export under locks and compare before modifying.
++    encoded = json.dumps(report, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
++    report['fingerprint'] = hashlib.sha256(encoded.encode()).hexdigest()
++    return report
++
++
++async def export_decision_review(db):
++    """Read the pre-key schema without querying new ORM decision columns.
++
++    Caller supplies a read transaction. No autoflush or writes are performed;
++    apply must independently repeat this export in its protected transaction.
++    """
++    from datetime import datetime
++
++    from sqlalchemy import select, text
++    from sqlalchemy.orm import selectinload
++
++    from app.models.file_resource import FileResource
++    from app.services.resource_coverage import load_batch_coverage
++
++    with db.no_autoflush:
++        rows = [dict(row) for row in (await db.execute(text('SELECT * FROM pending_decisions ORDER BY id'))).mappings()]
++        for row in rows:
++            for key, value in row.items():
++                if isinstance(value, datetime):
++                    row[key] = value.isoformat()
++            if isinstance(row.get('candidates'), str):
++                try:
++                    row['candidates'] = json.loads(row['candidates'])
++                except ValueError:
++                    pass  # Preserve malformed input in the blocked report.
++        ids = sorted({rid for row in rows if row['status'] == 'pending'
++                      and isinstance(row.get('candidates'), list)
++                      for rid in row['candidates'] if isinstance(rid, str)})
++        resources = {}
++        for offset in range(0, len(ids), 100):
++            batch = list(await db.scalars(select(FileResource).where(
++                FileResource.id.in_(ids[offset:offset + 100])
++            ).options(selectinload(FileResource.series))))
++            await load_batch_coverage(db, batch)
++            resources.update((resource.id, resource) for resource in batch)
++        return review_decisions(rows, resources)
++
++
++async def current_choice_error(decision, db):
++    """Reject stale decisions before using any cached recommendation.
++
++    This validates current evidence, but is not a replacement for the caller's
++    transaction locks and download idempotency boundary.
++    """
++    from sqlalchemy import select
++    from sqlalchemy.orm import selectinload
++
++    from app.models.agent import Agent
++    from app.models.file_resource import FileResource
++    from app.models.movie import Movie
++    from app.models.series import TVSeries
++    from app.services.agent_service import _build_rule_set, _resource_matches_rules
++    from app.services.resource_confirmation import inspect_resource_confirmation
++    from app.services.resource_coverage import load_batch_coverage
++    from app.utils.time import utcnow
++
++    if decision.status != 'pending':
++        return 'Decision is no longer pending'
++    if decision.expires_at is not None and decision.expires_at <= utcnow():
++        return 'Decision has expired'
++    ids = decision.candidates or []
++    if not isinstance(ids, list) or any(not isinstance(rid, str) for rid in ids) or len(set(ids)) < 2:
++        return 'Decision requires at least two distinct candidates'
++    if not decision.decision_key or not decision.decision_scope:
++        return 'Decision requires identity review'
++    agent = await db.scalar(select(Agent).where(Agent.id == decision.agent_id).options(
++        selectinload(Agent.works), selectinload(Agent.channel)
++    ).execution_options(populate_existing=True))
++    if agent is None or agent.channel is None:
++        return 'Decision Agent or Channel no longer exists'
++    rules = _build_rule_set(agent)
++    resources = list(await db.scalars(select(FileResource).where(FileResource.id.in_(ids)).options(
++        selectinload(FileResource.series).selectinload(TVSeries.collection),
++        selectinload(FileResource.movie).selectinload(Movie.collection),
++        selectinload(FileResource.audio_work), selectinload(FileResource.collection),
++    ).execution_options(populate_existing=True)))
++    if len(resources) != len(set(ids)):
++        return 'Decision candidates no longer exist'
++    await load_batch_coverage(db, resources)
++    for resource in resources:
++        if resource.channel_id != agent.channel_id or not _resource_matches_rules(resource, rules)[0]:
++            return 'Decision candidate no longer matches current Agent rules'
++        if inspect_resource_confirmation(resource, agent.channel.required_metadata_fields).required:
++            return 'Decision candidate requires Channel metadata confirmation'
++        identity = resource_choice(resource)
++        if identity is None or identity != (decision.decision_key, decision.decision_scope):
++            return 'Decision candidate coverage changed; regenerate the decision'
++    return None
+--- /dev/null
++++ b/app/services/decision_store.py
+@@ -0,0 +1,86 @@
++"""Versioned pending-choice identities and transactional candidate merging."""
++import hashlib
++import json
++from datetime import timedelta
++
++from sqlalchemy import select
++from sqlalchemy.exc import IntegrityError
++
++from app.models.agent import Agent
++from app.models.pending_decision import PendingDecision
++from app.utils.time import utcnow
++
++
++def choice_identity(kind, target_id, season, episode, coverage=None):
++    if coverage is None:
++        if kind not in {'series', 'movie'} or not target_id or episode == -1:
++            raise ValueError('A choice requires a work identity or exact batch coverage')
++        scope = dict(version=1, kind=kind, work_id=target_id, season=season, episode=episode)
++    else:
++        scope = dict(version=1, kind='batch', coverage=coverage)
++    encoded = json.dumps(scope, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
++    return 'v1:' + hashlib.sha256(encoded.encode()).hexdigest(), json.loads(encoded)
++
++
++async def persist_choice(db, *, agent_id, decision_key, decision_scope, candidate_ids,
++                         proposed_ids, picked_id, suggestion, fields):
++    """No network work while holding locks. Caller owns the outer transaction.
++
++    The parent lock orders legitimate creators of an empty slot; the unique
++    index is the final guard, including writers outside this service. A
++    candidate change invalidates recommendations computed on an older set.
++    """
++    incoming = list(dict.fromkeys(candidate_ids))
++    if len(incoming) < 2:
++        raise ValueError('A pending choice requires at least two distinct candidates')
++    parent = await db.scalar(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
++    if parent is None:
++        raise ValueError('Agent no longer exists')
++    query = select(PendingDecision).where(
++        PendingDecision.agent_id == agent_id,
++        PendingDecision.status == 'pending',
++        PendingDecision.decision_key == decision_key,
++    ).with_for_update().execution_options(populate_existing=True)
++
++    async def merge(row):
++        if row.decision_scope != decision_scope:
++            raise ValueError('Decision identity disagrees with its stored scope')
++        previous_ids = set(row.candidates or [])
++        merged = list(dict.fromkeys([*(row.candidates or []), *incoming]))
++        row.candidates = merged
++        row.reason = fields['reason']
++        row.expires_at = utcnow() + timedelta(days=7)
++        if set(merged) == set(proposed_ids) and picked_id in merged:
++            row.llm_picked_resource_id, row.llm_suggestion = picked_id, suggestion
++        elif (set(merged) != previous_ids or set(merged) != set(proposed_ids)
++              or row.llm_picked_resource_id not in merged):
++            row.llm_picked_resource_id, row.llm_suggestion = None, None
++        await db.flush()
++        return row
++
++    existing = await db.scalar(query)
++    if existing is not None:
++        return await merge(existing)
++    row = PendingDecision(
++        agent_id=agent_id, decision_key=decision_key, decision_scope=decision_scope,
++        candidates=incoming, status='pending', expires_at=utcnow() + timedelta(days=7),
++        llm_picked_resource_id=picked_id if picked_id in incoming else None,
++        llm_suggestion=suggestion if picked_id in incoming else None, **fields,
++    )
++    try:
++        async with db.begin_nested():
++            db.add(row)
++            await db.flush()
++        return row
++    except IntegrityError as exc:
++        message = str(exc.orig)
++        if not any(marker in message for marker in (
++            'uq_pending_decisions_agent_key',
++            'UNIQUE constraint failed: pending_decisions.agent_id, pending_decisions.decision_key',
++            'UNIQUE constraint failed: pending_decisions.(agent_id, decision_key)',
++        )):
++            raise
++        existing = await db.scalar(query)
++        if existing is None:
++            raise
++        return await merge(existing)
+--- a/app/services/fetch_service.py
++++ b/app/services/fetch_service.py
+@@ -434,6 +434,9 @@
+         query = query.limit(MAX_BACKFILL_SCAN)
+     result = await db.execute(query)
+     candidates = result.scalars().all()
++    from app.services.resource_coverage import load_batch_coverage
++
++    await load_batch_coverage(db, candidates)
+ 
+     # Decide eligibility from the snapshot loaded above, then process the
+     # eligible set concurrently. Per-task sessions update each resource
+@@ -512,6 +515,9 @@
+         .limit(MAX_GLOBAL_BACKFILL_SCAN)
+     )
+     candidates = result.scalars().all()
++    from app.services.resource_coverage import load_batch_coverage
++
++    await load_batch_coverage(db, candidates)
+     if not candidates:
+         return 0
+ 
 --- a/app/services/resource_confirmation.py
 +++ b/app/services/resource_confirmation.py
 @@ -97,6 +97,15 @@
@@ -494,8 +837,370 @@
          missing_required_fields(resource, required_metadata_fields)
          if required_metadata_fields is not None
 --- /dev/null
++++ b/app/services/resource_coverage.py
+@@ -0,0 +1,141 @@
++"""Exact batch coverage from authoritative assignments or explicit title bounds.
++
++No lazy loading or network calls. Callers must load work_links and
++file_assignments; an unloaded relation is unknown, never an empty manifest.
++Dispatch uses this descriptor; persistent decision keys remain a separate migration.
++"""
++from sqlalchemy import inspect
++
++from app.services.filter_engine import loaded_relation
++from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
++
++
++def _loaded(obj, name):
++    state = inspect(obj, raiseerr=False)
++    if state is not None and name in state.unloaded:
++        return None
++    return loaded_relation(obj, name)
++
++
++def merge_intervals(intervals):
++    """Canonical union without expanding episode numbers or filling gaps."""
++    merged = []
++    for lo, hi in sorted(intervals):
++        if merged and lo <= merged[-1][1] + 1:
++            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
++        else:
++            merged.append((lo, hi))
++    return tuple(merged)
++
++
++def _interval(start, end):
++    if start is None:
++        start = end
++    if end is None:
++        end = start
++    if not all(type(value) is int and value >= 0 for value in (start, end)) or start > end:
++        return None
++    return start, end
++
++
++def batch_coverage(resource):
++    """Return sorted work/season/interval tuples, or None for unknown coverage.
++
++    File assignments are authoritative when present: bad/incomplete bindings
++    cannot fall back to a broader title interval. Each linked work must be
++    represented. This does not independently certify torrent completeness;
++    that remains the upstream association/manifest validation contract.
++    """
++    if not resource.is_batch:
++        return None
++    links = _loaded(resource, 'work_links')
++    assignments = _loaded(resource, 'file_assignments')
++    if links is None or assignments is None:
++        return None
++    targets = set()
++    target_seasons = {}
++    for obj in [resource, *links]:
++        series_id, movie_id = obj.series_id, obj.movie_id
++        if series_id and movie_id:
++            return None
++        if series_id:
++            work = _loaded(obj, 'series')
++            season = getattr(work, 'season_number', None)
++            if work is None or work.id != series_id or type(season) is not int or season < 0:
++                return None
++            if is_unsplit_legacy_series(work):
++                return None
++            if series_id in target_seasons and target_seasons[series_id] != season:
++                return None
++            target_seasons[series_id] = season
++            targets.add(('series', series_id))
++        if movie_id:
++            targets.add(('movie', movie_id))
++    if not targets:
++        return None
++    if assignments:
++        groups = {}
++        seen = set()
++        for row in assignments:
++            if row.series_id and not row.movie_id:
++                target = ('series', row.series_id)
++                interval = _interval(row.episode_start, row.episode_end)
++                if target not in targets or interval is None or type(row.season) is not int or row.season < 0:
++                    return None
++                if row.season != target_seasons[row.series_id]:
++                    return None
++                seen.add(target)
++                groups.setdefault((*target, row.season), []).append(interval)
++            elif row.movie_id and not row.series_id:
++                target = ('movie', row.movie_id)
++                if target not in targets:
++                    return None
++                seen.add(target)
++                groups.setdefault((*target, None), [])
++            else:
++                return None
++        if seen != targets:
++            return None
++        # A season-work ID may never contain multiple seasons. Even a
++        # legacy unsplit row is held for migration rather than guessed.
++        seasons = {}
++        for kind, identity, season in groups:
++            if kind == 'series':
++                if identity in seasons and seasons[identity] != season:
++                    return None
++                seasons[identity] = season
++        return tuple((*key, merge_intervals(values)) for key, values in sorted(groups.items()))
++    if len(targets) != 1:
++        return None
++    kind, identity = next(iter(targets))
++    if kind == 'movie':
++        return ((kind, identity, None, ()),)
++    if resource.batch_scope != 'season' or type(resource.season) is not int or resource.season < 0:
++        return None
++    # Both title bounds must be explicit. A lone start is not proof of a
++    # one-episode pack, unlike a per-file assignment with one endpoint.
++    if resource.episode_start is None or resource.episode_end is None:
++        return None
++    if resource.season != target_seasons[identity]:
++        return None
++    interval = _interval(resource.episode_start, resource.episode_end)
++    return ((kind, identity, resource.season, (interval,)),) if interval is not None else None
++
++
++async def load_batch_coverage(db, resources):
++    """Load coverage in bounded groups before synchronous policy evaluation."""
++    from sqlalchemy import select
++    from sqlalchemy.orm import selectinload
++
++    from app.models.file_resource import FileResource
++    from app.models.resource_work_link import ResourceWorkLink
++
++    ids = sorted({r.id for r in resources if r.is_batch and r.id})
++    for offset in range(0, len(ids), 100):
++        await db.execute(
++            select(FileResource).where(FileResource.id.in_(ids[offset:offset + 100])).options(
++                selectinload(FileResource.series),
++                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
++                selectinload(FileResource.file_assignments),
++            ).execution_options(populate_existing=True)
++        )
+--- /dev/null
++++ b/tests/api/test_coverage_confirmation.py
+@@ -0,0 +1,32 @@
++"""HTTP confirmation uses the same exact coverage evidence as dispatch."""
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++
++
++async def test_detail_and_dashboard_agree_on_known_and_unknown_coverage(
++    client, db_session, sample_channel, sample_series,
++):
++    resources = []
++    for tag in ["known", "unknown"]:
++        row = FileResource(channel_id=sample_channel.id, series_id=sample_series.id,
++            guid=f"synthetic-coverage-{tag}", title_raw=f"Synthetic {tag} batch",
++            torrent_url="https://example.invalid/torrent", is_batch=True,
++            batch_scope="season", season=sample_series.season_number)
++        row.file_assignments = []
++        if tag == "known":
++            row.file_assignments = [ResourceFileAssignment(series_id=sample_series.id,
++                season=sample_series.season_number, file_path="synthetic.mkv",
++                episode_start=1, episode_end=12, source="manual")]
++        resources.append(row)
++    db_session.add_all(resources)
++    await db_session.commit()
++    for row, expected in zip(resources, [False, True]):
++        response = await client.get(f"/api/v1/resources/{row.id}")
++        assert response.status_code == 200
++        assert ("batch_coverage_unknown" in response.json()["data"]["confirmation_kinds"]) is expected
++    dashboard = await client.get("/api/v1/dashboard")
++    assert dashboard.status_code == 200
++    kinds = {item["resource"]["id"]: item["kinds"]
++             for item in dashboard.json()["data"]["pending_confirmations"]}
++    assert "batch_coverage_unknown" not in kinds.get(resources[0].id, [])
++    assert "batch_coverage_unknown" in kinds[resources[1].id]
+--- a/tests/api/test_dashboard_extra.py
++++ b/tests/api/test_dashboard_extra.py
+@@ -246,6 +246,7 @@
+ 
+         from app.models.channel import Channel
+         from app.models.file_resource import FileResource
++        from app.models.resource_file_assignment import ResourceFileAssignment
+         from app.models.resource_work_link import ResourceWorkLink
+         from app.models.series import TVSeries
+         from app.services.required_fields import normalize_required_fields
+@@ -285,6 +286,13 @@
+                 ResourceWorkLink(resource_id=full.id, series_id=s1.id),
+                 ResourceWorkLink(resource_id=full.id, series_id=s2.id),
+                 ResourceWorkLink(resource_id=noyear.id, series_id=undated.id),
++            ])
++            # Synthetic exact coverage, not merely a list of season IDs.
++            s.add_all([
++                ResourceFileAssignment(resource_id=resource.id, series_id=work.id,
++                    season=work.season_number, file_path=f"synthetic-{work.id}.mkv",
++                    episode_start=1, episode_end=12)
++                for resource, work in [(full, s1), (full, s2), (noyear, undated)]
+             ])
+             await s.commit()
+             full_id, noyear_id = full.id, noyear.id
+--- /dev/null
++++ b/tests/api/test_decision_batch_transactions.py
+@@ -0,0 +1,51 @@
++"""Batch request with an actual failed SQL flush and a following good item."""
++from unittest.mock import patch
++
++import pytest
++
++from app.models.pending_decision import PendingDecision
++from app.services.decision_store import choice_identity
++from tests.api.test_decisions import setup as setup
++
++
++@pytest.mark.parametrize('failure', ['integrity', 'rejected'])
++async def test_failed_item_rolls_back_and_next_item_commits(client, setup, db_session_factory, failure):
++    _, _, agent_id = setup
++    async with db_session_factory() as db:
++        for index in range(2):
++            key, scope = choice_identity('movie', f'synthetic-{index}', None, None)
++            db.add(PendingDecision(agent_id=agent_id, candidates=['synthetic-a','synthetic-b'],
++                decision_key=key, decision_scope=scope, status='pending', reason='Original reason'))
++        await db.commit()
++    called = []
++
++    async def action(decision, db, **kwargs):
++        called.append(decision.id)
++        decision.status = 'decided'
++        if len(called) == 1:
++            if failure == 'integrity':
++                decision.reason = None
++                await db.flush()  # Actual NOT NULL violation, not a mocked exception.
++            decision.reason = 'Uncommitted rejected mutation'
++            await db.flush()
++            return False, 'Synthetic policy rejection'
++        decision.reason = 'Accepted second item'
++        await db.flush()
++        return True, None
++
++    from sqlalchemy import select
++    async with db_session_factory() as db:
++        ids = list(await db.scalars(select(PendingDecision.id).where(PendingDecision.agent_id == agent_id)))
++    with patch('app.api.v1.decisions._ai_pick_and_dispatch', action), patch(
++        'app.api.v1.decisions._prepare_ai_choice', return_value=(None, 'Fault-injected action')):
++        response = await client.post(f'/api/v1/agents/{agent_id}/decisions/batch',
++                                     json={'action':'ai', 'decision_ids':ids})
++    assert response.status_code == 200, response.text
++    data = response.json()['data']
++    assert (data['processed'], data['failed'], data['dispatched']) == (2,1,1)
++    assert len(called) == 2
++    async with db_session_factory() as db:
++        failed = await db.get(PendingDecision, called[0])
++        good = await db.get(PendingDecision, called[1])
++        assert failed.status == 'pending' and failed.reason == 'Original reason'
++        assert good.status == 'decided' and good.reason == 'Accepted second item'
+--- /dev/null
++++ b/tests/api/test_decision_scope.py
+@@ -0,0 +1,68 @@
++"""Persisted decision drift through real HTTP; only download RPC is replaced."""
++from datetime import date, timedelta
++from unittest.mock import AsyncMock, patch
++
++import pytest
++
++from app.models.file_resource import FileResource
++from app.models.movie import Movie
++from app.models.pending_decision import PendingDecision
++from app.services.decision_store import choice_identity
++from app.utils.time import utcnow
++from tests.api.test_decisions import _create_resource
++from tests.api.test_decisions import setup as setup
++
++
++@pytest.mark.parametrize('action', ['confirm','ai-pick','batch'])
++@pytest.mark.parametrize('change', ['none', 'coverage', 'filter', 'scope', 'metadata'])
++async def test_changed_candidate_scope_cannot_dispatch(client, setup, db_session_factory, action, change):
++    changed = change != 'none'
++    ch, _, aid = setup
++    async with db_session_factory() as db:
++        first, other = Movie(title_cn='Synthetic first', release_date=date(2020,1,1), is_anime=False), Movie(
++            title_cn='Synthetic other', release_date=date(2020,1,1), is_anime=False)
++        db.add_all([first,other]); await db.commit()
++        first_id, other_id = first.id,other.id
++    a = await _create_resource(db_session_factory,ch,'Synthetic a',movie_id=first_id)
++    b = await _create_resource(db_session_factory,ch,'Synthetic b',movie_id=first_id)
++    key,scope=choice_identity('movie',first_id,None,None)
++    async with db_session_factory() as db:
++        decision=PendingDecision(agent_id=aid,movie_id=first_id,candidates=[a['id'],b['id']],
++            reason='Synthetic equivalent candidates',decision_key=key,decision_scope=scope,
++            status='pending',llm_picked_resource_id=a['id'],expires_at=utcnow()+timedelta(days=1))
++        db.add(decision);await db.commit();did=decision.id
++        if change == 'coverage':
++            resource=await db.get(FileResource,a['id']);resource.movie_id=other_id;await db.commit()
++        if change == 'metadata':
++            from app.models.channel import Channel
++            channel = await db.get(Channel, ch)
++            channel.required_metadata_fields = [*channel.required_metadata_fields, 'subtitle_group']
++            await db.commit()
++        if change in {'filter', 'scope'}:
++            from app.models.agent import Agent
++            agent = await db.get(Agent, aid)
++            if change == 'filter':
++                agent.filter_config = {'combinator':'and', 'conditions':[
++                    {'field':'subtitle_group','operator':'eq','value':'RequiredNewGroup'}]}
++            else:
++                agent.scope_channel_wide = False
++            await db.commit()
++    with patch('app.services.agent_service.dispatch_download',AsyncMock()) as dispatch:
++        if action=='batch':
++            response=await client.post(f'/api/v1/agents/{aid}/decisions/batch',
++                                       json={'action':'ai','decision_ids':[did]})
++            assert response.status_code==200
++            assert response.json()['data']['failed']==int(changed)
++            assert response.json()['data']['dispatched']==int(not changed)
++        else:
++            response=await client.post(f'/api/v1/decisions/{did}/{action}',
++                                       json={'resource_id':a['id']} if action=='confirm' else None)
++            assert response.status_code==(409 if changed else 200), response.text
++        if changed:
++            dispatch.assert_not_awaited()
++        else:
++            dispatch.assert_awaited_once()
++    async with db_session_factory() as db:
++        decision=await db.get(PendingDecision,did)
++        assert decision.status==('pending' if changed else 'decided')
++        assert decision.decided_resource_id==(None if changed else a['id'])
+--- /dev/null
++++ b/tests/api/test_decision_terminal_state.py
+@@ -0,0 +1,31 @@
++"""Terminal user decisions remain immutable through action endpoints."""
++from datetime import timedelta
++from unittest.mock import AsyncMock, patch
++
++import pytest
++
++from app.models.pending_decision import PendingDecision
++from app.utils.time import utcnow
++from tests.api.test_decisions import setup as setup
++
++
++@pytest.mark.parametrize('status', ['decided', 'skipped', 'expired'])
++@pytest.mark.parametrize('action', ['confirm', 'skip'])
++async def test_terminal_decision_is_not_rewritten(client, setup, db_session_factory, status, action):
++    _, _, agent_id = setup
++    timestamp = utcnow() - timedelta(days=1)
++    async with db_session_factory() as db:
++        row = PendingDecision(agent_id=agent_id, candidates=['old-a', 'old-b'], status=status,
++                              reason='Historical user choice', decided_resource_id='old-b', decided_at=timestamp)
++        db.add(row)
++        await db.commit()
++        identity = row.id
++    with patch('app.services.agent_service.dispatch_download', AsyncMock()) as dispatch:
++        response = await client.post(f'/api/v1/decisions/{identity}/{action}',
++                                     json={'resource_id':'old-a'} if action == 'confirm' else None)
++    assert response.status_code == 409, response.text
++    assert response.json()['error']['code'] == 'INVALID_STATE'
++    dispatch.assert_not_awaited()
++    async with db_session_factory() as db:
++        row = await db.get(PendingDecision, identity)
++        assert (row.status, row.decided_resource_id, row.decided_at) == (status, 'old-b', timestamp)
+--- /dev/null
 +++ b/tests/unit/test_decision_coverage_review.py
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,165 @@
 +"""Necessity probes: synthetic input, actual production grouping and Turso writes."""
 +from unittest.mock import AsyncMock, patch
 +
@@ -615,73 +1320,147 @@
 +    assert again.id == row.id
 +    assert set(again.candidates) == {c.id for c in candidates}
 +    assert again.llm_picked_resource_id is None
---- a/app/api/v1/dashboard.py
-+++ b/app/api/v1/dashboard.py
-@@ -202,6 +202,7 @@
-         # the confirmation policy reads works off the link table instead.
-         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
-         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
-+        selectinload(FileResource.file_assignments),
-     )
-     page_start = (page - 1) * page_size
-     page_end = page_start + page_size
---- a/app/services/fetch_service.py
-+++ b/app/services/fetch_service.py
-@@ -434,6 +434,9 @@
-         query = query.limit(MAX_BACKFILL_SCAN)
-     result = await db.execute(query)
-     candidates = result.scalars().all()
-+    from app.services.resource_coverage import load_batch_coverage
 +
-+    await load_batch_coverage(db, candidates)
- 
-     # Decide eligibility from the snapshot loaded above, then process the
-     # eligible set concurrently. Per-task sessions update each resource
-@@ -512,6 +515,9 @@
-         .limit(MAX_GLOBAL_BACKFILL_SCAN)
-     )
-     candidates = result.scalars().all()
-+    from app.services.resource_coverage import load_batch_coverage
 +
-+    await load_batch_coverage(db, candidates)
-     if not candidates:
-         return 0
- 
++async def _candidate_group(db, channel, downloader, *, count=2, mode="ask"):
++    helper = PackFixture()
++    first, _ = await helper._make_season_works(db)
++    agent = await helper._make_agent(db, channel, downloader, scope_channel_wide=True,
++                                     conflict_resolution=mode)
++    candidates = [_make_resource(channel.id, series_id=first.id, episode=1) for _ in range(count)]
++    db.add_all(candidates)
++    await db.flush()
++    return agent, candidates
++
++
++async def test_background_choice_retries_with_new_session(db_session, channel, downloader):
++    from sqlalchemy.exc import OperationalError
++    agent, candidates = await _candidate_group(db_session, channel, downloader)
++    sessions = []
++    async def write(agent, key, cands, db):
++        sessions.append(db)
++        if len(sessions) == 1:
++            raise OperationalError("INSERT", {}, Exception("database is locked"))
++        return True
++    with patch("app.services.agent_service._process_candidate_group", write):
++        result = await process_resources(agent, candidates, db_session, autocommit=True)
++    assert result.pending_decisions == 1 and not result.errors
++    assert len(sessions) == 2 and sessions[0] is not sessions[1]
++
++
++async def test_request_choice_propagates_lock_for_whole_request_retry(db_session, channel, downloader):
++    import pytest
++    from sqlalchemy.exc import OperationalError
++    agent, candidates = await _candidate_group(db_session, channel, downloader)
++    with patch("app.services.agent_service._process_candidate_group",
++               AsyncMock(side_effect=OperationalError("INSERT", {}, Exception("database is locked")))):
++        with pytest.raises(OperationalError, match="database is locked"):
++            await process_resources(agent, candidates, db_session)
++
++
++async def test_background_dispatch_is_not_automatically_replayed(db_session, channel, downloader):
++    from sqlalchemy.exc import OperationalError
++    agent, candidates = await _candidate_group(db_session, channel, downloader, count=1)
++    with patch("app.services.agent_service._process_candidate_group",
++               AsyncMock(side_effect=OperationalError("COMMIT", {}, Exception("database is locked")))) as write:
++        result = await process_resources(agent, candidates, db_session, autocommit=True)
++    assert len(result.errors) == 1
++    assert write.await_count == 1
 --- /dev/null
-+++ b/tests/api/test_coverage_confirmation.py
-@@ -0,0 +1,32 @@
-+"""HTTP confirmation uses the same exact coverage evidence as dispatch."""
-+from app.models.file_resource import FileResource
-+from app.models.resource_file_assignment import ResourceFileAssignment
++++ b/tests/unit/test_decision_review.py
+@@ -0,0 +1,92 @@
++"""Synthetic legacy mappings: no new model constraints mask upgrade cases."""
++from copy import deepcopy
++
++from app.services.decision_review import review_decisions
++from tests.unit.test_agent_service import _make_resource
 +
 +
-+async def test_detail_and_dashboard_agree_on_known_and_unknown_coverage(
-+    client, db_session, sample_channel, sample_series,
-+):
-+    resources = []
-+    for tag in ["known", "unknown"]:
-+        row = FileResource(channel_id=sample_channel.id, series_id=sample_series.id,
-+            guid=f"synthetic-coverage-{tag}", title_raw=f"Synthetic {tag} batch",
-+            torrent_url="https://example.invalid/torrent", is_batch=True,
-+            batch_scope="season", season=sample_series.season_number)
-+        row.file_assignments = []
-+        if tag == "known":
-+            row.file_assignments = [ResourceFileAssignment(series_id=sample_series.id,
-+                season=sample_series.season_number, file_path="synthetic.mkv",
-+                episode_start=1, episode_end=12, source="manual")]
-+        resources.append(row)
-+    db_session.add_all(resources)
-+    await db_session.commit()
-+    for row, expected in zip(resources, [False, True]):
-+        response = await client.get(f"/api/v1/resources/{row.id}")
-+        assert response.status_code == 200
-+        assert ("batch_coverage_unknown" in response.json()["data"]["confirmation_kinds"]) is expected
-+    dashboard = await client.get("/api/v1/dashboard")
-+    assert dashboard.status_code == 200
-+    kinds = {item["resource"]["id"]: item["kinds"]
-+             for item in dashboard.json()["data"]["pending_confirmations"]}
-+    assert "batch_coverage_unknown" not in kinds.get(resources[0].id, [])
-+    assert "batch_coverage_unknown" in kinds[resources[1].id]
++def row(identity, candidates, **overrides):
++    return dict(id=identity, agent_id='agent', candidates=candidates, status='pending', **overrides)
++
++
++def movie(identity, work):
++    return _make_resource('channel', id=identity, movie_id=work, season=None, episode=None)
++
++
++def test_mixed_slots_split_and_duplicate_slots_merge_without_losing_sources():
++    resources = {r.id: r for r in [movie('a','film1'), movie('b','film1'), movie('c','film2'), movie('d','film2')]}
++    original = [row('old1',['a','c']), row('old2',['b','d','a'])]
++    before = deepcopy(original)
++    report = review_decisions(original, resources)
++    assert original == before
++    assert not report['blocked']
++    assert {tuple(g['candidates']) for g in report['proposed_groups']} == {('a','b'),('c','d')}
++    assert all(g['source_decision_ids'] == ['old1','old2'] for g in report['proposed_groups'])
++    assert not any(g['requires_review'] for g in report['proposed_groups'])
++    assert report == review_decisions(list(reversed(original)), dict(reversed(list(resources.items()))))
++
++
++def test_unknown_missing_and_singleton_are_not_silently_dropped():
++    resources = {'a':movie('a','film'), 'unknown':_make_resource('channel',id='unknown',series_id=None,movie_id=None)}
++    report = review_decisions([row('old',['a','a','unknown','deleted'])], resources)
++    assert {b['reason'] for b in report['blocked']} == {'unknown_coverage','missing_resource'}
++    assert report['proposed_groups'][0]['requires_review']
++    assert report['proposed_groups'][0]['candidates'] == ['a']
++    assert report['original_decisions'][0]['candidates'] == ['a','a','unknown','deleted']
++
++
++def test_decided_history_is_preserved_even_if_resource_no_longer_exists():
++    historical = dict(id='history', agent_id='agent', candidates=['gone'], status='decided', decided_resource_id='gone')
++    report = review_decisions([historical], {})
++    assert report['original_decisions'] == [historical]
++    assert not report['proposed_groups'] and not report['blocked']
++
++
++def test_changed_candidate_work_invalidates_review_fingerprint():
++    resource = movie('a','film1')
++    first = review_decisions([row('old',['a'])], {'a':resource})
++    resource.movie_id = 'film2'
++    second = review_decisions([row('old',['a'])], {'a':resource})
++    assert first['fingerprint'] != second['fingerprint']
++
++
++def test_different_agents_do_not_merge():
++    a,b=movie('a','film'),movie('b','film')
++    first=row('one',['a','b']); second=row('two',['a','b']);second['agent_id']='another'
++    report=review_decisions([first,second],{'a':a,'b':b})
++    assert len(report['proposed_groups']) == 2
++
++
++async def test_export_reads_actual_legacy_table_without_new_key_columns(db_session):
++    import json
++
++    from sqlalchemy import event, text
++
++    from app.services.decision_review import export_decision_review
++
++    # Deliberately pre-key table. No ORM PendingDecision SELECT may be used.
++    await db_session.execute(text('DROP TABLE pending_decisions'))
++    await db_session.execute(text('CREATE TABLE pending_decisions '
++                                  '(id TEXT PRIMARY KEY, agent_id TEXT, status TEXT, '
++                                  'candidates TEXT, decided_resource_id TEXT)'))
++    await db_session.execute(text('INSERT INTO pending_decisions VALUES '
++                                  "('old', 'agent', 'pending', :candidates, NULL)"),
++                             {'candidates': json.dumps(['deleted'])})
++    await db_session.execute(text('INSERT INTO pending_decisions VALUES '
++                                  "('history', 'agent', 'decided', :candidates, 'gone')"),
++                             {'candidates': json.dumps(['gone'])})
++    statements = []
++    conn = await db_session.connection()
++
++    def observe(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement)
++
++    event.listen(conn.sync_connection, 'before_cursor_execute', observe)
++    try:
++        report = await export_decision_review(db_session)
++    finally:
++        event.remove(conn.sync_connection, 'before_cursor_execute', observe)
++    assert len(report['original_decisions']) == 2
++    assert report['blocked'] == [dict(decision_id='old', resource_id='deleted', reason='missing_resource')]
++    assert all(statement.lstrip().upper().startswith('SELECT') for statement in statements), statements
++    assert (await db_session.execute(text('SELECT count(*) FROM pending_decisions'))).scalar_one() == 2
 --- a/tests/unit/test_resource_confirmation.py
 +++ b/tests/unit/test_resource_confirmation.py
 @@ -58,7 +58,7 @@
@@ -725,146 +1504,126 @@
      assert result.kinds == ()
  
  
---- a/tests/api/test_dashboard_extra.py
-+++ b/tests/api/test_dashboard_extra.py
-@@ -246,6 +246,7 @@
- 
-         from app.models.channel import Channel
-         from app.models.file_resource import FileResource
-+        from app.models.resource_file_assignment import ResourceFileAssignment
-         from app.models.resource_work_link import ResourceWorkLink
-         from app.models.series import TVSeries
-         from app.services.required_fields import normalize_required_fields
-@@ -285,6 +286,13 @@
-                 ResourceWorkLink(resource_id=full.id, series_id=s1.id),
-                 ResourceWorkLink(resource_id=full.id, series_id=s2.id),
-                 ResourceWorkLink(resource_id=noyear.id, series_id=undated.id),
-+            ])
-+            # Synthetic exact coverage, not merely a list of season IDs.
-+            s.add_all([
-+                ResourceFileAssignment(resource_id=resource.id, series_id=work.id,
-+                    season=work.season_number, file_path=f"synthetic-{work.id}.mkv",
-+                    episode_start=1, episode_end=12)
-+                for resource, work in [(full, s1), (full, s2), (noyear, undated)]
-             ])
-             await s.commit()
-             full_id, noyear_id = full.id, noyear.id
---- a/app/models/pending_decision.py
-+++ b/app/models/pending_decision.py
-@@ -3,7 +3,7 @@
- import uuid
- from datetime import datetime
- 
--from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, func
-+from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
- from sqlalchemy.orm import Mapped, mapped_column, relationship
- 
- from app.database import Base
-@@ -12,6 +12,9 @@
- class PendingDecision(Base):
-     __tablename__ = "pending_decisions"
-     __table_args__ = (
-+        CheckConstraint("status != 'pending' OR decision_key IS NOT NULL", name="ck_pending_decision_key"),
-+        Index("uq_pending_decisions_agent_key", "agent_id", "decision_key", unique=True,
-+              sqlite_where=text("status = 'pending'"), postgresql_where=text("status = 'pending'")),
-         Index("ix_pending_decisions_status_created", "status", "created_at", "id"),
-     )
- 
-@@ -31,6 +34,8 @@
-     # Season of the disputed episode (NULL = movie / season-less series).
-     # Part of the idempotency key so S1E3 and S4E3 don't collide.
-     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
-+    decision_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
-+    decision_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
-     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
-     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 --- /dev/null
-+++ b/app/services/decision_store.py
-@@ -0,0 +1,86 @@
-+"""Versioned pending-choice identities and transactional candidate merging."""
-+import hashlib
-+import json
-+from datetime import timedelta
++++ b/tests/unit/test_resource_coverage.py
+@@ -0,0 +1,120 @@
 +
-+from sqlalchemy import select
-+from sqlalchemy.exc import IntegrityError
++import pytest
 +
-+from app.models.agent import Agent
-+from app.models.pending_decision import PendingDecision
-+from app.utils.time import utcnow
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.services.resource_coverage import batch_coverage, merge_intervals
 +
 +
-+def choice_identity(kind, target_id, season, episode, coverage=None):
-+    if coverage is None:
-+        if kind not in {'series', 'movie'} or not target_id or episode == -1:
-+            raise ValueError('A choice requires a work identity or exact batch coverage')
-+        scope = dict(version=1, kind=kind, work_id=target_id, season=season, episode=episode)
-+    else:
-+        scope = dict(version=1, kind='batch', coverage=coverage)
-+    encoded = json.dumps(scope, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
-+    return 'v1:' + hashlib.sha256(encoded.encode()).hexdigest(), json.loads(encoded)
++def resource(start=1, end=12):
++    r = FileResource(is_batch=True, batch_scope='season', series_id='s1', season=1,
++                     episode_start=start, episode_end=end)
++    r.series = TVSeries(id="s1", season_number=1)
++    r.work_links = []
++    r.file_assignments = []
++    return r
 +
 +
-+async def persist_choice(db, *, agent_id, decision_key, decision_scope, candidate_ids,
-+                         proposed_ids, picked_id, suggestion, fields):
-+    """No network work while holding locks. Caller owns the outer transaction.
++def assignment(start, end, *, work='s1', season=1):
++    return ResourceFileAssignment(series_id=work, season=season, episode_start=start,
++                                  episode_end=end, file_path=f'{work}-{start}.mkv')
 +
-+    The parent lock orders legitimate creators of an empty slot; the unique
-+    index is the final guard, including writers outside this service. A
-+    candidate change invalidates recommendations computed on an older set.
-+    """
-+    incoming = list(dict.fromkeys(candidate_ids))
-+    if len(incoming) < 2:
-+        raise ValueError('A pending choice requires at least two distinct candidates')
-+    parent = await db.scalar(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
-+    if parent is None:
-+        raise ValueError('Agent no longer exists')
-+    query = select(PendingDecision).where(
-+        PendingDecision.agent_id == agent_id,
-+        PendingDecision.status == 'pending',
-+        PendingDecision.decision_key == decision_key,
-+    ).with_for_update().execution_options(populate_existing=True)
 +
-+    async def merge(row):
-+        if row.decision_scope != decision_scope:
-+            raise ValueError('Decision identity disagrees with its stored scope')
-+        previous_ids = set(row.candidates or [])
-+        merged = list(dict.fromkeys([*(row.candidates or []), *incoming]))
-+        row.candidates = merged
-+        row.reason = fields['reason']
-+        row.expires_at = utcnow() + timedelta(days=7)
-+        if set(merged) == set(proposed_ids) and picked_id in merged:
-+            row.llm_picked_resource_id, row.llm_suggestion = picked_id, suggestion
-+        elif (set(merged) != previous_ids or set(merged) != set(proposed_ids)
-+              or row.llm_picked_resource_id not in merged):
-+            row.llm_picked_resource_id, row.llm_suggestion = None, None
-+        await db.flush()
-+        return row
++def test_half_full_and_unknown_are_distinct():
++    assert batch_coverage(resource(end=6)) != batch_coverage(resource())
++    assert batch_coverage(resource(end=None)) is None
++    assert batch_coverage(resource(start=None)) is None
 +
-+    existing = await db.scalar(query)
-+    if existing is not None:
-+        return await merge(existing)
-+    row = PendingDecision(
-+        agent_id=agent_id, decision_key=decision_key, decision_scope=decision_scope,
-+        candidates=incoming, status='pending', expires_at=utcnow() + timedelta(days=7),
-+        llm_picked_resource_id=picked_id if picked_id in incoming else None,
-+        llm_suggestion=suggestion if picked_id in incoming else None, **fields,
-+    )
++
++def test_authoritative_gaps_survive_minmax_title_summary():
++    r = resource()
++    r.file_assignments = [assignment(1, 3), assignment(5, 12)]
++    assert batch_coverage(r) == (('series', 's1', 1, ((1, 3), (5, 12))),)
++    assert batch_coverage(r) != batch_coverage(resource())
++
++
++def test_adjacent_overlapping_intervals_are_canonical_without_expansion():
++    assert merge_intervals([(5, 10**9), (3, 5), (1, 2)]) == ((1, 10**9),)
++
++
++@pytest.mark.parametrize('start,end', [(None, None), (-1, 3), (4, 3), (True, 3), (1, '3')])
++def test_invalid_assignment_cannot_fall_back_to_title(start, end):
++    r = resource()
++    r.file_assignments = [assignment(start, end)]
++    assert batch_coverage(r) is None
++
++
++def test_different_link_sets_and_order_independence():
++    r = resource()
++    r.series_id = None
++    r.batch_scope = 'multi_season'
++    r.work_links = [ResourceWorkLink(series_id=s, series=TVSeries(id=s, season_number=n))
++                    for s,n in [('s2',2),('s1',1)]]
++    r.file_assignments = [assignment(1, 12, work='s2', season=2), assignment(1, 12)]
++    first = batch_coverage(r)
++    r.work_links.reverse()
++    r.file_assignments.reverse()
++    assert batch_coverage(r) == first
++    r.file_assignments[0].series_id = 's3'
++    assert batch_coverage(r) is None
++
++
++def test_missing_work_assignment_is_unknown():
++    r = resource()
++    r.work_links = [ResourceWorkLink(series_id='s2')]
++    r.file_assignments = [assignment(1, 12)]
++    assert batch_coverage(r) is None
++
++
++def test_cross_season_legacy_cannot_be_declared_a_season_work():
++    r = resource()
++    r.file_assignments = [assignment(1, 12), assignment(1, 12, season=2)]
++    assert batch_coverage(r) is None
++
++
++def test_unloaded_relations_do_not_guess_empty_manifest():
++    r = FileResource(is_batch=True, batch_scope='season', series_id='s1', season=1,
++                     episode_start=1, episode_end=12)
++    assert batch_coverage(r) is None
++
++
++def test_wrong_single_assignment_season_is_unknown():
++    r = resource()
++    r.file_assignments = [assignment(1, 12, season=2)]
++    assert batch_coverage(r) is None
++
++
++def test_title_season_must_match_work_identity():
++    r = resource()
++    r.season = 2
++    assert batch_coverage(r) is None
++
++
++def test_legacy_work_identity_is_not_reinterpreted_as_single_season():
++    r = resource()
++    r.series.number_of_seasons = 2
++    assert batch_coverage(r) is None
++
++
++async def test_unloaded_work_never_issues_lazy_sql(db_session, db_engine, sample_channel):
++    from sqlalchemy import event
++    r = resource()
++    r.channel_id = sample_channel.id
++    r.title_raw = "Synthetic unloaded work"
++    r.guid = "synthetic-unloaded-work"
++    r.torrent_url = "https://example.invalid/torrent"
++    r.series.title_cn = "Synthetic single season"
++    db_session.add(r)
++    await db_session.flush()
++    db_session.expire(r, ["series"])
++    statements = []
++    def capture(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement)
++    event.listen(db_engine.sync_engine, "before_cursor_execute", capture)
 +    try:
-+        async with db.begin_nested():
-+            db.add(row)
-+            await db.flush()
-+        return row
-+    except IntegrityError as exc:
-+        message = str(exc.orig)
-+        if not any(marker in message for marker in (
-+            'uq_pending_decisions_agent_key',
-+            'UNIQUE constraint failed: pending_decisions.agent_id, pending_decisions.decision_key',
-+            'UNIQUE constraint failed: pending_decisions.(agent_id, decision_key)',
-+        )):
-+            raise
-+        existing = await db.scalar(query)
-+        if existing is None:
-+            raise
-+        return await merge(existing)
++        assert batch_coverage(r) is None
++    finally:
++        event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
++    assert statements == []

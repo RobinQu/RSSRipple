@@ -522,6 +522,347 @@
 +        )
 +        await db.commit()
 +        assert list(await db.scalars(select(Episode.season).where(Episode.series_id == identity))) == [1]
+--- a/tests/integration/http/_http.py
++++ b/tests/integration/http/_http.py
+@@ -10,6 +10,7 @@
+ 
+ import os
+ import time
++import uuid
+ 
+ import httpx
+ 
+@@ -291,58 +292,50 @@
+ # ── Series seeding ─────────────────────────────────────────────────────────
+ 
+ 
++def single_season_fixture_fields(existing: dict | None = None) -> dict:
++    """Synthetic Bangumi subject identity for a known single-season fixture.
++
++    These IDs are generated test data, never recorded/live provider evidence.
++    The app already recognizes Bangumi subject granularity without retired
++    work counts. Preserve an existing subject identity when one is present.
++    """
++    if existing and existing.get("external_source") == "bangumi" and existing.get("external_id"):
++        return {}
++    return {"external_source": "bangumi", "external_id": f"bangumi:{uuid.uuid4().int}"}
++
++
+ def ensure_series(
+     title_cn: str,
+     title_en: str,
+-    number_of_seasons: int | None = None,
++    single_season_entry: bool = False,
+     api=_api,
+     *,
+     start_date: str = "2023-01-01",
+     is_anime: bool = True,
+ ) -> str:
+-    """Get-or-create a series by exact title_cn; returns the series id.
+-
+-    Since 81a9d06, Layer-3 auto-link abandons top-1 linking when >1 local
+-    works share a normalized title — so tests must never blindly POST a
+-    duplicate. When ``number_of_seasons`` is given, the row is also brought
+-    to that value (create or update): it supplies the single-season evidence
+-    ``resolve_missing_season`` needs to land ``season=1`` instead of marking
+-    season-less resources ``episode_confidence=ambiguous`` (which routes them
+-    to a PendingDecision instead of dispatch).
+-    ``api`` allows reusing the helper against the app-llm instance.
++    """Get/create by exact title, optionally with synthetic season-subject evidence.
++
++    The seed is synthetic metadata even when RSS/torrent fixtures are captured
++    data. Never send retired seasons/number_of_seasons to the work API.
+     """
+     r = api("/api/v1/series", params={"page_size": 100, "title": title_cn})
+     if r.status_code == 200:
+-        for s in r.json().get("data", []):
+-            if s.get("title_cn") == title_cn:
+-                sid = s["id"]
+-                break
+-        else:
+-            sid = None
+-        if sid is not None:
+-            updates = {}
+-            if number_of_seasons is not None and s.get("number_of_seasons") != number_of_seasons:
+-                updates["number_of_seasons"] = number_of_seasons
+-            if not s.get("start_date"):
++        for work in r.json().get("data", []):
++            if work.get("title_cn") != title_cn:
++                continue
++            sid = work["id"]
++            updates = single_season_fixture_fields(work) if single_season_entry else {}
++            if not work.get("start_date"):
+                 updates["start_date"] = start_date
+-            if s.get("is_anime") is None:
++            if work.get("is_anime") is None:
+                 updates["is_anime"] = is_anime
+             if updates:
+-                r = api(
+-                    f"/api/v1/series/{sid}",
+-                    method="put",
+-                    json=updates,
+-                )
++                r = api(f"/api/v1/series/{sid}", method="put", json=updates)
+                 assert r.status_code == 200, f"series update failed: {r.text}"
+             return sid
+-    payload: dict = {
+-        "title_cn": title_cn,
+-        "title_en": title_en,
+-        "start_date": start_date,
+-        "is_anime": is_anime,
+-    }
+-    if number_of_seasons is not None:
+-        payload["number_of_seasons"] = number_of_seasons
++    payload = dict(title_cn=title_cn, title_en=title_en, start_date=start_date, is_anime=is_anime)
++    if single_season_entry:
++        payload.update(single_season_fixture_fields())
+     r = api("/api/v1/series", method="post", json=payload)
+     assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
+     return r.json()["data"]["id"]
+--- a/tests/integration/http/test_agent_dispatch.py
++++ b/tests/integration/http/test_agent_dispatch.py
+@@ -105,11 +105,11 @@
+     """
+     # Pre-create the series so Layer-3 local matching auto-links resources.
+     # Get-or-create (a duplicate row would trip the same-title collision
+-    # guard and block linking); number_of_seasons=1 supplies the
++    # guard and block linking); single_season_entry=True supplies the
+     # single-season evidence so season-less resources land season=1 and
+     # dispatch instead of going ambiguous → PendingDecision.
+     series_id = ensure_series(
+-        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
++        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", single_season_entry=True
+     )
+ 
+     r = _api(
+--- a/tests/integration/http/test_api_coverage2.py
++++ b/tests/integration/http/test_api_coverage2.py
+@@ -35,6 +35,7 @@
+     TEST_SERVER,
+     _api,
+     _poll_fetch,
++    single_season_fixture_fields,
+ )
+ 
+ MIKANANI_S3_URL = f"{TEST_SERVER}/rss/mikanani?series=3"  # 咒术回战 (linked channel)
+@@ -143,7 +144,7 @@
+     title_cn: str,
+     title_en: str,
+     *,
+-    number_of_seasons: int | None = 1,
++    single_season_entry: bool = True,
+     number_of_episodes: int | None = None,
+ ) -> str:
+     """ensure_series variant that registers the work for teardown: created
+@@ -157,13 +158,13 @@
+                 original = {
+                     k: s.get(k)
+                     for k in (
+-                        "number_of_seasons", "start_date", "is_anime",
++                        "external_id", "external_source", "start_date", "is_anime",
+                         "number_of_episodes",
+                     )
+                 }
+                 updates = {}
+-                if number_of_seasons is not None and s.get("number_of_seasons") != number_of_seasons:
+-                    updates["number_of_seasons"] = number_of_seasons
++                if single_season_entry:
++                    updates.update(single_season_fixture_fields(s))
+                 if not s.get("start_date"):
+                     updates["start_date"] = "2023-01-01"
+                 if s.get("is_anime") is None:
+@@ -181,8 +182,8 @@
+         "start_date": "2023-01-01",
+         "is_anime": True,
+     }
+-    if number_of_seasons is not None:
+-        payload["number_of_seasons"] = number_of_seasons
++    if single_season_entry:
++        payload.update(single_season_fixture_fields())
+     if number_of_episodes is not None:
+         payload["number_of_episodes"] = number_of_episodes
+     r = _api("/api/v1/series", method="post", json=payload)
+--- a/tests/integration/http/test_api_coverage2_llm.py
++++ b/tests/integration/http/test_api_coverage2_llm.py
+@@ -32,6 +32,7 @@
+     API_HEADERS,
+     RICH_FIELD_MAPPING,
+     TEST_SERVER,
++    single_season_fixture_fields,
+ )
+ 
+ LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
+@@ -104,15 +105,14 @@
+             if s.get("title_cn") == APOTHECARY_TITLE_CN:
+                 original = {
+                     k: s.get(k)
+-                    for k in ("start_date", "is_anime", "number_of_seasons")
++                    for k in ("start_date", "is_anime", "external_id", "external_source")
+                 }
+                 updates = {}
+                 if not s.get("start_date"):
+                     updates["start_date"] = "2023-01-01"
+                 if s.get("is_anime") is None:
+                     updates["is_anime"] = True
+-                if not s.get("number_of_seasons"):
+-                    updates["number_of_seasons"] = 1
++                updates.update(single_season_fixture_fields(s))
+                 if updates:
+                     r2 = _api(f"/api/v1/series/{s['id']}", method="put", json=updates)
+                     assert r2.status_code == 200, r2.text
+@@ -128,7 +128,7 @@
+                 "title_en": "The Apothecary Diaries",
+                 "start_date": "2023-01-01",
+                 "is_anime": True,
+-                "number_of_seasons": 1,
++                **single_season_fixture_fields(),
+             },
+         )
+         assert r.status_code == 201, f"series create failed: {r.text}"
+--- a/tests/integration/http/test_batch_dispatch.py
++++ b/tests/integration/http/test_batch_dispatch.py
+@@ -43,7 +43,7 @@
+         # Single-season evidence keeps the single-episode resource dispatchable
+         # (season-less resources would otherwise go ambiguous → PendingDecision).
+         series_id = ensure_series(
+-            FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
++            FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", single_season_entry=True
+         )
+ 
+         r = _api(
+--- a/tests/integration/http/test_decisions_flow.py
++++ b/tests/integration/http/test_decisions_flow.py
+@@ -43,38 +43,10 @@
+ 
+ 
+ def _ensure_series(title_cn: str, title_en: str) -> str:
+-    """Get or create a TV series by title (avoids duplicate rows confusing
+-    the exact-match auto-link)."""
+-    r = _api("/api/v1/series", params={"page_size": 100, "title": title_cn})
+-    if r.status_code == 200:
+-        for s in r.json().get("data", []):
+-            if s.get("title_cn") == title_cn:
+-                updates = {}
+-                if not s.get("start_date"):
+-                    updates["start_date"] = "2023-01-01"
+-                if s.get("is_anime") is None:
+-                    updates["is_anime"] = True
+-                if not s.get("number_of_seasons"):
+-                    updates["number_of_seasons"] = 1
+-                if updates:
+-                    updated = _api(
+-                        f"/api/v1/series/{s['id']}", method="put", json=updates
+-                    )
+-                    assert updated.status_code == 200, updated.text
+-                return s["id"]
+-    r = _api(
+-        "/api/v1/series",
+-        method="post",
+-        json={
+-            "title_cn": title_cn,
+-            "title_en": title_en,
+-            "start_date": "2023-01-01",
+-            "is_anime": True,
+-            "number_of_seasons": 1,
+-        },
+-    )
+-    assert r.status_code == 201, f"Series creation failed: {r.status_code} {r.text}"
+-    return r.json()["data"]["id"]
++    from tests.integration.http._http import ensure_series
++
++    return ensure_series(title_cn, title_en, single_season_entry=True, api=_api)
++
+ 
+ 
+ @pytest.fixture(scope="class")
+--- a/tests/integration/http/test_e2e_pipeline.py
++++ b/tests/integration/http/test_e2e_pipeline.py
+@@ -50,7 +50,7 @@
+         # fetched resources during fetch (season-less → season=1, dispatchable
+         # instead of ambiguous), mirroring test_transmission_actions.py.
+         ensure_series(
+-            SERIES_TITLE_CN, "Daemons of the Shadow Realm", number_of_seasons=1
++            SERIES_TITLE_CN, "Daemons of the Shadow Realm", single_season_entry=True
+         )
+         # Create channel with mikanani-ext feed
+         r = _api(
+--- a/tests/integration/http/test_llm_mock.py
++++ b/tests/integration/http/test_llm_mock.py
+@@ -161,7 +161,7 @@
+     # going ambiguous → PendingDecision.
+     series_id = ensure_series(
+         FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End",
+-        number_of_seasons=1, api=_api,
++        single_season_entry=True, api=_api,
+     )
+ 
+     r = _api(
+--- /dev/null
++++ b/tests/integration/http/test_retired_season_fields.py
+@@ -0,0 +1,30 @@
++"""Real HTTP rejection of retired work fields, with isolated synthetic rows."""
++import uuid
++
++import pytest
++
++from tests.integration.http._http import _api, ensure_series
++
++
++@pytest.mark.parametrize('field,value', [('number_of_seasons', 2), ('number_of_seasons', None),
++                                         ('seasons', [{'season_number': 1}]), ('seasons', None)])
++def test_retired_fields_are_rejected_without_mutating_work(field, value):
++    title = f'Synthetic retired API {uuid.uuid4().hex}'
++    rejected = _api('/api/v1/series', method='post', json={'title_cn': title, field: value})
++    assert rejected.status_code == 422, rejected.text
++    listing = _api('/api/v1/series', params={'title': title})
++    assert listing.status_code == 200
++    assert not any(row['title_cn'] == title for row in listing.json()['data'])
++    identity = ensure_series(title, title, single_season_entry=True)
++    try:
++        before = _api(f'/api/v1/series/{identity}').json()['data']
++        assert before['number_of_seasons'] is None
++        assert before['external_source'] == 'bangumi'
++        rejected = _api(f'/api/v1/series/{identity}', method='put', json={'title_cn': 'must not persist', field: value})
++        assert rejected.status_code == 422, rejected.text
++        after = _api(f'/api/v1/series/{identity}').json()['data']
++        for key in ['title_cn', 'number_of_seasons', 'season_number', 'external_id', 'manually_edited_fields']:
++            assert after[key] == before[key]
++    finally:
++        deleted = _api(f'/api/v1/series/{identity}', method='delete')
++        assert deleted.status_code == 200, deleted.text
+--- a/tests/integration/http/test_tasks_api.py
++++ b/tests/integration/http/test_tasks_api.py
+@@ -58,7 +58,7 @@
+ def _task_env():
+     """Series + fetched/auto-linked channel + mock downloader + dispatched agent."""
+     series_id = ensure_series(
+-        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
++        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", single_season_entry=True
+     )
+     r = _api(
+         "/api/v1/channels",
+--- a/tests/integration/http/test_transmission_actions.py
++++ b/tests/integration/http/test_transmission_actions.py
+@@ -34,7 +34,7 @@
+ def _tx_env():
+     """Agent that dispatched real torrents to the transmission service."""
+     series_id = ensure_series(
+-        SERIES_TITLE_CN, "Daemons of the Shadow Realm", number_of_seasons=1
++        SERIES_TITLE_CN, "Daemons of the Shadow Realm", single_season_entry=True
+     )
+     # Dedicated downloader at the compose transmission port — do NOT reuse
+     # _ensure_downloader (other suites register unreachable downloaders and
+--- a/tests/integration/metadata/test_metadata_dedup_coverage.py
++++ b/tests/integration/metadata/test_metadata_dedup_coverage.py
+@@ -292,7 +292,7 @@
+     assert survivor.rating == 8.5
+     assert survivor.genre == ["Drama"]
+     assert survivor.number_of_episodes == 12
+-    assert survivor.number_of_seasons == 1
++    assert survivor.number_of_seasons is None  # retired counts are not inherited
+     assert survivor.collection_id == coll.id
+     assert survivor.external_id == "tmdb:4242"
+     assert set(survivor.aliases or []) >= {"重复剧", "Dup EN", "重复剧 别名"}
 --- /dev/null
 +++ b/tests/integration/season_model/test_retired_field_review.py
 @@ -0,0 +1,75 @@

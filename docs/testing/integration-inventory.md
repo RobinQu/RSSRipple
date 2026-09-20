@@ -281,3 +281,7 @@ D1 写入路径回归覆盖去重继承合集的删除/赋值顺序、Wikidata �
 D2 升级外键验证：`tests/unit/test_upgrade_foreign_keys.py` 使用真实 Turso 验证七 FK × 新装/缺列/已有列缺约束、非法 INSERT/UPDATE、父项 DELETE 的 SET NULL/NO ACTION；包含带 Episode/资源/身份袋/人工保护/历史额外列和索引的升级及脏数据拒绝、换表后注入故障与恢复。`test_upgrade_fk_related_data.py` 验证多表重建保留下载任务、通知、RESTRICT 规则及 SET NULL 计划，末尾失败整批回滚。`test_upgrade_fk_report.py` 验证预检全程只读并完整导出跨页 103 个悬空引用。`test_turso_fk_rebuild_capability.py` 记录后端事务、索引/触发器与回滚能力边界。
 
 PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等待与恢复使用 `docs/plans/p0-and-backlog/probes/upgrade_foreign_keys*_pg_probe.py`，必须只运行于探针检查允许的独立本地测试库，报告与 Compose 清理证据见 V9 计划。上述定向测试不能替代完整单元/API ≥95% 和隔离集成 ≥85% 门禁。
+
+### 退役季数字段清理
+
+`tests/api/test_retired_season_fields.py` 验证实际 POST/PUT 拒绝退役字段且无副作用、合法单季 Episode 写入；`tests/unit/test_retired_season_cleanup.py` 覆盖真实 Turso 指纹、关联/人工字段保留、过期与矛盾证据拒绝、回滚、幂等、旧派生字段不被重写。`tests/integration/season_model/test_retired_field_review.py` 使用原始 prod_works_v1 录制夹具，只读导出 27 个带旧计数作品；实际合集回填后 8 个明确单季样本经审核清理，其他 19 个保留原值。录制夹具不代表当前生产库。实际 PostgreSQL CLI、并发阻塞和故障回滚证据见 p0-and-backlog/probes/retired-season-cleanup-pg-result.json。

@@ -825,3 +825,5 @@ class FtsOutbox(Base):
 
 
 轻量迁移新增的七处外键（audio/collection/volume/media_server 关联）在新装与升级库必须具有相同目标及 ON DELETE；已有列不代表约束已存在。启动检查并补齐缺失约束，旧悬空关联必须由明确业务证据修复，不自动丢弃子行或猜测父项。只读预检、Turso 原子重建与 PG 事务补约束见 [数据库迁移](db-migration.md)「轻量迁移的升级外键对等」。
+
+TVSeries.number_of_seasons / seasons 为退役孤儿列：创建/更新 API 拒绝显式输入，去重与人工字段登记不再扩散计数。只读兼容不表示允许新写入；存量清理必须保留未拆季证据，不能以整表置空替代单季迁移。

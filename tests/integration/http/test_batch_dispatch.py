@@ -43,7 +43,7 @@ class TestBatchDispatch:
         # Single-season evidence keeps the single-episode resource dispatchable
         # (season-less resources would otherwise go ambiguous → PendingDecision).
         series_id = ensure_series(
-            FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
+            FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", single_season_entry=True
         )
 
         r = _api(

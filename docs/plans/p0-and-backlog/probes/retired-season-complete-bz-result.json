@@ -1,0 +1,63 @@
+{
+  "batch": "V10 D3",
+  "status": "accepted; applied to main worktree; commit pending",
+  "unit_api": {
+    "passed": 3648,
+    "skipped": 14,
+    "warnings": 6,
+    "covered": 21349,
+    "valid": 21841,
+    "exit_code": 0
+  },
+  "integration": {
+    "passed": 3141,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1669.61,
+    "covered": 19591,
+    "valid": 21841,
+    "runner_exit_code": 0,
+    "coverage_exit_code": 0
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "frozen_files_unchanged": 2998,
+  "unit_runtime_unchanged_since_bh": true,
+  "project": "rssripple-v10-complete-20260920-bz",
+  "cleanup": "complete",
+  "artifacts": "/tmp/rssripple-v10-artifacts-bz",
+  "real_data": "original production graph and captured feed/torrent fixtures unchanged; generated Bangumi helper IDs explicitly synthetic",
+  "production_database_modified": false,
+  "remote_pushed": false,
+  "applied_files": [
+    "app/schemas/series.py",
+    "app/services/metadata_dedup.py",
+    "app/services/metadata_episode_reconcile.py",
+    "app/services/metadata_service.py",
+    "docs/design/api-endpoints.md",
+    "docs/design/business-logic.md",
+    "docs/design/data-models.md",
+    "docs/design/db-migration.md",
+    "docs/design/per-season-works.md",
+    "docs/testing/integration-inventory.md",
+    "scripts/retired_season_fields.py",
+    "tests/api/test_retired_season_fields.py",
+    "tests/integration/season_model/test_retired_field_review.py",
+    "tests/unit/test_metadata_dedup.py",
+    "tests/unit/test_retired_season_cleanup.py",
+    "tests/integration/http/_http.py",
+    "tests/integration/http/test_agent_dispatch.py",
+    "tests/integration/http/test_api_coverage2.py",
+    "tests/integration/http/test_api_coverage2_llm.py",
+    "tests/integration/http/test_batch_dispatch.py",
+    "tests/integration/http/test_decisions_flow.py",
+    "tests/integration/http/test_e2e_pipeline.py",
+    "tests/integration/http/test_llm_mock.py",
+    "tests/integration/http/test_retired_season_fields.py",
+    "tests/integration/http/test_tasks_api.py",
+    "tests/integration/http/test_transmission_actions.py",
+    "tests/integration/metadata/test_metadata_dedup_coverage.py"
+  ]
+}

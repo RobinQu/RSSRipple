@@ -1,0 +1,18 @@
+{
+  "constraint_checks": {
+    "duplicate_key": true,
+    "null_pending_key": true
+  },
+  "historical_unkeyed_nonpending_preserved": true,
+  "initial_barrier_reached": true,
+  "picker_invocations_including_retries": 3,
+  "created_ids": [
+    "a08aa4ea-2667-4d4a-befe-154a6cdbfc7c",
+    "a08aa4ea-2667-4d4a-befe-154a6cdbfc7c"
+  ],
+  "pending_rows": 1,
+  "candidate_counts": [
+    4
+  ],
+  "scope": "synthetic data; two real Turso connections; real production process_resources autocommit and commits; no probe-level retry; LLM replaced by barrier"
+}

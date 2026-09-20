@@ -1,0 +1,19 @@
+{
+  "red": {
+    "other_transaction_committed_during_model": true,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided"
+  },
+  "green": {
+    "other_transaction_committed_during_model": true,
+    "dispatch_calls": 0,
+    "ok": false,
+    "error": "Decision is no longer pending",
+    "final_status": "skipped"
+  },
+  "scope": "two actual PostgreSQL sessions in one process; synthetic candidates; model callback commits status in other transaction; dispatch mocked",
+  "project": "rssripple-v11-state-20260920-cm",
+  "cleanup": "complete"
+}

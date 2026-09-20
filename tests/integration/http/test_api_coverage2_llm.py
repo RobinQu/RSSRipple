@@ -32,6 +32,7 @@ from tests.integration.http._http import (
     API_HEADERS,
     RICH_FIELD_MAPPING,
     TEST_SERVER,
+    single_season_fixture_fields,
 )
 
 LLM_APP = os.environ.get("RSSRIPPLE_LLM_URL", "")
@@ -104,15 +105,14 @@ def _ensure_series() -> str:
             if s.get("title_cn") == APOTHECARY_TITLE_CN:
                 original = {
                     k: s.get(k)
-                    for k in ("start_date", "is_anime", "number_of_seasons")
+                    for k in ("start_date", "is_anime", "external_id", "external_source")
                 }
                 updates = {}
                 if not s.get("start_date"):
                     updates["start_date"] = "2023-01-01"
                 if s.get("is_anime") is None:
                     updates["is_anime"] = True
-                if not s.get("number_of_seasons"):
-                    updates["number_of_seasons"] = 1
+                updates.update(single_season_fixture_fields(s))
                 if updates:
                     r2 = _api(f"/api/v1/series/{s['id']}", method="put", json=updates)
                     assert r2.status_code == 200, r2.text
@@ -128,7 +128,7 @@ def _ensure_series() -> str:
                 "title_en": "The Apothecary Diaries",
                 "start_date": "2023-01-01",
                 "is_anime": True,
-                "number_of_seasons": 1,
+                **single_season_fixture_fields(),
             },
         )
         assert r.status_code == 201, f"series create failed: {r.text}"

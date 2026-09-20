@@ -244,3 +244,14 @@ PYTHONPATH=. .venv/bin/python scripts/verify_upgrade_foreign_keys.py --output /t
 PostgreSQL 在现有启动 advisory transaction lock 与有界 DDL lock_timeout 内补约束；先诊断悬空 ID，再由 ALTER ADD CONSTRAINT 在锁下验证完整数据；任一失败回滚本轮 schema 事务。Turso 已有列缺约束需表重建：在 schema 阶段完成后、孤儿作品回填前，以新的普通 BEGIN 执行，不能使用 BEGIN CONCURRENT；按原始 CREATE 定义保留历史额外列、唯一约束、显式索引和触发器。重建前预检悬空值，暂时关闭外键防止 DROP 触发子表 CASCADE/SET NULL/RESTRICT；所有换表处于同一事务，finally 恢复 foreign_keys=ON。失败恢复原表及其子行，不吞异常继续启动；已完成的先前轻迁移 schema 阶段可能仍保留，业务关联不会被猜测修补。
 
 该修复不支持迁移期间其他程序写同一个 Turso 文件；遵循原有单进程独占/停机升级要求。数据量大时表复制与索引重建会占用额外磁盘和启动时间，应在数据库备份副本演练后安排升级窗口。
+
+## 退役季数的人工复核清理
+
+number_of_seasons 不再经创建/更新 API 或去重写入。已有值不能自动全表清空：真正未拆季作品仍需这些证据。维护工具不运行应用启动迁移，使用现有 DATABASE_URL。
+
+1. 停止所有写入进程并备份数据库。运行 `uv run python -m scripts.retired_season_fields --export /tmp/season-review.jsonl`，只读导出全部非空计数作品及其完整关联证据、阻断原因和指纹；每批最多 100 个作品，单个作品证据不截断。保留原始报告。
+2. 人工检查单条记录的合集、既有季号、旧 seasons、身份袋、Episode、资源及文件指派。只有确认已单季化时，复制完整记录到独立 JSON 文件，添加明确整数 confirmed_season，值须等于既有季号，不能从默认 S1 猜测。
+3. 运行 `uv run python -m scripts.retired_season_fields --apply-review /tmp/reviewed-work.json`。单作品事务先锁合集再锁作品并检查当前证据指纹；过期报告、跨季 Episode、矛盾季声明/身份/资源/指派均拒绝，先走关联修复或 P8 拆季流程。
+4. 成功仅将计数置空、移除其退役人工标记、添加明确季号的人工确认标记；保留 seasons、其他作品字段及关联。输出前后指纹及 changed；相同审核再次执行为 changed=false。任何失败整笔回滚。核对报告后再恢复写入。
+
+行锁与指纹不能替代停写：不同关联的新增需要稳定维护窗口。工具不修改生产配置，也不自动修复有歧义的历史关联。真正未拆季证据优先于人工标记，清理不会为跨季污染猜测拆分方案。

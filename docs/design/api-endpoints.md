@@ -518,3 +518,6 @@ Agent 新建/编辑的 rules-preview 回填若发生内部候选持久化错误�
 ### 合集挂载同季冲突
 
 `POST /collections/{id}/works` 指派剧集时，目标已有同 season_number 作品（含 S0）返回 409 `DUPLICATE_SUBMISSION`。拒绝不迁移来源壳合集的身份袋、别名或资源指针。已属于目标的同一作品重复提交仍幂等成功；电影不应用剧集季号约束。检查后竞争导致数据库唯一约束失败时，完整挂载 SAVEPOINT 回滚并返回同样的 409。
+
+
+`POST /series` 和 `PUT /series/{id}` 不接受退役字段 `number_of_seasons` / `seasons`；显式传入（包括 null）返回 422 VALIDATION_ERROR，整次请求不写入作品、壳合集或人工保护字段。读取响应暂保留旧 number_of_seasons 供历史数据诊断；作品身份以 season_number 为准，普通 API 不得借退役列声明多季作品。

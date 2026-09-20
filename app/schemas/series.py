@@ -3,12 +3,23 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.genre import GenreName
 
 
-class TVSeriesCreate(BaseModel):
+class _SeasonWorkInput(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_fields(cls, data):
+        if isinstance(data, dict):
+            retired = sorted({"seasons", "number_of_seasons"}.intersection(data))
+            if retired:
+                raise ValueError(f"Retired season fields are read-only: {', '.join(retired)}")
+        return data
+
+
+class TVSeriesCreate(_SeasonWorkInput):
     title_cn: str | None = None
     title_en: str | None = None
     original_title: str | None = None
@@ -21,14 +32,13 @@ class TVSeriesCreate(BaseModel):
     genre: list[GenreName] | None = None
     status: str | None = None
     number_of_episodes: int | None = None
-    number_of_seasons: int | None = None
     start_date: date | None = None
     end_date: date | None = None
     content_type: str | None = "tv"
     is_anime: bool | None = None
 
 
-class TVSeriesUpdate(BaseModel):
+class TVSeriesUpdate(_SeasonWorkInput):
     title_cn: str | None = None
     title_en: str | None = None
     original_title: str | None = None
@@ -41,7 +51,6 @@ class TVSeriesUpdate(BaseModel):
     genre: list[GenreName] | None = None
     status: str | None = None
     number_of_episodes: int | None = None
-    number_of_seasons: int | None = None
     start_date: date | None = None
     end_date: date | None = None
     content_type: Literal["tv", "movie"] | None = None

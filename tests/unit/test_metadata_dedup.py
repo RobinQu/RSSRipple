@@ -844,7 +844,7 @@ async def test_merge_series_group_enriches_survivor_fields(db_session):
     assert survivor.rating == 8.5
     assert survivor.genre == ["Animation"]
     assert survivor.number_of_episodes == 12
-    assert survivor.number_of_seasons == 2
+    assert survivor.number_of_seasons is None
     assert set(survivor.aliases or []) >= {"标题", "Title", "Original", "共享"}
 
 
@@ -1171,3 +1171,18 @@ async def test_cross_type_early_return_when_table_empty(db_session):
     report = await dedup.merge_cross_type_duplicates(db_session)
 
     assert report.cross_type_merges == 0
+
+
+async def test_dedup_keeps_original_legacy_evidence_and_does_not_add_retired_protection(db_session):
+    from app.services.metadata_service import mark_manually_edited
+
+    survivor = TVSeries(title_cn="Synthetic legacy", number_of_seasons=3, seasons=[{"season_number": 1}])
+    duplicate = TVSeries(title_cn="Synthetic duplicate", number_of_seasons=4)
+    db_session.add_all([survivor, duplicate])
+    await db_session.flush()
+    mark_manually_edited(survivor, {"title_cn": "Synthetic legacy", "number_of_seasons": 3})
+    await dedup._merge_series_group(db_session, [survivor, duplicate], dedup.DedupReport(), survivor=survivor)
+    await db_session.commit()
+    assert survivor.number_of_seasons == 3
+    assert survivor.seasons == [{"season_number": 1}]
+    assert survivor.manually_edited_fields == ["title_cn"]

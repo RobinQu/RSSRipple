@@ -253,3 +253,7 @@
 资源按现有作品 FK、resource_work_links 和 resource_file_assignments 的完整目标集合重算合集指针；全部已指派作品同属唯一合集时才设置，否则 collection_id 为空。人工 links/assignments 保留。删除原合集时，只有合集归属而没有作品依据的资源清除该指针；单独解绑作品不会改动这类仍属原合集的资源。资源按 UUID 游标每批最多 100 条处理，避免更新后用 offset 跳页。删除旧合集时同时清理其身份袋；失败整体回滚。
 
 合集修改取得目标合集行锁；attach 涉及壳吸收时按合集 ID 顺序锁定来源和目标，再锁作品并重读归属。归属已经变为未锁定第三个合集时返回 409 INVALID_STATE；等待期间目标被删除时返回 404。Turso 由已有事务锁冲突重试保证失败事务不部分提交。此行为不等于所有写入者均受数据库 NOT NULL 约束；遗留孤儿由启动回填修复。
+
+### 已确认单季作品的退役计数清理
+
+创建/更新 API 显式拒绝 seasons 和 number_of_seasons（含 null），只读响应兼容保留，去重不继承退役计数。历史数据清理必须逐作品人工复核；流程见 db-migration.md「退役季数的人工复核清理」。清理保留原 seasons 与关联，只清计数并以 manually_edited_fields 中的 season_number 记录明确确认。work_verified_season 先拒绝真正未拆季证据，再接受有效人工确认，避免清空 count=1 后丢失 S1 的已确认身份；缺少季号或畸形人工字段不据此猜季。

@@ -25,9 +25,6 @@
 
 ### 数据模型 / 持久化
 
-- [ ] **P1-D3 退役列 `number_of_seasons` 仍被写入**：`app/services/metadata_dedup.py:460-463` 与
-      `POST /series`、`PUT /series/{id}` 仍接受；`is_unsplit_legacy_series` 会据陈旧值误判单季化作品（历史主库快照 1 行非空）。
-      **修复**：停止写入、从 `MANUAL_EDITABLE_FIELDS` 移除；存量清理须保留真正未拆季证据。实际 API → Episode 跨季污染已复现，见 [V10 方案](V10-RETIRED-SEASON-FIELDS.md)。
 - [ ] **P1-D4 `PendingDecision` 无唯一约束 + check-then-insert**：`app/models/pending_decision.py:14-16`
       仅非唯一索引；`app/services/agent_service.py:503-548` 先查后插。队列已按 agent key 去重，普通运行不因 3 worker 必然并发；直接回填/API 并发仍可竞争。
       **修复**：与 P1-M5 合并设计覆盖度感知、无 NULL 歧义的决策键，再加 pending 部分唯一索引及 SAVEPOINT。普通 nullable 联合唯一索引不能阻止重复；两个真实 PG 连接已复现同槽双提交，M4/M5 也已用实际 pipeline 复现，续接 [V11](V11-DECISION-COVERAGE.md)。

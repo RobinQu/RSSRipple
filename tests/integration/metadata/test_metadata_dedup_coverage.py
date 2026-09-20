@@ -292,7 +292,7 @@ async def test_merge_series_enriches_survivor_and_resolves_child_collisions(
     assert survivor.rating == 8.5
     assert survivor.genre == ["Drama"]
     assert survivor.number_of_episodes == 12
-    assert survivor.number_of_seasons == 1
+    assert survivor.number_of_seasons is None  # retired counts are not inherited
     assert survivor.collection_id == coll.id
     assert survivor.external_id == "tmdb:4242"
     assert set(survivor.aliases or []) >= {"重复剧", "Dup EN", "重复剧 别名"}

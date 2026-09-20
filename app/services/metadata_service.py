@@ -74,7 +74,7 @@ AUTO_LINK_THRESHOLD = 85
 MANUAL_EDITABLE_FIELDS: frozenset[str] = frozenset({
     "title_cn", "title_en", "original_title", "aliases", "description",
     "poster_url", "rating", "genre", "status", "is_anime",
-    "number_of_episodes", "number_of_seasons", "start_date", "end_date",
+    "number_of_episodes", "start_date", "end_date",
     "release_date", "runtime",
     "content_type", "external_id", "external_source",
 })

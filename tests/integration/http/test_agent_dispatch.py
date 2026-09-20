@@ -105,11 +105,11 @@ def _dispatch_env():
     """
     # Pre-create the series so Layer-3 local matching auto-links resources.
     # Get-or-create (a duplicate row would trip the same-title collision
-    # guard and block linking); number_of_seasons=1 supplies the
+    # guard and block linking); single_season_entry=True supplies the
     # single-season evidence so season-less resources land season=1 and
     # dispatch instead of going ambiguous → PendingDecision.
     series_id = ensure_series(
-        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", number_of_seasons=1
+        FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End", single_season_entry=True
     )
 
     r = _api(

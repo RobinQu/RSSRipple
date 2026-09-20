@@ -161,7 +161,7 @@ def _llm_env():
     # going ambiguous → PendingDecision.
     series_id = ensure_series(
         FRIEREN_TITLE_CN, "Frieren: Beyond Journey's End",
-        number_of_seasons=1, api=_api,
+        single_season_entry=True, api=_api,
     )
 
     r = _api(

@@ -4,16 +4,22 @@
   "files": {
     "app/services/resource_coverage.py": "bae32b80f2d90446bbe159c8ccb2caa02f0018e7afe145c8eee1f3e9e3a73e78",
     "tests/unit/test_resource_coverage.py": "4e652749536ed0231596f28cd2cd99dfd825f163b10992a0972ab1a69ed7fe05",
-    "app/services/agent_service.py": "f6277e758304fc9ce074fde919ae5efc9a21987b339a1ea10a6d9d0ea4ecbae0",
+    "app/services/agent_service.py": "020c41dde8049d37a0dc37b59ee1dd2c4cdf9d559a75f50b3c520304878bb2b8",
     "app/services/resource_confirmation.py": "58f9a3d7ce7d316f3f58f95f824d756df3901b902517e8cba258c01425bba945",
-    "tests/unit/test_decision_coverage_review.py": "ce766cddac334de8646016ffe6789eb1a9c0aa4dfe05faa12acfd891677ccdc4",
+    "tests/unit/test_decision_coverage_review.py": "6af79e504e76c381038ec80f54b56e975e76fdb58ec8990512faa946a2bacbb8",
     "app/api/v1/dashboard.py": "14d2c81966cc1d49ebc85044322b66de2062a82eb9a2a95a269f61dcbe542db1",
     "app/services/fetch_service.py": "8406ad47b6e9d0334172bb6743dc398aada312bf31a4e529ea5d20507f4c42dd",
     "tests/api/test_coverage_confirmation.py": "c87f6a0645831a40e8b21b5534507e36febf7a64aff08b947c5b7aea03bf98e8",
     "tests/unit/test_resource_confirmation.py": "bea3c1293e0cbe9a45ed339ae3f1a31226b06312c41905ac10cf75498fdb287d",
     "tests/api/test_dashboard_extra.py": "1797cdf0f3a144ec72f15d6868fcbb7c1eddf50bbfe1094f64e72c6a84bf12f0",
     "app/models/pending_decision.py": "405de813be5da6a9e672be24934a8b5a5d8264bab71ca9a4d922d86381f4c77e",
-    "app/services/decision_store.py": "7b597fe79089c9e1fc50c228a6164e970cd0c22a344dc06619c9871576208345"
+    "app/services/decision_store.py": "7b597fe79089c9e1fc50c228a6164e970cd0c22a344dc06619c9871576208345",
+    "app/services/decision_review.py": "36bfd0a14afe89d4258cbfd0b4791cc81452436305c64bd1ccab180157b8a924",
+    "tests/unit/test_decision_review.py": "1b2854dd00322e1fd3f6b3029fc2f988df09051324a7a1b20825f0b1cefebd14",
+    "app/api/v1/decisions.py": "53d5239f131c9945d6112564f1585c899c44751a0dabd21c3d3260e6f4cbd6a9",
+    "tests/api/test_decision_scope.py": "c0255b3e7e44622b1f361796e039cb7de3b3da40742a8585a5dad4663dbc0342",
+    "tests/api/test_decision_batch_transactions.py": "41790a758df4cb17fd179c91944c4e5f105b6a3176f5ef9cd141f855db070b7f",
+    "tests/api/test_decision_terminal_state.py": "5e1f0a3a552c2f4d50922c5c6e2465375718b7b22217bb86d5d4f4f674c70697"
   },
   "root_before": {
     "app/services/resource_coverage.py": null,
@@ -27,7 +33,13 @@
     "tests/unit/test_resource_confirmation.py": "0945d3a48ad85551c306c8b07cdbf9ce4efc534df74c2142b02557f8eea31e1d",
     "tests/api/test_dashboard_extra.py": "1b6b17ce12afc71d0a20ce5d472575044739614bc781776fdbdf712a674b83d1",
     "app/models/pending_decision.py": "1945631d835be1a370fb1e120d4a063b2ade320ec6e2233cab84fe2d955484f1",
-    "app/services/decision_store.py": null
+    "app/services/decision_store.py": null,
+    "app/services/decision_review.py": null,
+    "tests/unit/test_decision_review.py": null,
+    "app/api/v1/decisions.py": "7fbabef4482d60185e40f5f80764425760e3dd27f03c56f302113d3f6cef9177",
+    "tests/api/test_decision_scope.py": null,
+    "tests/api/test_decision_batch_transactions.py": null,
+    "tests/api/test_decision_terminal_state.py": null
   },
   "results": {
     "bj": {
@@ -149,6 +161,173 @@
       "time": "8.041",
       "timestamp": "2026-09-20T04:26:21.020350+00:00",
       "hostname": "dl-workstation-albert"
+    },
+    "retry_boundary_by": {
+      "passed": 25,
+      "warnings": 1,
+      "seconds": 4.44,
+      "exit_code": 0
+    },
+    "production_pipeline_turso_ca": {
+      "constraint_checks": {
+        "duplicate_key": true,
+        "null_pending_key": true
+      },
+      "historical_unkeyed_nonpending_preserved": true,
+      "initial_barrier_reached": true,
+      "picker_invocations_including_retries": 3,
+      "created_ids": [
+        "a08aa4ea-2667-4d4a-befe-154a6cdbfc7c",
+        "a08aa4ea-2667-4d4a-befe-154a6cdbfc7c"
+      ],
+      "pending_rows": 1,
+      "candidate_counts": [
+        4
+      ],
+      "scope": "synthetic data; two real Turso connections; real production process_resources autocommit and commits; no probe-level retry; LLM replaced by barrier"
+    },
+    "legacy_readonly_review_cc": {
+      "passed": 6,
+      "warnings": 1,
+      "seconds": 0.44,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-review-cc.xml",
+      "scope": "synthetic legacy mappings and actual Turso table without key columns; SELECT-only observer; no apply implemented"
+    },
+    "scope_http_red_cd": {
+      "failed": 3,
+      "seconds": 1.7,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v11-scope-red-cd.xml"
+    },
+    "scope_http_cf": {
+      "passed": 12,
+      "warnings": 1,
+      "seconds": 3.21,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-scope-cf.xml",
+      "scope": "actual HTTP and Turso; synthetic movie candidates; download dispatch mocked; 3 unchanged positive / 3 changed negative plus 6 review tests"
+    },
+    "batch_transaction_red_cg": {
+      "failed": 2,
+      "seconds": 1.39,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v11-batch-red-cg.xml"
+    },
+    "batch_transaction_ch": {
+      "passed": 14,
+      "warnings": 1,
+      "seconds": 4.31,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-batch-ch.xml",
+      "scope": "actual HTTP/Turso NOT NULL failure and policy rejection roll back one item; next item commits; dispatch helper fault-injected; no external download"
+    },
+    "current_rules_red_ci": {
+      "failed": 6,
+      "passed": 6,
+      "seconds": 6.64,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v11-rules-red-ci.xml"
+    },
+    "current_rules_cj": {
+      "passed": 20,
+      "warnings": 1,
+      "seconds": 8.03,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-rules-cj.xml"
+    },
+    "channel_metadata_red_ck": {
+      "failed": 3,
+      "passed": 12,
+      "seconds": 8.72,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v11-metadata-red-ck.xml"
+    },
+    "channel_metadata_cl": {
+      "passed": 23,
+      "warnings": 1,
+      "seconds": 9.69,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-metadata-cl.xml"
+    },
+    "model_wait_pg_red_cm": {
+      "other_transaction_committed_during_model": true,
+      "dispatch_calls": 1,
+      "ok": true,
+      "error": null,
+      "final_status": "decided"
+    },
+    "model_wait_pg_green_cn": {
+      "other_transaction_committed_during_model": true,
+      "dispatch_calls": 0,
+      "ok": false,
+      "error": "Decision is no longer pending",
+      "final_status": "skipped"
+    },
+    "model_wait_pg_cleanup": "complete; compose down exit 0",
+    "model_wait_regression_co": {
+      "passed": 23,
+      "warnings": 1,
+      "seconds": 9.43,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-state-co.xml"
+    },
+    "terminal_state_red_cp": {
+      "failed": 3,
+      "passed": 3,
+      "seconds": 3.12,
+      "exit_code": 1,
+      "junit": "/tmp/rssripple-v11-terminal-red-cp.xml"
+    },
+    "terminal_state_cq": {
+      "passed": 29,
+      "warnings": 1,
+      "seconds": 11.75,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-terminal-cq.xml"
+    },
+    "batch_model_lock_red_ct": {
+      "other_transaction_updated_agent_during_second_model": false,
+      "dispatch_calls": 1,
+      "model_calls": 2,
+      "response": {
+        "success": true,
+        "data": {
+          "processed": 2,
+          "dispatched": 1,
+          "skipped": 0,
+          "failed": 1,
+          "errors": [
+            "b424fcd2-bc12-4208-b1c0-8365fde80776: (sqlalchemy.dialects.postgresql.asyncpg.Error) <class 'asyncpg.exceptions.LockNotAvailableError'>: canceling statement due to lock timeout\n[SQL: UPDATE agents SET name=$1::VARCHAR, updated_at=now() WHERE agents.id = $2::VARCHAR]\n[parameters: ('Concurrent update', 'b8e54340-cb1a-47f1-9c7e-fb74265aca49')]\n(Background on this error at: https://sqlalche.me/e/20/dbapi)"
+          ]
+        },
+        "error": null,
+        "meta": {}
+      }
+    },
+    "batch_model_lock_green_cs": {
+      "other_transaction_updated_agent_during_second_model": true,
+      "dispatch_calls": 2,
+      "model_calls": 2,
+      "response": {
+        "success": true,
+        "data": {
+          "processed": 2,
+          "dispatched": 2,
+          "skipped": 0,
+          "failed": 0,
+          "errors": []
+        },
+        "error": null,
+        "meta": {}
+      }
+    },
+    "batch_prepare_regression_cr": {
+      "passed": 29,
+      "warnings": 1,
+      "seconds": 11.99,
+      "exit_code": 0,
+      "junit": "/tmp/rssripple-v11-prepare-cr.xml"
     }
   },
   "limitations": [

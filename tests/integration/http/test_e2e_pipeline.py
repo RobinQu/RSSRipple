@@ -50,7 +50,7 @@ class TestE2EPipeline:
         # fetched resources during fetch (season-less → season=1, dispatchable
         # instead of ambiguous), mirroring test_transmission_actions.py.
         ensure_series(
-            SERIES_TITLE_CN, "Daemons of the Shadow Realm", number_of_seasons=1
+            SERIES_TITLE_CN, "Daemons of the Shadow Realm", single_season_entry=True
         )
         # Create channel with mikanani-ext feed
         r = _api(
