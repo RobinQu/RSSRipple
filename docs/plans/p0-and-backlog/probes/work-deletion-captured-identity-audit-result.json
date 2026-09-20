@@ -1,0 +1,9 @@
+{
+  "fixture": "tests/fixtures/prod_works_v1.json",
+  "sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "identity_rows": 249,
+  "known_owner_rows": 249,
+  "unknown_types": [],
+  "orphan_rows": [],
+  "scope": "historical captured fixture only; not current production inspection; read-only"
+}

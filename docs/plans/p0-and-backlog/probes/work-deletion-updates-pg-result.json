@@ -1,0 +1,60 @@
+{
+  "status": "scoped_pass",
+  "run": "hv",
+  "exit_code": 0,
+  "cases": [
+    {
+      "kind": "series",
+      "reference": "resource_work_links",
+      "edit_first": true,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "resource_work_links",
+      "edit_first": false,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "resource_file_assignments",
+      "edit_first": true,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "resource_file_assignments",
+      "edit_first": false,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_work_links",
+      "edit_first": true,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_work_links",
+      "edit_first": false,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_file_assignments",
+      "edit_first": true,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_file_assignments",
+      "edit_first": false,
+      "passed": true
+    }
+  ],
+  "scope": "actual deletion endpoint functions plus raw source-only updates; synthetic rows; 300ms writer lock_timeout in deletion-first cases",
+  "limitations": [
+    "no HTTP routing in PG probe",
+    "separate HTTP/Turso tests cover response contract"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "owner_recreation_blocked_during_apply": true,
+  "rollback_restores_orphan": true,
+  "restored_owner_invalidates_review": true,
+  "valid_identity_retained": true,
+  "run": "hu",
+  "exit_code": 0,
+  "log": "/tmp/rssripple-v12-orphan-pg-hu.log",
+  "scope": "synthetic orphan; actual PG transactions; 300ms lock_timeout observer; standalone cleanup API"
+}

@@ -1,0 +1,32 @@
+{
+  "status": "preliminary; full gates and remaining matrix pending",
+  "skill": "/home/robinqu/.agents/skills/code-review-and-quality/SKILL.md",
+  "correctness": [
+    "Single transaction preserves automatic file evidence and expires stale decisions with before-image audit",
+    "Manual reference count follows work/resource/child locks; new references serialized by FK checks",
+    "Offline cleanup validates approved snapshot and current owner absence under PG table locks or Turso immediate transaction"
+  ],
+  "architecture": [
+    "Reuses V11 identity coordination and rekey helpers",
+    "Series/movie endpoint cleanup sequences remain duplicated; shared deletion orchestration is a possible follow-up refactor, not mixed into frozen runtime during gates"
+  ],
+  "security": [
+    "No added dependencies or network access",
+    "CLI requires explicit review IDs/fingerprint and writer/backup flags; fixed SQL table identifiers",
+    "Export refuses overwrite"
+  ],
+  "performance": [
+    "Deletion can lock all references of one work; necessary atomic operation, not a background bulk cleanup",
+    "Offline export loads owner IDs and identity rows; acceptable for maintenance scope but memory scales with corpus size",
+    "Global identity coordination limits concurrent identity-changing operations; creators remain shared"
+  ],
+  "documentation": [
+    "Corrected stale V11 prototype status after accepted main merge",
+    "Updated D6 completed PG evidence versus remaining full gates"
+  ],
+  "remaining": [
+    "Complete hl/hn gates and export/cleanup/source verification",
+    "Review remaining existing-child and merge interleavings",
+    "Final audit of standalone tool and added tests outside frozen gates"
+  ]
+}

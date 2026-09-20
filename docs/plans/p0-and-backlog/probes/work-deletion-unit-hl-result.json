@@ -1,0 +1,16 @@
+{
+  "status": "running",
+  "run": "hl",
+  "session_id": 4914,
+  "directory": "/tmp/rssripple-v12-gate-hk",
+  "manifest": "/tmp/rssripple-v12-gate-hk-source.json",
+  "files": 2957,
+  "log": "/tmp/rssripple-v12-unit-hl.log",
+  "junit": "/tmp/rssripple-v12-unit-hl.xml",
+  "coverage": "/tmp/rssripple-v12-unit-hl-coverage.xml",
+  "required_percent": 95,
+  "prior_hk": {
+    "exit_code": 127,
+    "reason": "snapshot preparation failed on absent prototype uv.lock; pytest not launched; completed configuration from main then started hl"
+  }
+}

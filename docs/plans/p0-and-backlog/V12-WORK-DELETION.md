@@ -76,3 +76,91 @@ PG gw 红测在实际 delete_movie 的人工检查之后暂停，另一连接成
 ## 决策生命周期红测（gz）
 
 引用锁改动后 gy 回归 41 passed、1 warning，17.63 秒，退出 0。新增实际 create_pending_decision→HTTP DELETE→数据库检查 gz 复现：作品删除后原决策仍为 pending，未失效；1 failed，0.69 秒，退出 1。必须补身份变更协调及归档，不能只把 PendingDecision.movie_id 置空。该新测试尚未修复，不计入 gy 通过范围。
+
+## 删除决策归档补修（ha / hb）
+
+原型删除先复用 V11 身份变更协调及受影响 Agent 锁，再取得作品/引用锁。解除资源及自动文件绑定并移除工作链接后，复用 rekey_agent_choices；在直接 PendingDecision FK 置空前保存原始审核，过时 pending 失效而候选和 scope 保留。ha 删除专项与录制回放 **18 passed，10.78 秒，退出 0**。新增 hb 断言审核原记录保留旧 movie_id、pending 状态、候选和 scope；其结果见原始报告。PG 删除/确认/新建决策交错、历史终态与 links-only 用例仍须扩展，此补修尚未验收。
+
+## 决策生命周期扩展与归档回滚（hc / hd）
+
+实际 HTTP 删除扩大到 series/movie × 直接工作 FK/links-only 文件关联，hc **4 passed，2.37 秒，退出 0**。旧 pending 正确失效且保留候选/scope；审计保留删除前工作 FK（links-only 原为空）与 pending 状态；已 decided 历史的状态、reason、候选和最终选择保持不变。
+
+在 rekey 真正完成后注入异常，hd 扩大为成功/失败共 **8 passed，4.58 秒，退出 0**：HTTP 500 后作品及 pending 恢复，新增 DecisionMigration 审计整体回滚，links-only 文件绑定恢复，终态记录保留。数据明确为合成边界；此前真实录制回放仍作为独立证据。PG 确认/创建竞争和完整门禁尚未完成。
+
+## 既有 API 兼容性与前端提示（he / hf）
+
+既有 series/movie/works/decisions API、身份服务、rekey、全部删除专项和录制回放合计 **131 passed、1 warning，60.75 秒，退出 0**。电影详情原先将 INVALID_STATE 隐藏为通用错误，原型现展示服务器重试提示；中英文删除确认补充 Agent 订阅和人工映射需先解除/转移，frontend 权威文档同步。前端 tsc -b 退出 0，仅证明类型检查，尚未验证浏览器交互或生产构建。
+
+前端文件以当前 main 为基线新增到 V12 增量补丁，其余文件仍以已接收的 V11 原型为基线。以上改动尚未写入 main 运行代码，PG 决策并发矩阵与完整门禁仍未完成。
+
+## 决策创建与删除的 PG 交错（hh）
+
+两个真实 PG 事务调用生产 create_pending_decision 与 delete_movie。创建先行：共享身份协调未提交时删除返回 409，创建提交后重试删除，原决策 expired 且仍保留历史。删除先行：排他身份协调期间创建失败并回滚；删除提交后以旧资源身份再创建会因 changed identity 拒绝。最终没有旧身份 pending，hh 退出 0。探针使用合成电影与普通资源，未覆盖确认派发、剧集或 links-only，不能替代剩余矩阵。
+
+首次 hg 在夹具插入时因 aware parsed_at 与 PG timestamp 类型不兼容而失败，尚未进入交错；夹具显式 parsed_at=None 后重跑 hh，未更改应用实现。探针与机器结果已保存。
+
+## 确认派发与删除的 PG 交错（hi / hj）
+
+hi 在实际 _ai_pick_and_dispatch 已锁 Agent/决策/资源、进入派发边界时调用另一连接 delete_movie；测试连接设 300ms lock_timeout，删除返回 409 INVALID_STATE 并回滚。随后调用真实 dispatch_download＋内置 mock downloader，确认提交为 decided、实际生成一个 DownloadTask；提交后删除成功，任务与 decided 历史保留。生产未注入该 timeout，可等待 Agent 锁释放。
+
+hj 在模型选择窗口调用真实删除并提交；旧推荐返回后确认拒绝（expired），派发调用次数为 0。两轮退出 0。模型答案和元数据明确为合成输入，未下载真实媒体。探针覆盖电影普通资源，尚需其他关联/新增引用矩阵以及完整门禁。
+
+## 完整单元/API 门禁启动（hl）
+
+当前原型 app/tests/scripts 已冻结到 /tmp/rssripple-v12-gate-hk，2957 个文件哈希记录于 /tmp/rssripple-v12-gate-hk-source.json。hl 完整 tests/unit＋tests/api 启动，要求 app 覆盖率 ≥95%，进程句柄 4914，日志 /tmp/rssripple-v12-unit-hl.log；尚无最终结果。不得修改冻结副本。首次 hk 准备因原型未含 uv.lock 中止，启动命令退出 127，pytest 未运行；补齐主干锁文件、覆盖率配置及虚拟环境链接后才启动 hl。
+
+## 前端构建与完整集成启动（hm / hn）
+
+前端 tsc -b＋vite build 退出 0，构建结果随 app/static 进入新的冻结集成副本 /tmp/rssripple-v12-integration-hn。3028 文件哈希已记录；应用 Python 与单元/API hl 冻结副本完全一致。唯一项目 rssripple-v12-complete-20260920-hn 四服务 healthy，启动退出 0，完整 test-runner 已启动，日志 /tmp/rssripple-v12-integration-hn.log。尚需 runner 结果、应用正常退出、四份 coverage 汇总 ≥85%、证据导出、源码复验及项目清理，不能提前接受。
+
+准备阶段旧副本缺少 uv.lock，首次复制中止且 Compose 退出 14、未创建服务；补齐主干锁文件和 Compose 后成功启动。hl 单元/API 仍运行。
+
+## 新增引用完整 PG 矩阵（hp）
+
+series/movie × manual work link/file assignment/title mapping/AgentWork × 新增先行/删除先行，共 **16 个真实 PG 两连接交错通过，退出 0**。新增未提交时删除返回 INVALID_STATE；新增提交后删除返回 DELETE_BLOCKED。删除持锁先行时通过 pg_stat_activity 确认新增等待 Lock，删除提交后新增因 FK 23503 失败并回滚，未产生悬空引用。此矩阵直接 ORM 插入以验证 FK 最终保护，删除走实际端点函数，不宣称覆盖前端交互。
+
+首轮 ho 因 AgentWork 合成夹具缺少 content_type 中止，不作为验收；补齐必填字段后 hp 全量重跑，应用实现未变，完整门禁冻结文件未改动。
+
+## 存量身份清理的必要性与约束复核
+
+未改写的 prod_works_v1.json 中，249 条 WorkExternalId 全部可解析到所属 series/movie/collection，未知 work_type 与孤儿均为 0；来源 SHA256 仍为 d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32。结果见 probes/work-deletion-captured-identity-audit-result.json。这只证明该历史快照没有现存孤儿，不否认 DELETE 红测产生孤儿，也不能推断当前生产。
+
+历史修复工具仍作为独立、显式离线操作提供：只读导出完整孤儿行及拥有者存在性判断，未知类型列为阻断项；审核选择准确行 ID 和快照指纹。应用阶段要求停写/备份，在事务内重新核验完整行值与目标仍不存在，拒绝审核后的身份变更或新出现拥有者，不能只按 work_id 批量删除。PG 应锁身份袋及三类拥有者表防止目标重建竞争；Turso 利用独占离线连接与事务。保留原始审核文件作为恢复证据，重复应用应有明确无变化结果。
+
+验收需合成孤儿正例、合法拥有者保护、未知类型阻断、审核后行值/拥有者变化、故障回滚和重复应用；录制图只作无变化负例，不能伪造录制孤儿。该工具尚未实施，当前 hl/hn 冻结门禁不包含此项，不能据其通过宣称全部 D6 已完成。
+
+## 孤儿身份审阅工具原型（hq）
+
+新增独立 scripts/review_orphan_identities.py：默认只读导出；显式 approved_fingerprint＋selected_ids 才可清理，应用时重新检查完整 orphan/blocked 快照。合法拥有者保留、拥有者恢复/身份行变更/未批准/未知类型拒绝、重复应用与外层事务回滚等真实 Turso 合成测试 **6 passed、1 warning，2.71 秒，退出 0**。迁移文档已补命令和限制。
+
+CLI 子进程、PG 表锁及真实录制无变化回放尚待验证。此独立脚本/测试新增于 hl/hn 冻结之后，两套完整门禁不覆盖它；应用运行代码未变，禁止改动冻结副本或宣称完整门禁包含新增工具。
+
+## 孤儿工具命令行集成（hs）
+
+真实子进程 CLI 对独立磁盘 Turso 验证导出、禁止覆盖原审核、缺少停写/备份声明拒绝应用、显式审核清理、重复应用返回 already_absent_ids、清理后再次导出无孤儿，hs **1 passed，3.92 秒，退出 0**。原始审核文件字节保持不变。首次 hr 因同进程初始化后 Turso 原生文件锁未释放失败；将夹具初始化放到独立进程、待退出后运行 CLI 解决，未更改应用或工具实现。
+
+另增真实录制图的数据库负例回放：审阅 249 条有效身份应无孤儿/未知类型，并在提交及新连接检查全部行值未变。新增测试同样不在 hl/hn 冻结范围内，PG 工具锁验证仍待完成。
+
+## 孤儿工具 PG 保护与录制负例完成（ht / hu）
+
+录制图数据库回放 ht **1 passed，2.41 秒，退出 0**：249 条有效身份无孤儿误报，提交后新连接全字段比对保持不变。hu 真实 PG 两连接退出 0：apply_review 删除后未提交期间，重建拥有者因表锁阻塞（测试连接 300ms lock_timeout）；清理事务 rollback 后身份恢复；拥有者随后正常重建，旧审核因指纹变化拒绝应用，作品和身份仍在。
+
+工具已有真实 CLI/Turso、录制图负例与 PG 锁专项；仍需最终质量复核，且 hl/hn 冻结范围不包含新增工具，必须与这些补充证据一起评估。应用运行代码与冻结门禁版本未变化。
+
+## 合入前初步质量复核
+
+完成事务、锁序、审阅工具及前端错误路径复核；尚不批准合入，具体维度与余项见 probes/work-deletion-quality-review-result.json。修正权威业务文档中过期的 V11“原型未验收”描述，并更新 V12 已有并发证据。V12 增量补丁现以当前本地 main 加该文档修正为基线重新生成，冻结测试源码未改动。
+
+## 既有引用更新双向 PG 矩阵（hv）
+
+series/movie × work link/file assignment × 人工修改先行/删除先行，共 **8 个 PG 两连接交错通过，退出 0**。修改先行时删除返回 INVALID_STATE，提交后重试返回 DELETE_BLOCKED，人工目标保留；删除先行时 source-only UPDATE 被当前引用锁阻止（测试连接 300ms lock_timeout），修改回滚后删除正常完成，link 删除、assignment 保留为 auto 且目标空。补齐了 gx 仅电影编辑先行的范围；应用代码未改动，冻结门禁不受影响。
+
+## 合并与删除反向竞争（hw）
+
+生产 _merge_movie_group / delete_movie 在两个 PG 事务中交错，两个顺序均通过，退出 0。合并先行未提交时删除返回 409，合并提交后旧目标删除返回 404；删除先行时合并因身份协调冲突整体回滚，删除完成。两种结果旧目标不存在、保留作品仍在。使用无资源的合成电影，证明身份操作互斥与终态，不把此探针当作合并资源转移的新增覆盖。
+
+## 补充工具联合验证与续接检查点（hx）
+
+冻结门禁后新增的离线工具四个文件单独汇总运行：函数保护＋真实 CLI＋录制图负例 **8 passed、1 warning，14.12 秒，退出 0**，文件哈希与报告见 probes/work-deletion-orphan-supplement-result.json。此结果补充 hl/hn，不声称这些文件已在两套冻结门禁中运行。
+
+当前续接：hl 会话 4914，日志 /tmp/rssripple-v12-unit-hl.log；hn 会话 1964，项目 rssripple-v12-complete-20260920-hn，日志 /tmp/rssripple-v12-integration-hn.log。两者仍运行；2957/3028 个冻结文件均复查无改动。下一步收集终态、覆盖率、应用退出与导出/清理，再做最终代码复核。D6 继续保留 TODO，main 运行代码仍为已验收 V11，V12 仅补丁。

@@ -1,0 +1,31 @@
+{
+  "status": "scoped_pass",
+  "confirmation_first": {
+    "writer_blocked_during_dispatch": true,
+    "dispatch_calls": 1,
+    "ok": true,
+    "error": null,
+    "final_status": "decided",
+    "delete_succeeds_after_commit": true,
+    "real_mock_download_tasks": 1
+  },
+  "deletion_during_model": {
+    "writer_blocked_during_dispatch": false,
+    "dispatch_calls": 0,
+    "ok": false,
+    "error": "Decision is no longer pending",
+    "final_status": "expired",
+    "deleted_during_model": true
+  },
+  "exit_codes": [
+    0,
+    0
+  ],
+  "scope": "actual _ai_pick_and_dispatch and delete_movie; real dispatch_download with built-in mock downloader; synthetic metadata and deterministic model answer",
+  "limitations": [
+    "movie flat resources only",
+    "direct functions not HTTP routing",
+    "300ms local lock_timeout injected for competing delete; production can wait for Agent lock",
+    "no real media downloaded"
+  ]
+}

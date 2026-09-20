@@ -1,0 +1,24 @@
+{
+  "status": "scoped_pass",
+  "run": "hh",
+  "exit_code": 0,
+  "cases": [
+    {
+      "create_first": true,
+      "stale_pending": false,
+      "history_rows": 1
+    },
+    {
+      "create_first": false,
+      "stale_pending": false,
+      "history_rows": 0
+    }
+  ],
+  "log": "/tmp/rssripple-v12-decision-create-hh.log",
+  "prior_hg": "fixture setup failed on aware parsed_at passed to timestamp without time zone; no concurrency assertion ran",
+  "limitations": [
+    "movie flat resources only",
+    "direct production endpoint/service functions; not HTTP routing",
+    "no concurrent confirmation yet"
+  ]
+}

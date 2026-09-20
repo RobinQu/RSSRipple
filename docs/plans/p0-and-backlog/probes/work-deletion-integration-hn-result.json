@@ -1,0 +1,17 @@
+{
+  "status": "running",
+  "project": "rssripple-v12-complete-20260920-hn",
+  "directory": "/tmp/rssripple-v12-integration-hn",
+  "manifest": "/tmp/rssripple-v12-integration-hn-source.json",
+  "frozen_files": 3028,
+  "startup_exit": 0,
+  "healthy_services": 4,
+  "unit_integration_app_python_identical": true,
+  "log": "/tmp/rssripple-v12-integration-hn.log",
+  "frontend_build": {
+    "exit_code": 0,
+    "log": "/tmp/rssripple-v12-frontend-hm.log"
+  },
+  "preparation_failure": "first copy lacked uv.lock; initial Compose exited 14 before services created; completed files then startup succeeded",
+  "session_id": 1964
+}

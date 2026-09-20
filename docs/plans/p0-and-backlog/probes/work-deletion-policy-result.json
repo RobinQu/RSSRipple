@@ -1,19 +1,19 @@
 {
   "status": "partial_prototype_not_accepted",
-  "baseline": "V11 working prototype /tmp/rssripple-v11-rules-fd; not standalone main patch",
+  "baseline": "current local main 85039ec plus V11 acceptance wording correction; patch regenerated against root",
   "directory": "/tmp/rssripple-v12-implementation-gl",
   "files": {
     "app/services/work_deletion.py": {
       "baseline_sha256": null,
-      "prototype_sha256": "965d99cd69fe53634f92001d73981d00695bd22f99d91d7d8e8b113908009afd"
+      "prototype_sha256": "e2aa9bce182af9ddce868ac45ceb6bddcef7abceb0bd9a7502659303b026732a"
     },
     "app/api/v1/series.py": {
       "baseline_sha256": "fa5511bdc9ea2ccf2f3ea9e3a01d096ff865a5a801d9e0eef9084a4d6d571461",
-      "prototype_sha256": "dbeb7021a73d62199e124713068ce7f40328d7dada8d15e61e4876c03097e473"
+      "prototype_sha256": "a9e65405597888a4febb242a9473b7d9ea3e32b7c761ca5c1539c43dbb6b1e18"
     },
     "app/api/v1/movies.py": {
       "baseline_sha256": "fe50e6ffe8d6b8f39df3666e189dc93bdcca528c1199639b5c6ed184ae759255",
-      "prototype_sha256": "ab7be26dbd87acea68edd3a30d5b0505e130fecd24c123f3607dc41621c3ef75"
+      "prototype_sha256": "b6ba5ce5dabe69cd1f8a0f33e4d29689a1e609c7cb6bb27f575561e185c3c73b"
     },
     "tests/api/test_work_deletion_review.py": {
       "baseline_sha256": null,
@@ -40,12 +40,48 @@
       "prototype_sha256": "b55abd2dce00b9ec76cb81e397c15ea242dbec9c1eb51e06953b8cbcf037a451"
     },
     "docs/design/business-logic.md": {
-      "baseline_sha256": "f31a81fa093a3987f087184a32537de73c6198f16ab793a2c6592a09cbccd4f7",
-      "prototype_sha256": "df68bccfc356772d2f2d883f5ab1355d45254fd133d324868dd6a90e44150e12"
+      "baseline_sha256": "38a55c68f16e26ffa7079925d5596f6d5e269cc7dfaec1d7e13d22eb0dd4c9f2",
+      "prototype_sha256": "2a4f8b61d468599cd6400a835cbb6524987cc75b8d67cb8f568d51f831b6c56a"
     },
     "tests/api/test_work_deletion_decisions.py": {
       "baseline_sha256": null,
-      "prototype_sha256": "35d66c44a0cac7c4da911e9085a37ee32a13c4f949cebc66acab84c9dfa51328"
+      "prototype_sha256": "91cd6d9a56dae33e8dcf6645bc13af2867ea259a01842ca54db65361ed8e39ae"
+    },
+    "frontend/src/pages/MovieDetail.tsx": {
+      "baseline_sha256": "d055b282af2bd45421c67d79bf411ba136046371b0fe031a0c4f868dd3c983bc",
+      "prototype_sha256": "a059a1df00fb3efaea9e922e01cc0861ecefd7d4c7edd591f8f80eab04665301"
+    },
+    "frontend/src/i18n/locales/zh-CN.json": {
+      "baseline_sha256": "f585eca3bd6ddef98fdb901364a49af4a5eb892f6b7e93cb98ee1a40fd0432a2",
+      "prototype_sha256": "fadbf7457aa9b144266b234b3dee0f5bdcbed09586d3ba1248476bf77ff8a888"
+    },
+    "frontend/src/i18n/locales/en-US.json": {
+      "baseline_sha256": "327f828d9c009c8b1b09b43fdbd76fd7e6e9f75e3fd8350ec78cb929f1acd264",
+      "prototype_sha256": "f25730309b3b27d9799da8909875d730a3cbcba309f8e96bfee10aaa3a14ae6e"
+    },
+    "docs/design/frontend.md": {
+      "baseline_sha256": "860a09ff2c180cb74c3847d553d6a86e11227971947f529c122b75521632cd91",
+      "prototype_sha256": "3dda4435b79cb82cf6e10e07c1b819eef3327d61d429a913d950d75ae2a3ed0e"
+    },
+    "scripts/review_orphan_identities.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "10900af9d266c2c5040cce3c9618b8f4ba6384ac3b359abf48e9c9db7bd169e4"
+    },
+    "tests/unit/test_orphan_identity_review.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "d30f771f76392773b09e1ffdf216fffef0075d01b809e3e871c029e57be80726"
+    },
+    "docs/design/db-migration.md": {
+      "baseline_sha256": "14ff1840c6544e8e921bfba82e31a9a2fbb2adf88823cb071933f41bd75bfcd3",
+      "prototype_sha256": "91d76bd343a463cc52f4a5058aa5d92ae7b9a4f6bf4105badcd62ff59d77cb20"
+    },
+    "tests/integration/season_model/test_orphan_identity_cli.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "58e6df2cd73e020cdd88b3f19fde0350fdb7e7320b69b3265a2244e36f40d9d6"
+    },
+    "tests/integration/season_model/test_orphan_identity_captured.py": {
+      "baseline_sha256": null,
+      "prototype_sha256": "a4a832b552058bec51dc1e9174d41e303ae07cd98b19c6c47cf867d8b1835967"
     }
   },
   "junit": [
@@ -77,12 +113,12 @@
     "prior_gm_scope": "8 tests before independent reference cases were added"
   },
   "latest_validation": {
-    "run": "gy",
-    "passed": 41,
-    "warnings": 1,
-    "seconds": 17.63,
+    "run": "ha",
+    "passed": 18,
+    "seconds": 10.78,
     "exit_code": 0,
-    "scope": "before new decisions test"
+    "junit": "/tmp/rssripple-v12-decisions-ha.xml",
+    "note": "hb adds audit before-image assertions after this run"
   },
   "decision_necessity": {
     "run": "gz",
@@ -90,5 +126,56 @@
     "seconds": 0.69,
     "exit_code": 1,
     "finding": "deleted work choice remains pending"
+  },
+  "decision_lifecycle_validation": {
+    "run": "hd",
+    "passed": 8,
+    "seconds": 4.58,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v12-decisions-hd.xml",
+    "scope": [
+      "series/movie",
+      "flat/links-only",
+      "successful deletion preserves decided history",
+      "fault after rekey restores work, pending choice and audit; linked file assignments restored"
+    ],
+    "preceding_hc": {
+      "passed": 4,
+      "seconds": 2.37,
+      "exit_code": 0
+    }
+  },
+  "expanded_compatibility": {
+    "run": "he",
+    "passed": 131,
+    "warnings": 1,
+    "seconds": 60.75,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v12-expanded-he.xml",
+    "scope": "existing series/movie/works/decisions API, external identities/rekey, all deletion tests and captured replay"
+  },
+  "frontend_validation": {
+    "command": "tsc -b",
+    "exit_code": 0,
+    "log": "/tmp/rssripple-v12-frontend-hf.log",
+    "scope": "typecheck only, not browser or production build"
+  },
+  "orphan_tool_validation": {
+    "run": "hq",
+    "passed": 6,
+    "warnings": 1,
+    "seconds": 2.71,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v12-orphan-hq.xml",
+    "scope": "real Turso function tests with synthetic orphans; CLI and PG remain unverified",
+    "frozen_gates": "hl/hn exclude this newly added standalone script/tests; app runtime unchanged"
+  },
+  "orphan_cli_validation": {
+    "run": "hs",
+    "passed": 1,
+    "seconds": 3.92,
+    "exit_code": 0,
+    "junit": "/tmp/rssripple-v12-orphan-cli-hs.xml",
+    "prior_hr": "fixture native Turso file lock outlived engine disposal; isolated seed subprocess fixes fixture without application changes"
   }
 }

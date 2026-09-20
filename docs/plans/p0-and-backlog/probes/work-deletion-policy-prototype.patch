@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/app/services/work_deletion.py
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,83 @@
 +"""Reference checks shared by explicit series/movie deletion endpoints."""
 +from sqlalchemy import func, or_, select
 +from sqlalchemy.exc import DBAPIError
@@ -44,7 +44,12 @@
 +    The owner lock serializes new FK references; existing reference rows and
 +    resource parents are then locked without waiting before manual checks.
 +    """
++    from app.models.movie import Movie
++    from app.services.decision_rekey import lock_work_choice_agents
++
++    kind = "movie" if model is Movie else "series"
 +    try:
++        agent_ids = await lock_work_choice_agents(db, [(kind, [work_id])])
 +        target = await db.scalar(
 +            select(model)
 +            .where(model.id == work_id)
@@ -52,13 +57,11 @@
 +            .execution_options(populate_existing=True)
 +        )
 +        if target is None:
-+            return None
++            return None, agent_ids
 +        from app.models.agent_work import AgentWork
 +        from app.models.file_resource import FileResource
-+        from app.models.movie import Movie
 +        from app.models.pending_decision import PendingDecision
 +
-+        kind = "movie" if model is Movie else "series"
 +        field = kind + "_id"
 +        # Existing source-only edits need child locks: they do not recheck the
 +        # work FK. Every reverse-order lock is NOWAIT to release this work lock
@@ -76,9 +79,9 @@
 +                .order_by(child.id)
 +                .with_for_update(nowait=True)
 +            )
-+        return target
++        return target, agent_ids
 +    except DBAPIError as exc:
-+        if getattr(exc.orig, "sqlstate", None) != "55P03":
++        if getattr(exc.orig, "sqlstate", None) != "55P03" and "concurrent decision identity change" not in str(exc):
 +            raise
 +        raise WorkDeletionBusyError from exc
 --- a/app/api/v1/series.py
@@ -91,7 +94,7 @@
 +    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
 +
 +    try:
-+        series = await lock_deletion_target(db, TVSeries, series_id)
++        series, choice_agent_ids = await lock_deletion_target(db, TVSeries, series_id)
 +    except WorkDeletionBusyError:
 +        await db.rollback()
 +        return JSONResponse(status_code=409, content={
@@ -125,7 +128,13 @@
  
      # Constraint check: block if any AgentWork references this series
      aw_cnt = (await db.execute(
-@@ -275,6 +301,16 @@
+@@ -269,12 +295,31 @@
+ 
+     # Nullify FKs
+     await db.execute(sql_update(FileResource).where(FileResource.series_id == series_id).values(series_id=None))
+-    await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
+     await db.execute(
+         sql_update(ChannelRawTitleMapping)
          .where(ChannelRawTitleMapping.series_id == series_id)
          .values(series_id=None)
      )
@@ -138,6 +147,16 @@
 +        .where(ResourceFileAssignment.series_id == series_id)
 +        .values(series_id=None)
 +    )
++    from sqlalchemy import delete as sql_delete
++
++    from app.models.resource_work_link import ResourceWorkLink
++    from app.services.decision_rekey import rekey_agent_choices
++
++    await db.execute(sql_delete(ResourceWorkLink).where(ResourceWorkLink.series_id == series_id))
++    # Review against current resource associations while original decision FKs
++    # still exist, so the audit captures the complete before-image.
++    await rekey_agent_choices(db, choice_agent_ids)
++    await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
 +    await delete_external_ids_for_work(db, "series", series_id)
      await db.delete(series)
      await db.commit()
@@ -152,7 +171,7 @@
 +    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
 +
 +    try:
-+        movie = await lock_deletion_target(db, Movie, movie_id)
++        movie, choice_agent_ids = await lock_deletion_target(db, Movie, movie_id)
 +    except WorkDeletionBusyError:
 +        await db.rollback()
 +        return JSONResponse(status_code=409, content={
@@ -186,7 +205,13 @@
  
      # Constraint check: block if any AgentWork references this movie
      aw_cnt = (await db.execute(
-@@ -241,6 +267,16 @@
+@@ -235,12 +261,31 @@
+         )
+ 
+     await db.execute(sql_update(FileResource).where(FileResource.movie_id == movie_id).values(movie_id=None))
+-    await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
+     await db.execute(
+         sql_update(ChannelRawTitleMapping)
          .where(ChannelRawTitleMapping.movie_id == movie_id)
          .values(movie_id=None)
      )
@@ -199,6 +224,16 @@
 +        .where(ResourceFileAssignment.movie_id == movie_id)
 +        .values(movie_id=None)
 +    )
++    from sqlalchemy import delete as sql_delete
++
++    from app.models.resource_work_link import ResourceWorkLink
++    from app.services.decision_rekey import rekey_agent_choices
++
++    await db.execute(sql_delete(ResourceWorkLink).where(ResourceWorkLink.movie_id == movie_id))
++    # Review against current resource associations while original decision FKs
++    # still exist, so the audit captures the complete before-image.
++    await rekey_agent_choices(db, choice_agent_ids)
++    await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
 +    await delete_external_ids_for_work(db, "movie", movie_id)
      await db.delete(movie)
      await db.commit()
@@ -569,49 +604,117 @@
  
 --- a/docs/design/business-logic.md
 +++ b/docs/design/business-logic.md
-@@ -744,3 +744,9 @@
- ### 待决策创建与作品身份变更协调（V11 原型）
+@@ -744,3 +744,11 @@
+ ### 待决策创建与作品身份变更协调（V11）
  
- PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级共享 advisory 锁；作品合并/rekey 在扫描 pending 之前获取同一域的排他锁。均使用 try-lock，冲突必须回滚整个业务事务后重试，不能在已有业务锁下等待该锁。创建并行，作品身份变更暂时排斥创建；Turso 使用原生写冲突检测。获取协调权限后，创建重新加载候选并核验 canonical scope，拒绝已过期身份。后台失败不推进消费水位线；回填失败回滚外层保存。此协议仍处原型验证阶段，完整并发与集成门禁未验收。
+ PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级共享 advisory 锁；作品合并/rekey 在扫描 pending 之前获取同一域的排他锁。均使用 try-lock，冲突必须回滚整个业务事务后重试，不能在已有业务锁下等待该锁。创建并行，作品身份变更暂时排斥创建；Turso 使用原生写冲突检测。获取协调权限后，创建重新加载候选并核验 canonical scope，拒绝已过期身份。后台失败不推进消费水位线；回填失败回滚外层保存。V11 已通过 PostgreSQL 并发专项及完整单元/API、隔离集成门禁，代码已合入本地 main（11ee930）。
 +
 +### 作品删除与身份存活（D6 原型，尚未验收）
 +
 +剧集/电影删除遇到 AgentWork 或人工 link/assignment/raw-title mapping 时阻断。人工引用错误 details 按非零计数返回 manual_work_links、manual_file_assignments、manual_title_mappings。允许删除时，在同一事务中解除资源工作 FK、清理身份袋并删除作品；自动文件映射保留路径及文件证据、将目标置空，因此存在未分配文件的包保持未知覆盖度。身份登记必须检查作品存活，PG 以 KEY SHARE 保持目标到事务结束。
 +
-+删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。当前原型仍未解决既有子行更新与 Agent/决策/资源的完整锁序；身份登记交错已验证，不代表全部并发验收。
++删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。现有资源和引用行同样以 NOWAIT 锁定后再检查人工计数；新 FK 引用由作品排他锁串行化。身份登记、新增引用与决策交错已有专项证据，完整门禁仍在执行。
++
++删除前先取得决策身份变更协调锁并锁定受影响 Agent，再锁作品及当前引用；解除资源/自动文件关联后，复用 rekey_agent_choices 审核当前候选。失去有效身份的 pending 失效并进入 DecisionMigration 审计，原候选和 scope 保留；审计在旧 PendingDecision 工作 FK 置空前形成。历史终态不改状态，不派发资源。PG 创建先行、删除先行、模型窗口删除及持锁派发已有专项验证；仍以最终完整门禁和复核作为合入条件。
 --- /dev/null
 +++ b/tests/api/test_work_deletion_decisions.py
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,115 @@
 +"""Deletion must archive obsolete choices without erasing human history."""
 +
++import pytest
 +from sqlalchemy import select
 +
 +from app.models.agent import Agent
 +from app.models.decision_migration import DecisionMigration
 +from app.models.pending_decision import PendingDecision
-+from app.services.agent_service import create_pending_decision
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.services.agent_service import _batch_coverage_key, create_pending_decision
++from app.services.resource_coverage import load_batch_coverage
 +from tests.unit.test_agent_service import _make_resource
 +
 +
-+async def test_deleted_movie_expires_choice_and_archives_original_identity(
-+    client, db_session_factory, sample_channel, sample_downloader, sample_movie
++@pytest.mark.parametrize("fail_after_rekey", [False, True])
++@pytest.mark.parametrize("kind", ["series", "movie"])
++@pytest.mark.parametrize("links_only", [False, True])
++async def test_deleted_work_expires_choice_and_archives_original_identity(
++    client, db_session_factory, sample_channel, sample_downloader, sample_movie, sample_series, kind, links_only, fail_after_rekey, monkeypatch
 +):
++    work = sample_movie if kind == "movie" else sample_series
 +    async with db_session_factory() as db:
 +        agent = Agent(
 +            name="Synthetic deletion choice", channel_id=sample_channel.id,
 +            downloader_id=sample_downloader.id, scope_channel_wide=True,
 +        )
++        season = work.season_number if kind == "series" else None
++        episode = 1 if kind == "series" else None
 +        resources = [
-+            _make_resource(sample_channel.id, movie_id=sample_movie.id, season=None, episode=None)
++            _make_resource(sample_channel.id, season=season, episode=episode,
++                           **{kind + "_id": None if links_only else work.id})
 +            for _ in range(2)
 +        ]
 +        db.add_all([agent, *resources])
 +        await db.flush()
-+        await create_pending_decision(agent, ("movie", sample_movie.id, None), resources, db, skip_llm=True)
++        if links_only:
++            for resource in resources:
++                resource.is_batch = True
++                resource.batch_scope = "season" if kind == "series" else "movies"
++                db.add(ResourceWorkLink(resource_id=resource.id, source="auto", **{kind + "_id": work.id}))
++                db.add(ResourceFileAssignment(
++                    resource_id=resource.id, file_path="synthetic.mkv", source="auto",
++                    season=season, episode_start=episode, episode_end=episode, **{kind + "_id": work.id},
++                ))
++            await db.flush()
++            await load_batch_coverage(db, resources)
++            key, coverage = (kind, None, None, -1), _batch_coverage_key(resources[0])
++            assert coverage is not None
++        else:
++            key, coverage = (kind, work.id, episode), None
++        await create_pending_decision(agent, key, resources, db, skip_llm=True, coverage=coverage)
 +        row = await db.scalar(select(PendingDecision).where(PendingDecision.agent_id == agent.id))
 +        decision_id, candidates, scope = row.id, list(row.candidates), dict(row.decision_scope)
++        history = PendingDecision(
++            agent_id=agent.id, status="decided", candidates=candidates,
++            decided_resource_id=candidates[0], reason="Synthetic retained human history",
++            **{kind + "_id": work.id},
++        )
++        db.add(history)
 +        await db.commit()
-+    response = await client.delete(f"/api/v1/movies/{sample_movie.id}")
++        history_id = history.id
++    if fail_after_rekey:
++        import httpx
++
++        import app.services.decision_rekey as rekey
++        from tests.api.conftest import _build_test_app
++
++        real_rekey = rekey.rekey_agent_choices
++
++        async def fail_after_archive(*args):
++            await real_rekey(*args)
++            raise RuntimeError("Synthetic failure after deletion decision archive")
++
++        monkeypatch.setattr(rekey, "rekey_agent_choices", fail_after_archive)
++        route = "movies" if kind == "movie" else "series"
++        async with httpx.AsyncClient(
++            transport=httpx.ASGITransport(app=_build_test_app(db_session_factory), raise_app_exceptions=False),
++            base_url="http://test",
++        ) as api:
++            response = await api.delete(f"/api/v1/{route}/{work.id}")
++        assert response.status_code == 500
++        async with db_session_factory() as db:
++            assert await db.get(type(work), work.id) is not None
++            row = await db.get(PendingDecision, decision_id)
++            assert row.status == "pending" and row.candidates == candidates and row.decision_scope == scope
++            assert not list(await db.scalars(select(DecisionMigration)))
++            history = await db.get(PendingDecision, history_id)
++            assert history.status == "decided" and history.decided_resource_id == candidates[0]
++            if links_only:
++                assignments = list(await db.scalars(select(ResourceFileAssignment)))
++                assert len(assignments) == 2
++                assert all(getattr(row, kind + "_id") == work.id for row in assignments)
++        return
++    route = "movies" if kind == "movie" else "series"
++    response = await client.delete(f"/api/v1/{route}/{work.id}")
 +    assert response.status_code == 200, response.text
 +    async with db_session_factory() as db:
 +        row = await db.get(PendingDecision, decision_id)
@@ -620,3 +723,377 @@
 +        assert row.decision_scope == scope
 +        archives = list(await db.scalars(select(DecisionMigration)))
 +        assert any(decision_id in archive.result.get("superseded_ids", []) for archive in archives)
++        archive = next(archive for archive in archives if decision_id in archive.result.get("superseded_ids", []))
++        original = next(row for row in archive.original_review["original_decisions"] if row["id"] == decision_id)
++        assert original[kind + "_id"] == (None if links_only else work.id)
++        assert original["status"] == "pending"
++        assert original["candidates"] == candidates
++        assert original["decision_scope"] == scope
++        history = await db.get(PendingDecision, history_id)
++        assert history.status == "decided"
++        assert history.reason == "Synthetic retained human history"
++        assert history.candidates == candidates
++        assert history.decided_resource_id == candidates[0]
+--- a/frontend/src/pages/MovieDetail.tsx
++++ b/frontend/src/pages/MovieDetail.tsx
+@@ -65,7 +65,7 @@
+           if (code === 'DELETE_BLOCKED') {
+             message.error(r.error?.message || t('movies.deleteBlockedGeneric'));
+           } else {
+-            message.error(t('common.error'));
++            message.error(r.error?.message || t('common.error'));
+           }
+         }
+       },
+--- a/frontend/src/i18n/locales/zh-CN.json
++++ b/frontend/src/i18n/locales/zh-CN.json
+@@ -678,7 +678,7 @@
+     "episodeList": "剧集列表",
+     "recentResources": "最近资源",
+     "deleteConfirm": "确定删除该剧集？",
+-    "deleteWarning": "所有关联的资源将被解除关联，集数信息将被清除。",
++    "deleteWarning": "所有关联的资源将被解除关联，集数信息将被清除。 存在 Agent 订阅或人工映射时，请先解除订阅或转移映射。",
+     "deleteBlockedByAgents": "{n} 个下载代理引用了该剧集，删除操作将被阻止。请先移除相关代理的订阅作品。",
+     "deleteBlocked": "无法删除：下载代理引用了该剧集。",
+     "deleteFailed": "删除失败",
+@@ -702,7 +702,7 @@
+     "originalTitle": "原始标题",
+     "resourceCount": "资源数",
+     "downloadTasks": "下载任务数",
+-    "deleteConfirm": "确定删除该电影？所有关联的资源将被解除关联。",
++    "deleteConfirm": "确定删除该电影？所有关联的资源将被解除关联。 存在 Agent 订阅或人工映射时，请先解除订阅或转移映射。",
+     "deleteBlocked": "无法删除：{count} 个下载代理引用了该电影，请先移除相关代理的订阅作品。",
+     "deleteBlockedGeneric": "无法删除：该电影被下载代理引用，请先移除相关代理的订阅作品。",
+     "deleted": "电影已删除"
+--- a/frontend/src/i18n/locales/en-US.json
++++ b/frontend/src/i18n/locales/en-US.json
+@@ -678,7 +678,7 @@
+     "episodeList": "Episode List",
+     "recentResources": "Recent Resources",
+     "deleteConfirm": "Delete this series?",
+-    "deleteWarning": "All linked resources will be unlinked. Episode data will be cleared.",
++    "deleteWarning": "All linked resources will be unlinked. Episode data will be cleared. Remove Agent subscriptions or reassign manual mappings before deleting.",
+     "deleteBlockedByAgents": "{n} agent(s) reference this series. Deletion will be blocked.",
+     "deleteBlocked": "Cannot delete: agents reference this series.",
+     "deleteFailed": "Delete failed",
+@@ -702,7 +702,7 @@
+     "originalTitle": "Original Title",
+     "resourceCount": "Resources",
+     "downloadTasks": "Download Tasks",
+-    "deleteConfirm": "Delete this movie? All linked resources will be unlinked.",
++    "deleteConfirm": "Delete this movie? All linked resources will be unlinked. Remove Agent subscriptions or reassign manual mappings before deleting.",
+     "deleteBlocked": "Cannot delete: {count} agent(s) reference this movie. Remove the agent work subscriptions first.",
+     "deleteBlockedGeneric": "Cannot delete: movie is referenced by agents. Remove related agent work subscriptions first.",
+     "deleted": "Movie deleted"
+--- a/docs/design/frontend.md
++++ b/docs/design/frontend.md
+@@ -56,3 +56,7 @@
+ ---
+ 
+ 变更计划列表及详情显示计划冻结的 file_op（移动/硬链接/复制；历史未知显示未知）；详情说明相应删任务或保种行为，不从当前规则推断模式。
++
++### 作品删除保护（D6）
++
++剧集/电影删除提示说明 Agent 订阅或人工映射需先解除/转移。API 返回 DELETE_BLOCKED 时展示原因；并发占用的 INVALID_STATE 也展示服务器重试提示。失败时保留详情页，不跳转或假报成功。
+--- /dev/null
++++ b/scripts/review_orphan_identities.py
+@@ -0,0 +1,113 @@
++"""Review orphan identities; explicitly apply selected deletions with writers stopped."""
++
++import argparse
++import asyncio
++import hashlib
++import json
++from pathlib import Path
++
++from sqlalchemy import delete, select, text
++from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
++
++import app.models  # noqa: F401
++from app.config import settings
++from app.database import apply_db_pragmas
++from app.models.movie import Movie
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++
++OWNERS = {"series": TVSeries, "movie": Movie, "collection": WorkCollection}
++
++
++def canonical(value):
++    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
++
++
++def fingerprint(report):
++    return hashlib.sha256(canonical({k: report[k] for k in ("version", "orphans", "blocked")}).encode()).hexdigest()
++
++
++async def export_review(db):
++    owners = {kind: set(await db.scalars(select(model.id))) for kind, model in OWNERS.items()}
++    rows = [
++        dict(row) for row in (await db.execute(select(WorkExternalId.__table__).order_by(WorkExternalId.id))).mappings()
++    ]
++    report = {"version": 1, "orphans": [], "blocked": []}
++    for row in rows:
++        if row["work_type"] not in owners:
++            report["blocked"].append(row)
++        elif row["work_id"] not in owners[row["work_type"]]:
++            report["orphans"].append(row)
++    report = json.loads(canonical(report))
++    report["fingerprint"] = fingerprint(report)
++    return report
++
++
++async def apply_review(db, review):
++    if review.get("version") != 1 or review.get("fingerprint") != fingerprint(review):
++        raise ValueError("Invalid review fingerprint")
++    if review.get("approved_fingerprint") != review["fingerprint"]:
++        raise ValueError("Explicit approved_fingerprint required")
++    selected = review.get("selected_ids")
++    if not isinstance(selected, list) or not selected or any(not isinstance(x, str) for x in selected):
++        raise ValueError("Select a nonempty list of orphan row IDs")
++    if len(selected) != len(set(selected)):
++        raise ValueError("Duplicate selected IDs")
++    originals = {row["id"]: row for row in review["orphans"]}
++    if not set(selected) <= originals.keys() or review["blocked"]:
++        raise ValueError("Unknown selection or blocked identity types")
++    if db.get_bind().dialect.name == "postgresql":
++        await db.execute(
++            text("LOCK TABLE movies, tv_series, work_collections, work_external_ids IN SHARE ROW EXCLUSIVE MODE")
++        )
++    current = await export_review(db)
++    if current["blocked"]:
++        raise ValueError("Unknown identity types require separate review")
++    present = set(await db.scalars(select(WorkExternalId.id).where(WorkExternalId.id.in_(selected))))
++    if not present:
++        return {"deleted_ids": [], "already_absent_ids": selected}
++    # A selected row gaining an owner disappears from the orphan report, so it
++    # fails this comparison as well as explicit row edits and other drift.
++    if current["fingerprint"] != review["fingerprint"]:
++        raise ValueError("Database changed; export and review again")
++    await db.execute(delete(WorkExternalId).where(WorkExternalId.id.in_(selected)))
++    await db.flush()
++    return {"deleted_ids": selected, "already_absent_ids": []}
++
++
++async def run(args):
++    engine = create_async_engine(settings.database_url)
++    apply_db_pragmas(engine)
++    try:
++        async with AsyncSession(engine) as db:
++            if args.export:
++                report = await export_review(db)
++                with Path(args.export).open("x", encoding="utf-8") as output:
++                    output.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
++                return {"orphans": len(report["orphans"]), "blocked": len(report["blocked"])}
++            review = json.loads(Path(args.apply_review).read_text())
++            if db.get_bind().dialect.name == "sqlite":
++                await db.execute(text("BEGIN IMMEDIATE"))
++            result = await apply_review(db, review)
++            await db.commit()
++            return result
++    finally:
++        await engine.dispose()
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    mode = parser.add_mutually_exclusive_group(required=True)
++    mode.add_argument("--export")
++    mode.add_argument("--apply-review")
++    parser.add_argument("--writers-stopped", action="store_true")
++    parser.add_argument("--backup-confirmed", action="store_true")
++    args = parser.parse_args()
++    if args.apply_review and not (args.writers_stopped and args.backup_confirmed):
++        parser.error("Applying requires --writers-stopped and --backup-confirmed")
++    print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null
++++ b/tests/unit/test_orphan_identity_review.py
+@@ -0,0 +1,60 @@
++"""Synthetic orphans against a real database, not mutated captured records."""
++
++import uuid
++
++import pytest
++from sqlalchemy import select
++
++from app.models.movie import Movie
++from app.models.work_external_id import WorkExternalId
++from scripts.review_orphan_identities import apply_review, export_review
++
++
++async def seed(db):
++    owner = Movie(title_cn="Synthetic valid owner")
++    db.add(owner)
++    await db.flush()
++    valid = WorkExternalId(work_type="movie", work_id=owner.id, source="tmdb", external_id="tmdb:1234")
++    orphan = WorkExternalId(work_type="movie", work_id=str(uuid.uuid4()), source="tmdb", external_id="tmdb:5678")
++    db.add_all([valid, orphan])
++    await db.flush()
++    review = await export_review(db)
++    assert [row["id"] for row in review["orphans"]] == [orphan.id]
++    review.update(approved_fingerprint=review["fingerprint"], selected_ids=[orphan.id])
++    return valid, orphan, review
++
++
++async def test_apply_only_selected_orphan_and_repeat(db_session):
++    valid, orphan, review = await seed(db_session)
++    assert (await apply_review(db_session, review))["deleted_ids"] == [orphan.id]
++    assert await db_session.get(WorkExternalId, valid.id) is not None
++    assert (await apply_review(db_session, review))["already_absent_ids"] == [orphan.id]
++
++
++@pytest.mark.parametrize("change", ["owner", "row", "approval", "unknown"])
++async def test_changed_or_unapproved_review_rejected(db_session, change):
++    valid, orphan, review = await seed(db_session)
++    if change == "owner":
++        db_session.add(Movie(id=orphan.work_id, title_cn="Synthetic recovered owner"))
++    elif change == "row":
++        orphan.external_id = "tmdb:changed"
++    elif change == "approval":
++        review.pop("approved_fingerprint")
++    else:
++        db_session.add(
++            WorkExternalId(work_type="unknown", work_id=str(uuid.uuid4()), source="tmdb", external_id="tmdb:unknown")
++        )
++    await db_session.flush()
++    with pytest.raises(ValueError):
++        await apply_review(db_session, review)
++    assert set(await db_session.scalars(select(WorkExternalId.id))) >= {valid.id, orphan.id}
++
++
++async def test_outer_failure_restores_deleted_orphan(db_session):
++    _, orphan, review = await seed(db_session)
++    oid = orphan.id
++    with pytest.raises(RuntimeError):
++        async with db_session.begin_nested():
++            await apply_review(db_session, review)
++            raise RuntimeError("synthetic after deletion failure")
++    assert await db_session.scalar(select(WorkExternalId.id).where(WorkExternalId.id == oid)) == oid
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -277,3 +277,9 @@
+ 启动先审核现有 PendingDecision 表结构与持久键，再进行业务 backfill；发现未审核 pending、损坏键或重复槽时明确失败，不自动删除、过期或猜测候选。操作员按离线流程完成审核迁移后再启动。Turso 在独立普通事务中安装旧表约束；PostgreSQL 在启动 advisory lock 保护的事务中安装，失败回滚该启动事务。新装表由 ORM 的 CHECK 与 pending 部分唯一索引保证。
+ 
+ P8 在已有决策键结构的数据库上执行时，先记录受影响 Agent，再在作品与子关联迁移后按当前资源证据重建 pending，旧记录与替代 ID 归档且与迁移同事务；dry-run 回滚包含该档案。不同季的候选必须分槽，无证据候选不猜季。旧表没有 decision_key/decision_scope 时，停写并备份后先执行 P8；此阶段只读旧字段、重指作品引用，保留候选与状态，不安装决策约束。然后重新导出决策审核报告，人工批准后执行审核迁移，最后启动应用。审核导出重新加载当前资源关系，避免同一会话内沿用拆季前关系。该顺序已通过 Turso 与 PostgreSQL 的旧表测试；拆季异常后决策指纹、资源归属、季号及作品数量恢复，随后重新执行与显式审核通过。
++
++### 显式清理孤儿身份（D6 原型）
++
++使用 `python -m scripts.review_orphan_identities --export review.json` 只读导出；工具不运行应用启动迁移，也不覆盖已有文件。只有 series/movie/collection 目标不存在的身份进入 orphans；未知 work_type 进入 blocked。审核后在 JSON 中增加 approved_fingerprint（等于导出 fingerprint）及 selected_ids（精确选择 orphan 行 ID）。保留原始审核文件和数据库备份。
++
++停写后运行 `python -m scripts.review_orphan_identities --apply-review reviewed.json --writers-stopped --backup-confirmed`。同事务重新核对指纹和拥有者；PG 锁定身份袋及三类拥有者表，Turso BEGIN IMMEDIATE。行值变化、新出现拥有者或未知类型均拒绝；选中记录已全部不存在时返回 already_absent_ids。只删除审核选中行，不接管身份，不在启动或 API 中自动清理。原型 CLI/PG 集成仍待验证。
+--- /dev/null
++++ b/tests/integration/season_model/test_orphan_identity_cli.py
+@@ -0,0 +1,75 @@
++"""Real CLI subprocesses against an isolated on-disk Turso database."""
++
++import json
++import os
++import subprocess
++import sys
++import uuid
++
++
++async def test_orphan_review_cli_export_apply_repeat_and_no_overwrite(tmp_path):
++    url = "sqlite+aioturso:///" + str(tmp_path / "review.db")
++    valid_id, orphan_id, owner_id = (str(uuid.uuid4()) for _ in range(3))
++    # Turso's native file handle can outlive engine.dispose within a process.
++    # Seed in a separate process so process exit proves file ownership ended.
++    seed_code = """
++import asyncio, json, os
++from sqlalchemy.ext.asyncio import create_async_engine
++import app.models
++from app.database import Base, apply_db_pragmas
++from app.models.movie import Movie
++from app.models.work_external_id import WorkExternalId
++async def seed():
++    engine = create_async_engine(os.environ['DATABASE_URL'])
++    apply_db_pragmas(engine)
++    valid, orphan, owner, missing = json.loads(os.environ['SEED_IDS'])
++    async with engine.begin() as conn:
++        await conn.run_sync(Base.metadata.create_all)
++        await conn.execute(Movie.__table__.insert().values(id=owner, title_cn='Synthetic valid owner'))
++        await conn.execute(WorkExternalId.__table__.insert(), [
++            dict(id=valid, work_type='movie', work_id=owner, source='tmdb', external_id='tmdb:valid'),
++            dict(id=orphan, work_type='movie', work_id=missing, source='tmdb', external_id='tmdb:orphan')])
++    await engine.dispose()
++asyncio.run(seed())
++"""
++    seeded = subprocess.run(
++        [sys.executable, "-c", seed_code],
++        env=dict(os.environ, DATABASE_URL=url, SEED_IDS=json.dumps([valid_id, orphan_id, owner_id, str(uuid.uuid4())])),
++        capture_output=True,
++        text=True,
++        timeout=30,
++    )
++    assert seeded.returncode == 0, seeded.stderr
++    env = dict(os.environ, DATABASE_URL=url)
++
++    def cli(*args):
++        return subprocess.run(
++            [sys.executable, "-m", "scripts.review_orphan_identities", *args],
++            env=env,
++            capture_output=True,
++            text=True,
++            timeout=30,
++        )
++
++    export = tmp_path / "original.json"
++    result = cli("--export", str(export))
++    assert result.returncode == 0, result.stderr
++    original_bytes = export.read_bytes()
++    review = json.loads(original_bytes)
++    assert [row["id"] for row in review["orphans"]] == [orphan_id]
++    assert cli("--export", str(export)).returncode != 0
++    assert export.read_bytes() == original_bytes
++    review.update(approved_fingerprint=review["fingerprint"], selected_ids=[orphan_id])
++    approved = tmp_path / "approved.json"
++    approved.write_text(json.dumps(review))
++    assert cli("--apply-review", str(approved)).returncode != 0
++    result = cli("--apply-review", str(approved), "--writers-stopped", "--backup-confirmed")
++    assert result.returncode == 0, result.stderr
++    assert json.loads(result.stdout)["deleted_ids"] == [orphan_id]
++    result = cli("--apply-review", str(approved), "--writers-stopped", "--backup-confirmed")
++    assert result.returncode == 0, result.stderr
++    assert json.loads(result.stdout)["already_absent_ids"] == [orphan_id]
++    after = tmp_path / "after.json"
++    assert cli("--export", str(after)).returncode == 0
++    assert json.loads(after.read_text())["orphans"] == []
++    assert export.read_bytes() == original_bytes
+--- /dev/null
++++ b/tests/integration/season_model/test_orphan_identity_captured.py
+@@ -0,0 +1,30 @@
++"""The unmodified captured graph is a negative control for orphan cleanup."""
++
++import hashlib
++
++import pytest
++from sqlalchemy import select
++
++from app.models.work_external_id import WorkExternalId
++from scripts.review_orphan_identities import export_review
++
++from .conftest import open_fixture_db
++from .loader import FIXTURE_PATH
++
++pytestmark = pytest.mark.asyncio(loop_scope="module")
++
++
++async def test_captured_identity_review_is_empty_and_preserves_rows(tmp_path):
++    assert hashlib.sha256(FIXTURE_PATH.read_bytes()).hexdigest() == (
++        "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32"
++    )
++    async with open_fixture_db(tmp_path / "captured-identities.db") as handle:
++        async with handle.factory() as db:
++            before = list((await db.execute(select(WorkExternalId.__table__).order_by(WorkExternalId.id))).mappings())
++            assert len(before) == 249
++            report = await export_review(db)
++            assert report["orphans"] == [] and report["blocked"] == []
++            await db.commit()
++        async with handle.factory() as db:
++            after = list((await db.execute(select(WorkExternalId.__table__).order_by(WorkExternalId.id))).mappings())
++            assert after == before

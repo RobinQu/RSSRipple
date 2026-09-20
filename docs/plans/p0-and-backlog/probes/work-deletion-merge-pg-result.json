@@ -1,0 +1,17 @@
+{
+  "run": "hw",
+  "exit_code": 0,
+  "cases": [
+    {
+      "merge_first": true,
+      "source_absent": true,
+      "survivor_retained": true
+    },
+    {
+      "merge_first": false,
+      "source_absent": true,
+      "survivor_retained": true
+    }
+  ],
+  "scope": "actual movie merge and delete functions; synthetic independent works; no resource transfer assertions in this probe"
+}

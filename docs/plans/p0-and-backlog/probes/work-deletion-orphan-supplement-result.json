@@ -1,0 +1,15 @@
+{
+  "run": "hx",
+  "passed": 8,
+  "warnings": 1,
+  "seconds": 14.12,
+  "exit_code": 0,
+  "junit": "/tmp/rssripple-v12-orphan-supplement-hx.xml",
+  "files": {
+    "scripts/review_orphan_identities.py": "10900af9d266c2c5040cce3c9618b8f4ba6384ac3b359abf48e9c9db7bd169e4",
+    "tests/unit/test_orphan_identity_review.py": "d30f771f76392773b09e1ffdf216fffef0075d01b809e3e871c029e57be80726",
+    "tests/integration/season_model/test_orphan_identity_cli.py": "58e6df2cd73e020cdd88b3f19fde0350fdb7e7320b69b3265a2244e36f40d9d6",
+    "tests/integration/season_model/test_orphan_identity_captured.py": "a4a832b552058bec51dc1e9174d41e303ae07cd98b19c6c47cf867d8b1835967"
+  },
+  "scope": "supplemental offline-tool suite outside frozen hl/hn; app runtime unchanged"
+}

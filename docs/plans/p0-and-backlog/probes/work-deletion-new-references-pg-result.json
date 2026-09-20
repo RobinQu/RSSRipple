@@ -1,0 +1,107 @@
+{
+  "status": "scoped_pass",
+  "run": "hp",
+  "exit_code": 0,
+  "cases": [
+    {
+      "kind": "series",
+      "reference": "resource_work_links",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "resource_work_links",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "resource_file_assignments",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "resource_file_assignments",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "channel_raw_title_mappings",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "channel_raw_title_mappings",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "agent_works",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "series",
+      "reference": "agent_works",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_work_links",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_work_links",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_file_assignments",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "resource_file_assignments",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "channel_raw_title_mappings",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "channel_raw_title_mappings",
+      "insert_first": false,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "agent_works",
+      "insert_first": true,
+      "passed": true
+    },
+    {
+      "kind": "movie",
+      "reference": "agent_works",
+      "insert_first": false,
+      "passed": true
+    }
+  ],
+  "log": "/tmp/rssripple-v12-new-references-hp.log",
+  "scope": "actual deletion endpoints plus direct ORM concurrent inserts; synthetic inputs; pg_stat_activity confirms Lock waits",
+  "discarded_ho": "partial run failed due missing AgentWork.content_type fixture; fixed fixture and reran all 16 cases",
+  "cleanup_exit_code": 0
+}
