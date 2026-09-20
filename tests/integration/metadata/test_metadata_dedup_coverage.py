@@ -136,11 +136,26 @@ async def _mapping(db, channel, key: str, **kw) -> ChannelRawTitleMapping:
 
 
 async def _decision(db, agent, **kw) -> PendingDecision:
-    defaults = dict(
-        id=_uid(), agent_id=agent.id, candidates=[], reason="conflict", status="pending"
+    """Explicit historical choices for merge tests; preserve malformed TV slots."""
+    from app.services.decision_store import choice_identity
+
+    kind = "series" if kw.get("series_id") else "movie"
+    work_id = kw[kind + "_id"]
+    season = kw.get("season", 1) if kind == "series" else None
+    episode = kw.get("episode") if kind == "series" else None
+    key, scope = choice_identity(kind, work_id, season, episode)
+    resources = [FileResource(
+        id=_uid(), channel_id=agent.channel_id, guid=_uid(), title_raw="Synthetic merge candidate",
+        torrent_url="magnet:?xt=urn:btih:synthetic", season=season, episode=episode,
+        **{kind + "_id": work_id},
+    ) for _ in range(2)]
+    db.add_all(resources)
+    await db.flush()
+    d = PendingDecision(
+        id=_uid(), agent_id=agent.id, candidates=[r.id for r in resources],
+        reason="Historical conflict", status="pending", decision_key=key, decision_scope=scope,
+        season=season, episode=episode, **{kind + "_id": work_id},
     )
-    defaults.update(kw)
-    d = PendingDecision(**defaults)
     db.add(d)
     await db.flush()
     return d
@@ -301,7 +316,7 @@ async def test_merge_series_enriches_survivor_and_resolves_child_collisions(
     assert found is not None and found.id == survivor.id
 
     # Re-pointed children.
-    assert report.file_resources_updated == 1
+    assert report.file_resources_updated == 5  # original resource plus four decision candidates
     assert (await _refresh(db_session, FileResource, r1.id)).series_id == survivor.id
 
     assert report.agent_works_updated == 1  # collision dropped, ag2 row moved
@@ -317,8 +332,14 @@ async def test_merge_series_enriches_survivor_and_resolves_child_collisions(
         await _refresh(db_session, ChannelRawTitleMapping, map_move.id)
     ).series_id == survivor.id
 
-    assert report.pending_decisions_updated == 1
-    assert await _refresh(db_session, PendingDecision, pd_collide.id) is None
+    assert report.pending_decisions_updated == 2
+    assert (await _refresh(db_session, PendingDecision, pd_collide.id)).status == "expired"
+    assert (await _refresh(db_session, PendingDecision, pd_move.id)).status == "expired"
+    replacement = list(await db_session.scalars(select(PendingDecision).where(PendingDecision.status == "pending")))
+    assert len(replacement) == 2
+    assert sorted(len(row.candidates) for row in replacement) == [2, 4]
+    all_candidates = {rid for row in replacement for rid in row.candidates}
+    assert set(pd_collide.candidates + pd_move.candidates) <= all_candidates
     assert (
         await _refresh(db_session, PendingDecision, pd_move.id)
     ).series_id == survivor.id
@@ -433,7 +454,7 @@ async def test_merge_movie_enriches_survivor_and_resolves_child_collisions(
     map_move = await _mapping(db_session, ch, "movie-dup-key", movie_id=dup.id)
     pd_collide = await _decision(db_session, ag1, movie_id=dup.id, episode=1)
     await _decision(db_session, ag1, movie_id=survivor.id, episode=1)
-    pd_move = await _decision(db_session, ag1, movie_id=dup.id, episode=2)
+    pd_move = await _decision(db_session, ag2, movie_id=dup.id, episode=2)
 
     report = await md.merge_duplicate_movies(db_session)
     await db_session.flush()
@@ -453,7 +474,7 @@ async def test_merge_movie_enriches_survivor_and_resolves_child_collisions(
     assert survivor.collection_id == coll.id
     assert survivor.external_id == "tmdb:8888"
 
-    assert report.file_resources_updated == 1
+    assert report.file_resources_updated == 5  # original resource plus four decision candidates
     assert (await _refresh(db_session, FileResource, r1.id)).movie_id == survivor.id
     assert report.agent_works_updated == 1
     assert await _refresh(db_session, AgentWork, aw_collide.id) is None
@@ -462,8 +483,14 @@ async def test_merge_movie_enriches_survivor_and_resolves_child_collisions(
     assert (
         await _refresh(db_session, ChannelRawTitleMapping, map_move.id)
     ).movie_id == survivor.id
-    assert report.pending_decisions_updated == 1
-    assert await _refresh(db_session, PendingDecision, pd_collide.id) is None
+    assert report.pending_decisions_updated == 2
+    assert (await _refresh(db_session, PendingDecision, pd_collide.id)).status == "expired"
+    assert (await _refresh(db_session, PendingDecision, pd_move.id)).status == "expired"
+    replacement = list(await db_session.scalars(select(PendingDecision).where(PendingDecision.status == "pending")))
+    assert len(replacement) == 2
+    assert sorted(len(row.candidates) for row in replacement) == [2, 4]
+    all_candidates = {rid for row in replacement for rid in row.candidates}
+    assert set(pd_collide.candidates + pd_move.candidates) <= all_candidates
     assert (
         await _refresh(db_session, PendingDecision, pd_move.id)
     ).movie_id == survivor.id

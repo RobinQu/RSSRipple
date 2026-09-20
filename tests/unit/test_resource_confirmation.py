@@ -58,7 +58,7 @@ def test_batch_unknown_coverage_is_resource_confirmation():
     assert result.kinds == ("batch_coverage_unknown",)
 
 
-def test_multi_season_coverage_does_not_require_flat_season_range():
+def test_legacy_season_list_does_not_prove_episode_coverage():
     result = inspect_resource_confirmation(
         _resource(
             is_batch=True,
@@ -72,7 +72,7 @@ def test_multi_season_coverage_does_not_require_flat_season_range():
         ),
         required_metadata_fields=["season", "episode_start", "episode_end"],
     )
-    assert result.kinds == ()
+    assert result.kinds == ("batch_coverage_unknown",)
     assert result.missing_fields == ()
 
 
@@ -126,13 +126,16 @@ def _links_only_pack(*, links, batch_seasons):
 
 def test_links_only_multi_season_pack_is_linked_and_covered():
     links = [
-        SimpleNamespace(series_id="s-1", movie_id=None, series=SimpleNamespace(season_number=1)),
-        SimpleNamespace(series_id="s-2", movie_id=None, series=SimpleNamespace(season_number=2)),
+        SimpleNamespace(series_id="s-1", movie_id=None, series=SimpleNamespace(id="s-1", season_number=1)),
+        SimpleNamespace(series_id="s-2", movie_id=None, series=SimpleNamespace(id="s-2", season_number=2)),
     ]
-    result = inspect_resource_confirmation(
-        _links_only_pack(links=links, batch_seasons=[1, 2]),
-        required_metadata_fields=None,
-    )
+    pack = _links_only_pack(links=links, batch_seasons=[1, 2])
+    pack.file_assignments = [
+        SimpleNamespace(series_id=link.series_id, movie_id=None, season=link.series.season_number,
+                        episode_start=1, episode_end=12)
+        for link in links
+    ]
+    result = inspect_resource_confirmation(pack, required_metadata_fields=None)
     assert result.kinds == ()
 
 

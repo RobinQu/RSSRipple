@@ -340,12 +340,16 @@ TOTP 秘钥与 Cookie 签名秘钥在首次启动时自动生成并持久化到 
 
 `POST /decisions/{id}/confirm` 请求体：`{ "resource_id": "uuid" }`。所有决策操作均要求至少两个合格候选；旧版单候选资源修订行返回 409 `INVALID_STATE`。
 
+确认和 AI 派发在最终提交阶段重新校验：至少两个不同候选、未过期、频道归属、当前订阅/过滤规则、频道必填字段，以及与持久决策 scope 一致的覆盖度。资源已删除、覆盖改变或资格失效返回 409 `INVALID_STATE`，不使用旧推荐继续派发。模型准备期间候选集合或 scope 改变也拒绝；模型准备阶段不持有最终确认锁。跳过操作在锁内重新检查 pending，不能覆盖已处理的历史状态。旧表的无键 pending 必须先按 [审核迁移流程](db-migration.md#待决策覆盖身份的审核迁移) 处理。
+
 `POST /decisions/{id}/ai-pick` 无请求体。决策非 `pending` 状态返回 `400 NOT_PENDING`；LLM 未能给出选择返回 `400 LLM_NO_PICK`（需手动确认）。响应 `data`：`{ "id", "status", "decided_resource_id", "decided_at" }`。
 
 `POST /agents/{agent_id}/decisions/batch` 请求体：`{ "decision_ids": ["..."], "action": "skip" | "ai" }`。仅处理 `status="pending"` 的决策；响应 `data`：
 ```json
 { "processed": 10, "dispatched": 7, "skipped": 2, "failed": 1, "errors": ["<decision_id>: <原因>"] }
 ```
+
+批量 AI 先准备全部推荐，再逐项锁定与重校验；每项在 SAVEPOINT 内执行，只有成功退出该项事务后才增加成功计数。业务拒绝回滚该项并计入 failed；可重试锁错误或外层事务失效交由请求边界整体回滚，不返回虚假的部分成功。
 
 ### Download Notifications（下载完成通知）
 

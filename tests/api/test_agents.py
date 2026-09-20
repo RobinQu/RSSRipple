@@ -13,6 +13,32 @@ def _uuid():
     return str(uuid.uuid4())
 
 
+async def _run_decision(db, agent_id, channel_id, candidate_ids=(), *, decision_id=None):
+    """A real synthetic choice for run-history presentation assertions."""
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
+    from app.models.pending_decision import PendingDecision
+    from app.services.decision_store import choice_identity
+
+    movie = Movie(title_cn="Synthetic run conflict", release_date=date(2020, 1, 1), is_anime=False)
+    db.add(movie)
+    await db.flush()
+    ids = list(candidate_ids)
+    while len(ids) < 2:
+        resource = FileResource(id=_uuid(), channel_id=channel_id, guid=_uuid(),
+                                title_raw="Synthetic alternative", torrent_url="magnet:?xt=synthetic")
+        db.add(resource)
+        await db.flush()
+        ids.append(resource.id)
+    for identity in ids:
+        resource = await db.get(FileResource, identity)
+        resource.movie_id = movie.id
+    key, scope = choice_identity("movie", movie.id, None, None)
+    return PendingDecision(id=decision_id or _uuid(), agent_id=agent_id, movie_id=movie.id,
+                           status="pending", candidates=ids, reason="Synthetic conflict",
+                           decision_key=key, decision_scope=scope)
+
+
 TEST_FIELD_MAPPING = {
     "list_locator": {"source": "entries"},
     "field_mappings": {"torrent_url": {"source": "link"}},
@@ -518,7 +544,6 @@ class TestAgentsCRUD:
     async def test_list_agent_runs_non_empty_filter(self, client, channel_and_dl, db_session):
         """GET /agents/{id}/runs?non_empty=true hides routine no-op runs."""
         from app.models.agent_run import AgentRun
-        from app.models.pending_decision import PendingDecision
 
         ch_id, dl_id = channel_and_dl
         create = await client.post("/api/v1/agents", json={
@@ -548,9 +573,7 @@ class TestAgentsCRUD:
         # An open pending decision keeps the frozen run status visible as-is;
         # with none, the read-time correction would present it as "success".
         async with db_session.begin():
-            db_session.add(PendingDecision(
-                agent_id=aid, status="pending", candidates=["x"], reason="冲突",
-            ))
+            db_session.add(await _run_decision(db_session, aid, ch_id))
         res = await client.get(f"/api/v1/agents/{aid}/runs?non_empty=true")
         assert res.status_code == 200
         assert res.json()["meta"]["total"] == 4
@@ -968,10 +991,7 @@ class TestAgentRunsPendingDecisionCorrection:
             ))
         did = _uuid()
         async with db_session_factory() as s:
-            s.add(PendingDecision(
-                id=did, agent_id=aid, status="pending",
-                candidates=[r1.id, r2.id], reason="冲突",
-            ))
+            s.add(await _run_decision(s, aid, ch_id, [r1.id, r2.id], decision_id=did))
             await s.commit()
 
         # While a pending decision exists: run status stays as snapshotted and
@@ -1008,7 +1028,6 @@ class TestAgentRunsPendingDecisionCorrection:
         get pending_decision=false even while a decision is open."""
         from app.models.agent_run import AgentRun
         from app.models.file_resource import FileResource
-        from app.models.pending_decision import PendingDecision
 
         ch_id, dl_id = channel_and_dl
         create = await client.post("/api/v1/agents", json={
@@ -1034,10 +1053,7 @@ class TestAgentRunsPendingDecisionCorrection:
                 matched_resource_ids=[r_cand.id, r_other.id],
             ))
         async with db_session_factory() as s:
-            s.add(PendingDecision(
-                id=_uuid(), agent_id=aid, status="pending",
-                candidates=[r_cand.id], reason="冲突",
-            ))
+            s.add(await _run_decision(s, aid, ch_id, [r_cand.id]))
             await s.commit()
         res = await client.get(f"/api/v1/agents/{aid}/runs")
         marks = {

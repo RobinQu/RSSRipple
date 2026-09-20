@@ -266,8 +266,23 @@ async def test_cleanup_expired_decisions_tasks_and_notifications(
     db_session.add_all([channel, downloader, agent])
     await db_session.flush()
 
+    from app.models.movie import Movie
+    from app.services.decision_store import choice_identity
+
+    movie = Movie(id=_uuid(), title_cn="Synthetic expired decision")
+    db_session.add(movie)
+    await db_session.flush()
+    candidates = [FileResource(
+        id=_uuid(), channel_id=channel.id, guid=_uuid(), title_raw="Synthetic candidate",
+        torrent_url="magnet:?xt=urn:btih:synthetic", movie_id=movie.id,
+    ) for _ in range(2)]
+    db_session.add_all(candidates)
+    await db_session.flush()
+    decision_key, decision_scope = choice_identity("movie", movie.id, None, None)
     stale_decision = PendingDecision(
         id=_uuid(), agent_id=agent.id,
+        movie_id=movie.id, candidates=[r.id for r in candidates],
+        decision_key=decision_key, decision_scope=decision_scope,
         reason="stale", status="pending",
         expires_at=now - timedelta(days=1),
     )

@@ -261,6 +261,9 @@ async def _create_tables_postgres() -> None:
                 await conn.execute(
                     text("SELECT pg_advisory_xact_lock(72057594037927937)")
                 )
+                from app.services.decision_schema import prepare_existing_decision_schema
+
+                await prepare_existing_decision_schema(conn)
                 await conn.run_sync(Base.metadata.create_all)
                 await _apply_light_migrations(conn)
                 from app.services.schema_foreign_keys import repair_postgres_foreign_keys
@@ -294,6 +297,14 @@ async def create_tables() -> None:
             await backfill_search_text(session)
             await session.commit()
         return
+
+    # Existing embedded tables must pass review before any startup backfill.
+    # Own a fresh ordinary transaction: schema repair cannot use CONCURRENT.
+    from app.services.decision_schema import prepare_existing_decision_schema
+
+    async with engine.begin() as conn:
+        await conn.execute(text("BEGIN"))
+        await prepare_existing_decision_schema(conn)
 
     async with engine.begin() as conn:
         if is_turso_url(settings.database_url):

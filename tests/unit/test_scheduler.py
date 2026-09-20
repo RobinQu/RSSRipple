@@ -246,16 +246,35 @@ async def test_cleanup_expired_expires_decisions_and_deletes_tasks(db_session, _
     import app.database as dbmod
     monkeypatch.setattr(dbmod, "async_session_factory", factory)
 
+    from app.models.movie import Movie
+    from app.services.decision_store import choice_identity
+
+    # Two independent movie choices exercise expiration without violating the
+    # unique pending slot or the two-distinct-candidate contract.
+    movies = [Movie(id=_uuid(), title_cn=f"Synthetic cleanup {i}") for i in range(2)]
+    db_session.add_all(movies)
+    await db_session.flush()
+    _seed.r1.movie_id = _seed.r2.movie_id = movies[0].id
+    active_resources = [FileResource(
+        id=_uuid(), channel_id=_seed.ch.id, guid=_uuid(), title_raw="Synthetic active choice",
+        torrent_url="magnet:?xt=urn:btih:synthetic", movie_id=movies[1].id,
+    ) for _ in range(2)]
+    db_session.add_all(active_resources)
+    await db_session.flush()
+    expired_key, expired_scope = choice_identity("movie", movies[0].id, None, None)
+    active_key, active_scope = choice_identity("movie", movies[1].id, None, None)
     # Expired pending decision
     pd = PendingDecision(
         id=_uuid(), agent_id=_seed.agent.id, status="pending",
+        movie_id=movies[0].id, decision_key=expired_key, decision_scope=expired_scope,
         candidates=[_seed.r1.id, _seed.r2.id], reason="冲突",
         expires_at=datetime.now(UTC) - timedelta(days=1),
     )
     # Non-expired decision
     pd_active = PendingDecision(
         id=_uuid(), agent_id=_seed.agent.id, status="pending",
-        candidates=[_seed.r1.id], reason="冲突2",
+        movie_id=movies[1].id, decision_key=active_key, decision_scope=active_scope,
+        candidates=[r.id for r in active_resources], reason="冲突2",
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
     db_session.add_all([pd, pd_active])

@@ -146,6 +146,9 @@ async def rehome_series_as_movie(
     episode evidence) is deliberately checked by the caller, while this
     function owns the canonical reference migration and identity-bag merge.
     """
+    from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+
+    choice_agents = await lock_work_choice_agents(db, [("series", [series.id]), ("movie", [movie.id])])
     # Multi-work links / per-file assignments follow the work, collapsing
     # per-target / per-file uniqueness collisions (manual provenance wins).
     await _repoint_enrichment_rows(
@@ -171,6 +174,7 @@ async def rehome_series_as_movie(
         .where(PendingDecision.series_id == series.id)
         .values(series_id=None, movie_id=movie.id)
     )
+    await rekey_agent_choices(db, choice_agents)
     await merge_external_id_bags(db, movie, [series])
     await db.flush()
     await db.delete(series)
@@ -330,11 +334,15 @@ async def _repoint_series_children(
 
     Rows whose natural key the survivor already owns would violate a unique
     constraint (episodes, channel_raw_title_mappings) or the app-level
-    singleton invariants (pending_decisions, agent_works) if blindly
+    singleton invariants (agent_works) if blindly
     re-pointed — those duplicates are deleted instead (the survivor's row is
     the richer/original one; ambiguous resources re-surface via the normal
-    agent-run upsert).
+    agent-run upsert). Pending decisions are preserved and rekeyed after
+    their resource associations have moved.
     """
+    from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+
+    choice_agents = await lock_work_choice_agents(db, [("series", [survivor_id, *dup_ids])])
     n = (await db.execute(
         update(FileResource)
         .where(FileResource.series_id.in_(dup_ids))
@@ -370,24 +378,10 @@ async def _repoint_series_children(
     )).rowcount or 0
     report.mappings_updated += n
 
-    # PendingDecision: app-level singleton per
-    # (agent, work, season, episode, status) — drop collisions.
-    survivor_decisions = {
-        (d.agent_id, d.season, d.episode, d.status)
-        for d in (await db.execute(
-            select(PendingDecision).where(PendingDecision.series_id == survivor_id)
-        )).scalars().all()
-    }
-    n = 0
-    for d in (await db.execute(
-        select(PendingDecision).where(PendingDecision.series_id.in_(dup_ids))
-    )).scalars().all():
-        if (d.agent_id, d.season, d.episode, d.status) in survivor_decisions:
-            await db.delete(d)
-        else:
-            d.series_id = survivor_id
-            survivor_decisions.add((d.agent_id, d.season, d.episode, d.status))
-            n += 1
+    # Preserve history rows; pending coverage is rekeyed after associations move.
+    n = (await db.execute(update(PendingDecision).where(
+        PendingDecision.series_id.in_(dup_ids)
+    ).values(series_id=survivor_id))).rowcount or 0
     report.pending_decisions_updated += n
 
     # Episode: uq (series_id, season, episode) — drop collisions.
@@ -417,6 +411,7 @@ async def _repoint_series_children(
     )
     report.work_links_updated += links_n
     report.file_assignments_updated += assignments_n
+    await rekey_agent_choices(db, choice_agents)
 
 
 async def _merge_series_group(
@@ -492,6 +487,9 @@ async def _repoint_movie_children(
     db: AsyncSession, dup_ids: list[str], survivor_id: str, report: DedupReport
 ) -> None:
     """Movie counterpart of :func:`_repoint_series_children` (no episodes)."""
+    from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+
+    choice_agents = await lock_work_choice_agents(db, [("movie", [survivor_id, *dup_ids])])
     n = (await db.execute(
         update(FileResource)
         .where(FileResource.movie_id.in_(dup_ids))
@@ -526,22 +524,9 @@ async def _repoint_movie_children(
     )).rowcount or 0
     report.mappings_updated += n
 
-    survivor_decisions = {
-        (d.agent_id, d.season, d.episode, d.status)
-        for d in (await db.execute(
-            select(PendingDecision).where(PendingDecision.movie_id == survivor_id)
-        )).scalars().all()
-    }
-    n = 0
-    for d in (await db.execute(
-        select(PendingDecision).where(PendingDecision.movie_id.in_(dup_ids))
-    )).scalars().all():
-        if (d.agent_id, d.season, d.episode, d.status) in survivor_decisions:
-            await db.delete(d)
-        else:
-            d.movie_id = survivor_id
-            survivor_decisions.add((d.agent_id, d.season, d.episode, d.status))
-            n += 1
+    n = (await db.execute(update(PendingDecision).where(
+        PendingDecision.movie_id.in_(dup_ids)
+    ).values(movie_id=survivor_id))).rowcount or 0
     report.pending_decisions_updated += n
 
     # See _repoint_series_children: links/assignments must follow the survivor.
@@ -550,6 +535,7 @@ async def _repoint_movie_children(
     )
     report.work_links_updated += links_n
     report.file_assignments_updated += assignments_n
+    await rekey_agent_choices(db, choice_agents)
 
 
 async def _merge_movie_group(
@@ -738,6 +724,9 @@ async def merge_cross_type_duplicates(
             series_ep = await _episode_resource_count(db, FileResource.series_id, series.id)
             keep_series = bool(series_ep_rows or movie_ep or series_ep)
 
+            from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+
+            choice_agents = await lock_work_choice_agents(db, [("series", [series.id]), ("movie", [movie.id])])
             if keep_series:
                 n = (await db.execute(
                     update(FileResource)
@@ -784,6 +773,7 @@ async def merge_cross_type_duplicates(
 
                 # P3: union identity bags; otherwise the movie's bag rows
                 # would dangle at a deleted work id.
+                await rekey_agent_choices(db, choice_agents)
                 await merge_external_id_bags(db, series, [movie])
 
                 await db.delete(movie)
@@ -839,6 +829,7 @@ async def merge_cross_type_duplicates(
                     movie.genre = series.genre
 
                 # P3: union identity bags (symmetric to the branch above).
+                await rekey_agent_choices(db, choice_agents)
                 await merge_external_id_bags(db, movie, [series])
 
                 await db.delete(series)

@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.services.decision_store import choice_identity
+
 
 def _uuid():
     return str(uuid.uuid4())
@@ -79,6 +81,7 @@ class TestDashboardPopulated:
     async def test_pending_decisions_have_independent_pagination_and_true_total(
         self, client, db_session_factory, setup_with_task_and_decision,
     ):
+        from app.models.file_resource import FileResource
         from app.models.pending_decision import PendingDecision
 
         fx = setup_with_task_and_decision
@@ -88,24 +91,34 @@ class TestDashboardPopulated:
             for episode in (2, 3):
                 decision_id = _uuid()
                 decision_ids.append(decision_id)
+                candidates = [FileResource(
+                    id=_uuid(), channel_id=fx.ch_id, guid=_uuid(),
+                    title_raw=f"Synthetic S E{episode}", torrent_url="magnet:?xt=urn:btih:synthetic",
+                    series_id=fx.s_id, season=1, episode=episode, episode_confidence="manual",
+                ) for _ in range(2)]
+                s.add_all(candidates)
+                await s.flush()
+                key, scope = choice_identity("series", fx.s_id, 1, episode)
                 s.add(PendingDecision(
                     id=decision_id,
                     agent_id=fx.a_id,
                     series_id=fx.s_id,
                     episode=episode,
-                    candidates=[fx.r1, fx.r2],
+                    season=1, decision_key=key, decision_scope=scope,
+                    candidates=[r.id for r in candidates],
                     reason=f"冲突 {episode}",
                     status="pending",
                     expires_at=now + timedelta(days=7),
                     created_at=now + timedelta(seconds=episode),
                 ))
-            # Legacy single-resource confirmations are not Agent decisions and
-            # must not inflate the total or occupy a page slot.
+            # Deliberately malformed singleton: the database identity guard
+            # allows it, but Dashboard must not treat it as a download choice.
+            key, scope = choice_identity("series", fx.s_id, 1, 4)
             s.add(PendingDecision(
                 id=_uuid(),
                 agent_id=fx.a_id,
                 series_id=fx.s_id,
-                episode=4,
+                episode=4, season=1, decision_key=key, decision_scope=scope,
                 candidates=[fx.r1],
                 reason="旧版单资源修订",
                 status="pending",
@@ -246,6 +259,7 @@ class TestDashboardPopulated:
 
         from app.models.channel import Channel
         from app.models.file_resource import FileResource
+        from app.models.resource_file_assignment import ResourceFileAssignment
         from app.models.resource_work_link import ResourceWorkLink
         from app.models.series import TVSeries
         from app.services.required_fields import normalize_required_fields
@@ -285,6 +299,13 @@ class TestDashboardPopulated:
                 ResourceWorkLink(resource_id=full.id, series_id=s1.id),
                 ResourceWorkLink(resource_id=full.id, series_id=s2.id),
                 ResourceWorkLink(resource_id=noyear.id, series_id=undated.id),
+            ])
+            # Synthetic exact coverage, not merely a list of season IDs.
+            s.add_all([
+                ResourceFileAssignment(resource_id=resource.id, series_id=work.id,
+                    season=work.season_number, file_path=f"synthetic-{work.id}.mkv",
+                    episode_start=1, episode_end=12)
+                for resource, work in [(full, s1), (full, s2), (noyear, undated)]
             ])
             await s.commit()
             full_id, noyear_id = full.id, noyear.id
@@ -435,13 +456,17 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
     from app.models.movie import Movie
     from app.models.pending_decision import PendingDecision
     from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
 
     ch_id = _uuid()
     dl_id = _uuid()
     a_id = _uuid()
     s_id = _uuid()
     m_id = _uuid()
+    collection_id = _uuid()
     async with db_session_factory() as s:
+        s.add(WorkCollection(id=collection_id, title_cn="Synthetic dashboard collection"))
+        await s.flush()
         s.add_all([
             Channel(id=ch_id, name="DCh", type="rss_feed", url="https://x/rss",
                     status="active", field_mapping=TEST_FIELD_MAPPING,
@@ -451,18 +476,22 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
                                download_dir="/downloads/rssripple"),
             Agent(id=a_id, name="DAg", channel_id=ch_id, downloader_id=dl_id,
                   scope_channel_wide=True, status="active"),
-            TVSeries(id=s_id, title_cn="剧", title_en="Series", content_type="tv"),
+            TVSeries(id=s_id, title_cn="剧", title_en="Series", content_type="tv",
+                     collection_id=collection_id, season_number=1),
             Movie(id=m_id, title_cn="电影", title_en="Movie", content_type="movie"),
         ])
         await s.commit()
 
-    r1 = _uuid(); r2 = _uuid(); r3 = _uuid()
+    r1 = _uuid(); r2 = _uuid(); r3 = _uuid(); movie_resource = _uuid()
     async with db_session_factory() as s:
         s.add_all([
             FileResource(id=r1, channel_id=ch_id, guid="g1",
                          title_raw="[G] S - 01", torrent_url="magnet:?xt=urn:btih:a",
-                         series_id=s_id, search_title="S"),
-            FileResource(id=r2, channel_id=ch_id, guid="g2",
+                         series_id=s_id, search_title="S", season=1, episode=1, episode_confidence="manual"),
+            FileResource(id=r2, channel_id=ch_id, guid="g1-alt",
+                         title_raw="[Alt] S - 01", torrent_url="magnet:?xt=urn:btih:alt",
+                         series_id=s_id, season=1, episode=1, episode_confidence="manual"),
+            FileResource(id=movie_resource, channel_id=ch_id, guid="g2",
                          title_raw="[G] M", torrent_url="magnet:?xt=urn:btih:b",
                          movie_id=m_id, search_title="M"),
             FileResource(id=r3, channel_id=ch_id, guid="g3",
@@ -476,7 +505,7 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
             DownloadTask(id=t1, agent_id=a_id, file_resource_id=r1,
                          downloader_id=dl_id, download_dir="/downloads/rssripple",
                          status="downloading", progress=0.5),
-            DownloadTask(id=t2, agent_id=a_id, file_resource_id=r2,
+            DownloadTask(id=t2, agent_id=a_id, file_resource_id=movie_resource,
                          downloader_id=dl_id, download_dir="/downloads/rssripple",
                          status="downloading", progress=0.3),
             DownloadTask(id=t3, agent_id=a_id, file_resource_id=r3,
@@ -486,8 +515,10 @@ async def setup_with_task_and_decision(client, db_session_factory, mock_transmis
         await s.commit()
 
     pd_id = _uuid()
+    key, scope = choice_identity("series", s_id, 1, 1)
     async with db_session_factory() as s:
         s.add(PendingDecision(id=pd_id, agent_id=a_id, series_id=s_id, episode=1,
+                              season=1, decision_key=key, decision_scope=scope,
                               candidates=[r1, r2], reason="冲突", status="pending",
                               expires_at=datetime.now(UTC) + timedelta(days=7)))
         await s.commit()

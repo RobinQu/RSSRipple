@@ -129,6 +129,35 @@ async def _make_series(db_session, *, external_id: str, title_cn: str, title_en:
     return s
 
 
+async def _make_pending_conflict(db, channel_id, agent_id, work, *, episode=None):
+    """Synthetic two-candidate conflict with actual work and resource rows."""
+    from app.models.pending_decision import PendingDecision
+    from app.services.decision_store import choice_identity
+
+    is_series = isinstance(work, TVSeries)
+    if is_series and work.collection_id is None:
+        collection = WorkCollection(title_cn="Synthetic dedup collection")
+        db.add(collection)
+        await db.flush()
+        work.collection_id = collection.id
+    resources = [FileResource(
+        id=_uuid(), channel_id=channel_id, guid=_uuid(), title_raw="Synthetic candidate",
+        torrent_url="magnet:?xt=synthetic", series_id=work.id if is_series else None,
+        movie_id=None if is_series else work.id, season=1 if is_series else None,
+        episode=episode if is_series else None, episode_confidence="manual",
+    ) for _ in range(2)]
+    db.add_all(resources)
+    await db.flush()
+    key, scope = choice_identity("series" if is_series else "movie", work.id,
+                                 1 if is_series else None, episode if is_series else None)
+    return PendingDecision(
+        id=_uuid(), agent_id=agent_id, series_id=work.id if is_series else None,
+        movie_id=None if is_series else work.id, season=1 if is_series else None,
+        episode=episode, candidates=[r.id for r in resources], reason="Synthetic conflict",
+        status="pending", decision_key=key, decision_scope=scope,
+    )
+
+
 async def test_merge_duplicate_series_collapses_and_repoints(db_session, channel):
     """Three rows for the same work; oldest survives, FKs re-pointed."""
     t0 = datetime(2025, 1, 1, tzinfo=UTC)
@@ -245,9 +274,8 @@ async def test_merge_duplicate_series_repoints_agent_works_and_mappings(db_sessi
 
 async def test_merge_duplicate_series_drops_conflicting_children(db_session, channel):
     """Regression: duplicates owning child rows whose natural key the survivor
-    already has (Episode uq, mapping uq, app-level AgentWork/PendingDecision
-    singletons) must not abort the whole merge with an IntegrityError —
-    conflicting duplicate rows are dropped, the rest re-pointed."""
+    already has (Episode uq, mapping uq, AgentWork) must not abort the merge.
+    Pending choices instead retain their source rows and combine candidates."""
     from sqlalchemy import select
 
     from app.models.episode import Episode
@@ -294,14 +322,8 @@ async def test_merge_duplicate_series_drops_conflicting_children(db_session, cha
             id=_uuid(), channel_id=channel.id, raw_title="raw",
             search_title_key="剧a", content_type="tv", series_id=s2.id,
         ),
-        PendingDecision(
-            id=_uuid(), agent_id=agent.id, series_id=s1.id,
-            season=1, episode=1, candidates=["r1"], reason="x", status="pending",
-        ),
-        PendingDecision(
-            id=_uuid(), agent_id=agent.id, series_id=s2.id,
-            season=1, episode=1, candidates=["r2"], reason="x", status="pending",
-        ),
+        await _make_pending_conflict(db_session, channel.id, agent.id, s1, episode=1),
+        await _make_pending_conflict(db_session, channel.id, agent.id, s2, episode=1),
     ])
     await db_session.flush()
 
@@ -321,8 +343,11 @@ async def test_merge_duplicate_series_drops_conflicting_children(db_session, cha
     assert len(mappings) == 1
     assert mappings[0].series_id == s1.id
     decisions = (await db_session.execute(select(PendingDecision))).scalars().all()
-    assert len(decisions) == 1
-    assert decisions[0].series_id == s1.id
+    assert len(decisions) == 3  # two source records retained plus their replacement
+    assert all(d.series_id == s1.id for d in decisions)
+    pending = [d for d in decisions if d.status == "pending"]
+    assert len(pending) == 1 and len(set(pending[0].candidates)) == 4
+    assert sum(d.status == "expired" for d in decisions) == 2
 
 
 async def test_merge_skips_year_conflicting_group(db_session):
@@ -763,19 +788,22 @@ async def test_merge_duplicate_series_repoints_unique_pending_decision(db_sessio
     db_session.add(agent)
     await db_session.flush()
     # Unique key (agent, season=1, episode=2, pending) — no collision.
-    db_session.add(PendingDecision(
-        id=_uuid(), agent_id=agent.id, series_id=s2.id, season=1, episode=2,
-        candidates=["r2"], reason="x", status="pending",
-    ))
+    original = await _make_pending_conflict(db_session, channel.id, agent.id, s2, episode=2)
+    original_id, candidates = original.id, set(original.candidates)
+    db_session.add(original)
     await db_session.flush()
 
     report = await dedup.merge_duplicate_series(db_session)
     await db_session.flush()
 
     assert report.pending_decisions_updated == 1
-    d = (await db_session.execute(select(PendingDecision))).scalar_one()
-    assert d.series_id == s1.id
-    assert d.episode == 2
+    rows = list(await db_session.scalars(select(PendingDecision)))
+    assert len(rows) == 2
+    d = next(row for row in rows if row.status == "pending")
+    assert d.series_id == s1.id and d.episode == 2
+    assert d.decision_scope["work_id"] == s1.id
+    assert set(d.candidates) == candidates
+    assert next(row for row in rows if row.id == original_id).status == "expired"
 
 
 async def test_pick_canonical_external_id_fallback():
@@ -1000,18 +1028,9 @@ async def test_merge_duplicate_movies_repoints_agent_works_and_decisions(db_sess
             id=_uuid(), agent_id=agent_b.id, content_type="movie", movie_id=m2.id,
             enable_episode_dedup=True,
         ),
-        PendingDecision(
-            id=_uuid(), agent_id=agent_a.id, movie_id=m1.id, season=None, episode=None,
-            candidates=[], reason="x", status="pending",
-        ),
-        PendingDecision(
-            id=_uuid(), agent_id=agent_a.id, movie_id=m2.id, season=None, episode=None,
-            candidates=[], reason="x", status="pending",
-        ),
-        PendingDecision(
-            id=_uuid(), agent_id=agent_b.id, movie_id=m2.id, season=None, episode=5,
-            candidates=[], reason="x", status="pending",
-        ),
+        await _make_pending_conflict(db_session, channel.id, agent_a.id, m1, episode=None),
+        await _make_pending_conflict(db_session, channel.id, agent_a.id, m2, episode=None),
+        await _make_pending_conflict(db_session, channel.id, agent_b.id, m2, episode=5),
     ])
     await db_session.flush()
 
@@ -1019,13 +1038,17 @@ async def test_merge_duplicate_movies_repoints_agent_works_and_decisions(db_sess
     await db_session.flush()
 
     assert report.agent_works_updated == 1
-    assert report.pending_decisions_updated == 1
+    assert report.pending_decisions_updated == 2
     aws = (await db_session.execute(select(AgentWork))).scalars().all()
     assert len(aws) == 2
     assert {aw.agent_id for aw in aws} == {agent_a.id, agent_b.id}
     assert all(aw.movie_id == m1.id for aw in aws)
     ds = (await db_session.execute(select(PendingDecision))).scalars().all()
-    assert len(ds) == 2
+    assert len(ds) == 5
+    pending = [d for d in ds if d.status == "pending"]
+    assert len(pending) == 2
+    assert sorted(len(set(d.candidates)) for d in pending) == [2, 4]
+    assert sum(d.status == "expired" for d in ds) == 3
     assert all(d.movie_id == m1.id for d in ds)
     assert {d.episode for d in ds} == {None, 5}
 

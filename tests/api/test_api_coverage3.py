@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.services.decision_store import choice_identity
+
 
 def _uuid():
     return str(uuid.uuid4())
@@ -194,9 +196,11 @@ class TestDecisionsMore:
         rid = await _make_resource(db_session_factory, env.ch_id, series_id=sid, season=1, episode=1)
         rid2 = await _make_resource(db_session_factory, env.ch_id, series_id=sid, season=1, episode=1)
         did = _uuid()
+        key, scope = choice_identity("series", sid, 1, 1)
         async with db_session_factory() as s:
             s.add(PendingDecision(
                 id=did, agent_id=env.aid, status="pending",
+                series_id=sid, season=1, episode=1, decision_key=key, decision_scope=scope,
                 candidates=[rid, rid2], reason="x",
                 expires_at=datetime.now(UTC) + timedelta(days=7),
             ))
@@ -207,13 +211,19 @@ class TestDecisionsMore:
         assert {item["id"] for item in r.json()["data"][0]["candidate_resources"]} == {rid, rid2}
 
     async def test_confirm_missing_agent_or_resource(self, client, env, db_session_factory):
+        from app.models.movie import Movie
         from app.models.pending_decision import PendingDecision
         rid = _uuid()
         did = _uuid()
+        movie_id = _uuid()
+        key, scope = choice_identity("movie", movie_id, None, None)
         async with db_session_factory() as s:
+            s.add(Movie(id=movie_id, title_cn="Synthetic missing-resource choice", content_type="movie"))
+            await s.flush()
             s.add(PendingDecision(
                 id=did, agent_id=env.aid, status="pending",
-                candidates=[rid], reason="x",
+                movie_id=movie_id, decision_key=key, decision_scope=scope,
+                candidates=[rid, _uuid()], reason="x",
                 expires_at=datetime.now(UTC) + timedelta(days=7),
             ))
             await s.commit()
@@ -281,8 +291,10 @@ class TestDashboardPopulatedFull:
                              status="pending", progress=0.0),
             ])
             await s.commit()
+        key, scope = choice_identity("series", s_id, 1, 1)
         async with db_session_factory() as s:
             s.add(PendingDecision(id=_uuid(), agent_id=a_id, series_id=s_id,
+                                  season=1, decision_key=key, decision_scope=scope,
                                   episode=1, candidates=[r_series, r_series2], reason="c",
                                   status="pending",
                                   expires_at=datetime.now(UTC) + timedelta(days=7)))

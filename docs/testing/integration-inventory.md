@@ -285,3 +285,13 @@ PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等�
 ### 退役季数字段清理
 
 `tests/api/test_retired_season_fields.py` 验证实际 POST/PUT 拒绝退役字段且无副作用、合法单季 Episode 写入；`tests/unit/test_retired_season_cleanup.py` 覆盖真实 Turso 指纹、关联/人工字段保留、过期与矛盾证据拒绝、回滚、幂等、旧派生字段不被重写。`tests/integration/season_model/test_retired_field_review.py` 使用原始 prod_works_v1 录制夹具，只读导出 27 个带旧计数作品；实际合集回填后 8 个明确单季样本经审核清理，其他 19 个保留原值。录制夹具不代表当前生产库。实际 PostgreSQL CLI、并发阻塞和故障回滚证据见 p0-and-backlog/probes/retired-season-cleanup-pg-result.json。
+
+## V11 决策覆盖验证标准（原型，尚未完整验收）
+
+- 覆盖证据：单季半包/整季、区间顺序与缺口、多季 links-only、未知指派；实际 process_resources 验证派发、冲突与跨运行去重，不能只测哈希函数。
+- 持久化：真实 PostgreSQL 双连接同槽创建；Turso 锁重试；审核旧表、P8 拆季衔接、启动拒绝未审核数据、事务回滚与历史/候选保留。
+- 确认并发：规则/候选在模型等待期改变时必须拒绝；最终确认持锁期间资源、指派、链接及资格元数据修改受保护，提交后释放；实际资源修订与持久请求写入须无反向锁死。模型、下载或唤醒替身必须在结果中标明，函数级探针不能冒充 HTTP/真实下载器端到端验收。
+- 原始数据回放：保留 `tests/fixtures/prod_works_v1.json` 原始快照及 SHA-256；已有审计含 559 个资源、101 个批量资源和 3 个已处理单候选历史决策，不能把它宣称为生产多候选 pending 证据。未知文件指派应保持未知；严禁补造捕获数据的季号或范围以求通过。缺失的并发/混合决策边界用明确合成数据补充。
+- 最终门禁：单元/API 覆盖率 ≥95%，隔离完整集成覆盖率 ≥85%，测试及应用进程退出码、覆盖率导出、唯一 Compose 项目清理、源文件快照均需确认。限制失败数的诊断不计验收。
+
+当前专项与缺口见 [V11 记录](../plans/p0-and-backlog/V11-DECISION-COVERAGE.md)；相关临时探针保存在该目录 `probes/`，未完成的完整门禁不可标记通过。

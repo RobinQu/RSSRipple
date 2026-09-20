@@ -1,6 +1,9 @@
 """PendingDecision API routes."""
 
 
+from copy import deepcopy
+from dataclasses import dataclass
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, not_, or_, select
@@ -20,11 +23,19 @@ from app.schemas.pending_decision import (
     DecisionActionResponse,
     PendingDecisionResponse,
 )
+from app.services.decision_review import current_choice_error
 from app.services.decision_service import maybe_reset_agent_run_status
 from app.services.resource_confirmation import LEGACY_CONFIRMATION_REASON_PREFIXES
 from app.utils.time import utcnow
 
 router = APIRouter()
+
+def _invalid_choice(message):
+    return JSONResponse(status_code=409, content={
+        "success": False, "data": None,
+        "error": {"code": "INVALID_STATE", "message": message}, "meta": {},
+    })
+
 
 def _choice_decision_filter():
     """SQL predicate excluding legacy resource-metadata confirmation rows."""
@@ -47,25 +58,42 @@ def _is_choice_decision(decision: PendingDecision) -> bool:
     )
 
 
-async def _ai_pick_and_dispatch(
-    decision: PendingDecision, db: AsyncSession
-) -> tuple[bool, str | None]:
-    """Resolve a pending decision by letting the LLM pick a candidate.
+async def _lock_current_decision(decision, db):
+    """Use the same parent-before-decision order as pending-choice writers."""
+    from app.models.agent import Agent
 
-    Reuses the cached ``llm_picked_resource_id`` when present; otherwise asks
-    the LLM now. Returns ``(ok, error)``.
-    """
+    with db.no_autoflush:
+        await db.scalar(select(Agent.id).where(Agent.id == decision.agent_id).with_for_update(key_share=True))
+        return await db.scalar(select(PendingDecision).where(
+            PendingDecision.id == decision.id
+        ).with_for_update().execution_options(populate_existing=True))
+
+
+@dataclass(frozen=True)
+class PreparedChoice:
+    candidate_ids: frozenset[str]
+    scope: dict
+    picked_id: str
+
+
+async def _prepare_ai_choice(
+    decision: PendingDecision, db: AsyncSession
+) -> tuple[PreparedChoice | None, str | None]:
+    """Compute a recommendation without acquiring write locks or changing rows."""
     from app.models.agent import Agent
     from app.services.agent_service import (
         _generate_llm_pick,
-        dispatch_download,
         pick_by_preferences,
     )
 
+    if error := await current_choice_error(decision, db):
+        return None, error
     agent = await db.get(Agent, decision.agent_id)
     if not agent:
-        return False, f"Agent {decision.agent_id} not found"
+        return None, f"Agent {decision.agent_id} not found"
 
+    candidate_snapshot = set(decision.candidates or [])
+    scope_snapshot = deepcopy(decision.decision_scope)
     picked_id = decision.llm_picked_resource_id
     if not picked_id or picked_id not in (decision.candidates or []):
         cands = (await db.execute(
@@ -80,7 +108,7 @@ async def _ai_pick_and_dispatch(
             )
         )).scalars().all()
         if not cands:
-            return False, "No candidates to pick from"
+            return None, "No candidates to pick from"
         # Deterministic preference rules first (rank-only): a unique winner
         # needs no LLM call; a remaining tie goes to the LLM on the narrowed
         # tier.
@@ -94,17 +122,37 @@ async def _ai_pick_and_dispatch(
                 if decision.series_id
                 else ("movie", decision.movie_id, None, None),
             )
-        decision.llm_picked_resource_id = picked_id
         if not picked_id:
-            return False, "AI 未能给出选择，请手动确认"
+            return None, "AI 未能给出选择，请手动确认"
 
-    resource = await db.get(FileResource, picked_id)
+    if picked_id not in candidate_snapshot:
+        return None, "AI returned a resource outside the candidate set"
+    return PreparedChoice(frozenset(candidate_snapshot), scope_snapshot, picked_id), None
+
+
+async def _ai_pick_and_dispatch(decision, db, *, prepared=None):
+    from app.models.agent import Agent
+    from app.services.agent_service import dispatch_download
+
+    choice, error = prepared if prepared is not None else await _prepare_ai_choice(decision, db)
+    if choice is None:
+        return False, error
+    decision = await _lock_current_decision(decision, db)
+    if decision is None:
+        return False, "Decision no longer exists"
+    if set(decision.candidates or []) != choice.candidate_ids or decision.decision_scope != choice.scope:
+        return False, "Decision candidates changed while computing the recommendation"
+    if error := await current_choice_error(decision, db, lock_resources=True):
+        return False, error
+    decision.llm_picked_resource_id = choice.picked_id
+    resource = await db.get(FileResource, choice.picked_id)
     if not resource:
-        return False, f"Picked resource {picked_id} not found"
+        return False, f"Picked resource {choice.picked_id} not found"
 
+    agent = await db.get(Agent, decision.agent_id)
     await dispatch_download(agent, resource, db)
     decision.status = "decided"
-    decision.decided_resource_id = picked_id
+    decision.decided_resource_id = choice.picked_id
     decision.decided_at = utcnow()
     return True, None
 
@@ -164,6 +212,8 @@ async def confirm_decision(
     from app.models.agent import Agent
     from app.services.agent_service import dispatch_download
     decision = await db.get(PendingDecision, decision_id)
+    if decision is not None:
+        decision = await _lock_current_decision(decision, db)
     if not decision:
         return JSONResponse(
             status_code=404,
@@ -187,6 +237,8 @@ async def confirm_decision(
                 "meta": {},
             },
         )
+    if error := await current_choice_error(decision, db, lock_resources=True):
+        return _invalid_choice(error)
     if body.resource_id not in decision.candidates:
         return JSONResponse(
             status_code=400,
@@ -227,6 +279,8 @@ async def confirm_decision(
 @router.post("/decisions/{decision_id}/skip")
 async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
     decision = await db.get(PendingDecision, decision_id)
+    if decision is not None:
+        decision = await _lock_current_decision(decision, db)
     if not decision:
         return JSONResponse(
             status_code=404,
@@ -237,6 +291,8 @@ async def skip_decision(decision_id: str, db: AsyncSession = Depends(get_db)):
                 "meta": {},
             },
         )
+    if decision.status != "pending":
+        return _invalid_choice("Decision is no longer pending")
     if not _is_choice_decision(decision):
         return JSONResponse(
             status_code=409,
@@ -303,6 +359,8 @@ async def ai_pick_decision(decision_id: str, db: AsyncSession = Depends(get_db))
                 "meta": {},
             },
         )
+    if error := await current_choice_error(decision, db):
+        return _invalid_choice(error)
     ok, err = await _ai_pick_and_dispatch(decision, db)
     if not ok:
         await db.rollback()
@@ -349,24 +407,55 @@ async def batch_decisions(
     )).scalars().all()
     rows = [row for row in queried_rows if _is_choice_decision(row)]
 
+    # Finish all network/model work before the first item acquires write locks.
+    recommendations = {}
+    if body.action == "ai":
+        for dec in rows:
+            try:
+                recommendations[dec.id] = await _prepare_ai_choice(dec, db)
+            except Exception as exc:
+                from app.database import _is_retryable_lock_error
+
+                if (_is_retryable_lock_error(exc) or not db.is_active
+                        or getattr(exc, "connection_invalidated", False)):
+                    raise
+                recommendations[dec.id] = (None, str(exc))
+
+    class RejectedChoiceError(Exception):
+        """Roll back the item even when its action returns a policy failure."""
+
     resp = BatchDecisionResponse()
     for dec in rows:
+        # Save scalars before a failed flush expires the ORM object's state.
+        decision_id = dec.id
         resp.processed += 1
         try:
+            async with db.begin_nested():
+                if body.action == "skip":
+                    dec = await _lock_current_decision(dec, db)
+                    if dec is None or dec.status != "pending" or not _is_choice_decision(dec):
+                        raise RejectedChoiceError("Decision is no longer a pending choice")
+                    dec.status = "skipped"
+                    dec.decided_at = utcnow()
+                else:
+                    ok, err = await _ai_pick_and_dispatch(dec, db, prepared=recommendations[decision_id])
+                    if not ok:
+                        raise RejectedChoiceError(err or "Decision rejected")
+                await db.flush()
             if body.action == "skip":
-                dec.status = "skipped"
-                dec.decided_at = utcnow()
                 resp.skipped += 1
             else:
-                ok, err = await _ai_pick_and_dispatch(dec, db)
-                if ok:
-                    resp.dispatched += 1
-                else:
-                    resp.failed += 1
-                    resp.errors.append(f"{dec.id}: {err}")
+                resp.dispatched += 1
         except Exception as e:  # noqa: BLE001
+            from app.database import _is_retryable_lock_error
+
+            # A SAVEPOINT cannot recover a lost outer transaction. Let the
+            # request boundary roll back/retry it rather than report success.
+            if (_is_retryable_lock_error(e) or not db.is_active
+                    or getattr(e, "connection_invalidated", False)):
+                raise
             resp.failed += 1
-            resp.errors.append(f"{dec.id}: {e}")
+            resp.errors.append(f"{decision_id}: {e}")
     await maybe_reset_agent_run_status(db, agent_id)
     await db.commit()
     return success_response(resp.model_dump())

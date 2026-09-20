@@ -827,3 +827,13 @@ class FtsOutbox(Base):
 轻量迁移新增的七处外键（audio/collection/volume/media_server 关联）在新装与升级库必须具有相同目标及 ON DELETE；已有列不代表约束已存在。启动检查并补齐缺失约束，旧悬空关联必须由明确业务证据修复，不自动丢弃子行或猜测父项。只读预检、Turso 原子重建与 PG 事务补约束见 [数据库迁移](db-migration.md)「轻量迁移的升级外键对等」。
 
 TVSeries.number_of_seasons / seasons 为退役孤儿列：创建/更新 API 拒绝显式输入，去重与人工字段登记不再扩散计数。只读兼容不表示允许新写入；存量清理必须保留未拆季证据，不能以整表置空替代单季迁移。
+
+## DecisionMigration：审核迁移档案
+
+`decision_migrations` 保留显式审核迁移或作品重指 rekey 的决策快照和变换结果，与 pending 行变换同事务提交。`id` 为 UUID v4；`review_fingerprint` 为唯一的 64 字符审核指纹；`original_review`、`result` 为非空 JSON；`created_at` 为 UTC。档案不对 Agent/资源建立级联删除外键，业务实体删除不应删除审核证据。历史非 pending 决策不修改；旧 pending 仅在显式允许 supersede 时变为 expired，其原状态、候选、理由和人工内容完整保存在档案中。
+
+### PendingDecision 覆盖身份
+
+`decision_key` 为可空 VARCHAR(80)，`decision_scope` 为可空 JSON。新 pending 必须有 key；`(agent_id, decision_key)` 仅 pending 部分唯一，离开 pending 后可重新创建同覆盖选择。scope 使用 version=1 的规范单集/电影身份或 batch 完整覆盖描述；key 为其排序紧凑 JSON 的 v1 SHA256。升级不仅检查非空，也验证版本化描述与摘要一致；历史非 pending 可保留空键。确认必须复验候选的当前覆盖与资格，不能把摘要一致当成当前资源仍合格。
+
+自动作品重指档案的 original_review/result 标记 operation=work_rekey，记录重指资源后、改变 pending 状态前的快照；不得解释为人工批准的离线审核。

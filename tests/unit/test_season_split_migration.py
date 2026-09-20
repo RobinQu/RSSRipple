@@ -123,12 +123,13 @@ async def test_split_multi_season_series(db_session, sample_channel, sample_down
                                  source="manual")
     link_r2 = ResourceWorkLink(id=_uuid(), resource_id=r2.id, series_id=series.id)
     db_session.add_all([link_pack, link_r2])
-    # Decisions / mappings / subscription.
+    # Historical decisions / mappings / subscription. Empty candidates are not
+    # valid pending choices; active split/union coverage has dedicated tests.
     agent = await _make_agent(db_session, sample_channel, sample_downloader)
     pd1 = PendingDecision(id=_uuid(), agent_id=agent.id, series_id=series.id, season=2,
-                          episode=5, candidates=[], reason="conflict")
+                          episode=5, candidates=[], reason="conflict", status="skipped")
     pd2 = PendingDecision(id=_uuid(), agent_id=agent.id, series_id=series.id, season=None,
-                          episode=3, candidates=[], reason="conflict")
+                          episode=3, candidates=[], reason="conflict", status="skipped")
     aw = AgentWork(id=_uuid(), agent_id=agent.id, series_id=series.id, content_type="tv")
     m1 = ChannelRawTitleMapping(id=_uuid(), channel_id=ch, series_id=series.id,
                                 raw_title="[Group] 无职转生 第二季 - 05 [1080p]",
@@ -223,6 +224,7 @@ async def test_split_multi_season_series(db_session, sample_channel, sample_down
     await db_session.refresh(pd1)
     await db_session.refresh(pd2)
     assert (pd1.series_id, pd2.series_id) == (s2.id, series.id)
+    assert pd1.status == pd2.status == "skipped"
     await db_session.refresh(m1)
     await db_session.refresh(m2)
     assert (m1.series_id, m2.series_id) == (s2.id, series.id)

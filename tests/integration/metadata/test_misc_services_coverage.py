@@ -299,7 +299,11 @@ class TestBatchCoverageConfirmation:
 
     def test_series_batch_season_scope_with_season_is_fine(self):
         conf = inspect_resource_confirmation(
-            self._batch(batch_scope="season", season=2), None
+            self._batch(
+                batch_scope="season", season=2, episode_start=1, episode_end=12,
+                series=SimpleNamespace(id="s1", season_number=2, seasons=None, number_of_seasons=None),
+                work_links=[], file_assignments=[],
+            ), None
         )
         assert "batch_coverage_unknown" not in conf.kinds
 
@@ -337,7 +341,12 @@ class TestBatchCoverageConfirmation:
         r = self._batch(
             series_id=None, batch_scope="multi_season", batch_seasons=[1, 2],
             work_links=[_series_link(1), _series_link(2)],
+            file_assignments=[SimpleNamespace(
+                series_id=f"s-{season}", movie_id=None, season=season, episode_start=1, episode_end=12,
+            ) for season in (1, 2)],
         )
+        for link in r.work_links:
+            link.series.id = link.series_id
         conf = inspect_resource_confirmation(r, None)
         assert conf.kinds == ()
         assert conf.required is False

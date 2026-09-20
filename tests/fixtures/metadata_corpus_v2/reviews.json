@@ -1,6 +1,6 @@
 {
   "995c8c1d-5c69-400d-99f3-f197c7ee953b": {
-    "evidence_note": "Independent review against frozen evidence. Works: bangumi subjects from cassette detail/episode endpoints (First 8290 s1 26ep 1998-04-19; Second 9568 s2 13ep 1999-10-15; Fourth 3816 s4 24ep 2004-04-17; Fifth 46312 s5 14ep 2012-11-09; Final 104569 s6 4ep 2014-05-16 - unmarked title, 6th TV series by air-date after Fifth; Extra 44758 OVA s0 2ep 2001-03-22); Third Stage 9569 + Legend 78796/111760/111761 movies (剧场版, dates from details). Assignments derived from the frozen bencode file list: S01-S05 pack numbering remapped to Stage ordinals (S03=Fourth s4, S04=Fifth s5, S05=Final s6); Third Stage file keeps parsed season 3 from the ordinal marker; Extra Stage 01/02 -> s0; Fourth Stage Battle Digest bound to 3816 per the frozen LLM judge verdict; Battle Stage -> mal:821 (frozen wigolo hit myanimelist.net/anime/821/Initial_D_Battle_Stage, shell collection); Battle Stage 2 / Extra Stage 2 -> mal:3931 / mal:5228 (identity-only, own shell collections). Evidence-boundary residuals: Battle Stage 3 unbound (frozen wigolo returned only an unrelated wikipedia stub, found=False is the correct verdict); Movie Battle Digest bound to the wikipedia Legend-trilogy umbrella movie (only available frozen identity); episode_seasons keys omitted for 104569/44758 because the accepted self-heal season corrections (s1->s6, s1->s0) leave stale-season Episode rows that must not be blessed as gold. batch_seasons [1..5] is the torrent-folder derived cache (franchise scope does not re-derive it from work identities). Franchise pack: confirmation empty, no dispatch.",
+    "evidence_note": "Independent review against frozen evidence. Works: bangumi subjects from cassette detail/episode endpoints (First 8290 s1 26ep 1998-04-19; Second 9568 s2 13ep 1999-10-15; Fourth 3816 s4 24ep 2004-04-17; Fifth 46312 s5 14ep 2012-11-09; Final 104569 s6 4ep 2014-05-16 - unmarked title, 6th TV series by air-date after Fifth; Extra 44758 OVA s0 2ep 2001-03-22); Third Stage 9569 + Legend 78796/111760/111761 movies (剧场版, dates from details). Assignments derived from the frozen bencode file list: S01-S05 pack numbering remapped to Stage ordinals (S03=Fourth s4, S04=Fifth s5, S05=Final s6); Third Stage file keeps parsed season 3 from the ordinal marker; Extra Stage 01/02 -> s0; Fourth Stage Battle Digest bound to 3816 per the frozen LLM judge verdict; Battle Stage -> mal:821 (frozen wigolo hit myanimelist.net/anime/821/Initial_D_Battle_Stage, shell collection); Battle Stage 2 / Extra Stage 2 -> mal:3931 / mal:5228 (identity-only, own shell collections). Evidence-boundary residuals: Battle Stage 3 unbound (frozen wigolo returned only an unrelated wikipedia stub, found=False is the correct verdict); Movie Battle Digest bound to the wikipedia Legend-trilogy umbrella movie (only available frozen identity); episode_seasons keys omitted for 104569/44758 because the accepted self-heal season corrections (s1->s6, s1->s0) leave stale-season Episode rows that must not be blessed as gold. batch_seasons [1..5] is the torrent-folder derived cache (franchise scope does not re-derive it from work identities). V11 policy re-review (2026-09-20): the unchanged recorded Battle Stage 3 assignment remains unbound; incomplete authoritative file coverage requires batch_coverage_unknown Channel confirmation and no dispatch. All recorded work identities, file placements and other expected fields are unchanged.",
     "expected": {
       "assignments": [
         {
@@ -665,7 +665,9 @@
       ],
       "collection": "collection:title:头文字D Initial D",
       "confirmation": {
-        "kinds": [],
+        "kinds": [
+          "batch_coverage_unknown"
+        ],
         "missing_fields": []
       },
       "dispatch": {

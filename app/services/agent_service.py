@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
+from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
 from app.services.filter_engine import (
     evaluate_field_condition,
@@ -28,7 +29,6 @@ from app.services.filter_engine import (
     loaded_relation,
     merge_filters,
 )
-from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
 from app.services.resource_confirmation import (
     LEGACY_CONFIRMATION_REASON_PREFIXES,
     inspect_resource_confirmation,
@@ -430,6 +430,7 @@ async def create_pending_decision(
     *,
     reason_override: str | None = None,
     skip_llm: bool = False,
+    coverage: tuple | None = None,
 ) -> PendingDecision:
     """Upsert a PendingDecision for multiple conflicting candidates.
 
@@ -477,75 +478,32 @@ async def create_pending_decision(
     else:
         reason = f"多个资源匹配电影 {title}"
 
-    # Look for an existing pending row for the same key. ``episode``/``season``
-    # may be None (movies, season-less series) — treat that as a proper NULL
-    # match.
-    stmt = select(PendingDecision).where(
-        PendingDecision.agent_id == agent.id,
-        PendingDecision.status == "pending",
-    )
-    if series_id is not None:
-        stmt = stmt.where(PendingDecision.series_id == series_id)
-    else:
-        stmt = stmt.where(PendingDecision.series_id.is_(None))
-    if movie_id is not None:
-        stmt = stmt.where(PendingDecision.movie_id == movie_id)
-    else:
-        stmt = stmt.where(PendingDecision.movie_id.is_(None))
-    if episode is not None:
-        stmt = stmt.where(PendingDecision.episode == episode)
-    else:
-        stmt = stmt.where(PendingDecision.episode.is_(None))
-    if season is not None:
-        stmt = stmt.where(PendingDecision.season == season)
-    else:
-        stmt = stmt.where(PendingDecision.season.is_(None))
-    existing = (await db.execute(stmt)).scalars().first()
+    from app.services.decision_store import choice_identity, persist_choice
 
-    new_candidate_ids = [c.id for c in candidates]
-    if existing is not None:
-        # Merge candidates preserving order — new ones appended, duplicates
-        # dropped. Refresh reason + expiry so a re-run of an ageing decision
-        # bumps its TTL.
-        merged: list[str] = list(existing.candidates or [])
-        for cid in new_candidate_ids:
-            if cid not in merged:
-                merged.append(cid)
-        existing.candidates = merged
-        existing.reason = reason
-        existing.expires_at = utcnow() + timedelta(days=7)
-        # Only re-generate the LLM pick when needed; repeated no-op runs keep
-        # the existing recommendation.
-        if not skip_llm and (
-            merged != (existing.candidates or []) or not existing.llm_picked_resource_id
-        ):
-            picked_id, reason_txt = await _suggest_pick(agent, candidates, key)
-            existing.llm_picked_resource_id = picked_id
-            existing.llm_suggestion = reason_txt
-        await db.flush()
-        return existing
-
+    candidate_ids = list(dict.fromkeys(c.id for c in candidates))
+    if len(candidate_ids) < 2:
+        raise ValueError("A pending choice requires at least two distinct candidates")
+    decision_key, scope = choice_identity(type_, target_id, season, episode, coverage)
+    existing = await db.scalar(select(PendingDecision).where(
+        PendingDecision.agent_id == agent.id, PendingDecision.status == "pending",
+        PendingDecision.decision_key == decision_key,
+    ))
+    proposed_ids = list(dict.fromkeys([*((existing.candidates or []) if existing else []), *candidate_ids]))
     if skip_llm:
         picked_id, reason_txt = None, None
+    elif existing and set(existing.candidates or []) == set(proposed_ids) and existing.llm_picked_resource_id:
+        picked_id, reason_txt = existing.llm_picked_resource_id, existing.llm_suggestion
     else:
-        picked_id, reason_txt = await _suggest_pick(agent, candidates, key)
-
-    pd = PendingDecision(
-        agent_id=agent.id,
-        series_id=series_id,
-        movie_id=movie_id,
-        season=season,
-        episode=episode,
-        candidates=new_candidate_ids,
-        reason=reason,
-        llm_suggestion=reason_txt,
-        llm_picked_resource_id=picked_id,
-        status="pending",
-        expires_at=utcnow() + timedelta(days=7),
+        proposed = list((await db.scalars(select(FileResource).where(FileResource.id.in_(proposed_ids)).options(
+            selectinload(FileResource.series), selectinload(FileResource.movie),
+        ))).all())
+        picked_id, reason_txt = await _suggest_pick(agent, proposed, key)
+    return await persist_choice(
+        db, agent_id=agent.id, decision_key=decision_key, decision_scope=scope,
+        candidate_ids=candidate_ids, proposed_ids=proposed_ids,
+        picked_id=picked_id, suggestion=reason_txt,
+        fields=dict(series_id=series_id, movie_id=movie_id, season=season, episode=episode, reason=reason),
     )
-    db.add(pd)
-    await db.flush()
-    return pd
 
 
 def score_and_pick(
@@ -677,40 +635,13 @@ _BATCH_EPISODE_SENTINEL = -1
 
 
 def _batch_coverage_key(resource: FileResource) -> tuple | None:
-    """Content-coverage signature of a batch resource.
+    from app.services.resource_coverage import batch_coverage
 
-    - movie-linked batch → ``("movie",)`` (a movie pack covers the movie).
-    - season pack → ``("season", series_id)``: the per-season work IS the
-      season, so the work id alone identifies the coverage. Legacy unsplit
-      series-level rows (pre-migration) keep the resource's parsed season as
-      the distinguishing component.
-    - multi-season pack → ``("multi_season", ids)``: the sorted set of linked
-      season-work ids from ``resource_work_links`` (terminal shape clears the
-      flat FK); legacy FK-carrying rows fall back to ``batch_seasons``.
-
-    Returns None when the coverage is unknown: such resources are stopped by
-    the Channel confirmation gate. Franchise packs never reach the batch
-    branch (their work FKs are cleared and they carry no season-work links).
-    """
-    if resource.movie_id:
-        return ("movie",)
-    scope = resource.batch_scope or "season"  # legacy title-marked packs
-    if scope == "season":
-        if resource.series_id is None:
-            return None
-        series = loaded_relation(resource, "series")
-        if series is not None and is_unsplit_legacy_series(series):
-            # Transition-only: unsplit legacy rows still need the parsed
-            # season to tell their season packs apart.
-            return ("season", resource.season) if resource.season is not None else None
-        return ("season", resource.series_id)
-    if scope == "multi_season":
-        if not resource.series_id:
-            ids = _linked_series_ids(resource)
-            return ("multi_season", tuple(ids)) if ids else None
-        seasons = tuple(sorted(resource.batch_seasons or []))
-        return ("multi_season", seasons) if seasons else None
-    return None
+    coverage = batch_coverage(resource)
+    if coverage is None:
+        return None
+    kind = "movie" if resource.movie_id else resource.batch_scope
+    return kind, coverage
 
 
 async def _find_existing_episode_task(
@@ -768,7 +699,8 @@ async def _find_active_batch_duplicate(
             work_filter,
         )
         .options(
-            selectinload(DownloadTask.file_resource).selectinload(FileResource.work_links),
+            selectinload(DownloadTask.file_resource).selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+            selectinload(DownloadTask.file_resource).selectinload(FileResource.file_assignments),
             selectinload(DownloadTask.file_resource).selectinload(FileResource.series),
         )
     )
@@ -814,7 +746,7 @@ async def _process_candidate_group(agent, key, cands, db) -> bool:
             if key[0] == "batch":
                 pd_key, reason = _batch_decision_key(key)
                 await create_pending_decision(
-                    agent, pd_key, cands, db, reason_override=reason
+                    agent, pd_key, cands, db, reason_override=reason, coverage=key[2]
                 )
             else:
                 await create_pending_decision(agent, key, cands, db)
@@ -856,6 +788,9 @@ async def process_resources(
     already-committed units in place.
     """
     result = RunResult()
+    from app.services.resource_coverage import load_batch_coverage
+
+    await load_batch_coverage(db, resources)
 
     rule_set = _build_rule_set(agent)
     candidates_by_key: dict[tuple, list[FileResource]] = {}
@@ -988,9 +923,19 @@ async def process_resources(
     for key, cands in candidates_by_key.items():
         try:
             if autocommit:
-                async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
-                    async with unit_db.begin():
-                        pending = await _process_candidate_group(agent, key, cands, unit_db)
+                from app.database import retry_on_lock
+
+                async def write_candidate():
+                    async with AsyncSession(bind=db.bind, expire_on_commit=False) as unit_db:
+                        async with unit_db.begin():
+                            return await _process_candidate_group(agent, key, cands, unit_db)
+
+                if agent.conflict_resolution == "ask" and len(cands) >= 2:
+                    # This branch only persists a choice; it cannot send a
+                    # download RPC. Retry the complete fresh transaction.
+                    pending = await retry_on_lock(write_candidate)
+                else:
+                    pending = await write_candidate()
             else:
                 # A newly saved Agent may still be uncommitted in this request.
                 # Keep that state visible and isolate only the candidate writes.
@@ -1001,8 +946,11 @@ async def process_resources(
             else:
                 result.dispatched += 1
         except Exception as e:
+            from app.database import _is_retryable_lock_error
+
             if not autocommit and (
-                not db.is_active or getattr(e, "connection_invalidated", False)
+                _is_retryable_lock_error(e)
+                or not db.is_active or getattr(e, "connection_invalidated", False)
             ):
                 # A lost outer transaction cannot safely continue a backfill.
                 raise

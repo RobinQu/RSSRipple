@@ -255,3 +255,25 @@ number_of_seasons 不再经创建/更新 API 或去重写入。已有值不能�
 4. 成功仅将计数置空、移除其退役人工标记、添加明确季号的人工确认标记；保留 seasons、其他作品字段及关联。输出前后指纹及 changed；相同审核再次执行为 changed=false。任何失败整笔回滚。核对报告后再恢复写入。
 
 行锁与指纹不能替代停写：不同关联的新增需要稳定维护窗口。工具不修改生产配置，也不自动修复有歧义的历史关联。真正未拆季证据优先于人工标记，清理不会为跨季污染猜测拆分方案。
+
+## 待决策覆盖身份的审核迁移
+
+迁移须停应用写入并备份，使用独立普通 DDL 事务（Turso 禁止 BEGIN CONCURRENT）。先只读导出审核报告，人工添加与报告 fingerprint 相等的 approved_fingerprint 和 supersede_pending=true。执行端重新读取当前证据并比较指纹，仅使用重新计算的分组；报告中未知、缺失或单候选组阻止迁移，须先纠正后重新审核。
+
+通过审核后，原 pending 行保留为 expired，等价覆盖组生成新的 pending 行，缓存推荐不继承；非 pending 历史不改动。原报告与新旧 ID 映射写入 DecisionMigration，并与增列、约束安装、数据变换同事务提交。重复审核指纹返回已完成结果，不重放数据变换。任何异常回滚整批。PostgreSQL 离线阶段锁住 Agent/决策/资源/作品/关联与指派表，避免审核与执行之间被改写。
+
+当前执行服务及离线命令仍为待验收原型；启动约束检查已接入，须完成剩余 rekey/并发和完整门禁后启用。
+
+离线命令（在已应用并验收本变更的版本中）：
+
+```bash
+python -m scripts.review_pending_decisions --export decision-review.json
+# 审核后另存 approved.json，补 approved_fingerprint 与 supersede_pending=true
+python -m scripts.review_pending_decisions --apply-review approved.json --writers-stopped --backup-confirmed
+```
+
+导出不会添加批准字段，不覆盖已有文件，也不调用应用启动迁移。apply 缺少两个前置确认参数时在打开数据库前拒绝；Turso 独立进程使用普通 BEGIN，必须先停止持有文件锁的应用/worker。参数仅记录操作员确认，不会替代实际停写或备份动作。成功返回新旧决策 ID 映射；同一批准指纹重跑返回 already_applied=true。
+
+启动先审核现有 PendingDecision 表结构与持久键，再进行业务 backfill；发现未审核 pending、损坏键或重复槽时明确失败，不自动删除、过期或猜测候选。操作员按离线流程完成审核迁移后再启动。Turso 在独立普通事务中安装旧表约束；PostgreSQL 在启动 advisory lock 保护的事务中安装，失败回滚该启动事务。新装表由 ORM 的 CHECK 与 pending 部分唯一索引保证。
+
+P8 在已有决策键结构的数据库上执行时，先记录受影响 Agent，再在作品与子关联迁移后按当前资源证据重建 pending，旧记录与替代 ID 归档且与迁移同事务；dry-run 回滚包含该档案。不同季的候选必须分槽，无证据候选不猜季。旧表没有 decision_key/decision_scope 时，停写并备份后先执行 P8；此阶段只读旧字段、重指作品引用，保留候选与状态，不安装决策约束。然后重新导出决策审核报告，人工批准后执行审核迁移，最后启动应用。审核导出重新加载当前资源关系，避免同一会话内沿用拆季前关系。该顺序已通过 Turso 与 PostgreSQL 的旧表测试；拆季异常后决策指纹、资源归属、季号及作品数量恢复，随后重新执行与显式审核通过。

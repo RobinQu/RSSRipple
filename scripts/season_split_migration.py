@@ -67,7 +67,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.database as app_database
@@ -572,11 +572,11 @@ async def _retarget_subscriptions_by_history(
         best = work_by_id.get(best_id)
         if best is None or best.id == anchor_work.id:
             continue
-        agent = await db.get(Agent, aw.agent_id)
+        agent_name = await db.scalar(select(Agent.name).where(Agent.id == aw.agent_id))
         report.subscriptions_retargeted.append(
             {
                 "agent_id": aw.agent_id,
-                "agent_name": agent.name if agent else aw.agent_id,
+                "agent_name": agent_name or aw.agent_id,
                 "from_season": anchor_work.season_number,
                 "to_season": best.season_number,
                 "completed_downloads": int(best_n),
@@ -799,13 +799,13 @@ async def _route_decisions(
 ) -> None:
     rows = (
         await db.execute(
-            select(PendingDecision).where(PendingDecision.series_id == series.id)
+            select(PendingDecision.id, PendingDecision.season).where(PendingDecision.series_id == series.id)
         )
-    ).scalars().all()
+    ).all()
     for row in rows:
         target = work_by_season.get(row.season, anchor_work) if row.season else anchor_work
         if target.id != series.id:
-            row.series_id = target.id
+            await db.execute(update(PendingDecision).where(PendingDecision.id == row.id).values(series_id=target.id))
             report.decisions_moved += 1
 
 
@@ -843,6 +843,29 @@ async def _route_mappings(
 
 
 async def migrate_series(
+    db: AsyncSession, series: TVSeries, *, apply: bool = False
+) -> SeriesReport:
+    """Route work children and rebuild affected decision scopes atomically.
+
+    The caller still owns commit/rollback, including dry-run rollback. P8 must
+    run with writers stopped; Agent locks also follow the normal choice order.
+    """
+    from app.services.decision_rekey import lock_work_choice_agents, rekey_agent_choices
+
+    conn = await db.connection()
+    columns = await conn.run_sync(
+        lambda sync: {column["name"] for column in inspect(sync).get_columns("pending_decisions")}
+    )
+    keyed = {"decision_key", "decision_scope"}.issubset(columns)
+    agents = await lock_work_choice_agents(db, [("series", [series.id])]) if keyed else []
+    report = await _migrate_series(db, series, apply=apply)
+    if keyed and report.status != "skipped":
+        await db.flush()
+        await rekey_agent_choices(db, agents)
+    return report
+
+
+async def _migrate_series(
     db: AsyncSession, series: TVSeries, *, apply: bool = False
 ) -> SeriesReport:
     """Split one legacy series-level TVSeries into per-season works.
@@ -1110,11 +1133,11 @@ async def migrate_series(
             if s not in covered and s not in skip
         ]
         if missing:
-            agent = await db.get(Agent, agent_id)
+            agent_name = await db.scalar(select(Agent.name).where(Agent.id == agent_id))
             report.agent_suggestions.append(
                 {
                     "agent_id": agent_id,
-                    "agent_name": agent.name if agent else agent_id,
+                    "agent_name": agent_name or agent_id,
                     "suggested": [
                         {"season": w.season_number, "work_id": w.id} for w in missing
                     ],

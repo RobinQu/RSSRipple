@@ -386,6 +386,7 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.put("/agents/{agent_id}")
 async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depends(get_db)):
+    await _lock_agent_rules(db, agent_id)
     agent = (await db.execute(
         select(Agent).where(Agent.id == agent_id).options(
             selectinload(Agent.works),
@@ -807,6 +808,12 @@ async def rules_preview(body: RulesPreviewRequest, db: AsyncSession = Depends(ge
 # AgentWork CRUD
 # ---------------------------------------------------------------------------
 
+async def _lock_agent_rules(db: AsyncSession, agent_id: str) -> None:
+    """Serialize rule/membership edits with final decision confirmation."""
+    with db.no_autoflush:
+        await db.execute(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
+
+
 async def _get_work(agent_id: str, work_id: str, db: AsyncSession) -> AgentWork | None:
     res = await db.execute(
         select(AgentWork).where(AgentWork.id == work_id, AgentWork.agent_id == agent_id)
@@ -835,6 +842,7 @@ async def list_works(agent_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/agents/{agent_id}/works", status_code=201)
 async def create_work(agent_id: str, body: AgentWorkCreate, db: AsyncSession = Depends(get_db)):
+    await _lock_agent_rules(db, agent_id)
     agent = await db.get(Agent, agent_id)
     if not agent:
         return JSONResponse(status_code=404, content=_not_found("Agent"))
@@ -881,6 +889,7 @@ async def create_work(agent_id: str, body: AgentWorkCreate, db: AsyncSession = D
 async def update_work(
     agent_id: str, work_id: str, body: AgentWorkUpdate, db: AsyncSession = Depends(get_db)
 ):
+    await _lock_agent_rules(db, agent_id)
     work = await _get_work(agent_id, work_id, db)
     if work is None:
         return JSONResponse(status_code=404, content=_not_found("AgentWork"))
@@ -899,6 +908,7 @@ async def update_work(
 
 @router.delete("/agents/{agent_id}/works/{work_id}")
 async def delete_work(agent_id: str, work_id: str, db: AsyncSession = Depends(get_db)):
+    await _lock_agent_rules(db, agent_id)
     work = await _get_work(agent_id, work_id, db)
     if work is None:
         return JSONResponse(status_code=404, content=_not_found("AgentWork"))

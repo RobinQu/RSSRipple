@@ -97,6 +97,15 @@ def inspect_resource_confirmation(
                 ):
                     kinds.append("batch_coverage_unknown")
 
+    if getattr(resource, "is_batch", False) and (
+        getattr(resource, "series_id", None)
+        or any(getattr(link, "series_id", None) for link in (links or []))
+    ):
+        from app.services.resource_coverage import batch_coverage
+
+        if batch_coverage(resource) is None and "batch_coverage_unknown" not in kinds:
+            kinds.append("batch_coverage_unknown")
+
     missing = (
         missing_required_fields(resource, required_metadata_fields)
         if required_metadata_fields is not None

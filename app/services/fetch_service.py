@@ -434,6 +434,9 @@ async def _backfill_unmatched_resources(
         query = query.limit(MAX_BACKFILL_SCAN)
     result = await db.execute(query)
     candidates = result.scalars().all()
+    from app.services.resource_coverage import load_batch_coverage
+
+    await load_batch_coverage(db, candidates)
 
     # Decide eligibility from the snapshot loaded above, then process the
     # eligible set concurrently. Per-task sessions update each resource
@@ -512,6 +515,9 @@ async def backfill_unmatched_resources_global(db: AsyncSession, limit: int = MAX
         .limit(MAX_GLOBAL_BACKFILL_SCAN)
     )
     candidates = result.scalars().all()
+    from app.services.resource_coverage import load_batch_coverage
+
+    await load_batch_coverage(db, candidates)
     if not candidates:
         return 0
 

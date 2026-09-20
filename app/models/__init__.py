@@ -11,6 +11,7 @@ from app.models.app_setting import AppSetting
 from app.models.audio_work import AudioWork
 from app.models.channel import Channel
 from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+from app.models.decision_migration import DecisionMigration
 from app.models.download_notification import DownloadNotification
 from app.models.download_task import DownloadTask
 from app.models.downloader import DownloaderInstance
@@ -59,6 +60,7 @@ __all__ = [
     "DownloadNotification",
     "NotificationBuildFailure",
     "PendingDecision",
+    "DecisionMigration",
     "ResourceWorkLink",
     "ResourceFileAssignment",
     "MetadataCache",

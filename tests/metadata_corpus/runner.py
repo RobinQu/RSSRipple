@@ -243,6 +243,9 @@ async def run_scenario(root: Path, scenario: dict, database_url: str, *, mode="r
                                          .selectinload(TVSeries.collection),
                                      selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie)
                                          .selectinload(Movie.collection)))).scalar_one()
+                        from app.services.resource_coverage import load_batch_coverage
+
+                        await load_batch_coverage(db, [resource])
                         graph = await database_graph(db)
                         row = next(r for r in graph["file_resources"] if r["id"] == resource.id)
                         actual = resource_answer(row, graph)

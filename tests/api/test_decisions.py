@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -57,12 +57,26 @@ async def _create_resource(db_session_factory, ch_id, title_raw, **kw):
 
 
 async def _make_decision(db_session_factory, agent_id, r1_id, r2_id, picked_id=None):
+    from app.models.file_resource import FileResource
+    from app.models.movie import Movie
     from app.models.pending_decision import PendingDecision
+    from app.services.decision_store import choice_identity
+
     async with db_session_factory() as s:
+        # Explicit synthetic equivalent movie candidates. These API tests
+        # exercise actions; unlinked resources belong in Channel confirmation.
+        movie = Movie(title_cn="Synthetic decision movie", release_date=date(2020, 1, 1), is_anime=False)
+        s.add(movie)
+        await s.flush()
+        for rid in (r1_id, r2_id):
+            resource = await s.get(FileResource, rid)
+            assert resource.series_id is None and resource.movie_id is None
+            resource.movie_id = movie.id
+        key, scope = choice_identity("movie", movie.id, None, None)
         pd = PendingDecision(
-            id=_uuid(), agent_id=agent_id, status="pending",
-            candidates=[r1_id, r2_id],
-            reason="冲突",
+            id=_uuid(), agent_id=agent_id, movie_id=movie.id, status="pending",
+            candidates=[r1_id, r2_id], reason="Synthetic equivalent candidates",
+            decision_key=key, decision_scope=scope,
             llm_picked_resource_id=picked_id,
             expires_at=datetime.now(UTC) + timedelta(days=7),
         )
@@ -107,12 +121,16 @@ class TestDecisions:
         resource = await _create_resource(
             db_session_factory, ch, "[G] Legacy ambiguous - 01"
         )
+        from app.services.decision_store import choice_identity
+        key, scope = choice_identity("movie", _uuid(), None, None)
         async with db_session_factory() as session:
+            # Malformed historical candidate count with a canonical stored key.
             decision = PendingDecision(
                 id=_uuid(),
                 agent_id=aid,
                 status="pending",
                 candidates=[resource["id"]],
+                decision_key=key, decision_scope=scope,
                 reason="集号不确定，需要人工确认",
             )
             session.add(decision)
@@ -229,16 +247,24 @@ class TestDecisionSerializationWithSeries:
     async def _make_series_decision(self, db_session_factory, agent_id, ch_id):
         from app.models.pending_decision import PendingDecision
         from app.models.series import TVSeries
+        from app.models.work_collection import WorkCollection
+        from app.services.decision_store import choice_identity
         sid = _uuid()
         async with db_session_factory() as s:
-            s.add(TVSeries(id=sid, title_cn="剧", content_type="tv"))
+            collection = WorkCollection(title_cn="Synthetic series collection")
+            s.add(collection)
+            await s.flush()
+            s.add(TVSeries(id=sid, title_cn="剧", content_type="tv", collection_id=collection.id,
+                           season_number=1, start_date=date(2020, 1, 1), is_anime=False))
             await s.commit()
-        r1 = await _create_resource(db_session_factory, ch_id, "[G] ShowA - 01", series_id=sid, episode=1)
-        r2 = await _create_resource(db_session_factory, ch_id, "[G2] ShowA - 01", series_id=sid, episode=1)
+        r1 = await _create_resource(db_session_factory, ch_id, "[G] ShowA - 01", series_id=sid, episode=1, season=1, episode_confidence="manual")
+        r2 = await _create_resource(db_session_factory, ch_id, "[G2] ShowA - 01", series_id=sid, episode=1, season=1, episode_confidence="manual")
         did = _uuid()
+        key, scope = choice_identity("series", sid, 1, 1)
         async with db_session_factory() as s:
             s.add(PendingDecision(
-                id=did, agent_id=agent_id, status="pending", series_id=sid, episode=1,
+                id=did, agent_id=agent_id, status="pending", series_id=sid, episode=1, season=1,
+                decision_key=key, decision_scope=scope,
                 candidates=[r1["id"], r2["id"]], reason="冲突",
                 expires_at=datetime.now(UTC) + timedelta(days=7),
             ))

@@ -24,8 +24,11 @@ from app.models.downloader import DownloaderInstance
 from app.models.file_resource import FileResource
 from app.models.movie import Movie
 from app.models.pending_decision import PendingDecision
+from app.models.resource_file_assignment import ResourceFileAssignment
 from app.models.resource_work_link import ResourceWorkLink
 from app.models.series import TVSeries
+from app.services.decision_store import choice_identity
+from app.services.resource_coverage import load_batch_coverage
 
 
 def _uuid() -> str:
@@ -251,11 +254,13 @@ class TestCreatePendingDecision:
 
     async def test_reason_override_template(self, db_session, channel, downloader, movie):
         agent = await _make_agent(db_session, channel, downloader)
-        r1 = _make_resource(channel.id, movie_id=movie.id)
-        db_session.add(r1)
+        r1 = _make_resource(channel.id, movie_id=movie.id, is_batch=True, episode=None, season=None)
+        r2 = _make_resource(channel.id, movie_id=movie.id, is_batch=True, episode=None, season=None)
+        db_session.add_all([r1, r2])
         await db_session.flush()
         pd = await ag.create_pending_decision(
-            agent, ("movie", movie.id, None, -1), [r1], db_session,
+            agent, ("movie", movie.id, None, -1), [r1, r2], db_session,
+            coverage=("movie", (("movie", movie.id, None, ()),)),
             reason_override="多个合集资源匹配电影 {title}，内容相同", skip_llm=True,
         )
         assert pd.reason == "多个合集资源匹配电影 电影A，内容相同"
@@ -265,10 +270,11 @@ class TestCreatePendingDecision:
         db_session.add(s4)
         agent = await _make_agent(db_session, channel, downloader)
         r1 = _make_resource(channel.id, series_id=s4.id, episode=3, season=4)
-        db_session.add(r1)
+        r2 = _make_resource(channel.id, series_id=r1.series_id, episode=r1.episode, season=r1.season)
+        db_session.add_all([r1, r2])
         await db_session.flush()
         pd = await ag.create_pending_decision(
-            agent, ("series", s4.id, 3), [r1], db_session, skip_llm=True
+            agent, ("series", s4.id, 3), [r1, r2], db_session, skip_llm=True
         )
         assert pd.season == 4  # derived from the per-season work identity
         assert pd.episode == 3
@@ -277,13 +283,14 @@ class TestCreatePendingDecision:
     async def test_series_without_episode_reason(self, db_session, channel, downloader, series):
         agent = await _make_agent(db_session, channel, downloader)
         r1 = _make_resource(channel.id, series_id=series.id, episode=None)
-        db_session.add(r1)
+        r2 = _make_resource(channel.id, series_id=r1.series_id, episode=r1.episode, season=r1.season)
+        db_session.add_all([r1, r2])
         await db_session.flush()
-        pd = await ag.create_pending_decision(
-            agent, ("series", series.id, None), [r1], db_session, skip_llm=True
-        )
-        assert pd.episode is None
-        assert pd.reason == f"多个资源匹配 {series.title_cn}"
+        with pytest.raises(ValueError, match="changed identity"):
+            await ag.create_pending_decision(
+                agent, ("series", series.id, None), [r1, r2], db_session, skip_llm=True
+            )
+        assert list(await db_session.scalars(select(PendingDecision))) == []
 
     async def test_series_episode_reason_without_work(
         self, db_session, channel, downloader, series, monkeypatch
@@ -292,7 +299,8 @@ class TestCreatePendingDecision:
         season=None and renders the episode-only reason."""
         agent = await _make_agent(db_session, channel, downloader)
         r1 = _make_resource(channel.id, series_id=series.id, episode=5)
-        db_session.add(r1)
+        r2 = _make_resource(channel.id, series_id=r1.series_id, episode=r1.episode, season=r1.season)
+        db_session.add_all([r1, r2])
         await db_session.flush()
         real_get = db_session.get
 
@@ -302,11 +310,11 @@ class TestCreatePendingDecision:
             return await real_get(entity, ident, **kw)
 
         monkeypatch.setattr(db_session, "get", _get)
-        pd = await ag.create_pending_decision(
-            agent, ("series", series.id, 5), [r1], db_session, skip_llm=True
-        )
-        assert pd.season is None
-        assert pd.reason == "多个资源匹配  第05集"
+        with pytest.raises(ValueError, match="changed identity"):
+            await ag.create_pending_decision(
+                agent, ("series", series.id, 5), [r1, r2], db_session, skip_llm=True
+            )
+        assert list(await db_session.scalars(select(PendingDecision))) == []
 
     async def test_merge_appends_new_candidates(self, db_session, channel, downloader, series):
         agent = await _make_agent(db_session, channel, downloader)
@@ -326,11 +334,13 @@ class TestCreatePendingDecision:
 
     async def test_non_override_reason_without_braces(self, db_session, channel, downloader, movie):
         agent = await _make_agent(db_session, channel, downloader)
-        r1 = _make_resource(channel.id, movie_id=movie.id)
-        db_session.add(r1)
+        r1 = _make_resource(channel.id, movie_id=movie.id, is_batch=True, episode=None, season=None)
+        r2 = _make_resource(channel.id, movie_id=movie.id, is_batch=True, episode=None, season=None)
+        db_session.add_all([r1, r2])
         await db_session.flush()
         pd = await ag.create_pending_decision(
-            agent, ("movie", movie.id, None, -1), [r1], db_session,
+            agent, ("movie", movie.id, None, -1), [r1, r2], db_session,
+            coverage=("movie", (("movie", movie.id, None, ()),)),
             reason_override="plain reason", skip_llm=True,
         )
         assert pd.reason == "plain reason"
@@ -418,55 +428,56 @@ async def test_persist_suggestions_skips_empty_groups(db_session, channel, downl
 
 
 class TestBatchCoverageKey:
+    def pack(self, **overrides):
+        resource = _make_resource("synthetic", is_batch=True, episode=None, **overrides)
+        resource.work_links = []
+        resource.file_assignments = []
+        return resource
+
     def test_movie_pack(self):
-        res = SimpleNamespace(movie_id="m1", batch_scope="season", series_id=None)
-        assert ag._batch_coverage_key(res) == ("movie",)
+        res = self.pack(movie_id="m1")
+        assert ag._batch_coverage_key(res) == ("movie", (("movie", "m1", None, ()),))
 
     def test_season_pack_without_work_is_unknown(self):
-        res = SimpleNamespace(movie_id=None, batch_scope="season", series_id=None)
-        assert ag._batch_coverage_key(res) is None
+        assert ag._batch_coverage_key(self.pack(batch_scope="season")) is None
 
     def test_season_pack_per_season_work(self):
-        res = SimpleNamespace(movie_id=None, batch_scope="season", series_id="s1",
-                              series=SimpleNamespace(seasons=None, number_of_seasons=None))
-        assert ag._batch_coverage_key(res) == ("season", "s1")
+        res = self.pack(batch_scope="season", series_id="s1", episode_start=1, episode_end=12)
+        res.series = TVSeries(id="s1", season_number=1)
+        assert ag._batch_coverage_key(res) == ("season", (("series", "s1", 1, ((1, 12),)),))
 
-    def test_season_pack_legacy_unsplit_uses_parsed_season(self):
-        legacy = SimpleNamespace(
-            seasons=[{"season_number": 1, "episode_count": 12},
-                     {"season_number": 2, "episode_count": 12}],
-            number_of_seasons=None,
-        )
-        res = SimpleNamespace(movie_id=None, batch_scope="season", series_id="legacy",
-                              series=legacy, season=2)
-        assert ag._batch_coverage_key(res) == ("season", 2)
-        res2 = SimpleNamespace(movie_id=None, batch_scope="season", series_id="legacy",
-                               series=legacy, season=None)
-        assert ag._batch_coverage_key(res2) is None
+    def test_season_pack_legacy_unsplit_is_unknown(self):
+        res = self.pack(batch_scope="season", series_id="legacy", season=2, episode_start=1, episode_end=12)
+        res.series = TVSeries(id="legacy", season_number=1, seasons=[{"season_number": 1}, {"season_number": 2}])
+        assert ag._batch_coverage_key(res) is None
+        res.season = None
+        assert ag._batch_coverage_key(res) is None
 
     def test_multi_season_links_carried(self):
-        links = [SimpleNamespace(series_id="s2", movie_id=None),
-                 SimpleNamespace(series_id="s1", movie_id=None)]
-        res = SimpleNamespace(movie_id=None, batch_scope="multi_season", series_id=None,
-                              work_links=links)
-        assert ag._batch_coverage_key(res) == ("multi_season", ("s1", "s2"))
+        res = self.pack(batch_scope="multi_season")
+        for work_id, season in [("s2", 2), ("s1", 1)]:
+            res.work_links.append(ResourceWorkLink(series_id=work_id, series=TVSeries(id=work_id, season_number=season)))
+            res.file_assignments.append(ResourceFileAssignment(
+                file_path=f"{work_id}.mkv", series_id=work_id, season=season, episode_start=1, episode_end=12,
+            ))
+        assert ag._batch_coverage_key(res) == ("multi_season", (
+            ("series", "s1", 1, ((1, 12),)), ("series", "s2", 2, ((1, 12),)),
+        ))
+        res.file_assignments = []
+        assert ag._batch_coverage_key(res) is None
 
     def test_multi_season_links_carried_empty_is_unknown(self):
-        res = SimpleNamespace(movie_id=None, batch_scope="multi_season", series_id=None,
-                              work_links=[])
+        assert ag._batch_coverage_key(self.pack(batch_scope="multi_season")) is None
+
+    def test_multi_season_legacy_fk_is_unknown(self):
+        res = self.pack(batch_scope="multi_season", series_id="s1", batch_seasons=[2, 1])
+        res.series = TVSeries(id="s1", season_number=1, number_of_seasons=2)
+        assert ag._batch_coverage_key(res) is None
+        res.batch_seasons = None
         assert ag._batch_coverage_key(res) is None
 
-    def test_multi_season_legacy_fk_uses_batch_seasons(self):
-        res = SimpleNamespace(movie_id=None, batch_scope="multi_season", series_id="s1",
-                              batch_seasons=[2, 1])
-        assert ag._batch_coverage_key(res) == ("multi_season", (1, 2))
-        res2 = SimpleNamespace(movie_id=None, batch_scope="multi_season", series_id="s1",
-                               batch_seasons=None)
-        assert ag._batch_coverage_key(res2) is None
-
-    def test_franchise_scope_has_no_coverage(self):
-        res = SimpleNamespace(movie_id=None, batch_scope="franchise", series_id=None)
-        assert ag._batch_coverage_key(res) is None
+    def test_franchise_scope_without_works_has_no_coverage(self):
+        assert ag._batch_coverage_key(self.pack(batch_scope="franchise")) is None
 
 
 class TestBatchDecisionKey:
@@ -500,7 +511,10 @@ class TestFindActiveBatchDuplicate:
         await db_session.flush()
         new = _make_resource(channel.id, movie_id=movie.id, is_batch=True,
                              batch_scope="season", episode=None, season=None)
-        dup = await ag._find_active_batch_duplicate(agent, new, ("movie",), db_session)
+        db_session.add(new)
+        await db_session.flush()
+        await load_batch_coverage(db_session, [new])
+        dup = await ag._find_active_batch_duplicate(agent, new, ag._batch_coverage_key(new), db_session)
         assert dup is not None and dup.file_resource_id == old.id
 
     async def test_links_carried_pack_match(self, db_session, channel, downloader, series):
@@ -519,9 +533,19 @@ class TestFindActiveBatchDuplicate:
         await db_session.flush()
         new = _make_resource(channel.id, series_id=None, movie_id=None, is_batch=True,
                              batch_scope="multi_season", episode=None, season=None)
-        dup = await ag._find_active_batch_duplicate(
-            agent, new, ("multi_season", (series.id,)), db_session
-        )
+        db_session.add(new)
+        await db_session.flush()
+        db_session.add(ResourceWorkLink(resource_id=new.id, series_id=series.id))
+        for resource in (old, new):
+            db_session.add(ResourceFileAssignment(
+                resource_id=resource.id, file_path="S01E01-E12.mkv", series_id=series.id,
+                season=1, episode_start=1, episode_end=12,
+            ))
+        await db_session.flush()
+        await load_batch_coverage(db_session, [new])
+        coverage = ag._batch_coverage_key(new)
+        assert coverage == ("multi_season", (("series", series.id, 1, ((1, 12),)),))
+        dup = await ag._find_active_batch_duplicate(agent, new, coverage, db_session)
         assert dup is not None and dup.file_resource_id == old.id
 
 
@@ -650,14 +674,27 @@ class TestProcessResourcesBatch:
 
 async def test_retire_legacy_confirmation_decisions(db_session, channel, downloader):
     agent = await _make_agent(db_session, channel, downloader)
+    work = Movie(id=_uuid(), title_cn="Synthetic retirement")
+    legacy_work = Movie(id=_uuid(), title_cn="Synthetic historical confirmation")
+    db_session.add_all([work, legacy_work])
+    await db_session.flush()
+    resources = [_make_resource(channel.id, movie_id=work.id, season=None, episode=None) for _ in range(2)]
+    legacy_resource = _make_resource(channel.id, movie_id=legacy_work.id, season=None, episode=None)
+    db_session.add_all([*resources, legacy_resource])
+    await db_session.flush()
+    key, scope = choice_identity("movie", work.id, None, None)
+    legacy_key, legacy_scope = choice_identity("movie", legacy_work.id, None, None)
+    # Deliberately stored historical singleton; normal creation forbids it.
     legacy = PendingDecision(
+        movie_id=legacy_work.id, decision_key=legacy_key, decision_scope=legacy_scope,
         id=_uuid(), agent_id=agent.id, status="pending",
-        reason="集号不确定，请人工确认", candidates=["r1"],
+        reason="集号不确定，请人工确认", candidates=[legacy_resource.id],
         expires_at=datetime(2030, 1, 1),
     )
     normal = PendingDecision(
+        movie_id=work.id, decision_key=key, decision_scope=scope,
         id=_uuid(), agent_id=agent.id, status="pending",
-        reason="多个资源匹配 剧集A 第01集", candidates=["r1", "r2"],
+        reason="多个资源匹配 Synthetic retirement", candidates=[r.id for r in resources],
         expires_at=datetime(2030, 1, 1),
     )
     db_session.add_all([legacy, normal])

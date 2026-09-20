@@ -95,14 +95,24 @@ class TestResourceList:
 
         from app.models.agent import Agent
         from app.models.download_task import DownloadTask
+        from app.models.movie import Movie
         from app.models.pending_decision import PendingDecision
+        from app.services.decision_store import choice_identity
 
         multi = await _make_resource(
             db_session_factory, sample_channel.id, title_raw="multi-task"
         )
+        movie_id = _uuid()
+        async with db_session_factory() as session:
+            session.add(Movie(id=movie_id, title_cn="Synthetic resource-list choice"))
+            await session.commit()
         candidate = await _make_resource(
-            db_session_factory, sample_channel.id, title_raw="pd-candidate"
+            db_session_factory, sample_channel.id, title_raw="pd-candidate", movie_id=movie_id
         )
+        alternative = await _make_resource(
+            db_session_factory, sample_channel.id, title_raw="pd-alternative", movie_id=movie_id
+        )
+        key, scope = choice_identity("movie", movie_id, None, None)
         now = datetime.now(UTC)
         agent_id = _uuid()
         async with db_session_factory() as session:
@@ -126,7 +136,8 @@ class TestResourceList:
         async with db_session_factory() as session:
             session.add(PendingDecision(
                 agent_id=agent_id, status="pending",
-                candidates=[candidate], reason="冲突",
+                movie_id=movie_id, decision_key=key, decision_scope=scope,
+                candidates=[candidate, alternative], reason="冲突",
             ))
             await session.commit()
 
@@ -136,6 +147,7 @@ class TestResourceList:
         assert by_id[multi]["download_status"] == "completed"
         assert by_id[candidate]["download_status"] is None
         assert by_id[candidate]["pending_decision"] is True
+        assert by_id[alternative]["pending_decision"] is True
         assert by_id[multi]["pending_decision"] is False
 
     async def test_list_effective_status_distinguishes_organized_cancel(

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -12,6 +12,9 @@ from app.database import Base
 class PendingDecision(Base):
     __tablename__ = "pending_decisions"
     __table_args__ = (
+        CheckConstraint("status != 'pending' OR decision_key IS NOT NULL", name="ck_pending_decision_key"),
+        Index("uq_pending_decisions_agent_key", "agent_id", "decision_key", unique=True,
+              sqlite_where=text("status = 'pending'"), postgresql_where=text("status = 'pending'")),
         Index("ix_pending_decisions_status_created", "status", "created_at", "id"),
     )
 
@@ -31,6 +34,8 @@ class PendingDecision(Base):
     # Season of the disputed episode (NULL = movie / season-less series).
     # Part of the idempotency key so S1E3 and S4E3 don't collide.
     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    decision_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decision_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)

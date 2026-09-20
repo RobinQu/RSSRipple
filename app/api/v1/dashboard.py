@@ -202,6 +202,7 @@ async def _page_pending_confirmations(
         # the confirmation policy reads works off the link table instead.
         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
+        selectinload(FileResource.file_assignments),
     )
     page_start = (page - 1) * page_size
     page_end = page_start + page_size
