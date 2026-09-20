@@ -1,0 +1,49 @@
+{
+  "project": "rssripple-v10-complete-20260920-bp",
+  "directory": "/tmp/rssripple-v10-integration-bp",
+  "source_manifest": "/tmp/rssripple-v10-source-bh.json",
+  "state": "terminal failed;apps0;coverage0;exported;cleaned;HTTP fixture migration required",
+  "up_session": 67334,
+  "up_exit_code": 0,
+  "integration_session": 76925,
+  "integration_log": "/tmp/rssripple-v10-integration-bp.log",
+  "integration_exit_code": 1,
+  "integration_result": {
+    "passed": 3016,
+    "failed": 3,
+    "errors": 115,
+    "skipped": 20,
+    "warnings": 8,
+    "seconds": 1059.39
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "junit": {
+    "name": "pytest",
+    "errors": "115",
+    "failures": "3",
+    "skipped": "20",
+    "tests": "3154",
+    "time": "1059.016",
+    "timestamp": "2026-09-20T04:15:39.560811+00:00",
+    "hostname": "9b1895d62e14"
+  },
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1789879054129",
+    "lines-valid": "21841",
+    "lines-covered": "18825",
+    "line-rate": "0.8619",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "coverage_exit_code": 0,
+  "export_exit_code": 0,
+  "artifacts": "/tmp/rssripple-v10-artifacts-bp",
+  "cleanup_session": 55186,
+  "cleanup_exit_code": 0
+}

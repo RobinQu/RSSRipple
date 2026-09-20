@@ -576,3 +576,11 @@ V10 从单元冻结副本复制完整测试目录 `/tmp/rssripple-v10-integratio
 最终复核覆盖：新装/升级唯一索引、旧冲突只读预检与失败保留、真实 PG API/metadata 抢槽、SAVEPOINT 内关联原子回滚、Turso 实际错误文本转换，以及七处 FK 的双库新装/缺列/已有列矩阵、真实 INSERT/UPDATE/ON DELETE、带关联数据原子重建、故障回滚、并发启动与只读孤儿报告。无新增依赖；权威模型/API/业务/迁移/单季化/集成清单已同步。历史失败轮保留，不以更改原录制数据规避失败。
 
 D1/D2 验收完成，从 pending-only TODO 删除。当前生产库未执行迁移或数据修复；新约束遇到既有冲突/悬空关联会拒绝启动，须按只读报告及迁移 runbook 修复，不能自动删业务行。机器可读证据见 probes/database-invariants-complete-bg-result.json。V10/V11 及其他待办继续保留。
+
+V8/V9 有效修复已提交本地 main：`6ab0548`。V10/V11 仅保存独立原型与证据，未混入本次运行代码。远端未推送。
+
+## V10 bp 失败轮归档与 V11 Turso 事务边界
+
+V10 bp 应用均正常退出 0，覆盖率汇总退出 0，18825/21841（86.19%）；测试为 3016 passed / 3 failed / 115 errors，因此不验收。报告导出 `/tmp/rssripple-v10-artifacts-bp`，项目清理退出 0。V10 bh 完整单元/API 已通过 3648 项（97.75%）；后续只修正集成夹具时可保留这份单元证据，若改变运行代码则须重跑。具体旧 HTTP helper 位于 `_http.py`、test_api_coverage2、test_api_coverage2_llm、test_decisions_flow，test_notifications 也有直接退役字段 payload；dedup 旧断言需改为禁止继承。原录制数据不得改写。
+
+V11 新装模型与持久键原型通过 22 项；PG 同槽并发合并完整。Turso 原始调用因锁冲突失败，完整新事务通过 retry_on_lock 重放后恢复一行四候选，初始并发屏障及第三次 picker 重试均已观察。业务层尚未接重试/错误传播；升级迁移、历史决策处理与确认再验证仍缺。不能据存储原型测试关闭 D4/M4/M5。

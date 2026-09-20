@@ -1,0 +1,41 @@
+{
+  "status": "raw call failed with database locked;whole transaction retry primitive succeeded;production call-site propagation still pending",
+  "setup_bt": "MVCC not initialized;fixture error before actual concurrency",
+  "raw_bu": "OperationalError:database is locked while inserting pending choice",
+  "retry_bv": {
+    "constraint_checks": {
+      "duplicate_key": true,
+      "null_pending_key": true
+    },
+    "historical_unkeyed_nonpending_preserved": true,
+    "both_creators_observed_empty_slot": false,
+    "created_ids": [
+      "9fac2157-d6de-40b7-9141-3e2294e7789e",
+      "9fac2157-d6de-40b7-9141-3e2294e7789e"
+    ],
+    "pending_rows": 1,
+    "candidate_counts": [
+      4
+    ],
+    "scope": "synthetic data; two real Turso connections; real production create and commits; LLM replaced by barrier"
+  },
+  "note": "bw uses initial_barrier_reached plus total picker calls including retries; bv observer field kept as historical error",
+  "retry_bw": {
+    "constraint_checks": {
+      "duplicate_key": true,
+      "null_pending_key": true
+    },
+    "historical_unkeyed_nonpending_preserved": true,
+    "initial_barrier_reached": true,
+    "picker_invocations_including_retries": 3,
+    "created_ids": [
+      "65fbfe5e-3082-4641-8b80-25a200ef52cf",
+      "65fbfe5e-3082-4641-8b80-25a200ef52cf"
+    ],
+    "pending_rows": 1,
+    "candidate_counts": [
+      4
+    ],
+    "scope": "synthetic data; two real Turso connections; real production create and commits; LLM replaced by barrier"
+  }
+}

@@ -4,7 +4,7 @@
   "unit_session": 9024,
   "up_session": 23949,
   "unit_log": "/tmp/rssripple-v89-unit-bg.log",
-  "state": "accepted;both complete gates passed;apps0;coverage0;exported;cleaned;local commit pending",
+  "state": "accepted;both complete gates passed;apps0;coverage0;exported;cleaned;committed local main",
   "integration_session": 56887,
   "integration_log": "/tmp/rssripple-v89-integration-bg.log",
   "up_exit_code": 0,
@@ -47,5 +47,6 @@
     "coverage_percent": 97.76
   },
   "acceptance": true,
-  "source_frozen_files_verified": 2891
+  "source_frozen_files_verified": 2891,
+  "local_commit": "6ab0548"
 }

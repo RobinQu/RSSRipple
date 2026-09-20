@@ -1,0 +1,35 @@
+{
+  "directory": "/tmp/rssripple-v10-retired-fields",
+  "unit_session": 30079,
+  "unit_log": "/tmp/rssripple-v10-unit-bh.log",
+  "source_manifest": "/tmp/rssripple-v10-source-bh.json",
+  "state": "unit terminal exit0;integration bp running;root not applied",
+  "unit_exit_code": 0,
+  "junit": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "14",
+    "tests": "3662",
+    "time": "2304.914",
+    "timestamp": "2026-09-20T03:53:01.654899+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1789878683427",
+    "lines-valid": "21841",
+    "lines-covered": "21349",
+    "line-rate": "0.9775",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "unit_result": {
+    "passed": 3648,
+    "skipped": 14,
+    "seconds": 2305.07,
+    "warnings": 6
+  }
+}

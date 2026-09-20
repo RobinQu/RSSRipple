@@ -13,9 +13,9 @@ V6 身份接地已完成完整验收：单元/API 3540 passed（97.84%），完�
 
 V7 合集归属已完成完整验收：单元/API 3561 passed（97.82%），完整集成 3136 passed（89.83%），应用正常退出、证据导出和项目清理均完成。原 P0-6 四条待办已从 TODO 删除；D6 剧集/电影删除仍待处理。
 
-[V8 D1](V8-COLLECTION-SEASON-INDEX.md) 与 [V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已完成联合 bg 验收：完整单元/API 3612 passed（97.76%），完整集成 3136 passed（89.66%），应用退出、报告导出和项目清理均完成；2891 个冻结文件未变。D1/D2 已从 pending-only TODO 删除，有效实现准备提交本地 main。
+[V8 D1](V8-COLLECTION-SEASON-INDEX.md) 与 [V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已完成联合 bg 验收：完整单元/API 3612 passed（97.76%），完整集成 3136 passed（89.66%），应用退出、报告导出和项目清理均完成；2891 个冻结文件未变。D1/D2 已从 pending-only TODO 删除，有效实现已提交本地 main：`6ab0548`。
 
-当前续接 [V10 D3](V10-RETIRED-SEASON-FIELDS.md)：15 文件独立原型已通过 302 项扩大回归及继承 V8/V9 后的 68 项组合回归；实际 PG 清理并发/回滚/CLI 验证通过。完整单元/API bh 与内容一致副本的隔离集成 bp 仍运行，句柄 `/tmp/rssripple-v10-gates-bh.json`、`/tmp/rssripple-v10-gates-bp.json`，尚未应用 root。随后处理 [V11](V11-DECISION-COVERAGE.md)，其覆盖度及持久键仅为未验收原型。
+当前续接 [V10 D3](V10-RETIRED-SEASON-FIELDS.md)：15 文件独立原型已通过 302 项扩大回归及继承 V8/V9 后的 68 项组合回归；实际 PG 清理并发/回滚/CLI 验证通过。完整单元/API bh 已通过（3648 passed，97.75%），集成 bp 为 3016 passed / 3 failed / 115 errors，旧 HTTP 助手仍提交退役季数及旧 dedup 断言需修正，句柄 `/tmp/rssripple-v10-gates-bh.json`、`/tmp/rssripple-v10-gates-bp.json`，尚未应用 root。随后处理 [V11](V11-DECISION-COVERAGE.md)，其覆盖度及持久键仅为未验收原型。
 
 
 所有本地 Compose 测试必须显式唯一 `-p`；完整验证须包含应用正常退出、覆盖率合并/导出和项目清理。此前失败轮保留为失败证据，不能被后续定向通过覆盖。

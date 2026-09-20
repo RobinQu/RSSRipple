@@ -55,3 +55,7 @@ confirm、ai-pick、batch 三条处理入口目前均需纳入新描述校验和
 组合 bs **22 passed、1 warning，8.28 秒**，包括原始四个业务负例及推荐失效；确认/补全扩大 bq **82 passed、1 warning，100.31 秒**。实际 PG 两连接都先完成空槽查询，再并发提交，最终返回相同 decision id，仅一条 pending，完整保留四个候选；直接重复键与 NULL pending key 均被数据库拒绝，已处理无键历史记录可保留。见 probes/decision-identity-pg-result.json，验证脚本须在应用原型后的独立副本运行。
 
 这是十二文件原型，未应用主工作区。仍缺旧库 schema/data 升级与审核迁移、Turso 并发写入行为验证、confirm/AI/batch 的当前覆盖和状态校验、去重/P8 重指后的 rekey，以及两道完整门禁。不能把新装表约束通过当作升级库已修复，D4/M4/M5 保留 TODO。
+
+Turso 双连接直接调用在实际 INSERT 上复现 database is locked（bu）；bt 首次仅为 MVCC 初始化顺序错误，不计作业务复现。使用现有 production retry_on_lock 包住整个新 session/transaction 后，bw 得到同一决策 ID、一条 pending、全部四个候选及真实约束拒绝；初始双请求屏障已到达，记录包含重试的 picker 调用次数。bv 曾将 entered==2 当作屏障结果，重试第三次调用导致该观察字段错误，历史保留并由 bw 修正。
+
+仍不能关闭 D4：process_resources 当前可能把锁错误记入 result.errors 而非抛给 HTTP retry middleware；background 的新 session 候选单元也尚未接 retry_on_lock。只应在 ask 的纯数据库待决策单元重试，不能盲目重放可能已经执行的下载 RPC。需追加生产边界验证，再讨论完整双库并发已完成。证据见 probes/decision-turso-concurrency-result.json。
