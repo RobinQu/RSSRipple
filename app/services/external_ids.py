@@ -121,6 +121,16 @@ async def add_external_id(
         return False
     src, canon = norm
 
+    # Identity bags have a polymorphic owner and therefore no database FK.
+    # Keep an existing owner alive until this transaction commits; a stale
+    # producer must never recreate identities after a committed deletion.
+    model = _WORK_MODELS[work_type]
+    owner_id = await db.scalar(
+        select(model.id).where(model.id == work_id).with_for_update(read=True, key_share=True)
+    )
+    if owner_id is None:
+        return False
+
     existing = (await db.execute(
         select(WorkExternalId).where(
             WorkExternalId.source == src,

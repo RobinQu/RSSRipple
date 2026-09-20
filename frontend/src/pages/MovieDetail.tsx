@@ -65,7 +65,7 @@ export default function MovieDetail() {
           if (code === 'DELETE_BLOCKED') {
             message.error(r.error?.message || t('movies.deleteBlockedGeneric'));
           } else {
-            message.error(t('common.error'));
+            message.error(r.error?.message || t('common.error'));
           }
         }
       },

@@ -235,7 +235,19 @@ async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
     from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
     from app.models.file_resource import FileResource
     from app.models.pending_decision import PendingDecision
-    series = await db.get(TVSeries, series_id)
+    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
+
+    try:
+        series, choice_agent_ids = await lock_deletion_target(db, TVSeries, series_id)
+    except WorkDeletionBusyError:
+        await db.rollback()
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None, "meta": {},
+            "error": {
+                "code": "INVALID_STATE",
+                "message": "Work is being modified; retry deletion after the current operation finishes.",
+            },
+        })
     if not series:
         return JSONResponse(
             status_code=404,
@@ -245,6 +257,20 @@ async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
                 "error": {"code": "NOT_FOUND", "message": "Series not found"},
             },
         )
+
+    from app.services.external_ids import delete_external_ids_for_work
+    from app.services.work_deletion import manual_deletion_references
+
+    references = await manual_deletion_references(db, "series", series_id)
+    if references:
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None, "meta": {},
+            "error": {
+                "code": "DELETE_BLOCKED",
+                "message": "Reassign or remove manual resource mappings before deleting this work.",
+                "details": references,
+            },
+        })
 
     # Constraint check: block if any AgentWork references this series
     aw_cnt = (await db.execute(
@@ -269,12 +295,31 @@ async def delete_series(series_id: str, db: AsyncSession = Depends(get_db)):
 
     # Nullify FKs
     await db.execute(sql_update(FileResource).where(FileResource.series_id == series_id).values(series_id=None))
-    await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
     await db.execute(
         sql_update(ChannelRawTitleMapping)
         .where(ChannelRawTitleMapping.series_id == series_id)
         .values(series_id=None)
     )
+    # Keep the file listing evidence: losing a target makes batch coverage
+    # unknown, rather than silently shrinking the package to surviving works.
+    from app.models.resource_file_assignment import ResourceFileAssignment
+
+    await db.execute(
+        sql_update(ResourceFileAssignment)
+        .where(ResourceFileAssignment.series_id == series_id)
+        .values(series_id=None)
+    )
+    from sqlalchemy import delete as sql_delete
+
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.services.decision_rekey import rekey_agent_choices
+
+    await db.execute(sql_delete(ResourceWorkLink).where(ResourceWorkLink.series_id == series_id))
+    # Review against current resource associations while original decision FKs
+    # still exist, so the audit captures the complete before-image.
+    await rekey_agent_choices(db, choice_agent_ids)
+    await db.execute(sql_update(PendingDecision).where(PendingDecision.series_id == series_id).values(series_id=None))
+    await delete_external_ids_for_work(db, "series", series_id)
     await db.delete(series)
     await db.commit()
     return success_response({"deleted": True})

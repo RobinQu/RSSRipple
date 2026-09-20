@@ -295,3 +295,10 @@ PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等�
 - 最终门禁：单元/API 覆盖率 ≥95%，隔离完整集成覆盖率 ≥85%，测试及应用进程退出码、覆盖率导出、唯一 Compose 项目清理、源文件快照均需确认。限制失败数的诊断不计验收。
 
 当前专项与缺口见 [V11 记录](../plans/p0-and-backlog/V11-DECISION-COVERAGE.md)；相关临时探针保存在该目录 `probes/`，未完成的完整门禁不可标记通过。
+
+### D6 作品删除验收
+
+- `season_model/test_work_deletion_captured_review.py`：未改写录制图中人工工作链接和文件指派的删除阻断。
+- `season_model/test_orphan_identity_cli.py`：真实磁盘 Turso 与 CLI 子进程的导出、禁止覆盖、明确应用、重复执行。
+- `season_model/test_orphan_identity_captured.py`：录制图 249 条有效身份无误报且全字段保持不变。
+- PostgreSQL 插入/更新、身份登记、决策创建/确认、合并竞争及离线清理锁专项见 `docs/plans/p0-and-backlog/probes/work-deletion-*-pg-result.json`；合成边界与录制来源分别记录。

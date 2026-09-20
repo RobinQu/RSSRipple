@@ -744,3 +744,11 @@ D1 同季唯一约束下，去重若需继承重复行的合集，必须先在�
 ### 待决策创建与作品身份变更协调（V11）
 
 PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级共享 advisory 锁；作品合并/rekey 在扫描 pending 之前获取同一域的排他锁。均使用 try-lock，冲突必须回滚整个业务事务后重试，不能在已有业务锁下等待该锁。创建并行，作品身份变更暂时排斥创建；Turso 使用原生写冲突检测。获取协调权限后，创建重新加载候选并核验 canonical scope，拒绝已过期身份。后台失败不推进消费水位线；回填失败回滚外层保存。V11 已通过 PostgreSQL 并发专项及完整单元/API、隔离集成门禁，代码已合入本地 main（11ee930）。
+
+### 作品删除与身份存活（D6）
+
+剧集/电影删除遇到 AgentWork 或人工 link/assignment/raw-title mapping 时阻断。人工引用错误 details 按非零计数返回 manual_work_links、manual_file_assignments、manual_title_mappings。允许删除时，在同一事务中解除资源工作 FK、清理身份袋并删除作品；自动文件映射保留路径及文件证据、将目标置空，因此存在未分配文件的包保持未知覆盖度。身份登记必须检查作品存活，PG 以 KEY SHARE 保持目标到事务结束。
+
+删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。现有资源和引用行同样以 NOWAIT 锁定后再检查人工计数；新 FK 引用由作品排他锁串行化。身份登记、新增引用与决策交错已有专项证据，完整单元/API 与隔离集成门禁已通过。
+
+删除前先取得决策身份变更协调锁并锁定受影响 Agent，再锁作品及当前引用；解除资源/自动文件关联后，复用 rekey_agent_choices 审核当前候选。失去有效身份的 pending 失效并进入 DecisionMigration 审计，原候选和 scope 保留；审计在旧 PendingDecision 工作 FK 置空前形成。历史终态不改状态，不派发资源。PG 创建先行、删除先行、模型窗口删除及持锁派发已有专项验证；完整门禁及最终复核已通过；具体证据见 V12-WORK-DELETION.md。

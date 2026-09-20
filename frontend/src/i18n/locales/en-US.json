@@ -678,7 +678,7 @@
     "episodeList": "Episode List",
     "recentResources": "Recent Resources",
     "deleteConfirm": "Delete this series?",
-    "deleteWarning": "All linked resources will be unlinked. Episode data will be cleared.",
+    "deleteWarning": "All linked resources will be unlinked. Episode data will be cleared. Remove Agent subscriptions or reassign manual mappings before deleting.",
     "deleteBlockedByAgents": "{n} agent(s) reference this series. Deletion will be blocked.",
     "deleteBlocked": "Cannot delete: agents reference this series.",
     "deleteFailed": "Delete failed",
@@ -702,7 +702,7 @@
     "originalTitle": "Original Title",
     "resourceCount": "Resources",
     "downloadTasks": "Download Tasks",
-    "deleteConfirm": "Delete this movie? All linked resources will be unlinked.",
+    "deleteConfirm": "Delete this movie? All linked resources will be unlinked. Remove Agent subscriptions or reassign manual mappings before deleting.",
     "deleteBlocked": "Cannot delete: {count} agent(s) reference this movie. Remove the agent work subscriptions first.",
     "deleteBlockedGeneric": "Cannot delete: movie is referenced by agents. Remove related agent work subscriptions first.",
     "deleted": "Movie deleted"

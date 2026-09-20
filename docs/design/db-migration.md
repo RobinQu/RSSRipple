@@ -277,3 +277,9 @@ python -m scripts.review_pending_decisions --apply-review approved.json --writer
 启动先审核现有 PendingDecision 表结构与持久键，再进行业务 backfill；发现未审核 pending、损坏键或重复槽时明确失败，不自动删除、过期或猜测候选。操作员按离线流程完成审核迁移后再启动。Turso 在独立普通事务中安装旧表约束；PostgreSQL 在启动 advisory lock 保护的事务中安装，失败回滚该启动事务。新装表由 ORM 的 CHECK 与 pending 部分唯一索引保证。
 
 P8 在已有决策键结构的数据库上执行时，先记录受影响 Agent，再在作品与子关联迁移后按当前资源证据重建 pending，旧记录与替代 ID 归档且与迁移同事务；dry-run 回滚包含该档案。不同季的候选必须分槽，无证据候选不猜季。旧表没有 decision_key/decision_scope 时，停写并备份后先执行 P8；此阶段只读旧字段、重指作品引用，保留候选与状态，不安装决策约束。然后重新导出决策审核报告，人工批准后执行审核迁移，最后启动应用。审核导出重新加载当前资源关系，避免同一会话内沿用拆季前关系。该顺序已通过 Turso 与 PostgreSQL 的旧表测试；拆季异常后决策指纹、资源归属、季号及作品数量恢复，随后重新执行与显式审核通过。
+
+### 显式清理孤儿身份（D6）
+
+使用 `python -m scripts.review_orphan_identities --export review.json` 只读导出；工具不运行应用启动迁移，也不覆盖已有文件。只有 series/movie/collection 目标不存在的身份进入 orphans；未知 work_type 进入 blocked。审核后在 JSON 中增加 approved_fingerprint（等于导出 fingerprint）及 selected_ids（精确选择 orphan 行 ID）。保留原始审核文件和数据库备份。
+
+停写后运行 `python -m scripts.review_orphan_identities --apply-review reviewed.json --writers-stopped --backup-confirmed`。同事务重新核对指纹和拥有者；PG 锁定身份袋及三类拥有者表，Turso BEGIN IMMEDIATE。行值变化、新出现拥有者或未知类型均拒绝；选中记录已全部不存在时返回 already_absent_ids。只删除审核选中行，不接管身份，不在启动或 API 中自动清理。CLI/Turso、真实录制负例及 PG 并发锁验证已通过；工具不自动运行。

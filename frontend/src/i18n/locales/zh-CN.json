@@ -678,7 +678,7 @@
     "episodeList": "剧集列表",
     "recentResources": "最近资源",
     "deleteConfirm": "确定删除该剧集？",
-    "deleteWarning": "所有关联的资源将被解除关联，集数信息将被清除。",
+    "deleteWarning": "所有关联的资源将被解除关联，集数信息将被清除。 存在 Agent 订阅或人工映射时，请先解除订阅或转移映射。",
     "deleteBlockedByAgents": "{n} 个下载代理引用了该剧集，删除操作将被阻止。请先移除相关代理的订阅作品。",
     "deleteBlocked": "无法删除：下载代理引用了该剧集。",
     "deleteFailed": "删除失败",
@@ -702,7 +702,7 @@
     "originalTitle": "原始标题",
     "resourceCount": "资源数",
     "downloadTasks": "下载任务数",
-    "deleteConfirm": "确定删除该电影？所有关联的资源将被解除关联。",
+    "deleteConfirm": "确定删除该电影？所有关联的资源将被解除关联。 存在 Agent 订阅或人工映射时，请先解除订阅或转移映射。",
     "deleteBlocked": "无法删除：{count} 个下载代理引用了该电影，请先移除相关代理的订阅作品。",
     "deleteBlockedGeneric": "无法删除：该电影被下载代理引用，请先移除相关代理的订阅作品。",
     "deleted": "电影已删除"

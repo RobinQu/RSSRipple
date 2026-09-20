@@ -336,6 +336,8 @@ class Movie(Base):
 
 ### WorkExternalId（作品外部身份袋 - Phase P3）
 
+身份登记要求对应 series/movie/collection 拥有者存在；PG 登记事务以 KEY SHARE 保持拥有者存活。剧集/电影删除在同事务中清理身份袋，不留下阻断身份重新登记的孤儿。历史孤儿仅由显式审阅离线工具清理，见 db-migration.md。
+
 "身份袋"反向索引：一个作品可携带**多个**外部身份（创建时的 wikipedia pageid、langlinks 各语言页的 pageid、Exa 回退命中的 tmdb/bangumi id …），任何一个已知 `(source, external_id)` 都能确定性地反查回作品行，使跨源/跨语言 upsert 收敛不再依赖标题运气。
 
 ```python

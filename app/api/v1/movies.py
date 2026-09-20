@@ -202,7 +202,19 @@ async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
     from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
     from app.models.file_resource import FileResource
     from app.models.pending_decision import PendingDecision
-    movie = await db.get(Movie, movie_id)
+    from app.services.work_deletion import WorkDeletionBusyError, lock_deletion_target
+
+    try:
+        movie, choice_agent_ids = await lock_deletion_target(db, Movie, movie_id)
+    except WorkDeletionBusyError:
+        await db.rollback()
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None, "meta": {},
+            "error": {
+                "code": "INVALID_STATE",
+                "message": "Work is being modified; retry deletion after the current operation finishes.",
+            },
+        })
     if not movie:
         return JSONResponse(
             status_code=404,
@@ -212,6 +224,20 @@ async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
                 "error": {"code": "NOT_FOUND", "message": "Movie not found"},
             },
         )
+
+    from app.services.external_ids import delete_external_ids_for_work
+    from app.services.work_deletion import manual_deletion_references
+
+    references = await manual_deletion_references(db, "movie", movie_id)
+    if references:
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None, "meta": {},
+            "error": {
+                "code": "DELETE_BLOCKED",
+                "message": "Reassign or remove manual resource mappings before deleting this work.",
+                "details": references,
+            },
+        })
 
     # Constraint check: block if any AgentWork references this movie
     aw_cnt = (await db.execute(
@@ -235,12 +261,31 @@ async def delete_movie(movie_id: str, db: AsyncSession = Depends(get_db)):
         )
 
     await db.execute(sql_update(FileResource).where(FileResource.movie_id == movie_id).values(movie_id=None))
-    await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
     await db.execute(
         sql_update(ChannelRawTitleMapping)
         .where(ChannelRawTitleMapping.movie_id == movie_id)
         .values(movie_id=None)
     )
+    # Keep the file listing evidence: losing a target makes batch coverage
+    # unknown, rather than silently shrinking the package to surviving works.
+    from app.models.resource_file_assignment import ResourceFileAssignment
+
+    await db.execute(
+        sql_update(ResourceFileAssignment)
+        .where(ResourceFileAssignment.movie_id == movie_id)
+        .values(movie_id=None)
+    )
+    from sqlalchemy import delete as sql_delete
+
+    from app.models.resource_work_link import ResourceWorkLink
+    from app.services.decision_rekey import rekey_agent_choices
+
+    await db.execute(sql_delete(ResourceWorkLink).where(ResourceWorkLink.movie_id == movie_id))
+    # Review against current resource associations while original decision FKs
+    # still exist, so the audit captures the complete before-image.
+    await rekey_agent_choices(db, choice_agent_ids)
+    await db.execute(sql_update(PendingDecision).where(PendingDecision.movie_id == movie_id).values(movie_id=None))
+    await delete_external_ids_for_work(db, "movie", movie_id)
     await db.delete(movie)
     await db.commit()
     return success_response({"deleted": True})

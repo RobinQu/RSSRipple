@@ -474,7 +474,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | POST | `/series` | 手动创建季作品，并在同一事务建立 series_group 壳合集 |
 | GET | `/series/{id}` | 剧集详情（含 episodes、资源数、任务数） |
 | PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，见上）；`content_type` 显式改为非 tv（如 movie）时，联动清除该剧集下资源残留的 `episode_confidence="ambiguous"`（置 null——非 tv 作品无集号/季号问题） |
-| DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
+| DELETE | `/series/{id}` | 删除剧集；AgentWork 或人工作品链接、文件映射、标题映射引用时返回 409 DELETE_BLOCKED。允许删除时同事务清理身份袋、解除资源与自动文件映射的作品绑定，保留文件路径与资源 |
 
 ### Movies
 
@@ -486,7 +486,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | POST | `/movies` | 手动创建电影元数据 |
 | GET | `/movies/{id}` | 电影详情 |
 | PUT | `/movies/{id}` | 更新电影元数据；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，语义同 PUT `/series/{id}`） |
-| DELETE | `/movies/{id}` | 删除电影 |
+| DELETE | `/movies/{id}` | 删除电影；引用保护及身份/自动文件映射处理同剧集删除 |
 
 系列/电影详情响应额外包含 `collection`（`{id, name}` 或 null）与 `collection_siblings`（同合集其他作品 `[{id, title, year, type}]`，剧集条目另带 `season_number`，供详情页季切换器按季排序跳转；来自本地库共享 collection_id 查询）。响应顶层同时暴露 `external_id`/`external_source`、`canonical_name`/`wikipedia_url`（Wikipedia 实际 URL，优先于 curid 回退），以及服务端计算的 `source_links`（`[{source, label, url}]`，由站点注册表 `metadata_source_registry.build_source_links` 生成，支持旧复合形 `TMDB:NNN; IMDb:ttNNN` 拆分，TMDB 链接按 tv/movie 区分路径）——前端详情页直接渲染，不再自行解析。
 
