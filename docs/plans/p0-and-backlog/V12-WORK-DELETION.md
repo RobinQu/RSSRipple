@@ -164,3 +164,17 @@ series/movie × work link/file assignment × 人工修改先行/删除先行，�
 冻结门禁后新增的离线工具四个文件单独汇总运行：函数保护＋真实 CLI＋录制图负例 **8 passed、1 warning，14.12 秒，退出 0**，文件哈希与报告见 probes/work-deletion-orphan-supplement-result.json。此结果补充 hl/hn，不声称这些文件已在两套冻结门禁中运行。
 
 当前续接：hl 会话 4914，日志 /tmp/rssripple-v12-unit-hl.log；hn 会话 1964，项目 rssripple-v12-complete-20260920-hn，日志 /tmp/rssripple-v12-integration-hn.log。两者仍运行；2957/3028 个冻结文件均复查无改动。下一步收集终态、覆盖率、应用退出与导出/清理，再做最终代码复核。D6 继续保留 TODO，main 运行代码仍为已验收 V11，V12 仅补丁。
+
+## 完整单元/API hl 通过
+
+**3769 passed、15 skipped、6 warnings，1766.25 秒，退出 0**；覆盖率 21995/22562（97.49%）达到 95%。2957 个冻结文件终态哈希全部一致。冻结后新增的离线工具另有 hx 8 项补充及 hu PG 专项，不能计入上述 3769 项。hn 完整集成仍运行，D6 尚不关闭。
+
+## D6 完整门禁完成（hl / hn）
+
+单元/API hl：3769 passed、15 skipped、6 warnings，1766.25 秒，退出 0，21995/22562（97.49%）≥95%，2957 文件未变。完整集成 hn：3144 passed、17 skipped、8 warnings，1712.08 秒，runner 退出 0；两个应用退出 0，coverage 汇总退出 0，20076/22562（88.98%）≥85%；3028 文件未变，导出与项目清理退出 0，证据 /tmp/rssripple-v12-artifacts-hn。
+
+冻结后新增离线工具由 hx 8 项联合补测、hu PG 锁专项支持，前端 hm 生产构建通过。尚需最终变更集核对与主工作树应用，D6 暂不从 TODO 删除；B7 必要性红测为下一批独立证据，不在 D6 修复范围。
+
+## D6 本地主干接收（2026-09-20）
+
+22 个有效实现/测试/权威文档文件完成最终复核并提交本地 main：`7c99db9`。运行 Python 与 hl/hn 冻结副本一致；后增独立工具与 hx/hu 补充证据匹配，前端生产构建通过；应用到主工作树后全仓 Ruff 和 git diff --check 通过。D6 从 pending-only TODO 删除。历史孤儿需显式离线审核清理，本轮未操作生产数据、未推送远端。下一批 B7 见 V13，仍是未修复红测。

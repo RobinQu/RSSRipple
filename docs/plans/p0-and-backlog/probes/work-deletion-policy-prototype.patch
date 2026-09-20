@@ -609,13 +609,13 @@
  
  PostgreSQL 创建决策在模型调用之后、Agent 行锁之前获取事务级共享 advisory 锁；作品合并/rekey 在扫描 pending 之前获取同一域的排他锁。均使用 try-lock，冲突必须回滚整个业务事务后重试，不能在已有业务锁下等待该锁。创建并行，作品身份变更暂时排斥创建；Turso 使用原生写冲突检测。获取协调权限后，创建重新加载候选并核验 canonical scope，拒绝已过期身份。后台失败不推进消费水位线；回填失败回滚外层保存。V11 已通过 PostgreSQL 并发专项及完整单元/API、隔离集成门禁，代码已合入本地 main（11ee930）。
 +
-+### 作品删除与身份存活（D6 原型，尚未验收）
++### 作品删除与身份存活（D6）
 +
 +剧集/电影删除遇到 AgentWork 或人工 link/assignment/raw-title mapping 时阻断。人工引用错误 details 按非零计数返回 manual_work_links、manual_file_assignments、manual_title_mappings。允许删除时，在同一事务中解除资源工作 FK、清理身份袋并删除作品；自动文件映射保留路径及文件证据、将目标置空，因此存在未分配文件的包保持未知覆盖度。身份登记必须检查作品存活，PG 以 KEY SHARE 保持目标到事务结束。
 +
-+删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。现有资源和引用行同样以 NOWAIT 锁定后再检查人工计数；新 FK 引用由作品排他锁串行化。身份登记、新增引用与决策交错已有专项证据，完整门禁仍在执行。
++删除 API 在身份清理前取得作品 FOR UPDATE NOWAIT，55P03 整体回滚并返回 409 INVALID_STATE。现有资源和引用行同样以 NOWAIT 锁定后再检查人工计数；新 FK 引用由作品排他锁串行化。身份登记、新增引用与决策交错已有专项证据，完整单元/API 与隔离集成门禁已通过。
 +
-+删除前先取得决策身份变更协调锁并锁定受影响 Agent，再锁作品及当前引用；解除资源/自动文件关联后，复用 rekey_agent_choices 审核当前候选。失去有效身份的 pending 失效并进入 DecisionMigration 审计，原候选和 scope 保留；审计在旧 PendingDecision 工作 FK 置空前形成。历史终态不改状态，不派发资源。PG 创建先行、删除先行、模型窗口删除及持锁派发已有专项验证；仍以最终完整门禁和复核作为合入条件。
++删除前先取得决策身份变更协调锁并锁定受影响 Agent，再锁作品及当前引用；解除资源/自动文件关联后，复用 rekey_agent_choices 审核当前候选。失去有效身份的 pending 失效并进入 DecisionMigration 审计，原候选和 scope 保留；审计在旧 PendingDecision 工作 FK 置空前形成。历史终态不改状态，不派发资源。PG 创建先行、删除先行、模型窗口删除及持锁派发已有专项验证；完整门禁及最终复核已通过；具体证据见 V12-WORK-DELETION.md。
 --- /dev/null
 +++ b/tests/api/test_work_deletion_decisions.py
 @@ -0,0 +1,115 @@
@@ -981,11 +981,11 @@
  
  P8 在已有决策键结构的数据库上执行时，先记录受影响 Agent，再在作品与子关联迁移后按当前资源证据重建 pending，旧记录与替代 ID 归档且与迁移同事务；dry-run 回滚包含该档案。不同季的候选必须分槽，无证据候选不猜季。旧表没有 decision_key/decision_scope 时，停写并备份后先执行 P8；此阶段只读旧字段、重指作品引用，保留候选与状态，不安装决策约束。然后重新导出决策审核报告，人工批准后执行审核迁移，最后启动应用。审核导出重新加载当前资源关系，避免同一会话内沿用拆季前关系。该顺序已通过 Turso 与 PostgreSQL 的旧表测试；拆季异常后决策指纹、资源归属、季号及作品数量恢复，随后重新执行与显式审核通过。
 +
-+### 显式清理孤儿身份（D6 原型）
++### 显式清理孤儿身份（D6）
 +
 +使用 `python -m scripts.review_orphan_identities --export review.json` 只读导出；工具不运行应用启动迁移，也不覆盖已有文件。只有 series/movie/collection 目标不存在的身份进入 orphans；未知 work_type 进入 blocked。审核后在 JSON 中增加 approved_fingerprint（等于导出 fingerprint）及 selected_ids（精确选择 orphan 行 ID）。保留原始审核文件和数据库备份。
 +
-+停写后运行 `python -m scripts.review_orphan_identities --apply-review reviewed.json --writers-stopped --backup-confirmed`。同事务重新核对指纹和拥有者；PG 锁定身份袋及三类拥有者表，Turso BEGIN IMMEDIATE。行值变化、新出现拥有者或未知类型均拒绝；选中记录已全部不存在时返回 already_absent_ids。只删除审核选中行，不接管身份，不在启动或 API 中自动清理。原型 CLI/PG 集成仍待验证。
++停写后运行 `python -m scripts.review_orphan_identities --apply-review reviewed.json --writers-stopped --backup-confirmed`。同事务重新核对指纹和拥有者；PG 锁定身份袋及三类拥有者表，Turso BEGIN IMMEDIATE。行值变化、新出现拥有者或未知类型均拒绝；选中记录已全部不存在时返回 already_absent_ids。只删除审核选中行，不接管身份，不在启动或 API 中自动清理。CLI/Turso、真实录制负例及 PG 并发锁验证已通过；工具不自动运行。
 --- /dev/null
 +++ b/tests/integration/season_model/test_orphan_identity_cli.py
 @@ -0,0 +1,75 @@
@@ -1097,3 +1097,27 @@
 +        async with handle.factory() as db:
 +            after = list((await db.execute(select(WorkExternalId.__table__).order_by(WorkExternalId.id))).mappings())
 +            assert after == before
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -336,6 +336,8 @@
+ 
+ ### WorkExternalId（作品外部身份袋 - Phase P3）
+ 
++身份登记要求对应 series/movie/collection 拥有者存在；PG 登记事务以 KEY SHARE 保持拥有者存活。剧集/电影删除在同事务中清理身份袋，不留下阻断身份重新登记的孤儿。历史孤儿仅由显式审阅离线工具清理，见 db-migration.md。
++
+ "身份袋"反向索引：一个作品可携带**多个**外部身份（创建时的 wikipedia pageid、langlinks 各语言页的 pageid、Exa 回退命中的 tmdb/bangumi id …），任何一个已知 `(source, external_id)` 都能确定性地反查回作品行，使跨源/跨语言 upsert 收敛不再依赖标题运气。
+ 
+ ```python
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -295,3 +295,10 @@
+ - 最终门禁：单元/API 覆盖率 ≥95%，隔离完整集成覆盖率 ≥85%，测试及应用进程退出码、覆盖率导出、唯一 Compose 项目清理、源文件快照均需确认。限制失败数的诊断不计验收。
+ 
+ 当前专项与缺口见 [V11 记录](../plans/p0-and-backlog/V11-DECISION-COVERAGE.md)；相关临时探针保存在该目录 `probes/`，未完成的完整门禁不可标记通过。
++
++### D6 作品删除验收
++
++- `season_model/test_work_deletion_captured_review.py`：未改写录制图中人工工作链接和文件指派的删除阻断。
++- `season_model/test_orphan_identity_cli.py`：真实磁盘 Turso 与 CLI 子进程的导出、禁止覆盖、明确应用、重复执行。
++- `season_model/test_orphan_identity_captured.py`：录制图 249 条有效身份无误报且全字段保持不变。
++- PostgreSQL 插入/更新、身份登记、决策创建/确认、合并竞争及离线清理锁专项见 `docs/plans/p0-and-backlog/probes/work-deletion-*-pg-result.json`；合成边界与录制来源分别记录。

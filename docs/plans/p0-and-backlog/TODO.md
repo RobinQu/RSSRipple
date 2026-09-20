@@ -27,15 +27,12 @@
 
 ### 数据模型 / 持久化
 
-- [ ] **P1-D6 删除路径泄漏身份袋 / 丢手工映射**：`DELETE /series|/movies` 不调用
-      `delete_external_ids_for_work`（遗孤行导致命中即 miss 且无法重登记）；`resource_work_links` CASCADE
-      静默丢手工映射。**修复**：删除时显式清理/转移。合集删除部分已在 V7 完整验收；此条仅保留剧集/电影删除与手工映射策略，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。已用真实 API/Turso 四例复现身份残留阻断重新登记、人工链接/文件指派被删除；续接 [V12 必要性与方案](V12-WORK-DELETION.md)，已有局部原型与 PG 竞争证据，决策归档及完整门禁尚未完成。
 ### 后台执行 / 调度 / 队列
 
 - [ ] **P1-B4 Redis consumer lease 过期致重复执行**：lease 15s/heartbeat 5s（`app/services/task_queue.py:43-44`），
       事件循环阻塞超 15s 时 RUNNING 任务被恢复重入（`:483-548`）。**修复**：已有 consumer 心跳；治理阻塞并增加执行所有权/副作用幂等，延长 lease 只能缓解，同一事件循环再加心跳无效。
 - [ ] **P1-B7 水位线按 `max(created_at)` 推进跳过并发资源**：`app/job_handlers.py:151-164`。
-      提交更晚但 `created_at` 更早的并发/重试资源会被永久漏处理。**修复**：设计与提交可见性一致的消费进度/补偿；自增分配顺序不等于提交顺序，宽限期只能缓解。验收包含先分配后提交的交错事务。
+      提交更晚但 `created_at` 更早的并发/重试资源会被永久漏处理。**修复**：设计与提交可见性一致的消费进度/补偿；自增分配顺序不等于提交顺序，宽限期只能缓解。验收包含先分配后提交的交错事务。 已用实际 PG/Agent handler 复现并通过定向运行对照确认合格，续接 [V13](V13-CONSUMPTION-PROGRESS.md)。
 ### 元数据匹配
 
 - [ ] **P1-M1 默认 MetadataAgent 路径未统一人工标题映射优先级**：默认分支未走

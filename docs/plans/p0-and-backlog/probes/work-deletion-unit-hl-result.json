@@ -1,5 +1,5 @@
 {
-  "status": "running",
+  "status": "passed",
   "run": "hl",
   "session_id": 4914,
   "directory": "/tmp/rssripple-v12-gate-hk",
@@ -12,5 +12,14 @@
   "prior_hk": {
     "exit_code": 127,
     "reason": "snapshot preparation failed on absent prototype uv.lock; pytest not launched; completed configuration from main then started hl"
-  }
+  },
+  "exit_code": 0,
+  "passed": 3769,
+  "skipped": 15,
+  "warnings": 6,
+  "seconds": 1766.25,
+  "covered": 21995,
+  "valid": 22562,
+  "coverage_percent": 97.49,
+  "source_unchanged": true
 }

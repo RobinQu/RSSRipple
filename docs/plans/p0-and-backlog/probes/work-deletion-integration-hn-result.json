@@ -1,5 +1,5 @@
 {
-  "status": "running",
+  "status": "complete_gate_pass_final_review_pending",
   "project": "rssripple-v12-complete-20260920-hn",
   "directory": "/tmp/rssripple-v12-integration-hn",
   "manifest": "/tmp/rssripple-v12-integration-hn-source.json",
@@ -13,5 +13,22 @@
     "log": "/tmp/rssripple-v12-frontend-hm.log"
   },
   "preparation_failure": "first copy lacked uv.lock; initial Compose exited 14 before services created; completed files then startup succeeded",
-  "session_id": 1964
+  "session_id": 1964,
+  "runner_exit": 0,
+  "passed": 3144,
+  "skipped": 17,
+  "warnings": 8,
+  "seconds": 1712.08,
+  "application_exits": [
+    0,
+    0
+  ],
+  "coverage_exit": 0,
+  "covered": 20076,
+  "valid": 22562,
+  "coverage_percent": 88.98,
+  "source_unchanged": true,
+  "export_exit": 0,
+  "artifacts": "/tmp/rssripple-v12-artifacts-hn",
+  "cleanup_exit": 0
 }

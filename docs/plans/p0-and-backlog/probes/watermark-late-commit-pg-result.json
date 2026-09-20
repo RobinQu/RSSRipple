@@ -1,0 +1,61 @@
+{
+  "first": {
+    "agent_id": "19ba30cd-dd03-4c55-a130-6401704ede88",
+    "run_id": "75b4f98e-0ab9-4b57-8db7-56f9866371a8",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "second": {
+    "agent_id": "19ba30cd-dd03-4c55-a130-6401704ede88",
+    "run_id": "c4f72044-7365-4e90-9ad2-5ab5e40081e2",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "third": {
+    "agent_id": "19ba30cd-dd03-4c55-a130-6401704ede88",
+    "run_id": "2d4a6e42-7849-4632-99a1-f1ef27f71669",
+    "total_resources": 0,
+    "matched": 0,
+    "dispatched": 0,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "older_resource_id": "a88ebb06-6509-4ac6-91ab-470b2e181daa",
+  "newer_resource_id": "c09c6591-bbf3-4c78-8cf3-016fa845ef59",
+  "task_resource_ids": [
+    "c09c6591-bbf3-4c78-8cf3-016fa845ef59"
+  ],
+  "watermark": "2026-09-20 10:22:29.347082",
+  "older_created_at": "2026-09-20 10:21:29.347082",
+  "targeted_control": {
+    "agent_id": "19ba30cd-dd03-4c55-a130-6401704ede88",
+    "run_id": "b3f2ec1f-db9b-4dd5-96b9-69abadab992d",
+    "total_resources": 1,
+    "matched": 1,
+    "dispatched": 1,
+    "pending_decisions": 0,
+    "filter_failed": 0,
+    "duplicates_skipped": 0,
+    "unrecognized": 0,
+    "errors": []
+  },
+  "status": "necessity_red",
+  "exit_code": 1,
+  "targeted_control_exit_code": 0,
+  "scope": "actual PostgreSQL transactions and _handle_run_agent with real built-in mock downloader; synthetic eligible resources"
+}

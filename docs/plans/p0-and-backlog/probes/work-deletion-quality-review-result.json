@@ -1,5 +1,5 @@
 {
-  "status": "preliminary; full gates and remaining matrix pending",
+  "status": "approved for local main merge",
   "skill": "/home/robinqu/.agents/skills/code-review-and-quality/SKILL.md",
   "correctness": [
     "Single transaction preserves automatic file evidence and expires stale decisions with before-image audit",
@@ -24,9 +24,24 @@
     "Corrected stale V11 prototype status after accepted main merge",
     "Updated D6 completed PG evidence versus remaining full gates"
   ],
-  "remaining": [
-    "Complete hl/hn gates and export/cleanup/source verification",
-    "Review remaining existing-child and merge interleavings",
-    "Final audit of standalone tool and added tests outside frozen gates"
+  "remaining": [],
+  "final_evidence": {
+    "unit_api": "3769 passed, 97.49%, exit 0",
+    "integration": "3144 passed, 88.98%, exit 0",
+    "apps_exit": [
+      0,
+      0
+    ],
+    "export_exit": 0,
+    "cleanup_exit": 0,
+    "supplement": "8 tool tests plus PG lock probe; exact script hashes checked",
+    "frontend": "tsc and vite build passed",
+    "applied_files": 22,
+    "lint": "ruff check . passed"
+  },
+  "limitations": [
+    "Historical orphan cleanup remains an explicit offline reviewed operation; no production data changed",
+    "PG probes use declared synthetic fixtures and mock downloader; captured graph tests remain unmodified",
+    "Future creation through raw SQL bypasses application identity-owner guard; normal registration service is guarded"
   ]
 }

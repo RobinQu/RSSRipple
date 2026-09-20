@@ -1,5 +1,5 @@
 {
-  "status": "partial_prototype_not_accepted",
+  "status": "accepted on local main",
   "baseline": "current local main 85039ec plus V11 acceptance wording correction; patch regenerated against root",
   "directory": "/tmp/rssripple-v12-implementation-gl",
   "files": {
@@ -41,7 +41,7 @@
     },
     "docs/design/business-logic.md": {
       "baseline_sha256": "38a55c68f16e26ffa7079925d5596f6d5e269cc7dfaec1d7e13d22eb0dd4c9f2",
-      "prototype_sha256": "2a4f8b61d468599cd6400a835cbb6524987cc75b8d67cb8f568d51f831b6c56a"
+      "prototype_sha256": "53afb4190171f15df24aba9a50d1c9b986ee4a07577150d0da4e57fb8b65254f"
     },
     "tests/api/test_work_deletion_decisions.py": {
       "baseline_sha256": null,
@@ -73,7 +73,7 @@
     },
     "docs/design/db-migration.md": {
       "baseline_sha256": "14ff1840c6544e8e921bfba82e31a9a2fbb2adf88823cb071933f41bd75bfcd3",
-      "prototype_sha256": "91d76bd343a463cc52f4a5058aa5d92ae7b9a4f6bf4105badcd62ff59d77cb20"
+      "prototype_sha256": "03171ccd056e48858c4a8c9b12f05b81cc617d2886ca9eaac23ee5a8cf8b407c"
     },
     "tests/integration/season_model/test_orphan_identity_cli.py": {
       "baseline_sha256": null,
@@ -82,6 +82,14 @@
     "tests/integration/season_model/test_orphan_identity_captured.py": {
       "baseline_sha256": null,
       "prototype_sha256": "a4a832b552058bec51dc1e9174d41e303ae07cd98b19c6c47cf867d8b1835967"
+    },
+    "docs/design/data-models.md": {
+      "baseline_sha256": "e63330a4ec76a1c97b83e5287fa54eaa994ce5dc7833a1e3850a7ca3d09fd632",
+      "prototype_sha256": "b4fd622eefbc9ff1c7a713e425807d04c8e49ee33a2904e2d3cb75db46b776c1"
+    },
+    "docs/testing/integration-inventory.md": {
+      "baseline_sha256": "405f840efdc0611d78d22108105a6f42a0148dd9e3af060907996e1b143623f7",
+      "prototype_sha256": "63411af05c9ebfee7c598dbb8b1ab4684733d4a2916469862612099d9ac2bb24"
     }
   },
   "junit": [
@@ -177,5 +185,6 @@
     "exit_code": 0,
     "junit": "/tmp/rssripple-v12-orphan-cli-hs.xml",
     "prior_hr": "fixture native Turso file lock outlived engine disposal; isolated seed subprocess fixes fixture without application changes"
-  }
+  },
+  "commit": "7c99db9"
 }
