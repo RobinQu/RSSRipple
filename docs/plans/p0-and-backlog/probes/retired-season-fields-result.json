@@ -1,0 +1,120 @@
+{
+  "directory": "/tmp/rssripple-v10-retired-fields",
+  "base": "Combined V8/V9 bg runtime; V10 own files preserved; targeted revalidation pending",
+  "baseline": {
+    "app/schemas/series.py": "3babc47dea4308b0a8e213592e8968d967a46149fcb6e22a1988a4a34c00d2f1",
+    "app/services/metadata_service.py": "ef05ec1c664efda05642dc5887039e9a73cefd12e38832396fa669580ffc50ad",
+    "app/services/metadata_dedup.py": "834a79ed6856fae6f6c31649bb8a6d703127b5038f25ab5c5797f372ad7658ec"
+  },
+  "red": {
+    "junit": "/tmp/rssripple-v10-retired-api-red.xml",
+    "name": "pytest",
+    "errors": "0",
+    "failures": "2",
+    "skipped": "0",
+    "tests": "2",
+    "time": "2.731",
+    "timestamp": "2026-09-20T02:56:13.836623+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "observed": {
+    "create_status": 201,
+    "update_status": 200,
+    "work_season": 1,
+    "is_unsplit_legacy": true,
+    "stored_episode_seasons": [
+      1,
+      2
+    ],
+    "update_protected": [
+      "number_of_seasons"
+    ]
+  },
+  "pending": "Rebased combined V8/V9; 68 combination regressions passed; complete unit/API starting; not applied root",
+  "files": {
+    "app/schemas/series.py": "4bc3cf0b62058d375e1cc1aebd297fc65d46e410dc0eac12175c654e35776960",
+    "app/services/metadata_dedup.py": "ac58d8d4c737fd4ae839c47f7067b86596e21d3b1c2bdd51f9bf61607d094b94",
+    "app/services/metadata_episode_reconcile.py": "ee75594087d59dd4b185798cda4eade3893c5516419144555a71c739dc352e2b",
+    "app/services/metadata_service.py": "ea846b437061bcb13052c8ec28800ab485f71d447c7cb2d44a1521a065ff6dd3",
+    "docs/design/api-endpoints.md": "2dcd63afa317510074f96ee391281f530686330cce6c83b89d6e7f26c531639c",
+    "docs/design/business-logic.md": "0d67b76ab832a31b1ba08f18c79d7e3f64d17bd89be69ecf7979e1cbf4d78f77",
+    "docs/design/data-models.md": "a3b3d7ca00f83fc16c4ccb5df0b5717f535891fecdba5ebadcd0f7ba69ec1548",
+    "docs/design/db-migration.md": "c5535c25539f429488972cdeb54301247cf3509810b88b69a36d7a4f286c7a00",
+    "docs/design/per-season-works.md": "d3c9b1b82915043d0be8cec6abbf8efba728e40171626b3e14e4aba4ffc2840c",
+    "docs/testing/integration-inventory.md": "4d204894c0f8985b7ecc4beb056bb9480fe266307f4f53dbe94104370c0112a5",
+    "scripts/retired_season_fields.py": "a836859cdfc2a32c2ef549e226d95112e69895dd45d869d9ba68b43efca435b6",
+    "tests/api/test_retired_season_fields.py": "07c5d7ebf8842858843386c8b0d7a5704fccfd4df2178e1fcf87d3b8ebe7b02a",
+    "tests/integration/season_model/test_retired_field_review.py": "d6f926f5abcb1a4cd1cc210d3ef9ddc4d8aca48f3e83e5b9766aa57f1d18332b",
+    "tests/unit/test_metadata_dedup.py": "2689c66969b27d5b35874f82398afed8e5866bd6b153bd8bd69a59355b804a39",
+    "tests/unit/test_retired_season_cleanup.py": "ac36f3dc82bd763a9ec1b612d13ec74b5bdb2cc74a81bf946e568a4b8a356e2f"
+  },
+  "root_before": {
+    "app/schemas/series.py": "3babc47dea4308b0a8e213592e8968d967a46149fcb6e22a1988a4a34c00d2f1",
+    "app/services/metadata_service.py": "ef05ec1c664efda05642dc5887039e9a73cefd12e38832396fa669580ffc50ad",
+    "app/services/metadata_dedup.py": "834a79ed6856fae6f6c31649bb8a6d703127b5038f25ab5c5797f372ad7658ec",
+    "tests/api/test_retired_season_fields.py": null,
+    "tests/unit/test_metadata_dedup.py": "deb76ce424c87e13a732722744223690c35ec24ee2681aa7c772c9f2110c7cc2",
+    "docs/design/api-endpoints.md": "7d371224f868b5f5c5c707a966d57d6ac6b97c23e26a19ead39768e206b2b890",
+    "docs/design/business-logic.md": "9f1fc208fdc625cb331032df61323262498dcb9405a3f688f72d9d1832cd1938",
+    "docs/design/data-models.md": "bf09d4cf1e176d900500aca5f6365954652612e2f8e6bedafffd811a81b49a15",
+    "app/services/metadata_episode_reconcile.py": "d4bd7c6ae23c67c1c53d407944c19ae77c4c5150949823d5b1a267cd98b2c4a6",
+    "scripts/retired_season_fields.py": null,
+    "tests/unit/test_retired_season_cleanup.py": null,
+    "tests/integration/season_model/test_retired_field_review.py": null,
+    "docs/design/db-migration.md": "02ef95a4be6e454c81ed857ae2d526d6547b99044ac7e6686ea0062dc6b5bb4a",
+    "docs/design/per-season-works.md": "1df570cae7b95d46590588526936e4e3166548c74bc99cb4acb646699c40388b",
+    "docs/testing/integration-inventory.md": "174c3a6f1d01793998932c62f5b7fd747946538074a854fc333b739a66803ae8"
+  },
+  "green": {
+    "junit": "/tmp/rssripple-v10-write-guards-green.xml",
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "64",
+    "time": "37.358",
+    "timestamp": "2026-09-20T03:09:35.033648+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "fixture_audit": {
+    "path": "tests/fixtures/prod_works_v1.json",
+    "sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+    "series": 65,
+    "with_retired_count": 27,
+    "note": "historical captured fixture, not current production DB"
+  },
+  "expanded": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "302",
+    "time": "104.748",
+    "timestamp": "2026-09-20T03:35:31.513825+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "postgresql": {
+    "cli_export_exit": 0,
+    "stale_cli_exit": 1,
+    "post_flush_rollback_preserved": true,
+    "second_backend_blocked_observed": true,
+    "concurrent_changed": [
+      true,
+      false
+    ],
+    "cli_idempotent_exit": 0,
+    "related_rows_and_manual_title_preserved": true
+  },
+  "postgresql_project_cleanup": "complete",
+  "rebase_tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "0",
+    "skipped": "0",
+    "tests": "68",
+    "time": "97.335",
+    "timestamp": "2026-09-20T03:50:13.882578+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "source_manifest": "/tmp/rssripple-v10-source-bh.json"
+}

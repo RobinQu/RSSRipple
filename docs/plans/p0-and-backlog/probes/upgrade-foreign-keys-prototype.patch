@@ -1,0 +1,887 @@
+--- a/app/database.py
++++ b/app/database.py
+@@ -263,6 +263,9 @@
+                 )
+                 await conn.run_sync(Base.metadata.create_all)
+                 await _apply_light_migrations(conn)
++                from app.services.schema_foreign_keys import repair_postgres_foreign_keys
++
++                await repair_postgres_foreign_keys(conn)
+                 await _ensure_pg_trgm_indexes(conn)
+             return
+         except DatabaseError as e:
+@@ -306,6 +309,11 @@
+         else:
+             await conn.run_sync(Base.metadata.create_all)
+             await _apply_light_migrations(conn)
++
++    if is_turso_url(settings.database_url):
++        from app.services.schema_foreign_keys import repair_turso_foreign_keys
++
++        await repair_turso_foreign_keys(engine)
+ 
+     from app.services.collection_lifecycle import backfill_orphan_collections
+ 
+@@ -466,7 +474,7 @@
+          "DATETIME" if is_turso else "TIMESTAMP"),
+         # AudioWork link for non-TV/non-movie works (ASMR / music / drama CD /
+         # radio). The audio_works table itself is created by create_all.
+-        ("file_resources", "audio_work_id", "VARCHAR(36)"),
++        ("file_resources", "audio_work_id", "VARCHAR(36) REFERENCES audio_works(id) ON DELETE SET NULL"),
+         # Per-channel auto-cleanup of stale unresolved resources: an enable
+         # toggle + an age threshold (days, default 21 = 3 weeks).
+         ("channels", "auto_cleanup_unresolved_enabled",
+@@ -490,8 +498,8 @@
+         ("pending_decisions", "season", "INTEGER"),
+         # Franchise grouping (WorkCollection) — the work_collections table
+         # itself is created by create_all.
+-        ("tv_series", "collection_id", "VARCHAR(36)"),
+-        ("movies", "collection_id", "VARCHAR(36)"),
++        ("tv_series", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
++        ("movies", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
+         # Normalized search haystack (title_cn + title_en + original_title +
+         # aliases through normalize_title), maintained by the ORM before_flush
+         # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into
+@@ -516,17 +524,17 @@
+         # volume.mount_path + volume_subpath. Both NULL = identical views
+         # (identity). The storage_volumes table itself is created by
+         # create_all.
+-        ("downloader_instances", "volume_id", "VARCHAR(36)"),
++        ("downloader_instances", "volume_id", "VARCHAR(36) REFERENCES storage_volumes(id) ON DELETE SET NULL"),
+         ("downloader_instances", "volume_subpath", "VARCHAR(1024)"),
+         # Media-server-derived Library (R2): the library root is now a
+         # structured volume reference (volume_id + root_subpath) resolved at
+         # use time; root_path/plex_section stay as inert orphan columns. The
+         # media_server_instances / media_server_bindings tables themselves
+         # are created by create_all.
+-        ("libraries", "media_server_id", "VARCHAR(36)"),
++        ("libraries", "media_server_id", "VARCHAR(36) REFERENCES media_server_instances(id) ON DELETE SET NULL"),
+         ("libraries", "section_key", "VARCHAR(64)"),
+         ("libraries", "server_path", "VARCHAR(1024)"),
+-        ("libraries", "volume_id", "VARCHAR(36)"),
++        ("libraries", "volume_id", "VARCHAR(36) REFERENCES storage_volumes(id) ON DELETE SET NULL"),
+         ("libraries", "root_subpath", "VARCHAR(1024)"),
+         # 回收站目录（卷内相对路径）：合集 move 计划的剩余文件整体移入；
+         # NULL = 原地保留。
+@@ -536,7 +544,7 @@
+         # a WorkCollection link for franchise packs, and the local relative
+         # path of the cached .torrent file (bytes live on disk only).
+         ("file_resources", "batch_scope", "VARCHAR(16)"),
+-        ("file_resources", "collection_id", "VARCHAR(36)"),
++        ("file_resources", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
+         ("file_resources", "torrent_file", "VARCHAR(2048)"),
+         # Seasons covered by a multi_season/franchise batch pack (JSON int
+         # list, persisted from torrent content analysis) — drives the strict
+--- /dev/null
++++ b/app/services/schema_foreign_keys.py
+@@ -0,0 +1,132 @@
++"""Restore legacy FK semantics without changing application associations."""
++
++from collections import defaultdict
++
++from sqlalchemy import inspect, text
++
++# Only columns introduced by the lightweight migration are in scope. Targets
++# and delete actions come from ORM metadata, not a second schema definition.
++_COLUMNS = (
++    ("file_resources", "audio_work_id"),
++    ("tv_series", "collection_id"),
++    ("movies", "collection_id"),
++    ("downloader_instances", "volume_id"),
++    ("libraries", "media_server_id"),
++    ("libraries", "volume_id"),
++    ("file_resources", "collection_id"),
++)
++
++
++async def repair_turso_foreign_keys(engine) -> None:
++    from app.database import Base
++
++    async with engine.begin() as conn:
++        # DDL is forbidden after BEGIN CONCURRENT. This startup-only phase
++        # must own a fresh ordinary transaction, including every table swap.
++        await conn.execute(text("BEGIN"))
++        quote = conn.dialect.identifier_preparer.quote
++        missing = defaultdict(list)
++        catalogs = {}
++        for table, column in _COLUMNS:
++            if table not in catalogs:
++                catalogs[table] = (await conn.execute(text(f"PRAGMA foreign_key_list({quote(table)})"))).all()
++            (fk,) = Base.metadata.tables[table].c[column].foreign_keys
++            target, target_column = fk.column.table.name, fk.column.name
++            action = fk.ondelete or "NO ACTION"
++            existing = [row for row in catalogs[table] if row[3] == column]
++            if existing:
++                if not all((row[2], row[4], row[6]) == (target, target_column, action) for row in existing):
++                    raise RuntimeError(f"Unexpected foreign key semantics for {table}.{column}")
++                continue
++            orphan_ids = list(
++                (
++                    await conn.execute(
++                        text(
++                            f"SELECT child.id FROM {quote(table)} child LEFT JOIN {quote(target)} parent "
++                            f"ON child.{quote(column)}=parent.{quote(target_column)} "
++                            f"WHERE child.{quote(column)} IS NOT NULL "
++                            f"AND parent.{quote(target_column)} IS NULL LIMIT 10"
++                        )
++                    )
++                ).scalars()
++            )
++            if orphan_ids:
++                raise RuntimeError(f"Cannot add {table}.{column} foreign key; orphan row IDs: {orphan_ids}")
++            missing[table].append(
++                f"FOREIGN KEY ({quote(column)}) REFERENCES {quote(target)} ({quote(target_column)}) ON DELETE {action}"
++            )
++        if not missing:
++            return
++        await conn.execute(text("PRAGMA foreign_keys=OFF"))
++        if await conn.scalar(text("PRAGMA foreign_keys")) != 0:
++            raise RuntimeError("Cannot suspend foreign keys for atomic schema repair")
++        try:
++            for table, clauses in missing.items():
++                ddl = await conn.scalar(
++                    text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:name"), {"name": table}
++                )
++                objects = list(
++                    (
++                        await conn.execute(
++                            text(
++                                "SELECT sql FROM sqlite_master WHERE tbl_name=:name AND type IN ('index','trigger') "
++                                "AND sql IS NOT NULL ORDER BY type,name"
++                            ),
++                            {"name": table},
++                        )
++                    ).scalars()
++                )
++                columns = [row[1] for row in (await conn.execute(text(f"PRAGMA table_info({quote(table)})"))).all()]
++                temporary = f"__fk_repair_{table}"
++                start, end = ddl.index("("), ddl.rindex(")")
++                rebuilt = f"CREATE TABLE {quote(temporary)} " + ddl[start:end] + ", " + ", ".join(clauses) + ddl[end:]
++                await conn.execute(text(rebuilt))
++                column_list = ", ".join(quote(column) for column in columns)
++                await conn.execute(
++                    text(f"INSERT INTO {quote(temporary)} ({column_list}) SELECT {column_list} FROM {quote(table)}")
++                )
++                await conn.execute(text(f"DROP TABLE {quote(table)}"))
++                await conn.execute(text(f"ALTER TABLE {quote(temporary)} RENAME TO {quote(table)}"))
++                for statement in objects:
++                    await conn.execute(text(statement))
++        finally:
++            await conn.execute(text("PRAGMA foreign_keys=ON"))
++
++
++async def repair_postgres_foreign_keys(conn) -> None:
++    """Run under startup's transaction-scoped advisory lock and DDL timeout."""
++    from app.database import Base
++
++    catalogs = await conn.run_sync(lambda sync: {
++        table: inspect(sync).get_foreign_keys(table) for table in dict.fromkeys(t for t, _ in _COLUMNS)
++    })
++    quote = conn.dialect.identifier_preparer.quote
++    for table, column in _COLUMNS:
++        (fk,) = Base.metadata.tables[table].c[column].foreign_keys
++        target, target_column = fk.column.table.name, fk.column.name
++        action = fk.ondelete or "NO ACTION"
++        existing = [item for item in catalogs[table] if item["constrained_columns"] == [column]]
++        if existing:
++            if not all(
++                item["referred_table"] == target
++                and item["referred_columns"] == [target_column]
++                and item["options"].get("ondelete", "NO ACTION") == action
++                for item in existing
++            ):
++                raise RuntimeError(f"Unexpected foreign key semantics for {table}.{column}")
++            continue
++        orphan_ids = list((await conn.execute(text(
++            f"SELECT child.id FROM {quote(table)} child LEFT JOIN {quote(target)} parent "
++            f"ON child.{quote(column)}=parent.{quote(target_column)} "
++            f"WHERE child.{quote(column)} IS NOT NULL "
++            f"AND parent.{quote(target_column)} IS NULL LIMIT 10"
++        ))).scalars())
++        if orphan_ids:
++            raise RuntimeError(f"Cannot add {table}.{column} foreign key; orphan row IDs: {orphan_ids}")
++        # ALTER validates every existing row again under PostgreSQL's table
++        # lock, so a writer cannot slip an orphan past the diagnostic precheck.
++        name = f"fk_repair_{table}_{column}"
++        await conn.execute(text(
++            f"ALTER TABLE {quote(table)} ADD CONSTRAINT {quote(name)} "
++            f"FOREIGN KEY ({quote(column)}) REFERENCES {quote(target)} ({quote(target_column)}) ON DELETE {action}"
++        ))
+--- /dev/null
++++ b/tests/unit/test_upgrade_foreign_keys.py
+@@ -0,0 +1,258 @@
++"""Actual startup must preserve fresh-schema FK enforcement on upgrades."""
++
++import re
++import uuid
++
++import pytest
++from sqlalchemy import delete, event, insert, select, text, update
++from sqlalchemy.exc import IntegrityError
++from sqlalchemy.schema import CreateTable
++
++from app.database import create_tables
++from app.models.series import TVSeries
++
++
++@pytest.mark.parametrize("legacy", [False, True], ids=["fresh", "upgraded"])
++async def test_series_collection_fk_after_startup(db_engine, db_session, legacy):
++    if legacy:
++        # Recreate only the empty series table in its historical shape:
++        # collection_id and its FK did not exist. Production startup must
++        # add the column and enforce the same parent relationship as new DBs.
++        ddl = str(CreateTable(TVSeries.__table__).compile(dialect=db_engine.dialect))
++        ddl = "\n".join(
++            line
++            for line in ddl.splitlines()
++            if not re.search(r"^\s*collection_id\s|FOREIGN KEY\(collection_id\)", line)
++        )
++        ddl = re.sub(r",\s*\)", "\n)", ddl)
++        async with db_engine.begin() as conn:
++            await conn.execute(text("DROP TABLE tv_series"))
++            await conn.execute(text(ddl))
++    await create_tables()
++    await create_tables()
++    async with db_engine.connect() as conn:
++        parents = (await conn.execute(text("PRAGMA foreign_key_list('tv_series')"))).all()
++        print("series FKs after startup:", parents)
++    with pytest.raises(IntegrityError):
++        async with db_session.begin_nested():
++            await db_session.execute(
++                text("INSERT INTO tv_series (id, season_number, collection_id) VALUES (:id, 1, :parent)"),
++                {"id": str(uuid.uuid4()), "parent": str(uuid.uuid4())},
++            )
++
++
++@pytest.mark.parametrize("legacy", [False, True, "unconstrained"], ids=["fresh", "missing-column", "existing-column"])
++@pytest.mark.parametrize(
++    "table,column,target,ondelete",
++    [
++        ("file_resources", "audio_work_id", "audio_works", "SET NULL"),
++        ("tv_series", "collection_id", "work_collections", "NO ACTION"),
++        ("movies", "collection_id", "work_collections", "NO ACTION"),
++        ("downloader_instances", "volume_id", "storage_volumes", "SET NULL"),
++        ("libraries", "media_server_id", "media_server_instances", "SET NULL"),
++        ("libraries", "volume_id", "storage_volumes", "SET NULL"),
++        ("file_resources", "collection_id", "work_collections", "NO ACTION"),
++    ],
++)
++async def test_light_migration_fk_schema_parity(db_engine, legacy, table, column, target, ondelete):
++    from app.database import Base
++
++    if legacy:
++        ddl = str(CreateTable(Base.metadata.tables[table]).compile(dialect=db_engine.dialect))
++        # A historical table cannot have either the new column's FK or a
++        # compound constraint referencing the not-yet-existing column.
++        patterns = rf"FOREIGN KEY\({column}\)"
++        if legacy is True:
++            patterns += rf"|^\s*{column}\s|CONSTRAINT.*\b{column}\b"
++        ddl = "\n".join(line for line in ddl.splitlines() if not re.search(patterns, line))
++        ddl = re.sub(r",\s*\)", "\n)", ddl)
++        async with db_engine.begin() as conn:
++            await conn.execute(text(f"DROP TABLE {table}"))
++            await conn.execute(text(ddl))
++    await create_tables()
++    await create_tables()
++    async with db_engine.connect() as conn:
++        rows = (await conn.execute(text(f"PRAGMA foreign_key_list('{table}')"))).all()
++    actual = {(row[3], row[2], row[4], row[6]) for row in rows}
++    assert (column, target, "id", ondelete) in actual, actual
++    await assert_fk_actions(db_engine, table, column, target, ondelete)
++
++
++@pytest.mark.parametrize("failure", [None, "orphan", "after-swap"])
++async def test_populated_series_repair_preserves_children_and_legacy_schema(db_engine, db_session, failure):
++    from app.models.channel import Channel
++    from app.models.episode import Episode
++    from app.models.file_resource import FileResource
++    from app.models.work_collection import WorkCollection
++    from app.models.work_external_id import WorkExternalId
++
++    ddl = str(CreateTable(TVSeries.__table__).compile(dialect=db_engine.dialect))
++    ddl = "\n".join(line for line in ddl.splitlines() if "FOREIGN KEY(collection_id)" not in line)
++    ddl = re.sub(r",\s*\)", "\n)", ddl)
++    async with db_engine.begin() as conn:
++        await conn.execute(text("DROP TABLE tv_series"))
++        await conn.execute(text(ddl))
++        await conn.execute(text("ALTER TABLE tv_series ADD COLUMN historical_note TEXT"))
++        await conn.execute(text("CREATE UNIQUE INDEX ix_historical_note ON tv_series(historical_note)"))
++    parent = WorkCollection(title_cn="Synthetic preserved parent")
++    channel = Channel(name="Synthetic preserved channel", url="https://example.invalid/rss", field_mapping={})
++    db_session.add_all([parent, channel])
++    await db_session.flush()
++    work = TVSeries(
++        title_cn="Synthetic manually edited work",
++        collection_id=parent.id,
++        season_number=3,
++        manually_edited_fields=["title_cn"],
++    )
++    db_session.add(work)
++    await db_session.flush()
++    episode = Episode(series_id=work.id, season=3, episode=1)
++    resource = FileResource(
++        channel_id=channel.id,
++        guid="synthetic-fk-preserve",
++        title_raw="Synthetic S03E01",
++        torrent_url="https://example.invalid/test.torrent",
++        series_id=work.id,
++        collection_id=parent.id,
++        season=3,
++        episode=1,
++    )
++    bag = WorkExternalId(work_type="series", work_id=work.id, source="tmdb", external_id="tmdb:900001#s3")
++    db_session.add_all([episode, resource, bag])
++    await db_session.execute(text("UPDATE tv_series SET historical_note='preserve me' WHERE id=:id"), {"id": work.id})
++    await db_session.commit()
++    ids = (work.id, parent.id, episode.id, resource.id, bag.id)
++    if failure:
++        before = {}
++        async with db_engine.begin() as conn:
++            if failure == "orphan":
++                await conn.execute(
++                    text("UPDATE tv_series SET collection_id='missing-parent' WHERE id=:id"), {"id": ids[0]}
++                )
++            for table in ("tv_series", "episodes", "file_resources", "work_external_ids"):
++                before[table] = (await conn.execute(text(f"SELECT * FROM {table} ORDER BY id"))).all()
++
++        def fail_after_swap(conn, cursor, statement, parameters, context, executemany):
++            if "__fk_repair_tv_series" in statement and "RENAME TO" in statement:
++                raise RuntimeError("injected after swap")
++
++        if failure == "after-swap":
++            event.listen(db_engine.sync_engine, "after_cursor_execute", fail_after_swap)
++        try:
++            with pytest.raises(RuntimeError, match="orphan row IDs|injected after swap"):
++                await create_tables()
++        finally:
++            if failure == "after-swap":
++                event.remove(db_engine.sync_engine, "after_cursor_execute", fail_after_swap)
++        async with db_engine.begin() as conn:
++            for table, rows in before.items():
++                assert (await conn.execute(text(f"SELECT * FROM {table} ORDER BY id"))).all() == rows
++            assert await conn.scalar(text("PRAGMA foreign_keys")) == 1
++            assert not (await conn.execute(text("PRAGMA foreign_key_list(tv_series)"))).all()
++            assert await conn.scalar(text("SELECT count(*) FROM sqlite_master WHERE name LIKE '__fk_repair_%'")) == 0
++            if failure == "orphan":
++                await conn.execute(
++                    text("UPDATE tv_series SET collection_id=:parent WHERE id=:id"), {"parent": ids[1], "id": ids[0]}
++                )
++    await create_tables()
++    await create_tables()
++    db_session.expire_all()
++    work = await db_session.get(TVSeries, ids[0])
++    assert (work.collection_id, work.season_number, work.title_cn, work.manually_edited_fields) == (
++        ids[1],
++        3,
++        "Synthetic manually edited work",
++        ["title_cn"],
++    )
++    assert (await db_session.get(Episode, ids[2])).series_id == ids[0]
++    resource = await db_session.get(FileResource, ids[3])
++    assert (resource.series_id, resource.collection_id) == (ids[0], ids[1])
++    assert (await db_session.get(WorkExternalId, ids[4])).work_id == ids[0]
++    assert (
++        await db_session.scalar(text("SELECT historical_note FROM tv_series WHERE id=:id"), {"id": ids[0]})
++        == "preserve me"
++    )
++    assert await db_session.scalar(text("SELECT count(*) FROM sqlite_master WHERE name='ix_historical_note'")) == 1
++
++
++async def assert_fk_actions(engine, table, column, target, ondelete):
++    """Exercise SQL directly: ORM relationship cascades cannot mask FK behavior."""
++    from app.database import Base
++
++    tables = Base.metadata.tables
++    parent_id, child_id = str(uuid.uuid4()), str(uuid.uuid4())
++    parent_values = {
++        "work_collections": {"title_cn": "Synthetic FK parent"},
++        "audio_works": {"title_cn": "Synthetic FK audio"},
++        "storage_volumes": {"name": parent_id, "mount_path": "/synthetic"},
++        "media_server_instances": {"name": parent_id, "type": "plex", "url": "https://example.invalid"},
++    }[target]
++    child_values = {
++        "tv_series": {"title_cn": "Synthetic FK series", "season_number": 1},
++        "movies": {"title_cn": "Synthetic FK movie"},
++        "libraries": {"name": child_id},
++        "downloader_instances": {"name": child_id, "url": "https://example.invalid", "download_dir": "/synthetic"},
++        "file_resources": {
++            "guid": child_id,
++            "title_raw": "Synthetic FK resource",
++            "torrent_url": "https://example.invalid/torrent",
++        },
++    }[table]
++    async with engine.begin() as conn:
++        if table == "file_resources":
++            channel_id = str(uuid.uuid4())
++            await conn.execute(
++                insert(tables["channels"]).values(
++                    id=channel_id,
++                    name=channel_id,
++                    url="https://example.invalid/rss",
++                    field_mapping={},
++                )
++            )
++            child_values["channel_id"] = channel_id
++        await conn.execute(insert(tables[target]).values(id=parent_id, **parent_values))
++        await conn.execute(insert(tables[table]).values(id=child_id, **child_values, **{column: parent_id}))
++        with pytest.raises(IntegrityError, match="(?i)foreign key"):
++            async with conn.begin_nested():
++                await conn.execute(
++                    update(tables[table]).where(tables[table].c.id == child_id).values(**{column: str(uuid.uuid4())})
++                )
++        invalid_values = dict(child_values)
++        if table == "file_resources":
++            invalid_values["guid"] = str(uuid.uuid4())
++        with pytest.raises(IntegrityError, match="(?i)foreign key"):
++            async with conn.begin_nested():
++                await conn.execute(
++                    insert(tables[table]).values(
++                        id=str(uuid.uuid4()),
++                        **invalid_values,
++                        **{column: str(uuid.uuid4())},
++                    )
++                )
++        removal = delete(tables[target]).where(tables[target].c.id == parent_id)
++        if ondelete == "SET NULL":
++            await conn.execute(removal)
++        else:
++            with pytest.raises(IntegrityError, match="(?i)foreign key"):
++                async with conn.begin_nested():
++                    await conn.execute(removal)
++        row = (await conn.execute(select(tables[table].c[column]).where(tables[table].c.id == child_id))).one()
++        assert row[0] == (None if ondelete == "SET NULL" else parent_id)
++
++
++@pytest.mark.parametrize("keep_correct_constraint", [False, True])
++async def test_existing_conflicting_fk_semantics_rejected(db_engine, keep_correct_constraint):
++    ddl = str(CreateTable(TVSeries.__table__).compile(dialect=db_engine.dialect))
++    if not keep_correct_constraint:
++        ddl = "\n".join(line for line in ddl.splitlines() if "FOREIGN KEY(collection_id)" not in line)
++        ddl = re.sub(r",\s*\)", "\n)", ddl)
++    end = ddl.rindex(")")
++    ddl = ddl[:end] + ", FOREIGN KEY(collection_id) REFERENCES work_collections(id) ON DELETE CASCADE" + ddl[end:]
++    async with db_engine.begin() as conn:
++        await conn.execute(text("DROP TABLE tv_series"))
++        await conn.execute(text(ddl))
++        before = (await conn.execute(text("PRAGMA foreign_key_list(tv_series)"))).all()
++    with pytest.raises(RuntimeError, match="Unexpected foreign key semantics for tv_series.collection_id"):
++        await create_tables()
++    async with db_engine.connect() as conn:
++        assert (await conn.execute(text("PRAGMA foreign_key_list(tv_series)"))).all() == before
+--- /dev/null
++++ b/tests/unit/test_turso_fk_rebuild_capability.py
+@@ -0,0 +1,98 @@
++"""Prove data-preserving Turso rebuild primitives before migrating app tables."""
++
++import pytest
++from sqlalchemy import text
++from sqlalchemy.exc import IntegrityError
++
++
++@pytest.mark.parametrize("mode", ["commit", "rollback", "orphan"])
++async def test_rebuild_preserves_children_indexes_triggers_and_rollback(db_engine, mode):
++    async with db_engine.begin() as conn:
++        statements = [
++            "CREATE TABLE probe_parent (id TEXT PRIMARY KEY)",
++            "CREATE TABLE probe_target (id TEXT PRIMARY KEY, parent_id TEXT, legacy_extra TEXT)",
++            "CREATE UNIQUE INDEX probe_extra ON probe_target(legacy_extra)",
++            "CREATE TABLE probe_audit (target_id TEXT)",
++            "CREATE TRIGGER probe_insert AFTER INSERT ON probe_target BEGIN INSERT INTO probe_audit VALUES (NEW.id); END",
++        ]
++        for action in ["CASCADE", "SET NULL", "RESTRICT"]:
++            name = action.lower().replace(" ", "_")
++            statements.append(
++                f"CREATE TABLE probe_child_{name} (id TEXT PRIMARY KEY,target_id TEXT REFERENCES probe_target(id) ON DELETE {action})"
++            )
++        for statement in statements:
++            await conn.execute(text(statement))
++        await conn.execute(text("INSERT INTO probe_parent VALUES ('parent')"))
++        await conn.execute(
++            text("INSERT INTO probe_target VALUES (:id,:parent,:extra)"),
++            {"id": "target", "parent": "missing" if mode == "orphan" else "parent", "extra": "retired-but-preserved"},
++        )
++        for name in ["cascade", "set_null", "restrict"]:
++            await conn.execute(text(f"INSERT INTO probe_child_{name} VALUES ('child','target')"))
++
++    async def rebuild():
++        async with db_engine.begin() as conn:
++            # The application's default BEGIN CONCURRENT cannot perform DDL.
++            # A startup-only rebuild needs an explicit ordinary transaction.
++            await conn.execute(text("BEGIN"))
++            await conn.execute(text("UPDATE probe_target SET legacy_extra=legacy_extra"))
++            await conn.execute(text("PRAGMA foreign_keys=OFF"))
++            assert await conn.scalar(text("PRAGMA foreign_keys")) == 0
++            try:
++                await conn.execute(
++                    text(
++                        "CREATE TABLE probe_target_new (id TEXT PRIMARY KEY,parent_id TEXT REFERENCES probe_parent(id) ON DELETE SET NULL,legacy_extra TEXT)"
++                    )
++                )
++                await conn.execute(text("INSERT INTO probe_target_new SELECT * FROM probe_target"))
++                await conn.execute(text("DROP TABLE probe_target"))
++                await conn.execute(text("ALTER TABLE probe_target_new RENAME TO probe_target"))
++                await conn.execute(text("CREATE UNIQUE INDEX probe_extra ON probe_target(legacy_extra)"))
++                await conn.execute(
++                    text(
++                        "CREATE TRIGGER probe_insert AFTER INSERT ON probe_target BEGIN INSERT INTO probe_audit VALUES (NEW.id); END"
++                    )
++                )
++                # This Turso version does not return rows for foreign_key_check.
++                # Validate the concrete relationship with an explicit anti-join.
++                problems = (await conn.execute(text(
++                    "SELECT child.id FROM probe_target child LEFT JOIN probe_parent parent "
++                    "ON parent.id=child.parent_id WHERE child.parent_id IS NOT NULL AND parent.id IS NULL"
++                ))).all()
++                if problems:
++                    raise ValueError("orphan precludes constraint validation")
++                if mode == "rollback":
++                    raise ValueError("injected after complete rebuild")
++            finally:
++                await conn.execute(text("PRAGMA foreign_keys=ON"))
++
++    if mode == "commit":
++        await rebuild()
++    else:
++        with pytest.raises(ValueError, match="orphan|injected"):
++            await rebuild()
++    async with db_engine.connect() as conn:
++        assert await conn.scalar(text("PRAGMA foreign_keys")) == 1
++        for name in ["cascade", "set_null", "restrict"]:
++            assert (await conn.execute(text(f"SELECT * FROM probe_child_{name}"))).all() == [("child", "target")]
++        assert (await conn.execute(text("SELECT * FROM probe_audit"))).all() == [("target",)]
++        assert (await conn.execute(text("SELECT * FROM probe_target"))).all() == [
++            ("target", "missing" if mode == "orphan" else "parent", "retired-but-preserved")
++        ]
++        foreign_keys = (await conn.execute(text("PRAGMA foreign_key_list('probe_target')"))).all()
++        assert bool(foreign_keys) == (mode == "commit")
++        objects = (
++            (await conn.execute(text("SELECT name FROM sqlite_master WHERE name IN ('probe_extra','probe_insert')")))
++            .scalars()
++            .all()
++        )
++        assert set(objects) == {"probe_extra", "probe_insert"}
++        assert await conn.scalar(text("SELECT count(*) FROM sqlite_master WHERE name='probe_target_new'")) == 0
++    if mode == "commit":
++        with pytest.raises(IntegrityError):
++            async with db_engine.begin() as conn:
++                await conn.execute(text("INSERT INTO probe_target VALUES ('invalid','missing','other')"))
++        async with db_engine.begin() as conn:
++            await conn.execute(text("INSERT INTO probe_target VALUES ('valid','parent','other')"))
++        async with db_engine.connect() as conn:
++            assert set((await conn.execute(text("SELECT target_id FROM probe_audit"))).scalars()) == {"target", "valid"}
+--- a/tests/unit/test_database_migrations.py
++++ b/tests/unit/test_database_migrations.py
+@@ -1105,7 +1105,10 @@
+     monkeypatch.setattr(db_mod, "engine", _FakeEngine())
+     monkeypatch.setattr(db_mod, "_apply_light_migrations", AsyncMock())
+     monkeypatch.setattr(db_mod, "_ensure_pg_trgm_indexes", AsyncMock())
++    repair = AsyncMock()
++    monkeypatch.setattr("app.services.schema_foreign_keys.repair_postgres_foreign_keys", repair)
+     await _create_tables_postgres()
++    repair.assert_awaited_once()
+     assert state["calls"] == 1
+ 
+ 
+--- /dev/null
++++ b/tests/unit/test_upgrade_fk_related_data.py
+@@ -0,0 +1,118 @@
++"""Real legacy table rebuilds must retain downloads and organize associations."""
++
++import re
++import uuid
++
++import pytest
++from sqlalchemy import event, insert, select, text
++from sqlalchemy.schema import CreateTable
++
++from app.database import Base, create_tables
++
++
++@pytest.mark.parametrize("inject_failure", [False, True])
++async def test_rebuild_preserves_downloads_and_organize_links(db_engine, inject_failure):
++    tables = Base.metadata.tables
++    legacy = {
++        "file_resources": ("audio_work_id", "collection_id"),
++        "downloader_instances": ("volume_id",),
++        "libraries": ("media_server_id", "volume_id"),
++    }
++    async with db_engine.begin() as conn:
++        for table, columns in legacy.items():
++            ddl = str(CreateTable(tables[table]).compile(dialect=db_engine.dialect))
++            ddl = "\n".join(line for line in ddl.splitlines() if not any(f"FOREIGN KEY({c})" in line for c in columns))
++            ddl = re.sub(r",\s*\)", "\n)", ddl)
++            await conn.execute(text(f"DROP TABLE {table}"))
++            await conn.execute(text(ddl))
++
++        async def add(table, **values):
++            identity = str(uuid.uuid4())
++            await conn.execute(insert(tables[table]).values(id=identity, **values))
++            return identity
++
++        channel = await add("channels", name="Synthetic", url="https://example.invalid/rss", field_mapping={})
++        volume = await add("storage_volumes", name="Synthetic", mount_path="/synthetic")
++        server = await add("media_server_instances", name="Synthetic", type="plex", url="https://example.invalid")
++        audio = await add("audio_works", title_cn="Synthetic audio")
++        downloader = await add(
++            "downloader_instances",
++            name="Synthetic",
++            url="https://example.invalid",
++            download_dir="/synthetic",
++            volume_id=volume,
++        )
++        resource = await add(
++            "file_resources",
++            channel_id=channel,
++            guid="synthetic-fk-links",
++            title_raw="Synthetic audio",
++            torrent_url="https://example.invalid/torrent",
++            audio_work_id=audio,
++        )
++        library = await add(
++            "libraries",
++            name="Synthetic",
++            media_server_id=server,
++            volume_id=volume,
++            root_subpath="protected",
++            section_key="1",
++            server_path="/synthetic/protected",
++        )
++        task = await add(
++            "download_tasks",
++            file_resource_id=resource,
++            downloader_id=downloader,
++            download_dir="/synthetic",
++            status="completed",
++        )
++        notification = await add(
++            "download_notifications", download_task_id=task, payload={"version": 2, "sentinel": "preserve"}
++        )
++        rule = await add(
++            "organize_rules",
++            name="Synthetic protected rule",
++            library_id=library,
++            path_template="{title}",
++            file_op="copy",
++        )
++        await add(
++            "organize_plans",
++            notification_id=notification,
++            rule_id=rule,
++            library_id=library,
++            payload={"version": 2, "sentinel": "frozen"},
++            file_op="copy",
++            manual_destination=True,
++        )
++        watched = [*legacy, "download_tasks", "download_notifications", "organize_rules", "organize_plans"]
++        before = {
++            table: (await conn.execute(select(tables[table]).order_by(tables[table].c.id))).all() for table in watched
++        }
++
++    def fail_after_all_swaps(conn, cursor, statement, parameters, context, executemany):
++        if "__fk_repair_libraries" in statement and "RENAME TO" in statement:
++            raise RuntimeError("injected after final swap")
++
++    if inject_failure:
++        event.listen(db_engine.sync_engine, "after_cursor_execute", fail_after_all_swaps)
++        try:
++            with pytest.raises(RuntimeError, match="injected after final swap"):
++                await create_tables()
++        finally:
++            event.remove(db_engine.sync_engine, "after_cursor_execute", fail_after_all_swaps)
++        async with db_engine.connect() as conn:
++            for table in watched:
++                assert (await conn.execute(select(tables[table]).order_by(tables[table].c.id))).all() == before[table]
++            for table, columns in legacy.items():
++                fks = (await conn.execute(text(f"PRAGMA foreign_key_list({table})"))).all()
++                assert not any(row[3] in columns for row in fks)
++            assert await conn.scalar(text("PRAGMA foreign_keys")) == 1
++    await create_tables()
++    await create_tables()
++    async with db_engine.connect() as conn:
++        for table in watched:
++            assert (await conn.execute(select(tables[table]).order_by(tables[table].c.id))).all() == before[table]
++        for table, columns in legacy.items():
++            fks = (await conn.execute(text(f"PRAGMA foreign_key_list({table})"))).all()
++            assert all(any(row[3] == column for row in fks) for column in columns)
+--- /dev/null
++++ b/tests/unit/test_upgrade_fk_report.py
+@@ -0,0 +1,54 @@
++"""Read-only preflight must export all affected identities before startup."""
++
++import json
++
++import pytest
++from sqlalchemy import event, text
++
++from scripts.verify_upgrade_foreign_keys import export_orphans
++
++
++@pytest.mark.parametrize("mode", ["clean", "orphans", "missing-target", "missing-column"])
++async def test_preflight_is_read_only_and_complete(db_engine, tmp_path, mode):
++    # Deliberately small legacy schema: the report must not run create_all.
++    async with db_engine.begin() as conn:
++        await conn.execute(text("DROP TABLE movies"))
++        columns = "id TEXT PRIMARY KEY" + (", collection_id TEXT" if mode != "missing-column" else "")
++        await conn.execute(text(f"CREATE TABLE movies ({columns})"))
++        if mode == "missing-target":
++            await conn.execute(text("DROP TABLE work_collections"))
++        if mode in {"orphans", "missing-target"}:
++            await conn.execute(
++                text("INSERT INTO movies(id,collection_id) VALUES (:id,:parent)"),
++                [{"id": f"synthetic-{n:03}", "parent": f"missing-{n:03}"} for n in range(103)],
++            )
++        before = (await conn.execute(text("SELECT * FROM movies ORDER BY id"))).all()
++    statements = []
++
++    def capture(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement.strip().upper())
++
++    event.listen(db_engine.sync_engine, "before_cursor_execute", capture)
++    output = tmp_path / "orphans.jsonl"
++    try:
++        code = await export_orphans(str(output))
++    finally:
++        event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
++    assert statements and all(s.startswith(("SELECT", "PRAGMA")) for s in statements), statements
++    rows = [json.loads(line) for line in output.read_text().splitlines()]
++    if mode in {"orphans", "missing-target"}:
++        assert code == 1 and len(rows) == 103
++        assert rows == [
++            {
++                "table": "movies",
++                "column": "collection_id",
++                "id": f"synthetic-{n:03}",
++                "parent_id": f"missing-{n:03}",
++                "target": "work_collections.id",
++            }
++            for n in range(103)
++        ]
++    else:
++        assert code == 0 and rows == []
++    async with db_engine.connect() as conn:
++        assert (await conn.execute(text("SELECT * FROM movies ORDER BY id"))).all() == before
+--- /dev/null
++++ b/scripts/verify_upgrade_foreign_keys.py
+@@ -0,0 +1,79 @@
++"""Read-only export of orphan rows for the lightweight-migration foreign keys.
++
++Run with the target DATABASE_URL before upgrading. Exit 1 means manual repair
++is needed; this command never calls startup DDL or invents parent associations.
++"""
++
++import argparse
++import asyncio
++import json
++
++from sqlalchemy import inspect, text
++
++import app.database as database
++import app.models  # noqa: F401
++from app.services.schema_foreign_keys import _COLUMNS
++
++
++async def export_orphans(path: str) -> int:
++    total = 0
++    async with database.engine.connect() as conn:
++        quote = conn.dialect.identifier_preparer.quote
++        existing = set(await conn.run_sync(lambda sync: inspect(sync).get_table_names()))
++        columns = {}
++        with open(path, "w", encoding="utf-8") as output:
++            for table, column in _COLUMNS:
++                if table not in existing:
++                    continue
++                if table not in columns:
++                    columns[table] = {
++                        c["name"] for c in await conn.run_sync(lambda sync: inspect(sync).get_columns(table))
++                    }
++                if column not in columns[table]:
++                    continue
++                (fk,) = database.Base.metadata.tables[table].c[column].foreign_keys
++                target, target_column = fk.column.table.name, fk.column.name
++                join = ""
++                predicate = ""
++                if target in existing:
++                    join = f" LEFT JOIN {quote(target)} parent ON child.{quote(column)}=parent.{quote(target_column)}"
++                    predicate = f" AND parent.{quote(target_column)} IS NULL"
++                query = text(
++                    f"SELECT child.id, child.{quote(column)} AS parent_id FROM {quote(table)} child"
++                    f"{join} WHERE child.{quote(column)} IS NOT NULL{predicate} ORDER BY child.id"
++                ).execution_options(yield_per=100)
++                async for row in await conn.stream(query):
++                    output.write(
++                        json.dumps(
++                            {
++                                "table": table,
++                                "column": column,
++                                "id": row.id,
++                                "parent_id": row.parent_id,
++                                "target": f"{target}.{target_column}",
++                            },
++                            ensure_ascii=False,
++                        )
++                        + "\n"
++                    )
++                    total += 1
++    print(f"orphan references: {total}; report: {path}")
++    return 1 if total else 0
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", required=True, help="JSONL file containing every orphan reference")
++    args = parser.parse_args()
++
++    async def run():
++        try:
++            return await export_orphans(args.output)
++        finally:
++            await database.engine.dispose()
++
++    raise SystemExit(asyncio.run(run()))
++
++
++if __name__ == "__main__":
++    main()
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -227,3 +227,20 @@
+ 若已经遇到启动失败，停止重启循环，保留日志及备份，用同一只读脚本输出冲突；回到前一可运行版本处理数据后再试。schema 阶段失败不会自动完成数据收敛；不要删除索引后强行继续运行。
+ 
+ 合集挂载使用按 ID 排序的父锁并检查目标季槽；壳吸收/直接挂载的变更在 SAVEPOINT 内执行。检查后的竞争写入若触发该唯一约束则回滚完整变更并返回 409 DUPLICATE_SUBMISSION，其他数据库异常仍正常上抛。
++
++
++### 轻量迁移的升级外键对等（D2）
++
++七处历史新增 FK 列必须与新装库一致：`file_resources.audio_work_id`、`tv_series.collection_id`、`movies.collection_id`、`downloader_instances.volume_id`、`libraries.media_server_id`、`libraries.volume_id`、`file_resources.collection_id`。新增列直接带 REFERENCES；已存在列须按 catalog 核对目标表/列和 ON DELETE，不能仅因列存在就跳过。目标与删除动作以 ORM 模型为准；错误的既有约束明确拒绝启动，不自动改成另一种关联语义。
++
++升级前，在停止旧进程并备份数据库后，以目标 DATABASE_URL 运行只读预检：
++
++```bash
++PYTHONPATH=. .venv/bin/python scripts/verify_upgrade_foreign_keys.py --output /tmp/fk-orphans.jsonl
++```
++
++退出 0 表示这七处没有悬空关联；退出 1 时 JSONL 完整列出表、列、子行 ID、父键与目标。不调用 create_tables，不触发回填或其他 DDL；兼容尚无相关表/列的旧库。根据业务证据逐项修复或恢复父项后重跑，禁止凭季号/名称猜测重连或直接删除子行。它不替代 D1 同季冲突预检，也不表示所有其他 FK 均已审计。
++
++PostgreSQL 在现有启动 advisory transaction lock 与有界 DDL lock_timeout 内补约束；先诊断悬空 ID，再由 ALTER ADD CONSTRAINT 在锁下验证完整数据；任一失败回滚本轮 schema 事务。Turso 已有列缺约束需表重建：在 schema 阶段完成后、孤儿作品回填前，以新的普通 BEGIN 执行，不能使用 BEGIN CONCURRENT；按原始 CREATE 定义保留历史额外列、唯一约束、显式索引和触发器。重建前预检悬空值，暂时关闭外键防止 DROP 触发子表 CASCADE/SET NULL/RESTRICT；所有换表处于同一事务，finally 恢复 foreign_keys=ON。失败恢复原表及其子行，不吞异常继续启动；已完成的先前轻迁移 schema 阶段可能仍保留，业务关联不会被猜测修补。
++
++该修复不支持迁移期间其他程序写同一个 Turso 文件；遵循原有单进程独占/停机升级要求。数据量大时表复制与索引重建会占用额外磁盘和启动时间，应在数据库备份副本演练后安排升级窗口。
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -822,3 +822,6 @@
+ ### AgentResourceRequest（持久化定向重跑请求）
+ 
+ `agent_resource_requests` 使用 UUID v4 字符串主键；`agent_id`、`resource_id` 非空并分别 FK CASCADE，二者联合唯一。`revision` 非空默认 1，每次新修订原子递增；`requested_at` 为 UTC；`attempt_count` 非空默认 0；`next_attempt_at` 可空 UTC 且有索引；`error_message` 可空、最长 2048。新修订保留行 id、重置错误与退避；消费确认必须同时匹配 id 与 revision，防止旧运行删除新修订或删除后重建的请求。
++
++
++轻量迁移新增的七处外键（audio/collection/volume/media_server 关联）在新装与升级库必须具有相同目标及 ON DELETE；已有列不代表约束已存在。启动检查并补齐缺失约束，旧悬空关联必须由明确业务证据修复，不自动丢弃子行或猜测父项。只读预检、Turso 原子重建与 PG 事务补约束见 [数据库迁移](db-migration.md)「轻量迁移的升级外键对等」。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -276,3 +276,8 @@
+ `test_collection_season_index.py` 通过真实 Turso 新装/升级与人工编辑、Episode、身份袋保留验证；`test_collection_season_conflicts.py` 覆盖 409 和非季号异常不误分类；`test_collection_conflict_report.py` 覆盖 103 个冲突成员流式报告与只读 SQL。PostgreSQL 复现驱动在 docs/plans/p0-and-backlog/probes/collection_season*_pg_probe.py，分别验证双启动、写入竞争、检查后竞争、两个 HTTP ASGI 请求抢槽及实际 CLI。数据为标注合成数据，不冒充在线来源录制。
+ 
+ D1 写入路径回归覆盖去重继承合集的删除/赋值顺序、Wikidata 同季冲突的 apply/dry-run 拒绝及标签保留；Bangumi 旧默认季号修正用独立壳合集作为合法初态，人工季号与播出日期保护断言保持。
++
++
++D2 升级外键验证：`tests/unit/test_upgrade_foreign_keys.py` 使用真实 Turso 验证七 FK × 新装/缺列/已有列缺约束、非法 INSERT/UPDATE、父项 DELETE 的 SET NULL/NO ACTION；包含带 Episode/资源/身份袋/人工保护/历史额外列和索引的升级及脏数据拒绝、换表后注入故障与恢复。`test_upgrade_fk_related_data.py` 验证多表重建保留下载任务、通知、RESTRICT 规则及 SET NULL 计划，末尾失败整批回滚。`test_upgrade_fk_report.py` 验证预检全程只读并完整导出跨页 103 个悬空引用。`test_turso_fk_rebuild_capability.py` 记录后端事务、索引/触发器与回滚能力边界。
++
++PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等待与恢复使用 `docs/plans/p0-and-backlog/probes/upgrade_foreign_keys*_pg_probe.py`，必须只运行于探针检查允许的独立本地测试库，报告与 Compose 清理证据见 V9 计划。上述定向测试不能替代完整单元/API ≥95% 和隔离集成 ≥85% 门禁。

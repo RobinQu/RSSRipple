@@ -28,7 +28,7 @@
          String(36), primary_key=True, default=lambda: str(uuid.uuid4())
 --- a/app/database.py
 +++ b/app/database.py
-@@ -555,8 +555,7 @@
+@@ -562,8 +562,7 @@
          # Per-season works (作品单季化 P2): one TVSeries row = exactly one
          # season of the IP; 0 = specials (Plex Specials convention). The
          # legacy seasons/number_of_seasons columns stay as inert orphans. The
@@ -38,7 +38,7 @@
          ("tv_series", "season_number", "INTEGER NOT NULL DEFAULT 1"),
          # WorkCollection upgraded to the series-level metadata carrier:
          # alias list, normalized search haystack (before_flush hook only —
-@@ -599,6 +598,15 @@
+@@ -606,6 +605,15 @@
          async with _best_effort(conn, f"add column {table}.{column}"):
              await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
              logger.info("[migrate] added column %s.%s", table, column)
@@ -54,6 +54,112 @@
  
      from app.services.organize_config_events import ensure_configuration
  
+--- a/app/api/v1/collections.py
++++ b/app/api/v1/collections.py
+@@ -10,6 +10,7 @@
+ from fastapi import APIRouter, Depends, Query
+ from fastapi.responses import JSONResponse
+ from sqlalchemy import func, or_, select
++from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.orm import selectinload
+ 
+@@ -209,6 +210,14 @@
+     return success_response({"deleted": True})
+ 
+ 
++def _season_conflict():
++    return JSONResponse(status_code=409, content={
++        "success": False, "data": None,
++        "error": {"code": "DUPLICATE_SUBMISSION",
++                  "message": "Collection already contains a work for this season."},
++    })
++
++
+ @router.post("/collections/{collection_id}/works", status_code=201)
+ async def attach_work(
+     collection_id: str,
+@@ -268,32 +277,56 @@
+     if work.collection_id == collection_id:
+         # Already a member of THIS collection — idempotent attach.
+         return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
+-    if work.collection_id is not None:
+-        # Per-season model: a single-member ``series_group`` shell is an
+-        # upsert artifact, not a deliberate grouping — absorb it (bag rows +
+-        # aliases merge into the target, the empty shell is deleted) so a
+-        # "same series, two shells" state is fixable from the UI. Multi-
+-        # member or non-shell collections still refuse the move with 409.
+-        if await try_absorb_shell_collection(db, collection, work):
++    if isinstance(work, TVSeries):
++        occupied = await db.scalar(
++            select(TVSeries.id).where(
++                TVSeries.collection_id == collection_id,
++                TVSeries.season_number == work.season_number,
++                TVSeries.id != work.id,
++            ).limit(1)
++        )
++        if occupied:
++            return _season_conflict()
++    try:
++        # Shell absorption also moves aliases, identity bags and resource
++        # pointers. Roll all of them back if a competing writer takes the
++        # season slot after our parent-locked precheck.
++        async with db.begin_nested():
++            if work.collection_id is not None:
++                # Per-season model: a single-member ``series_group`` shell is an
++                # upsert artifact, not a deliberate grouping — absorb it (bag rows +
++                # aliases merge into the target, the empty shell is deleted) so a
++                # "same series, two shells" state is fixable from the UI. Multi-
++                # member or non-shell collections still refuse the move with 409.
++                if await try_absorb_shell_collection(db, collection, work):
++                    await db.flush()
++                    return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
++                return JSONResponse(
++                    status_code=409,
++                    content={
++                        "success": False,
++                        "data": None,
++                        "error": {
++                            "code": "DUPLICATE_SUBMISSION",
++                            "message": (
++                                "Work already belongs to another collection "
++                                f"({work.collection_id}); detach it first."
++                            ),
++                        },
++                    },
++                )
++            work.collection_id = collection_id
+             await db.flush()
+             return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
+-        return JSONResponse(
+-            status_code=409,
+-            content={
+-                "success": False,
+-                "data": None,
+-                "error": {
+-                    "code": "DUPLICATE_SUBMISSION",
+-                    "message": (
+-                        "Work already belongs to another collection "
+-                        f"({work.collection_id}); detach it first."
+-                    ),
+-                },
+-            },
+-        )
+-    work.collection_id = collection_id
+-    await db.flush()
+-    return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
++    except IntegrityError as exc:
++        message = str(exc.orig)
++        if (
++            "uq_tv_series_collection_season" not in message
++            and "UNIQUE constraint failed: tv_series.collection_id, tv_series.season_number" not in message
++        ):
++            raise
++        return _season_conflict()
++
+ 
+ 
+ @router.delete("/collections/{collection_id}/works/{work_id}")
 --- /dev/null
 +++ b/tests/unit/test_collection_season_index.py
 @@ -0,0 +1,104 @@
@@ -161,3 +267,625 @@
 +        async with db_session.begin_nested():
 +            db_session.add(TVSeries(title_cn="Synthetic conflicting insert", collection_id=keys[0], season_number=3))
 +            await db_session.flush()
+--- /dev/null
++++ b/tests/api/test_collection_season_conflicts.py
+@@ -0,0 +1,76 @@
++"""Collection season conflicts must return 409 and preserve both identities."""
++
++import pytest
++from sqlalchemy import select
++
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++
++
++@pytest.mark.parametrize("shell_source", [False, True], ids=["legacy-orphan", "shell"])
++async def test_attach_occupied_season_returns_409_without_moving_identities(client, db_session, shell_source):
++    target = WorkCollection(title_cn="Synthetic occupied parent", aliases=["target alias"])
++    shell = WorkCollection(title_cn="Synthetic source shell", external_source="series_group", aliases=["source alias"])
++    db_session.add_all([target, shell])
++    await db_session.flush()
++    existing = TVSeries(title_cn="Synthetic existing S1", collection_id=target.id, season_number=1)
++    incoming = TVSeries(
++        title_cn="Synthetic incoming S1", collection_id=shell.id if shell_source else None, season_number=1
++    )
++    bag = WorkExternalId(
++        work_type="collection", work_id=shell.id, source="wikipedia", external_id="wikipedia:zh:900001"
++    )
++    db_session.add_all([existing, incoming, bag])
++    await db_session.commit()
++    target_id, source_id, work_id, bag_id = target.id, shell.id, incoming.id, bag.id
++    response = await client.post(
++        f"/api/v1/collections/{target_id}/works", json={"work_type": "series", "work_id": work_id}
++    )
++    assert response.status_code == 409, response.text
++    assert response.json()["error"]["code"] == "DUPLICATE_SUBMISSION"
++    db_session.expire_all()
++    incoming = await db_session.get(TVSeries, work_id)
++    assert incoming.collection_id == (source_id if shell_source else None)
++    target = await db_session.get(WorkCollection, target_id)
++    assert target.aliases == ["target alias"]
++    assert await db_session.get(WorkCollection, source_id) is not None
++    assert (await db_session.get(WorkExternalId, bag_id)).work_id == source_id
++    assert len(list(await db_session.scalars(select(TVSeries)))) == 2
++
++
++async def test_unrelated_identity_constraint_is_not_reported_as_season_conflict(client, db_session, monkeypatch):
++    from sqlalchemy.exc import IntegrityError
++
++    from app.api.v1 import collections
++
++    target = WorkCollection(title_cn="Synthetic empty target")
++    shell = WorkCollection(title_cn="Synthetic source shell", external_source="series_group")
++    db_session.add_all([target, shell])
++    await db_session.flush()
++    work = TVSeries(title_cn="Synthetic source work", collection_id=shell.id, season_number=1)
++    bag = WorkExternalId(
++        work_type="collection", work_id=shell.id, source="wikipedia", external_id="wikipedia:zh:900002"
++    )
++    db_session.add_all([work, bag])
++    await db_session.commit()
++    target_id, shell_id, work_id, bag_id = target.id, shell.id, work.id, bag.id
++    original = collections.try_absorb_shell_collection
++
++    async def duplicate_identity_after_absorption(db, parent, member):
++        result = await original(db, parent, member)
++        db.add(
++            WorkExternalId(
++                work_type="collection", work_id=parent.id, source="wikipedia", external_id="wikipedia:zh:900002"
++            )
++        )
++        await db.flush()
++        return result
++
++    monkeypatch.setattr(collections, "try_absorb_shell_collection", duplicate_identity_after_absorption)
++    with pytest.raises(IntegrityError, match="work_external_ids"):
++        await client.post(f"/api/v1/collections/{target_id}/works", json={"work_type": "series", "work_id": work_id})
++    db_session.expire_all()
++    assert await db_session.get(WorkCollection, shell_id) is not None
++    assert (await db_session.get(TVSeries, work_id)).collection_id == shell_id
++    assert (await db_session.get(WorkExternalId, bag_id)).work_id == shell_id
+--- a/scripts/verify_season_split.py
++++ b/scripts/verify_season_split.py
+@@ -33,7 +33,7 @@
+ import json
+ import sys
+ 
+-from sqlalchemy import func, select
++from sqlalchemy import and_, func, select
+ 
+ import app.database as app_database
+ from app.models.agent_work import AgentWork
+@@ -285,6 +285,38 @@
+     return 0
+ 
+ 
++async def _write_collection_conflicts(path: str) -> int:
++    """Export every conflicting member without startup DDL or data writes."""
++    duplicate_slots = (
++        select(TVSeries.collection_id, TVSeries.season_number, func.count().label("work_count"))
++        .where(TVSeries.collection_id.is_not(None))
++        .group_by(TVSeries.collection_id, TVSeries.season_number)
++        .having(func.count() > 1)
++        .subquery()
++    )
++    statement = (
++        select(
++            TVSeries.collection_id, TVSeries.season_number, duplicate_slots.c.work_count,
++            TVSeries.id, TVSeries.title_cn, TVSeries.title_en,
++            TVSeries.external_source, TVSeries.external_id, TVSeries.manually_edited_fields,
++        )
++        .join(duplicate_slots, and_(
++            TVSeries.collection_id == duplicate_slots.c.collection_id,
++            TVSeries.season_number == duplicate_slots.c.season_number,
++        ))
++        .order_by(TVSeries.collection_id, TVSeries.season_number, TVSeries.id)
++        .execution_options(yield_per=100)
++    )
++    count = 0
++    async with app_database.async_session_factory() as db:
++        with open(path, "w", encoding="utf-8") as output:
++            async for row in await db.stream(statement):
++                output.write(json.dumps(dict(row._mapping), ensure_ascii=False) + "\n")
++                count += 1
++    print(f"collection-season conflicting members: {count}; report: {path}")
++    return 1 if count else 0
++
++
+ async def _write_snapshot(path: str) -> None:
+     async with app_database.async_session_factory() as db:
+         counts = await _snapshot_counts(db)
+@@ -298,7 +330,15 @@
+     parser.add_argument("--snapshot", default=None, help="pre-migration counts JSON to compare")
+     parser.add_argument("--write-snapshot", default=None, help="capture current counts and exit")
+     parser.add_argument("--strict", action="store_true", help="escalate warnings to failures")
++    parser.add_argument(
++        "--collection-conflicts-jsonl", default=None,
++        help="read-only collection-season conflict export; exit 1 when conflicts exist",
++    )
+     args = parser.parse_args()
++    if args.collection_conflicts_jsonl:
++        if args.write_snapshot or args.snapshot or args.strict:
++            parser.error("--collection-conflicts-jsonl must be used without other modes")
++        sys.exit(asyncio.run(_write_collection_conflicts(args.collection_conflicts_jsonl)))
+     if args.write_snapshot:
+         asyncio.run(_write_snapshot(args.write_snapshot))
+         return
+--- /dev/null
++++ b/tests/unit/test_collection_conflict_report.py
+@@ -0,0 +1,54 @@
++"""A startup-independent conflict report must preserve all legacy data."""
++
++import json
++
++import pytest
++from sqlalchemy import event, select, text
++
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from scripts.verify_season_split import _write_collection_conflicts
++
++
++@pytest.mark.parametrize("conflicts", [False, True])
++async def test_conflict_report_is_complete_and_read_only(db_engine, db_session, tmp_path, conflicts):
++    async with db_engine.begin() as conn:
++        await conn.execute(text("DROP INDEX uq_tv_series_collection_season"))
++    parent = WorkCollection(title_cn="Synthetic report parent")
++    other = WorkCollection(title_cn="Synthetic control parent")
++    db_session.add_all([parent, other])
++    await db_session.flush()
++    members = [
++        TVSeries(
++            title_cn=f"Synthetic protected {i}",
++            collection_id=parent.id,
++            season_number=1 if conflicts else i,
++            manually_edited_fields=["title_cn"],
++        )
++        for i in range(103)
++    ]
++    control = TVSeries(title_cn="Synthetic control", collection_id=other.id, season_number=1)
++    db_session.add_all([*members, control])
++    await db_session.commit()
++    expected = {member.id for member in members} if conflicts else set()
++    before = {(r.id, r.collection_id, r.season_number, r.title_cn) for r in await db_session.scalars(select(TVSeries))}
++    # Release the observer transaction before the independent report session.
++    await db_session.rollback()
++    statements = []
++
++    def record(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement)
++
++    event.listen(db_engine.sync_engine, "before_cursor_execute", record)
++    report = tmp_path / "conflicts.jsonl"
++    try:
++        result = await _write_collection_conflicts(str(report))
++    finally:
++        event.remove(db_engine.sync_engine, "before_cursor_execute", record)
++    assert result == int(conflicts)
++    rows = [json.loads(line) for line in report.read_text().splitlines()]
++    assert {row["id"] for row in rows} == expected
++    assert all(row["work_count"] == 103 and row["manually_edited_fields"] == ["title_cn"] for row in rows)
++    assert statements and all(sql.lstrip().upper().startswith("SELECT") for sql in statements)
++    after = {(r.id, r.collection_id, r.season_number, r.title_cn) for r in await db_session.scalars(select(TVSeries))}
++    assert after == before
+--- a/tests/unit/test_collection_service.py
++++ b/tests/unit/test_collection_service.py
+@@ -534,8 +534,8 @@
+ 
+ async def test_collection_work_summaries_excludes_series(db_session):
+     coll = WorkCollection(id=_uuid(), title_cn="合集")
+-    s1 = TVSeries(id=_uuid(), title_cn="剧1", content_type="tv", collection_id=coll.id)
+-    s2 = TVSeries(id=_uuid(), title_cn="剧2", content_type="tv", collection_id=coll.id)
++    s1 = TVSeries(id=_uuid(), title_cn="剧1", content_type="tv", collection_id=coll.id, season_number=1)
++    s2 = TVSeries(id=_uuid(), title_cn="剧2", content_type="tv", collection_id=coll.id, season_number=2)
+     db_session.add_all([coll, s1, s2])
+     await db_session.flush()
+ 
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -248,8 +248,9 @@
+     wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
+     collection_id: str | None → WorkCollection  # 所属合集 FK；单季化后剧集作品**必属一个合集**
+                                          #（无自然合集时套 `series_group` 壳合集）；合集内
+-                                         # (collection_id, season_number) 应用层唯一（部分唯一索引
+-                                         # uq_tv_series_collection_season 由数据迁移脚本在收敛后创建）
++                                         # (collection_id, season_number) 部分唯一索引
++                                         # uq_tv_series_collection_season（WHERE collection_id IS NOT NULL）
++                                         # 新装与轻迁移均建立；冲突历史库须先预检/修复再升级
+     created_at: datetime
+     updated_at: datetime
+ 
+--- a/docs/design/per-season-works.md
++++ b/docs/design/per-season-works.md
+@@ -31,7 +31,7 @@
+ 
+ 1. `TVSeries.season_number` 新增 `INTEGER NOT NULL DEFAULT 1`；作品行 = 该 IP 的一季。`season_number=0` 表示特典/SP（沿用 Plex Specials 约定，`resource_parser.py:739-741` 已有 season=0 先例）。
+ 2. 每部 series 作品必须属于一个 `WorkCollection`（单季作品也套一个壳合集，保证匹配/关联代码只有一条路径）；Movie 的 `collection_id` 维持可空（电影合集逻辑不变）。
+-3. 合集内 `(collection_id, season_number)` 应用层唯一，数据迁移收敛后加部分唯一索引（`WHERE collection_id IS NOT NULL`）。
++3. 合集内 `(collection_id, season_number)` 由部分唯一索引约束（`WHERE collection_id IS NOT NULL`），S0 同样受保护。新装及轻迁移均建立索引；重复历史数据必须先预检并处理，启动不会自动选择幸存作品。
+ 4. 季作品的 `title_cn/title_en/original_title` 存**基础剧名**（剥季号，维持 `strip_season_from_title` 写入约定）；季限定标题变体（「无职转生 第三季」「無職転生Ⅲ …」）进 `aliases`；展示名 = 基础名 + 季后缀（合集成员 >1 时拼「 第N季」/「Season N」）。
+ 5. 作品 `seasons` JSON / `number_of_seasons` 两列退役（季作品只有一个季），不删列，改惰性孤儿（项目既有惯例，如 path_map/plex_section）；`number_of_episodes` = 本季集数；`start_date` = 本季首播（逐季源天然给出；系列级源经 TMDB season 端点或留 NULL 待刷新；仍 NULL 的季作品——含日期恒不可考的特典——兜底取同合集其他**非特典**季作品的最早 start_date：`_collection_fallback_start_date`，只填 NULL、不覆盖、尊重 `manually_edited_fields`，注入 upsert 新建/更新与 refresh season-0 跳过分支，存量回填 `scripts/specials_airdate_backfill.py`）。
+ 6. `Episode` 保留 `(series_id, season, episode)` 结构与唯一键，`season` 恒等于所属作品的 `season_number`（去规范化，全部既有查询零改动）。
+@@ -134,7 +134,7 @@
+ 
+ 1. `tv_series.season_number INTEGER NOT NULL DEFAULT 1`。
+ 2. `work_collections` 加列：`aliases JSON`、`search_text VARCHAR(4096)`、`manually_edited_fields JSON`（合集升级为系列级元数据载体；rating/genre/is_anime 不上移——逐季源天然按季给这些值，保留在季作品上）。
+-3. 索引：`ix_tv_series_collection_season`（部分唯一索引留待数据迁移收敛后由迁移脚本创建，轻迁移不建）。
++3. 索引：`uq_tv_series_collection_season`，Turso/PG 同名部分唯一索引；ORM 新装建立，轻迁移在 season_number 列存在后幂等补建，冲突时停止升级。预检/恢复见 db-migration.md。
+ 4. 作品 `seasons`/`number_of_seasons` 两列不删，改惰性孤儿。
+ 
+ ### 数据迁移脚本 `scripts/season_split_migration.py`
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -208,4 +208,22 @@
+ 
+ 两个后端在 schema 轻迁移后执行合集归属回填，随后执行既有 FTS/search_text 回填。每批最多读取 100 个 collection_id IS NULL 的 TVSeries，保留原季号建立壳合集并同步已有作品关联资源；每批独立事务提交，重跑不再创建已修复作品的壳。
+ 
+-PostgreSQL 用 FOR UPDATE 串行处理同一批孤儿，多个启动者不会重复建壳；Turso 用既有 retry_on_lock 在新会话中重试锁冲突。回填失败回滚当前批次，不静默跳过。此步骤不猜季、不合并同名作品，也不创建 uq_tv_series_collection_season；部分唯一索引仍须在季拆分/重复数据收敛后建立，不能把这次回填当作 D1/D2 全部 schema 修复。
++PostgreSQL 用 FOR UPDATE 串行处理同一批孤儿，多个启动者不会重复建壳；Turso 用既有 retry_on_lock 在新会话中重试锁冲突。回填失败回滚当前批次，不静默跳过。此回填不猜季、不合并同名作品；合集单季部分唯一索引由先前 schema 阶段独立建立，不能把孤儿回填当作 FK 等其他 schema 修复。
++
++## 合集单季唯一索引升级预检与恢复
++
++新装及轻量迁移均建立 `uq_tv_series_collection_season`（`collection_id, season_number`，`WHERE collection_id IS NOT NULL`），Turso/PG 行为一致。历史重复数据会使索引创建失败、启动中止；不会自动删作品、合并人工标题或猜测季号。
++
++升级前保留数据库备份并停止自动写入任务，在维护副本使用目标版本的只读脚本，连接待检查数据库（无需启动 Web/worker）：
++
++```bash
++python -m scripts.verify_season_split --collection-conflicts-jsonl /tmp/collection-season-conflicts.jsonl
++```
++
++该独立模式仅 SELECT，流式导出每个冲突成员的完整合集 ID、季号、同槽作品数、作品 ID、标题、主身份和 manually_edited_fields。退出 0 表示没有冲突，1 表示有冲突；不能把文件生成成功当作可以升级。NULL 合集不在索引范围内，完整孤儿/关联检查仍用原 verify 模式。
++
++若退出 1，保留当前可运行版本，不启动要求此索引的新版本。逐项核对报告与作品来源；同季不同作品应通过已支持“剧集解绑后建立壳合集”的版本进行明确解绑，保留原作品 ID、人工编辑及资源映射。确为重复身份的作品须人工确认合并策略及引用迁移，不能仅按最旧行选幸存者。旧 season_split_migration 的碰撞合并不是通用、无损的冲突修复命令。修复后重跑明细预检及完整 verify，比较备份快照中的作品、资源与关联；再在维护副本启动目标版本两次验证幂等，确认后才升级运行库。
++
++若已经遇到启动失败，停止重启循环，保留日志及备份，用同一只读脚本输出冲突；回到前一可运行版本处理数据后再试。schema 阶段失败不会自动完成数据收敛；不要删除索引后强行继续运行。
++
++合集挂载使用按 ID 排序的父锁并检查目标季槽；壳吸收/直接挂载的变更在 SAVEPOINT 内执行。检查后的竞争写入若触发该唯一约束则回滚完整变更并返回 409 DUPLICATE_SUBMISSION，其他数据库异常仍正常上抛。
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -514,3 +514,7 @@
+ 
+ 
+ 合集生命周期：删除与解绑保留作品 UUID、季号、人工 work_links/file_assignments；关联多新合集的资源清空单一合集指针，不猜归属。无作品依据的 collection-only 资源在删除合集时清指针，单独解绑成员时保留原合集。所有变更同事务提交。attach 在锁定来源/目标后重读成员，若已移到其他未锁定合集返回 409 INVALID_STATE；等待期间目标不存在返回 404。并发重复删除只允许一个成功，后续请求返回 404。
++
++### 合集挂载同季冲突
++
++`POST /collections/{id}/works` 指派剧集时，目标已有同 season_number 作品（含 S0）返回 409 `DUPLICATE_SUBMISSION`。拒绝不迁移来源壳合集的身份袋、别名或资源指针。已属于目标的同一作品重复提交仍幂等成功；电影不应用剧集季号约束。检查后竞争导致数据库唯一约束失败时，完整挂载 SAVEPOINT 回滚并返回同样的 409。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -270,3 +270,9 @@
+ 合集归属回归：tests/api/test_collection_invariants.py 覆盖真实 API→commit→重新读库的创建/删除/解绑、身份袋清理、人工关联保留、多作品不猜合集、故障回滚、回填幂等及预加载父子关系。test_collection_resource_boundaries.py 每场景植入 103 条资源，交叉覆盖电影/剧集、删除/解绑、直接 FK/work_links/文件指派，验证跨页处理及不相关资源不变。test_database_migrations.py 对实际 Turso create_tables 连跑两次验证旧孤儿修复，PG 分支单测只验证调用顺序。
+ 
+ PostgreSQL 实际回填并发、预加载关系、重复删除及反向壳吸收的驱动位于 docs/plans/p0-and-backlog/probes/collection*_pg_probe.py。它们会清空明确指定的回环地址 organize_test 专用库，必须配独立 Compose 项目；禁止指向业务库。数据为明确的合成 ORM 行，SQL/事务/锁行为真实。专项不替代完整单元/API 95% 与隔离集成 85% 门禁。
++
++### 合集单季唯一性与升级预检
++
++`test_collection_season_index.py` 通过真实 Turso 新装/升级与人工编辑、Episode、身份袋保留验证；`test_collection_season_conflicts.py` 覆盖 409 和非季号异常不误分类；`test_collection_conflict_report.py` 覆盖 103 个冲突成员流式报告与只读 SQL。PostgreSQL 复现驱动在 docs/plans/p0-and-backlog/probes/collection_season*_pg_probe.py，分别验证双启动、写入竞争、检查后竞争、两个 HTTP ASGI 请求抢槽及实际 CLI。数据为标注合成数据，不冒充在线来源录制。
++
++D1 写入路径回归覆盖去重继承合集的删除/赋值顺序、Wikidata 同季冲突的 apply/dry-run 拒绝及标签保留；Bangumi 旧默认季号修正用独立壳合集作为合法初态，人工季号与播出日期保护断言保持。
+--- a/app/services/metadata_service.py
++++ b/app/services/metadata_service.py
+@@ -1558,6 +1558,10 @@
+     the collection and None is returned so the caller parks the resource on
+     the collection for Channel confirmation (挂合集待确认).
+     """
++    # Serialize member discovery and lazy creation on the existing parent.
++    # Refresh after waiting so a second matcher sees the first transaction's
++    # member instead of failing the collection/season unique constraint.
++    await db.refresh(collection, with_for_update=True)
+     _merge_collection_aliases(collection, data)
+     members = await _collection_members(db, collection.id)
+     work: TVSeries | None = None
+@@ -1828,11 +1832,10 @@
+                 if coll_id
+                 else await _create_series_collection(db, data)
+             )
+-            return await _create_season_work(
++            return await _resolve_collection_member(
+                 db, data, collection, season,
+-                raw_source=raw_source, raw_external_id=raw_external_id,
+-                canonical_id=canonical_id, granularity=granularity,
+-                series_level_id=series_level_id,
++                raw_source=raw_source, canonical_id=canonical_id,
++                granularity=granularity, series_level_id=series_level_id,
+             )
+         # Season unknown: single candidate (or all-season-1 legacy rows)
+         # keeps the old behavior; a multi-season candidate set parks on its
+--- a/tests/unit/test_metadata_service.py
++++ b/tests/unit/test_metadata_service.py
+@@ -1465,7 +1465,7 @@
+     return TVSeries(**base)
+ 
+ 
+-async def _create_specials_work(db_session, collection, data=None):
++async def _create_work_for_date_test(db_session, collection, data=None, *, season=0):
+     with patch(
+         "app.services.metadata_service.download_and_cache_poster",
+         new_callable=AsyncMock, return_value=None,
+@@ -1474,7 +1474,7 @@
+             db_session,
+             data or {"content_type": "tv", "title_cn": "剧集X"},
+             collection,
+-            0,
++            season,
+             raw_source=None, raw_external_id=None, canonical_id=None,
+             granularity="series", series_level_id=None,
+         )
+@@ -1489,7 +1489,7 @@
+         _season_work(coll.id, 1, start_date=date(2020, 1, 1)),
+     ])
+     await db_session.flush()
+-    sp = await _create_specials_work(db_session, coll)
++    sp = await _create_work_for_date_test(db_session, coll)
+     assert sp.start_date == date(2020, 1, 1)
+ 
+ 
+@@ -1502,8 +1502,10 @@
+         _season_work(coll.id, 0, start_date=date(2019, 6, 1)),  # specials date
+     ])
+     await db_session.flush()
+-    sp = await _create_specials_work(db_session, coll)
+-    assert sp.start_date is None
++    # S0 is already occupied; create S2 and still prove that specials dates
++    # are never borrowed when every regular sibling is undated.
++    work = await _create_work_for_date_test(db_session, coll, season=2)
++    assert work.start_date is None
+ 
+ 
+ async def test_create_season_work_prefers_own_date_over_fallback(db_session):
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -720,3 +720,9 @@
+ ### 合集生命周期事务
+ 
+ 手工创建季作品需同事务创建壳合集。合集删除和成员解绑通过 collection_lifecycle 重挂季作品、按完整作品目标重算资源合集、保留人工 work_links/文件指派；删除同时清理合集身份袋。电影无合集是合法状态。无法唯一归属的资源清除单一合集指针，不能任选成员所属合集。源/目标合集按固定顺序加锁后再锁成员，避免反向壳吸收死锁；所有下游写入异常整体回滚。启动的孤儿回填分批加锁并幂等，详见 per-season-works.md 与 db-migration.md。
++
++### 并发季作品 upsert
++
++复用已有合集的季成员解析在读取成员前对合集行 FOR UPDATE 并刷新，第二个匹配事务等待后重新读取成员，复用先到事务创建的作品。作品标题回退找到既有合集时也走同一路径，不绕过成员解析直接新建。新装/轻迁移的部分唯一索引仍是最终约束。锁按合集隔离；持锁阶段可能包含既有海报缓存未命中时的下载（既有 30 秒超时），同合集并发操作会等待。
++
++D1 同季唯一约束下，去重若需继承重复行的合集，必须先在同一事务内删除并 flush 重复行，再给幸存行赋合集，避免 UPDATE 早于 DELETE 的瞬时冲突。Wikidata P179 回填发现目标合集同季已被其他作品占用时返回 ambiguous（dry-run 同样拒绝），不得以系列身份猜测作品相同，也不得更新目标标签；实际回填先锁已有目标合集。
+--- a/app/services/metadata_dedup.py
++++ b/app/services/metadata_dedup.py
+@@ -436,6 +436,8 @@
+     # Point child rows at survivor (collision-safe)
+     await _repoint_series_children(db, dup_ids, survivor.id, report)
+ 
++    inherited_collection_id = survivor.collection_id
++
+     # Enrich survivor from duplicates
+     survivor.aliases = _merge_aliases(rows)
+     canonical_ext = _pick_canonical_external_id(rows)
+@@ -463,8 +465,8 @@
+             survivor.number_of_seasons = d.number_of_seasons
+         # Collection membership survives the merge: the survivor keeps its
+         # own; only inherit a duplicate's when the survivor has none.
+-        if survivor.collection_id is None and d.collection_id is not None:
+-            survivor.collection_id = d.collection_id
++        if inherited_collection_id is None and d.collection_id is not None:
++            inherited_collection_id = d.collection_id
+ 
+     # P3: union the identity bags so the survivor stays reachable by every
+     # external id any merged row was ever known under.
+@@ -473,6 +475,12 @@
+     # Delete duplicates
+     for d in duplicates:
+         await db.delete(d)
++
++    if survivor.collection_id is None and inherited_collection_id is not None:
++        # Free the duplicate's unique collection/season slot before adopting it.
++        # Keep both operations in the caller's transaction.
++        await db.flush()
++        survivor.collection_id = inherited_collection_id
+ 
+     report.series_groups += 1
+     report.series_removed += len(duplicates)
+--- a/app/services/wikidata_collection.py
++++ b/app/services/wikidata_collection.py
+@@ -351,6 +351,23 @@
+     if franchise is None:
+         return STATUS_FAILED
+     title_cn, title_en = entity_labels(franchise)
++    query = select(WorkCollection).where(
++        WorkCollection.external_source == WIKIDATA_SOURCE,
++        WorkCollection.external_id == franchise_qid,
++    )
++    if apply:
++        query = query.with_for_update()
++    collection = (await db.execute(query)).scalar_one_or_none()
++    if collection is not None:
++        # A shared franchise identity does not prove two S1 works are identical.
++        # Check before upsert so a rejected link cannot overwrite its labels.
++        occupied = (await db.execute(select(TVSeries.id).where(
++            TVSeries.collection_id == collection.id,
++            TVSeries.season_number == series.season_number,
++            TVSeries.id != series.id,
++        ))).first()
++        if occupied is not None:
++            return STATUS_AMBIGUOUS
+     if apply:
+         collection = await upsert_collection_from_wikidata(
+             db, franchise_qid, title_cn, title_en
+--- a/tests/unit/test_bangumi_relations.py
++++ b/tests/unit/test_bangumi_relations.py
+@@ -311,8 +311,8 @@
+         id=_uuid(), title_cn="头文字D 剧场版", external_source="bangumi",
+         external_id="bangumi:3", content_type="movie", release_date=date(2001, 1, 13),
+     )
+-    s3 = _series("头文字D Third Stage", source="manual", collection_id=collection.id)
+-    s4 = _series("头文字D 无身份", source="manual", collection_id=collection.id)
++    s3 = _series("头文字D Third Stage", season=3, source="manual", collection_id=collection.id)
++    s4 = _series("头文字D 无身份", season=4, source="manual", collection_id=collection.id)
+     m2 = Movie(
+         id=_uuid(), title_cn="头文字D Legend", external_source="bangumi",
+         external_id="bangumi:7", content_type="movie", collection_id=collection.id,
+@@ -1278,8 +1278,11 @@
+     collection, seed = await _make_seed_work(db_session)
+ 
+     async def _stale(db, entity, *, season_hint=None):
++        shell = _collection("stale shell")
++        db.add(shell)
++        await db.flush()
+         work = _series("stale", season=1, source="bangumi",
+-                       collection_id=collection.id)
++                       collection_id=shell.id)
+         work.external_id = entity.get("external_id")
+         work.external_source = "bangumi"
+         db.add(work)
+@@ -1287,7 +1290,7 @@
+         return work
+ 
+     monkeypatch.setattr(ms, "create_or_update_series_from_external", _stale)
+-    # Only one sequel node so the wrong season (1) collides with the seed.
++    # One sequel starts in its own shell with stale S1, then must become S2.
+     relations = {
+         1: [
+             {"id": 2, "type": 2, "relation": "续集", "name": "頭文字D Second Stage",
+@@ -1398,8 +1401,11 @@
+     await db_session.flush()
+ 
+     async def _stale_manual(db, entity, *, season_hint=None):
++        shell = _collection("stale shell")
++        db.add(shell)
++        await db.flush()
+         work = _series("stale", season=1, source="bangumi",
+-                       collection_id=collection.id,
++                       collection_id=shell.id,
+                        manually_edited_fields=["season_number"])
+         work.external_id = entity.get("external_id")
+         work.external_source = "bangumi"
+--- a/tests/unit/test_batch_content_analysis.py
++++ b/tests/unit/test_batch_content_analysis.py
+@@ -31,7 +31,7 @@
+     )
+     old = TVSeries(id=_uuid(), title_cn="旧作品")
+     kept = TVSeries(
+-        id=_uuid(), title_cn="人工关联作品", collection_id=collection.id,
++        id=_uuid(), title_cn="人工关联作品", collection_id=collection.id, season_number=2,
+     )
+     work = TVSeries(id=_uuid(), title_cn="新作品", collection_id=collection.id)
+     resource = FileResource(
+--- a/tests/unit/test_metadata_search.py
++++ b/tests/unit/test_metadata_search.py
+@@ -209,11 +209,16 @@
+         id=_uuid(), title_cn="某作品 OVA", content_type="tv", season_number=0,
+         collection_id=coll.id,
+     )
++    manual_coll = WorkCollection(id=_uuid(), title_cn="人工保护合集", external_source="series_group")
++    manual_s1 = TVSeries(
++        id=_uuid(), title_cn="人工保护正季", season_number=1,
++        collection_id=manual_coll.id, start_date=date(2020, 1, 1),
++    )
+     manual = TVSeries(
+         id=_uuid(), title_cn="某作品 SP2", content_type="tv", season_number=0,
+-        collection_id=coll.id, manually_edited_fields=["start_date"],
+-    )
+-    db_session.add_all([coll, s1, work, manual])
++        collection_id=manual_coll.id, manually_edited_fields=["start_date"],
++    )
++    db_session.add_all([coll, s1, work, manual_coll, manual_s1, manual])
+     await db_session.flush()
+     with patch(_SEARCH, new_callable=AsyncMock) as search:
+         result = await refresh_work_by_source(db_session, work, "tv", "bangumi")
+--- a/tests/unit/test_specials_airdate_backfill.py
++++ b/tests/unit/test_specials_airdate_backfill.py
+@@ -75,7 +75,6 @@
+     db_session.add(coll2)
+     db_session.add_all([
+         _work(coll2.id, 1),  # sibling without a date
+-        _work(coll2.id, 0, start_date=date(2019, 6, 1)),  # specials date: never borrowed
+     ])
+     lonely = _work(coll2.id, 0)
+     db_session.add(lonely)
+--- a/tests/unit/test_wikidata_collection.py
++++ b/tests/unit/test_wikidata_collection.py
+@@ -10,6 +10,7 @@
+ import uuid
+ from unittest.mock import AsyncMock, MagicMock, patch
+ 
++import pytest
+ from sqlalchemy import select
+ 
+ from app.models.series import TVSeries
+@@ -231,7 +232,7 @@
+ 
+     async def test_same_franchise_series_converge(self, db_session):
+         s1 = _series(title_en="SAC", wikipedia_url="https://en.wikipedia.org/wiki/SAC")
+-        s2 = _series(title_en="SAC 2nd", wikipedia_url="https://en.wikipedia.org/wiki/SAC_2nd")
++        s2 = _series(title_en="SAC 2nd", season_number=2, wikipedia_url="https://en.wikipedia.org/wiki/SAC_2nd")
+         db_session.add_all([s1, s2])
+         await db_session.flush()
+ 
+@@ -602,3 +603,22 @@
+             status = await wc.link_series_wikidata_collection(db_session, series)
+         assert status == wc.STATUS_FAILED
+         assert series.collection_id is None
++
++
++@pytest.mark.parametrize("apply", [False, True])
++async def test_wikidata_occupied_season_is_ambiguous_without_mutation(db_session, apply):
++    parent = WorkCollection(title_cn="Synthetic protected franchise", external_source="wikidata", external_id="Q200")
++    db_session.add(parent)
++    await db_session.flush()
++    occupied = _series(title_en="Synthetic existing season", season_number=1, collection_id=parent.id)
++    incoming = _series(title_en="Synthetic separate season", season_number=1,
++                       wikipedia_url="https://en.wikipedia.org/wiki/Synthetic")
++    db_session.add_all([occupied, incoming])
++    await db_session.flush()
++    with patch("httpx.AsyncClient", _client_mock(_pageprops_handler("Q100", ["Q200"], _LABELS))):
++        status = await wc.link_series_wikidata_collection(db_session, incoming, apply=apply)
++    assert status == wc.STATUS_AMBIGUOUS
++    assert incoming.collection_id is None
++    assert parent.title_cn == "Synthetic protected franchise"
++    assert occupied.collection_id == parent.id
++    await db_session.flush()
+--- a/tests/integration/season_model/conftest.py
++++ b/tests/integration/season_model/conftest.py
+@@ -58,6 +58,11 @@
+         from sqlalchemy import text
+ 
+         await conn.run_sync(db_mod.Base.metadata.create_all)
++        # This captured fixture is a PRE-split database. Fresh schemas now
++        # enforce the season slot, but the historical schema did not. Keep
++        # its duplicate legacy slots intact so the real migration must fix
++        # them and install the index, rather than rewriting the fixture.
++        await conn.execute(text("DROP INDEX uq_tv_series_collection_season"))
+         # MVCC is persistent per file; required by isolation_level=CONCURRENT.
+         await conn.execute(text("PRAGMA journal_mode='mvcc'"))
+     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+@@ -67,12 +72,11 @@
+     db_mod.engine = engine
+     db_mod.async_session_factory = factory
+ 
+-    data = load_fixture_data()
+-    await load_fixture(engine, data)
+-    async with factory() as session:
+-        await assert_fixture_loaded(session, data)
+-
+     try:
++        data = load_fixture_data()
++        await load_fixture(engine, data)
++        async with factory() as session:
++            await assert_fixture_loaded(session, data)
+         yield SimpleNamespace(engine=engine, factory=factory, data=data, path=db_path)
+     finally:
+         db_mod.engine = saved_engine
+@@ -105,7 +109,16 @@
+     from scripts.season_split_migration import run_migration
+ 
+     with contextlib.redirect_stdout(io.StringIO()):
+-        return await run_migration(apply=True, limit=None)
++        reports = await run_migration(apply=True, limit=None)
++    # A successful replay must restore enforcement on the migrated schema.
++    from sqlalchemy import text
++
++    import app.database as db_mod
++
++    async with db_mod.engine.connect() as conn:
++        indexes = (await conn.execute(text("PRAGMA index_list(tv_series)"))).all()
++        assert any(row[1] == "uq_tv_series_collection_season" and row[2] == 1 for row in indexes)
++    return reports
+ 
+ 
+ @pytest_asyncio.fixture(scope="module", loop_scope="module")

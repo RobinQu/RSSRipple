@@ -1,0 +1,51 @@
+{
+  "project": "rssripple-v89-complete-20260920-bg",
+  "source_manifest": "/tmp/rssripple-v89-source-bg.json",
+  "unit_session": 9024,
+  "up_session": 23949,
+  "unit_log": "/tmp/rssripple-v89-unit-bg.log",
+  "state": "accepted;both complete gates passed;apps0;coverage0;exported;cleaned;local commit pending",
+  "integration_session": 56887,
+  "integration_log": "/tmp/rssripple-v89-integration-bg.log",
+  "up_exit_code": 0,
+  "integration_exit_code": 0,
+  "integration_result": {
+    "passed": 3136,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1716.83
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "coverage_session": 18043,
+  "coverage_exit_code": 0,
+  "artifacts": "/tmp/rssripple-v89-artifacts-bg",
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1789877775669",
+    "lines-valid": "21833",
+    "lines-covered": "19576",
+    "line-rate": "0.8966",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "export_exit_code": 0,
+  "cleanup_session": 73241,
+  "cleanup_exit_code": 0,
+  "unit_exit_code": 0,
+  "unit_result": {
+    "passed": 3612,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 2255.37,
+    "covered": 21343,
+    "valid": 21833,
+    "coverage_percent": 97.76
+  },
+  "acceptance": true,
+  "source_frozen_files_verified": 2891
+}

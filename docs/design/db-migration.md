@@ -208,4 +208,39 @@ Agent 定向补偿新增 `agent_resource_requests` 表，由模型注册后的 `
 
 两个后端在 schema 轻迁移后执行合集归属回填，随后执行既有 FTS/search_text 回填。每批最多读取 100 个 collection_id IS NULL 的 TVSeries，保留原季号建立壳合集并同步已有作品关联资源；每批独立事务提交，重跑不再创建已修复作品的壳。
 
-PostgreSQL 用 FOR UPDATE 串行处理同一批孤儿，多个启动者不会重复建壳；Turso 用既有 retry_on_lock 在新会话中重试锁冲突。回填失败回滚当前批次，不静默跳过。此步骤不猜季、不合并同名作品，也不创建 uq_tv_series_collection_season；部分唯一索引仍须在季拆分/重复数据收敛后建立，不能把这次回填当作 D1/D2 全部 schema 修复。
+PostgreSQL 用 FOR UPDATE 串行处理同一批孤儿，多个启动者不会重复建壳；Turso 用既有 retry_on_lock 在新会话中重试锁冲突。回填失败回滚当前批次，不静默跳过。此回填不猜季、不合并同名作品；合集单季部分唯一索引由先前 schema 阶段独立建立，不能把孤儿回填当作 FK 等其他 schema 修复。
+
+## 合集单季唯一索引升级预检与恢复
+
+新装及轻量迁移均建立 `uq_tv_series_collection_season`（`collection_id, season_number`，`WHERE collection_id IS NOT NULL`），Turso/PG 行为一致。历史重复数据会使索引创建失败、启动中止；不会自动删作品、合并人工标题或猜测季号。
+
+升级前保留数据库备份并停止自动写入任务，在维护副本使用目标版本的只读脚本，连接待检查数据库（无需启动 Web/worker）：
+
+```bash
+python -m scripts.verify_season_split --collection-conflicts-jsonl /tmp/collection-season-conflicts.jsonl
+```
+
+该独立模式仅 SELECT，流式导出每个冲突成员的完整合集 ID、季号、同槽作品数、作品 ID、标题、主身份和 manually_edited_fields。退出 0 表示没有冲突，1 表示有冲突；不能把文件生成成功当作可以升级。NULL 合集不在索引范围内，完整孤儿/关联检查仍用原 verify 模式。
+
+若退出 1，保留当前可运行版本，不启动要求此索引的新版本。逐项核对报告与作品来源；同季不同作品应通过已支持“剧集解绑后建立壳合集”的版本进行明确解绑，保留原作品 ID、人工编辑及资源映射。确为重复身份的作品须人工确认合并策略及引用迁移，不能仅按最旧行选幸存者。旧 season_split_migration 的碰撞合并不是通用、无损的冲突修复命令。修复后重跑明细预检及完整 verify，比较备份快照中的作品、资源与关联；再在维护副本启动目标版本两次验证幂等，确认后才升级运行库。
+
+若已经遇到启动失败，停止重启循环，保留日志及备份，用同一只读脚本输出冲突；回到前一可运行版本处理数据后再试。schema 阶段失败不会自动完成数据收敛；不要删除索引后强行继续运行。
+
+合集挂载使用按 ID 排序的父锁并检查目标季槽；壳吸收/直接挂载的变更在 SAVEPOINT 内执行。检查后的竞争写入若触发该唯一约束则回滚完整变更并返回 409 DUPLICATE_SUBMISSION，其他数据库异常仍正常上抛。
+
+
+### 轻量迁移的升级外键对等（D2）
+
+七处历史新增 FK 列必须与新装库一致：`file_resources.audio_work_id`、`tv_series.collection_id`、`movies.collection_id`、`downloader_instances.volume_id`、`libraries.media_server_id`、`libraries.volume_id`、`file_resources.collection_id`。新增列直接带 REFERENCES；已存在列须按 catalog 核对目标表/列和 ON DELETE，不能仅因列存在就跳过。目标与删除动作以 ORM 模型为准；错误的既有约束明确拒绝启动，不自动改成另一种关联语义。
+
+升级前，在停止旧进程并备份数据库后，以目标 DATABASE_URL 运行只读预检：
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/verify_upgrade_foreign_keys.py --output /tmp/fk-orphans.jsonl
+```
+
+退出 0 表示这七处没有悬空关联；退出 1 时 JSONL 完整列出表、列、子行 ID、父键与目标。不调用 create_tables，不触发回填或其他 DDL；兼容尚无相关表/列的旧库。根据业务证据逐项修复或恢复父项后重跑，禁止凭季号/名称猜测重连或直接删除子行。它不替代 D1 同季冲突预检，也不表示所有其他 FK 均已审计。
+
+PostgreSQL 在现有启动 advisory transaction lock 与有界 DDL lock_timeout 内补约束；先诊断悬空 ID，再由 ALTER ADD CONSTRAINT 在锁下验证完整数据；任一失败回滚本轮 schema 事务。Turso 已有列缺约束需表重建：在 schema 阶段完成后、孤儿作品回填前，以新的普通 BEGIN 执行，不能使用 BEGIN CONCURRENT；按原始 CREATE 定义保留历史额外列、唯一约束、显式索引和触发器。重建前预检悬空值，暂时关闭外键防止 DROP 触发子表 CASCADE/SET NULL/RESTRICT；所有换表处于同一事务，finally 恢复 foreign_keys=ON。失败恢复原表及其子行，不吞异常继续启动；已完成的先前轻迁移 schema 阶段可能仍保留，业务关联不会被猜测修补。
+
+该修复不支持迁移期间其他程序写同一个 Turso 文件；遵循原有单进程独占/停机升级要求。数据量大时表复制与索引重建会占用额外磁盘和启动时间，应在数据库备份副本演练后安排升级窗口。

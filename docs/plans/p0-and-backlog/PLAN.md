@@ -13,7 +13,10 @@ V6 身份接地已完成完整验收：单元/API 3540 passed（97.84%），完�
 
 V7 合集归属已完成完整验收：单元/API 3561 passed（97.82%），完整集成 3136 passed（89.83%），应用正常退出、证据导出和项目清理均完成。原 P0-6 四条待办已从 TODO 删除；D6 剧集/电影删除仍待处理。
 
-下次优先续接 [V8 D1](V8-COLLECTION-SEASON-INDEX.md)：完整单元/API at 为 3564 passed/8 failed，已确认非法旧夹具及去重继承合集的写入顺序问题；Wikidata 同季冲突新增两项红测。独立副本 `/tmp/rssripple-v8-index-review` 正在补修，扩大回归 `/tmp/rssripple-v8-writepaths-av.log`，尚未同步主工作树或验收。双库并发、只读预检与恢复演练证据保留。[V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已复现七处升级外键缺失并保存独立原型，仍待 PostgreSQL 与完整门禁。
+[V8 D1](V8-COLLECTION-SEASON-INDEX.md) 与 [V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已完成联合 bg 验收：完整单元/API 3612 passed（97.76%），完整集成 3136 passed（89.66%），应用退出、报告导出和项目清理均完成；2891 个冻结文件未变。D1/D2 已从 pending-only TODO 删除，有效实现准备提交本地 main。
+
+当前续接 [V10 D3](V10-RETIRED-SEASON-FIELDS.md)：15 文件独立原型已通过 302 项扩大回归及继承 V8/V9 后的 68 项组合回归；实际 PG 清理并发/回滚/CLI 验证通过。完整单元/API bh 与内容一致副本的隔离集成 bp 仍运行，句柄 `/tmp/rssripple-v10-gates-bh.json`、`/tmp/rssripple-v10-gates-bp.json`，尚未应用 root。随后处理 [V11](V11-DECISION-COVERAGE.md)，其覆盖度及持久键仅为未验收原型。
+
 
 所有本地 Compose 测试必须显式唯一 `-p`；完整验证须包含应用正常退出、覆盖率合并/导出和项目清理。此前失败轮保留为失败证据，不能被后续定向通过覆盖。
 
@@ -321,3 +324,11 @@ V6 有效代码、测试与权威契约已提交本地 main：`7fd8121`。尚未
 按 code-review-and-quality 复审创建/删除/解绑事务、预加载 ORM 关系、资源映射分页、父锁顺序、启动幂等回填及跨进程竞争；无新增依赖。合集成员/身份袋/手工文件映射保留及 PostgreSQL 并发有真实数据库证据；测试数据为明确构造的关系数据，完整集成继续包含捕获标题和真实 torrent 清单，未宣称新增在线来源录制。
 
 原 P0-6 的四条 API/回填待办已验收，从 pending-only TODO 删除。D6 仅合集删除部分完成，剧集/电影删除与人工映射策略继续保留；D1/D2 原型仍未验收。历史 ap 失败与运行中记录保留，不代表当前验收状态。
+
+## 本地 main 合入确认（2026-09-20）
+
+已通过 `git merge-base --is-ancestor 4c804ed main` 核实：P0 与 B9 有效代码均已包含在本地 main 的提交 `4c804ed` 中。后续 V6 身份接地为 `7fd8121`，V7 合集归属为 `e535e1f`。原 P0-5 已复核降为 P2，继续保留 TODO，不宣称完成。远端尚未推送；当前 V8/V9 工作区改动不属于已验收提交。
+
+## 下一批必要性证据（2026-09-20，V11）
+
+[V11 决策覆盖度](V11-DECISION-COVERAGE.md) 已复现 M4 半季/整季键冲突、M5 两组跨季包在实际 pipeline 落入同一待决策，以及 D4 两个真实 PG 连接空槽并发插入两行。原型仅包含复现与设计，无运行代码改动；隔离 PG 项目 bi 已清理。先完成 V8/V9 与 V10 验收，再依此细化覆盖描述、历史迁移和确认端点的并发契约。

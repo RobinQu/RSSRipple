@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from sqlalchemy import select
 
 from app.models.series import TVSeries
@@ -231,7 +232,7 @@ class TestLinkSeries:
 
     async def test_same_franchise_series_converge(self, db_session):
         s1 = _series(title_en="SAC", wikipedia_url="https://en.wikipedia.org/wiki/SAC")
-        s2 = _series(title_en="SAC 2nd", wikipedia_url="https://en.wikipedia.org/wiki/SAC_2nd")
+        s2 = _series(title_en="SAC 2nd", season_number=2, wikipedia_url="https://en.wikipedia.org/wiki/SAC_2nd")
         db_session.add_all([s1, s2])
         await db_session.flush()
 
@@ -602,3 +603,22 @@ class TestLinkErrorBranches:
             status = await wc.link_series_wikidata_collection(db_session, series)
         assert status == wc.STATUS_FAILED
         assert series.collection_id is None
+
+
+@pytest.mark.parametrize("apply", [False, True])
+async def test_wikidata_occupied_season_is_ambiguous_without_mutation(db_session, apply):
+    parent = WorkCollection(title_cn="Synthetic protected franchise", external_source="wikidata", external_id="Q200")
+    db_session.add(parent)
+    await db_session.flush()
+    occupied = _series(title_en="Synthetic existing season", season_number=1, collection_id=parent.id)
+    incoming = _series(title_en="Synthetic separate season", season_number=1,
+                       wikipedia_url="https://en.wikipedia.org/wiki/Synthetic")
+    db_session.add_all([occupied, incoming])
+    await db_session.flush()
+    with patch("httpx.AsyncClient", _client_mock(_pageprops_handler("Q100", ["Q200"], _LABELS))):
+        status = await wc.link_series_wikidata_collection(db_session, incoming, apply=apply)
+    assert status == wc.STATUS_AMBIGUOUS
+    assert incoming.collection_id is None
+    assert parent.title_cn == "Synthetic protected franchise"
+    assert occupied.collection_id == parent.id
+    await db_session.flush()

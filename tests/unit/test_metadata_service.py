@@ -1465,7 +1465,7 @@ def _season_work(collection_id, season, **overrides):
     return TVSeries(**base)
 
 
-async def _create_specials_work(db_session, collection, data=None):
+async def _create_work_for_date_test(db_session, collection, data=None, *, season=0):
     with patch(
         "app.services.metadata_service.download_and_cache_poster",
         new_callable=AsyncMock, return_value=None,
@@ -1474,7 +1474,7 @@ async def _create_specials_work(db_session, collection, data=None):
             db_session,
             data or {"content_type": "tv", "title_cn": "剧集X"},
             collection,
-            0,
+            season,
             raw_source=None, raw_external_id=None, canonical_id=None,
             granularity="series", series_level_id=None,
         )
@@ -1489,7 +1489,7 @@ async def test_create_season_work_borrows_earliest_regular_sibling_date(db_sessi
         _season_work(coll.id, 1, start_date=date(2020, 1, 1)),
     ])
     await db_session.flush()
-    sp = await _create_specials_work(db_session, coll)
+    sp = await _create_work_for_date_test(db_session, coll)
     assert sp.start_date == date(2020, 1, 1)
 
 
@@ -1502,8 +1502,10 @@ async def test_create_season_work_without_dated_regular_sibling_stays_null(db_se
         _season_work(coll.id, 0, start_date=date(2019, 6, 1)),  # specials date
     ])
     await db_session.flush()
-    sp = await _create_specials_work(db_session, coll)
-    assert sp.start_date is None
+    # S0 is already occupied; create S2 and still prove that specials dates
+    # are never borrowed when every regular sibling is undated.
+    work = await _create_work_for_date_test(db_session, coll, season=2)
+    assert work.start_date is None
 
 
 async def test_create_season_work_prefers_own_date_over_fallback(db_session):

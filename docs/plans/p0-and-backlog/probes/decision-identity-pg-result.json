@@ -1,0 +1,18 @@
+{
+  "constraint_checks": {
+    "duplicate_key": true,
+    "null_pending_key": true
+  },
+  "historical_unkeyed_nonpending_preserved": true,
+  "both_creators_observed_empty_slot": true,
+  "created_ids": [
+    "c8917612-dc11-43ae-b7ab-f3c90c3044e8",
+    "c8917612-dc11-43ae-b7ab-f3c90c3044e8"
+  ],
+  "pending_rows": 1,
+  "candidate_counts": [
+    4
+  ],
+  "scope": "synthetic data; two real PostgreSQL connections; real production create and commits; LLM replaced by barrier",
+  "project_cleanup": "rssripple-v11-decisions-20260920-bs down exit0"
+}

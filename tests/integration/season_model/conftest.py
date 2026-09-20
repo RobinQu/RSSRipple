@@ -58,6 +58,11 @@ async def open_fixture_db(db_path):
         from sqlalchemy import text
 
         await conn.run_sync(db_mod.Base.metadata.create_all)
+        # This captured fixture is a PRE-split database. Fresh schemas now
+        # enforce the season slot, but the historical schema did not. Keep
+        # its duplicate legacy slots intact so the real migration must fix
+        # them and install the index, rather than rewriting the fixture.
+        await conn.execute(text("DROP INDEX uq_tv_series_collection_season"))
         # MVCC is persistent per file; required by isolation_level=CONCURRENT.
         await conn.execute(text("PRAGMA journal_mode='mvcc'"))
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -67,12 +72,11 @@ async def open_fixture_db(db_path):
     db_mod.engine = engine
     db_mod.async_session_factory = factory
 
-    data = load_fixture_data()
-    await load_fixture(engine, data)
-    async with factory() as session:
-        await assert_fixture_loaded(session, data)
-
     try:
+        data = load_fixture_data()
+        await load_fixture(engine, data)
+        async with factory() as session:
+            await assert_fixture_loaded(session, data)
         yield SimpleNamespace(engine=engine, factory=factory, data=data, path=db_path)
     finally:
         db_mod.engine = saved_engine
@@ -105,7 +109,16 @@ async def run_full_migration():
     from scripts.season_split_migration import run_migration
 
     with contextlib.redirect_stdout(io.StringIO()):
-        return await run_migration(apply=True, limit=None)
+        reports = await run_migration(apply=True, limit=None)
+    # A successful replay must restore enforcement on the migrated schema.
+    from sqlalchemy import text
+
+    import app.database as db_mod
+
+    async with db_mod.engine.connect() as conn:
+        indexes = (await conn.execute(text("PRAGMA index_list(tv_series)"))).all()
+        assert any(row[1] == "uq_tv_series_collection_season" and row[2] == 1 for row in indexes)
+    return reports
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")

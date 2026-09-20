@@ -1,15 +1,57 @@
 {
-  "status": "prototype only; not accepted or merged",
+  "status": "Accepted by combined V8/V9 bg gates; prototype fields below preserve historical development evidence",
   "fixture": "synthetic works; real temporary Turso database and production create_tables",
   "files": {
     "app/models/series.py": "44fb96cf7e3588d03bb6ab502a15db60f346391f4c1f196d2698590259290040",
-    "app/database.py": "503d4ed02d76dc25c2c7217e15bbde7024c66e03bfbdf3098240c29f662d898d",
-    "tests/unit/test_collection_season_index.py": "c24433a67e9230101c2ff069824c70cf233308e05edfaa19fd43bc996139942d"
+    "app/database.py": "c017493083ebc79a9d261004a3a58a9fc5cab5e563687feded67569868925080",
+    "app/api/v1/collections.py": "8a5b54ced483ab2b9bbcb535fa58eb08f935f0d79784c6e73ba38f95f531032d",
+    "tests/unit/test_collection_season_index.py": "c24433a67e9230101c2ff069824c70cf233308e05edfaa19fd43bc996139942d",
+    "tests/api/test_collection_season_conflicts.py": "91c39343f0f742a2c6d743c0e911b315e3dd5557cb0c01e6bad8076d12f59d35",
+    "scripts/verify_season_split.py": "a0d19372a9acf700928ed8e8894840db503a6cbeb8b3179846083479e778aed0",
+    "tests/unit/test_collection_conflict_report.py": "e398c3a8d0c4e662b854e6c4c1b7754bb390f715d2a330f67fc95397c27ddfaf",
+    "tests/unit/test_collection_service.py": "ce3a3c68d44bb00d6e34b14b718334b823945ba81b87f1ce23ac19a1f7fc7878",
+    "docs/design/data-models.md": "34ba3c143d5f9c35b974fd72c2fd35aecf8c380d41a5fc12d054a758df080816",
+    "docs/design/per-season-works.md": "1df570cae7b95d46590588526936e4e3166548c74bc99cb4acb646699c40388b",
+    "docs/design/db-migration.md": "b525585bfaada6be9480752f2846a087e272bd97ddde6059904fb2b94bc314b6",
+    "docs/design/api-endpoints.md": "7d371224f868b5f5c5c707a966d57d6ac6b97c23e26a19ead39768e206b2b890",
+    "docs/testing/integration-inventory.md": "7c4b82e275324379a87b4b4d56d45dabe9c050b17c67f038f9513563a668ff15",
+    "app/services/metadata_service.py": "ef05ec1c664efda05642dc5887039e9a73cefd12e38832396fa669580ffc50ad",
+    "tests/unit/test_metadata_service.py": "54f1e3a785713508d4f094813c76672140afb40fe48bc14e121a3db1151c7569",
+    "docs/design/business-logic.md": "9f1fc208fdc625cb331032df61323262498dcb9405a3f688f72d9d1832cd1938",
+    "app/services/metadata_dedup.py": "834a79ed6856fae6f6c31649bb8a6d703127b5038f25ab5c5797f372ad7658ec",
+    "app/services/wikidata_collection.py": "20a7a59ee0af3f7fdcbfa9c4e5550502c0d450ec45beec399de9271c7b0c801f",
+    "tests/unit/test_bangumi_relations.py": "0c710c0f6a0600fc0a0dfedc19179f66b749696130a17581f243309df6b9aaf1",
+    "tests/unit/test_batch_content_analysis.py": "0ca26640d862c6e7acd95ff32a951177932be63523da54dc77f314eec6ae9aab",
+    "tests/unit/test_metadata_search.py": "6a35b0c213055d68491884e6c02577eeba3b17fadffb2ef0045505b0235db45d",
+    "tests/unit/test_specials_airdate_backfill.py": "fe68b8768de80b21113a872f4f65a400a12ede8bb775ff2fd8e90d31e5ed20b4",
+    "tests/unit/test_wikidata_collection.py": "02c6a09f6af560772132c3d2e6c0fb0b7567f31d114333b5d4cd1bf20ad4a79b",
+    "tests/integration/season_model/conftest.py": "33e0dd3062964a27dda359510e43be4ec51205344cef9fca7dbe00fa038a7b8f"
   },
   "root_before": {
     "app/models/series.py": "579ad66dcba912af3db6bf5bf86311165207507b6fa15d4b903d8bc161489c0f",
-    "app/database.py": "7e20f748e8fb49a2880f5055cd6c6f2e850a8a5f28a3d8e8dac49237a6ea8e66",
-    "tests/unit/test_collection_season_index.py": null
+    "app/database.py": "e3b3c1e38e20bebebee5af212e5329aff76fbb7fd8a2140f727fe59464c878fe",
+    "app/api/v1/collections.py": "296c7fec21cc8d523997375e690fec92e0da444a42ff6dcc2d0c09a843aebca2",
+    "tests/unit/test_collection_season_index.py": null,
+    "tests/api/test_collection_season_conflicts.py": null,
+    "scripts/verify_season_split.py": "30fd05708377b78a136b6a9cfb359e63ab72a07adc668d6dcbb6de279131135a",
+    "tests/unit/test_collection_conflict_report.py": null,
+    "tests/unit/test_collection_service.py": "6f7ef2ac9768d3bfba9d451ed65b4db298f59205e56c615a2da84b2bae63cc03",
+    "docs/design/data-models.md": "d917d78216d24934ce2eeda5001c52d40d66d9ec0388e6ab805a7c0d728e53bc",
+    "docs/design/per-season-works.md": "b6c11eb61544cf8abac4dabf331409d9977116c07149ecec84b5dc0f02dc57ca",
+    "docs/design/db-migration.md": "acb660d602ad07203824e9a58569c3d8e099535925dc568c9998d59de93730b3",
+    "docs/design/api-endpoints.md": "8b1997a46e347c874ad75b3eb32f446c80b8c62b7a3e87959daf6df4d8a53f82",
+    "docs/testing/integration-inventory.md": "5d4f994fcc22614aaf69b2a6c40457390ecf14ae5b8ec7dc960036579c822ef6",
+    "app/services/metadata_service.py": "d291bafa2ba34e2d97fc4d3545195294456700eb58fc949417a8c5a29114d6e9",
+    "tests/unit/test_metadata_service.py": "1a9663340dc91a715ef7ce43f8ff2797655de42e05e503553f69afa60a3bae86",
+    "docs/design/business-logic.md": "2e498bedb4cad5b7bf9c8a0cffd0f105b0e4071500c8739488ca6508bf2b5220",
+    "app/services/metadata_dedup.py": "65f737c79c651d997161a00add1b07ab6b3395844b5a858bb3b21ca9ffee2278",
+    "app/services/wikidata_collection.py": "a1299ef245271c42987d5327f95e63b1eb0bcce274e3ef79b417b65f976ca7e0",
+    "tests/unit/test_bangumi_relations.py": "2e159931b8ddd4a07067f16e749b015ca07f60e9f5d0e82aea8afbebcffa81ec",
+    "tests/unit/test_batch_content_analysis.py": "dd18f9ff07fab220b1d68dae2b886e96705a80eb00bdd1903e49c850f6e2c101",
+    "tests/unit/test_metadata_search.py": "ec7298996a7785dc18b874cf9d1ece5133536579d798b4dee920da841b9d1fc5",
+    "tests/unit/test_specials_airdate_backfill.py": "8b457cd0c1e580fff3e0cb0b2f0a7dcdbcbbd0b7d82628164ab65eb5d0ff0f0d",
+    "tests/unit/test_wikidata_collection.py": "e046b3c02df6b7747e7ff17c8654db0cdc73624f18d201d7758e04ac413b1713",
+    "tests/integration/season_model/conftest.py": "1b62175864f5125b6e4f16563a1017fedf7479bd2b6bd173116b510e96ddd849"
   },
   "runs": {
     "baseline": {
@@ -66,6 +108,138 @@
       "time": "11.037",
       "timestamp": "2026-09-20T01:11:26.581991+00:00",
       "hostname": "dl-workstation-albert"
+    },
+    "api_red": {
+      "junit": "/tmp/rssripple-v8-api-conflict-red.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "2",
+      "time": "2.539",
+      "timestamp": "2026-09-20T01:20:48.501761+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "api_green": {
+      "junit": "/tmp/rssripple-v8-api-conflict-green.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "8",
+      "time": "4.504",
+      "timestamp": "2026-09-20T01:23:41.621359+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "collections_expanded": {
+      "junit": "/tmp/rssripple-v8-collections-expanded.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "26",
+      "time": "10.952",
+      "timestamp": "2026-09-20T01:24:51.707953+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "savepoint_expanded": {
+      "junit": "/tmp/rssripple-v8-savepoint-expanded.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "33",
+      "time": "15.273",
+      "timestamp": "2026-09-20T01:29:47.092565+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "conflict_report": {
+      "junit": "/tmp/rssripple-v8-conflict-report.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "0.881",
+      "timestamp": "2026-09-20T01:36:09.245527+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "migration_expanded_red": {
+      "junit": "/tmp/rssripple-v8-migration-expanded.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "72",
+      "time": "23.111",
+      "timestamp": "2026-09-20T01:38:20.397522+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "migration_expanded_green": {
+      "junit": "/tmp/rssripple-v8-migration-green.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "72",
+      "time": "22.618",
+      "timestamp": "2026-09-20T01:40:36.942969+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "metadata_expanded_red": {
+      "junit": "/tmp/rssripple-v8-metadata-expanded.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "237",
+      "time": "65.455",
+      "timestamp": "2026-09-20T01:42:29.759225+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "metadata_expanded_green": {
+      "junit": "/tmp/rssripple-v8-metadata-green.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "237",
+      "time": "61.515",
+      "timestamp": "2026-09-20T01:46:55.953485+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "wikidata_conflict_red": {
+      "junit": "/tmp/rssripple-v8-wikidata-conflict-red.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "2",
+      "skipped": "0",
+      "tests": "2",
+      "time": "1.194",
+      "timestamp": "2026-09-20T02:18:51.196304+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "writepaths_green": {
+      "junit": "/tmp/rssripple-v8-writepaths-av.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "206",
+      "time": "56.256",
+      "timestamp": "2026-09-20T02:25:42.230252+00:00",
+      "hostname": "dl-workstation-albert"
     }
-  }
+  },
+  "before_v7_rebase_files": {
+    "app/models/series.py": "44fb96cf7e3588d03bb6ab502a15db60f346391f4c1f196d2698590259290040",
+    "app/database.py": "503d4ed02d76dc25c2c7217e15bbde7024c66e03bfbdf3098240c29f662d898d",
+    "tests/unit/test_collection_season_index.py": "c24433a67e9230101c2ff069824c70cf233308e05edfaa19fd43bc996139942d"
+  },
+  "base": "e535e1f: V7 accepted and committed",
+  "pending": "Unit/API av accepted; integration av 17 setup errors; historical schema fixture fixed and 17 targeted passed; full integration bc starting",
+  "unit_session": null,
+  "main_worktree_applied": true,
+  "unit_result": "3574 passed,14 skipped,97.83%",
+  "complete_validation": "database-invariants-complete-bg-result.json"
 }

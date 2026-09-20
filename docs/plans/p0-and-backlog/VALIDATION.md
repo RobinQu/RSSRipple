@@ -483,3 +483,96 @@ V8 at 正在运行，保持其 496 文件冻结；副本仍含上述旧 HTTP 断
 按 code-review-and-quality 复审创建/删除/解绑事务、预加载 ORM 关系、资源映射分页、父锁顺序、启动幂等回填及跨进程竞争；无新增依赖。合集成员/身份袋/手工文件映射保留及 PostgreSQL 并发有真实数据库证据；测试数据为明确构造的关系数据，完整集成继续包含捕获标题和真实 torrent 清单，未宣称新增在线来源录制。
 
 原 P0-6 的四条 API/回填待办已验收，从 pending-only TODO 删除。D6 仅合集删除部分完成，剧集/电影删除与人工映射策略继续保留；D1/D2 原型仍未验收。历史 ap 失败与运行中记录保留，不代表当前验收状态。
+
+
+## at 失败修正与扩大回归（2026-09-20）
+
+at 完整单元/API **3564 passed、8 failed、14 skipped，1563.65 秒，97.77%**，不能验收，见 probes/collection-season-complete-at-result.json。六项涉及同合集重复季号的旧夹具；去重继承合集是真实写入顺序问题，须在事务内先 flush 删除重复行，再继承合集。Wikidata 原正例的两作品改为明确 S1/S2，同时补同季真实 DB 负例：apply/dry-run **2 failed，1.41 秒**（此前错误返回 linked）。补修后遇占用返回 ambiguous，拒绝前不更新标签，实际写入先锁已有目标合集。
+
+保留原断言目的：Bangumi stale S1 从独立壳合集开始，继续验证修正到 S2/人工保护；手工资源映射不删除；人工日期案例仍有可用正季日期而必须保持不变。七个相关测试文件扩大回归 **206 passed、1 warning，56.31 秒**，`/tmp/rssripple-v8-writepaths-av.xml`。V7 的 HTTP 解绑断言已在 at 终态后继承。需要重跑完整门禁，206 项不能替代验收。
+
+
+## av 完整复验启动
+
+V7 已提交本地 main `e535e1f`。V8 23 个实现/测试/权威文档文件经主工作树基线哈希比对后同步，未提交；全仓 Ruff 与差异检查通过。root 的 496 个源码/配置文件冻结于 `/tmp/rssripple-v8-source-av.json`。完整单元/API 与隔离集成 av 正在执行，句柄与日志见 `/tmp/rssripple-v8-gates-av.json`；终态前不得修改 root app/tests/scripts/config。at 失败仍有效，TODO D1 保留。
+
+
+## PostgreSQL 与真实外键动作（2026-09-20，aw）
+
+一次性 PostgreSQL 三类库 × 七外键复现：新装和缺列升级 14 项通过，既有列缺约束 7 项失败。补修在启动已有 advisory transaction lock/DDL timeout 内检查 catalog；缺失约束先按 LEFT JOIN 诊断悬空 ID，再 ALTER ADD CONSTRAINT 验证全部行；已有错误目标/动作明确拒绝。修正后重复生产 startup 的 21 项均通过。
+
+随后为两库矩阵加入直接 SQL 的非法 INSERT/UPDATE 与父项 DELETE：异常必须是 foreign key，不能由其他唯一约束代替；SET NULL 必须保留原 child ID 并置空，NO ACTION 必须拒绝且关联保留。Turso 扩大 **27 passed、1 warning，27.10 秒**（`/tmp/rssripple-v9-fk-actions-aw.xml`）；PG 三类库全部 21 项动作通过、探针退出 0，aw 项目已清理。矩阵数据为明确合成关系，非生产录制。PG 探针复用独立副本 tests/unit/test_upgrade_foreign_keys.py 的直接 SQL 动作断言，运行前须先应用原型或使用该副本。
+
+当前原型仍基于 V7，需要吸收 V8 索引改动；实际完整 helper 故障回滚/脏数据拒绝、PG 并发启动与更多带规则/计划数据的重建，权威文档及完整门禁仍待完成，不关闭 D2。
+
+
+## D1 共存、故障恢复与预检（2026-09-20，ax/ay/az）
+
+独立 V9 已吸收 root V8 av 的索引与写入修复。扩大 ax **83 passed、1 failed、3 skipped，80.75 秒**：唯一失败是旧 PG 锁重试测试的 FakeConn 不支持新增 catalog 步骤；该测试将新迁移步骤隔离为 AsyncMock 并断言成功重试后仅执行一次，实际 PG catalog/DDL 由真实数据库探针验证。
+
+Turso 新增带 Episode/资源/身份袋/历史额外列的脏数据拒绝、换表后故障回滚、纠正已知父项后重试；并增加资源/下载器/Library 三表重建，完整比较下载任务、通知、RESTRICT 规则、SET NULL 计划及冻结 payload，末尾故障要求全部表恢复。ay 扩大 **86 passed、3 skipped、2 warnings，49.54 秒**。D1 索引与只读同季预检仍通过。
+
+PG 脏数据启动明确拒绝并诊断子行 ID；七个待补约束均保持缺失，证明前面已执行的 ALTER 也回滚，原业务行完全不变。补回明确的合成父项后，两个真实新进程启动，经 pg_blocking_pids 观察均被 advisory lock 阻塞，然后均退出 0，七 FK 齐全，人工字段保留；ax 清理完成。首版探针因 pg_stat_activity 事务快照缓存观察超时，子进程已终止；增加 pg_stat_clear_snapshot 后取得阻塞证据，这是测试观察问题而非产品故障。
+
+新增 `scripts/verify_upgrade_foreign_keys.py --output PATH` 只读 JSONL 预检，不运行 startup，完整列出所有悬空引用。Turso 四模式首轮 3 passed/1 failed（夹具 DML 后执行 DDL 的事务方式错误），修正建表顺序后四项通过；实际 SELECT/PRAGMA-only 检查与 103 项全量导出断言通过。PG 实际 CLI 输出全部 103 个 ID/父键，业务行和人工字段不变，脏库退出 1、清洁库退出 0。
+
+复审发现同一列同时有正确与错误 ON DELETE 时原型 any() 会放行：实际 Turso **1 failed、1 passed，2.87 秒**。改为要求所有相关 FK 均匹配，并在 PG 加同样边界。az 扩大回归与 ay 最终 PG 矩阵正在运行，见 `/tmp/rssripple-v9-fk-state.json`；完整门禁尚未开始，不关闭 D2。三份权威文档已在副本准备，原型 11 文件，尚未应用 root。
+
+
+## V9 最终扩大验证与单元/API 门禁启动
+
+az 扩大终态 **92 passed、3 skipped、2 warnings，103.17 秒，退出 0**；最终 PG 三类 schema/真实动作 21 项及两种异常 FK 语义均通过，ay 项目清理完成。最终按 code-review-and-quality 复审 SQL 标识符引用、原始 DDL/索引/触发器保留、事务所有权与回滚、悬空引用不猜测修复、父表删除副作用、幂等性及流式只读预检；无新增依赖，未发现未解决的合并阻断项。全 app/tests/scripts Ruff 与原型应用检查通过。
+
+11 文件独立原型基于 V8 av 冻结源码，未应用 root。完整单元/API az 已启动，502 个源码/配置文件冻结于 `/tmp/rssripple-v9-source-az.json`，句柄 `/tmp/rssripple-v9-gates-az.json`。尚待完整门禁，D2 继续保留 TODO；root V8 av 仍运行，不得为后续任务覆盖源码。
+
+
+## V9 门禁环境修正与 bb 续接
+
+az 全量收集阶段因副本漏复制 tests/unit/fixtures/wikipedia 的非 Python 录制文件而 **2 errors、退出 2，13.75 秒**，未运行完整测试，不能验收。补环境脚本第一次在副本执行 git ls-files（副本无 .git）失败，后续 ba 同样收集失败 **2 errors、退出 2，3.13 秒**；两轮均已终态，不是超时重启。随后明确从 root 仓库枚举、实际补齐 34 个支持文件，并验证原 502 源码哈希完全不变。新清单 `/tmp/rssripple-v9-source-bb.json` 纳入全部跟踪测试/脚本/应用支持文件，共 2927 项；bb 全量已启动，句柄 `/tmp/rssripple-v9-gates-bb.json`。复制的是既有录制语料，没有用合成文件代替真实样本。
+
+
+## V8 av 终态与 bc 集成复验
+
+av 完整单元/API **3574 passed、14 skipped、6 warnings，1622.13 秒，21291/21764（97.83%）**，退出 0。完整集成 **3119 passed、17 errors、17 skipped、8 warnings，1660.27 秒，退出 1**；全部 17 个错误发生在 season_model 共用的迁移前生产录制数据加载阶段，新 ORM 自动创建唯一索引导致历史重复季槽无法载入。两个应用正常退出 0，覆盖率汇总退出 0，**19517/21764（89.68%）**。证据 `/tmp/rssripple-v8-artifacts-av`，机器摘要 probes/collection-season-complete-av-result.json；av 项目已清理，因测试错误不验收。
+
+仅修正 tests/integration/season_model/conftest.py：初始化历史库时移除新索引，完整加载原始生产录制数据；实际单季迁移后明确断言唯一索引已重建。同时将加载过程纳入 finally，失败也恢复全局测试 engine/factory。没有改写录制数据、跳过测试或删除旧断言。定向完整 season_model **17 passed，25.66 秒**（`/tmp/rssripple-v8-season-fixture-bc.xml`），Ruff 修正局部 import 排序后全仓通过。
+
+av 冻结文件仅这一个集成夹具变化，应用/单元/API 源码不变，复用已通过的 3574 项门禁；原型累计 24 文件。新完整集成项目 `rssripple-v8-complete-20260920-bc`，冻结 `/tmp/rssripple-v8-source-bc.json`，句柄 `/tmp/rssripple-v8-gates-bc.json`。V9 bb 独立副本仍冻结，其同名集成夹具须在 bb 终态后继承再启动完整集成；不能在运行中覆盖。
+
+
+## 写入防护原型与存量证据（2026-09-20）
+
+独立副本新增请求级退役字段拒绝（包括 null），移除创建/更新 schema 的 number_of_seasons，但保留只读响应兼容；seasons 也明确拒绝，其他未知键沿用原契约。MANUAL_EDITABLE_FIELDS 移除退役计数；去重不再从重复行继承它。已有真正旧作品的计数/seasons 不自动清空，其他字段与人工保护保留。
+
+实际 API 的两个原始红测、12 组退役请求无副作用、合法单季 Episode 写入，以及已有 API/去重扩大回归 **64 passed、1 warning，37.37 秒**（`/tmp/rssripple-v10-write-guards-green.xml`）。同时保留旧幸存行 count=3/seasons 证据且不新登记退役人工字段。八文件原型（含三份权威文档）仅在独立副本，未应用 root，仍缺存量方案和完整门禁。
+
+只读审计仓库已有 `tests/fixtures/prod_works_v1.json`：65 个 TVSeries 中 27 个带非空 number_of_seasons，其中包含明确多季 JSON。这是迁移前录制夹具，不能与 TODO 所述另一份历史主库快照“1 行非空”混为一谈。禁止改写此录制数据来让清理测试通过；应据它建立真正旧多季、单季与缺证据样本。
+
+清理还必须处理证据退化：work_verified_season 对 S1 可能依赖旧 count=1；直接清空可能把可验证的 S1 变成 unknown。下一步应设计显式确认且可审计的清理流程，保留原始证据、并发前置条件和真正多季分流，既不能猜季，也不能只做新写入防护就关闭 D3。
+
+
+## V9 bb 单元/API 终态
+
+完整单元/API **3611 passed、14 skipped、6 warnings，1626.49 秒，21340/21833（97.74%），退出 0**。JUnit failures/errors 均 0，2927 个冻结源码/支持文件哈希不变。随后仅继承 V8 bc 的历史迁移库集成夹具修正，应用/单元/API/配置不变；副本新清单 `/tmp/rssripple-v9-source-bd.json`。尚待 root V8 bc 完整集成终态，再核对基线同步 V9 并运行其完整集成；当前不关闭 D2。
+
+## V8/V9 联合最终验收启动（2026-09-20，bg）
+
+V8 bc 完整集成 3136 passed、17 skipped（1664.27 秒），应用退出、覆盖率汇总、导出及项目清理完成；最终复审新增真实 Turso 约束错误文本负例，最初 1 failed，补修后 4 passed（1.71 秒）。因此不能直接沿用此前完整门禁宣告验收。V9 bb 完整单元/API 3611 passed、14 skipped，覆盖率 97.74%。
+
+V8 错误转换补修与 V9 的 11 个文件已逐项基线哈希核对后同步主工作区。Ruff 全部通过，2891 个源码及支持文件冻结于 `/tmp/rssripple-v89-source-bg.json`。联合完整单元/API（95%）与唯一项目 `rssripple-v89-complete-20260920-bg` 的完整集成（85%）运行中，持久句柄 `/tmp/rssripple-v89-gates-bg.json`。运行期间不修改被测源码；待测试终态、应用退出、覆盖率汇总、证据导出和清理全部完成后再决定验收。
+
+P0/B9 合入核验：`git merge-base --is-ancestor 4c804ed main` 返回 0；本地 main 当前为 `e535e1f`，包含后续 V6/V7。尚未推送远端。
+
+## V8/V9 bg 集成终态与 V10 bp 启动
+
+V8/V9 bg 完整集成 **3136 passed、17 skipped、8 warnings，1716.83 秒，退出 0**；应用 app/app-llm 正常退出均为 0，四份覆盖率汇总退出 0，覆盖 **19576/21833（89.66%）**，85% 门禁通过。JUnit 的 errors/failures 均为 0，报告已导出 `/tmp/rssripple-v89-artifacts-bg`；测试项目 down --volumes --remove-orphans 退出 0。完整单元/API 仍运行，暂不验收提交或删除 D1/D2。
+
+V10 从单元冻结副本复制完整测试目录 `/tmp/rssripple-v10-integration-bp`，逐项核实 2997 个源码/静态/夹具文件哈希一致（复制解引用 fixture symlink，确保容器内可读；原副本不变），以唯一项目 rssripple-v10-complete-20260920-bp 启动完整集成。句柄 `/tmp/rssripple-v10-gates-bp.json`；独立单元/API bh 同时继续运行。未读取生产配置/数据，V10 未应用主工作区。
+
+## V8/V9 联合最终验收（2026-09-20，bg）
+
+完整单元/API：3612 passed、14 skipped、6 warnings，2255.37 秒，退出 0；覆盖 21343/21833（97.76%），95% 门禁通过。完整集成：3136 passed、17 skipped、8 warnings，1716.83 秒，退出 0；覆盖 19576/21833（89.66%），85% 门禁通过。两个应用退出均为 0，覆盖率汇总/证据导出/项目清理全部完成，报告在 `/tmp/rssripple-v89-artifacts-bg`。冻结的 2891 个源码/支持文件终态哈希一致；Ruff 全库及 diff whitespace 检查通过。
+
+最终复核覆盖：新装/升级唯一索引、旧冲突只读预检与失败保留、真实 PG API/metadata 抢槽、SAVEPOINT 内关联原子回滚、Turso 实际错误文本转换，以及七处 FK 的双库新装/缺列/已有列矩阵、真实 INSERT/UPDATE/ON DELETE、带关联数据原子重建、故障回滚、并发启动与只读孤儿报告。无新增依赖；权威模型/API/业务/迁移/单季化/集成清单已同步。历史失败轮保留，不以更改原录制数据规避失败。
+
+D1/D2 验收完成，从 pending-only TODO 删除。当前生产库未执行迁移或数据修复；新约束遇到既有冲突/悬空关联会拒绝启动，须按只读报告及迁移 runbook 修复，不能自动删业务行。机器可读证据见 probes/database-invariants-complete-bg-result.json。V10/V11 及其他待办继续保留。

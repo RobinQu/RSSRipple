@@ -75,7 +75,6 @@ async def test_evaluate_skips_manual_edit_and_missing_sibling_dates(db_session):
     db_session.add(coll2)
     db_session.add_all([
         _work(coll2.id, 1),  # sibling without a date
-        _work(coll2.id, 0, start_date=date(2019, 6, 1)),  # specials date: never borrowed
     ])
     lonely = _work(coll2.id, 0)
     db_session.add(lonely)

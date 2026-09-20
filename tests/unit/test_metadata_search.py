@@ -209,11 +209,16 @@ async def test_refresh_season0_fills_start_date_from_sibling(db_session):
         id=_uuid(), title_cn="某作品 OVA", content_type="tv", season_number=0,
         collection_id=coll.id,
     )
+    manual_coll = WorkCollection(id=_uuid(), title_cn="人工保护合集", external_source="series_group")
+    manual_s1 = TVSeries(
+        id=_uuid(), title_cn="人工保护正季", season_number=1,
+        collection_id=manual_coll.id, start_date=date(2020, 1, 1),
+    )
     manual = TVSeries(
         id=_uuid(), title_cn="某作品 SP2", content_type="tv", season_number=0,
-        collection_id=coll.id, manually_edited_fields=["start_date"],
+        collection_id=manual_coll.id, manually_edited_fields=["start_date"],
     )
-    db_session.add_all([coll, s1, work, manual])
+    db_session.add_all([coll, s1, work, manual_coll, manual_s1, manual])
     await db_session.flush()
     with patch(_SEARCH, new_callable=AsyncMock) as search:
         result = await refresh_work_by_source(db_session, work, "tv", "bangumi")

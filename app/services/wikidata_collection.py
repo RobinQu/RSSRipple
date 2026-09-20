@@ -351,6 +351,23 @@ async def link_series_wikidata_collection(
     if franchise is None:
         return STATUS_FAILED
     title_cn, title_en = entity_labels(franchise)
+    query = select(WorkCollection).where(
+        WorkCollection.external_source == WIKIDATA_SOURCE,
+        WorkCollection.external_id == franchise_qid,
+    )
+    if apply:
+        query = query.with_for_update()
+    collection = (await db.execute(query)).scalar_one_or_none()
+    if collection is not None:
+        # A shared franchise identity does not prove two S1 works are identical.
+        # Check before upsert so a rejected link cannot overwrite its labels.
+        occupied = (await db.execute(select(TVSeries.id).where(
+            TVSeries.collection_id == collection.id,
+            TVSeries.season_number == series.season_number,
+            TVSeries.id != series.id,
+        ))).first()
+        if occupied is not None:
+            return STATUS_AMBIGUOUS
     if apply:
         collection = await upsert_collection_from_wikidata(
             db, franchise_qid, title_cn, title_en

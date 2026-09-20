@@ -33,7 +33,7 @@ import asyncio
 import json
 import sys
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 
 import app.database as app_database
 from app.models.agent_work import AgentWork
@@ -285,6 +285,38 @@ async def verify(*, snapshot: str | None, strict: bool) -> int:
     return 0
 
 
+async def _write_collection_conflicts(path: str) -> int:
+    """Export every conflicting member without startup DDL or data writes."""
+    duplicate_slots = (
+        select(TVSeries.collection_id, TVSeries.season_number, func.count().label("work_count"))
+        .where(TVSeries.collection_id.is_not(None))
+        .group_by(TVSeries.collection_id, TVSeries.season_number)
+        .having(func.count() > 1)
+        .subquery()
+    )
+    statement = (
+        select(
+            TVSeries.collection_id, TVSeries.season_number, duplicate_slots.c.work_count,
+            TVSeries.id, TVSeries.title_cn, TVSeries.title_en,
+            TVSeries.external_source, TVSeries.external_id, TVSeries.manually_edited_fields,
+        )
+        .join(duplicate_slots, and_(
+            TVSeries.collection_id == duplicate_slots.c.collection_id,
+            TVSeries.season_number == duplicate_slots.c.season_number,
+        ))
+        .order_by(TVSeries.collection_id, TVSeries.season_number, TVSeries.id)
+        .execution_options(yield_per=100)
+    )
+    count = 0
+    async with app_database.async_session_factory() as db:
+        with open(path, "w", encoding="utf-8") as output:
+            async for row in await db.stream(statement):
+                output.write(json.dumps(dict(row._mapping), ensure_ascii=False) + "\n")
+                count += 1
+    print(f"collection-season conflicting members: {count}; report: {path}")
+    return 1 if count else 0
+
+
 async def _write_snapshot(path: str) -> None:
     async with app_database.async_session_factory() as db:
         counts = await _snapshot_counts(db)
@@ -298,7 +330,15 @@ def main() -> None:
     parser.add_argument("--snapshot", default=None, help="pre-migration counts JSON to compare")
     parser.add_argument("--write-snapshot", default=None, help="capture current counts and exit")
     parser.add_argument("--strict", action="store_true", help="escalate warnings to failures")
+    parser.add_argument(
+        "--collection-conflicts-jsonl", default=None,
+        help="read-only collection-season conflict export; exit 1 when conflicts exist",
+    )
     args = parser.parse_args()
+    if args.collection_conflicts_jsonl:
+        if args.write_snapshot or args.snapshot or args.strict:
+            parser.error("--collection-conflicts-jsonl must be used without other modes")
+        sys.exit(asyncio.run(_write_collection_conflicts(args.collection_conflicts_jsonl)))
     if args.write_snapshot:
         asyncio.run(_write_snapshot(args.write_snapshot))
         return

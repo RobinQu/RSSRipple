@@ -436,6 +436,8 @@ async def _merge_series_group(
     # Point child rows at survivor (collision-safe)
     await _repoint_series_children(db, dup_ids, survivor.id, report)
 
+    inherited_collection_id = survivor.collection_id
+
     # Enrich survivor from duplicates
     survivor.aliases = _merge_aliases(rows)
     canonical_ext = _pick_canonical_external_id(rows)
@@ -463,8 +465,8 @@ async def _merge_series_group(
             survivor.number_of_seasons = d.number_of_seasons
         # Collection membership survives the merge: the survivor keeps its
         # own; only inherit a duplicate's when the survivor has none.
-        if survivor.collection_id is None and d.collection_id is not None:
-            survivor.collection_id = d.collection_id
+        if inherited_collection_id is None and d.collection_id is not None:
+            inherited_collection_id = d.collection_id
 
     # P3: union the identity bags so the survivor stays reachable by every
     # external id any merged row was ever known under.
@@ -473,6 +475,12 @@ async def _merge_series_group(
     # Delete duplicates
     for d in duplicates:
         await db.delete(d)
+
+    if survivor.collection_id is None and inherited_collection_id is not None:
+        # Free the duplicate's unique collection/season slot before adopting it.
+        # Keep both operations in the caller's transaction.
+        await db.flush()
+        survivor.collection_id = inherited_collection_id
 
     report.series_groups += 1
     report.series_removed += len(duplicates)

@@ -1558,6 +1558,10 @@ async def _resolve_collection_member(
     the collection and None is returned so the caller parks the resource on
     the collection for Channel confirmation (挂合集待确认).
     """
+    # Serialize member discovery and lazy creation on the existing parent.
+    # Refresh after waiting so a second matcher sees the first transaction's
+    # member instead of failing the collection/season unique constraint.
+    await db.refresh(collection, with_for_update=True)
     _merge_collection_aliases(collection, data)
     members = await _collection_members(db, collection.id)
     work: TVSeries | None = None
@@ -1828,11 +1832,10 @@ async def create_or_update_series_from_external(
                 if coll_id
                 else await _create_series_collection(db, data)
             )
-            return await _create_season_work(
+            return await _resolve_collection_member(
                 db, data, collection, season,
-                raw_source=raw_source, raw_external_id=raw_external_id,
-                canonical_id=canonical_id, granularity=granularity,
-                series_level_id=series_level_id,
+                raw_source=raw_source, canonical_id=canonical_id,
+                granularity=granularity, series_level_id=series_level_id,
             )
         # Season unknown: single candidate (or all-season-1 legacy rows)
         # keeps the old behavior; a multi-season candidate set parks on its

@@ -1,0 +1,55 @@
+--- /dev/null
++++ b/tests/api/test_retired_season_fields.py
+@@ -0,0 +1,52 @@
++"""API-written retired counts must not turn a season work into a legacy IP."""
++
++import pytest
++from sqlalchemy import select
++
++from app.models.episode import Episode
++from app.models.series import TVSeries
++from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
++from app.services.metadata_service import upsert_episodes
++
++
++@pytest.mark.parametrize("operation", ["create", "update"])
++async def test_retired_count_rejected_without_cross_season_pollution(client, db_session_factory, operation):
++    if operation == "create":
++        response = await client.post(
++            "/api/v1/series",
++            json={
++                "title_cn": "Synthetic retired-field guard",
++                "number_of_seasons": 2,
++            },
++        )
++    else:
++        created = await client.post("/api/v1/series", json={"title_cn": "Synthetic retired-field guard"})
++        assert created.status_code == 201
++        response = await client.put("/api/v1/series/" + created.json()["data"]["id"], json={"number_of_seasons": 2})
++    if response.status_code in {200, 201}:
++        identity = response.json()["data"]["id"]
++        async with db_session_factory() as db:
++            work = await db.get(TVSeries, identity)
++            legacy = is_unsplit_legacy_series(work)
++            await upsert_episodes(
++                db,
++                work,
++                [
++                    {"season": 1, "episode": 1, "title": "Synthetic S1"},
++                    {"season": 2, "episode": 1, "title": "Synthetic S2"},
++                ],
++            )
++            await db.commit()
++            seasons = list(
++                await db.scalars(select(Episode.season).where(Episode.series_id == identity).order_by(Episode.season))
++            )
++            print(
++                {
++                    "status": response.status_code,
++                    "work_season": work.season_number,
++                    "legacy": legacy,
++                    "stored_episode_seasons": seasons,
++                    "protected": work.manually_edited_fields,
++                }
++            )
++    assert response.status_code == 422

@@ -1,0 +1,33 @@
+{
+  "status": "necessary; reproduced; no runtime fix",
+  "directory": "/tmp/rssripple-v11-decisions",
+  "coverage_tests": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "2",
+    "skipped": "0",
+    "tests": "2",
+    "time": "1.792",
+    "timestamp": "2026-09-20T03:51:37.899373+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "postgresql": {
+    "both_creators_observed_empty_slot": true,
+    "created_ids": [
+      "acd9f97b-4093-456d-b7c6-df5e3e599858",
+      "02ae7236-63f2-432b-97c6-eb55fcf06e96"
+    ],
+    "pending_rows": 2,
+    "candidate_counts": [
+      2,
+      2
+    ],
+    "scope": "synthetic data; two real PostgreSQL connections; real production create and commits; LLM replaced by barrier"
+  },
+  "setup_failures": [
+    "missing required downloader fixture",
+    "timezone-aware fixture parsed_at against PG naive UTC column"
+  ],
+  "project": "rssripple-v11-decisions-20260920-bi",
+  "cleanup": "complete, down exit0"
+}

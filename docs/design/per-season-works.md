@@ -31,7 +31,7 @@
 
 1. `TVSeries.season_number` 新增 `INTEGER NOT NULL DEFAULT 1`；作品行 = 该 IP 的一季。`season_number=0` 表示特典/SP（沿用 Plex Specials 约定，`resource_parser.py:739-741` 已有 season=0 先例）。
 2. 每部 series 作品必须属于一个 `WorkCollection`（单季作品也套一个壳合集，保证匹配/关联代码只有一条路径）；Movie 的 `collection_id` 维持可空（电影合集逻辑不变）。
-3. 合集内 `(collection_id, season_number)` 应用层唯一，数据迁移收敛后加部分唯一索引（`WHERE collection_id IS NOT NULL`）。
+3. 合集内 `(collection_id, season_number)` 由部分唯一索引约束（`WHERE collection_id IS NOT NULL`），S0 同样受保护。新装及轻迁移均建立索引；重复历史数据必须先预检并处理，启动不会自动选择幸存作品。
 4. 季作品的 `title_cn/title_en/original_title` 存**基础剧名**（剥季号，维持 `strip_season_from_title` 写入约定）；季限定标题变体（「无职转生 第三季」「無職転生Ⅲ …」）进 `aliases`；展示名 = 基础名 + 季后缀（合集成员 >1 时拼「 第N季」/「Season N」）。
 5. 作品 `seasons` JSON / `number_of_seasons` 两列退役（季作品只有一个季），不删列，改惰性孤儿（项目既有惯例，如 path_map/plex_section）；`number_of_episodes` = 本季集数；`start_date` = 本季首播（逐季源天然给出；系列级源经 TMDB season 端点或留 NULL 待刷新；仍 NULL 的季作品——含日期恒不可考的特典——兜底取同合集其他**非特典**季作品的最早 start_date：`_collection_fallback_start_date`，只填 NULL、不覆盖、尊重 `manually_edited_fields`，注入 upsert 新建/更新与 refresh season-0 跳过分支，存量回填 `scripts/specials_airdate_backfill.py`）。
 6. `Episode` 保留 `(series_id, season, episode)` 结构与唯一键，`season` 恒等于所属作品的 `season_number`（去规范化，全部既有查询零改动）。
@@ -134,7 +134,7 @@
 
 1. `tv_series.season_number INTEGER NOT NULL DEFAULT 1`。
 2. `work_collections` 加列：`aliases JSON`、`search_text VARCHAR(4096)`、`manually_edited_fields JSON`（合集升级为系列级元数据载体；rating/genre/is_anime 不上移——逐季源天然按季给这些值，保留在季作品上）。
-3. 索引：`ix_tv_series_collection_season`（部分唯一索引留待数据迁移收敛后由迁移脚本创建，轻迁移不建）。
+3. 索引：`uq_tv_series_collection_season`，Turso/PG 同名部分唯一索引；ORM 新装建立，轻迁移在 season_number 列存在后幂等补建，冲突时停止升级。预检/恢复见 db-migration.md。
 4. 作品 `seasons`/`number_of_seasons` 两列不删，改惰性孤儿。
 
 ### 数据迁移脚本 `scripts/season_split_migration.py`

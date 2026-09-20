@@ -25,20 +25,12 @@
 
 ### 数据模型 / 持久化
 
-- [ ] **P1-D1 新装库缺 `(collection_id, season_number)` 唯一索引**：`uq_tv_series_collection_season`
-      仅由 `scripts/season_split_migration.py:122` 创建，`app/database.py:546-551` 不在 `create_tables` 建。
-      **修复**：在 `create_tables`/轻量迁移幂等创建该部分唯一索引（Turso/PG 两库）。
-      **续接**：[V8 方案与证据](V8-COLLECTION-SEASON-INDEX.md)：双库启动/升级、API 抢槽、metadata 并发及恢复演练通过；完整单元/API at 为 3564 passed/8 failed；正在修复合并顺序、Wikidata 冲突与非法旧夹具，完整集成未完成，不关闭。
-- [ ] **P1-D2 轻量迁移的 FK 列无 FOREIGN KEY 约束**：`app/database.py:453/477/503/510` 用裸 `ADD COLUMN`，
-      `create_all` 不 ALTER，升级库永久缺 FK 与 `ON DELETE` 语义，与新装库漂移。
-      **修复**：迁移补齐 FK 或统一走表重建；加 schema 对等测试。
-      **续接**：[V9 复核与矩阵](V9-UPGRADE-FOREIGN-KEYS.md)：真实 Turso 七处升级 FK 缺失已复现；缺列与既有列缺约束必须分别修复。
 - [ ] **P1-D3 退役列 `number_of_seasons` 仍被写入**：`app/services/metadata_dedup.py:460-463` 与
-      `POST/PATCH /series` 仍接受；`is_unsplit_legacy_series` 会据陈旧值误判单季化作品（历史主库快照 1 行非空）。
-      **修复**：停止写入、从 `MANUAL_EDITABLE_FIELDS` 移除、清理存量。
+      `POST /series`、`PUT /series/{id}` 仍接受；`is_unsplit_legacy_series` 会据陈旧值误判单季化作品（历史主库快照 1 行非空）。
+      **修复**：停止写入、从 `MANUAL_EDITABLE_FIELDS` 移除；存量清理须保留真正未拆季证据。实际 API → Episode 跨季污染已复现，见 [V10 方案](V10-RETIRED-SEASON-FIELDS.md)。
 - [ ] **P1-D4 `PendingDecision` 无唯一约束 + check-then-insert**：`app/models/pending_decision.py:14-16`
       仅非唯一索引；`app/services/agent_service.py:503-548` 先查后插。队列已按 agent key 去重，普通运行不因 3 worker 必然并发；直接回填/API 并发仍可竞争。
-      **修复**：与 P1-M5 合并设计覆盖度感知、无 NULL 歧义的决策键，再加 pending 部分唯一索引及 SAVEPOINT。普通 nullable 联合唯一索引不能阻止重复（SQLite 内存复现已确认）。
+      **修复**：与 P1-M5 合并设计覆盖度感知、无 NULL 歧义的决策键，再加 pending 部分唯一索引及 SAVEPOINT。普通 nullable 联合唯一索引不能阻止重复；两个真实 PG 连接已复现同槽双提交，M4/M5 也已用实际 pipeline 复现，续接 [V11](V11-DECISION-COVERAGE.md)。
 - [ ] **P1-D6 删除路径泄漏身份袋 / 丢手工映射**：`DELETE /series|/movies` 不调用
       `delete_external_ids_for_work`（遗孤行导致命中即 miss 且无法重登记）；`resource_work_links` CASCADE
       静默丢手工映射。**修复**：删除时显式清理/转移。合集删除部分已在 V7 完整验收；此条仅保留剧集/电影删除与手工映射策略，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。

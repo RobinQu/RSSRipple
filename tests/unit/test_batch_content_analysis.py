@@ -31,7 +31,7 @@ async def test_bind_cleans_orphan_auto_links_keeps_manual(db_session, sample_cha
     )
     old = TVSeries(id=_uuid(), title_cn="旧作品")
     kept = TVSeries(
-        id=_uuid(), title_cn="人工关联作品", collection_id=collection.id,
+        id=_uuid(), title_cn="人工关联作品", collection_id=collection.id, season_number=2,
     )
     work = TVSeries(id=_uuid(), title_cn="新作品", collection_id=collection.id)
     resource = FileResource(

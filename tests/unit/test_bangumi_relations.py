@@ -311,8 +311,8 @@ async def test_seed_subjects_from_all_sources(db_session):
         id=_uuid(), title_cn="头文字D 剧场版", external_source="bangumi",
         external_id="bangumi:3", content_type="movie", release_date=date(2001, 1, 13),
     )
-    s3 = _series("头文字D Third Stage", source="manual", collection_id=collection.id)
-    s4 = _series("头文字D 无身份", source="manual", collection_id=collection.id)
+    s3 = _series("头文字D Third Stage", season=3, source="manual", collection_id=collection.id)
+    s4 = _series("头文字D 无身份", season=4, source="manual", collection_id=collection.id)
     m2 = Movie(
         id=_uuid(), title_cn="头文字D Legend", external_source="bangumi",
         external_id="bangumi:7", content_type="movie", collection_id=collection.id,
@@ -1278,8 +1278,11 @@ async def test_expand_phase_b_corrects_stale_upsert_season(db_session, monkeypat
     collection, seed = await _make_seed_work(db_session)
 
     async def _stale(db, entity, *, season_hint=None):
+        shell = _collection("stale shell")
+        db.add(shell)
+        await db.flush()
         work = _series("stale", season=1, source="bangumi",
-                       collection_id=collection.id)
+                       collection_id=shell.id)
         work.external_id = entity.get("external_id")
         work.external_source = "bangumi"
         db.add(work)
@@ -1287,7 +1290,7 @@ async def test_expand_phase_b_corrects_stale_upsert_season(db_session, monkeypat
         return work
 
     monkeypatch.setattr(ms, "create_or_update_series_from_external", _stale)
-    # Only one sequel node so the wrong season (1) collides with the seed.
+    # One sequel starts in its own shell with stale S1, then must become S2.
     relations = {
         1: [
             {"id": 2, "type": 2, "relation": "续集", "name": "頭文字D Second Stage",
@@ -1398,8 +1401,11 @@ async def test_expand_phase_b_correction_failure_skips_linking(db_session, monke
     await db_session.flush()
 
     async def _stale_manual(db, entity, *, season_hint=None):
+        shell = _collection("stale shell")
+        db.add(shell)
+        await db.flush()
         work = _series("stale", season=1, source="bangumi",
-                       collection_id=collection.id,
+                       collection_id=shell.id,
                        manually_edited_fields=["season_number"])
         work.external_id = entity.get("external_id")
         work.external_source = "bangumi"

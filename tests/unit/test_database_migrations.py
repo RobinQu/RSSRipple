@@ -1105,7 +1105,10 @@ async def test_create_tables_postgres_retries_on_lock_timeout(monkeypatch):
     monkeypatch.setattr(db_mod, "engine", _FakeEngine())
     monkeypatch.setattr(db_mod, "_apply_light_migrations", AsyncMock())
     monkeypatch.setattr(db_mod, "_ensure_pg_trgm_indexes", AsyncMock())
+    repair = AsyncMock()
+    monkeypatch.setattr("app.services.schema_foreign_keys.repair_postgres_foreign_keys", repair)
     await _create_tables_postgres()
+    repair.assert_awaited_once()
     assert state["calls"] == 1
 
 

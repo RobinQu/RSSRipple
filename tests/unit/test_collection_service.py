@@ -534,8 +534,8 @@ async def test_try_absorb_same_name_collection_keeps_colliding_season(db_session
 
 async def test_collection_work_summaries_excludes_series(db_session):
     coll = WorkCollection(id=_uuid(), title_cn="合集")
-    s1 = TVSeries(id=_uuid(), title_cn="剧1", content_type="tv", collection_id=coll.id)
-    s2 = TVSeries(id=_uuid(), title_cn="剧2", content_type="tv", collection_id=coll.id)
+    s1 = TVSeries(id=_uuid(), title_cn="剧1", content_type="tv", collection_id=coll.id, season_number=1)
+    s2 = TVSeries(id=_uuid(), title_cn="剧2", content_type="tv", collection_id=coll.id, season_number=2)
     db_session.add_all([coll, s1, s2])
     await db_session.flush()
 

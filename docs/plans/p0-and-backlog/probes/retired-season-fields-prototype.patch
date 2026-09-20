@@ -1,0 +1,834 @@
+--- a/app/schemas/series.py
++++ b/app/schemas/series.py
+@@ -3,12 +3,23 @@
+ from datetime import date, datetime
+ from typing import Literal
+ 
+-from pydantic import BaseModel, ConfigDict
++from pydantic import BaseModel, ConfigDict, model_validator
+ 
+ from app.schemas.genre import GenreName
+ 
+ 
+-class TVSeriesCreate(BaseModel):
++class _SeasonWorkInput(BaseModel):
++    @model_validator(mode="before")
++    @classmethod
++    def reject_retired_fields(cls, data):
++        if isinstance(data, dict):
++            retired = sorted({"seasons", "number_of_seasons"}.intersection(data))
++            if retired:
++                raise ValueError(f"Retired season fields are read-only: {', '.join(retired)}")
++        return data
++
++
++class TVSeriesCreate(_SeasonWorkInput):
+     title_cn: str | None = None
+     title_en: str | None = None
+     original_title: str | None = None
+@@ -21,14 +32,13 @@
+     genre: list[GenreName] | None = None
+     status: str | None = None
+     number_of_episodes: int | None = None
+-    number_of_seasons: int | None = None
+     start_date: date | None = None
+     end_date: date | None = None
+     content_type: str | None = "tv"
+     is_anime: bool | None = None
+ 
+ 
+-class TVSeriesUpdate(BaseModel):
++class TVSeriesUpdate(_SeasonWorkInput):
+     title_cn: str | None = None
+     title_en: str | None = None
+     original_title: str | None = None
+@@ -41,7 +51,6 @@
+     genre: list[GenreName] | None = None
+     status: str | None = None
+     number_of_episodes: int | None = None
+-    number_of_seasons: int | None = None
+     start_date: date | None = None
+     end_date: date | None = None
+     content_type: Literal["tv", "movie"] | None = None
+--- a/app/services/metadata_dedup.py
++++ b/app/services/metadata_dedup.py
+@@ -461,8 +461,6 @@
+             survivor.genre = d.genre
+         if survivor.number_of_episodes is None and d.number_of_episodes is not None:
+             survivor.number_of_episodes = d.number_of_episodes
+-        if survivor.number_of_seasons is None and d.number_of_seasons is not None:
+-            survivor.number_of_seasons = d.number_of_seasons
+         # Collection membership survives the merge: the survivor keeps its
+         # own; only inherit a duplicate's when the survivor has none.
+         if inherited_collection_id is None and d.collection_id is not None:
+--- a/app/services/metadata_episode_reconcile.py
++++ b/app/services/metadata_episode_reconcile.py
+@@ -269,7 +269,8 @@
+     rows (legacy rows all carry the column default 1), so they are trusted
+     directly. ``season_number == 1`` is ambiguous between a genuine season-1
+     work and a legacy row, and is only trusted with single-season evidence
+-    (legacy columns or a Bangumi entry identity). Unsplit legacy multi-season
++    (legacy columns, a Bangumi entry identity, or explicit manual season
++    confirmation). Unsplit legacy multi-season
+     rows never yield a value — their season must come from other evidence.
+     """
+     if series is None:
+@@ -281,6 +282,14 @@
+         return None
+     if is_unsplit_legacy_series(series):
+         return None
++    # An explicitly reviewed season identity survives retiring count=1.
++    # The legacy guard stays first: a manual marker cannot bypass multi-season evidence.
++    protected = getattr(series, "manually_edited_fields", None)
++    if (
++        isinstance(protected, list) and "season_number" in protected
++        and getattr(series, "season_number", None) is not None
++    ):
++        return n
+     if n != 1:
+         return n
+     if verified_season_count(season_evidence_from_series(series)) == 1:
+--- a/app/services/metadata_service.py
++++ b/app/services/metadata_service.py
+@@ -74,7 +74,7 @@
+ MANUAL_EDITABLE_FIELDS: frozenset[str] = frozenset({
+     "title_cn", "title_en", "original_title", "aliases", "description",
+     "poster_url", "rating", "genre", "status", "is_anime",
+-    "number_of_episodes", "number_of_seasons", "start_date", "end_date",
++    "number_of_episodes", "start_date", "end_date",
+     "release_date", "runtime",
+     "content_type", "external_id", "external_source",
+ })
+--- a/docs/design/api-endpoints.md
++++ b/docs/design/api-endpoints.md
+@@ -518,3 +518,6 @@
+ ### 合集挂载同季冲突
+ 
+ `POST /collections/{id}/works` 指派剧集时，目标已有同 season_number 作品（含 S0）返回 409 `DUPLICATE_SUBMISSION`。拒绝不迁移来源壳合集的身份袋、别名或资源指针。已属于目标的同一作品重复提交仍幂等成功；电影不应用剧集季号约束。检查后竞争导致数据库唯一约束失败时，完整挂载 SAVEPOINT 回滚并返回同样的 409。
++
++
++`POST /series` 和 `PUT /series/{id}` 不接受退役字段 `number_of_seasons` / `seasons`；显式传入（包括 null）返回 422 VALIDATION_ERROR，整次请求不写入作品、壳合集或人工保护字段。读取响应暂保留旧 number_of_seasons 供历史数据诊断；作品身份以 season_number 为准，普通 API 不得借退役列声明多季作品。
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -726,3 +726,6 @@
+ 复用已有合集的季成员解析在读取成员前对合集行 FOR UPDATE 并刷新，第二个匹配事务等待后重新读取成员，复用先到事务创建的作品。作品标题回退找到既有合集时也走同一路径，不绕过成员解析直接新建。新装/轻迁移的部分唯一索引仍是最终约束。锁按合集隔离；持锁阶段可能包含既有海报缓存未命中时的下载（既有 30 秒超时），同合集并发操作会等待。
+ 
+ D1 同季唯一约束下，去重若需继承重复行的合集，必须先在同一事务内删除并 flush 重复行，再给幸存行赋合集，避免 UPDATE 早于 DELETE 的瞬时冲突。Wikidata P179 回填发现目标合集同季已被其他作品占用时返回 ambiguous（dry-run 同样拒绝），不得以系列身份猜测作品相同，也不得更新目标标签；实际回填先锁已有目标合集。
++
++
++去重补齐幸存作品字段时不得继承 number_of_seasons；该列和 seasons 的现有值可能仍承载真正未拆季旧数据的证据，本步骤不自动清空或重解释它们。人工编辑字段白名单不再包含 number_of_seasons；真正的旧多季作品仍走显式单季迁移流程，不能通过清空计数默认变为 S1。
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -825,3 +825,5 @@
+ 
+ 
+ 轻量迁移新增的七处外键（audio/collection/volume/media_server 关联）在新装与升级库必须具有相同目标及 ON DELETE；已有列不代表约束已存在。启动检查并补齐缺失约束，旧悬空关联必须由明确业务证据修复，不自动丢弃子行或猜测父项。只读预检、Turso 原子重建与 PG 事务补约束见 [数据库迁移](db-migration.md)「轻量迁移的升级外键对等」。
++
++TVSeries.number_of_seasons / seasons 为退役孤儿列：创建/更新 API 拒绝显式输入，去重与人工字段登记不再扩散计数。只读兼容不表示允许新写入；存量清理必须保留未拆季证据，不能以整表置空替代单季迁移。
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -244,3 +244,14 @@
+ PostgreSQL 在现有启动 advisory transaction lock 与有界 DDL lock_timeout 内补约束；先诊断悬空 ID，再由 ALTER ADD CONSTRAINT 在锁下验证完整数据；任一失败回滚本轮 schema 事务。Turso 已有列缺约束需表重建：在 schema 阶段完成后、孤儿作品回填前，以新的普通 BEGIN 执行，不能使用 BEGIN CONCURRENT；按原始 CREATE 定义保留历史额外列、唯一约束、显式索引和触发器。重建前预检悬空值，暂时关闭外键防止 DROP 触发子表 CASCADE/SET NULL/RESTRICT；所有换表处于同一事务，finally 恢复 foreign_keys=ON。失败恢复原表及其子行，不吞异常继续启动；已完成的先前轻迁移 schema 阶段可能仍保留，业务关联不会被猜测修补。
+ 
+ 该修复不支持迁移期间其他程序写同一个 Turso 文件；遵循原有单进程独占/停机升级要求。数据量大时表复制与索引重建会占用额外磁盘和启动时间，应在数据库备份副本演练后安排升级窗口。
++
++## 退役季数的人工复核清理
++
++number_of_seasons 不再经创建/更新 API 或去重写入。已有值不能自动全表清空：真正未拆季作品仍需这些证据。维护工具不运行应用启动迁移，使用现有 DATABASE_URL。
++
++1. 停止所有写入进程并备份数据库。运行 `uv run python -m scripts.retired_season_fields --export /tmp/season-review.jsonl`，只读导出全部非空计数作品及其完整关联证据、阻断原因和指纹；每批最多 100 个作品，单个作品证据不截断。保留原始报告。
++2. 人工检查单条记录的合集、既有季号、旧 seasons、身份袋、Episode、资源及文件指派。只有确认已单季化时，复制完整记录到独立 JSON 文件，添加明确整数 confirmed_season，值须等于既有季号，不能从默认 S1 猜测。
++3. 运行 `uv run python -m scripts.retired_season_fields --apply-review /tmp/reviewed-work.json`。单作品事务先锁合集再锁作品并检查当前证据指纹；过期报告、跨季 Episode、矛盾季声明/身份/资源/指派均拒绝，先走关联修复或 P8 拆季流程。
++4. 成功仅将计数置空、移除其退役人工标记、添加明确季号的人工确认标记；保留 seasons、其他作品字段及关联。输出前后指纹及 changed；相同审核再次执行为 changed=false。任何失败整笔回滚。核对报告后再恢复写入。
++
++行锁与指纹不能替代停写：不同关联的新增需要稳定维护窗口。工具不修改生产配置，也不自动修复有歧义的历史关联。真正未拆季证据优先于人工标记，清理不会为跨季污染猜测拆分方案。
+--- a/docs/design/per-season-works.md
++++ b/docs/design/per-season-works.md
+@@ -253,3 +253,7 @@
+ 资源按现有作品 FK、resource_work_links 和 resource_file_assignments 的完整目标集合重算合集指针；全部已指派作品同属唯一合集时才设置，否则 collection_id 为空。人工 links/assignments 保留。删除原合集时，只有合集归属而没有作品依据的资源清除该指针；单独解绑作品不会改动这类仍属原合集的资源。资源按 UUID 游标每批最多 100 条处理，避免更新后用 offset 跳页。删除旧合集时同时清理其身份袋；失败整体回滚。
+ 
+ 合集修改取得目标合集行锁；attach 涉及壳吸收时按合集 ID 顺序锁定来源和目标，再锁作品并重读归属。归属已经变为未锁定第三个合集时返回 409 INVALID_STATE；等待期间目标被删除时返回 404。Turso 由已有事务锁冲突重试保证失败事务不部分提交。此行为不等于所有写入者均受数据库 NOT NULL 约束；遗留孤儿由启动回填修复。
++
++### 已确认单季作品的退役计数清理
++
++创建/更新 API 显式拒绝 seasons 和 number_of_seasons（含 null），只读响应兼容保留，去重不继承退役计数。历史数据清理必须逐作品人工复核；流程见 db-migration.md「退役季数的人工复核清理」。清理保留原 seasons 与关联，只清计数并以 manually_edited_fields 中的 season_number 记录明确确认。work_verified_season 先拒绝真正未拆季证据，再接受有效人工确认，避免清空 count=1 后丢失 S1 的已确认身份；缺少季号或畸形人工字段不据此猜季。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -281,3 +281,7 @@
+ D2 升级外键验证：`tests/unit/test_upgrade_foreign_keys.py` 使用真实 Turso 验证七 FK × 新装/缺列/已有列缺约束、非法 INSERT/UPDATE、父项 DELETE 的 SET NULL/NO ACTION；包含带 Episode/资源/身份袋/人工保护/历史额外列和索引的升级及脏数据拒绝、换表后注入故障与恢复。`test_upgrade_fk_related_data.py` 验证多表重建保留下载任务、通知、RESTRICT 规则及 SET NULL 计划，末尾失败整批回滚。`test_upgrade_fk_report.py` 验证预检全程只读并完整导出跨页 103 个悬空引用。`test_turso_fk_rebuild_capability.py` 记录后端事务、索引/触发器与回滚能力边界。
+ 
+ PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等待与恢复使用 `docs/plans/p0-and-backlog/probes/upgrade_foreign_keys*_pg_probe.py`，必须只运行于探针检查允许的独立本地测试库，报告与 Compose 清理证据见 V9 计划。上述定向测试不能替代完整单元/API ≥95% 和隔离集成 ≥85% 门禁。
++
++### 退役季数字段清理
++
++`tests/api/test_retired_season_fields.py` 验证实际 POST/PUT 拒绝退役字段且无副作用、合法单季 Episode 写入；`tests/unit/test_retired_season_cleanup.py` 覆盖真实 Turso 指纹、关联/人工字段保留、过期与矛盾证据拒绝、回滚、幂等、旧派生字段不被重写。`tests/integration/season_model/test_retired_field_review.py` 使用原始 prod_works_v1 录制夹具，只读导出 27 个带旧计数作品；实际合集回填后 8 个明确单季样本经审核清理，其他 19 个保留原值。录制夹具不代表当前生产库。实际 PostgreSQL CLI、并发阻塞和故障回滚证据见 p0-and-backlog/probes/retired-season-cleanup-pg-result.json。
+--- /dev/null
++++ b/scripts/retired_season_fields.py
+@@ -0,0 +1,234 @@
++"""Audit retired season counts, or apply one explicitly reviewed cleanup.
++
++Stop application writers and back up the DB before applying a review. Export
++is read-only and never runs startup. A review must add confirmed_season; it
++cannot change the work's season or move/delete any associated business rows.
++"""
++
++import argparse
++import asyncio
++import copy
++import hashlib
++import json
++
++from sqlalchemy import or_, select, update
++
++import app.database as database
++import app.models  # noqa: F401
++from app.models.episode import Episode
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_source_registry import split_season_identity
++
++
++def canonical(value):
++    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str)
++
++
++def fingerprint(snapshot):
++    return hashlib.sha256(canonical(snapshot).encode()).hexdigest()
++
++
++async def review_work(db, work_id, *, lock=False):
++    async def rows(model, condition, *, take_lock=True):
++        query = select(model.__table__).where(condition).order_by(model.id)
++        if lock and take_lock:
++            query = query.with_for_update()
++        return [dict(row) for row in (await db.execute(query)).mappings()]
++
++    works = await rows(TVSeries, TVSeries.id == work_id, take_lock=False)
++    if not works:
++        raise ValueError(f"Work not found: {work_id}")
++    work = works[0]
++    collection = await rows(WorkCollection, WorkCollection.id == work["collection_id"])
++    if lock:
++        locked = await rows(TVSeries, TVSeries.id == work_id)
++        if not locked or locked[0]["collection_id"] != work["collection_id"]:
++            raise ValueError("Work changed collections; export and review again")
++        work = locked[0]
++    siblings = (
++        select(TVSeries.id, TVSeries.season_number)
++        .where(
++            TVSeries.collection_id == work["collection_id"],
++            TVSeries.id != work_id,
++        )
++        .order_by(TVSeries.id)
++    )
++    if lock:
++        siblings = siblings.with_for_update()
++    links = await rows(ResourceWorkLink, ResourceWorkLink.series_id == work_id)
++    assignments = await rows(ResourceFileAssignment, ResourceFileAssignment.series_id == work_id)
++    resource_ids = {row["resource_id"] for row in [*links, *assignments]}
++    snapshot = {
++        "work": work,
++        "collection": collection,
++        "siblings": [dict(row) for row in (await db.execute(siblings)).mappings()],
++        "identities": await rows(
++            WorkExternalId, (WorkExternalId.work_type == "series") & (WorkExternalId.work_id == work_id)
++        ),
++        "episodes": await rows(Episode, Episode.series_id == work_id),
++        "resources": await rows(
++            FileResource, or_(FileResource.series_id == work_id, FileResource.id.in_(resource_ids))
++        ),
++        "links": links,
++        "assignments": assignments,
++    }
++    # Make the in-memory and exported/reloaded documents identical, including dates.
++    snapshot = json.loads(canonical(snapshot))
++    return {
++        "version": 1,
++        "work_id": work_id,
++        "snapshot": snapshot,
++        "fingerprint": fingerprint(snapshot),
++        "blocked_reasons": blocked_reasons(snapshot),
++    }
++
++
++def blocked_reasons(snapshot):
++    work = snapshot["work"]
++    season = work["season_number"]
++    reasons = []
++    if type(season) is not int or season < 0:
++        reasons.append("invalid current season")
++    if not work["collection_id"] or len(snapshot["collection"]) != 1:
++        reasons.append("missing collection; repair membership first")
++    if any(row["season_number"] == season for row in snapshot["siblings"]):
++        reasons.append("duplicate collection season slot; resolve before cleanup")
++    protection = work["manually_edited_fields"]
++    if protection is not None and (not isinstance(protection, list) or not all(isinstance(k, str) for k in protection)):
++        reasons.append("malformed manual protection fields")
++    declared = work["seasons"]
++    if declared is not None:
++        if not isinstance(declared, list):
++            reasons.append("malformed legacy season evidence")
++        elif any(
++            not isinstance(item, dict) or type(item.get("season_number")) is not int or item["season_number"] != season
++            for item in declared
++        ):
++            reasons.append("legacy season evidence conflicts; use reviewed season splitting")
++    for row in snapshot["episodes"]:
++        if row["season"] != season:
++            reasons.append(f"cross-season episode: {row['id']}")
++    for row in snapshot["resources"]:
++        if (
++            (not row["is_batch"] or row["batch_scope"] == "season")
++            and row["season"] is not None
++            and row["season"] != season
++        ):
++            reasons.append(f"conflicting single-season resource: {row['id']}")
++    for row in snapshot["assignments"]:
++        if row["season"] is not None and row["season"] != season:
++            reasons.append(f"cross-season file assignment: {row['id']}")
++    identities = [work["external_id"], *(row["external_id"] for row in snapshot["identities"])]
++    for identity in identities:
++        parsed = split_season_identity(identity)
++        if parsed is not None and parsed[1] != season:
++            reasons.append(f"conflicting season identity: {identity}")
++    return reasons
++
++
++def _without_update_time(snapshot):
++    snapshot = copy.deepcopy(snapshot)
++    snapshot["work"].pop("updated_at", None)
++    return snapshot
++
++
++async def apply_review(db, review):
++    """Stage one cleanup; caller owns commit/rollback. Original review is retained."""
++    if review.get("version") != 1 or fingerprint(review.get("snapshot")) != review.get("fingerprint"):
++        raise ValueError("Invalid review fingerprint/version")
++    confirmed = review.get("confirmed_season")
++    if type(confirmed) is not int or confirmed < 0:
++        raise ValueError("Explicit confirmed_season is required")
++    current = await review_work(db, review["work_id"], lock=True)
++    snapshot = current["snapshot"]
++    if confirmed != snapshot["work"]["season_number"]:
++        raise ValueError("Confirmation cannot change the existing season")
++    if current["blocked_reasons"]:
++        raise ValueError("; ".join(current["blocked_reasons"]))
++    expected = copy.deepcopy(review["snapshot"])
++    expected["work"]["number_of_seasons"] = None
++    expected["work"]["manually_edited_fields"] = sorted(
++        (set(expected["work"]["manually_edited_fields"] or []) - {"number_of_seasons"}) | {"season_number"}
++    )
++    if _without_update_time(snapshot) == _without_update_time(expected):
++        return {"work_id": review["work_id"], "changed": False, "after_fingerprint": current["fingerprint"]}
++    if current["fingerprint"] != review["fingerprint"]:
++        raise ValueError("Review is stale; export and review the current evidence")
++    if snapshot["work"]["number_of_seasons"] is None:
++        raise ValueError("No retired count to clear")
++    # Only retire these fields. ORM before_flush also normalizes search_text;
++    # repairing unrelated legacy derived fields would invalidate the reviewed snapshot.
++    await db.execute(
++        update(TVSeries)
++        .where(TVSeries.id == review["work_id"])
++        .values(
++            number_of_seasons=None,
++            manually_edited_fields=expected["work"]["manually_edited_fields"],
++        )
++    )
++    await db.flush()
++    after = await review_work(db, review["work_id"])
++    return {
++        "work_id": review["work_id"],
++        "changed": True,
++        "before_fingerprint": current["fingerprint"],
++        "after_fingerprint": after["fingerprint"],
++    }
++
++
++async def export_reviews(path):
++    count, cursor = 0, ""
++    async with database.async_session_factory() as db:
++        with open(path, "w", encoding="utf-8") as output:
++            while True:
++                ids = list(
++                    await db.scalars(
++                        select(TVSeries.id)
++                        .where(
++                            TVSeries.number_of_seasons.is_not(None),
++                            TVSeries.id > cursor,
++                        )
++                        .order_by(TVSeries.id)
++                        .limit(100)
++                    )
++                )
++                if not ids:
++                    break
++                for identity in ids:
++                    output.write(canonical(await review_work(db, identity)) + "\n")
++                    count += 1
++                cursor = ids[-1]
++    return count
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    mode = parser.add_mutually_exclusive_group(required=True)
++    mode.add_argument("--export", metavar="JSONL")
++    mode.add_argument("--apply-review", metavar="JSON", help="one exported record plus explicit confirmed_season")
++    args = parser.parse_args()
++
++    async def run():
++        try:
++            if args.export:
++                print(canonical({"exported": await export_reviews(args.export), "path": args.export}))
++            else:
++                with open(args.apply_review, encoding="utf-8") as source:
++                    review = json.load(source)
++                async with database.async_session_factory() as db:
++                    async with db.begin():
++                        result = await apply_review(db, review)
++                print(canonical(result))
++        finally:
++            await database.engine.dispose()
++
++    asyncio.run(run())
++
++
++if __name__ == "__main__":
++    main()
+--- /dev/null
++++ b/tests/api/test_retired_season_fields.py
+@@ -0,0 +1,120 @@
++"""API-written retired counts must not turn a season work into a legacy IP."""
++
++import pytest
++from sqlalchemy import select
++
++from app.models.episode import Episode
++from app.models.series import TVSeries
++from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
++from app.services.metadata_service import upsert_episodes
++
++
++@pytest.mark.parametrize("operation", ["create", "update"])
++async def test_retired_count_rejected_without_cross_season_pollution(client, db_session_factory, operation):
++    if operation == "create":
++        response = await client.post(
++            "/api/v1/series",
++            json={
++                "title_cn": "Synthetic retired-field guard",
++                "number_of_seasons": 2,
++            },
++        )
++    else:
++        created = await client.post("/api/v1/series", json={"title_cn": "Synthetic retired-field guard"})
++        assert created.status_code == 201
++        response = await client.put("/api/v1/series/" + created.json()["data"]["id"], json={"number_of_seasons": 2})
++    if response.status_code in {200, 201}:
++        identity = response.json()["data"]["id"]
++        async with db_session_factory() as db:
++            work = await db.get(TVSeries, identity)
++            legacy = is_unsplit_legacy_series(work)
++            await upsert_episodes(
++                db,
++                work,
++                [
++                    {"season": 1, "episode": 1, "title": "Synthetic S1"},
++                    {"season": 2, "episode": 1, "title": "Synthetic S2"},
++                ],
++            )
++            await db.commit()
++            seasons = list(
++                await db.scalars(select(Episode.season).where(Episode.series_id == identity).order_by(Episode.season))
++            )
++            print(
++                {
++                    "status": response.status_code,
++                    "work_season": work.season_number,
++                    "legacy": legacy,
++                    "stored_episode_seasons": seasons,
++                    "protected": work.manually_edited_fields,
++                }
++            )
++    assert response.status_code == 422
++
++
++@pytest.mark.parametrize(
++    "payload",
++    [
++        {"number_of_seasons": None},
++        {"number_of_seasons": 1},
++        {"number_of_seasons": 2},
++        {"seasons": None},
++        {"seasons": [{"season_number": 1}]},
++        {"number_of_seasons": 2, "seasons": []},
++    ],
++)
++@pytest.mark.parametrize("operation", ["create", "update"])
++async def test_rejection_has_no_work_collection_or_manual_field_side_effects(
++    client, db_session_factory, payload, operation
++):
++    from app.models.work_collection import WorkCollection
++
++    if operation == "update":
++        created = await client.post(
++            "/api/v1/series", json={"title_cn": "Synthetic preserved", "number_of_episodes": 12}
++        )
++        assert created.status_code == 201
++        identity = created.json()["data"]["id"]
++    async with db_session_factory() as db:
++        before = [
++            (w.id, w.title_cn, w.collection_id, w.number_of_episodes, w.manually_edited_fields)
++            for w in await db.scalars(select(TVSeries))
++        ]
++        parents = list(await db.scalars(select(WorkCollection.id)))
++    if operation == "create":
++        response = await client.post("/api/v1/series", json={"title_cn": "Must not persist", **payload})
++    else:
++        response = await client.put("/api/v1/series/" + identity, json={"title_cn": "Must not persist", **payload})
++    assert response.status_code == 422
++    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
++    async with db_session_factory() as db:
++        assert [
++            (w.id, w.title_cn, w.collection_id, w.number_of_episodes, w.manually_edited_fields)
++            for w in await db.scalars(select(TVSeries))
++        ] == before
++        assert list(await db.scalars(select(WorkCollection.id))) == parents
++
++
++async def test_legal_season_work_stays_season_local(client, db_session_factory):
++    created = await client.post(
++        "/api/v1/series", json={"title_cn": "Synthetic single season", "number_of_episodes": 12}
++    )
++    assert created.status_code == 201
++    identity = created.json()["data"]["id"]
++    updated = await client.put("/api/v1/series/" + identity, json={"title_cn": "Synthetic protected title"})
++    assert updated.status_code == 200
++    async with db_session_factory() as db:
++        work = await db.get(TVSeries, identity)
++        assert not is_unsplit_legacy_series(work)
++        assert work.number_of_seasons is None
++        assert work.manually_edited_fields == ["title_cn"]
++        await upsert_episodes(
++            db,
++            work,
++            [
++                {"season": 1, "episode": 1, "title": "Synthetic S1"},
++                {"season": 2, "episode": 1, "title": "Synthetic S2"},
++            ],
++        )
++        await db.commit()
++        assert list(await db.scalars(select(Episode.season).where(Episode.series_id == identity))) == [1]
+--- /dev/null
++++ b/tests/integration/season_model/test_retired_field_review.py
+@@ -0,0 +1,75 @@
++"""Replay the captured production graph without rewriting its legacy evidence."""
++
++import copy
++import json
++
++import pytest
++from sqlalchemy import event, select
++
++from app.models.series import TVSeries
++from app.services.collection_lifecycle import backfill_orphan_collections
++from scripts.retired_season_fields import apply_review, export_reviews, review_work
++
++pytestmark = pytest.mark.asyncio(loop_scope="module")
++
++
++async def test_captured_graph_audit_and_reviewed_cleanup(fixture_db, tmp_path):
++    expected = {
++        row["id"]: row for row in fixture_db.data["tables"]["tv_series"] if row.get("number_of_seasons") is not None
++    }
++    assert len(expected) == 27  # frozen source fixture, not a live-production claim
++    statements = []
++
++    def capture(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement.strip().upper())
++
++    output = tmp_path / "captured-review.jsonl"
++    event.listen(fixture_db.engine.sync_engine, "before_cursor_execute", capture)
++    try:
++        assert await export_reviews(str(output)) == len(expected)
++    finally:
++        event.remove(fixture_db.engine.sync_engine, "before_cursor_execute", capture)
++    assert statements and all(s.startswith(("SELECT", "PRAGMA")) for s in statements)
++    reviews = [json.loads(line) for line in output.read_text().splitlines()]
++    assert {r["work_id"] for r in reviews} == set(expected)
++    for review in reviews:
++        assert review["snapshot"]["work"]["number_of_seasons"] == expected[review["work_id"]]["number_of_seasons"]
++        assert review["snapshot"]["work"]["seasons"] == expected[review["work_id"]].get("seasons")
++    legacy = next(r for r in reviews if len(r["snapshot"]["work"]["seasons"] or []) > 1)
++    legacy["confirmed_season"] = legacy["snapshot"]["work"]["season_number"]
++    async with fixture_db.factory() as db:
++        before = await review_work(db, legacy["work_id"])
++        with pytest.raises(ValueError):
++            await apply_review(db, legacy)
++        assert await review_work(db, legacy["work_id"]) == before
++
++    # Actual V7 orphan repair, not a test-side rewrite or manufactured season choice.
++    # Genuine multi-season rows stay in the report for separately reviewed splitting.
++    await backfill_orphan_collections()
++    async with fixture_db.factory() as db:
++        ids = list(await db.scalars(select(TVSeries.id).where(TVSeries.number_of_seasons.is_not(None))))
++        assert set(ids) == set(expected)
++        cleared = set()
++        for identity in ids:
++            review = await review_work(db, identity)
++            work = review["snapshot"]["work"]
++            if review["blocked_reasons"] or work["number_of_seasons"] != 1 or not work["seasons"]:
++                assert work["number_of_seasons"] == expected[identity]["number_of_seasons"]
++                continue  # no operator confirmation for ambiguous/multi-season rows
++            assert all(s["season_number"] == work["season_number"] for s in work["seasons"])
++            review["confirmed_season"] = work["season_number"]
++            before = copy.deepcopy(review["snapshot"])
++            assert (await apply_review(db, review))["changed"] is True
++            after = (await review_work(db, identity))["snapshot"]
++            for key in before.keys() - {"work"}:
++                assert after[key] == before[key]
++            for key in before["work"].keys() - {"number_of_seasons", "manually_edited_fields", "updated_at"}:
++                assert after["work"][key] == before["work"][key]
++            assert (await apply_review(db, review))["changed"] is False
++            cleared.add(identity)
++        print({"captured_retired_rows": len(expected), "reviewed_single_season_rows_cleared": len(cleared)})
++        assert len(cleared) == 8
++        await db.commit()
++        counts = dict((await db.execute(select(TVSeries.id, TVSeries.number_of_seasons))).all())
++        for identity, original in expected.items():
++            assert counts[identity] == (None if identity in cleared else original["number_of_seasons"])
+--- a/tests/unit/test_metadata_dedup.py
++++ b/tests/unit/test_metadata_dedup.py
+@@ -844,7 +844,7 @@
+     assert survivor.rating == 8.5
+     assert survivor.genre == ["Animation"]
+     assert survivor.number_of_episodes == 12
+-    assert survivor.number_of_seasons == 2
++    assert survivor.number_of_seasons is None
+     assert set(survivor.aliases or []) >= {"标题", "Title", "Original", "共享"}
+ 
+ 
+@@ -1171,3 +1171,18 @@
+     report = await dedup.merge_cross_type_duplicates(db_session)
+ 
+     assert report.cross_type_merges == 0
++
++
++async def test_dedup_keeps_original_legacy_evidence_and_does_not_add_retired_protection(db_session):
++    from app.services.metadata_service import mark_manually_edited
++
++    survivor = TVSeries(title_cn="Synthetic legacy", number_of_seasons=3, seasons=[{"season_number": 1}])
++    duplicate = TVSeries(title_cn="Synthetic duplicate", number_of_seasons=4)
++    db_session.add_all([survivor, duplicate])
++    await db_session.flush()
++    mark_manually_edited(survivor, {"title_cn": "Synthetic legacy", "number_of_seasons": 3})
++    await dedup._merge_series_group(db_session, [survivor, duplicate], dedup.DedupReport(), survivor=survivor)
++    await db_session.commit()
++    assert survivor.number_of_seasons == 3
++    assert survivor.seasons == [{"season_number": 1}]
++    assert survivor.manually_edited_fields == ["title_cn"]
+--- /dev/null
++++ b/tests/unit/test_retired_season_cleanup.py
+@@ -0,0 +1,199 @@
++"""Reviewed cleanup must preserve associations and genuine legacy evidence."""
++
++import copy
++import json
++
++import pytest
++from sqlalchemy import event, select, update
++
++from app.models.episode import Episode
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.models.work_collection import WorkCollection
++from app.models.work_external_id import WorkExternalId
++from app.services.metadata_episode_reconcile import work_verified_season
++from scripts.retired_season_fields import apply_review, export_reviews, review_work
++
++
++async def seed(db, channel):
++    parent = WorkCollection(title_cn="Synthetic review parent")
++    db.add(parent)
++    await db.flush()
++    work = TVSeries(
++        title_cn="Synthetic protected work",
++        collection_id=parent.id,
++        season_number=1,
++        number_of_seasons=1,
++        manually_edited_fields=["title_cn", "number_of_seasons"],
++    )
++    db.add(work)
++    await db.flush()
++    resource = FileResource(
++        channel_id=channel.id,
++        guid=work.id,
++        title_raw="Synthetic S1",
++        torrent_url="https://example.invalid/torrent",
++        series_id=work.id,
++        season=1,
++    )
++    episode = Episode(series_id=work.id, season=1, episode=1, title="Synthetic preserved episode")
++    db.add_all([resource, episode])
++    await db.flush()
++    assignment = ResourceFileAssignment(
++        resource_id=resource.id,
++        series_id=work.id,
++        file_path="synthetic.mkv",
++        season=1,
++        episode_start=1,
++        episode_end=1,
++        source="manual",
++    )
++    bag = WorkExternalId(work_type="series", work_id=work.id, source="tmdb", external_id="tmdb:999001#s1")
++    db.add_all([assignment, bag, ResourceWorkLink(resource_id=resource.id, series_id=work.id, source="manual")])
++    await db.commit()
++    return work, episode, resource, assignment, bag
++
++
++async def test_cleanup_preserves_rows_identity_and_is_idempotent(db_session, sample_channel):
++    work, *_ = await seed(db_session, sample_channel)
++    assert work_verified_season(work) == 1
++    review = await review_work(db_session, work.id)
++    assert review["blocked_reasons"] == []
++    review["confirmed_season"] = 1
++    before = copy.deepcopy(review["snapshot"])
++    assert (await apply_review(db_session, review))["changed"] is True
++    await db_session.commit()
++    assert work.number_of_seasons is None
++    assert work_verified_season(work) == 1
++    assert work.manually_edited_fields == ["season_number", "title_cn"]
++    after = (await review_work(db_session, work.id))["snapshot"]
++    for key in before.keys() - {"work"}:
++        assert after[key] == before[key]
++    for key in before["work"].keys() - {"number_of_seasons", "manually_edited_fields", "updated_at"}:
++        assert after["work"][key] == before["work"][key]
++    assert (await apply_review(db_session, review))["changed"] is False
++
++
++@pytest.mark.parametrize(
++    "case",
++    [
++        "no-confirmation",
++        "wrong-season",
++        "multi-season",
++        "episode",
++        "resource",
++        "assignment",
++        "identity",
++        "stale",
++        "tampered",
++    ],
++)
++async def test_invalid_review_never_clears_data(db_session, sample_channel, case):
++    work, episode, resource, assignment, bag = await seed(db_session, sample_channel)
++    review = await review_work(db_session, work.id)
++    review["confirmed_season"] = 1
++    if case == "no-confirmation":
++        review.pop("confirmed_season")
++    elif case == "wrong-season":
++        review["confirmed_season"] = 2
++    elif case == "multi-season":
++        work.number_of_seasons = 2
++        work.seasons = [{"season_number": 1}, {"season_number": 2}]
++    elif case == "episode":
++        episode.season = 2
++    elif case == "resource":
++        resource.season = 2
++    elif case == "assignment":
++        assignment.season = 2
++    elif case == "identity":
++        bag.external_id = "tmdb:999001#s2"
++    elif case == "stale":
++        work.title_cn = "New manual title"
++    elif case == "tampered":
++        review["snapshot"]["work"]["title_cn"] = "Tampered export"
++    await db_session.commit()
++    if case in {"multi-season", "episode", "resource", "assignment", "identity"}:
++        review = await review_work(db_session, work.id)
++        review["confirmed_season"] = 1
++    before = await review_work(db_session, work.id)
++    with pytest.raises(ValueError):
++        await apply_review(db_session, review)
++    after = await review_work(db_session, work.id)
++    assert after == before
++
++
++async def test_post_flush_failure_rolls_back_cleanup(db_session, sample_channel):
++    work, *_ = await seed(db_session, sample_channel)
++    identity = work.id
++    review = await review_work(db_session, identity)
++    review["confirmed_season"] = 1
++    await db_session.rollback()
++    with pytest.raises(RuntimeError, match="injected"):
++        async with db_session.begin():
++            await apply_review(db_session, review)
++            raise RuntimeError("injected after cleanup flush")
++    assert await review_work(db_session, identity) == {k: v for k, v in review.items() if k != "confirmed_season"}
++
++
++async def test_export_is_read_only_and_does_not_hide_blocked_works(db_engine, db_session, sample_channel, tmp_path):
++    work, *_ = await seed(db_session, sample_channel)
++    work.number_of_seasons = 2
++    work.seasons = [{"season_number": 1}, {"season_number": 2}]
++    await db_session.commit()
++    statements = []
++
++    def capture(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement.strip().upper())
++
++    event.listen(db_engine.sync_engine, "before_cursor_execute", capture)
++    output = tmp_path / "review.jsonl"
++    try:
++        assert await export_reviews(str(output)) == 1
++    finally:
++        event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
++    assert all(s.startswith(("SELECT", "PRAGMA")) for s in statements)
++    review = json.loads(output.read_text())
++    assert review["work_id"] == work.id and review["blocked_reasons"]
++    assert "confirmed_season" not in review
++    assert (await db_session.scalar(select(TVSeries.number_of_seasons).where(TVSeries.id == work.id))) == 2
++
++
++@pytest.mark.parametrize("confirmed", [None, True, "1", -1])
++async def test_confirmation_is_an_explicit_nonnegative_integer(db_session, sample_channel, confirmed):
++    work, *_ = await seed(db_session, sample_channel)
++    review = await review_work(db_session, work.id)
++    review["confirmed_season"] = confirmed
++    with pytest.raises(ValueError, match="Explicit confirmed_season"):
++        await apply_review(db_session, review)
++    assert work.number_of_seasons == 1
++
++
++def test_manual_confirmation_never_overrides_true_legacy_evidence():
++    work = TVSeries(season_number=1, number_of_seasons=2, manually_edited_fields=["season_number"])
++    assert work_verified_season(work) is None
++    work.number_of_seasons = None
++    work.seasons = [{"season_number": 1}, {"season_number": 2}]
++    assert work_verified_season(work) is None
++    work.seasons = None
++    assert work_verified_season(work) == 1
++
++
++@pytest.mark.parametrize("season,protection", [(None, ["season_number"]), (1, "season_number")])
++def test_malformed_manual_confirmation_never_guesses_s1(season, protection):
++    work = TVSeries(season_number=season, manually_edited_fields=protection)
++    assert work_verified_season(work) is None
++
++
++async def test_cleanup_does_not_rewrite_legacy_derived_fields(db_session, sample_channel):
++    work, *_ = await seed(db_session, sample_channel)
++    await db_session.execute(update(TVSeries).where(TVSeries.id == work.id).values(title_cn="Legacy manual SQL title"))
++    await db_session.commit()
++    review = await review_work(db_session, work.id)
++    review["confirmed_season"] = 1
++    assert (await apply_review(db_session, review))["changed"] is True
++    after = (await review_work(db_session, work.id))["snapshot"]
++    assert after["work"]["search_text"] == review["snapshot"]["work"]["search_text"]
++    assert after["work"]["title_cn"] == "Legacy manual SQL title"
++    assert (await apply_review(db_session, review))["changed"] is False

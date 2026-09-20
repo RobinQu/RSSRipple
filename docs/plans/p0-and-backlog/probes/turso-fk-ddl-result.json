@@ -1,0 +1,7 @@
+{
+  "add_constraint_supported": false,
+  "error": "near \"CONSTRAINT\": syntax error",
+  "foreign_keys_before": 1,
+  "foreign_keys_inside_transaction": 0,
+  "child_preserved": true
+}

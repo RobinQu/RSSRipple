@@ -1,0 +1,870 @@
+--- /dev/null
++++ b/app/services/resource_coverage.py
+@@ -0,0 +1,141 @@
++"""Exact batch coverage from authoritative assignments or explicit title bounds.
++
++No lazy loading or network calls. Callers must load work_links and
++file_assignments; an unloaded relation is unknown, never an empty manifest.
++Dispatch uses this descriptor; persistent decision keys remain a separate migration.
++"""
++from sqlalchemy import inspect
++
++from app.services.filter_engine import loaded_relation
++from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
++
++
++def _loaded(obj, name):
++    state = inspect(obj, raiseerr=False)
++    if state is not None and name in state.unloaded:
++        return None
++    return loaded_relation(obj, name)
++
++
++def merge_intervals(intervals):
++    """Canonical union without expanding episode numbers or filling gaps."""
++    merged = []
++    for lo, hi in sorted(intervals):
++        if merged and lo <= merged[-1][1] + 1:
++            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
++        else:
++            merged.append((lo, hi))
++    return tuple(merged)
++
++
++def _interval(start, end):
++    if start is None:
++        start = end
++    if end is None:
++        end = start
++    if not all(type(value) is int and value >= 0 for value in (start, end)) or start > end:
++        return None
++    return start, end
++
++
++def batch_coverage(resource):
++    """Return sorted work/season/interval tuples, or None for unknown coverage.
++
++    File assignments are authoritative when present: bad/incomplete bindings
++    cannot fall back to a broader title interval. Each linked work must be
++    represented. This does not independently certify torrent completeness;
++    that remains the upstream association/manifest validation contract.
++    """
++    if not resource.is_batch:
++        return None
++    links = _loaded(resource, 'work_links')
++    assignments = _loaded(resource, 'file_assignments')
++    if links is None or assignments is None:
++        return None
++    targets = set()
++    target_seasons = {}
++    for obj in [resource, *links]:
++        series_id, movie_id = obj.series_id, obj.movie_id
++        if series_id and movie_id:
++            return None
++        if series_id:
++            work = _loaded(obj, 'series')
++            season = getattr(work, 'season_number', None)
++            if work is None or work.id != series_id or type(season) is not int or season < 0:
++                return None
++            if is_unsplit_legacy_series(work):
++                return None
++            if series_id in target_seasons and target_seasons[series_id] != season:
++                return None
++            target_seasons[series_id] = season
++            targets.add(('series', series_id))
++        if movie_id:
++            targets.add(('movie', movie_id))
++    if not targets:
++        return None
++    if assignments:
++        groups = {}
++        seen = set()
++        for row in assignments:
++            if row.series_id and not row.movie_id:
++                target = ('series', row.series_id)
++                interval = _interval(row.episode_start, row.episode_end)
++                if target not in targets or interval is None or type(row.season) is not int or row.season < 0:
++                    return None
++                if row.season != target_seasons[row.series_id]:
++                    return None
++                seen.add(target)
++                groups.setdefault((*target, row.season), []).append(interval)
++            elif row.movie_id and not row.series_id:
++                target = ('movie', row.movie_id)
++                if target not in targets:
++                    return None
++                seen.add(target)
++                groups.setdefault((*target, None), [])
++            else:
++                return None
++        if seen != targets:
++            return None
++        # A season-work ID may never contain multiple seasons. Even a
++        # legacy unsplit row is held for migration rather than guessed.
++        seasons = {}
++        for kind, identity, season in groups:
++            if kind == 'series':
++                if identity in seasons and seasons[identity] != season:
++                    return None
++                seasons[identity] = season
++        return tuple((*key, merge_intervals(values)) for key, values in sorted(groups.items()))
++    if len(targets) != 1:
++        return None
++    kind, identity = next(iter(targets))
++    if kind == 'movie':
++        return ((kind, identity, None, ()),)
++    if resource.batch_scope != 'season' or type(resource.season) is not int or resource.season < 0:
++        return None
++    # Both title bounds must be explicit. A lone start is not proof of a
++    # one-episode pack, unlike a per-file assignment with one endpoint.
++    if resource.episode_start is None or resource.episode_end is None:
++        return None
++    if resource.season != target_seasons[identity]:
++        return None
++    interval = _interval(resource.episode_start, resource.episode_end)
++    return ((kind, identity, resource.season, (interval,)),) if interval is not None else None
++
++
++async def load_batch_coverage(db, resources):
++    """Load coverage in bounded groups before synchronous policy evaluation."""
++    from sqlalchemy import select
++    from sqlalchemy.orm import selectinload
++
++    from app.models.file_resource import FileResource
++    from app.models.resource_work_link import ResourceWorkLink
++
++    ids = sorted({r.id for r in resources if r.is_batch and r.id})
++    for offset in range(0, len(ids), 100):
++        await db.execute(
++            select(FileResource).where(FileResource.id.in_(ids[offset:offset + 100])).options(
++                selectinload(FileResource.series),
++                selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
++                selectinload(FileResource.file_assignments),
++            ).execution_options(populate_existing=True)
++        )
+--- /dev/null
++++ b/tests/unit/test_resource_coverage.py
+@@ -0,0 +1,120 @@
++
++import pytest
++
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++from app.models.resource_work_link import ResourceWorkLink
++from app.models.series import TVSeries
++from app.services.resource_coverage import batch_coverage, merge_intervals
++
++
++def resource(start=1, end=12):
++    r = FileResource(is_batch=True, batch_scope='season', series_id='s1', season=1,
++                     episode_start=start, episode_end=end)
++    r.series = TVSeries(id="s1", season_number=1)
++    r.work_links = []
++    r.file_assignments = []
++    return r
++
++
++def assignment(start, end, *, work='s1', season=1):
++    return ResourceFileAssignment(series_id=work, season=season, episode_start=start,
++                                  episode_end=end, file_path=f'{work}-{start}.mkv')
++
++
++def test_half_full_and_unknown_are_distinct():
++    assert batch_coverage(resource(end=6)) != batch_coverage(resource())
++    assert batch_coverage(resource(end=None)) is None
++    assert batch_coverage(resource(start=None)) is None
++
++
++def test_authoritative_gaps_survive_minmax_title_summary():
++    r = resource()
++    r.file_assignments = [assignment(1, 3), assignment(5, 12)]
++    assert batch_coverage(r) == (('series', 's1', 1, ((1, 3), (5, 12))),)
++    assert batch_coverage(r) != batch_coverage(resource())
++
++
++def test_adjacent_overlapping_intervals_are_canonical_without_expansion():
++    assert merge_intervals([(5, 10**9), (3, 5), (1, 2)]) == ((1, 10**9),)
++
++
++@pytest.mark.parametrize('start,end', [(None, None), (-1, 3), (4, 3), (True, 3), (1, '3')])
++def test_invalid_assignment_cannot_fall_back_to_title(start, end):
++    r = resource()
++    r.file_assignments = [assignment(start, end)]
++    assert batch_coverage(r) is None
++
++
++def test_different_link_sets_and_order_independence():
++    r = resource()
++    r.series_id = None
++    r.batch_scope = 'multi_season'
++    r.work_links = [ResourceWorkLink(series_id=s, series=TVSeries(id=s, season_number=n))
++                    for s,n in [('s2',2),('s1',1)]]
++    r.file_assignments = [assignment(1, 12, work='s2', season=2), assignment(1, 12)]
++    first = batch_coverage(r)
++    r.work_links.reverse()
++    r.file_assignments.reverse()
++    assert batch_coverage(r) == first
++    r.file_assignments[0].series_id = 's3'
++    assert batch_coverage(r) is None
++
++
++def test_missing_work_assignment_is_unknown():
++    r = resource()
++    r.work_links = [ResourceWorkLink(series_id='s2')]
++    r.file_assignments = [assignment(1, 12)]
++    assert batch_coverage(r) is None
++
++
++def test_cross_season_legacy_cannot_be_declared_a_season_work():
++    r = resource()
++    r.file_assignments = [assignment(1, 12), assignment(1, 12, season=2)]
++    assert batch_coverage(r) is None
++
++
++def test_unloaded_relations_do_not_guess_empty_manifest():
++    r = FileResource(is_batch=True, batch_scope='season', series_id='s1', season=1,
++                     episode_start=1, episode_end=12)
++    assert batch_coverage(r) is None
++
++
++def test_wrong_single_assignment_season_is_unknown():
++    r = resource()
++    r.file_assignments = [assignment(1, 12, season=2)]
++    assert batch_coverage(r) is None
++
++
++def test_title_season_must_match_work_identity():
++    r = resource()
++    r.season = 2
++    assert batch_coverage(r) is None
++
++
++def test_legacy_work_identity_is_not_reinterpreted_as_single_season():
++    r = resource()
++    r.series.number_of_seasons = 2
++    assert batch_coverage(r) is None
++
++
++async def test_unloaded_work_never_issues_lazy_sql(db_session, db_engine, sample_channel):
++    from sqlalchemy import event
++    r = resource()
++    r.channel_id = sample_channel.id
++    r.title_raw = "Synthetic unloaded work"
++    r.guid = "synthetic-unloaded-work"
++    r.torrent_url = "https://example.invalid/torrent"
++    r.series.title_cn = "Synthetic single season"
++    db_session.add(r)
++    await db_session.flush()
++    db_session.expire(r, ["series"])
++    statements = []
++    def capture(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement)
++    event.listen(db_engine.sync_engine, "before_cursor_execute", capture)
++    try:
++        assert batch_coverage(r) is None
++    finally:
++        event.remove(db_engine.sync_engine, "before_cursor_execute", capture)
++    assert statements == []
+--- a/app/services/agent_service.py
++++ b/app/services/agent_service.py
+@@ -5,7 +5,7 @@
+ import asyncio
+ import logging
+ from dataclasses import dataclass, field
+-from datetime import UTC, datetime, timedelta
++from datetime import UTC, datetime
+ from pathlib import Path
+ from typing import Any
+ 
+@@ -21,6 +21,7 @@
+ from app.models.file_resource import FileResource
+ from app.models.movie import Movie
+ from app.models.pending_decision import PendingDecision
++from app.models.resource_work_link import ResourceWorkLink
+ from app.models.series import TVSeries
+ from app.services.filter_engine import (
+     evaluate_field_condition,
+@@ -28,7 +29,6 @@
+     loaded_relation,
+     merge_filters,
+ )
+-from app.services.metadata_episode_reconcile import is_unsplit_legacy_series
+ from app.services.resource_confirmation import (
+     LEGACY_CONFIRMATION_REASON_PREFIXES,
+     inspect_resource_confirmation,
+@@ -430,6 +430,7 @@
+     *,
+     reason_override: str | None = None,
+     skip_llm: bool = False,
++    coverage: tuple | None = None,
+ ) -> PendingDecision:
+     """Upsert a PendingDecision for multiple conflicting candidates.
+ 
+@@ -477,75 +478,32 @@
+     else:
+         reason = f"多个资源匹配电影 {title}"
+ 
+-    # Look for an existing pending row for the same key. ``episode``/``season``
+-    # may be None (movies, season-less series) — treat that as a proper NULL
+-    # match.
+-    stmt = select(PendingDecision).where(
+-        PendingDecision.agent_id == agent.id,
+-        PendingDecision.status == "pending",
+-    )
+-    if series_id is not None:
+-        stmt = stmt.where(PendingDecision.series_id == series_id)
+-    else:
+-        stmt = stmt.where(PendingDecision.series_id.is_(None))
+-    if movie_id is not None:
+-        stmt = stmt.where(PendingDecision.movie_id == movie_id)
+-    else:
+-        stmt = stmt.where(PendingDecision.movie_id.is_(None))
+-    if episode is not None:
+-        stmt = stmt.where(PendingDecision.episode == episode)
+-    else:
+-        stmt = stmt.where(PendingDecision.episode.is_(None))
+-    if season is not None:
+-        stmt = stmt.where(PendingDecision.season == season)
+-    else:
+-        stmt = stmt.where(PendingDecision.season.is_(None))
+-    existing = (await db.execute(stmt)).scalars().first()
+-
+-    new_candidate_ids = [c.id for c in candidates]
+-    if existing is not None:
+-        # Merge candidates preserving order — new ones appended, duplicates
+-        # dropped. Refresh reason + expiry so a re-run of an ageing decision
+-        # bumps its TTL.
+-        merged: list[str] = list(existing.candidates or [])
+-        for cid in new_candidate_ids:
+-            if cid not in merged:
+-                merged.append(cid)
+-        existing.candidates = merged
+-        existing.reason = reason
+-        existing.expires_at = utcnow() + timedelta(days=7)
+-        # Only re-generate the LLM pick when needed; repeated no-op runs keep
+-        # the existing recommendation.
+-        if not skip_llm and (
+-            merged != (existing.candidates or []) or not existing.llm_picked_resource_id
+-        ):
+-            picked_id, reason_txt = await _suggest_pick(agent, candidates, key)
+-            existing.llm_picked_resource_id = picked_id
+-            existing.llm_suggestion = reason_txt
+-        await db.flush()
+-        return existing
+-
++    from app.services.decision_store import choice_identity, persist_choice
++
++    candidate_ids = list(dict.fromkeys(c.id for c in candidates))
++    if len(candidate_ids) < 2:
++        raise ValueError("A pending choice requires at least two distinct candidates")
++    decision_key, scope = choice_identity(type_, target_id, season, episode, coverage)
++    existing = await db.scalar(select(PendingDecision).where(
++        PendingDecision.agent_id == agent.id, PendingDecision.status == "pending",
++        PendingDecision.decision_key == decision_key,
++    ))
++    proposed_ids = list(dict.fromkeys([*((existing.candidates or []) if existing else []), *candidate_ids]))
+     if skip_llm:
+         picked_id, reason_txt = None, None
++    elif existing and set(existing.candidates or []) == set(proposed_ids) and existing.llm_picked_resource_id:
++        picked_id, reason_txt = existing.llm_picked_resource_id, existing.llm_suggestion
+     else:
+-        picked_id, reason_txt = await _suggest_pick(agent, candidates, key)
+-
+-    pd = PendingDecision(
+-        agent_id=agent.id,
+-        series_id=series_id,
+-        movie_id=movie_id,
+-        season=season,
+-        episode=episode,
+-        candidates=new_candidate_ids,
+-        reason=reason,
+-        llm_suggestion=reason_txt,
+-        llm_picked_resource_id=picked_id,
+-        status="pending",
+-        expires_at=utcnow() + timedelta(days=7),
++        proposed = list((await db.scalars(select(FileResource).where(FileResource.id.in_(proposed_ids)).options(
++            selectinload(FileResource.series), selectinload(FileResource.movie),
++        ))).all())
++        picked_id, reason_txt = await _suggest_pick(agent, proposed, key)
++    return await persist_choice(
++        db, agent_id=agent.id, decision_key=decision_key, decision_scope=scope,
++        candidate_ids=candidate_ids, proposed_ids=proposed_ids,
++        picked_id=picked_id, suggestion=reason_txt,
++        fields=dict(series_id=series_id, movie_id=movie_id, season=season, episode=episode, reason=reason),
+     )
+-    db.add(pd)
+-    await db.flush()
+-    return pd
+ 
+ 
+ def score_and_pick(
+@@ -677,40 +635,13 @@
+ 
+ 
+ def _batch_coverage_key(resource: FileResource) -> tuple | None:
+-    """Content-coverage signature of a batch resource.
+-
+-    - movie-linked batch → ``("movie",)`` (a movie pack covers the movie).
+-    - season pack → ``("season", series_id)``: the per-season work IS the
+-      season, so the work id alone identifies the coverage. Legacy unsplit
+-      series-level rows (pre-migration) keep the resource's parsed season as
+-      the distinguishing component.
+-    - multi-season pack → ``("multi_season", ids)``: the sorted set of linked
+-      season-work ids from ``resource_work_links`` (terminal shape clears the
+-      flat FK); legacy FK-carrying rows fall back to ``batch_seasons``.
+-
+-    Returns None when the coverage is unknown: such resources are stopped by
+-    the Channel confirmation gate. Franchise packs never reach the batch
+-    branch (their work FKs are cleared and they carry no season-work links).
+-    """
+-    if resource.movie_id:
+-        return ("movie",)
+-    scope = resource.batch_scope or "season"  # legacy title-marked packs
+-    if scope == "season":
+-        if resource.series_id is None:
+-            return None
+-        series = loaded_relation(resource, "series")
+-        if series is not None and is_unsplit_legacy_series(series):
+-            # Transition-only: unsplit legacy rows still need the parsed
+-            # season to tell their season packs apart.
+-            return ("season", resource.season) if resource.season is not None else None
+-        return ("season", resource.series_id)
+-    if scope == "multi_season":
+-        if not resource.series_id:
+-            ids = _linked_series_ids(resource)
+-            return ("multi_season", tuple(ids)) if ids else None
+-        seasons = tuple(sorted(resource.batch_seasons or []))
+-        return ("multi_season", seasons) if seasons else None
+-    return None
++    from app.services.resource_coverage import batch_coverage
++
++    coverage = batch_coverage(resource)
++    if coverage is None:
++        return None
++    kind = "movie" if resource.movie_id else resource.batch_scope
++    return kind, coverage
+ 
+ 
+ async def _find_existing_episode_task(
+@@ -768,7 +699,8 @@
+             work_filter,
+         )
+         .options(
+-            selectinload(DownloadTask.file_resource).selectinload(FileResource.work_links),
++            selectinload(DownloadTask.file_resource).selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
++            selectinload(DownloadTask.file_resource).selectinload(FileResource.file_assignments),
+             selectinload(DownloadTask.file_resource).selectinload(FileResource.series),
+         )
+     )
+@@ -814,7 +746,7 @@
+             if key[0] == "batch":
+                 pd_key, reason = _batch_decision_key(key)
+                 await create_pending_decision(
+-                    agent, pd_key, cands, db, reason_override=reason
++                    agent, pd_key, cands, db, reason_override=reason, coverage=key[2]
+                 )
+             else:
+                 await create_pending_decision(agent, key, cands, db)
+@@ -856,6 +788,9 @@
+     already-committed units in place.
+     """
+     result = RunResult()
++    from app.services.resource_coverage import load_batch_coverage
++
++    await load_batch_coverage(db, resources)
+ 
+     rule_set = _build_rule_set(agent)
+     candidates_by_key: dict[tuple, list[FileResource]] = {}
+--- a/app/services/resource_confirmation.py
++++ b/app/services/resource_confirmation.py
+@@ -97,6 +97,15 @@
+                 ):
+                     kinds.append("batch_coverage_unknown")
+ 
++    if getattr(resource, "is_batch", False) and (
++        getattr(resource, "series_id", None)
++        or any(getattr(link, "series_id", None) for link in (links or []))
++    ):
++        from app.services.resource_coverage import batch_coverage
++
++        if batch_coverage(resource) is None and "batch_coverage_unknown" not in kinds:
++            kinds.append("batch_coverage_unknown")
++
+     missing = (
+         missing_required_fields(resource, required_metadata_fields)
+         if required_metadata_fields is not None
+--- /dev/null
++++ b/tests/unit/test_decision_coverage_review.py
+@@ -0,0 +1,119 @@
++"""Necessity probes: synthetic input, actual production grouping and Turso writes."""
++from unittest.mock import AsyncMock, patch
++
++from sqlalchemy import select
++
++from app.models.pending_decision import PendingDecision
++from app.services.agent_service import _batch_coverage_key, process_resources
++from tests.unit.test_agent_service import (
++    TestLinksOnlyMultiSeasonPack as PackFixture,
++)
++from tests.unit.test_agent_service import (
++    _make_resource,
++)
++from tests.unit.test_agent_service import (
++    channel as channel,
++)
++from tests.unit.test_agent_service import (
++    downloader as downloader,
++)
++
++
++def test_different_episode_ranges_have_different_coverage():
++    half = _make_resource("synthetic-channel", series_id="synthetic-season", is_batch=True,
++                          episode=None, episode_start=1, episode_end=6)
++    full = _make_resource("synthetic-channel", series_id="synthetic-season", is_batch=True,
++                          episode=None, episode_start=1, episode_end=12)
++    from app.models.series import TVSeries
++    for pack in (half, full):
++        pack.series = TVSeries(id="synthetic-season", season_number=1)
++        pack.work_links = []
++        pack.file_assignments = []
++    assert _batch_coverage_key(half) != _batch_coverage_key(full)
++
++
++async def test_distinct_link_sets_remain_two_decisions(db_session, channel, downloader):
++    helper = PackFixture()
++    first, second = await helper._make_season_works(db_session)
++    third, fourth = await helper._make_season_works(db_session)
++    agent = await helper._make_agent(db_session, channel, downloader, scope_channel_wide=True)
++    group_a = [helper._pack(channel.id, [first.id, second.id]) for _ in range(2)]
++    group_b = [helper._pack(channel.id, [third.id, fourth.id]) for _ in range(2)]
++    from app.models.resource_file_assignment import ResourceFileAssignment
++    for pack in group_a + group_b:
++        pack.file_assignments = [
++            ResourceFileAssignment(series_id=link.series_id,
++                season=1 if link.series_id in [first.id, third.id] else 2,
++                file_path=f"{link.series_id}.mkv", episode_start=1, episode_end=12)
++            for link in pack.work_links
++        ]
++    db_session.add_all(group_a + group_b)
++    await db_session.flush()
++    with patch("app.services.agent_service._suggest_pick", AsyncMock(return_value=(None, None))):
++        result = await process_resources(agent, group_a + group_b, db_session)
++    assert not result.errors
++    assert result.pending_decisions == 2
++    rows = list(await db_session.scalars(select(PendingDecision).where(PendingDecision.agent_id == agent.id)))
++    assert len(rows) == 2, [(row.id, row.candidates) for row in rows]
++    assert {frozenset(row.candidates) for row in rows} == {
++        frozenset(r.id for r in group_a), frozenset(r.id for r in group_b)
++    }
++
++
++async def test_completed_half_pack_does_not_suppress_full_pack(db_session, channel, downloader):
++    from app.models.download_task import DownloadTask
++    helper = PackFixture()
++    first, _ = await helper._make_season_works(db_session)
++    agent = await helper._make_agent(db_session, channel, downloader, scope_channel_wide=True)
++    packs = [_make_resource(channel.id, series_id=first.id, is_batch=True, season=1,
++                            episode=None, episode_start=1, episode_end=end) for end in (6, 12)]
++    for resource in packs:
++        resource.series = first
++        resource.work_links = []
++        resource.file_assignments = []
++    db_session.add_all(packs)
++    await db_session.flush()
++    db_session.add(DownloadTask(agent_id=agent.id, file_resource_id=packs[0].id,
++                               downloader_id=downloader.id, download_dir='/synthetic', status='completed'))
++    await db_session.flush()
++    with patch('app.services.agent_service.dispatch_download', AsyncMock()) as dispatch:
++        result = await process_resources(agent, [packs[1]], db_session)
++    assert result.duplicates_skipped == 0
++    assert result.dispatched == 1
++    dispatch.assert_awaited_once()
++
++
++async def test_unknown_episode_coverage_is_held_before_dispatch(db_session, channel, downloader):
++    helper = PackFixture()
++    first, _ = await helper._make_season_works(db_session)
++    agent = await helper._make_agent(db_session, channel, downloader, scope_channel_wide=True)
++    pack = _make_resource(channel.id, series_id=first.id, is_batch=True, season=1,
++                          episode=None, episode_start=None, episode_end=None)
++    pack.series = first
++    pack.work_links = []
++    pack.file_assignments = []
++    db_session.add(pack)
++    await db_session.flush()
++    with patch('app.services.agent_service.dispatch_download', AsyncMock()) as dispatch:
++        result = await process_resources(agent, [pack], db_session)
++    assert result.unrecognized == 1
++    assert result.dispatched == 0
++    dispatch.assert_not_awaited()
++
++
++async def test_new_candidates_clear_old_recommendation_if_llm_fails(db_session, channel, downloader):
++    from app.services.agent_service import create_pending_decision
++    helper = PackFixture()
++    first, _ = await helper._make_season_works(db_session)
++    agent = await helper._make_agent(db_session, channel, downloader, scope_channel_wide=True)
++    candidates = [_make_resource(channel.id, series_id=first.id, episode=1) for _ in range(3)]
++    db_session.add_all(candidates)
++    await db_session.flush()
++    with patch("app.services.agent_service._suggest_pick", AsyncMock(return_value=(candidates[0].id, "old pick"))):
++        row = await create_pending_decision(agent, ("series", first.id, 1), candidates[:2], db_session)
++    assert row.llm_picked_resource_id == candidates[0].id
++    with patch("app.services.agent_service._suggest_pick", AsyncMock(return_value=(None, None))):
++        again = await create_pending_decision(agent, ("series", first.id, 1), candidates[1:], db_session)
++    assert again.id == row.id
++    assert set(again.candidates) == {c.id for c in candidates}
++    assert again.llm_picked_resource_id is None
+--- a/app/api/v1/dashboard.py
++++ b/app/api/v1/dashboard.py
+@@ -202,6 +202,7 @@
+         # the confirmation policy reads works off the link table instead.
+         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.series),
+         selectinload(FileResource.work_links).selectinload(ResourceWorkLink.movie),
++        selectinload(FileResource.file_assignments),
+     )
+     page_start = (page - 1) * page_size
+     page_end = page_start + page_size
+--- a/app/services/fetch_service.py
++++ b/app/services/fetch_service.py
+@@ -434,6 +434,9 @@
+         query = query.limit(MAX_BACKFILL_SCAN)
+     result = await db.execute(query)
+     candidates = result.scalars().all()
++    from app.services.resource_coverage import load_batch_coverage
++
++    await load_batch_coverage(db, candidates)
+ 
+     # Decide eligibility from the snapshot loaded above, then process the
+     # eligible set concurrently. Per-task sessions update each resource
+@@ -512,6 +515,9 @@
+         .limit(MAX_GLOBAL_BACKFILL_SCAN)
+     )
+     candidates = result.scalars().all()
++    from app.services.resource_coverage import load_batch_coverage
++
++    await load_batch_coverage(db, candidates)
+     if not candidates:
+         return 0
+ 
+--- /dev/null
++++ b/tests/api/test_coverage_confirmation.py
+@@ -0,0 +1,32 @@
++"""HTTP confirmation uses the same exact coverage evidence as dispatch."""
++from app.models.file_resource import FileResource
++from app.models.resource_file_assignment import ResourceFileAssignment
++
++
++async def test_detail_and_dashboard_agree_on_known_and_unknown_coverage(
++    client, db_session, sample_channel, sample_series,
++):
++    resources = []
++    for tag in ["known", "unknown"]:
++        row = FileResource(channel_id=sample_channel.id, series_id=sample_series.id,
++            guid=f"synthetic-coverage-{tag}", title_raw=f"Synthetic {tag} batch",
++            torrent_url="https://example.invalid/torrent", is_batch=True,
++            batch_scope="season", season=sample_series.season_number)
++        row.file_assignments = []
++        if tag == "known":
++            row.file_assignments = [ResourceFileAssignment(series_id=sample_series.id,
++                season=sample_series.season_number, file_path="synthetic.mkv",
++                episode_start=1, episode_end=12, source="manual")]
++        resources.append(row)
++    db_session.add_all(resources)
++    await db_session.commit()
++    for row, expected in zip(resources, [False, True]):
++        response = await client.get(f"/api/v1/resources/{row.id}")
++        assert response.status_code == 200
++        assert ("batch_coverage_unknown" in response.json()["data"]["confirmation_kinds"]) is expected
++    dashboard = await client.get("/api/v1/dashboard")
++    assert dashboard.status_code == 200
++    kinds = {item["resource"]["id"]: item["kinds"]
++             for item in dashboard.json()["data"]["pending_confirmations"]}
++    assert "batch_coverage_unknown" not in kinds.get(resources[0].id, [])
++    assert "batch_coverage_unknown" in kinds[resources[1].id]
+--- a/tests/unit/test_resource_confirmation.py
++++ b/tests/unit/test_resource_confirmation.py
+@@ -58,7 +58,7 @@
+     assert result.kinds == ("batch_coverage_unknown",)
+ 
+ 
+-def test_multi_season_coverage_does_not_require_flat_season_range():
++def test_legacy_season_list_does_not_prove_episode_coverage():
+     result = inspect_resource_confirmation(
+         _resource(
+             is_batch=True,
+@@ -72,7 +72,7 @@
+         ),
+         required_metadata_fields=["season", "episode_start", "episode_end"],
+     )
+-    assert result.kinds == ()
++    assert result.kinds == ("batch_coverage_unknown",)
+     assert result.missing_fields == ()
+ 
+ 
+@@ -126,13 +126,16 @@
+ 
+ def test_links_only_multi_season_pack_is_linked_and_covered():
+     links = [
+-        SimpleNamespace(series_id="s-1", movie_id=None, series=SimpleNamespace(season_number=1)),
+-        SimpleNamespace(series_id="s-2", movie_id=None, series=SimpleNamespace(season_number=2)),
++        SimpleNamespace(series_id="s-1", movie_id=None, series=SimpleNamespace(id="s-1", season_number=1)),
++        SimpleNamespace(series_id="s-2", movie_id=None, series=SimpleNamespace(id="s-2", season_number=2)),
+     ]
+-    result = inspect_resource_confirmation(
+-        _links_only_pack(links=links, batch_seasons=[1, 2]),
+-        required_metadata_fields=None,
+-    )
++    pack = _links_only_pack(links=links, batch_seasons=[1, 2])
++    pack.file_assignments = [
++        SimpleNamespace(series_id=link.series_id, movie_id=None, season=link.series.season_number,
++                        episode_start=1, episode_end=12)
++        for link in links
++    ]
++    result = inspect_resource_confirmation(pack, required_metadata_fields=None)
+     assert result.kinds == ()
+ 
+ 
+--- a/tests/api/test_dashboard_extra.py
++++ b/tests/api/test_dashboard_extra.py
+@@ -246,6 +246,7 @@
+ 
+         from app.models.channel import Channel
+         from app.models.file_resource import FileResource
++        from app.models.resource_file_assignment import ResourceFileAssignment
+         from app.models.resource_work_link import ResourceWorkLink
+         from app.models.series import TVSeries
+         from app.services.required_fields import normalize_required_fields
+@@ -285,6 +286,13 @@
+                 ResourceWorkLink(resource_id=full.id, series_id=s1.id),
+                 ResourceWorkLink(resource_id=full.id, series_id=s2.id),
+                 ResourceWorkLink(resource_id=noyear.id, series_id=undated.id),
++            ])
++            # Synthetic exact coverage, not merely a list of season IDs.
++            s.add_all([
++                ResourceFileAssignment(resource_id=resource.id, series_id=work.id,
++                    season=work.season_number, file_path=f"synthetic-{work.id}.mkv",
++                    episode_start=1, episode_end=12)
++                for resource, work in [(full, s1), (full, s2), (noyear, undated)]
+             ])
+             await s.commit()
+             full_id, noyear_id = full.id, noyear.id
+--- a/app/models/pending_decision.py
++++ b/app/models/pending_decision.py
+@@ -3,7 +3,7 @@
+ import uuid
+ from datetime import datetime
+ 
+-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Index, Integer, String, func
++from sqlalchemy import JSON, CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.database import Base
+@@ -12,6 +12,9 @@
+ class PendingDecision(Base):
+     __tablename__ = "pending_decisions"
+     __table_args__ = (
++        CheckConstraint("status != 'pending' OR decision_key IS NOT NULL", name="ck_pending_decision_key"),
++        Index("uq_pending_decisions_agent_key", "agent_id", "decision_key", unique=True,
++              sqlite_where=text("status = 'pending'"), postgresql_where=text("status = 'pending'")),
+         Index("ix_pending_decisions_status_created", "status", "created_at", "id"),
+     )
+ 
+@@ -31,6 +34,8 @@
+     # Season of the disputed episode (NULL = movie / season-less series).
+     # Part of the idempotency key so S1E3 and S4E3 don't collide.
+     season: Mapped[int | None] = mapped_column(Integer, nullable=True)
++    decision_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
++    decision_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+     candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+     reason: Mapped[str] = mapped_column(String(2048), nullable=False)
+     llm_suggestion: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+--- /dev/null
++++ b/app/services/decision_store.py
+@@ -0,0 +1,86 @@
++"""Versioned pending-choice identities and transactional candidate merging."""
++import hashlib
++import json
++from datetime import timedelta
++
++from sqlalchemy import select
++from sqlalchemy.exc import IntegrityError
++
++from app.models.agent import Agent
++from app.models.pending_decision import PendingDecision
++from app.utils.time import utcnow
++
++
++def choice_identity(kind, target_id, season, episode, coverage=None):
++    if coverage is None:
++        if kind not in {'series', 'movie'} or not target_id or episode == -1:
++            raise ValueError('A choice requires a work identity or exact batch coverage')
++        scope = dict(version=1, kind=kind, work_id=target_id, season=season, episode=episode)
++    else:
++        scope = dict(version=1, kind='batch', coverage=coverage)
++    encoded = json.dumps(scope, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
++    return 'v1:' + hashlib.sha256(encoded.encode()).hexdigest(), json.loads(encoded)
++
++
++async def persist_choice(db, *, agent_id, decision_key, decision_scope, candidate_ids,
++                         proposed_ids, picked_id, suggestion, fields):
++    """No network work while holding locks. Caller owns the outer transaction.
++
++    The parent lock orders legitimate creators of an empty slot; the unique
++    index is the final guard, including writers outside this service. A
++    candidate change invalidates recommendations computed on an older set.
++    """
++    incoming = list(dict.fromkeys(candidate_ids))
++    if len(incoming) < 2:
++        raise ValueError('A pending choice requires at least two distinct candidates')
++    parent = await db.scalar(select(Agent.id).where(Agent.id == agent_id).with_for_update(key_share=True))
++    if parent is None:
++        raise ValueError('Agent no longer exists')
++    query = select(PendingDecision).where(
++        PendingDecision.agent_id == agent_id,
++        PendingDecision.status == 'pending',
++        PendingDecision.decision_key == decision_key,
++    ).with_for_update().execution_options(populate_existing=True)
++
++    async def merge(row):
++        if row.decision_scope != decision_scope:
++            raise ValueError('Decision identity disagrees with its stored scope')
++        previous_ids = set(row.candidates or [])
++        merged = list(dict.fromkeys([*(row.candidates or []), *incoming]))
++        row.candidates = merged
++        row.reason = fields['reason']
++        row.expires_at = utcnow() + timedelta(days=7)
++        if set(merged) == set(proposed_ids) and picked_id in merged:
++            row.llm_picked_resource_id, row.llm_suggestion = picked_id, suggestion
++        elif (set(merged) != previous_ids or set(merged) != set(proposed_ids)
++              or row.llm_picked_resource_id not in merged):
++            row.llm_picked_resource_id, row.llm_suggestion = None, None
++        await db.flush()
++        return row
++
++    existing = await db.scalar(query)
++    if existing is not None:
++        return await merge(existing)
++    row = PendingDecision(
++        agent_id=agent_id, decision_key=decision_key, decision_scope=decision_scope,
++        candidates=incoming, status='pending', expires_at=utcnow() + timedelta(days=7),
++        llm_picked_resource_id=picked_id if picked_id in incoming else None,
++        llm_suggestion=suggestion if picked_id in incoming else None, **fields,
++    )
++    try:
++        async with db.begin_nested():
++            db.add(row)
++            await db.flush()
++        return row
++    except IntegrityError as exc:
++        message = str(exc.orig)
++        if not any(marker in message for marker in (
++            'uq_pending_decisions_agent_key',
++            'UNIQUE constraint failed: pending_decisions.agent_id, pending_decisions.decision_key',
++            'UNIQUE constraint failed: pending_decisions.(agent_id, decision_key)',
++        )):
++            raise
++        existing = await db.scalar(query)
++        if existing is None:
++            raise
++        return await merge(existing)

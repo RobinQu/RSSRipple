@@ -1,0 +1,403 @@
+{
+  "status": "Accepted by combined V8/V9 bg gates; prototype fields below preserve historical development evidence",
+  "directory": "/tmp/rssripple-v9-fk-review",
+  "fixture": "synthetic historical DDL; actual temporary Turso and production startup",
+  "candidates": [
+    {
+      "table": "file_resources",
+      "column": "audio_work_id",
+      "target": "audio_works.id",
+      "ondelete": "SET NULL"
+    },
+    {
+      "table": "tv_series",
+      "column": "collection_id",
+      "target": "work_collections.id",
+      "ondelete": null
+    },
+    {
+      "table": "movies",
+      "column": "collection_id",
+      "target": "work_collections.id",
+      "ondelete": null
+    },
+    {
+      "table": "downloader_instances",
+      "column": "volume_id",
+      "target": "storage_volumes.id",
+      "ondelete": "SET NULL"
+    },
+    {
+      "table": "libraries",
+      "column": "media_server_id",
+      "target": "media_server_instances.id",
+      "ondelete": "SET NULL"
+    },
+    {
+      "table": "libraries",
+      "column": "volume_id",
+      "target": "storage_volumes.id",
+      "ondelete": "SET NULL"
+    },
+    {
+      "table": "file_resources",
+      "column": "collection_id",
+      "target": "work_collections.id",
+      "ondelete": null
+    }
+  ],
+  "files": {
+    "app/database.py": "950d59340ce496814e14bdaee60cf682b09da324b4e5592480e822d0b932c395",
+    "app/services/schema_foreign_keys.py": "3658c48cc9a732b2baa3c55796b05bb25f67a4fb1c6562161ebae4c3ba956f2f",
+    "tests/unit/test_upgrade_foreign_keys.py": "5e3118753b4c7c2a690aea723273280224bda394d1b8ab0dd65ce8103fc67ba0",
+    "tests/unit/test_turso_fk_rebuild_capability.py": "00fa0ab2965d30c52e1a273299524d25e2ab3c9463207c846c7847c91c871580",
+    "tests/unit/test_database_migrations.py": "8be544e221130290e6adc91841338a243b0a6aa06d54a480785ec03685df4d6e",
+    "tests/unit/test_upgrade_fk_related_data.py": "8082671a5a6d8304b4c53cf1f15d74a80484960bd5d83f417f2b2d1739461c33",
+    "tests/unit/test_upgrade_fk_report.py": "e8fed3275c0d58af05c17ffdbfc6ed0e1cd011107814941de62b69da5d4b86c6",
+    "scripts/verify_upgrade_foreign_keys.py": "b2cf5f63e8a42aa1b4c87aeeb5759212fa0cf49a464cdd6a5ac545dc3b429db3",
+    "docs/design/db-migration.md": "02ef95a4be6e454c81ed857ae2d526d6547b99044ac7e6686ea0062dc6b5bb4a",
+    "docs/design/data-models.md": "bf09d4cf1e176d900500aca5f6365954652612e2f8e6bedafffd811a81b49a15",
+    "docs/testing/integration-inventory.md": "174c3a6f1d01793998932c62f5b7fd747946538074a854fc333b739a66803ae8"
+  },
+  "root_before": {
+    "app/database.py": "c017493083ebc79a9d261004a3a58a9fc5cab5e563687feded67569868925080",
+    "app/services/schema_foreign_keys.py": null,
+    "tests/unit/test_upgrade_foreign_keys.py": null,
+    "tests/unit/test_turso_fk_rebuild_capability.py": null,
+    "tests/unit/test_database_migrations.py": "26863254c58caf9e696000ea104c4752659b5b1523138950b9f296ce3b97d8dd",
+    "tests/unit/test_upgrade_fk_related_data.py": null,
+    "tests/unit/test_upgrade_fk_report.py": null,
+    "scripts/verify_upgrade_foreign_keys.py": null,
+    "docs/design/db-migration.md": "b525585bfaada6be9480752f2846a087e272bd97ddde6059904fb2b94bc314b6",
+    "docs/design/data-models.md": "34ba3c143d5f9c35b974fd72c2fd35aecf8c380d41a5fc12d054a758df080816",
+    "docs/testing/integration-inventory.md": "7c4b82e275324379a87b4b4d56d45dabe9c050b17c67f038f9513563a668ff15"
+  },
+  "runs": {
+    "first_red": {
+      "junit": "/tmp/rssripple-v9-fk-red.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "2",
+      "time": "3.041",
+      "timestamp": "2026-09-20T01:56:11.867818+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "matrix_red": {
+      "junit": "/tmp/rssripple-v9-fk-matrix-red.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "8",
+      "skipped": "0",
+      "tests": "16",
+      "time": "9.409",
+      "timestamp": "2026-09-20T01:58:07.036198+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "partial_prototype": {
+      "junit": "/tmp/rssripple-v9-fk-prototype.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "7",
+      "skipped": "0",
+      "tests": "23",
+      "time": "31.709",
+      "timestamp": "2026-09-20T01:59:27.667117+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "concurrent_ddl_red": {
+      "junit": "/tmp/rssripple-v9-rebuild-capability.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "3",
+      "skipped": "0",
+      "tests": "3",
+      "time": "4.633",
+      "timestamp": "2026-09-20T02:06:27.707961+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "foreign_key_check_red": {
+      "junit": "/tmp/rssripple-v9-rebuild-exclusive.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "3",
+      "skipped": "0",
+      "tests": "3",
+      "time": "4.270",
+      "timestamp": "2026-09-20T02:08:22.077849+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "rebuild_antijoin_green": {
+      "junit": "/tmp/rssripple-v9-rebuild-antijoin.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "3",
+      "time": "4.069",
+      "timestamp": "2026-09-20T02:09:58.043358+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "model_matrix_green": {
+      "junit": "/tmp/rssripple-v9-fk-repair.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "26",
+      "time": "36.525",
+      "timestamp": "2026-09-20T02:11:46.222908+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "populated_model_green": {
+      "junit": "/tmp/rssripple-v9-fk-populated.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "27",
+      "time": "38.062",
+      "timestamp": "2026-09-20T02:13:33.234771+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "fk_actions_turso": {
+      "junit": "/tmp/rssripple-v9-fk-actions-aw.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "27",
+      "time": "27.097",
+      "timestamp": "2026-09-20T02:36:46.970111+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "recovery_expanded_red": {
+      "junit": "/tmp/rssripple-v9-fk-recovery-ax.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "3",
+      "tests": "87",
+      "time": "80.727",
+      "timestamp": "2026-09-20T02:40:23.137779+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "recovery_related_green": {
+      "junit": "/tmp/rssripple-v9-fk-recovery-ay.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "3",
+      "tests": "89",
+      "time": "49.533",
+      "timestamp": "2026-09-20T02:44:30.407346+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "preflight_setup_red": {
+      "junit": "/tmp/rssripple-v9-fk-report-ay.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "4",
+      "time": "5.153",
+      "timestamp": "2026-09-20T02:46:07.654686+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "preflight_green": {
+      "junit": "/tmp/rssripple-v9-fk-report-ay-green.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "4",
+      "time": "4.644",
+      "timestamp": "2026-09-20T02:48:16.842501+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "conflicting_semantics_red": {
+      "junit": "/tmp/rssripple-v9-duplicate-fk-red.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "2",
+      "time": "2.868",
+      "timestamp": "2026-09-20T02:48:57.277172+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "final_expanded": {
+      "junit": "/tmp/rssripple-v9-expanded-az.xml",
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "3",
+      "tests": "95",
+      "time": "103.159",
+      "timestamp": "2026-09-20T02:50:25.229578+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "complete_az_collection_failure": {
+      "junit": "/tmp/rssripple-v9-unit-az.xml",
+      "name": "pytest",
+      "errors": "2",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "13.741",
+      "timestamp": "2026-09-20T02:53:32.515119+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 2
+    },
+    "complete_ba_collection_failure": {
+      "junit": "/tmp/rssripple-v9-unit-ba.xml",
+      "name": "pytest",
+      "errors": "2",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "2",
+      "time": "3.079",
+      "timestamp": "2026-09-20T02:57:54.131611+00:00",
+      "hostname": "dl-workstation-albert",
+      "exit_code": 2
+    }
+  },
+  "pg_project": "rssripple-v9-fk-20260920-ay",
+  "pg_port": 32791,
+  "postgresql": {
+    "red": {
+      "fresh": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "missing-column": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "existing-column": {
+        "file_resources.audio_work_id": false,
+        "tv_series.collection_id": false,
+        "movies.collection_id": false,
+        "downloader_instances.volume_id": false,
+        "libraries.media_server_id": false,
+        "libraries.volume_id": false,
+        "file_resources.collection_id": false
+      }
+    },
+    "green": {
+      "fresh": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "missing-column": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "existing-column": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      }
+    },
+    "actual_actions": "All 21 cases validate orphan INSERT/UPDATE rejection, SET NULL/NO ACTION, and surviving child identity",
+    "exit_code": 0,
+    "project": "rssripple-v9-fk-20260920-aw",
+    "cleanup": "complete"
+  },
+  "base": "V8 av frozen runtime; resync if V8 acceptance changes source",
+  "postgresql_recovery": {
+    "dirty_startup_rejected": true,
+    "all_seven_alters_rolled_back": true,
+    "business_row_unchanged": true,
+    "concurrent_startup_exit_codes": [
+      0,
+      0
+    ],
+    "blocked_startups_observed": 2,
+    "missing_foreign_keys_after_retry": 0,
+    "cleanup": "ax complete"
+  },
+  "postgresql_preflight": {
+    "orphan_exit": 1,
+    "clean_exit": 0,
+    "all_orphan_ids_exported": 103,
+    "business_rows_and_manual_fields_preserved": true
+  },
+  "expanded_session": 28709,
+  "pg_session": 35307,
+  "postgresql_final": {
+    "checks": {
+      "fresh": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "missing-column": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "existing-column": {
+        "file_resources.audio_work_id": true,
+        "tv_series.collection_id": true,
+        "movies.collection_id": true,
+        "downloader_instances.volume_id": true,
+        "libraries.media_server_id": true,
+        "libraries.volume_id": true,
+        "file_resources.collection_id": true
+      },
+      "conflicting-semantics": {
+        "correct-and-wrong": true,
+        "wrong-only": true
+      }
+    },
+    "cleanup": "ay complete",
+    "exit_code": 0
+  },
+  "source_manifest": "/tmp/rssripple-v9-source-bb.json",
+  "unit_session": 63720,
+  "unit_log": "/tmp/rssripple-v9-unit-bb.log",
+  "unit_result": {
+    "passed": 3611,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 1626.49,
+    "covered": 21340,
+    "valid": 21833,
+    "exit_code": 0
+  },
+  "complete_validation": "database-invariants-complete-bg-result.json"
+}

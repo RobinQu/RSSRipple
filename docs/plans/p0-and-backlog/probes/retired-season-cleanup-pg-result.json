@@ -1,0 +1,12 @@
+{
+  "cli_export_exit": 0,
+  "stale_cli_exit": 1,
+  "post_flush_rollback_preserved": true,
+  "second_backend_blocked_observed": true,
+  "concurrent_changed": [
+    true,
+    false
+  ],
+  "cli_idempotent_exit": 0,
+  "related_rows_and_manual_title_preserved": true
+}

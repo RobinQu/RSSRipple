@@ -1,0 +1,32 @@
+{
+  "project": "rssripple-v8-api-pair-20260920-ar",
+  "pair": {
+    "fixture": "synthetic works; real PostgreSQL and production HTTP ASGI router",
+    "statuses": [
+      201,
+      409
+    ],
+    "second_error": {
+      "code": "DUPLICATE_SUBMISSION",
+      "message": "Collection already contains a work for this season."
+    },
+    "second_backend_blocked": true,
+    "one_target_member": true,
+    "both_work_ids_preserved": true,
+    "losing_shell_preserved": true,
+    "identities_and_resources_follow_correct_parents": true,
+    "target_aliases_from_winner_only": true
+  },
+  "pair_exit_code": 0,
+  "report_clean_exit_code": 0,
+  "report_conflict": {
+    "fixture": "synthetic conflict; actual PostgreSQL and CLI subprocess",
+    "exit_code": 1,
+    "members_reported": 2,
+    "full_ids_and_manual_protection_preserved": true,
+    "database_rows_unchanged": true,
+    "startup_not_required": true
+  },
+  "report_probe_exit_code": 0,
+  "cleanup": "complete"
+}

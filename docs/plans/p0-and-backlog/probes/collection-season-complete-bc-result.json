@@ -1,0 +1,33 @@
+{
+  "project": "rssripple-v8-complete-20260920-bc",
+  "acceptance": false,
+  "unit_api": {
+    "passed": 3574,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 1622.13,
+    "covered": 21291,
+    "valid": 21764,
+    "exit_code": 0
+  },
+  "integration": {
+    "passed": 3136,
+    "skipped": 17,
+    "errors": 0,
+    "failures": 0,
+    "warnings": 8,
+    "seconds": 1664.27,
+    "covered": 19543,
+    "valid": 21764,
+    "runner_exit_code": 0,
+    "coverage_exit_code": 0
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "source_files_unchanged_before_fixture_fix": 496,
+  "failure": "Full gates passed; final review exposed unhandled real Turso slot-error message; additional repair pending validation",
+  "artifacts": "/tmp/rssripple-v8-artifacts-bc",
+  "cleanup": "complete"
+}

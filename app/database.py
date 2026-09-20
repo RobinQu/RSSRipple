@@ -263,6 +263,9 @@ async def _create_tables_postgres() -> None:
                 )
                 await conn.run_sync(Base.metadata.create_all)
                 await _apply_light_migrations(conn)
+                from app.services.schema_foreign_keys import repair_postgres_foreign_keys
+
+                await repair_postgres_foreign_keys(conn)
                 await _ensure_pg_trgm_indexes(conn)
             return
         except DatabaseError as e:
@@ -306,6 +309,11 @@ async def create_tables() -> None:
         else:
             await conn.run_sync(Base.metadata.create_all)
             await _apply_light_migrations(conn)
+
+    if is_turso_url(settings.database_url):
+        from app.services.schema_foreign_keys import repair_turso_foreign_keys
+
+        await repair_turso_foreign_keys(engine)
 
     from app.services.collection_lifecycle import backfill_orphan_collections
 
@@ -466,7 +474,7 @@ async def _apply_light_migrations(conn) -> None:
          "DATETIME" if is_turso else "TIMESTAMP"),
         # AudioWork link for non-TV/non-movie works (ASMR / music / drama CD /
         # radio). The audio_works table itself is created by create_all.
-        ("file_resources", "audio_work_id", "VARCHAR(36)"),
+        ("file_resources", "audio_work_id", "VARCHAR(36) REFERENCES audio_works(id) ON DELETE SET NULL"),
         # Per-channel auto-cleanup of stale unresolved resources: an enable
         # toggle + an age threshold (days, default 21 = 3 weeks).
         ("channels", "auto_cleanup_unresolved_enabled",
@@ -490,8 +498,8 @@ async def _apply_light_migrations(conn) -> None:
         ("pending_decisions", "season", "INTEGER"),
         # Franchise grouping (WorkCollection) — the work_collections table
         # itself is created by create_all.
-        ("tv_series", "collection_id", "VARCHAR(36)"),
-        ("movies", "collection_id", "VARCHAR(36)"),
+        ("tv_series", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
+        ("movies", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
         # Normalized search haystack (title_cn + title_en + original_title +
         # aliases through normalize_title), maintained by the ORM before_flush
         # hook. Indexed with pg_trgm GIN on PostgreSQL; Turso mirrors it into
@@ -516,17 +524,17 @@ async def _apply_light_migrations(conn) -> None:
         # volume.mount_path + volume_subpath. Both NULL = identical views
         # (identity). The storage_volumes table itself is created by
         # create_all.
-        ("downloader_instances", "volume_id", "VARCHAR(36)"),
+        ("downloader_instances", "volume_id", "VARCHAR(36) REFERENCES storage_volumes(id) ON DELETE SET NULL"),
         ("downloader_instances", "volume_subpath", "VARCHAR(1024)"),
         # Media-server-derived Library (R2): the library root is now a
         # structured volume reference (volume_id + root_subpath) resolved at
         # use time; root_path/plex_section stay as inert orphan columns. The
         # media_server_instances / media_server_bindings tables themselves
         # are created by create_all.
-        ("libraries", "media_server_id", "VARCHAR(36)"),
+        ("libraries", "media_server_id", "VARCHAR(36) REFERENCES media_server_instances(id) ON DELETE SET NULL"),
         ("libraries", "section_key", "VARCHAR(64)"),
         ("libraries", "server_path", "VARCHAR(1024)"),
-        ("libraries", "volume_id", "VARCHAR(36)"),
+        ("libraries", "volume_id", "VARCHAR(36) REFERENCES storage_volumes(id) ON DELETE SET NULL"),
         ("libraries", "root_subpath", "VARCHAR(1024)"),
         # 回收站目录（卷内相对路径）：合集 move 计划的剩余文件整体移入；
         # NULL = 原地保留。
@@ -536,7 +544,7 @@ async def _apply_light_migrations(conn) -> None:
         # a WorkCollection link for franchise packs, and the local relative
         # path of the cached .torrent file (bytes live on disk only).
         ("file_resources", "batch_scope", "VARCHAR(16)"),
-        ("file_resources", "collection_id", "VARCHAR(36)"),
+        ("file_resources", "collection_id", "VARCHAR(36) REFERENCES work_collections(id)"),
         ("file_resources", "torrent_file", "VARCHAR(2048)"),
         # Seasons covered by a multi_season/franchise batch pack (JSON int
         # list, persisted from torrent content analysis) — drives the strict
@@ -562,8 +570,7 @@ async def _apply_light_migrations(conn) -> None:
         # Per-season works (作品单季化 P2): one TVSeries row = exactly one
         # season of the IP; 0 = specials (Plex Specials convention). The
         # legacy seasons/number_of_seasons columns stay as inert orphans. The
-        # partial unique index on (collection_id, season_number) is created
-        # by the data-migration script after convergence, not here.
+        # partial unique index is ensured below after this column exists.
         ("tv_series", "season_number", "INTEGER NOT NULL DEFAULT 1"),
         # WorkCollection upgraded to the series-level metadata carrier:
         # alias list, normalized search haystack (before_flush hook only —
@@ -606,6 +613,15 @@ async def _apply_light_migrations(conn) -> None:
         async with _best_effort(conn, f"add column {table}.{column}"):
             await conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
             logger.info("[migrate] added column %s.%s", table, column)
+
+    # Match fresh-schema uniqueness on upgraded tables. Do not silently
+    # continue without this invariant or guess which legacy row to discard:
+    # conflicting databases must finish the season-split migration first.
+    await conn.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tv_series_collection_season "
+        "ON tv_series (collection_id, season_number) "
+        "WHERE collection_id IS NOT NULL"
+    ))
 
     from app.services.organize_config_events import ensure_configuration
 

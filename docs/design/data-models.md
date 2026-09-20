@@ -248,8 +248,9 @@ class TVSeries(Base):
     wikipedia_page_id: int | None        # 维基百科 pageid（供维基数据源回填/海报抓取使用）
     collection_id: str | None → WorkCollection  # 所属合集 FK；单季化后剧集作品**必属一个合集**
                                          #（无自然合集时套 `series_group` 壳合集）；合集内
-                                         # (collection_id, season_number) 应用层唯一（部分唯一索引
-                                         # uq_tv_series_collection_season 由数据迁移脚本在收敛后创建）
+                                         # (collection_id, season_number) 部分唯一索引
+                                         # uq_tv_series_collection_season（WHERE collection_id IS NOT NULL）
+                                         # 新装与轻迁移均建立；冲突历史库须先预检/修复再升级
     created_at: datetime
     updated_at: datetime
 
@@ -821,3 +822,6 @@ class FtsOutbox(Base):
 ### AgentResourceRequest（持久化定向重跑请求）
 
 `agent_resource_requests` 使用 UUID v4 字符串主键；`agent_id`、`resource_id` 非空并分别 FK CASCADE，二者联合唯一。`revision` 非空默认 1，每次新修订原子递增；`requested_at` 为 UTC；`attempt_count` 非空默认 0；`next_attempt_at` 可空 UTC 且有索引；`error_message` 可空、最长 2048。新修订保留行 id、重置错误与退避；消费确认必须同时匹配 id 与 revision，防止旧运行删除新修订或删除后重建的请求。
+
+
+轻量迁移新增的七处外键（audio/collection/volume/media_server 关联）在新装与升级库必须具有相同目标及 ON DELETE；已有列不代表约束已存在。启动检查并补齐缺失约束，旧悬空关联必须由明确业务证据修复，不自动丢弃子行或猜测父项。只读预检、Turso 原子重建与 PG 事务补约束见 [数据库迁移](db-migration.md)「轻量迁移的升级外键对等」。

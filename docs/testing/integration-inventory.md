@@ -270,3 +270,14 @@ B9 定向补偿回归：`test_p0_queue_consumption.py` 覆盖真实队列已选�
 合集归属回归：tests/api/test_collection_invariants.py 覆盖真实 API→commit→重新读库的创建/删除/解绑、身份袋清理、人工关联保留、多作品不猜合集、故障回滚、回填幂等及预加载父子关系。test_collection_resource_boundaries.py 每场景植入 103 条资源，交叉覆盖电影/剧集、删除/解绑、直接 FK/work_links/文件指派，验证跨页处理及不相关资源不变。test_database_migrations.py 对实际 Turso create_tables 连跑两次验证旧孤儿修复，PG 分支单测只验证调用顺序。
 
 PostgreSQL 实际回填并发、预加载关系、重复删除及反向壳吸收的驱动位于 docs/plans/p0-and-backlog/probes/collection*_pg_probe.py。它们会清空明确指定的回环地址 organize_test 专用库，必须配独立 Compose 项目；禁止指向业务库。数据为明确的合成 ORM 行，SQL/事务/锁行为真实。专项不替代完整单元/API 95% 与隔离集成 85% 门禁。
+
+### 合集单季唯一性与升级预检
+
+`test_collection_season_index.py` 通过真实 Turso 新装/升级与人工编辑、Episode、身份袋保留验证；`test_collection_season_conflicts.py` 覆盖 409 和非季号异常不误分类；`test_collection_conflict_report.py` 覆盖 103 个冲突成员流式报告与只读 SQL。PostgreSQL 复现驱动在 docs/plans/p0-and-backlog/probes/collection_season*_pg_probe.py，分别验证双启动、写入竞争、检查后竞争、两个 HTTP ASGI 请求抢槽及实际 CLI。数据为标注合成数据，不冒充在线来源录制。
+
+D1 写入路径回归覆盖去重继承合集的删除/赋值顺序、Wikidata 同季冲突的 apply/dry-run 拒绝及标签保留；Bangumi 旧默认季号修正用独立壳合集作为合法初态，人工季号与播出日期保护断言保持。
+
+
+D2 升级外键验证：`tests/unit/test_upgrade_foreign_keys.py` 使用真实 Turso 验证七 FK × 新装/缺列/已有列缺约束、非法 INSERT/UPDATE、父项 DELETE 的 SET NULL/NO ACTION；包含带 Episode/资源/身份袋/人工保护/历史额外列和索引的升级及脏数据拒绝、换表后注入故障与恢复。`test_upgrade_fk_related_data.py` 验证多表重建保留下载任务、通知、RESTRICT 规则及 SET NULL 计划，末尾失败整批回滚。`test_upgrade_fk_report.py` 验证预检全程只读并完整导出跨页 103 个悬空引用。`test_turso_fk_rebuild_capability.py` 记录后端事务、索引/触发器与回滚能力边界。
+
+PostgreSQL 真实 schema/动作矩阵、脏数据回滚、双进程启动锁等待与恢复使用 `docs/plans/p0-and-backlog/probes/upgrade_foreign_keys*_pg_probe.py`，必须只运行于探针检查允许的独立本地测试库，报告与 Compose 清理证据见 V9 计划。上述定向测试不能替代完整单元/API ≥95% 和隔离集成 ≥85% 门禁。

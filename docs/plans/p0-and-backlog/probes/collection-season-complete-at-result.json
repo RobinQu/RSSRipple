@@ -1,0 +1,38 @@
+{
+  "batch": "V8",
+  "gate": "unit/API at",
+  "exit_code": 1,
+  "junit": {
+    "name": "pytest",
+    "errors": "0",
+    "failures": "8",
+    "skipped": "14",
+    "tests": "3586",
+    "time": "1563.463",
+    "timestamp": "2026-09-20T01:50:46.248430+00:00",
+    "hostname": "dl-workstation-albert"
+  },
+  "coverage": {
+    "version": "7.14.3",
+    "timestamp": "1789870607419",
+    "lines-valid": "21752",
+    "lines-covered": "21267",
+    "line-rate": "0.9777",
+    "branches-covered": "0",
+    "branches-valid": "0",
+    "branch-rate": "0",
+    "complexity": "0"
+  },
+  "unchanged_files": 496,
+  "acceptance": false,
+  "failures": [
+    "tests.unit.test_bangumi_relations::test_seed_subjects_from_all_sources",
+    "tests.unit.test_bangumi_relations::test_expand_phase_b_corrects_stale_upsert_season",
+    "tests.unit.test_bangumi_relations::test_expand_phase_b_correction_failure_skips_linking",
+    "tests.unit.test_batch_content_analysis::test_bind_cleans_orphan_auto_links_keeps_manual",
+    "tests.unit.test_metadata_dedup::test_merge_series_inherits_collection_when_survivor_has_none",
+    "tests.unit.test_metadata_search::test_refresh_season0_fills_start_date_from_sibling",
+    "tests.unit.test_specials_airdate_backfill::test_evaluate_skips_manual_edit_and_missing_sibling_dates",
+    "tests.unit.test_wikidata_collection.TestLinkSeries::test_same_franchise_series_converge"
+  ]
+}

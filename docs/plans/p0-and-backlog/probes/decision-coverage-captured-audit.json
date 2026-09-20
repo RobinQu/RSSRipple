@@ -1,0 +1,3598 @@
+{
+  "fixture": "tests/fixtures/prod_works_v1.json",
+  "sha256": "d11651d2162ced23e8d919af0bff2d9f316e203234cc854909ba5f444a35ec32",
+  "resource_count": 559,
+  "batch_count": 101,
+  "batches_with_episode_gaps": [],
+  "batches_with_missing_assignment_evidence": [
+    {
+      "resource_id": "e8a58372-555a-4e7c-b8b7-37371989c040",
+      "uncertain_assignment_ids": [
+        "0c35e43a-d9b1-4513-82a6-22f161b1dd1a",
+        "28ebe6e6-5603-426b-b7b9-961e78b84103",
+        "5b379ce3-76f7-4ebf-9fc2-a22d14e1328e",
+        "94bdc09d-8677-495c-89ec-b1e523d2c491",
+        "c272c13c-6188-472b-bccd-91b12b83100e",
+        "f00c7556-d78b-4dd1-8ac5-cf06d828d002",
+        "f6a93888-1663-478b-8003-cf8049c3e5f6"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "12329491-44b9-4c59-8d13-b72c47fe44e8",
+      "uncertain_assignment_ids": [
+        "fbd77bcd-b81b-4057-8620-147392f32d5d"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "6ecfd5dc-8bba-44cd-81c2-79d4411497c0",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "a64c7db0-2e6d-4387-bbc6-cd81940ef4b5",
+      "uncertain_assignment_ids": [
+        "17413c45-9f1f-4206-8f90-1e8afdc4199e",
+        "35ef9cb5-137e-4d70-a636-246749191f8a",
+        "03b38e72-6217-426d-9e8c-cd9c07d5ca3b",
+        "5bbb373c-9457-4b9a-bc38-8d96ccd3856b",
+        "74142375-6c9a-43d7-8e6a-9b97627334bc",
+        "7aeaa913-9b65-4e69-b486-9e846526bc6f",
+        "7d08e184-02a7-4078-841a-47d0c0c1222a",
+        "9acf16ad-8190-4889-9597-44d183f4c1b9",
+        "a3d1bed7-8eaa-423e-9f0a-2a9e80015e0b",
+        "cb011720-1aa7-442c-9272-4986bbb5858a"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "25473991-43c1-4f1e-87c0-a46c159057af",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "288c1591-841f-4137-85d2-a91b73fa43b1",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "764b21c0-23e6-4232-a9d1-32c82e5f39ab",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "f4488b24-d391-4c01-998f-ea9930aa3c96",
+      "uncertain_assignment_ids": [
+        "026b962c-7c4e-4386-9a29-bc8767c56e30",
+        "06184d53-399c-46aa-9489-65eac6067556",
+        "06b486c3-c54a-4b28-a7c0-056aabf14673",
+        "0701e1bf-e49c-4840-86a5-3e8b4aebae67",
+        "0d4b5197-ed82-4cf2-b7c1-f5f702480c8a",
+        "0d6fb278-431a-4535-bcbd-bc0dd43e6527",
+        "10b78a30-fd2c-4e2e-88c3-aa24ea0f202b",
+        "12bb59aa-83ad-4fdc-81b6-32fbe342b78f",
+        "12f65f83-b49b-42d8-9c05-921c7dad9401",
+        "1596951e-b6f9-4525-be54-85c007f57dc0",
+        "171d15a0-3e90-47b3-a641-e1468800066b",
+        "1a079940-dec7-41a9-b86b-d7e8b03b5290",
+        "1a306f07-8271-4e5d-be82-b6a675d49328",
+        "1bad3cb8-853b-4c33-a60a-74daf2098492",
+        "1c477481-7a27-4a55-8751-6dac21075bc8",
+        "1faaf6a4-ab9e-4778-b211-b1d619d2f247",
+        "205de212-8e54-47e4-93f0-a529227ca148",
+        "208227f9-7c2a-413e-8cda-554a3d0f3d41",
+        "215c8340-1a5c-4b66-984d-25cef8fee301",
+        "227989e2-c315-4047-81d9-4e54c57628ac",
+        "23926666-38db-4b66-a713-828bf8f81a63",
+        "256fde0e-dd74-431a-b536-33d88c582614",
+        "2583f7d2-2319-414c-911c-0ccb928c578f",
+        "274371e5-c67e-4828-95ab-2c4a3a28fdf7",
+        "2852145a-7ecc-4619-afc0-9536fd83e573",
+        "291f33a8-20d2-494a-ac26-45e3b2c981cb",
+        "29d92fc3-954c-4358-8c95-84c11818deb1",
+        "2a0d8b92-436f-4a89-b1b3-a370472b71d0",
+        "2a2722ba-a25d-4a57-a624-580a2d868f75",
+        "2cf90f3e-c917-4b96-b9d2-186f4372234b",
+        "2d9f9226-4c65-4a32-b96d-a083fd643024",
+        "2ffad780-1ddb-4687-9e6c-349d0785a54f",
+        "30135e3f-558d-41a1-a2cd-1723c9060d44",
+        "30dc70ba-e626-43a5-a1d2-f4d6731aa7eb",
+        "31fbd067-e1bf-466e-8d89-5dbf55deaafd",
+        "328a7113-c02c-45d9-98a9-3c189b6b6f5e",
+        "333ff01a-dd9a-467b-8a5a-8300089f28cf",
+        "3341bc7e-751e-47b5-8e74-c78fd5e02abf",
+        "348e2a71-83e1-491d-8734-5e576446d3e9",
+        "34eaeb7b-59c5-45cc-b3dd-63b7748c3061",
+        "351eda1a-927c-4d08-bc89-58225795d75f",
+        "36ebb487-5e72-469b-acdf-f79e2e1264b7",
+        "392e8d82-6ffc-4278-98e6-1d65a89cefc9",
+        "3a012b11-2755-4222-b776-72d163963aba",
+        "3a9d5f3b-c540-47d9-90cd-799b8a344e00",
+        "3b460057-cfee-4a7f-beb4-03bc4e20ee2a",
+        "3c9ae434-209e-458f-a0b3-b90c8ec6afe5",
+        "3cac2c3f-4c51-4c66-b612-6ee302185f7a",
+        "3e6958d5-9d64-43d0-9c02-dcaf67150d03",
+        "3eedea25-91e5-422c-91de-2f61270c308a",
+        "3fb47587-2c46-46e5-9f10-9aeb2afc80cd",
+        "40e76d58-d9e0-49ef-8a8a-2e84b4a96936",
+        "453d7661-8217-4ff1-b8ff-c48d63422baa",
+        "46c7aa81-dc02-4197-b282-10e5e46b52d6",
+        "49eeb96c-b1b4-40f4-a6e4-3cb518f28685",
+        "4a2a9e31-960b-45fc-b865-7ed8ae589754",
+        "4a41e25e-f6d5-4d5d-9ca0-ea014feabf6d",
+        "4aa69252-e5aa-43a3-8e80-ec19e1f3b6ba",
+        "4c3960ca-08d0-47a6-92d9-efc96a772906",
+        "50fb87eb-9849-47cb-9c4a-940cb94d0472",
+        "51adfeb0-5c1b-4678-80d2-5ea0b0ff7ff1",
+        "52b5f1a8-1b74-42a2-bf31-ccf9adcb415a",
+        "55ed9498-620e-4fd7-9201-02314615b39e",
+        "56fd7d5f-b205-42c2-ad45-4c7770429d9d",
+        "5776d1d4-8f8b-4daf-adff-89108043090a",
+        "5e47c14f-b468-4e5b-8064-81844434ffcc",
+        "5f43c1e0-3974-4d41-b9c7-023447b47db6",
+        "62811fd4-c17e-40a7-ab95-a811f7b62ecb",
+        "62c23a72-4fb9-4b08-b9f7-80a7dce97ec1",
+        "62c5e794-cfc6-4e6f-bc27-7f16a205c444",
+        "645340a1-4710-4a04-bf63-7bfe3d5c8ebd",
+        "66d37ee9-8768-44fe-ac92-1c55b2d7d31f",
+        "69463998-79d9-404f-a73b-ac2f0a9607a5",
+        "6b13d651-1130-40ed-8387-b97eb44180db",
+        "6f311bd7-8163-43de-b6a1-8e328d393ca9",
+        "7079c72f-3d77-4a07-a874-64afb37be43a",
+        "7358de9c-ba1f-4f8f-956c-5d220b153006",
+        "74a17fab-ccf7-4c49-9fde-79a522e608c0",
+        "775ee3d2-e602-40cb-a29a-9c91b5e062a6",
+        "77f04417-ba3e-47c9-a0e4-a5342fbb78e1",
+        "78689188-03c8-4f07-831f-09cca5d13786",
+        "786a25fb-eafe-4f7b-b4b3-a9962d3daf9b",
+        "7916e066-5f6e-4eb0-9fb8-84067981e095",
+        "81af0302-8711-467e-8d62-f0a4e556f16c",
+        "82b76842-32cb-44aa-8f80-722d8577a262",
+        "8345b6e3-b6fe-4d46-bd2b-b97e54adff0d",
+        "850ee2be-df3c-402d-8122-903bc7dc9b64",
+        "85df439d-b2c7-47c0-af8e-6d6b8dc66e6a",
+        "879eb766-6e15-4c83-8a14-4e69591120dc",
+        "8972ec0b-cf5d-40fd-bf05-4a879b70ad48",
+        "89b8f809-e932-4e01-b72d-3f60bc02eed9",
+        "89ce8e97-19d1-4b2a-8db7-1cce7559eba4",
+        "89d5709d-2949-4111-9d1b-fa6b3a2d1261",
+        "8c911c5c-d6ec-4110-b68f-1d7f7099c054",
+        "8d3fac9b-c1d4-46ad-b067-f6556b2a9383",
+        "8f9c6376-eefd-457a-a88f-0d8a2b27808d",
+        "90409de9-9eb0-456f-92d2-803b8ecea9a3",
+        "90971a4b-57d3-4f92-9031-ddee373b22c3",
+        "9204c51a-7e06-432f-a2fa-515411a405fb",
+        "92cc04d5-7970-4b41-b761-47935fe5f410",
+        "93bc306f-5483-4424-babd-84d9d9637d0f",
+        "94ddee58-62ba-40f9-90ed-69c525698e14",
+        "94e93b33-334e-4b0d-ba07-4adf3ef222a9",
+        "989e4c60-1450-47b4-813a-8f058a4f0b96",
+        "993abc0b-ad4f-4b9d-8b8c-8507141e8362",
+        "99c341a4-e423-4da7-a9ff-6b4acda0d019",
+        "9b187e7c-0500-4036-bd89-fb90cbd1c479",
+        "9ba2a590-5a8c-4518-8183-a15efbdb98a3",
+        "9bc153eb-c0e6-4efe-abae-463e1460cffe",
+        "9bdda884-8527-4ba9-b259-f0b3bbba61dc",
+        "9c0f96c2-19b2-44d7-b9d5-524c2f552054",
+        "9ccccb09-6d47-4546-8062-acbd15e4c619",
+        "9cef3fda-a89d-472c-8f00-cc70cf5fc71a",
+        "9cfb3bda-c8f5-41b8-97b9-59670ffeff2b",
+        "9e281081-58c8-4611-91a4-5d161e7d07ea",
+        "9ec2de3a-df8e-4857-9eee-5fcb536977c3",
+        "9fab5c4b-17a0-4b4f-a3f7-5901fe699e29",
+        "a187f722-42ad-46e4-9bf5-b3f9e74e34a1",
+        "a2a5a8b2-eb89-4245-93bb-5dd9b4278615",
+        "a38a8ff3-9e98-47c4-9b37-c73835d72c69",
+        "a4544bc2-d7c8-4140-93c7-ad5f5fafcc58",
+        "a541ea26-dae4-4ac1-9d1f-8e73487fc082",
+        "a644150a-936c-4fdf-8323-df938c8b4076",
+        "a69299cd-0692-4dab-80f1-390da98ae548",
+        "a6a05f7a-4917-4111-96b6-e30a4e0ec611",
+        "a789c335-90ff-4403-87c3-c51d44565a81",
+        "a95addd3-ba01-4345-ad7b-eff21299dcab",
+        "aa15bf07-d772-49a3-b095-78b7a9698b67",
+        "aa44189b-3856-447a-9e91-e126e071992d",
+        "aa786ba4-d1ba-4c22-8b75-a41bd2a0e826",
+        "acece5f6-33d0-427f-9bf3-5dc86371138d",
+        "ae38577a-50d0-430c-ae77-7a6ba6f981eb",
+        "b0191e95-c1b6-450e-bb19-f53ed8e4b455",
+        "b1d23293-bbc1-419b-ac9a-21806b21d7bc",
+        "b402945f-f1ea-48e9-996d-3d052d352e4c",
+        "b4b3d425-f67f-40b6-98ae-8ba7f54e34b9",
+        "b6900f4b-f5f1-4cd4-81b9-2203470c2f7a",
+        "b92d64b7-6f0e-4a92-964f-5a5249982f18",
+        "baad9d9b-bf18-4d46-b88f-aca216546db1",
+        "bcdac1cc-b699-4a2b-91b0-56905e957636",
+        "bd32b85e-0378-43b1-acb1-53a331021b38",
+        "bdff4b2a-18d1-42ce-9b06-3ebc832cf086",
+        "be55a2b1-ca8c-491c-b4dd-e6620616d4ef",
+        "bed73449-74fd-4819-835d-011b4044528a",
+        "beecf173-a257-4239-ae4d-e573764cf658",
+        "bfdfdd43-69ea-47fa-aeab-6b09e736a495",
+        "c0629996-1425-4b98-aa12-33261d08521c",
+        "c07f948a-23b8-4cdf-842d-8bc414079386",
+        "c0a88619-c611-4df4-8699-906978e0e01f",
+        "c15d9f47-53cd-4a96-8982-b028b9cf41c2",
+        "c40c0203-1ca9-4e10-b0e8-2359939582e9",
+        "c6584d9c-9f2e-4ca0-b4dc-01aae59b6ade",
+        "c7dfe7fd-4266-4e9a-9fc4-6d82497fdb70",
+        "c84e8461-7eb4-4904-9378-6036ef0821d5",
+        "c9e1f2cf-ae36-42d5-9574-211ad8875794",
+        "cb498bd9-fd3d-4856-8754-0154beb2abc4",
+        "cc25073c-851f-4b53-9c07-96262800c1d8",
+        "cd4f1c87-d255-4e47-a017-6175b2efd225",
+        "cda5a636-5821-42e7-b491-0c292e651d15",
+        "cf5eeaa8-8f66-4411-9ec8-1c6daac31d70",
+        "d0044514-614e-48a0-b09b-aebbc0ce0c13",
+        "d17d2982-a68c-4242-9f66-94df8ec8e1f3",
+        "d1dea0a5-41f1-49e6-a596-082fcfb713ca",
+        "d2998c3f-aaba-4eff-88f8-3c9a395c2b6b",
+        "d4a95a75-34a1-4121-b3fc-4a88dcddaca8",
+        "d50a549a-6965-4da6-b72c-d63b0678af34",
+        "d52e4a5e-005c-4718-84c7-325a71bac270",
+        "d6194a7f-e30f-4f6b-a1e0-f3fdc00bb029",
+        "d93d9439-1d3b-41aa-a4c1-9c0a307a2902",
+        "daefee58-b341-4dd9-9bcb-cc30968ed88a",
+        "dc4cadfe-545a-42fb-977f-fa6c3680e45a",
+        "dc674be9-6370-4cc4-b6da-694dc61a5222",
+        "df703432-58ec-4af0-8a00-55123bd7287a",
+        "e06b325d-5458-4ce5-b4e2-eb6f8d4cd4f3",
+        "e16ac66b-73c7-406d-aa66-c0d1d679a278",
+        "e1d7c97c-497a-49cb-a0f7-95a4b4390937",
+        "e35970c7-a374-442a-8d8b-52d8f2cfcc85",
+        "e5352ac8-96ea-4fe6-a88c-5aa0481d1a68",
+        "e6633eba-2f6d-4beb-aad3-0255e7c601aa",
+        "e7697dbc-2e42-4fe4-b48d-f6865712a9b9",
+        "e79d6881-6ca2-42cd-8e1b-907c80f53b4a",
+        "e7ebafb4-4c21-458c-9149-6ef039f318b9",
+        "e90764a3-4bf1-489d-b4d8-5f713a9c64ad",
+        "ebbafa8d-00a4-4607-adc7-ba44e6448b1f",
+        "ebcfabd9-b112-45ea-8d08-f07b96c511fa",
+        "ec90e9db-78b2-4538-823e-b3ffa4659104",
+        "f2fffe77-a10c-4dcf-82a1-7685cf26eae9",
+        "f3e7d38a-0aae-4f93-b3ce-23e357c8e81e",
+        "f498e467-ae59-471a-b78e-ecd5aa88ecdf",
+        "f4bfef7f-50a6-43ee-8a71-a366960bec60",
+        "f5e02574-fff4-43a0-8f5d-e93327707892",
+        "fbcd20e2-4955-459b-848d-ef1302f80722",
+        "fcceb717-760b-4e90-a8d2-70d9774281be",
+        "fdb4e640-1ff6-44f0-82a9-9061f7f049e4",
+        "ff9e14c2-0517-4496-9635-c9ab8966d716"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "49298ae7-b5c3-4f54-a248-ce4429808219",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "e9a26d2e-19e4-4e9b-8830-f578bd387af4",
+      "uncertain_assignment_ids": [
+        "0b469b0d-eb29-4aac-a6a1-3cbf9310f33a",
+        "50cae3db-87dd-4264-8aeb-b95afa121a4b",
+        "de4c36c7-a45c-4727-a855-90d751c923b2"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "09b336ea-a004-47c4-9abb-f8561b47f2e0",
+      "uncertain_assignment_ids": [
+        "0bf3439f-e767-4212-a911-f00b447dc51b",
+        "1b437351-76fd-45b4-a00b-92bb0fd2ed99",
+        "1e412b88-2408-4698-a255-76ad356f41f2",
+        "27f3f027-fedd-4e45-82e6-c9a3fdbadc6e",
+        "3fd0f6e9-ccd4-4483-982d-3d0b4d13617a",
+        "41721703-6913-4002-be7f-def751a6a8fe",
+        "4aa39d21-fa41-4e7c-afdb-71854f4db779",
+        "4f5b1513-0a9d-42c6-8513-33bf156908ab",
+        "549fb91e-3ff4-4ea9-aee4-3d9757fa62c5",
+        "586fee3d-44c8-4cba-84ee-b342dde1cadc",
+        "65aac4ed-ba57-4253-99a1-f8cbc5691a15",
+        "6753e54d-c485-4e80-8dbe-2768848d026e",
+        "6756db70-8286-4aff-bf4c-c92bd6341390",
+        "6d1b6e90-0619-4e02-8509-6cc2fda79c89",
+        "7f0069d4-d67f-47a9-821b-47e43d3a5129",
+        "96aaaa38-04ce-4476-b392-335bf69774b9",
+        "9b52a231-1b88-4bba-9897-4cafa68fb389",
+        "9efc6865-9705-42ad-b4d7-5e2fb2db8d0b",
+        "aeca68e7-7e30-403f-989d-b5b2d0d43e93",
+        "b4fb5cd0-e1dd-4f59-aa0b-a6275fe14feb",
+        "b6e48e29-b1c9-4f69-beff-16d7deb068c2",
+        "bac3fe01-eef7-4b27-aee9-bed8fd40bc24",
+        "c4f77d4e-6b4c-4cbf-800b-32f29f85b81a",
+        "ca36492e-848a-4267-88db-04e5e484417d",
+        "df5c80c7-ed2c-4653-a446-c516c26073d9",
+        "e199acac-4ef2-4712-8d72-93ce3bcf4ac1",
+        "fc02620b-dda3-41bf-9f4d-b23a0c92aed9"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "d0792da7-4e2a-452a-91e1-adfa897a6ace",
+      "uncertain_assignment_ids": [
+        "012d650d-eac4-4fd0-901e-4988845b6384",
+        "02f56c2d-dcb0-491c-9dd2-cb2123ce825c",
+        "053a7edc-e0df-4d72-9b96-6c8ecb1526fd",
+        "076b4b09-ba16-438f-b8b9-7d55daf1fd7e",
+        "086cbb34-166f-4cbd-9645-0ee6366cc348",
+        "0a254700-5f7c-453e-b1ad-140e31058fde",
+        "0aeb76f1-97f8-473b-9432-9357923f3af9",
+        "0ba5abec-bf13-461f-bf37-3a82265f85cb",
+        "0c67a1d6-a75c-4859-aa57-d45bf43c78a7",
+        "1484a4b0-123c-4734-8b5b-4c242a6b4d1e",
+        "175c9bdd-9af4-4d09-8103-f4267bd0f3de",
+        "186a8981-c50a-4237-9bce-303b5e7aacfb",
+        "18888bbc-8743-43bf-bf3b-db14e2f731af",
+        "193bb6ea-2bd7-4ff7-960b-41155f912fd5",
+        "19720650-1859-4c9b-a96d-219a01548a37",
+        "1af6404d-e6da-4739-9420-bb66d4b35d59",
+        "1b4717f6-f403-4b5c-8df7-e544b791e709",
+        "1c4c66ac-7c7f-477b-8791-78e2b766e3cf",
+        "1d521ad0-553a-4898-a9df-bd0f0a6c76c5",
+        "1e91e8a9-3eee-4d45-9e59-9fc47618d7ae",
+        "200a69a3-f8c6-407a-89e6-fedf40bf810f",
+        "216bc50c-46d2-4fdd-a17e-f22325675d18",
+        "22d5d8aa-dd02-45a1-aa7b-7c0f1f266941",
+        "2367ea97-79ef-4527-84cf-c6175d0ceb43",
+        "25691444-d075-4c42-bf04-b100f887296c",
+        "2815a2f5-5087-484d-854f-280be8826d53",
+        "286666ac-e9bf-4600-8313-3b141d2f81ed",
+        "2ae8141f-fb16-49c7-86c8-66a9ad3d70ef",
+        "2ba5cd5a-4487-49c9-8e6e-4c0aa028c966",
+        "2df97988-98fd-4c52-bd33-d07cc5d4772c",
+        "2f6f10e8-cfdb-4ebc-9066-94f105729738",
+        "30c5baa1-c1a7-4605-957c-4b4776942319",
+        "3206884c-81de-470a-8f6e-4ef7950ded64",
+        "33b53bdc-f52b-4456-85a0-885559213089",
+        "33e6bb7c-3686-4a6b-a7ce-196200475a1c",
+        "344d5f5e-dc1c-421a-807a-25505cd83b44",
+        "34813dbf-3521-44f6-8b34-16c6a395bac3",
+        "35026a7f-3252-4104-acc3-209a268814d1",
+        "3538be3d-2a5f-4630-b61b-5c2200a50dd5",
+        "369e978e-62f1-4c47-8de8-6d7ad9f9d2d7",
+        "375c4503-fc22-4dfb-ae5c-755f3d750cb8",
+        "378ac09f-4439-4df1-9a09-ff7abb320890",
+        "3a367d89-8548-4bf2-80f8-1bb29b63ce14",
+        "3a8f9e20-2320-4845-bcae-728d84a58d19",
+        "3b597936-75d5-47f7-adae-cc77e4fbb52c",
+        "3dfa75c0-3cb6-4809-ae18-28e75f7abbf9",
+        "3e33e323-844c-4ff9-ab2a-2f413086c323",
+        "40296123-befc-415f-b0cd-d6c0e271495d",
+        "42e6733b-0e34-41dd-8927-ada1703d2815",
+        "43ad185a-71d1-4695-b378-7b292dde2adb",
+        "45936e5b-eb63-4dcf-9929-892d7a407c08",
+        "479f3b5b-c994-4dbf-8796-9a985d10c673",
+        "4889471d-1cf2-4752-8616-3d91dd5a47f2",
+        "4945519f-09e5-4e03-9de1-8270d082a220",
+        "49768d63-0476-4845-817e-ce1b50be5679",
+        "497a8ed5-5202-4c2c-a216-b02728448341",
+        "4c3c91d4-b888-4dcb-9766-2a1a4f59bcbd",
+        "4e7f80d2-fa10-42c6-95cb-0a5bfe2d1118",
+        "4e80d43a-2113-44a4-a394-4a95fb8988c8",
+        "4e9b580d-6d15-48e4-b0ca-b8457eabb204",
+        "5020d4b6-496e-453c-8f8c-7d439f351309",
+        "511c1a9d-e7e2-488b-9383-6f950188d18d",
+        "52ae6024-a5c0-42ec-bc37-b6b660cdbd10",
+        "536efeb6-f606-486d-8d23-1ebce899caf8",
+        "53718b61-6019-4924-a5ff-8139eafa115b",
+        "552132f0-27ea-47af-ac34-a53b752c59ad",
+        "56d28135-e6a3-4aeb-b261-94fed512f37d",
+        "57e38096-fe55-43a3-b010-45b6db8f34b4",
+        "58a9a16c-ba7b-4cff-a103-b9e1a3992a5e",
+        "5a540b35-2018-4ebc-a7f4-397e81398c68",
+        "5a7e494b-7abb-4d39-9b48-5d338792f2a6",
+        "5b84a8af-bb75-401f-91bf-3ca2e163e78b",
+        "5cdb89e9-158f-4194-92e2-5efb4e81243c",
+        "5d8b512c-c9e9-4d70-ab06-54af6b5c34b0",
+        "5dfe7a4d-c4f0-4e71-849c-05e337a1dd44",
+        "601934d4-d17c-4c0f-8b68-a41827c0dcb9",
+        "6128f0ec-0b0b-41ea-96b7-b9a99337002f",
+        "6270313b-0622-48ec-b019-de15eff091cb",
+        "6b833df9-d613-44da-a959-3d595d4152db",
+        "6bb290f7-e349-4dca-9c08-48261f570a20",
+        "6c871b96-e189-4ebb-90ee-85cc681d362a",
+        "6d7f9574-0aa5-4189-85cd-856b89af8075",
+        "6fab04d8-9948-4b99-850c-e855a966519f",
+        "787597b2-a902-4742-bda4-68dacec0e215",
+        "78880e76-b61b-4d49-8ffc-00a527894d20",
+        "79b7aff2-6ada-45c5-baae-7674da988b32",
+        "7b0c19c4-c5c1-4c98-b4df-926c3a05fe4c",
+        "7d0da921-f1ac-4702-9300-682a5c3dcc9e",
+        "7e8589db-342b-43d4-8625-f83be63f7081",
+        "813b1e01-00e3-4acb-be70-a7c440a955be",
+        "82773d76-8444-4eee-9a88-2e14617573a8",
+        "83d8cba2-1c5e-4ac1-99e1-cee7fc5f6061",
+        "840ae414-c306-4b05-9e35-55b57fa5ea99",
+        "86d1f1bd-7730-4d8d-9b84-5f37539d8c65",
+        "87476224-c3a1-4cf4-9a63-22cbd641877b",
+        "8984362a-e854-45b2-8f74-6f51e292d7b4",
+        "8ceb87df-6a6b-469b-8fa6-e2c9eee2b439",
+        "8d5472a0-7d21-476d-91b4-dd0f06fa2c71",
+        "8d9804ee-d140-4b50-874c-d92df0a44960",
+        "8da4291e-ac29-48ba-9267-bb99ec3db716",
+        "8dcde7d0-9b6b-45bc-8654-e582136dc574",
+        "8e8c3178-5b14-4bb5-a23a-07e7219df3e5",
+        "91b2e18f-baca-451e-ac58-0dad210709dc",
+        "91c6e16b-5102-485c-9e77-d94f0d34d2fd",
+        "91dfb121-ea09-4fc9-93e3-abb21a75d92b",
+        "9241d2ac-d31d-4edb-84d1-3b7c5875e145",
+        "928d76e2-6768-4b0a-89e8-65b74bbbe260",
+        "934a6ff9-782b-4be3-b6f4-c7824affead0",
+        "93d6a12b-cdab-4ae0-add7-0e4ff53b0b10",
+        "99b9134b-23bd-4da4-ad70-8a0b88983086",
+        "99f083c4-f67c-417e-8e04-73f6677b46bc",
+        "9af65701-0f55-48de-9c51-d822490425d1",
+        "9f292303-d6f0-4222-a14d-20c99b6022ba",
+        "9f6903ce-4cd6-416d-996a-0e5da50739f6",
+        "9fbc34ef-c124-471a-80eb-2a8dfdd94d4f",
+        "a08ded43-6084-48d5-b553-fda6a9c13f45",
+        "a174b319-80f3-419c-8f92-1d66d120f528",
+        "a5259059-7d71-485d-a740-ea33681aeff5",
+        "a55b3df8-8c4b-41ba-858d-67c54fd58589",
+        "a5862534-6ac4-4e98-8e47-cf326202fe38",
+        "a6ca320a-ff1a-40b2-9af6-c7bc9d88cd1f",
+        "a701e8b4-915f-4e44-a67a-c509e54d97c5",
+        "a731db84-150e-4512-829f-fd910a016ea7",
+        "a7621645-5660-44c2-a482-599f99389ac8",
+        "a92ce4a3-7735-4cbd-9c78-245b5a80f478",
+        "a942f367-5e44-47d8-b801-4731cf888ddd",
+        "a956dacd-5f5e-4064-8dc9-29472ad5ae6e",
+        "a9ec7b23-b217-476e-bacb-bba19d5684a9",
+        "ac0950de-68ab-4c37-8b3b-1f1a9d0b2be0",
+        "ac876b8e-5a66-43d3-97a2-9634708570c9",
+        "acccb731-54f4-436a-8fbe-c686bf19ed19",
+        "adc4d9ce-930f-4f0e-8dc3-526730cc0c6b",
+        "b0826224-7089-4dba-8cf7-89323ae49ed5",
+        "b13d944c-bf5c-4b5f-86d1-999ca9065973",
+        "b2aae44a-3004-4ff7-9364-3a378afe2993",
+        "b2b9639c-a9ef-4d8f-90b9-129113b3d1f1",
+        "b39b77d1-e62a-4243-ba13-0e25f9a49ab4",
+        "b68c8917-fb5f-4ce9-9dcb-fa367152e9be",
+        "b6cf2d86-1703-4953-ba26-69a2ad1d4899",
+        "b755f311-4fa2-4883-8807-92bba35e5d7e",
+        "b78f905e-388f-403d-861d-57815d541f64",
+        "b825a303-f7a1-4ed1-9f10-6c6cd1a1f94b",
+        "b90619a2-2eaa-4bb0-a18e-78661fda85cf",
+        "b945467f-40ab-4668-a980-65d190407580",
+        "bdc6da09-00b4-4015-b14b-4e3f20804380",
+        "bf15272d-f851-4878-a1ec-bcd856bcad43",
+        "c027b07a-8b06-4c36-a542-2ba5ad13858e",
+        "c4272247-7905-4c28-91ec-1d0343455dfb",
+        "c62a679c-d7cc-4762-a6eb-7e77896e0176",
+        "c7171423-5847-456a-a9ea-5aa97b0b8ab5",
+        "c73af42d-69f0-4895-b9a7-06e5081d2818",
+        "c7baa75d-7bd5-456d-82ee-aa55d02b0a86",
+        "cb774a84-9dd2-4e01-ab62-3d28138811de",
+        "cc98b718-267a-47f3-b143-acb232bfae76",
+        "cd7d1df3-3470-4e64-af92-facb5f19dc5f",
+        "cdd589ba-5544-43c2-a2d0-bbd745bd8cac",
+        "d135933f-2fe6-4ff2-a0b8-803065887d45",
+        "d5442752-1205-4ae4-b6b1-935479ff1149",
+        "dc235823-b72d-4831-9676-d1d5abcf76d6",
+        "de0353cb-0737-4c07-b9ec-b266d6183e39",
+        "defcb086-9122-4c06-87ed-83ceeea7899d",
+        "e34c1556-d88b-4442-9649-864fe3eb0908",
+        "e3b44f94-bde2-4f73-ab28-97afe6b60f96",
+        "eb57e227-5187-4b1a-915e-d7d227d961ed",
+        "eb7cafe9-88c2-43da-bfc4-0f7051cf628b",
+        "ed75d526-4ed3-4a63-8733-79fc3920f673",
+        "ef384c68-408c-4a45-a234-fb6f44581d30",
+        "f10e7a74-09e0-48ac-839b-0634c795afb2",
+        "f1ba3b88-d052-46ed-8f97-0efc04f64c7a",
+        "f4847873-b981-4816-91ec-cf746147deb9",
+        "f766e779-70dd-4e16-acb6-8acaa4f07f42",
+        "f81f9de2-d911-41e2-948f-419606b71f69",
+        "f953cfdc-a8f7-45b2-88d5-743e9390db6d",
+        "fcffeb9e-e396-4ef4-b805-542d48167603",
+        "fd33dbff-7212-4f3b-9736-772a6db526f0",
+        "fd4178ee-4094-4901-a1a4-4249c9a48dda"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "a4c034a5-0323-469b-8099-506b7e311b02",
+      "uncertain_assignment_ids": [
+        "d268b846-5ce5-4aad-857d-15572046fe96",
+        "4223a0fd-e4ce-4aa8-8105-98ab3fb3c1ad",
+        "a134ed70-ea81-4c84-aeb5-99b4d7332dee",
+        "7d79a71b-f1bc-4e48-87b3-32ee78ac5822",
+        "2fd16d9d-d733-449f-9e11-46cc638ae1a0",
+        "c0f1ba97-e8b0-4bb1-b4e9-b705326013be",
+        "5c0ea55c-71da-4d0e-9e69-1ca4f34ab5b0",
+        "ca161b09-9ac8-42a0-8d17-5deccc915ae3",
+        "31341d7c-c6e6-4b78-8ef9-a2ce44121960",
+        "35a075cd-9179-4b7a-a5c8-6b42445fc914",
+        "8b07f354-80ab-48dc-b95b-fe425cb671c5",
+        "1ac961ea-1d8c-4026-9f28-dd6ace339b20",
+        "8ef5949b-3b48-40f7-8bcb-bb56381e12fb",
+        "bf705baa-7ce4-46ac-bfe5-20f467e8ee10",
+        "cd858a47-801e-4fa3-9618-0d4e3a90589d",
+        "e265a89a-a68a-4683-8f86-a0cb06b55f18",
+        "5c4647e8-54e1-40f3-8386-27310438a798",
+        "46ef88a2-10c0-4fed-bcb7-59e1895c62d1",
+        "0942d4e4-760a-4f39-93dc-08e51545ced0",
+        "d935672b-d6be-4091-91c1-90e12d521cbc",
+        "537c7c72-7a0f-42d8-b478-68c29e1e5e2f",
+        "607246c4-e32f-4393-8c9d-3df989ae6c7c",
+        "681a079c-1ebd-46d4-80e1-7269a6a358a4",
+        "c1a96ce5-3a13-4e18-8ad7-60e1ed7751da",
+        "d1cf9769-55ac-46ae-b034-8cd42a6035f8",
+        "902e2892-63a1-47b2-a71c-193fc188162c",
+        "d80241fe-94a6-4784-8146-4bdc8b5df1df",
+        "603f30b4-725a-40d1-8928-729f75ff9524",
+        "d07a6e4c-f58e-43ff-9279-019eaa397133",
+        "e45ef5bf-dbb0-4517-9b31-54807f4de4ca",
+        "c9dd6858-745b-407c-b26e-f447faf855fb",
+        "5c6e1f67-afb4-4bb3-930c-14dc55f2140f",
+        "2d6c5e69-0055-4e95-90fc-8cf874516421",
+        "170d6706-acf5-4e08-ad76-7d21db58d6ef",
+        "de5377f5-601d-4778-9efe-f46cd68442e7",
+        "9fb67e28-36f6-49ea-8d17-506dc937b54c",
+        "13373ee4-3223-482d-9d16-f10015f60ccf",
+        "c065d820-53ec-4fb4-969d-959eb5f2fc08",
+        "1bdfe431-db8c-479e-a9bc-1bd558790db1",
+        "e4add932-0bdc-4458-8317-f9d5a896dfc5",
+        "a0d5a83e-5f49-480e-9e6b-2ecf5ccde376",
+        "5de46e69-0dc9-475b-8732-1782660d4268",
+        "cda06564-aadc-4141-b0bd-9b2919887447",
+        "1693148e-397f-4cf4-891f-eb6ff7f058be",
+        "ca469b71-ef2c-4fed-89cd-b67fd7a167a2",
+        "4e148202-6eaf-4713-b41f-fd58978a9a7d",
+        "55fac906-6a19-4553-91a9-864a9eb1a7dc",
+        "1cbdce41-efea-40c6-a15e-87edf4bcf818",
+        "377970d2-1c18-4223-93b5-4ee9ec32fb0d",
+        "a23b6416-a673-4c1d-b8d7-b2af2a804b5d",
+        "74d0305c-72b0-4eb3-a2c3-8f8b19a5ee31",
+        "1cc967f9-f00d-4ee9-b768-6d1341929fe4",
+        "ca9528c0-35e7-4d23-8703-077a35d84aac",
+        "1680be0f-fa24-481c-9f8d-bae4f2152096",
+        "2bbaac7d-1d9c-4061-8609-9f55e57bec5b",
+        "8150185b-10e1-49e7-8264-7a9f1e6c41a7",
+        "7ba7f0a0-28d5-4bfb-a6db-a3db6640d539",
+        "a9495b24-6462-4b9b-9637-0a2cd831b508",
+        "16984dd3-3ac9-49b4-bbf2-d0b88165219a",
+        "678235be-83c1-4e7c-a7a2-5eee6a5cd846",
+        "ac16b81c-9277-4742-bd5b-eb1a759ab568",
+        "b3b7605f-a0b1-48c6-b011-8c3fa18992b6",
+        "ef599b62-0d98-4559-b003-192dccb610d7",
+        "bbb118e5-e551-48ee-8313-d381a5128384",
+        "59156125-8fbd-4674-bc68-2f15ef5d73bf",
+        "376669b8-fafc-43dc-855b-748c7f9ecf02",
+        "df3d377b-2bf2-47e8-a52d-adac078aae45",
+        "b98d6e6e-94cb-480c-9fd8-f9cca3bbc5cc",
+        "2895d58d-1aa0-48e5-a046-b264bd83c54b",
+        "3cb6fc19-cb84-4fb2-9b4e-2188e549df2b",
+        "fc912437-9424-4cd2-a568-79619028ebb8",
+        "8e208857-e268-4e42-b181-4dcd292e28d7",
+        "ff36aa3c-f0d1-4bb6-a233-bf06001e588c",
+        "a8566f86-21a2-4576-a706-71e46f6963d5",
+        "c2fe1cd0-2b37-486c-b425-e93fb56f6094",
+        "cf69f22e-3e28-44dd-8281-5fef01db29bf",
+        "583027c9-c62e-471f-b40c-27a1514332ba",
+        "5db7101b-a3ec-4f75-bf4d-9a972eae9fb9",
+        "753c2b27-d7d9-4021-9e60-029ea535df65",
+        "170abcbf-335b-4035-8813-739355d27ab3",
+        "e577234b-0ed9-41be-8cce-03c9737ad163",
+        "da53dea0-3ce7-4e9c-a096-6318105110a8",
+        "613ac0c7-8fa6-47c9-9e84-d33ebe74551f",
+        "0f2e3a25-cd68-4038-889b-a7a280e9c7a3",
+        "389b91dc-89bd-4e5e-b89b-f0fa4d1463dc",
+        "1b94ad6d-11a5-44b9-bdaa-175e8671d31c",
+        "484a3c27-f4ec-4df1-81bf-0912640c03cc",
+        "b27390c8-7a52-43af-b3bf-a56c01cd4300",
+        "04d097a8-dbca-46f1-b369-05ba9d612f18",
+        "cafd49e5-9044-4e5c-aba6-dc5bce0d8bcc",
+        "8f6d01ea-2ea3-4640-9052-4dbecfc12742",
+        "614168a2-858b-4615-bf8e-b415ffbb302c",
+        "c8f82b8f-16a7-47f8-b56b-13c285ff096b",
+        "db786c8a-3c92-42e6-80ca-7561df296e28",
+        "c88bdd4c-e44d-4797-8816-824e54013300",
+        "aa0fb861-9097-444b-b3a5-8bd8db4b4928",
+        "a63a8e65-7547-4822-887f-5bf038c78bb6",
+        "52a610ea-94e0-41b1-99a7-d44eebb99b6c",
+        "a4ae05d8-0ddf-4479-b4dc-4a08d1391ade",
+        "ef5e4775-5456-4e73-8cca-e4e20d4020f4",
+        "4be87097-406d-4548-b3aa-75910fb806e6",
+        "4a1c467d-7205-4211-98b2-eab01e966f90",
+        "8336c27c-7320-4ddb-aeda-e8bb3e5f2cf1",
+        "c1308bfb-06eb-42f7-a5fd-714e2809bcea",
+        "53ed7f88-3311-44d2-a18e-882c854dd0ff",
+        "f81ecfc6-0625-4206-9676-c4f58ef5440a",
+        "5d748697-a7fb-498e-8327-3ea05fd8ee48",
+        "1ed3819f-5541-4dc0-b3ca-2498c1afd2ec",
+        "de56145c-ed32-4dd7-abda-480082eefa6e",
+        "23edae62-9c8a-4f89-9d80-baf55b61be69",
+        "0f04003c-05c9-481f-a749-b3beaeb6fabd",
+        "a81bc915-e4ec-47a7-ba6d-a45f3bbd95ff",
+        "1453862c-ce4f-40ac-9937-b6c4bcc49f75",
+        "8fe61c70-ffdf-4f86-b6fc-f922544d590f",
+        "70c770eb-0eb5-4101-8834-c6a73b4e67f9",
+        "8bc6ea0f-6159-40a8-8145-7766720c6e21",
+        "69a29437-3ca2-43cf-8b1e-325a303a7788",
+        "1513513a-5388-453c-8b7a-fdd622134f3d",
+        "fd42f248-ee07-47bf-bb68-c388583743d6",
+        "9fd729bb-0568-475e-aee8-a4a5ea1114a1",
+        "010249e3-7550-42d6-9b20-971509424fdb",
+        "a1e31289-66c4-4ac1-91e2-621333588b5a",
+        "7e51e2c0-7438-4f9a-b2df-00503d6a700f",
+        "04d2f8e4-b98a-43bb-aead-4bd97e3b3d15",
+        "3314555e-7dd2-43ea-9c04-b233b0e87ac4",
+        "a0552ef5-344d-4e1e-b790-0ab5ba5d2a8f",
+        "76121509-8255-4a75-9e92-34aa82d06ed9",
+        "a4f11a67-4525-43b5-87b5-096bd02ed06b",
+        "ccc55aee-13e2-44f4-89a2-fd117aae2425",
+        "bc763cf2-b130-4975-9ac4-405cf84b573b",
+        "f46f14b5-50b7-4305-b746-2266f297e11e",
+        "4a7c851a-a6d1-4a88-a67f-7dcaba753d58",
+        "e0ad1618-53b8-401f-8ac8-7906f6e7719a",
+        "92db0682-dd3f-42ce-a0eb-d652b24ed8d6",
+        "16374fe9-d28a-447b-8023-a87a4060d537",
+        "3d60e6ff-b17b-4b39-ab39-1f8d71d9a46a",
+        "d1a8ef02-2393-45b1-b86e-6d32e4369992",
+        "a2460ff4-3e80-459b-934e-d7a34f538015",
+        "99fcbfa5-822e-45a2-adb6-c96d5d264f0c",
+        "60efe8ea-6b51-4f15-83de-aa714d4d9fdb",
+        "5639ff73-860f-4682-8c46-0a6dab6edcbe",
+        "11d52ecc-e2b2-468c-b769-30182e7ad88c",
+        "464a6756-1782-4d6e-af22-2afca0c6375f",
+        "5d62c977-2857-4a59-b418-09ec7838aa40",
+        "bbdb9f38-5949-4285-bfa7-83fcd95fe2c2",
+        "d0b88130-ba97-4cdb-b18b-6573e4f8dfad",
+        "c925e571-60b2-404c-8b66-9f0f93866ba0",
+        "416b7b78-ff83-45e6-b08d-2a980a777e36",
+        "6cd1ae2d-919f-4b42-b064-d4d1ab3f1ac0",
+        "5eee5255-8373-4aaa-90b2-f7fc16b6a5bb",
+        "3462b4a6-19d0-4a15-83c9-5dc47076590a",
+        "0a52c336-2025-4765-ba70-5a0a3a7f6f22",
+        "b58b0728-b8d2-4781-a742-fb7660572057",
+        "e5fa4df0-bd34-4757-83fe-1508b51fd3fd",
+        "f413d9a1-6df5-4735-a3ed-e84534dacbeb",
+        "5cb7e1ab-f36b-41ea-875e-5089ef1b80bd",
+        "83f9f18b-f676-4198-90ee-124210cbc0bb",
+        "858fb49b-20d9-44f4-be7b-35b17df48e52",
+        "1ddb1eab-c759-41a8-99f6-8db5679b68e9",
+        "45a3fc8e-0c8e-450c-a0a9-fb46f65f8dc2",
+        "ab4a147a-6d14-46dc-abe7-434db43dda24",
+        "d772658a-c256-4fea-94da-3afdc294df37",
+        "3279499a-97b6-4aa8-95aa-2b02fa806364",
+        "55e451d6-3e27-4f50-8880-fb49bad5bd08",
+        "4d2aa274-eefa-49fd-bf94-cfa33c3ff3a5",
+        "b0b7f67c-6fde-498a-9f4e-64403661d2ca",
+        "653bcbd8-0359-4a0f-a9bc-47c2e251a573",
+        "ed55bb0f-412f-46b7-beba-43a392615cb4",
+        "c00ac5f5-48e4-4fc6-9914-8c1a8c33d5f7",
+        "220adf20-4777-46b8-bea1-c22ddc0a9712",
+        "cdd9d71e-eb4c-420b-a431-e339eac1dd19",
+        "fc6d05e9-64e2-40b7-8634-78c94b69b2c5",
+        "009c15c3-53c2-4128-b2be-c9626f1d675b",
+        "cdc55978-12e6-49bd-9ad9-e0e7c824b330",
+        "ed8382df-83c2-459e-a519-199929e8c060",
+        "229453bf-f42b-4757-8f19-176af24f2e5a",
+        "1f530a9f-fd86-42f2-a6b5-96c6babc6e64",
+        "07d136eb-a75b-4b79-96b3-007c9c276a05",
+        "2871ac37-ab95-4116-a231-7c96c235b446",
+        "673d179b-b189-485f-a1bd-587ea546cc86",
+        "d6005ff8-a656-4ef8-bfa2-3ba8fa090fc2",
+        "7faca24a-438d-4596-bbac-25a6bf8b47ed",
+        "e40b654e-9c9f-45c9-92d4-2815314ac98c",
+        "7cb2b58c-9cf3-4e57-bd50-06095aa32d9f",
+        "ec81d8f7-e7bb-4cad-8906-16bda886b4fc",
+        "34276f9e-e253-4731-90a1-0773a14f752b",
+        "ad7598e9-47e5-469f-b1f1-b86661940c57",
+        "7bc160a8-0a4c-4fe4-99b7-5ff1d473bac8",
+        "a2859773-6e1a-45f3-b9af-53c6dc251944",
+        "d21c4aa5-4d86-4910-94c5-69233fb4dcf4",
+        "31a85f23-7d32-4477-b09a-12590d0ff880",
+        "6f8e62a8-a824-4d37-adb9-69a8812dd1d9",
+        "a57d99d7-b869-4353-9d43-17ab0ded8005",
+        "2021521a-fe2b-4f00-900e-61c48f784034",
+        "ccb2ca0a-261f-404a-af02-0d6ca095c8d4"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "a4d6dd66-5b30-44e4-9031-b45f194740b7",
+      "uncertain_assignment_ids": [
+        "0b66528d-9c12-458d-897f-4b63951c7022",
+        "17c375b2-3f28-4f3c-b2e3-00513b0b8b56",
+        "32fe0051-6908-4868-9003-63503d012fcf",
+        "3b02582b-d7f9-4b99-9e86-b506e3a39adc",
+        "437b91fc-5dc4-44f8-b413-001fd1983a48",
+        "4893aa19-86ea-4f79-9250-103408b49651",
+        "57221f11-6e21-4b64-a3f9-4f9c0994e7a2",
+        "79e5da36-ab7c-4d0c-8d2b-4f267df8ece8",
+        "7c0c3258-63eb-42b9-bd7d-7914616eadd1",
+        "7eb90eaa-b01b-4fc3-9759-afaa7535598f",
+        "8100a863-be7e-438e-b00e-01ff5c7c60b4",
+        "c7465721-d805-4437-a082-5da94ff426ee",
+        "cdcfd23b-e338-4399-a6c1-c247f4fc7b1d",
+        "e20c0ad2-5f74-4ae0-ad35-a6d6a31a2b2c",
+        "e22bbc13-b065-4262-afcd-35f6bd4bee97",
+        "eaabaa81-fa4c-4ef5-bd00-d1dba6ee4f9f"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "0a91f6c9-1787-4455-82b2-30d223f3aca5",
+      "uncertain_assignment_ids": [
+        "664bd11d-3b3b-415e-af1a-68c7489d9b76"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "8a0ff343-2141-4cc9-b657-0b5b83b6410e",
+      "uncertain_assignment_ids": [
+        "01610c49-b70c-4fbf-b2f3-cb98d48eaf0e",
+        "304cffae-c434-4a2d-a646-9df7d8e3f0c4",
+        "3a6dcac4-d02e-484e-a6b4-675917a189d0",
+        "6bbfd85c-39f4-4760-af72-911860e7e2ab",
+        "6e7252fb-860b-44b9-baab-46a858dd977d",
+        "713707ba-cb98-40f6-bb3f-278806d1eebe",
+        "72309a6d-57cd-494b-b100-c4828b73ecd7",
+        "7fde1be7-8c16-40ae-9c9e-f943726274f4",
+        "9f3693b5-831d-448f-b1f9-cfae92cf790c",
+        "aaa359cb-bdb2-4812-9fc3-6af57a8f8a6e",
+        "ab1b1557-19e1-40c9-8d2e-9d89dbebc833",
+        "b43f7e6b-ab61-4fec-b1b1-e095948023fd",
+        "c174275a-a46d-4bbb-ae7a-0cff27d070f1",
+        "ddbdbc29-753e-410b-937d-73452afba643",
+        "dfb2c54d-79a7-4b3c-b5ad-df3e9ed3f530"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "7d8010f5-c34a-4638-98f1-26124e45a7ba",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "6d4ce077-3a31-4a02-a11e-4074dd3b369d",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "f7a345f3-7be0-4498-9a01-bb642760ff9c",
+      "uncertain_assignment_ids": [
+        "51241d28-91a6-4fc2-93da-bb37c4cb7e10",
+        "87855128-7c09-4b95-84e1-62b1fcee2366",
+        "0ebbd5b8-70fa-480f-8d34-33624c7fa095",
+        "bb839ec1-0965-4d68-b964-1b9a6dfceaa6",
+        "5c4609ba-b8b3-4ce6-a0a5-66d1784bc68b",
+        "e2c19e4b-846f-44f2-ad9d-a5650bde1fea",
+        "599cfeb7-7117-42a8-88fb-49c9d042ce79",
+        "03ad1e71-eaf7-4aad-ba13-d4095fa95315",
+        "64dc0dca-e975-4fd1-b8d1-3b4778809b5e",
+        "6a9fcfd6-cd82-4c24-8c85-cfaa7ff817d6",
+        "fd16c878-a05c-4871-bec0-1af4a0a71777",
+        "256895ac-6b97-4a0d-a488-64ee1879cafd",
+        "0a604bc0-8482-4e29-ace4-fac9927ce8b0",
+        "bf24180e-f73b-4d22-98ff-3f81061e5f20",
+        "1a2ef29a-e374-4edc-a279-25227c2fc33b",
+        "b4b02cfd-8a4a-43e6-9e63-f1774cb15726",
+        "b3c4d895-7d63-46c0-97f3-2093dde1ff92",
+        "31dc1ccd-62b7-4bb5-a5ee-b73c28ab4b11",
+        "6b1b677a-178d-4b7f-b727-109eb203c357",
+        "6ba93fef-a70e-4f40-8f1b-8e62590710ef",
+        "87ccae9f-9330-4857-ae54-8d818b099e17",
+        "bc8c00fb-a65f-47ed-a3b2-573e5ff2bd6e",
+        "16b37d56-249f-4f24-8a74-52f20c9a43b6",
+        "8b29addb-cadd-481f-bd84-82b839993e03",
+        "88365703-cce2-44fa-b82b-c2f5c93ba428",
+        "6fe355f8-5ca7-4b62-a4c1-5699e54e2f3c",
+        "6ba786dd-5f20-4011-89e5-3ab8ab27560e",
+        "f5d0cba9-2ea8-4111-9c30-4307a99e1f67",
+        "d0cfed9c-3ec5-4378-a125-f2a835a2f027",
+        "2554b287-ba00-409d-a7d5-3cd619353f1e",
+        "1abd456a-05a8-4726-9965-9d8bf84183b8",
+        "236e220a-91de-4688-87b9-7c12cc7360f3",
+        "7c3106d2-7286-4a9a-8058-2ca2e200555b",
+        "ec5c76a9-438d-43fe-b3e9-93fcb91d2828",
+        "b04372b3-2a48-4f7d-a2a0-4812af99365e",
+        "d1fce202-fb0a-4b80-83f4-e92bb0c0212e",
+        "df96c79b-2888-4247-9107-81e7e82bb3f1",
+        "8188f6c8-0547-45c0-95ac-da234c7c8963",
+        "382577bd-12ae-4be6-87fd-ae003b431fe3",
+        "cbacfe6a-65c6-41f3-868b-36002193b6bc",
+        "db2a5a06-bda9-4865-99fc-d61104b182f3",
+        "ec90d020-1973-49d8-a278-dc64b34a17f2",
+        "6cf1a5a9-2190-4fd6-bca7-adde05cd84ce",
+        "39d4b33a-9688-42ad-b4c8-45a458065c88",
+        "1e20d166-4ecc-4e02-b9d8-22b8d1f24236",
+        "88c17598-46f9-44fb-b26f-d948302929b6",
+        "749c0fc7-1163-4b2a-aadb-19b120abfc51",
+        "ee2724e9-082a-467f-a295-5df304bab4f6",
+        "92e4a71c-961d-4407-a348-97034ffaa21c",
+        "6b2368b2-34ff-4c8b-8c43-8fe6e978e0e8",
+        "628462b2-4ac8-4f8b-85cf-33d76786e341",
+        "3faf348a-e105-4c46-aae2-1e63d3c0e3a8",
+        "d5d14628-66c7-4047-8015-38091347a0b9",
+        "78e61413-2410-446a-b6d1-c30d6d3c754d",
+        "69f79273-8b7d-4fde-a9c0-82cb8d3ef885",
+        "371a7b07-06fd-4ba3-b752-e9668a55c80c",
+        "6eec5499-43dd-4757-957f-aa2dae46ad17",
+        "5f58d27a-26f7-4fa6-abe3-4ac86bc62203",
+        "3aea8007-8226-46fc-959f-d13fa7e712d7",
+        "94dc5786-f174-4923-a767-dcd5c7adcae7",
+        "250b73a7-2220-41db-bf4a-515abb5efebf",
+        "4c5b7888-5f05-4584-8c45-e5364f7ad4b2",
+        "fe6760fc-0a9b-469f-9aad-1dbe736b457a",
+        "74749980-3877-4816-902a-dae0a3f97b39",
+        "57a82bcc-d4f8-443f-a182-4101d2044941",
+        "4c13edb4-d81d-40ae-8b58-80580a4b6423",
+        "074c8e11-73dc-434b-a4a7-4d72a6e37b42",
+        "1b294f15-fcae-4207-9fc8-05650cdb0759",
+        "3674b114-29ba-43cd-b7dc-f33c04e7853d",
+        "7af953ae-e836-423c-a755-e602c55e9ab4",
+        "c61363ae-0f20-47cb-974e-1aca1f02a58f",
+        "5f1eb8b1-0211-455e-9319-4b612c76b47d",
+        "bd4b304f-cfb3-4a87-aaf5-3d1590846341",
+        "dc0abbfa-199b-46ea-af2c-70185963b1f3",
+        "e5c5d631-06bc-4daa-b38e-50226441db21",
+        "730d9a25-d6d6-4f1c-b284-b80cd6f4595e",
+        "e2701d21-16bf-4550-85f6-979b8cc43f72",
+        "0ea9e2d5-0664-424a-b506-d8ea7fb4b696",
+        "72efa76a-9883-4e7b-9207-3bcc4689cee4",
+        "58f105f0-efa4-4824-902e-7d933a79423e",
+        "bcf5afab-81bd-44bb-87de-dd5d78d643c5",
+        "bf92b1bf-672a-4079-86ac-a4c192946e82",
+        "65c4b8be-80f7-4bb0-b25f-601889a3ba9a",
+        "5fe4cb37-a272-450b-9404-ebea8cddc542",
+        "3e75ccfd-a721-4731-a6cd-4b830eda37bc",
+        "72d13294-1f1b-47f7-88c7-aab554a453aa",
+        "8d65a311-6410-466a-a67a-bda06ef9df88",
+        "221617bf-7594-42bd-8944-d4ebc42614bd",
+        "750e4f3a-bc5f-4248-971f-be8bb0f7fdbd",
+        "079ba016-3fc9-49c5-a7fe-7e3b68445f45",
+        "1a035bd4-7cef-40c5-a4be-5e667847726b",
+        "4084d544-e983-4277-9092-400280426f57",
+        "5c728a0a-589d-41ae-9223-8be173be9027",
+        "a669b6e5-22d9-48f2-9759-5ea5edf18f51",
+        "531dd4b2-a14a-474a-9312-937161929829",
+        "f00c8c82-5699-4580-9ade-7d4871af5be1",
+        "4922a859-4efa-4746-9bec-019824a68f1a",
+        "70d01c32-8550-4939-a7d8-ca1e11b00b21",
+        "d32b1272-71d7-4b94-aaa9-dc6e85e1858b",
+        "7a3c86fd-1c53-4739-8655-e70ba6b54ad2",
+        "5db63da9-1c8e-4262-a99d-a37d7fb6073f",
+        "48b0632d-9054-4feb-a52d-bba1d2fb28c7",
+        "6b3d3bf4-dcf1-42d6-ac20-de165cb53475",
+        "130723b2-1e2e-4870-81c4-eda8fd3191c4",
+        "d750e684-d8c5-4645-bdc2-e74d5fc51d11",
+        "c3448929-8882-4253-af5f-0e54f90065e9",
+        "9541f4f0-9dc8-40af-a648-455539d7af5e",
+        "6c0befa4-d116-4d27-a06d-78282262bad3",
+        "d45086fd-7972-46ab-9ad6-2b17b3f8803d",
+        "96e9dd75-3e83-40d6-9a0d-d89a823b62b0",
+        "a4148550-b4df-4cb1-bab0-c091624a1aa0",
+        "881ff1b9-b30a-41ee-988a-236c07225a8d",
+        "e4acaa64-a621-43a3-8569-4a24fc7069e2",
+        "b4579bf9-e1cf-4232-bbfd-d137ed66a6a8",
+        "f41fc2d6-e713-4f3f-b7e8-243c3c03c4a1",
+        "26bb0da1-931b-4853-a7ba-20d53ae3fd13",
+        "350ccab5-a5f4-497f-87a0-0853a42b4e45",
+        "25301e96-f41c-456b-87ef-876cc308ac3a",
+        "1ed885e6-73f6-46ce-81d9-fdcf8eb7a04e",
+        "cc2c8147-d481-4f58-bb35-c3bc48a46682",
+        "d7444529-f2b0-4923-8d0d-ecea5517f799",
+        "2270838c-3d16-430b-aa4d-a64f3c0add44",
+        "bd37b35e-d4e2-4caa-959b-24b1c0667a41"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "a9bd84cc-4b6f-4b0b-8f1a-f2404466ec58",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "8edf67f7-8338-45b4-a28a-e43546e4d293",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "d4926bf3-293a-4e2d-8811-e37a1d1ea814",
+      "uncertain_assignment_ids": [
+        "9a3f8f95-8a5f-4dd9-b64e-dbaf351bdd79",
+        "bfa8c434-8795-409b-8b75-dfe8c4378bd8"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "b93cb573-68db-412d-9082-7bc4dd201cc4",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "325bdd9e-5b2e-41ed-86d1-9593cc0e2d0b",
+      "uncertain_assignment_ids": [
+        "0187ddb6-4e65-46de-979b-110de24a433c",
+        "01f86cc6-b6fb-4580-a4de-7205988b080f",
+        "023d0b24-e334-4856-ae1d-dde212f0b45f",
+        "03023b8b-9be9-43ee-9b72-1513cdf97355",
+        "0525accf-3eb6-43b5-a075-acdd61e7ffde",
+        "05c642e1-f7b5-4324-9aa8-51bd81b646d1",
+        "05de70bd-20b3-48be-a216-943bc127c3c4",
+        "060166b5-fc9c-47b9-9167-f9cccd6eb6c9",
+        "06b7a6e9-7526-486b-bb08-04b4049ea333",
+        "07b4f5aa-c9d5-424b-89b5-c984d3aaf31f",
+        "0a398b18-e726-465d-9889-7a4761866c8b",
+        "0abd86fd-72d0-446b-a761-387a3882210d",
+        "0ad740ff-7b65-49b7-9a7b-4707dc4eb200",
+        "0b882816-31b4-42ac-8bba-71a6718a8374",
+        "0b9100fa-58ef-4467-8ff8-f5933f3f9937",
+        "0d5d0012-aa00-435a-8dfd-8a7a3aae6e89",
+        "0e3ac4c1-a379-48bb-9c68-842b4ff46d8a",
+        "10584ba3-bdad-443b-bb37-af4c827faaea",
+        "1445558b-3401-4251-a00f-6f8cb1603786",
+        "14febdd2-0c8f-49b2-8637-c8f27657f893",
+        "1a915021-23d0-47a8-8b76-6882c89a0dd3",
+        "1b463090-d656-47a1-84f1-ab4a2cf3d784",
+        "1bed0717-a39b-4e0b-bd4f-4a619c17a3df",
+        "1ce1843a-e418-4d8d-bef7-ea82ef675603",
+        "1de94dfc-7b33-445f-bc55-3328ba33e085",
+        "1e9d3ce4-3176-43c2-be46-beec5e456e9a",
+        "1f53808e-cb59-46cb-8cf4-c58ad4ad5d73",
+        "22f9c09c-d0fa-4a9e-9e0f-d4ad851205eb",
+        "234f5578-31a2-4cb4-a7c0-6e25b1a9e5e6",
+        "23935114-40ef-423b-9ee3-bf56edaf50ee",
+        "2394e4f8-aff2-4240-aedf-fcca4690f23d",
+        "257366f8-1d74-477c-8743-eb434a746a61",
+        "25aa399c-07aa-4da7-ad7b-45d55bfeb786",
+        "2650ee8d-3a13-47b5-af09-defb77a65f55",
+        "30d70410-03bf-40e8-a550-039294df1e46",
+        "318039d4-3419-42fc-adc4-2a2a8349c926",
+        "318931a9-62c4-4db2-93e0-142dea59b8e8",
+        "3201999d-2969-4f95-a40c-422b04905a63",
+        "33702118-0a73-44e3-85b0-8e8de579fe53",
+        "33dfbc16-7fe8-4a92-8c81-88b463b4c4e9",
+        "34654cc4-0044-443d-9579-77d7de25e72f",
+        "36a9b3e0-b6cc-4cb0-a96e-c0501ac828e9",
+        "37653239-46c9-47f7-8042-01320ef88c80",
+        "392c3fed-698b-4fd5-81e2-d75c4746d3db",
+        "3a74f7ce-c383-4ee1-9244-51cb59c3af5c",
+        "3a82020d-e755-4f92-8b4b-6ac1a7e96d5e",
+        "3caef7b0-67d3-42d6-ab3e-9fda14d77cc6",
+        "3cf61f13-2ba9-4eaf-bd24-d2ba2eca5247",
+        "3e1a04cb-5b5b-4dd4-b1e6-e5a0fe59397b",
+        "3fbd1e3e-079e-4d81-967a-64726ef306b1",
+        "40538f2f-c7eb-40f3-acaf-4e911ebd51bb",
+        "4140cd5f-7798-49ec-893a-a4da8713904f",
+        "41a392b1-05ca-44a3-8756-22934b65fba1",
+        "41fb5023-2fb5-4fd5-ad7b-123499c13df4",
+        "43a8f882-ddb3-4d7b-9c50-367077898643",
+        "449d80a9-3331-47dd-b89d-e446dca6aa94",
+        "44ab89d5-e079-4d84-b3f7-0933ac796912",
+        "481610b8-929d-4003-af9d-e2ea427f4c5a",
+        "48c4a232-6301-406c-b8ef-f1b18a2d2cb5",
+        "49918aa3-4761-4e84-a908-0082c9d1f6c6",
+        "49d6d006-7302-4574-9504-03a24575d10a",
+        "4a09d70e-3a95-4bcc-8bf7-4a6a4a9d64bb",
+        "4a86c0fa-d789-4d7b-8c19-a524f9ca0b2c",
+        "4aa4ae5e-65bf-4a72-8e23-90c14db72e14",
+        "4b0f321b-afbc-4796-8d2c-b40751baa204",
+        "4cc60e64-0fe0-4606-bb85-bda7c1ceca4c",
+        "4db5b880-704e-4661-8b28-209a27005ecc",
+        "4e3df6a6-1482-49fe-8a0a-3c0a2e554956",
+        "4e863cd3-f246-4288-9473-31814f6cc611",
+        "4f1dad02-9518-4a58-b92b-e96f111fdcfb",
+        "4fa6f495-8dc7-4a8d-be42-a7ea67c30127",
+        "50d225f2-3c47-46c0-8b0b-79f914d04362",
+        "51fc4ab2-a3f9-4635-85d7-b2eb65e7d30a",
+        "52723f99-2977-4833-ab54-0f162827a8b0",
+        "529c4da0-b578-47df-9310-ebe1e46f7d95",
+        "52da3a83-c1d5-4850-b0db-1d86750f71d5",
+        "54648e85-894b-45de-8101-dcfdc765dd62",
+        "54d76985-0ba0-4b11-abcd-ccda839de8b4",
+        "562a4486-7a38-43e4-9ea4-19b4afcc9571",
+        "581035bd-06fe-4a18-9c53-c1aa44f1fe5f",
+        "58219526-e768-4afa-ad68-ef31fd07da4b",
+        "58eff590-b2f8-48fd-b6c3-776ca23fec75",
+        "594eb62d-b2a4-4a6d-a650-bbf36517b575",
+        "5a9df4f7-42e6-42e5-b631-298f5f5b5c8a",
+        "5bc3757c-7553-4e37-a092-e25b6cf9981e",
+        "5c050338-3914-4095-808a-8819058c213a",
+        "5f217948-b262-4631-9a83-858c0c4b04cd",
+        "60f7f83f-56cc-46c1-9377-cd4c53070296",
+        "61f00768-573a-4b2c-9cb6-a2d5ac33a36e",
+        "6204cb54-4feb-47fc-8227-b5a78fead572",
+        "62aec1f1-7e41-4afc-b4c2-8a7d10433b98",
+        "62c7c49e-c2ad-4d2d-b8e5-4371114dde24",
+        "63e0c30d-3509-47aa-b605-3b0263d60262",
+        "680b1551-7783-4d65-acf2-b2a4e73406f9",
+        "6aba09d6-12b2-43d1-966b-ccc05ef3f3b8",
+        "6ada41c0-75e5-460a-8cbb-bcba2cf0e45a",
+        "6b165248-08ae-47be-90a0-7ed1851851da",
+        "6bf4a80e-3efd-4939-9676-0ccb54e4efa3",
+        "6d206458-1fdc-43f1-9cfc-1f868e3b591d",
+        "6e858916-2ef1-4f97-adbb-c5eabf45847a",
+        "710f1469-8ac8-405a-aedd-98d5bd5093fc",
+        "7122d849-595a-464b-9e27-aafe537f255f",
+        "7123effb-a2f6-42f7-8bb6-df8a8478c04d",
+        "71c9be98-7574-4075-b076-35c90d9312a5",
+        "72a8fda5-8ebd-4d1c-9de1-b10ae27803b5",
+        "73481fa5-3a7f-4ba3-95c6-d09469a4b3c7",
+        "73afbb31-2e1a-4aea-9bba-9a036dbd5710",
+        "74566047-eadb-42ab-9863-13907d420d4e",
+        "74987939-fee4-49bf-b38a-7142f258627a",
+        "76bb572d-758f-497a-9f56-f9ef3d2f5b42",
+        "79c40f8f-9b9e-42d9-9c7f-58e86abad906",
+        "7acc3f63-d530-4188-b63b-40c825b36a57",
+        "7c7425c9-4a68-40f0-8e3d-20a05b5f7c65",
+        "7e057626-081b-4e3a-b1f6-ffd469aa7cbc",
+        "7e230f48-cd21-4c59-954e-99425c2012c2",
+        "7e6242f9-9b4f-4417-80e6-31e2f3ed7975",
+        "800182f1-59a7-405e-ac7f-c649135714e4",
+        "808d09f6-ffea-4149-9a6d-10eefa48e6a1",
+        "8395b2f4-2612-4490-8813-4de36c4c53cb",
+        "88639a8f-508c-4052-9a2c-cf3039659c3c",
+        "889ebde7-19a8-4e88-9ea4-26a9a7175802",
+        "89ea601a-7dc9-4e35-bfed-026551719fbf",
+        "8abd6d56-214c-4690-abf4-d77386ab1512",
+        "8adc922b-36fe-4520-a66e-10ce6186fab0",
+        "8e32e0a5-4ea1-4c86-bd6a-ae35dc1ebd24",
+        "8e86c6d7-1184-4459-8175-5c1347359750",
+        "96faf4ed-93ff-4e37-886b-cf6e883af8db",
+        "97b67431-9526-4d29-b55e-34878df7bab8",
+        "9875737c-7c76-45e0-822d-2b6e5dbccd86",
+        "9ad0de0b-d575-4c85-9e17-a4e99c832993",
+        "9be2b5c8-c50b-466d-8921-15053f677446",
+        "9e579f15-3ed2-492a-b03e-24e4a41e53f0",
+        "a02efeeb-c43b-4062-9f8e-15b54e0025cc",
+        "a1d6c3e5-f330-4fd3-8df7-e8fad9d11ec6",
+        "a51e25cc-0348-46ed-b67e-f363db7049e3",
+        "a5e253b5-5e36-4445-aa13-fb2535b4be3d",
+        "a6bf4088-beb9-4024-ae8c-193535956531",
+        "a786694f-a79b-4dca-a8b7-a63e48c002ee",
+        "a813fa50-76d8-43ec-8267-4f4c7db344c6",
+        "a84cc619-19be-497b-8daa-529a8602a91b",
+        "aa2749a3-1284-4fc6-b7f3-d40316aad624",
+        "aaae4d48-bf70-4426-93b9-dcdec0e20735",
+        "abd77651-6758-46b4-a0b4-1470b5acdef8",
+        "ad58fadd-2808-4a71-b9e2-6f830576ad9f",
+        "ad95090f-faeb-4728-b331-b44531e7d21b",
+        "b0b1f845-dc86-4fb4-bb1e-8bbbb9f38e34",
+        "b29f15e7-52be-4f0f-94eb-e0d0211f841e",
+        "b3daebda-0378-4e3d-90b3-f2f15bb10f94",
+        "b77de1c0-c1c3-4cd8-8e09-76b7d424f55b",
+        "b77e96b5-6278-48eb-ab1b-8d37d1635440",
+        "b7f9092d-01f1-496b-acba-9caa2742b0f7",
+        "b84049e6-5753-47da-b47f-dc51a420820d",
+        "b96513dc-d6e7-435f-ac85-736638b2ed0c",
+        "ba39fa81-df05-43cc-a2ae-b0465a25ce87",
+        "bca9019c-349a-40c8-854a-071df644eaad",
+        "bf4b133d-91a1-412f-8be0-44bceda74121",
+        "c1e60e2f-69cf-428a-aefb-8fbfb25faf4c",
+        "c359a1db-1807-483f-8540-3ef112bf35ce",
+        "c5c8ddd2-06db-42c1-8c9e-0e7a1d796f40",
+        "c694a7d6-4d54-43ce-8101-ef2f7f742683",
+        "c7d27a67-4f72-467b-8020-78d93746c77e",
+        "c99c11e3-289e-40da-b428-d1d7631b9c1f",
+        "cab6f44d-3236-45db-978e-44b9b5d86b6e",
+        "ce78fcd1-1244-4fd9-b8b7-ed7bac6e279c",
+        "cf0f4dc1-4e76-421d-a95c-2249765d43f4",
+        "cfccfdbd-62b7-4136-a1fe-734d473d355b",
+        "d0c10833-719a-4292-9b07-cf1411cf10de",
+        "d1022936-8397-404e-b378-6c04f70ab5fb",
+        "d153661f-a4b9-4619-9773-b8d22c207a39",
+        "d1ceee5d-7d50-439f-a177-cf0af0ff2763",
+        "d1f40549-368c-45a0-8c2a-b672d50c541e",
+        "d2053395-5a4d-4fb9-8d9f-a20af0f9481d",
+        "d258aa28-a755-4ee4-ba36-47fd1f10f023",
+        "d319206d-be47-4bc3-9ffd-53e1d38b8102",
+        "d6bed626-77bd-4923-a8ed-fa168c183f17",
+        "d8efa2f0-9558-4df6-81fc-491c4b0bcf68",
+        "d9277836-3e02-436b-aa19-9293e316b782",
+        "d9e942bd-2497-456c-9edb-81180f1cb5f0",
+        "da03e083-c1f8-4ca8-bc40-c8aacf07c2a8",
+        "dd779b22-af29-4727-9f02-dd569bfeb137",
+        "dd8aebdd-52bb-46d5-bae3-c3c568a4a87c",
+        "de141483-2562-4249-b0fc-527125df2f2e",
+        "de284519-7fec-4fd8-b4e5-24c9e131edc0",
+        "dffe01f0-4a08-4b71-a821-ab025fef1346",
+        "e3e2a69a-2739-4b90-a873-36c7aa5692ca",
+        "e493c883-00f7-4b08-97e3-3d06dff63bb2",
+        "e4f7d5c4-0cef-42c8-ad32-1f547acc93aa",
+        "e56e2a78-259e-46c1-b19a-3ae72d1b6381",
+        "e5899bf4-220b-42c6-bd6f-f380d13ebb18",
+        "e59150e8-1c09-4f06-a115-b987be5f58fc",
+        "e714c464-3a97-4cce-8de2-294786c35e57",
+        "e73fc702-3191-4d37-8705-0df6c1a8edf4",
+        "e7aa1102-18de-457f-af04-026b1fb02a12",
+        "e8d7a614-32d6-492d-bbc0-686e5ee11c80",
+        "e8febcea-f4c4-4406-9d47-c3982450e36d",
+        "e9792d32-83e9-4e61-b0d1-a26d3104a34b",
+        "ec1fa24f-f945-485a-81bd-473178eacb42",
+        "ee00442f-8346-441a-a328-d17e1750ab86",
+        "ee284f14-9dd7-4ef0-b8d7-2d61d4623d80",
+        "eff7ec0e-65bd-43bd-8862-59529bda5a89",
+        "f247ff2e-7880-4622-965e-048e6b916543",
+        "f4461503-3bd2-46d3-9cc0-2cbe25d5f898",
+        "f5cc94b4-e897-4d30-9c8c-25ed30c305cf",
+        "f6fcbdfa-1143-424c-890c-353898fb5f7c",
+        "f70a8acc-56c7-44ba-adfc-6f40dec89b72",
+        "f8cd0766-3720-4db5-9862-ab166b20a070",
+        "f9977c4c-269c-4a6d-806e-6d607af18d94",
+        "fa8b562f-fd94-4935-90b8-32bd27a4d0ec",
+        "fa913460-eaab-419b-8dfd-4a1b8123604c",
+        "fb8a26e5-911e-40cb-914b-39fc3b13c0e9",
+        "fc07b367-4f6a-45d9-a2e8-cef88fa650a5",
+        "fdb9cf97-9b01-4fd3-b069-810c9421460d",
+        "fefa9768-618a-455a-8ce4-ffe00d3ddedf",
+        "11caae12-8c93-4e7a-851e-3352b7343104"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "fdb75108-bdec-494c-be95-a08f95ba5515",
+      "uncertain_assignment_ids": [
+        "054f3151-a5bb-4907-bd39-edef0f84cd8e",
+        "0a505257-a3f0-4687-9492-d85f4eda2f4f",
+        "0f6dc009-8de0-419f-97a1-21ffb01ab94b",
+        "119772fc-4d54-4056-b111-66fa979f5551",
+        "14c998f3-1547-48dc-abeb-28f147ce26e9",
+        "17116e59-133c-4644-9309-cf30f65206ea",
+        "1ce727b7-78e6-4fb2-9f91-701db43640c3",
+        "4742eefd-5e5e-42b0-8a6a-75000405236a",
+        "4a96e61e-0380-4b96-be7f-9c8d0a3faf21",
+        "50021764-559f-47f7-b7c2-e2bf6f268bcf",
+        "5907d6a1-960f-45a9-993e-b253dd9d768a",
+        "5923b909-a787-4f32-860b-91e9ae98ccba",
+        "5f413946-9c99-4f88-b0df-8f9c3e3ec911",
+        "6632a40b-1bf1-44a7-94b4-1cb0fd61b9b4",
+        "6a1cbd65-e6f2-45f8-acf1-0e40ca845ce4",
+        "891ae87a-a0ab-4023-8404-328fd7a21fdd",
+        "9414b9a2-b8ae-4a40-82e6-f0d62d2bec07",
+        "a7fa01ab-e0f5-4aac-bb09-103f93c023de",
+        "a822a866-892a-43cf-9845-d8d5bc6fb7c9",
+        "a8a2b56e-be32-4929-b9f1-e3d551694d20",
+        "aa88ce28-f391-4c42-8d84-84836e868130",
+        "b0c19fb8-90a4-4b3e-98c0-591b5fef1281",
+        "b276a059-4c55-4d84-925b-154ef195c350",
+        "b55bca78-fffe-4505-bb71-ed7caddf4f70",
+        "b78d3104-e729-4808-aecc-0559467e699f",
+        "b91bcd84-5a27-453a-a461-4a28577b2ec7",
+        "bc14c002-502d-4236-a2f3-405c27a0be62",
+        "c37070fd-e0e2-453c-b902-80cb21c90de8",
+        "ca8b2e62-47cf-4249-8d4a-c91fe0c72b3f",
+        "d6d82729-f37b-4b41-9047-7d60b7bf1166",
+        "dbaeb4f6-6865-4e02-bc2c-a282b05eccee",
+        "e752a7a8-6d50-4169-88b8-3705a01c2da0",
+        "ea55333d-44e7-4aa3-9e33-b42925b684a0",
+        "ec617b2a-94cb-40f3-acd7-6c43b3b50097",
+        "f150fa6e-2749-4f51-9eae-1ece0c5280a2",
+        "f17a36cb-6908-4103-b1b9-e89a701ab0a9",
+        "f21d919a-f447-447c-acb8-40dd011dafc0",
+        "f4d7fa55-3597-4ff1-b3d5-ac0a7fd53314",
+        "f68df152-02f5-4464-b10a-e56f2c969984",
+        "f88dde63-0fca-40b2-b4a3-9284faf995e4",
+        "fb22a124-d6f5-4e21-8076-95a1e44632b3"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "ac17aeda-669a-4752-b81d-c921b2923899",
+      "uncertain_assignment_ids": [
+        "037ea572-4b8b-4c7d-a3b1-543a2339369a",
+        "0717683c-619a-4c2e-a30f-5d5a781fc91c",
+        "151934e8-36e8-4f77-9740-8de2f0f8a155",
+        "2049d651-b752-4f04-b67b-1a4e5000f5fd",
+        "28733d5d-efa7-4d8e-a0d1-6342ee79356c",
+        "35936cee-6390-4f4d-9f49-a80c23b3d659",
+        "3721db6a-2380-4e91-9c83-e91da32b4354",
+        "374af682-0763-464a-91a6-5b90a00ece45",
+        "3e489e34-06f3-480a-865b-1d6ed7f617f3",
+        "40909ba9-4d13-47e4-8d78-adb44d100b75",
+        "42e91752-e80b-471a-a6df-3f530683289f",
+        "5852cb39-dbaa-4feb-b79c-05570f044168",
+        "5b343f5c-dbdf-45fd-b0e5-af36c9883ad3",
+        "5cb9cc1a-55a8-4e75-a601-f29900fbaa23",
+        "619f9c86-08ff-4ad7-a652-265732d2dd13",
+        "6b7af9a2-cf42-4488-9ccb-c6e45be68a4d",
+        "7be97ca9-f550-4962-a255-d28a97152814",
+        "83a248c4-ce20-4c9e-944c-eaed102c6150",
+        "875f633a-f607-4377-a0c2-e22da67dbe22",
+        "8f548d1a-ccd5-461f-b210-97287bd11233",
+        "91e5a3dc-63f5-4c85-908e-4ecba0073c55",
+        "9fe82ec8-8671-4c41-8d6b-31e097b4ce79",
+        "a325e00e-47ff-4ef7-9ea7-d4abae888026",
+        "a7c8e727-17f6-4f44-a24f-3bada59cfc2c",
+        "b393cbcb-c606-475d-a985-fb7d2039a888",
+        "b442bcf8-fb71-484e-858c-d694a5d5a8c2",
+        "c82dac34-fdf5-4a38-8de4-1bd99495c745",
+        "d886f139-6dee-4ae1-abf2-5002ac4dcd4f",
+        "e7499f75-c871-44d7-b644-cb7f4e690236",
+        "e8e57f67-15cf-4da1-aaaf-4092f0aa9fcc",
+        "eaf4f4f6-d8ac-415a-ae9e-d1fcd17d5dd8",
+        "ed5adb10-3a24-49cb-8ba8-d2b3bf81ff0c",
+        "eff73a20-25e3-41cc-828e-0d96cc0b00ca",
+        "f46089d7-11c0-48c4-a532-a14858458af7"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "dd8e0a90-4f37-4ef2-a8f9-0d479d23de03",
+      "uncertain_assignment_ids": [],
+      "no_assignments": true
+    },
+    {
+      "resource_id": "655bade4-de8a-4650-8f0c-572ca419bbf1",
+      "uncertain_assignment_ids": [
+        "56d917c2-8dc2-4f34-b7ca-0aabe386808b",
+        "5d463bc7-354f-4e46-bbca-14a872441283",
+        "79994d5c-a735-496e-9135-20f10d5be115",
+        "813d5ee7-2cc8-480c-b91a-d83207709793",
+        "8809d22e-a00f-4f4e-8d59-289c1d69ee64",
+        "bf534316-b2be-4e93-a074-a7095b96e638",
+        "c0592fc5-c730-40b1-81e2-26fb814239d2",
+        "cf6ad751-5313-43e0-a2fb-a86daf1102e0",
+        "ed7d7cbc-f02e-4044-8946-e79f5e08951d",
+        "f3629a08-16fc-4b12-a88f-5ec9013cff54"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "ae8f2f15-69e5-44ab-8497-ddd828c30206",
+      "uncertain_assignment_ids": [
+        "160cfa69-12e2-4da9-a32d-9778b218f7db",
+        "1614c7dc-613c-4330-b222-66dd0510fa31",
+        "18ffb301-b5ce-4534-8dd2-6e142b4027dc",
+        "1d07982d-decb-4edd-9bd1-f101794c0535",
+        "21738317-dea9-4ade-a405-d13867a3de93",
+        "34cac158-d8e5-4d84-9646-7fade02eff46",
+        "38fd8444-3c35-4dd8-8435-4865f761fb8e",
+        "3a01697a-726c-488d-8d25-9eaf71976bea",
+        "3b18106e-28c3-4be6-baf7-168962344f3b",
+        "426449a5-5890-4151-858e-36b0490f3d8c",
+        "4551250f-1d60-47c2-9cc7-aaa606d5d82d",
+        "92b230ef-4b04-4656-a5b5-9572cffcded1",
+        "949c73ac-2c5c-4d06-8ba3-d8282e75aa42",
+        "df6e8b30-d675-4827-a21a-5122b6b85a47",
+        "ef298fae-a52e-4d8a-b87f-deb93bfd7c5c"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "b94b7faf-b03e-485e-ba25-26756f7f3023",
+      "uncertain_assignment_ids": [
+        "1aff47f6-9ae8-43fb-ac9e-367d34cf93c0",
+        "1ed117da-0c35-4b5a-881a-b6b0ae3422c9",
+        "2610b800-ecc2-4681-bdb6-f8e16e506b96",
+        "3856db17-a201-4f0a-ad3b-9969acebf0ea",
+        "6ffe889b-1d2d-4f0a-b318-e2475ed5aba4",
+        "762e4b4a-6f87-4e7f-a197-801925230e41",
+        "90967638-e16c-4b6c-a74f-bab1f943f582",
+        "a357bf96-d56a-43b2-96a8-ca1d0187b245",
+        "a86a0a02-2cb8-4d97-a36d-351569ba235f",
+        "a972ed28-b306-4e35-b8d8-ba1fd08b846b",
+        "b4d7f6f6-6226-4390-9dea-700f01be6d22",
+        "c8bc891c-f43c-4cf4-b76d-095b19de63df",
+        "e4b5c94d-79df-48f7-89b2-fd322e418b40"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "20010314-1ffc-4ebb-a9a3-d812d32d80dd",
+      "uncertain_assignment_ids": [
+        "0992076a-7884-41bf-8579-2b091fb1b8d3",
+        "0e3b98df-b71a-43ba-a7cf-e9165f45e328",
+        "227785da-38a2-405f-aed5-ebd5e0600b06",
+        "49ed3401-b72e-4358-8b68-a3a7a4f211fc",
+        "586fa06f-afab-40d9-95e9-bb09383ba648",
+        "7327c2e4-e87a-49d1-9cdc-8dfcfef8f412",
+        "a1b84cc9-32c5-4b1f-a038-4f4a15b22f5d",
+        "a9dad8cc-377a-4e92-a27e-bd969bcb48db",
+        "bc92d10a-4e89-488a-afac-db58d3c6c77a",
+        "ffc3bb59-054e-44bb-95f7-e8711c04a91b"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "346acb86-3040-4bbe-9b47-929ed5a43cdd",
+      "uncertain_assignment_ids": [
+        "11546d20-a21f-421b-8dd9-8487886e14f7",
+        "15319cec-af0a-46a9-8fee-fda2ddd8a80f",
+        "1a8db5b1-43db-4983-970f-5d8b30dac3c0",
+        "205bb3bd-65fa-4b0f-b739-edcc6d506c78",
+        "2d758510-75d1-41f4-8a38-4b825d18fcac",
+        "304106b3-d085-462c-9031-380baeb16811",
+        "345e8ebc-8631-42cf-961e-3f63a757dc7e",
+        "36832546-9e05-4225-a4d9-ffc23c838434",
+        "3a56e5a0-e05b-40bd-9db5-0b72c1d24186",
+        "48b46ca1-3a89-4154-9753-a1b56343ebc1",
+        "4b7969fd-a40a-4e54-9963-ecfa6b7a8ff4",
+        "4b9f4276-eda0-4f1e-9d61-b245e2ceb19d",
+        "58af7e01-2f1d-4696-9120-06505f028ee8",
+        "6105c7e5-7be4-4471-babe-fcda300615fb",
+        "6a154fcb-2fea-46ef-a3be-bc3c9355eaab",
+        "6f2ff327-e9ca-43da-a0dc-e7eb01433f18",
+        "74ec2962-003a-415f-9a44-eded70c2aa1e",
+        "7e2faa5f-27e5-472d-9276-28529d99e1d3",
+        "803d7ebb-1b55-4410-8e26-0886dd4b7b7d",
+        "8fe35bed-5220-46d6-b0c3-68f4d499e545",
+        "937e6b05-b307-45a1-b9a5-507b923751cb",
+        "99b53350-e26e-4415-8b22-124990908e72",
+        "a22db521-6f92-4a68-ac11-27e54cdcdb3d",
+        "a7b794c9-2e49-48d5-a39f-0792f2c00c24",
+        "b7d84628-0d39-4ae9-b4bb-2e0f7368484c",
+        "c96d48b2-34ca-4103-a33f-de5378382d45",
+        "d769d5af-2c51-4d9f-a6af-369aaa8f4bb0",
+        "d95c24ea-f8c8-4f27-a805-67a966b51813",
+        "dbb4d056-34eb-4f58-a340-bffb2eae20cb",
+        "fb2c7e03-4c11-44ee-a087-bad053090ed1"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "fadc7112-37b3-40c8-aca1-869752bf8b6a",
+      "uncertain_assignment_ids": [
+        "344dad37-e3c0-4fb5-b872-614687e766d3",
+        "076f2523-f0dd-4a9f-8495-8cc151eb76b9",
+        "12392b5a-80b5-4aa9-a6aa-a78638457527",
+        "1a286760-2ffc-40ee-a38f-d6e3751af2f9",
+        "28f57d6d-c3b4-4868-b13a-1406caa0c9db",
+        "352a8f28-b8b9-4f41-a296-ce857a14802c",
+        "35776d75-49b9-456c-b097-7f102b514d76",
+        "3c9c6210-1988-4a39-a344-ff7cbae847f5",
+        "3f9df802-2556-4c9f-b0f8-3468b0a0025c",
+        "596fb595-b4f4-4adc-b37c-8578bf4ef81b",
+        "72f1e58f-fef1-4067-b88e-36f98298e169",
+        "74cb7263-ba21-4639-82e3-d79db78b3ce7",
+        "7e5b3fea-8325-4674-8265-100eb9b876ba",
+        "835a0926-169c-4e36-affc-23830efef74e",
+        "87e09b9c-6bd1-4116-aa31-8ccdf1b1295a",
+        "99cd6611-b8c7-45c2-9006-a259eea3676d",
+        "9a99a3b3-f67f-479b-973c-57c70fd3889c",
+        "a0f5a25d-1876-49e4-98d7-d52b98ef3dac",
+        "a44e6692-3214-4beb-9502-d37b9a8eef5f",
+        "a5900f5f-f977-4ecc-9d85-e99988f2073c",
+        "b234a78f-a473-4cd6-aecc-1955b7503042",
+        "b3502387-644a-4959-b58a-f85de36fb8bd",
+        "b77633d5-0e60-430e-a657-0b351c927f74",
+        "b7bafd22-a188-45d2-b6f3-42ac32bb7ce2",
+        "c17cebc4-b4bb-4b13-8917-cffb2f4d3285",
+        "c3850a25-f3e3-46c2-b3b2-254215b2b567",
+        "ced21599-cc70-4307-9d4c-cc9640e6517b",
+        "d5c56413-69c2-492f-81f2-185ddc12e976",
+        "d9d3b5f0-2215-4029-8a9b-e8c4c32288bf",
+        "e1f439d6-7e00-4564-ba3a-867b3bbfc156",
+        "e3b2242a-5d06-4a21-9bf7-21132f4f2614",
+        "f18034d0-3cf5-46f5-80a5-16e0b2dea062",
+        "f966ee00-bb80-4c3d-8474-908848b8ded3",
+        "fe0baf58-0008-4f6d-9429-c65d738358fd"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "a8a5a3cc-695a-4919-bba4-fe0a4b7b7ebb",
+      "uncertain_assignment_ids": [
+        "143c179d-a5ed-4625-b405-06bcc1b69ebf",
+        "23a25637-b590-4d94-a29d-4a13bf4ffd2a",
+        "69394b95-01e6-45c8-989a-6e1bbc2dd19d",
+        "8bb4ed7e-159b-49d2-99bd-3009c130982e",
+        "a2db1e4d-47ae-4a4d-bf88-e84cedeec9ef",
+        "ccc9e45c-5d9d-4d72-8d30-a890af7acc01",
+        "cd411ab5-c85d-46ea-aea6-077cad6bcac3"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "8c04ff07-d4d7-4ed3-942a-7bf596be7590",
+      "uncertain_assignment_ids": [
+        "16cc5d94-7881-428d-bb45-c5ccc62b801b",
+        "233f98a1-37cf-43d3-b445-a3514a4b0559",
+        "2dcfb3c1-0c2d-4bb1-ad09-bad51e110064",
+        "5b4bff24-f7dc-426a-bdbd-0980f1ca998e",
+        "5dafe859-161e-46ee-acaa-e8be35c24fdd",
+        "707f8ff6-7880-4db9-94e8-4838fdc2d395",
+        "76aebe4e-1985-42ec-a8cc-35a938397972",
+        "9041ad0f-0912-445c-9d7f-8bae20a3de2c",
+        "91d875fd-296b-4cc9-bb00-3545e3655f5a",
+        "a37f71ad-6f20-4174-9522-d27ba6d3478f",
+        "cdb79062-d6ca-4759-adc1-7c600725fa9c",
+        "d744c4b5-0b7b-401c-bc02-6cdf53510431",
+        "d8d08437-8b32-42ed-873f-f395b115d8bf",
+        "e4aaf01f-3a7d-41e5-b00d-ef83e485d363",
+        "efc91ad7-7002-4e84-a138-554a9c09c0cf"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "eda63a41-6862-4aed-be50-d118be567b6d",
+      "uncertain_assignment_ids": [
+        "064e3203-fdf6-4565-bf8d-538aad1c5d97",
+        "86da2dd5-ce13-440a-8276-992334cb352d",
+        "8df26db1-dd48-4596-9a37-c9b56d2bc0a8",
+        "96fe41c5-e39d-473e-b85a-3875cd5773bb",
+        "a667dff7-0edd-4afd-950f-e4e3bd05014d"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "e0af90cb-300d-41cf-810a-c8b6d63c56e2",
+      "uncertain_assignment_ids": [
+        "028b5ae2-0140-43e8-88e5-f830de763545",
+        "4460321e-ddef-4a37-92ec-f4aee1364508",
+        "4a047216-5e1e-4d52-9a85-4bb6d99ad417",
+        "80d5c16d-8219-4022-9a58-494f2660239f",
+        "fb1f8daf-ddf9-434d-8dfa-69422e47d87e"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "88cc0d16-6463-490d-94b6-c8367fb7b706",
+      "uncertain_assignment_ids": [
+        "390eb9b5-7180-474a-a502-939fe92bfedb",
+        "3f1b00cc-dd4b-47a1-ad4e-c7e3f2899858",
+        "3fdb89cd-a819-4a1c-a3b5-5a807f02cdf5",
+        "76b35fee-1039-4f20-9c38-1140d505cfc7",
+        "841bcbc4-a557-48ef-a79f-e954756344e1",
+        "a7daad01-ecac-4116-8daa-7bf3379454c8",
+        "ca126fc6-991c-48df-8148-c57cd4d3b794"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "f6f7469a-2662-440f-bbf6-45325c068fa7",
+      "uncertain_assignment_ids": [
+        "0b9332f4-fef8-4ae6-be1c-b0d431a3f4ca",
+        "1d79b62d-c994-46d4-915d-0b4fd1007ea7",
+        "2923b471-704a-4f29-b93e-b2a131c3d720",
+        "3ddc38a3-0ccd-4815-bff2-1268d2a222a3",
+        "4c7fdb0d-4d15-4f57-b7cb-83db4c0719a4",
+        "7e968945-4a6a-45de-bf4e-9091f4239dae",
+        "b7f5428c-9d42-4311-8869-d81ab74fa63a",
+        "b859eb80-461d-4b05-a9cd-ccc04f5155a0",
+        "c3662929-5d52-48b6-86ff-ef481b447579",
+        "eeec7730-508a-4ccb-9465-ead3441ae7e0",
+        "fb8e8762-ba5b-4f5f-97ef-c932c90b16fc",
+        "08ab5fbd-8370-4046-abaf-22b4994a0535"
+      ],
+      "no_assignments": false
+    },
+    {
+      "resource_id": "18d720e9-5655-43e2-b895-4a3d77a080aa",
+      "uncertain_assignment_ids": [
+        "3cf02887-8b55-4ba9-b641-ee629b8f398e"
+      ],
+      "no_assignments": false
+    }
+  ],
+  "batch_assignment_descriptions": [
+    {
+      "resource_id": "5874f971-d15a-4e0f-b85b-26f85475cadc",
+      "batch_scope": "season",
+      "assignment_count": 7,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "3fe8ede1-673c-49ce-8be4-d373eed0e4e4",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              7
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e8a58372-555a-4e7c-b8b7-37371989c040",
+      "batch_scope": "season",
+      "assignment_count": 7,
+      "coverage": []
+    },
+    {
+      "resource_id": "12329491-44b9-4c59-8d13-b72c47fe44e8",
+      "batch_scope": "franchise",
+      "assignment_count": 55,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "a4fff14d-c563-4936-a7e1-8730e3c48210",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              25
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "4d08a16c-0f87-4073-9081-0eda824aaaf8",
+      "batch_scope": "multi_season",
+      "assignment_count": 27,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "e48c14cd-235b-4ef4-af53-1fc757c3603d",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "e48c14cd-235b-4ef4-af53-1fc757c3603d",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "6ecfd5dc-8bba-44cd-81c2-79d4411497c0",
+      "batch_scope": null,
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "be2bdbe5-e401-4d27-855b-ab537b446ee7",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "bf5aa854-2e30-41a0-b973-013de3fa9977",
+          "season": 1,
+          "intervals": [
+            [
+              13,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "2cc0618f-48a2-4700-a1b6-a39285972080",
+      "batch_scope": "season",
+      "assignment_count": 28,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "1d721de9-dbf9-46af-977a-fda92eb336c1",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              28
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "a64c7db0-2e6d-4387-bbc6-cd81940ef4b5",
+      "batch_scope": "franchise",
+      "assignment_count": 71,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 4,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "25473991-43c1-4f1e-87c0-a46c159057af",
+      "batch_scope": "season",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "288c1591-841f-4137-85d2-a91b73fa43b1",
+      "batch_scope": "season",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "6999fcb0-82ba-46ed-8c73-5c0e2d833056",
+      "batch_scope": "season",
+      "assignment_count": 74,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5b0cf31d-e711-466d-8db4-9456e3e78e46",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              74
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "764b21c0-23e6-4232-a9d1-32c82e5f39ab",
+      "batch_scope": "season",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "f4488b24-d391-4c01-998f-ea9930aa3c96",
+      "batch_scope": "franchise",
+      "assignment_count": 195,
+      "coverage": []
+    },
+    {
+      "resource_id": "49298ae7-b5c3-4f54-a248-ce4429808219",
+      "batch_scope": "franchise",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "d8d8d56d-61f8-4b6b-a106-d968cec8615b",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "bf5aa854-2e30-41a0-b973-013de3fa9977",
+          "season": 1,
+          "intervals": [
+            [
+              13,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e9a26d2e-19e4-4e9b-8830-f578bd387af4",
+      "batch_scope": "franchise",
+      "assignment_count": 209,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "874b9f13-ef0e-439a-b256-4be60ed2c76e",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              203
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "7dbf01e7-a28f-46aa-88f4-0f6c650f36ad",
+      "batch_scope": "season",
+      "assignment_count": 13,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "3bb4c357-4acf-4907-a8eb-5c23025b0f2b",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "90ea5e36-0285-4349-b0ec-a7efc3d12dde",
+      "batch_scope": "multi_season",
+      "assignment_count": 14,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "09b336ea-a004-47c4-9abb-f8561b47f2e0",
+      "batch_scope": "franchise",
+      "assignment_count": 27,
+      "coverage": []
+    },
+    {
+      "resource_id": "406459c1-a758-4bba-ba1e-dc86f9705217",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "cea6a72d-5892-400e-995b-9c63f0cdc56f",
+          "season": 2,
+          "intervals": [
+            [
+              13,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "81e43911-975f-41ad-8186-6262db405149",
+      "batch_scope": "multi_season",
+      "assignment_count": 18,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "9148f41a-e9be-49b2-8f74-1be0e47d3a49",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              6
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "9148f41a-e9be-49b2-8f74-1be0e47d3a49",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "ca459b44-27c8-43e6-883c-d345b5b74361",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "cea6a72d-5892-400e-995b-9c63f0cdc56f",
+          "season": 2,
+          "intervals": [
+            [
+              13,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "150e2e56-c353-4215-a24e-b6fa6399ec2f",
+      "batch_scope": "season",
+      "assignment_count": 24,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "4fb010cc-fe42-4c91-8477-cfcd1e851098",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "ddddd488-e285-4441-98d0-f86603c676ee",
+      "batch_scope": "multi_season",
+      "assignment_count": 32,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "df9791f4-14fd-448a-bc4b-5ed798180f87",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "df9791f4-14fd-448a-bc4b-5ed798180f87",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              15
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "df9791f4-14fd-448a-bc4b-5ed798180f87",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              16
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "38df15fe-d937-4c1e-90a2-07143dd62db4",
+      "batch_scope": "multi_season",
+      "assignment_count": 23,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "c5962302-9401-40ca-b89b-27d2ed436faf",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "c5962302-9401-40ca-b89b-27d2ed436faf",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              22
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e9eda120-be26-403d-988f-d1afc06ff57f",
+      "batch_scope": "season",
+      "assignment_count": 10,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0d11540c-dc15-4f63-b408-84762829694e",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              10
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "11bd0851-ff12-4517-9d8a-f2b3760db986",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "bf5aa854-2e30-41a0-b973-013de3fa9977",
+          "season": 2,
+          "intervals": [
+            [
+              13,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "3e9080a6-7ad1-4ae6-8e27-451d5910b8aa",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "23d84d07-d251-4d32-a0de-ff0889cf57a3",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "ff2bcc15-9fe1-49d7-b545-7477dac43692",
+      "batch_scope": "multi_season",
+      "assignment_count": 18,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "9148f41a-e9be-49b2-8f74-1be0e47d3a49",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              6
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "9148f41a-e9be-49b2-8f74-1be0e47d3a49",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e297750f-659b-4bc1-9623-7c12a7d2ca2a",
+      "batch_scope": "multi_season",
+      "assignment_count": 27,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "e48c14cd-235b-4ef4-af53-1fc757c3603d",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "e48c14cd-235b-4ef4-af53-1fc757c3603d",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "affd5114-f61d-40b6-95f1-0d0b937495ab",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "160d5b19-f64e-49d2-8061-c5923bf0317c",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "d78541a8-5b1a-4826-bd5d-c52cefd4b3bb",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0a3bed9f-9a2b-43fb-97d0-97dafb88fb75",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "68c0c415-dee0-4a69-b11b-ebf62192f4d5",
+      "batch_scope": "season",
+      "assignment_count": 28,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "1d721de9-dbf9-46af-977a-fda92eb336c1",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              28
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "684fc610-fce8-4f00-b2db-eb8d90a3f291",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "23d84d07-d251-4d32-a0de-ff0889cf57a3",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "2b1930ac-1301-4538-b4f9-3f74dc1fafe5",
+      "batch_scope": "multi_season",
+      "assignment_count": 30,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "b6579101-4f4c-4c9a-a874-3dddf2d15a84",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              6
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "b6579101-4f4c-4c9a-a874-3dddf2d15a84",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "f0ff4bdc-85c3-44ce-8037-48838f25d700",
+      "batch_scope": "season",
+      "assignment_count": 24,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "4fb010cc-fe42-4c91-8477-cfcd1e851098",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "d0792da7-4e2a-452a-91e1-adfa897a6ace",
+      "batch_scope": "franchise",
+      "assignment_count": 176,
+      "coverage": []
+    },
+    {
+      "resource_id": "af91cdf8-e5d7-4c55-90d3-74a7b27140a6",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "48728d2a-06bf-46e3-a976-6e495da20ade",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "a4c034a5-0323-469b-8099-506b7e311b02",
+      "batch_scope": "franchise",
+      "assignment_count": 195,
+      "coverage": []
+    },
+    {
+      "resource_id": "a4d6dd66-5b30-44e4-9031-b45f194740b7",
+      "batch_scope": "franchise",
+      "assignment_count": 70,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0efeb58d-0332-4d41-8ccc-77dd4a20d0ff",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              52
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "0a91f6c9-1787-4455-82b2-30d223f3aca5",
+      "batch_scope": "franchise",
+      "assignment_count": 74,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "a6b8c770-8f24-4826-a18c-a9157178cf54",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              36
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "a6b8c770-8f24-4826-a18c-a9157178cf54",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              37
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "d073373e-c9aa-445f-bb71-874a69eee9a1",
+      "batch_scope": "multi_season",
+      "assignment_count": 23,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "c5962302-9401-40ca-b89b-27d2ed436faf",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "c5962302-9401-40ca-b89b-27d2ed436faf",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              22
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "8a0ff343-2141-4cc9-b657-0b5b83b6410e",
+      "batch_scope": "franchise",
+      "assignment_count": 54,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "9f4a6f56-56f4-46fe-b35b-2975a8eab57a",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "9f4a6f56-56f4-46fe-b35b-2975a8eab57a",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "d1d435b4-4936-4b21-91a4-d261d6c14e7e",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "160d5b19-f64e-49d2-8061-c5923bf0317c",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "7d8010f5-c34a-4638-98f1-26124e45a7ba",
+      "batch_scope": "season",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "5f8620a0-2947-40ba-95c6-98d91b9d6b3e",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0a3bed9f-9a2b-43fb-97d0-97dafb88fb75",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "6157b8fe-3e1a-4581-9999-a53949915f36",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "2fdaa21b-b8b5-47fd-9739-7dd97ae52d69",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "7ecd4552-fe01-4c35-95a1-5cb524c0569f",
+      "batch_scope": "season",
+      "assignment_count": 24,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0cf2c139-5aa2-409f-a2a8-ea870c495199",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "461d003b-fca9-4c66-876b-3c593c5a67de",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "23d84d07-d251-4d32-a0de-ff0889cf57a3",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e07bcc33-e241-48ad-be8e-55036035a7e4",
+      "batch_scope": "season",
+      "assignment_count": 8,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "81e7a589-8fdb-4eef-8380-88e7d53e8570",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              8
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "3254d1a4-2ea1-434c-868e-e9d3072222ab",
+      "batch_scope": "multi_season",
+      "assignment_count": 52,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "f6904bed-3c8b-4e8a-ae68-44c97c1a116e",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "f6904bed-3c8b-4e8a-ae68-44c97c1a116e",
+          "season": 2,
+          "intervals": [
+            [
+              14,
+              26
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "f6904bed-3c8b-4e8a-ae68-44c97c1a116e",
+          "season": 3,
+          "intervals": [
+            [
+              27,
+              39
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "f6904bed-3c8b-4e8a-ae68-44c97c1a116e",
+          "season": 4,
+          "intervals": [
+            [
+              40,
+              52
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "b47e464a-a68a-4187-8e1d-e6222b9f899c",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0a3bed9f-9a2b-43fb-97d0-97dafb88fb75",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "6d4ce077-3a31-4a02-a11e-4074dd3b369d",
+      "batch_scope": null,
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "f7a345f3-7be0-4498-9a01-bb642760ff9c",
+      "batch_scope": "franchise",
+      "assignment_count": 123,
+      "coverage": []
+    },
+    {
+      "resource_id": "2bbc64d6-dac3-4cb9-8118-cdb4f4de4c11",
+      "batch_scope": "multi_season",
+      "assignment_count": 14,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "a9bd84cc-4b6f-4b0b-8f1a-f2404466ec58",
+      "batch_scope": "season",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "1afb90ab-b8fa-4abe-8716-8585ecffad62",
+      "batch_scope": "season",
+      "assignment_count": 8,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "26a50313-fe04-4173-a66d-08be9c79e271",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              8
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "63c86a94-6016-4b61-9d79-0c2384fcd09b",
+      "batch_scope": "multi_season",
+      "assignment_count": 30,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "b6579101-4f4c-4c9a-a874-3dddf2d15a84",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              6
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "b6579101-4f4c-4c9a-a874-3dddf2d15a84",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "59b1794a-2d03-4459-9193-e9e7abba082b",
+      "batch_scope": "multi_season",
+      "assignment_count": 23,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "d9964c96-7900-401b-b80b-b5dbda287e5b",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "d9964c96-7900-401b-b80b-b5dbda287e5b",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              22
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "d8ca15b3-d248-4420-bb9d-ec6771d8be98",
+      "batch_scope": "season",
+      "assignment_count": 24,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0cf2c139-5aa2-409f-a2a8-ea870c495199",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "8edf67f7-8338-45b4-a28a-e43546e4d293",
+      "batch_scope": null,
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "d4926bf3-293a-4e2d-8811-e37a1d1ea814",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "1d721de9-dbf9-46af-977a-fda92eb336c1",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              10
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "b93cb573-68db-412d-9082-7bc4dd201cc4",
+      "batch_scope": "season",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "a25620d8-efc3-485e-8981-8602cf188cb5",
+      "batch_scope": "multi_season",
+      "assignment_count": 14,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 0,
+          "intervals": [
+            [
+              2,
+              2
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "58c28ff8-b150-4c2e-95ee-062d63bdd1fc",
+      "batch_scope": "multi_season",
+      "assignment_count": 14,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 0,
+          "intervals": [
+            [
+              2,
+              2
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "153438f7-ad94-47fe-84d1-ce54fc4a6d1c",
+      "batch_scope": "multi_season",
+      "assignment_count": 38,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "1d721de9-dbf9-46af-977a-fda92eb336c1",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              28
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "1d721de9-dbf9-46af-977a-fda92eb336c1",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              10
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "a311b18a-5144-4cb3-97d8-ed7d37cfae49",
+      "batch_scope": "season",
+      "assignment_count": 5,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "09022b48-ee34-4428-b18e-dd30506e4386",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              5
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "7f513292-d757-4891-9275-280a78075ea3",
+      "batch_scope": "season",
+      "assignment_count": 8,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "0adf21a6-254b-4ee0-8cda-5c0ff860022a",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              8
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "886a0116-c306-4673-b06d-5dbf5387f18d",
+      "batch_scope": "multi_season",
+      "assignment_count": 13,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 0,
+          "intervals": [
+            [
+              3,
+              3
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "0b726ce4-8a92-4273-936a-88db53aeb9df",
+      "batch_scope": "season",
+      "assignment_count": 5,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "09022b48-ee34-4428-b18e-dd30506e4386",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              5
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "ea986e69-8d13-4b17-a321-c06a7a0c45b2",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "eabf8c86-f0ae-4961-8cbe-013288948d69",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "325bdd9e-5b2e-41ed-86d1-9593cc0e2d0b",
+      "batch_scope": "franchise",
+      "assignment_count": 214,
+      "coverage": []
+    },
+    {
+      "resource_id": "fdb75108-bdec-494c-be95-a08f95ba5515",
+      "batch_scope": "franchise",
+      "assignment_count": 214,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "f02d51fc-8df7-4a49-a4df-2a4728c848bb",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "f02d51fc-8df7-4a49-a4df-2a4728c848bb",
+          "season": 1,
+          "intervals": [
+            [
+              47,
+              218
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "2db5b344-c385-4a00-9363-9d6fe9b0270c",
+      "batch_scope": "multi_season",
+      "assignment_count": 13,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 0,
+          "intervals": [
+            [
+              3,
+              3
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "5a4b0785-8e61-46d5-9bfd-d28eca25b59a",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "827a5372-21f3-47ea-80f9-a95f0df67ca5",
+      "batch_scope": "multi_season",
+      "assignment_count": 14,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "781a580a-596b-430e-b92d-46d6e1e3a22c",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "781a580a-596b-430e-b92d-46d6e1e3a22c",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "ac17aeda-669a-4752-b81d-c921b2923899",
+      "batch_scope": "franchise",
+      "assignment_count": 34,
+      "coverage": []
+    },
+    {
+      "resource_id": "dd8e0a90-4f37-4ef2-a8f9-0d479d23de03",
+      "batch_scope": "franchise",
+      "assignment_count": 0,
+      "coverage": []
+    },
+    {
+      "resource_id": "089c6854-af48-43fa-a0e4-c867ca84afdd",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "160d5b19-f64e-49d2-8061-c5923bf0317c",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "655bade4-de8a-4650-8f0c-572ca419bbf1",
+      "batch_scope": "franchise",
+      "assignment_count": 71,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "40b68f0e-73b7-4864-9a4c-e0db8518888e",
+          "season": 4,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "ae8f2f15-69e5-44ab-8497-ddd828c30206",
+      "batch_scope": "franchise",
+      "assignment_count": 54,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "9f4a6f56-56f4-46fe-b35b-2975a8eab57a",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "9f4a6f56-56f4-46fe-b35b-2975a8eab57a",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "b94b7faf-b03e-485e-ba25-26756f7f3023",
+      "batch_scope": "franchise",
+      "assignment_count": 68,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "c40a84dc-aed7-4286-a244-e71df1def44d",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              14
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "c40a84dc-aed7-4286-a244-e71df1def44d",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              27
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "20010314-1ffc-4ebb-a9a3-d812d32d80dd",
+      "batch_scope": "franchise",
+      "assignment_count": 95,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "041095d1-e80a-42cc-82f3-939f335362ca",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "041095d1-e80a-42cc-82f3-939f335362ca",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "041095d1-e80a-42cc-82f3-939f335362ca",
+          "season": 4,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "041095d1-e80a-42cc-82f3-939f335362ca",
+          "season": 5,
+          "intervals": [
+            [
+              1,
+              14
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "041095d1-e80a-42cc-82f3-939f335362ca",
+          "season": 6,
+          "intervals": [
+            [
+              1,
+              4
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "346acb86-3040-4bbe-9b47-929ed5a43cdd",
+      "batch_scope": "franchise",
+      "assignment_count": 69,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "aca18197-71d2-40d8-8130-163d08daddc1",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "fadc7112-37b3-40c8-aca1-869752bf8b6a",
+      "batch_scope": "franchise",
+      "assignment_count": 34,
+      "coverage": []
+    },
+    {
+      "resource_id": "a8a5a3cc-695a-4919-bba4-fe0a4b7b7ebb",
+      "batch_scope": "franchise",
+      "assignment_count": 33,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "8519a5df-209b-4e95-8798-820bb5b4eead",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "8c04ff07-d4d7-4ed3-942a-7bf596be7590",
+      "batch_scope": "franchise",
+      "assignment_count": 112,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "09eceeea-97ab-45e5-b8c3-6c46aa970a06",
+          "season": 1,
+          "intervals": [
+            [
+              5,
+              51
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "09eceeea-97ab-45e5-b8c3-6c46aa970a06",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "09eceeea-97ab-45e5-b8c3-6c46aa970a06",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              24
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "eda63a41-6862-4aed-be50-d118be567b6d",
+      "batch_scope": "franchise",
+      "assignment_count": 106,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              52
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              25
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 4,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e0af90cb-300d-41cf-810a-c8b6d63c56e2",
+      "batch_scope": "franchise",
+      "assignment_count": 106,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              52
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              25
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 3,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "426bb5e9-df48-4eb2-a9c6-573a52bf265d",
+          "season": 4,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "88cc0d16-6463-490d-94b6-c8367fb7b706",
+      "batch_scope": "franchise",
+      "assignment_count": 33,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "8519a5df-209b-4e95-8798-820bb5b4eead",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "e15c597b-0f4a-4e8e-8c9d-0f8fea2222fd",
+      "batch_scope": "multi_season",
+      "assignment_count": 24,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "d008e00f-5e44-4747-ae2d-1d0ed5958837",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              4
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "d008e00f-5e44-4747-ae2d-1d0ed5958837",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "7e8eaf86-7ebe-4880-98eb-e9bfe0dce498",
+      "batch_scope": "multi_season",
+      "assignment_count": 14,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "781a580a-596b-430e-b92d-46d6e1e3a22c",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              1
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "781a580a-596b-430e-b92d-46d6e1e3a22c",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              13
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "3e4c31bd-4cb0-4d62-954d-88ca2c36041b",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "3f41d210-9b1a-4b85-a7ca-49e706a2a3e9",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "50893c0d-863f-401d-8f25-4a0a66f3c84b",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "d008e00f-5e44-4747-ae2d-1d0ed5958837",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "f6f7469a-2662-440f-bbf6-45325c068fa7",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": []
+    },
+    {
+      "resource_id": "d88dea20-578b-4d51-b39c-1d7fe847c4cb",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "48728d2a-06bf-46e3-a976-6e495da20ade",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "8139f086-b9e1-4d73-8b65-f7e39c96f607",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "d008e00f-5e44-4747-ae2d-1d0ed5958837",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "691bbd05-de00-43bf-a316-9c68cc6b0803",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "48728d2a-06bf-46e3-a976-6e495da20ade",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "7df1f8d5-8aac-4b01-a2c7-ecf906d79828",
+      "batch_scope": "multi_season",
+      "assignment_count": 24,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "d008e00f-5e44-4747-ae2d-1d0ed5958837",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              4
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "d008e00f-5e44-4747-ae2d-1d0ed5958837",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              20
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "fac5b306-ce45-44e7-ae03-f303dd369d4e",
+      "batch_scope": "season",
+      "assignment_count": 12,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "48728d2a-06bf-46e3-a976-6e495da20ade",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "bac4892f-dd3b-41b2-b648-ff20a589779b",
+      "batch_scope": "multi_season",
+      "assignment_count": 26,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "4bc342c7-4701-4d95-afbe-0e6b976cd9bd",
+          "season": 0,
+          "intervals": [
+            [
+              1,
+              2
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "4bc342c7-4701-4d95-afbe-0e6b976cd9bd",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        },
+        {
+          "work_type": "series",
+          "work_id": "4bc342c7-4701-4d95-afbe-0e6b976cd9bd",
+          "season": 2,
+          "intervals": [
+            [
+              1,
+              12
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource_id": "18d720e9-5655-43e2-b895-4a3d77a080aa",
+      "batch_scope": "franchise",
+      "assignment_count": 27,
+      "coverage": [
+        {
+          "work_type": "series",
+          "work_id": "e48c14cd-235b-4ef4-af53-1fc757c3603d",
+          "season": 1,
+          "intervals": [
+            [
+              1,
+              26
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "decision_states": [
+    {
+      "id": "f0e4b978-e081-4e24-b1f0-25359c14d0f4",
+      "status": "decided",
+      "candidate_count": 1
+    },
+    {
+      "id": "ebe0513b-badb-4aa1-8f2c-d9501df4211c",
+      "status": "decided",
+      "candidate_count": 1
+    },
+    {
+      "id": "4ea5e815-0e12-4890-9a55-f2cf1d2a6ce6",
+      "status": "decided",
+      "candidate_count": 1
+    }
+  ],
+  "limitation": "Captured pre-split graph only; assignments do not prove complete torrent listing; no DB changes"
+}

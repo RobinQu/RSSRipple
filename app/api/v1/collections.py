@@ -10,6 +10,7 @@ except when the current collection is a single-member ``series_group`` shell
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -209,6 +210,14 @@ async def delete_collection(collection_id: str, db: AsyncSession = Depends(get_d
     return success_response({"deleted": True})
 
 
+def _season_conflict():
+    return JSONResponse(status_code=409, content={
+        "success": False, "data": None,
+        "error": {"code": "DUPLICATE_SUBMISSION",
+                  "message": "Collection already contains a work for this season."},
+    })
+
+
 @router.post("/collections/{collection_id}/works", status_code=201)
 async def attach_work(
     collection_id: str,
@@ -268,32 +277,57 @@ async def attach_work(
     if work.collection_id == collection_id:
         # Already a member of THIS collection — idempotent attach.
         return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
-    if work.collection_id is not None:
-        # Per-season model: a single-member ``series_group`` shell is an
-        # upsert artifact, not a deliberate grouping — absorb it (bag rows +
-        # aliases merge into the target, the empty shell is deleted) so a
-        # "same series, two shells" state is fixable from the UI. Multi-
-        # member or non-shell collections still refuse the move with 409.
-        if await try_absorb_shell_collection(db, collection, work):
+    if isinstance(work, TVSeries):
+        occupied = await db.scalar(
+            select(TVSeries.id).where(
+                TVSeries.collection_id == collection_id,
+                TVSeries.season_number == work.season_number,
+                TVSeries.id != work.id,
+            ).limit(1)
+        )
+        if occupied:
+            return _season_conflict()
+    try:
+        # Shell absorption also moves aliases, identity bags and resource
+        # pointers. Roll all of them back if a competing writer takes the
+        # season slot after our parent-locked precheck.
+        async with db.begin_nested():
+            if work.collection_id is not None:
+                # Per-season model: a single-member ``series_group`` shell is an
+                # upsert artifact, not a deliberate grouping — absorb it (bag rows +
+                # aliases merge into the target, the empty shell is deleted) so a
+                # "same series, two shells" state is fixable from the UI. Multi-
+                # member or non-shell collections still refuse the move with 409.
+                if await try_absorb_shell_collection(db, collection, work):
+                    await db.flush()
+                    return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "success": False,
+                        "data": None,
+                        "error": {
+                            "code": "DUPLICATE_SUBMISSION",
+                            "message": (
+                                "Work already belongs to another collection "
+                                f"({work.collection_id}); detach it first."
+                            ),
+                        },
+                    },
+                )
+            work.collection_id = collection_id
             await db.flush()
             return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
-        return JSONResponse(
-            status_code=409,
-            content={
-                "success": False,
-                "data": None,
-                "error": {
-                    "code": "DUPLICATE_SUBMISSION",
-                    "message": (
-                        "Work already belongs to another collection "
-                        f"({work.collection_id}); detach it first."
-                    ),
-                },
-            },
-        )
-    work.collection_id = collection_id
-    await db.flush()
-    return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
+    except IntegrityError as exc:
+        message = str(exc.orig)
+        if (
+            "uq_tv_series_collection_season" not in message
+            and "UNIQUE constraint failed: tv_series.collection_id, tv_series.season_number" not in message
+            and "UNIQUE constraint failed: tv_series.(collection_id, season_number)" not in message
+        ):
+            raise
+        return _season_conflict()
+
 
 
 @router.delete("/collections/{collection_id}/works/{work_id}")

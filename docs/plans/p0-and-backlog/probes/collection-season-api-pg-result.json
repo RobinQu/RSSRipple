@@ -1,0 +1,32 @@
+{
+  "project": "rssripple-v8-api-20260920-aq",
+  "red": {
+    "fixture": "synthetic works; real PostgreSQL, production router and exception handler",
+    "status": 500,
+    "error": {
+      "code": "INTERNAL_SERVER_ERROR",
+      "message": "An unexpected error occurred"
+    },
+    "source_shell_preserved": true,
+    "incoming_parent_preserved": true,
+    "identity_preserved": true,
+    "target_aliases_preserved": true,
+    "works_preserved": true
+  },
+  "green": {
+    "fixture": "synthetic works; real PostgreSQL, production router and exception handler",
+    "status": 409,
+    "error": {
+      "code": "DUPLICATE_SUBMISSION",
+      "message": "Collection already contains a work for this season."
+    },
+    "source_shell_preserved": true,
+    "incoming_parent_preserved": true,
+    "identity_preserved": true,
+    "target_aliases_preserved": true,
+    "works_preserved": true
+  },
+  "red_exit_code": 1,
+  "green_exit_code": 0,
+  "cleanup": "complete"
+}

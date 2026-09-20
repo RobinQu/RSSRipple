@@ -1,0 +1,179 @@
+{
+  "directory": "/tmp/rssripple-v11-decisions",
+  "status": "12-file independent prototype:22 tests pass;PG two-connection merge+constraints pass;upgrade migration/confirmation checks/full gates not implemented",
+  "files": {
+    "app/services/resource_coverage.py": "bae32b80f2d90446bbe159c8ccb2caa02f0018e7afe145c8eee1f3e9e3a73e78",
+    "tests/unit/test_resource_coverage.py": "4e652749536ed0231596f28cd2cd99dfd825f163b10992a0972ab1a69ed7fe05",
+    "app/services/agent_service.py": "f6277e758304fc9ce074fde919ae5efc9a21987b339a1ea10a6d9d0ea4ecbae0",
+    "app/services/resource_confirmation.py": "58f9a3d7ce7d316f3f58f95f824d756df3901b902517e8cba258c01425bba945",
+    "tests/unit/test_decision_coverage_review.py": "ce766cddac334de8646016ffe6789eb1a9c0aa4dfe05faa12acfd891677ccdc4",
+    "app/api/v1/dashboard.py": "14d2c81966cc1d49ebc85044322b66de2062a82eb9a2a95a269f61dcbe542db1",
+    "app/services/fetch_service.py": "8406ad47b6e9d0334172bb6743dc398aada312bf31a4e529ea5d20507f4c42dd",
+    "tests/api/test_coverage_confirmation.py": "c87f6a0645831a40e8b21b5534507e36febf7a64aff08b947c5b7aea03bf98e8",
+    "tests/unit/test_resource_confirmation.py": "bea3c1293e0cbe9a45ed339ae3f1a31226b06312c41905ac10cf75498fdb287d",
+    "tests/api/test_dashboard_extra.py": "1797cdf0f3a144ec72f15d6868fcbb7c1eddf50bbfe1094f64e72c6a84bf12f0",
+    "app/models/pending_decision.py": "405de813be5da6a9e672be24934a8b5a5d8264bab71ca9a4d922d86381f4c77e",
+    "app/services/decision_store.py": "7b597fe79089c9e1fc50c228a6164e970cd0c22a344dc06619c9871576208345"
+  },
+  "root_before": {
+    "app/services/resource_coverage.py": null,
+    "tests/unit/test_resource_coverage.py": null,
+    "app/services/agent_service.py": "50169efd83d364ad662fdfe736c0863b554f23fdf65f0b1b24111528551b026e",
+    "app/services/resource_confirmation.py": "b9679094f71aa3eea80a9d83b1009497e372318d1138a9284de02683177d14e6",
+    "tests/unit/test_decision_coverage_review.py": null,
+    "app/api/v1/dashboard.py": "d2cc4489d25e24f8e8996ffaf179657a65f1555f48291df4f344d879d8b4d7ff",
+    "app/services/fetch_service.py": "fd9cb999f5f5626927803e813487d6b7aeea98af83d08925bbe13b0389488730",
+    "tests/api/test_coverage_confirmation.py": null,
+    "tests/unit/test_resource_confirmation.py": "0945d3a48ad85551c306c8b07cdbf9ce4efc534df74c2142b02557f8eea31e1d",
+    "tests/api/test_dashboard_extra.py": "1b6b17ce12afc71d0a20ce5d472575044739614bc781776fdbdf712a674b83d1",
+    "app/models/pending_decision.py": "1945631d835be1a370fb1e120d4a063b2ade320ec6e2233cab84fe2d955484f1",
+    "app/services/decision_store.py": null
+  },
+  "results": {
+    "bj": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "12",
+      "time": "0.134",
+      "timestamp": "2026-09-20T04:00:32.487565+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "bj-green": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "14",
+      "time": "0.083",
+      "timestamp": "2026-09-20T04:01:57.038036+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "bk": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "16",
+      "time": "0.168",
+      "timestamp": "2026-09-20T04:02:55.777202+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "bk-green": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "16",
+      "time": "0.159",
+      "timestamp": "2026-09-20T04:03:16.858013+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "bl": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "16",
+      "time": "1.574",
+      "timestamp": "2026-09-20T04:03:56.650340+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "pipeline_red_bl": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "4",
+      "skipped": "0",
+      "tests": "4",
+      "time": "4.901",
+      "timestamp": "2026-09-20T04:07:11.280288+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "pipeline_bm": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "1",
+      "skipped": "0",
+      "tests": "20",
+      "time": "6.517",
+      "timestamp": "2026-09-20T04:08:33.894956+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "confirmation_bn": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "1",
+      "time": "1.785",
+      "timestamp": "2026-09-20T04:11:37.656392+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "confirmation_expanded_bo": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "3",
+      "skipped": "0",
+      "tests": "82",
+      "time": "101.836",
+      "timestamp": "2026-09-20T04:12:45.609338+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "confirmation_bq": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "82",
+      "time": "100.298",
+      "timestamp": "2026-09-20T04:17:50.836869+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "identity_br": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "21",
+      "time": "7.867",
+      "timestamp": "2026-09-20T04:22:47.362561+00:00",
+      "hostname": "dl-workstation-albert"
+    },
+    "identity_bs": {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "22",
+      "time": "8.041",
+      "timestamp": "2026-09-20T04:26:21.020350+00:00",
+      "hostname": "dl-workstation-albert"
+    }
+  },
+  "limitations": [
+    "Old schema upgrade/backfill/check constraint migration not implemented",
+    "Decision confirm/AI/batch do not yet revalidate scope or serialize lifecycle",
+    "Work merge and P8 rekey paths not updated",
+    "Turso competing writers and broader legacy tests still pending"
+  ],
+  "expanded_session": 60301,
+  "expanded_log": "/tmp/rssripple-v11-confirmation-expanded-bq.log",
+  "postgresql_identity": {
+    "constraint_checks": {
+      "duplicate_key": true,
+      "null_pending_key": true
+    },
+    "historical_unkeyed_nonpending_preserved": true,
+    "both_creators_observed_empty_slot": true,
+    "created_ids": [
+      "c8917612-dc11-43ae-b7ab-f3c90c3044e8",
+      "c8917612-dc11-43ae-b7ab-f3c90c3044e8"
+    ],
+    "pending_rows": 1,
+    "candidate_counts": [
+      4
+    ],
+    "scope": "synthetic data; two real PostgreSQL connections; real production create and commits; LLM replaced by barrier"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "project": "rssripple-v8-metadata-20260920-as",
+  "metadata_red": {
+    "fixture": "synthetic source identity; real PostgreSQL and production upsert",
+    "results": [
+      {
+        "error": "IntegrityError",
+        "message": "(sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.UniqueViolationError'>: duplicate key value violates unique constraint \"uq_tv_series_collection_season\"\nDETAIL:  Key (collection_id, season_number)=(3c7514f1-0000-44c4-86eb-56699acceea6, 1) already exists.\n[SQL: INSERT INTO tv_series (id, title_cn, title_en, original_title, aliases, search_text, external_id, external_source, description, poster_url, rating, genre, status, number_of_episodes, number_of_seasons, season_number, start_date, end_date, content_type, is_anime, canonical_name, wikipedia_url, wikipedia_page_id, collection_id) VALUES ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::JSON, $6::VARCHAR, $7::VARCHAR, $8::VARCHAR, $9::VARCHAR, $10::VARCHAR, $11::FLOAT, $12::JSON, $13::VARCHAR, $14::INTEGER, $15::INTEGER, $16::INTEGER, $17::DATE, $18::DATE, $19::VARCHAR, $20::BOOLEAN, $21::VARCHAR, $22::VARCHAR, $23::INTEGER, $24::VARCHAR) RETURNING tv_series.created_at, tv_series.updated_at]\n[parameters: ('390b5dff-0f37-4762-b09b-c0afac8ad8da', 'Synthetic concurrency', None, None, '[\"Synthetic concurrency\"]', 'synthetic concurrency synthetic concurrency', 'tmdb:900020#s1', 'tmdb', None, None, None, '[]', None, None, None, 1, None, None, 'tv', None, None, None, None, '3c7514f1-0000-44c4-86eb-56699acceea6')]\n(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+      },
+      {
+        "id": "63db6947-bd67-4e0d-a920-b9b106970b43"
+      }
+    ],
+    "work_count": 1,
+    "same_work": false
+  },
+  "metadata_green": {
+    "fixture": "synthetic source identity; real PostgreSQL and production upsert",
+    "results": [
+      {
+        "id": "067473be-3ab8-4625-b003-2a894287aa01"
+      },
+      {
+        "id": "067473be-3ab8-4625-b003-2a894287aa01"
+      }
+    ],
+    "work_count": 1,
+    "second_backend_blocked": true,
+    "same_work": true
+  },
+  "recovery": {
+    "fixture": "synthetic protected works; actual PostgreSQL, CLI, V7 detach endpoint and V8 startup",
+    "preflight_before": 1,
+    "prior_version_detach": 0,
+    "preflight_after": 0,
+    "two_startups_passed": true,
+    "index_present": true,
+    "works_manual_fields_episodes_identities_resources_preserved": true
+  },
+  "metadata_red_exit_code": 1,
+  "metadata_green_exit_code": 0,
+  "recovery_exit_code": 0,
+  "cleanup": "complete"
+}

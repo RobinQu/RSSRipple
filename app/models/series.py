@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,6 +11,16 @@ from app.database import Base
 
 class TVSeries(Base):
     __tablename__ = "tv_series"
+    __table_args__ = (
+        Index(
+            "uq_tv_series_collection_season",
+            "collection_id",
+            "season_number",
+            unique=True,
+            sqlite_where=text("collection_id IS NOT NULL"),
+            postgresql_where=text("collection_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
