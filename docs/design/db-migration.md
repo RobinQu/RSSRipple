@@ -202,3 +202,10 @@ docker compose up -d
 
 
 Agent 定向补偿新增 `agent_resource_requests` 表，由模型注册后的 `create_all` 为新装/旧库创建，无存量请求回填。PostgreSQL 与 Turso 均使用非空 `(agent_id,resource_id)` 联合唯一键及两个 ON DELETE CASCADE 外键；重复启动保留 revision、错误与重试时间，不重置待处理请求。
+
+
+### 启动时修复孤儿季作品
+
+两个后端在 schema 轻迁移后执行合集归属回填，随后执行既有 FTS/search_text 回填。每批最多读取 100 个 collection_id IS NULL 的 TVSeries，保留原季号建立壳合集并同步已有作品关联资源；每批独立事务提交，重跑不再创建已修复作品的壳。
+
+PostgreSQL 用 FOR UPDATE 串行处理同一批孤儿，多个启动者不会重复建壳；Turso 用既有 retry_on_lock 在新会话中重试锁冲突。回填失败回滚当前批次，不静默跳过。此步骤不猜季、不合并同名作品，也不创建 uq_tv_series_collection_season；部分唯一索引仍须在季拆分/重复数据收敛后建立，不能把这次回填当作 D1/D2 全部 schema 修复。

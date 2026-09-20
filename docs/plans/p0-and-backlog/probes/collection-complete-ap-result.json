@@ -1,0 +1,32 @@
+{
+  "project": "rssripple-v7-complete-20260920-ap",
+  "unit_api": {
+    "passed": 3561,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 1465.99,
+    "covered": 21261,
+    "valid": 21735,
+    "exit_code": 0
+  },
+  "integration": {
+    "passed": 3135,
+    "failed": 1,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1660.44,
+    "runner_exit_code": 1,
+    "coverage_exit_code": 0,
+    "covered": 19526,
+    "valid": 21735
+  },
+  "failure": "Old HTTP fixture expected detached series collection=None",
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "artifacts": "/tmp/rssripple-v7-artifacts-ap",
+  "frozen_source_files_unchanged": 493,
+  "cleanup": "complete",
+  "acceptance": false
+}

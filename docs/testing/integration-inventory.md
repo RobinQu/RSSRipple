@@ -265,3 +265,8 @@ B9 定向补偿回归：`test_p0_queue_consumption.py` 覆盖真实队列已选�
 元数据身份接地回归：`tests/integration/metadata/test_identity_persistence.py` 对 Wikipedia judge、Wikipedia ReAct、TMDB ReAct 三入口，验证合法/非法主身份、伪造/可信别名、旧缓存五类场景；执行真实 process/upsert/cache/身份袋路径及重复处理幂等性。`test_identity_source_http.py` 启动随机 loopback 端口来源服务，验证生产 TMDB 搜索适配器字段契约与接地的正负例。PostgreSQL 矩阵驱动为 `docs/plans/p0-and-backlog/probes/identity_pg_probe.py`，只允许专用临时数据库。
 
 容器 mock-LLM 实例使用 `tests.integration.server.llm_app:app` 测试入口，将 TMDB HTTP 请求转发给测试服务的合成协议端点；生产 app 入口不变。模型仍必须选择来源候选，音频等未获 TMDB 证据的身份必须拒绝。来源响应与模型为合成数据，不能称作真实来源录制；HTTP、数据库和生产适配器实际执行。仍要求合法正例、未知/类型冲突负例和完整 95%/85% 覆盖率门禁；Compose 必须使用唯一项目名。
+
+
+合集归属回归：tests/api/test_collection_invariants.py 覆盖真实 API→commit→重新读库的创建/删除/解绑、身份袋清理、人工关联保留、多作品不猜合集、故障回滚、回填幂等及预加载父子关系。test_collection_resource_boundaries.py 每场景植入 103 条资源，交叉覆盖电影/剧集、删除/解绑、直接 FK/work_links/文件指派，验证跨页处理及不相关资源不变。test_database_migrations.py 对实际 Turso create_tables 连跑两次验证旧孤儿修复，PG 分支单测只验证调用顺序。
+
+PostgreSQL 实际回填并发、预加载关系、重复删除及反向壳吸收的驱动位于 docs/plans/p0-and-backlog/probes/collection*_pg_probe.py。它们会清空明确指定的回环地址 organize_test 专用库，必须配独立 Compose 项目；禁止指向业务库。数据为明确的合成 ORM 行，SQL/事务/锁行为真实。专项不替代完整单元/API 95% 与隔离集成 85% 门禁。

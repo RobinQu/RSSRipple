@@ -23,37 +23,25 @@
 
 - [ ] dedup survivor 取最旧行，忽略数据完整度与人工保护（`metadata_dedup.py:430-440,557-565`）。
 
-### P0-6（现 P1） 剧集合集归属的创建/删除路径
-
-- [ ] `POST /series`（`app/api/v1/series.py:66-75`）创建后挂 `series_group` 壳合集
-      （复用 `metadata_service._create_series_collection` 语义或抽 helper）。
-- [ ] `DELETE /collections`（`app/api/v1/collections.py:206-217`）不得把成员置 NULL 造成孤儿：
-      为被解绑 `TVSeries` 建/复用壳合集并重挂；同步重指 `FileResource.collection_id`；`Movie` 保持可 NULL。
-- [ ] `DELETE /collections/{collection_id}/works/{work_id}?work_type=series` 同样直接置空合集，须与删除合集一起重挂壳合集；电影仍可为空。2026-09-20 三条实际 API 的孤儿红测及边界见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。
-- [ ] 启动幂等回填：`TVSeries.collection_id IS NULL` 时建壳合集并挂接（历史快照 0 行，实施前复核，须幂等）。
-      `DB NOT NULL` 为可选硬化，暂缓（所有读取处对 NULL 安全）。
-- **验收**：API 测试断言新建 series 有合集、删集合后无孤儿、回填幂等。
-      **文档**：`docs/design/per-season-works.md` 同步。
-
-
 ### 数据模型 / 持久化
 
 - [ ] **P1-D1 新装库缺 `(collection_id, season_number)` 唯一索引**：`uq_tv_series_collection_season`
       仅由 `scripts/season_split_migration.py:122` 创建，`app/database.py:546-551` 不在 `create_tables` 建。
       **修复**：在 `create_tables`/轻量迁移幂等创建该部分唯一索引（Turso/PG 两库）。
-      **续接**：[V8 方案与证据](V8-COLLECTION-SEASON-INDEX.md)：真实 Turso 四项红测、六项通过；PG 双进程启动/升级/竞争写入通过。API 冲突、恢复流程与完整门禁未完成，不关闭。
+      **续接**：[V8 方案与证据](V8-COLLECTION-SEASON-INDEX.md)：双库启动/升级、API 抢槽、metadata 并发及恢复演练通过；完整单元/API at 为 3564 passed/8 failed；正在修复合并顺序、Wikidata 冲突与非法旧夹具，完整集成未完成，不关闭。
 - [ ] **P1-D2 轻量迁移的 FK 列无 FOREIGN KEY 约束**：`app/database.py:453/477/503/510` 用裸 `ADD COLUMN`，
       `create_all` 不 ALTER，升级库永久缺 FK 与 `ON DELETE` 语义，与新装库漂移。
       **修复**：迁移补齐 FK 或统一走表重建；加 schema 对等测试。
+      **续接**：[V9 复核与矩阵](V9-UPGRADE-FOREIGN-KEYS.md)：真实 Turso 七处升级 FK 缺失已复现；缺列与既有列缺约束必须分别修复。
 - [ ] **P1-D3 退役列 `number_of_seasons` 仍被写入**：`app/services/metadata_dedup.py:460-463` 与
       `POST/PATCH /series` 仍接受；`is_unsplit_legacy_series` 会据陈旧值误判单季化作品（历史主库快照 1 行非空）。
       **修复**：停止写入、从 `MANUAL_EDITABLE_FIELDS` 移除、清理存量。
 - [ ] **P1-D4 `PendingDecision` 无唯一约束 + check-then-insert**：`app/models/pending_decision.py:14-16`
       仅非唯一索引；`app/services/agent_service.py:503-548` 先查后插。队列已按 agent key 去重，普通运行不因 3 worker 必然并发；直接回填/API 并发仍可竞争。
       **修复**：与 P1-M5 合并设计覆盖度感知、无 NULL 歧义的决策键，再加 pending 部分唯一索引及 SAVEPOINT。普通 nullable 联合唯一索引不能阻止重复（SQLite 内存复现已确认）。
-- [ ] **P1-D6 删除路径泄漏身份袋 / 丢手工映射**：`DELETE /series|/movies|/collections` 不调用
+- [ ] **P1-D6 删除路径泄漏身份袋 / 丢手工映射**：`DELETE /series|/movies` 不调用
       `delete_external_ids_for_work`（遗孤行导致命中即 miss 且无法重登记）；`resource_work_links` CASCADE
-      静默丢手工映射；删合集漏清 `file_resources.collection_id`。**修复**：删除时显式清理/转移。合集身份袋遗留与资源 FK 删除失败已由 V7 真实 API 复现，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。
+      静默丢手工映射。**修复**：删除时显式清理/转移。合集删除部分已在 V7 完整验收；此条仅保留剧集/电影删除与手工映射策略，见 [V7 方案](V7-COLLECTION-INVARIANTS.md)。
 ### 后台执行 / 调度 / 队列
 
 - [ ] **P1-B4 Redis consumer lease 过期致重复执行**：lease 15s/heartbeat 5s（`app/services/task_queue.py:43-44`），

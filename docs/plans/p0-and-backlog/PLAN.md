@@ -5,17 +5,17 @@
 > 后续每批的必要性论证、严格集成门禁与补验缺口见 [VALIDATION.md](VALIDATION.md)。
 > 本文是修复记录与依据，**不是**权威业务契约；行为变更已同步到 `docs/design/` 对应子文档。
 
-## 当前收尾与下次续接（2026-09-13）
+## 当前收尾与下次续接（2026-09-20）
 
 本次用户要求收尾 B9 并合入本地主干，再保留后续修复入口。P0 与 V1–V4 已通过完整验收；B9 的 ab 轮完整单元/API（97.85%）与隔离集成（89.93%）也已通过，测试项目已清理，B9 已从 TODO 删除。有效实现已提交本地 main（代码提交 `4c804ed`）；最终证据见 VALIDATION.md 的 B9 收尾节。
 
 V6 身份接地已完成完整验收：单元/API 3540 passed（97.84%），完整集成 3136 passed（89.81%），应用退出与证据导出/清理完成。原 P0-4 两项已从 TODO 删除；证据见 [V6](V6-IDENTITY-GROUNDING.md) 和 VALIDATION.md 最终验收节。
 
-下次优先续接 V7 合集归属：独立副本 `/tmp/rssripple-v7-collection-work` 的完整单元/API an 仍在运行，句柄在 `/tmp/rssripple-v7-gates-an.json`；保持冻结源码，待终态后复审、同步、完整集成。V8 的 D1 已有双库专项证据，但 API 冲突/恢复流程/完整门禁未完成。两批均未应用主工作树，实现与证据分别见 V7-COLLECTION-INVARIANTS.md 和 V8-COLLECTION-SEASON-INDEX.md。
+V7 合集归属已完成完整验收：单元/API 3561 passed（97.82%），完整集成 3136 passed（89.83%），应用正常退出、证据导出和项目清理均完成。原 P0-6 四条待办已从 TODO 删除；D6 剧集/电影删除仍待处理。
+
+下次优先续接 [V8 D1](V8-COLLECTION-SEASON-INDEX.md)：完整单元/API at 为 3564 passed/8 failed，已确认非法旧夹具及去重继承合集的写入顺序问题；Wikidata 同季冲突新增两项红测。独立副本 `/tmp/rssripple-v8-index-review` 正在补修，扩大回归 `/tmp/rssripple-v8-writepaths-av.log`，尚未同步主工作树或验收。双库并发、只读预检与恢复演练证据保留。[V9 D2](V9-UPGRADE-FOREIGN-KEYS.md) 已复现七处升级外键缺失并保存独立原型，仍待 PostgreSQL 与完整门禁。
 
 所有本地 Compose 测试必须显式唯一 `-p`；完整验证须包含应用正常退出、覆盖率合并/导出和项目清理。此前失败轮保留为失败证据，不能被后续定向通过覆盖。
-
-V8 已独立复现并细化下一项 P1-D1，见 [合集单季唯一约束](V8-COLLECTION-SEASON-INDEX.md)：原实现四项真实 Turso 红测，模型＋轻迁移原型六项通过，PG 启动/升级/写入竞争已通过；升级恢复流程与 API 竞争仍待验证。未应用 root，不影响 V6/V7 冻结源码。
 
 ## 1. 评审背景
 
@@ -31,7 +31,7 @@ V8 已独立复现并细化下一项 P1-D1，见 [合集单季唯一约束](V8-C
 | P0-3 | LLM `inferred_season` 未对照季证据校验 | 已修复 |
 | P0-4 | 维基 judge / TMDB ReAct 身份未接地 | 复核为 P1，已在 V6 修复并完成验收 |
 | P0-5 | `FileResource` 工作 FK 互斥无 DB 约束 | 降为 P2，待办（§3 为历史数据依据） |
-| P0-6 | 剧集必属合集的创建/删除路径可产生孤儿 | 降为 P1，待办（§3 为历史数据依据） |
+| P0-6 | 剧集必属合集的创建/删除路径可产生孤儿 | 降为 P1，V7 已修复并完成验收 |
 
 ## 2. 已完成的 P0 修复
 
@@ -310,3 +310,14 @@ B9 ab 完整单元/API 已结束，退出 0：**3500 passed、14 skipped、6 war
 这批数据为合成来源/LLM＋真实数据库实现，不称为真实来源录制。匿名 Wikipedia REST 页面身份录制接口也返回 HTTP 403；尚未取得成功的来源录制。原型共 9 个实现/测试文件，补丁与 `/tmp/rssripple-v6-grounding-state.json` 已同步，主工作树运行代码未改。下一轮继续审查畸形工具数据边界和可用真实来源回放，完成权威文档同步及完整 95%/85% 门禁后才能关闭两项 P1；上轮“ReAct 尚未修复”是历史状态。
 
 V6 有效代码、测试与权威契约已提交本地 main：`7fd8121`。尚未推送远端。
+
+后续 P1-D2 已建立 [V9 外键升级矩阵](V9-UPGRADE-FOREIGN-KEYS.md)：独立 Turso 原型已补既有列 FK，并通过 27 项 schema/带关联数据/回滚验证；PG、完整启动回归和两道完整门禁仍待完成，不关闭 D2。
+
+
+## V7 最终验收（2026-09-20，au 轮）
+
+完整集成 **3136 passed、17 skipped、8 warnings，1688.63 秒，退出 0**；两个应用 SIGINT 正常退出 0，覆盖率汇总退出 0，**19524/21735（89.83%）**。单元/API 沿用未变实现的 an 轮 **3561 passed、14 skipped，97.82%**。493 个冻结源码/配置文件全部哈希不变，JUnit failures/errors 均 0，证据导出 `/tmp/rssripple-v7-artifacts-au`，隔离项目容器、网络、卷已清理。机器结果见 [au 验收摘要](probes/collection-complete-au-result.json)。
+
+按 code-review-and-quality 复审创建/删除/解绑事务、预加载 ORM 关系、资源映射分页、父锁顺序、启动幂等回填及跨进程竞争；无新增依赖。合集成员/身份袋/手工文件映射保留及 PostgreSQL 并发有真实数据库证据；测试数据为明确构造的关系数据，完整集成继续包含捕获标题和真实 torrent 清单，未宣称新增在线来源录制。
+
+原 P0-6 的四条 API/回填待办已验收，从 pending-only TODO 删除。D6 仅合集删除部分完成，剧集/电影删除与人工映射策略继续保留；D1/D2 原型仍未验收。历史 ap 失败与运行中记录保留，不代表当前验收状态。

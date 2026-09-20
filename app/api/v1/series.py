@@ -12,7 +12,7 @@ from app.schemas.common import paginated_response, success_response
 from app.schemas.series import TVSeriesCreate, TVSeriesResponse, TVSeriesUpdate
 from app.services import fts as fts_service
 from app.services.external_ids import add_external_id
-from app.services.metadata_service import mark_manually_edited
+from app.services.metadata_service import _create_series_collection, mark_manually_edited
 
 router = APIRouter()
 
@@ -68,7 +68,9 @@ async def create_series(
     body: TVSeriesCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    series = TVSeries(**body.model_dump())
+    data = body.model_dump()
+    collection = await _create_series_collection(db, data)
+    series = TVSeries(**data, collection_id=collection.id)
     db.add(series)
     await db.flush()
     await db.refresh(series)

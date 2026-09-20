@@ -543,8 +543,25 @@ async def test_best_effort_savepoint_unavailable():
 
 async def test_create_tables_turso_path(db_engine):
     from app.database import create_tables
+    from app.models.series import TVSeries
+    from app.models.work_collection import WorkCollection
 
+    factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    identity = str(uuid.uuid4())
+    async with factory() as db:
+        db.add(TVSeries(id=identity, title_en="Synthetic Startup Orphan", season_number=3))
+        await db.commit()
     await create_tables()
+    async with factory() as db:
+        member = await db.get(TVSeries, identity)
+        parent = member.collection_id
+        assert parent is not None
+        assert member.season_number == 3
+        assert await db.get(WorkCollection, parent) is not None
+    await create_tables()
+    async with factory() as db:
+        assert (await db.get(TVSeries, identity)).collection_id == parent
+        assert await db.scalar(select(func.count()).select_from(WorkCollection)) == 1
     async with db_engine.begin() as conn:
         cols = (await conn.execute(text("PRAGMA table_info(tv_series)"))).fetchall()
         assert "season_number" in {row[1] for row in cols}
@@ -1310,6 +1327,7 @@ async def test_ensure_pg_trgm_indexes_fake_conn():
 async def test_create_tables_postgres_branch(monkeypatch):
     import app.database as db_mod
     from app.config import settings
+    from app.services import collection_lifecycle
     from app.services import fts as fts_mod
 
     monkeypatch.setattr(
@@ -1322,7 +1340,15 @@ async def test_create_tables_postgres_branch(monkeypatch):
 
     monkeypatch.setattr(db_mod, "_create_tables_postgres", _fake_create)
 
+    async def _fake_orphans():
+        assert called.get("create")
+        called["orphans"] = True
+        return 0
+
+    monkeypatch.setattr(collection_lifecycle, "backfill_orphan_collections", _fake_orphans)
+
     async def _fake_backfill(session):
+        assert called.get("orphans")
         called["backfill"] = True
 
     monkeypatch.setattr(fts_mod, "backfill_search_text", _fake_backfill)
@@ -1339,7 +1365,7 @@ async def test_create_tables_postgres_branch(monkeypatch):
 
     monkeypatch.setattr(db_mod, "async_session_factory", lambda: _Session())
     await db_mod.create_tables()
-    assert called == {"create": True, "backfill": True, "commit": True}
+    assert called == {"create": True, "orphans": True, "backfill": True, "commit": True}
 
 
 async def test_retry_on_lock_unreachable(monkeypatch):

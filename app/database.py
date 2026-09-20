@@ -280,6 +280,9 @@ async def create_tables() -> None:
     """Create all database tables (drop-and-recreate dev strategy)."""
     if "postgresql" in settings.database_url:
         await _create_tables_postgres()
+        from app.services.collection_lifecycle import backfill_orphan_collections
+
+        await backfill_orphan_collections()
         # Backfill search_text for rows created before the column/event hook
         # existed (needed for the pg_trgm indexes).
         from app.services.fts import backfill_search_text
@@ -303,6 +306,10 @@ async def create_tables() -> None:
         else:
             await conn.run_sync(Base.metadata.create_all)
             await _apply_light_migrations(conn)
+
+    from app.services.collection_lifecycle import backfill_orphan_collections
+
+    await backfill_orphan_collections()
 
     if is_turso_url(settings.database_url):
         # One-time backfill for databases whose FTS shadow tables predate the

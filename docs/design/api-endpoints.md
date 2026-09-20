@@ -467,7 +467,7 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | Method | Path | 说明 |
 |--------|------|------|
 | GET | `/series` | 列表（分页，支持 title 模糊搜索） |
-| POST | `/series` | 手动创建剧集元数据（极少使用） |
+| POST | `/series` | 手动创建季作品，并在同一事务建立 series_group 壳合集 |
 | GET | `/series/{id}` | 剧集详情（含 episodes、资源数、任务数） |
 | PUT | `/series/{id}` | 更新剧集元数据（别名合并策略：追加不去重）；显式发送的可编辑字段记入 `manually_edited_fields`（含 `content_type`/`external_id`/`external_source`，身份变更旧值先入 WorkExternalId 身份袋，见上）；`content_type` 显式改为非 tv（如 movie）时，联动清除该剧集下资源残留的 `episode_confidence="ambiguous"`（置 null——非 tv 作品无集号/季号问题） |
 | DELETE | `/series/{id}` | 删除剧集（关联 FileResource 的 series_id 置空，不删资源） |
@@ -497,9 +497,9 @@ Library 为媒体服务器**扫描派生**（R2），收敛为只读 + 局部更
 | GET | `/collections/{id}` | 合集详情（含 `works`: `[{id, title, year, type}]`；`?include_parts=true` 且合集为 `tmdb_collection` 源时额外返回 `untracked_parts`: `[{tmdb_id, title, year, poster_url}]` —— TMDB collection parts 中本地库未收录的作品，按需拉取、进程内 10 分钟缓存、不落库；拉取失败返回空数组） |
 | GET | `/collections/{id}/works` | 合集成员作品分页列表（`page`/`page_size`；每项与 `GET /works` 相同的归一化结构，content_type 为 `tv`/`movie`；**季作品在前按 `season_number` 升序**（特典 0 居首），电影在后按 created_at 倒序） |
 | PATCH | `/collections/{id}` | 更新合集（title_cn/title_en/description/poster_url） |
-| DELETE | `/collections/{id}` | 删除合集（成员作品的 collection_id 置空，不删作品） |
+| DELETE | `/collections/{id}` | 删除合集（季作品重挂新壳，电影可无合集；同步资源及身份袋，不删作品） |
 | POST | `/collections/{id}/works` | 挂载作品（body: `{work_type: "series"\|"movie", work_id}`；重复挂载同合集幂等） |
-| DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（collection_id 置空） |
+| DELETE | `/collections/{id}/works/{work_id}?work_type=` | 从合集移除作品（季作品重挂新壳，电影 collection_id 置空；保留作品和文件指派） |
 
 ---
 
@@ -511,3 +511,6 @@ Agent 新建/编辑的 rules-preview 回填若发生内部候选持久化错误�
 
 
 资源修订补偿：`PATCH /resources/{id}/episode`、`PATCH /resources/{id}`、`PUT /resources/{id}/associations` 将资源及 active Agent 的持久重跑请求一起提交；前两者包含自动修复的兄弟资源。请求写入失败回滚修改；提交后队列忙碌或不可用仍返回保存成功，由周期分发补偿。响应结构不变，保存成功不代表下载已派发。
+
+
+合集生命周期：删除与解绑保留作品 UUID、季号、人工 work_links/file_assignments；关联多新合集的资源清空单一合集指针，不猜归属。无作品依据的 collection-only 资源在删除合集时清指针，单独解绑成员时保留原合集。所有变更同事务提交。attach 在锁定来源/目标后重读成员，若已移到其他未锁定合集返回 409 INVALID_STATE；等待期间目标不存在返回 404。并发重复删除只允许一个成功，后续请求返回 404。

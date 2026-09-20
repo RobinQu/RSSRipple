@@ -79,7 +79,8 @@ class TestCollectionsCRUD:
         assert res.status_code == 200
         assert (await client.get(f"/api/v1/collections/{cid}")).status_code == 404
         await db_session.refresh(sample_series)
-        assert sample_series.collection_id is None
+        assert sample_series.collection_id is not None
+        assert sample_series.collection_id != cid
 
 
 class TestCollectionAttach:
@@ -100,7 +101,8 @@ class TestCollectionAttach:
         )
         assert res.status_code == 200
         await db_session.refresh(sample_series)
-        assert sample_series.collection_id is None
+        assert sample_series.collection_id is not None
+        assert sample_series.collection_id != cid
 
     async def test_attach_occupied_work_returns_409(self, client, sample_movie):
         c1 = (await client.post(

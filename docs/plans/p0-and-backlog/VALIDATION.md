@@ -414,3 +414,72 @@ Turso 包含已有 S3 作品/Episode/身份袋的升级保留回归 **6 passed�
 已从 pending-only TODO 删除原 P0-4 的 Wikipedia/TMDB 两项，权威契约已同步。实际 process/upsert/身份袋、Turso/PG、HTTP 来源适配与 P0 季号回归有证据；来源响应为标注合成数据，已捕获真实标题继续回放，不能称新增了在线成功录制的 Wikipedia/TMDB API 数据。缓存升级不清理历史非法身份。机器摘要见 probes/identity-complete-al-result.json。V7/V8 与其他待办仍未完成。
 
 V6 有效代码、测试与权威契约已提交本地 main：`7fd8121`。尚未推送远端。
+
+## V7 单元/API 终态与 ap 完整集成（2026-09-20）
+
+an 完整单元/API **3561 passed、14 skipped、6 warnings，1465.99 秒，21261/21735（97.82%）**，退出 0；JUnit failures/errors 均 0，493 个冻结源码/配置文件哈希不变。最终复审了 API 创建/删除/解绑事务、跨页资源映射、启动批次回填、预加载关系与跨合集父锁顺序；无新增依赖或未解决的合并阻断项，全仓 Ruff、差异空白检查通过。
+
+13 个实现/测试/权威文档文件先核对原型与当前主工作树基线，再同步到 root，尚未提交。完整集成新项目 `rssripple-v7-complete-20260920-ap`，日志 `/tmp/rssripple-v7-integration-ap.log`，状态 `/tmp/rssripple-v7-gates-ap.json`，冻结 `/tmp/rssripple-v7-source-ap.json`。保留 TODO，等待 runner 终态、应用优雅退出、覆盖率汇总/导出与清理。之前“仅独立副本”及“V6 仍运行”的记载为历史阶段；V6 已提交 7fd8121 并完成清理。
+
+V8 两项 API 冲突红测确认未处理 IntegrityError（2 failed，2.74 秒）。独立副本同步 V7 基线后，在有序父锁下检查目标季槽，明确 409 且保留来源合集/身份袋/别名。API＋迁移 **8 passed，4.51 秒**；既有合集 API＋新冲突 **26 passed，10.95 秒**。仍须 API/后台并发和恢复流程，不关闭 D1。新补丁以当前 V7 未提交工作树为基线，主工作树 ap 冻结源码未变。
+
+## D1 API 检查后的竞争写入（2026-09-20，aq）
+
+真实 PostgreSQL＋生产合集 router/异常处理器的确定性交错复现：API 检查 S1 空闲后暂停，另一事务把目标合集已有 S2 成员改为 S1 并提交，再恢复壳吸收。第一版返回 **500 INTERNAL_SERVER_ERROR**；数据库拒绝重复并回滚，作品/来源合集/身份袋/别名虽保住，但 API 契约错误。此写入不改 collection_id，不能依赖父 FK 锁消除竞争。
+
+原型把壳吸收/直接挂载的完整变更放进 SAVEPOINT，特定 `uq_tv_series_collection_season` 或 Turso 对应列唯一约束才转换为 409。相同交错改为 **409 DUPLICATE_SUBMISSION**，来源合集、incoming 归属、身份袋、目标别名与作品行数全部保留，probe 退出 0。另以实际身份袋唯一约束故障注入确认非季号异常仍抛出，不被误报为季冲突；连同既有合集 API 和迁移回归 **33 passed、1 warning，15.27 秒**。之后仅修复测试 import 排序，Ruff 通过。
+
+驱动见 probes/collection_season_api_pg_probe.py；红/绿机器证据见 probes/collection-season-api-pg-result.json。所有数据明确合成，真实 SQL/HTTP ASGI/事务执行；`rssripple-v8-api-20260920-aq` 项目已清理。待补两个实际 API 同时抢占空槽、metadata/迁移扩大回归、冲突升级预检/恢复步骤、权威契约和完整门禁。离线旧迁移有碰撞合并行为，不能未经人工保护审计就推荐它自动修复所有冲突库。
+
+## 双 API 抢槽、只读预检与迁移扩大（2026-09-20，ar）
+
+两个真实 HTTP ASGI 请求向同一目标挂载不同壳合集的 S1：第一请求检查后暂停，第二请求的 pg_blocking_pids 明确非空；放行后 **201/409**，只有第一作品进入目标。失败方作品/壳/身份袋/资源归属保留，成功方资源与身份随之迁移，目标别名只合并成功方。驱动退出 0，证据为 probes/collection-season-pair-report-pg-result.json，ar 项目已清理。
+
+在既有只读校验器增加 `--collection-conflicts-jsonl PATH` 独立模式，完整导出冲突成员 ID、合集、季号、主身份、标题与人工保护字段；不调用启动或创建索引。Turso 两项真实测试 **2 passed，0.88 秒**，覆盖 103 个冲突成员与合法对照，并记录全部 SQL 均为 SELECT。真实 PostgreSQL CLI 干净数据退出 0、冲突数据退出 1，完整 ID/保护字段与数据库行保持；不把预检退出 1 记为失败测试。
+
+五份权威契约在独立副本准备，包含部署前备份/维护副本预检、冲突先留在旧版本人工核对、通过已支持解绑建壳的版本纠正归属，再预检/完整 verify/双启动；不推荐旧迁移自动合并保护作品。尚需实际恢复流程演练。
+
+季拆分、合集与 franchise 服务扩大首轮 **71 passed、1 failed，23.12 秒**；唯一失败在兄弟列表测试夹具把同合集两作都默认 S1。只将夹具明确为 S1/S2，保留原排除/列表断言，正在复跑相同选择集，日志 `/tmp/rssripple-v8-migration-green.log`。最新原型 13 文件（含五份契约），仍未应用 root；V7 ap 继续冻结运行。
+
+V8 相同迁移/合集/franchise/预检选择集复跑终态：**72 passed、1 warning，22.63 秒，退出 0**。仅修正兄弟列表夹具的明确季号，未弱化约束或断言。后续先审计 metadata 写入与演练冲突库恢复，再执行完整门禁；V7 ap 原句柄继续运行。
+
+## metadata 并发、恢复演练与 at 门禁（2026-09-20，as）
+
+metadata 扩大初轮 **236 passed、1 failed，65.46 秒**；日期回退夹具先放 S0 再创建另一 S0，与新约束冲突。改为在已有特典日期与无日期 S1 的合集创建 S2，仍断言不能借用特典日期，未弱化日期逻辑。
+
+真实 PG 双 upsert 红测发现同一合集空季槽两个 matcher 同时新建时，一成功一 IntegrityError。成员解析改为先 FOR UPDATE 刷新已有父合集再查询/创建，标题回退复用合集同样进入该路径。绿测观察到第二 backend 阻塞，两个事务成功返回同一作品 ID，数据库恰好一行。metadata 服务、单季 upsert、repository、身份修复扩大 **237 passed、1 warning，61.54 秒**。该锁可能覆盖既有海报未命中时下载（既有 30 秒超时），同合集并发会等待；不宣称消除了所有 metadata 并发身份问题。
+
+恢复演练：PG 合成同季冲突与人工编辑数据，实际预检 CLI 退出 1；子进程加载独立 V7 app 调用其解绑端点，为明确指定作品建新壳；预检转 0，V8 连续两次 create_tables 成功且索引存在。原两个作品 ID/人工标题/保护字段/Episode/身份袋/资源关联完整保留。驱动与红绿结果见 probes/collection_season_metadata_pg_probe.py、collection_season_recovery_pg_probe.py、collection-season-metadata-recovery-pg-result.json；as 项目已清理，未操作真实业务数据。
+
+独立副本补齐缺失支持文件，未覆盖原型；全 app/tests/scripts Ruff 通过。最新原型 16 文件，六份权威文档已准备。完整单元/API at 已启动，日志 `/tmp/rssripple-v8-unit-at.log`，句柄 `/tmp/rssripple-v8-gates-at.json`，冻结 `/tmp/rssripple-v8-source-at.json`（496 文件）；不改动冻结源码。尚需终态、最终复审及完整集成，D1 不关闭。
+
+## V7 ap 终态与 au 复验（2026-09-20）
+
+ap 完整集成 **3135 passed、1 failed、17 skipped、8 warnings，1660.44 秒，退出 1**。唯一失败是 HTTP 合集测试在剧集解绑后仍断言 collection=None，与本批“不产生孤儿”的契约冲突；其他 API 功能步骤已通过。应用 SIGINT 正常退出 0，覆盖率汇总退出 0，**19526/21735（89.84%）**；因测试失败不验收。完整证据 `/tmp/rssripple-v7-artifacts-ap`，机器摘要 probes/collection-complete-ap-result.json，ap 项目已清理。
+
+仅修改该 HTTP 断言：返回 200，剧集属于不同于旧目标的新合集，读取新合集验证成员恰好原作品。保留电影最终可无合集、重复解绑 404、错误 work_type 422 等断言。与 ap 冻结文件相比唯一变化为 tests/integration/http/test_coverage_supplement.py；实现及单元/API 源码不变，沿用 an 的 3561 项、97.82% 门禁。新项目 `rssripple-v7-complete-20260920-au`，冻结 `/tmp/rssripple-v7-source-au.json`，后续从 `/tmp/rssripple-v7-gates-au.json` 续接。原型扩为 14 文件。
+
+V8 at 正在运行，保持其 496 文件冻结；副本仍含上述旧 HTTP 断言，须在 at 终态后、启动其完整集成前同步这一个修正，不要在运行中覆盖。
+
+## V9 D2 必要性与三类 schema 矩阵
+
+真实 Turso 首轮新装/升级对照 1 passed、1 failed：升级两次后 TVSeries 无 collection FK，非法父 ID 可实际写入。七个轻迁移 FK 对照 8 passed、8 failed，9.43 秒，新装通过、升级均缺约束。独立原型仅给新列附 REFERENCES/ON DELETE；扩展既有列缺约束后 16 passed、7 failed，31.71 秒，明确存量问题未解决。可恢复补丁、哈希、范围及带子表数据/双库/回滚验收见 V9-UPGRADE-FOREIGN-KEYS.md。未修改 root 或 V8 冻结源码，不关闭 D2。
+
+## Turso 重建方式与模型接入验证
+
+实际后端拒绝 ADD CONSTRAINT（near CONSTRAINT syntax error）。真实 DML 后 foreign_keys=OFF 可读取为 0，但 BEGIN CONCURRENT 中执行重建 DDL 失败，首轮 3 failed、4.63 秒。显式 BEGIN 后 DDL 可执行，然而该版本 foreign_key_check 不返回行，第二轮 3 failed、4.28 秒；不能把无行结果当成无悬空关联。改为明确 LEFT JOIN/非空父键检查后，正常提交、末尾故障回滚、悬空数据拒绝三项 **3 passed，4.07 秒**；CASCADE/SET NULL/RESTRICT 子表均保留，旧列、自定义索引/触发器与回滚后原 schema 均经断言验证。
+
+独立原型新增 schema_foreign_keys.py：Turso 在 schema 阶段提交后、孤儿回填前开单独显式 BEGIN；根据 ORM 目标/删除动作核对实际 FK，预检悬空数据，复制原始 CREATE 定义和实际列，保留显式索引/触发器，外键关闭状态确认后同事务替换，finally 恢复外键。已有但动作/目标不符的 FK 明确拒绝，不猜测改写。只读 schema 检查正常路径不重建。
+
+实际新装/缺列/既有列缺 FK 模型矩阵加重建原语 **26 passed、1 warning，36.53 秒**。随后增加带 Episode/FileResource/身份袋/人工保护及历史额外列、额外唯一索引的模型升级测试，正在运行（/tmp/rssripple-v9-fk-populated.log，句柄见 /tmp/rssripple-v9-fk-state.json）。当前实现仅接入 Turso；PG、新旧关联删除行为、故障注入与完整门禁仍须完成，不关闭 D2。初次独立能力脚本遗漏启用 MVCC 的设置错误已修正，不计为产品缺陷。
+
+带实际模型数据的扩大终态：**27 passed、1 warning，38.06 秒，退出 0**。重复启动后原作品 ID/人工标题/保护字段、Episode、资源、身份袋及额外历史列/唯一索引完整保留。该结果不替代 PG 或完整门禁。
+
+
+## V7 最终验收（2026-09-20，au 轮）
+
+完整集成 **3136 passed、17 skipped、8 warnings，1688.63 秒，退出 0**；两个应用 SIGINT 正常退出 0，覆盖率汇总退出 0，**19524/21735（89.83%）**。单元/API 沿用未变实现的 an 轮 **3561 passed、14 skipped，97.82%**。493 个冻结源码/配置文件全部哈希不变，JUnit failures/errors 均 0，证据导出 `/tmp/rssripple-v7-artifacts-au`，隔离项目容器、网络、卷已清理。机器结果见 [au 验收摘要](probes/collection-complete-au-result.json)。
+
+按 code-review-and-quality 复审创建/删除/解绑事务、预加载 ORM 关系、资源映射分页、父锁顺序、启动幂等回填及跨进程竞争；无新增依赖。合集成员/身份袋/手工文件映射保留及 PostgreSQL 并发有真实数据库证据；测试数据为明确构造的关系数据，完整集成继续包含捕获标题和真实 torrent 清单，未宣称新增在线来源录制。
+
+原 P0-6 的四条 API/回填待办已验收，从 pending-only TODO 删除。D6 仅合集删除部分完成，剧集/电影删除与人工映射策略继续保留；D1/D2 原型仍未验收。历史 ap 失败与运行中记录保留，不代表当前验收状态。

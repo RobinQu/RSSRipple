@@ -1,0 +1,31 @@
+{
+  "project": "rssripple-v7-complete-20260920-au",
+  "unit_api": {
+    "passed": 3561,
+    "skipped": 14,
+    "warnings": 6,
+    "seconds": 1465.99,
+    "covered": 21261,
+    "valid": 21735,
+    "exit_code": 0
+  },
+  "integration": {
+    "passed": 3136,
+    "failed": 0,
+    "skipped": 17,
+    "warnings": 8,
+    "seconds": 1688.63,
+    "runner_exit_code": 0,
+    "coverage_exit_code": 0,
+    "covered": 19524,
+    "valid": 21735
+  },
+  "app_exit_codes": [
+    0,
+    0
+  ],
+  "artifacts": "/tmp/rssripple-v7-artifacts-au",
+  "frozen_source_files_unchanged": 493,
+  "cleanup": "complete",
+  "acceptance": true
+}

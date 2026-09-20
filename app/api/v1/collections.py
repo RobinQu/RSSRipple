@@ -10,7 +10,6 @@ except when the current collection is a single-member ``series_group`` shell
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, or_, select
-from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -188,7 +187,7 @@ async def update_collection(
     body: WorkCollectionUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    collection = await db.get(WorkCollection, collection_id)
+    collection = await db.get(WorkCollection, collection_id, with_for_update=True)
     if not collection:
         return _not_found()
     for key, value in body.model_dump(exclude_unset=True).items():
@@ -200,21 +199,12 @@ async def update_collection(
 
 @router.delete("/collections/{collection_id}")
 async def delete_collection(collection_id: str, db: AsyncSession = Depends(get_db)):
-    collection = await db.get(WorkCollection, collection_id)
+    collection = await db.get(WorkCollection, collection_id, with_for_update=True)
     if not collection:
         return _not_found()
-    # Detach member works (set NULL), then delete the collection itself.
-    await db.execute(
-        sql_update(TVSeries)
-        .where(TVSeries.collection_id == collection_id)
-        .values(collection_id=None)
-    )
-    await db.execute(
-        sql_update(Movie)
-        .where(Movie.collection_id == collection_id)
-        .values(collection_id=None)
-    )
-    await db.delete(collection)
+    from app.services.collection_lifecycle import remove_collection
+
+    await remove_collection(db, collection)
     await db.commit()
     return success_response({"deleted": True})
 
@@ -251,6 +241,30 @@ async def attach_work(
                 "error": {"code": "NOT_FOUND", "message": "Work not found"},
             },
         )
+    # Shell absorption writes both parents. Lock them in a common order
+    # before taking the member lock, so opposite moves cannot deadlock.
+    parent_ids = {collection_id}
+    if work.collection_id:
+        parent_ids.add(work.collection_id)
+    locked = {
+        parent.id: parent
+        for parent in await db.scalars(
+            select(WorkCollection).where(WorkCollection.id.in_(parent_ids))
+            .order_by(WorkCollection.id).with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    }
+    collection = locked.get(collection_id)
+    if collection is None:
+        return _not_found()
+    work = await db.get(model, body.work_id, with_for_update=True, populate_existing=True)
+    if work is None:
+        return _not_found()
+    if work.collection_id is not None and work.collection_id not in locked:
+        return JSONResponse(status_code=409, content={
+            "success": False, "data": None,
+            "error": {"code": "INVALID_STATE", "message": "Work changed collections; retry attachment."},
+        })
     if work.collection_id == collection_id:
         # Already a member of THIS collection — idempotent attach.
         return success_response({"attached": True, "work_type": body.work_type, "work_id": body.work_id})
@@ -289,7 +303,7 @@ async def detach_work(
     work_type: str = Query(..., description="'series' or 'movie'"),
     db: AsyncSession = Depends(get_db),
 ):
-    collection = await db.get(WorkCollection, collection_id)
+    collection = await db.get(WorkCollection, collection_id, with_for_update=True)
     if not collection:
         return _not_found()
     model = _work_model(work_type)
@@ -305,7 +319,7 @@ async def detach_work(
                 },
             },
         )
-    work = await db.get(model, work_id)
+    work = await db.get(model, work_id, with_for_update=True)
     if work is None or work.collection_id != collection_id:
         return JSONResponse(
             status_code=404,
@@ -315,6 +329,7 @@ async def detach_work(
                 "error": {"code": "NOT_FOUND", "message": "Work not found in this collection"},
             },
         )
-    work.collection_id = None
-    await db.flush()
+    from app.services.collection_lifecycle import detach_member
+
+    await detach_member(db, collection_id, work)
     return success_response({"detached": True, "work_type": work_type, "work_id": work_id})

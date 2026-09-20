@@ -894,3 +894,20 @@
 +合集归属回归：tests/api/test_collection_invariants.py 覆盖真实 API→commit→重新读库的创建/删除/解绑、身份袋清理、人工关联保留、多作品不猜合集、故障回滚、回填幂等及预加载父子关系。test_collection_resource_boundaries.py 每场景植入 103 条资源，交叉覆盖电影/剧集、删除/解绑、直接 FK/work_links/文件指派，验证跨页处理及不相关资源不变。test_database_migrations.py 对实际 Turso create_tables 连跑两次验证旧孤儿修复，PG 分支单测只验证调用顺序。
 +
 +PostgreSQL 实际回填并发、预加载关系、重复删除及反向壳吸收的驱动位于 docs/plans/p0-and-backlog/probes/collection*_pg_probe.py。它们会清空明确指定的回环地址 organize_test 专用库，必须配独立 Compose 项目；禁止指向业务库。数据为明确的合成 ORM 行，SQL/事务/锁行为真实。专项不替代完整单元/API 95% 与隔离集成 85% 门禁。
+--- a/tests/integration/http/test_coverage_supplement.py
++++ b/tests/integration/http/test_coverage_supplement.py
+@@ -361,7 +361,13 @@
+             assert r.status_code == 422
+ 
+             r = _api(f"/api/v1/series/{sid}")
+-            assert r.json()["data"]["collection"] is None
++            assert r.status_code == 200
++            # A detached season remains a work with its own shell collection.
++            parent = r.json()["data"]["collection"]
++            assert parent is not None and parent["id"] not in {cid, cid2}
++            r = _api(f"/api/v1/collections/{parent['id']}")
++            assert r.status_code == 200
++            assert {work["id"] for work in r.json()["data"]["works"]} == {sid}
+         finally:
+             # Deleting the collection detaches remaining member works.
+             _quiet_delete(f"/api/v1/collections/{cid}")

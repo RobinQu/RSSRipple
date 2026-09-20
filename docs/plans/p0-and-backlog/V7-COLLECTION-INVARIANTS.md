@@ -64,3 +64,26 @@ ak PostgreSQL 在显式 selectinload 合集成员后复验，确认 ORM 关系�
 跨合集反向壳吸收出现新的锁顺序问题：原型先锁目标、再删除来源，两个反向请求交错导致 PostgreSQL `40P01`，结果为 201/500。已保留 [探针](probes/collection_swap_pg_probe.py)。改为按 ID 排序锁来源与目标，再锁作品并重新读取归属；若已变为未锁定第三个合集则 409 INVALID_STATE，目标已消失则 404。修正后实际 pg_blocking_pids 观测到第二请求等待，结果 201/404，只有一个合集且两个作品均保留；[结果](probes/collection-swap-pg-result.json)。am 专用测试库已清理。相关 API 扩大 **45 passed，19.42 秒**（`/tmp/rssripple-v7-lock-order-api.xml`）。
 
 5 份权威文档已在副本准备，原型共 13 个实现/测试/文档文件，未合入主工作树。缺失的已跟踪脚本/配置已补到独立副本，未覆盖原型；除本批改动外的源码哈希与主工作树一致。完整单元/API 95% 门禁已在副本启动，日志 `/tmp/rssripple-v7-unit-an.log`，句柄 `/tmp/rssripple-v7-gates-an.json`，冻结清单 `/tmp/rssripple-v7-source-an.json`（493 源码/配置文件）。终态前不修改副本源码，不关闭 TODO；完整集成、最终复审及同步仍待完成。主工作树 V6 al 完整集成仍运行。
+
+## V7 单元/API 终态与 ap 完整集成（2026-09-20）
+
+an 完整单元/API **3561 passed、14 skipped、6 warnings，1465.99 秒，21261/21735（97.82%）**，退出 0；JUnit failures/errors 均 0，493 个冻结源码/配置文件哈希不变。最终复审了 API 创建/删除/解绑事务、跨页资源映射、启动批次回填、预加载关系与跨合集父锁顺序；无新增依赖或未解决的合并阻断项，全仓 Ruff、差异空白检查通过。
+
+13 个实现/测试/权威文档文件先核对原型与当前主工作树基线，再同步到 root，尚未提交。完整集成新项目 `rssripple-v7-complete-20260920-ap`，日志 `/tmp/rssripple-v7-integration-ap.log`，状态 `/tmp/rssripple-v7-gates-ap.json`，冻结 `/tmp/rssripple-v7-source-ap.json`。保留 TODO，等待 runner 终态、应用优雅退出、覆盖率汇总/导出与清理。之前“仅独立副本”及“V6 仍运行”的记载为历史阶段；V6 已提交 7fd8121 并完成清理。
+
+## V7 ap 终态与 au 复验（2026-09-20）
+
+ap 完整集成 **3135 passed、1 failed、17 skipped、8 warnings，1660.44 秒，退出 1**。唯一失败是 HTTP 合集测试在剧集解绑后仍断言 collection=None，与本批“不产生孤儿”的契约冲突；其他 API 功能步骤已通过。应用 SIGINT 正常退出 0，覆盖率汇总退出 0，**19526/21735（89.84%）**；因测试失败不验收。完整证据 `/tmp/rssripple-v7-artifacts-ap`，机器摘要 probes/collection-complete-ap-result.json，ap 项目已清理。
+
+仅修改该 HTTP 断言：返回 200，剧集属于不同于旧目标的新合集，读取新合集验证成员恰好原作品。保留电影最终可无合集、重复解绑 404、错误 work_type 422 等断言。与 ap 冻结文件相比唯一变化为 tests/integration/http/test_coverage_supplement.py；实现及单元/API 源码不变，沿用 an 的 3561 项、97.82% 门禁。新项目 `rssripple-v7-complete-20260920-au`，冻结 `/tmp/rssripple-v7-source-au.json`，后续从 `/tmp/rssripple-v7-gates-au.json` 续接。原型扩为 14 文件。
+
+V8 at 正在运行，保持其 496 文件冻结；副本仍含上述旧 HTTP 断言，须在 at 终态后、启动其完整集成前同步这一个修正，不要在运行中覆盖。
+
+
+## V7 最终验收（2026-09-20，au 轮）
+
+完整集成 **3136 passed、17 skipped、8 warnings，1688.63 秒，退出 0**；两个应用 SIGINT 正常退出 0，覆盖率汇总退出 0，**19524/21735（89.83%）**。单元/API 沿用未变实现的 an 轮 **3561 passed、14 skipped，97.82%**。493 个冻结源码/配置文件全部哈希不变，JUnit failures/errors 均 0，证据导出 `/tmp/rssripple-v7-artifacts-au`，隔离项目容器、网络、卷已清理。机器结果见 [au 验收摘要](probes/collection-complete-au-result.json)。
+
+按 code-review-and-quality 复审创建/删除/解绑事务、预加载 ORM 关系、资源映射分页、父锁顺序、启动幂等回填及跨进程竞争；无新增依赖。合集成员/身份袋/手工文件映射保留及 PostgreSQL 并发有真实数据库证据；测试数据为明确构造的关系数据，完整集成继续包含捕获标题和真实 torrent 清单，未宣称新增在线来源录制。
+
+原 P0-6 的四条 API/回填待办已验收，从 pending-only TODO 删除。D6 仅合集删除部分完成，剧集/电影删除与人工映射策略继续保留；D1/D2 原型仍未验收。历史 ap 失败与运行中记录保留，不代表当前验收状态。

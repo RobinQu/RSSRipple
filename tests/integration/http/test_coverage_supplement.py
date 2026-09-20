@@ -361,7 +361,13 @@ class TestCollections:
             assert r.status_code == 422
 
             r = _api(f"/api/v1/series/{sid}")
-            assert r.json()["data"]["collection"] is None
+            assert r.status_code == 200
+            # A detached season remains a work with its own shell collection.
+            parent = r.json()["data"]["collection"]
+            assert parent is not None and parent["id"] not in {cid, cid2}
+            r = _api(f"/api/v1/collections/{parent['id']}")
+            assert r.status_code == 200
+            assert {work["id"] for work in r.json()["data"]["works"]} == {sid}
         finally:
             # Deleting the collection detaches remaining member works.
             _quiet_delete(f"/api/v1/collections/{cid}")
