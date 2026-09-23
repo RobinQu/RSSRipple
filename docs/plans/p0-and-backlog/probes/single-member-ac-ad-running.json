@@ -1,0 +1,17 @@
+{
+  "prototype": "/tmp/rssripple-v16-rebased",
+  "freeze": "single-member-ac-frozen.json",
+  "unit": {
+    "session": 64931,
+    "log": "/tmp/rssripple-v16-unit-ac.log",
+    "threshold": 95
+  },
+  "integration": {
+    "project": "rssripple-v16-final-ad",
+    "startup_exit": 0,
+    "log": "/tmp/rssripple-v16-integration-ad.log",
+    "threshold": 85,
+    "session": 48083
+  },
+  "accepted": false
+}

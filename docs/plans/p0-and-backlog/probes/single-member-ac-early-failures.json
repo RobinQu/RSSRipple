@@ -1,0 +1,16 @@
+[
+  "tests/unit/test_anime_signals.py::test_upsert_series_is_anime_lifecycle",
+  "tests/unit/test_anime_signals.py::test_upsert_series_identity_marks_anime",
+  "tests/unit/test_anime_signals.py::test_upsert_series_no_evidence_stays_null",
+  "tests/unit/test_external_ids.py::test_upsert_converges_cross_source_via_bag",
+  "tests/unit/test_external_ids.py::test_upsert_bags_alt_external_ids",
+  "tests/unit/test_external_ids.py::test_seed_migration_does_not_duplicate_upsert_bagged_ids",
+  "tests/unit/test_franchise_service.py::test_two_members_create_collection_and_link",
+  "tests/unit/test_franchise_service.py::test_partial_member_failure_still_links",
+  "tests/unit/test_franchise_service.py::test_collection_reused_on_second_run",
+  "tests/unit/test_franchise_service.py::test_ova_member_upserted_as_season_zero",
+  "tests/unit/test_franchise_service.py::test_unmarked_tv_member_goes_to_shell_not_pack_s1",
+  "tests/unit/test_franchise_service.py::test_unmarked_base_name_member_takes_pack_s1",
+  "tests/unit/test_franchise_service.py::test_resolve_member_local_lookup_failure_still_upserts",
+  "tests/unit/test_genre_registry.py::test_write_back_normalizes_genre_on_create"
+]

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="1.574" timestamp="2026-09-23T15:35:30.950855+00:00" hostname="dl-workstation-albert"><testcase classname="tests.api.test_auth_throttling" name="test_repeated_invalid_otp_is_bounded" time="1.461"><failure message="AssertionError: {'statuses': [401, 401, 401, 401, 401, 401, ...], 'verification_calls': 20}&#10;assert False&#10; +  where False = any(&lt;generator object test_repeated_invalid_otp_is_bounded.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f854ace5560&gt;)">tests/api/test_auth_throttling.py:15: in test_repeated_invalid_otp_is_bounded
+    assert any(r.status_code == 429 for r in responses), {
+E   AssertionError: {'statuses': [401, 401, 401, 401, 401, 401, ...], 'verification_calls': 20}
+E   assert False
+E    +  where False = any(&lt;generator object test_repeated_invalid_otp_is_bounded.&lt;locals&gt;.&lt;genexpr&gt; at 0x7f854ace5560&gt;)</failure></testcase></testsuite></testsuites>

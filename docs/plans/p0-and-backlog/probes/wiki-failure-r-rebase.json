@@ -1,0 +1,22 @@
+{
+  "prototype": "/tmp/rssripple-v17-rebased",
+  "base_prototype": "/tmp/rssripple-v16-rebased",
+  "files": {
+    "app/services/metadata_wiki_judge.py": "a90061401099b073d7b2f507749402c305355e5440516cc15ea493296d562f73",
+    "app/services/metadata_search_agent.py": "b82aa3899b2b112b960cce7b100b72c3b2d8623a6c2d455c7f84835134712889",
+    "tests/unit/test_wiki_failure_cache.py": "9f98815f9eae725a0d667661ab762e17463a1850fa5c1b122067529b07afc021",
+    "tests/unit/test_metadata_search_agent.py": "269d1a51565ecee0888bfd35c966537b9677255736459578872e2164b9ea1238",
+    "tests/integration/metadata/wiki_failure_driver.py": "113b882b865ef9b1ea4371a93332677070564252823f4f8e179d8b8713221d78",
+    "tests/integration/metadata/test_wiki_failure_cache.py": "a394dbec6a9218c6cdff7086d4e302fd2d00135e6f0a94ee40bb1c5cecbfce5b",
+    "docs/design/business-logic.md": "4383317285ba8aba57569f2d3a75446f4e8eac5c57d8526c78be6cfd1b277fef",
+    "docs/testing/integration-inventory.md": "f2b3f4bd707c0feff7c82a92cf773bb2fc4990cf9f5c7db3c0af54731d73263a"
+  },
+  "status": "combined regression passed; M2 baseline not yet accepted",
+  "result": {
+    "passed": 370,
+    "failures": 0,
+    "errors": 0,
+    "seconds": 153.88,
+    "exit_code": 0
+  }
+}

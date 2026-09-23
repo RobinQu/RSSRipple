@@ -1,0 +1,88 @@
+......................FF.F................FF....F.............FFF....... [ 45%]
+.F.........F.........................F.................................. [ 90%]
+................                                                         [100%]
+=================================== FAILURES ===================================
+____________________ test_upsert_series_is_anime_lifecycle _____________________
+tests/unit/test_anime_signals.py:160: in test_upsert_series_is_anime_lifecycle
+    assert s.is_anime is False
+           ^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'is_anime'
+___________________ test_upsert_series_identity_marks_anime ____________________
+tests/unit/test_anime_signals.py:190: in test_upsert_series_identity_marks_anime
+    assert s.is_anime is True
+           ^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'is_anime'
+__________________ test_upsert_series_no_evidence_stays_null ___________________
+tests/unit/test_anime_signals.py:215: in test_upsert_series_no_evidence_stays_null
+    assert s.is_anime is None
+           ^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'is_anime'
+__________________ test_upsert_converges_cross_source_via_bag __________________
+tests/unit/test_external_ids.py:146: in test_upsert_converges_cross_source_via_bag
+    assert s1.collection_id is not None
+           ^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'collection_id'
+______________________ test_upsert_bags_alt_external_ids _______________________
+tests/unit/test_external_ids.py:198: in test_upsert_bags_alt_external_ids
+    assert await _bag_pairs(db_session, "series", s1.id) == {
+                                                  ^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'id'
+___________ test_seed_migration_does_not_duplicate_upsert_bagged_ids ___________
+tests/unit/test_external_ids.py:333: in test_seed_migration_does_not_duplicate_upsert_bagged_ids
+    ("collection", s.collection_id, "wikipedia:1"),
+                   ^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'collection_id'
+_________________ test_two_members_create_collection_and_link __________________
+tests/unit/test_franchise_service.py:159: in test_two_members_create_collection_and_link
+    assert len(colls) == 1
+E   assert 2 == 1
+E    +  where 2 = len([<app.models.work_collection.WorkCollection object at 0x7f179811ed00>, <app.models.work_collection.WorkCollection object at 0x7f17981e7c50>])
+___________________ test_partial_member_failure_still_links ____________________
+tests/unit/test_franchise_service.py:196: in test_partial_member_failure_still_links
+    assert len(colls) == 1
+E   assert 2 == 1
+E    +  where 2 = len([<app.models.work_collection.WorkCollection object at 0x7f177881d250>, <app.models.work_collection.WorkCollection object at 0x7f177881f650>])
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.franchise_service:franchise_service.py:285 [franchise] member match failed for '作品X OVA': llm down
+WARNING  app.services.franchise_service:franchise_service.py:478 [franchise] resource cde3010d-b0de-49a5-9922-536841a493ce: all 3 members failed to resolve; keeping parent collection '作品X 系列'
+_____________________ test_collection_reused_on_second_run _____________________
+tests/unit/test_franchise_service.py:222: in test_collection_reused_on_second_run
+    assert len(colls) == 1
+E   assert 2 == 1
+E    +  where 2 = len([<app.models.work_collection.WorkCollection object at 0x7f17788b9310>, <app.models.work_collection.WorkCollection object at 0x7f17788b8c50>])
+___________________ test_ova_member_upserted_as_season_zero ____________________
+tests/unit/test_franchise_service.py:464: in test_ova_member_upserted_as_season_zero
+    assert by_id["bangumi:100"].season_number == 1
+           ^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'bangumi:100'
+____________ test_resolve_member_local_lookup_failure_still_upserts ____________
+tests/unit/test_franchise_service.py:821: in test_resolve_member_local_lookup_failure_still_upserts
+    assert result is not None
+E   assert None is not None
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.franchise_service:franchise_service.py:318 [franchise] local reuse check failed for '作品X': local lookup down
+__________________ test_write_back_normalizes_genre_on_create __________________
+tests/unit/test_genre_registry.py:139: in test_write_back_normalizes_genre_on_create
+    assert s.genre == ["Animation", "Drama"]
+           ^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'genre'
+=============================== warnings summary ===============================
+tests/unit/test_anime_signals.py::test_is_anime_from_tmdb[genre_ids0-ja-countries0-True]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_anime_signals.py::test_upsert_series_is_anime_lifecycle
+FAILED tests/unit/test_anime_signals.py::test_upsert_series_identity_marks_anime
+FAILED tests/unit/test_anime_signals.py::test_upsert_series_no_evidence_stays_null
+FAILED tests/unit/test_external_ids.py::test_upsert_converges_cross_source_via_bag
+FAILED tests/unit/test_external_ids.py::test_upsert_bags_alt_external_ids - A...
+FAILED tests/unit/test_external_ids.py::test_seed_migration_does_not_duplicate_upsert_bagged_ids
+FAILED tests/unit/test_franchise_service.py::test_two_members_create_collection_and_link
+FAILED tests/unit/test_franchise_service.py::test_partial_member_failure_still_links
+FAILED tests/unit/test_franchise_service.py::test_collection_reused_on_second_run
+FAILED tests/unit/test_franchise_service.py::test_ova_member_upserted_as_season_zero
+FAILED tests/unit/test_franchise_service.py::test_resolve_member_local_lookup_failure_still_upserts
+FAILED tests/unit/test_genre_registry.py::test_write_back_normalizes_genre_on_create
+12 failed, 148 passed, 1 warning in 131.90s (0:02:11)

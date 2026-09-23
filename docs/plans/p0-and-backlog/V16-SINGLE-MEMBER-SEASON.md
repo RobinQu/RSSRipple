@@ -105,3 +105,15 @@ y 扩大回归退出 1：306 passed、1 failed（372.39 秒），唯一失败 in
 aa 诊断结束：最终图仅三个 OVA 的 MAL 壳作品/指派发生差异（mal:821、3931、5228，旧预期均为 S1；新结果不建季作品，三个文件 work/season=None）。普通六季、已有特典与电影关联保持一致；13 个请求计数变化。需逐条审查录制源是否有明确季证据以及原审核答案的 S1 依据，不能恢复默认猜季，也不能把诊断次数放宽直接用于验收。
 
 aa 录制源重审：原 evidence_note 明确三 MAL 条目为 identity-only，三个录制 finalize 的 inferred_season=null，均无 S1 依据。新增独立 review/cassette 版本，保留旧版；仅移除三默认 S1 壳作品期望，三个文件 work/season=null，原其他字段与未知覆盖不派发断言保持不变。调整精确录制请求次数（不改响应），来源哈希/旧指派/计数差异均留审计。ab 正式严格回放 3 passed，6.80 秒。当前 13 文件哈希与可恢复归档见 single-member-v-rebase.json、single-member-ab-candidate.tar.gz；尚待最终审查/完整门禁。
+
+## ac / ad 完整门禁启动
+
+13 文件候选以已合入 M1 为基线，核验未列入清单的文件无差异。相关 Ruff 全通过；3051 文件冻结于 single-member-ac-frozen.json，验证期间禁止改动。ac 完整单元/API（64931）要求 ≥95%；ad 完整集成唯一项目 rssripple-v16-final-ad，启动退出 0，报告要求 ≥85%。五维审查见 V16-FINAL-REVIEW.md，仅允许验收，未批准合入。结束后必须完成应用 SIGINT/退出码、覆盖率汇总、报告导出、跳过审计及项目清理。
+
+## 全量门禁失败的独立定位（ae）
+
+ac 单元/API 与 ad 集成原进程继续运行，冻结候选未修改。通过 collect-only 节点顺序定位 ac 首批失败，在独立 `/tmp/rssripple-v16-failure-review` 复现：14 failed、108 passed，51.27 秒，退出 1；日志/JUnit 为 probes/single-member-ae.*。失败集中于 anime、genre、外部身份袋和 franchise 测试中无季号证据却预期创建 S1。
+
+方案再论证：字段更新/身份收敛用例应显式提供合法季号证据，保留原字段与身份断言；两个 franchise 无证据测试原本明确要求创建 S1，违反单季化不猜季约束，须改为无 TVSeries、无可派发关联，且保留明确 First Stage 的正例。不能恢复默认 S1 来通过旧测试。独立副本先验证夹具修订与现有 38 项证据矩阵，全量冻结候选仍不允许合入。
+
+夹具 af 尝试 12 failed、148 passed，131.90 秒：两项不猜季负例与 38 项矩阵通过；补在来源数据顶层的 season_number 不属于 upsert 输入契约，剩余失败仍在原路径。已归档 af 证据；ag 改用直接调用的 season_hint=1 与 franchise 合成来源的明确 Season 1 别名，保留其余断言，正在同一独立副本复验。四份测试修改见 probes/single-member-ag-fixtures.patch，未修改运行代码，也未改动 ac/ad 冻结文件。

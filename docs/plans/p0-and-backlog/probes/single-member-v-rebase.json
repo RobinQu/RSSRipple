@@ -1,14 +1,14 @@
 {
   "prototype": "/tmp/rssripple-v16-rebased",
   "base_prototype": "/tmp/rssripple-v15-vu",
-  "status": "x38passed zPG38passed; y306passed1failed; ab strict corpus3passed after source-bound review; full gates pending",
+  "status": "final full gates ac/ad starting",
   "files": {
     "app/services/metadata_service.py": "89a4acac2b1dd57e967af01f2c73f66788773f1d0d9a0267eb7e92c83a1c6bfb",
     "tests/unit/test_collection_member_season_evidence.py": "c8b6747def0b4b11cea57146b6082090514159cd401a7dcd80f0bcc12ef2c2fe",
     "docs/design/business-logic.md": "81916b2814f339112fcc5bca965b9d237956d8406853ccbec6011025e19b49d9",
     "docs/design/per-season-works.md": "f434769e9a3385f76a905acf84c554a02b3faf765128f733c4bf1263b6e576a6",
-    "tests/unit/test_metadata_service.py": "432cc7fa0879bd86c28a3d4bf9e1128d98f2d65e606c6f66c6d34890ac4182f2",
-    "tests/integration/metadata/season_evidence_driver.py": "70fd85d35f9b61d9cd593c223102a09e0f2d2b4b22097cf313b69141eaf4fac9",
+    "tests/unit/test_metadata_service.py": "21c397a2d5e86263b3f26003c5ab32b001c1018beb146a26ba7d4435d0b3369d",
+    "tests/integration/metadata/season_evidence_driver.py": "77632947fd069b39ab50948c973ba51f7acb7e49683208f4122f086c9c4e5912",
     "tests/integration/metadata/test_collection_season_evidence.py": "6b7061e17a5c80b2a2f7cf521c8c011f905dd0c9750c8725ec2ba3690f181be3",
     "docs/testing/integration-inventory.md": "436dfc1256730d2343fd54d10525111aa44c20456b7c1d50b9d3be4fa58e633a",
     "tests/fixtures/metadata_corpus_v2/manifest.json": "9e9c25a4ea2c8e49b7d188dc25c7731537f50fa88e0b8b889eb8eee69d36730e",
@@ -16,5 +16,21 @@
     "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz": "7b37f1c5218c311c769783516c8f717816db0acde3601f8b867a35822b427fd2",
     "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.audit.json": "9949e452480481824105d7a504bd11cf0fd528f65b225256fee72ca09f8aa10b",
     "docs/testing/metadata-corpus.md": "bc1a0398429195f854da6b38a3402cc114a8dfff2b4435cd0876e2653fa5e607"
+  },
+  "base_commit": "c5b879290eea9096d68b5baa8e7257530a2cab76",
+  "base_hashes": {
+    "app/services/metadata_service.py": "abd5b64e88f2103642c7b04356fb58db640f549c1f87fd85dc69fe42c9294d23",
+    "tests/unit/test_collection_member_season_evidence.py": null,
+    "docs/design/business-logic.md": "03c6dc9e8f0c8c8a266beec8b86da4aa5089ba4e87878bc5091d16a196c5c74c",
+    "docs/design/per-season-works.md": "9c2c4aeb0f1ad3121b387cec290356e5da9ebce580f7f604e5cc8a5a4ae39ba6",
+    "tests/unit/test_metadata_service.py": "54f1e3a785713508d4f094813c76672140afb40fe48bc14e121a3db1151c7569",
+    "tests/integration/metadata/season_evidence_driver.py": null,
+    "tests/integration/metadata/test_collection_season_evidence.py": null,
+    "docs/testing/integration-inventory.md": "7c66801008681c113484446bfe1454d3f7558ee42614fc08da6567242b2a7ccf",
+    "tests/fixtures/metadata_corpus_v2/manifest.json": "f7f934a4e7e4595c03e6993febc46407d14e731d6a3b2511ce063938912cbbd6",
+    "tests/fixtures/metadata_corpus_v2/reviews-season-evidence.json": null,
+    "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.json.gz": null,
+    "tests/fixtures/metadata_corpus_v2/http/initial_d_franchise_season_evidence.audit.json": null,
+    "docs/testing/metadata-corpus.md": "d17dd6e1449325d47db3e5de95e3c19a28b3d8e8b988b00cfdba02c99296833d"
   }
 }

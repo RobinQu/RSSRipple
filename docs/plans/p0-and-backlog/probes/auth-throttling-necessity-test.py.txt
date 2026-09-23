@@ -1,0 +1,18 @@
+"""Local ASGI necessity probe; no production secret or network requests."""
+from tests.api.test_auth import auth_client  # noqa: F401
+
+
+async def test_repeated_invalid_otp_is_bounded(auth_client, monkeypatch):
+    calls = []
+
+    def reject(secret, code):
+        calls.append(code)
+        return False
+
+    monkeypatch.setattr("app.api.v1.auth.verify_totp", reject)
+    responses = [await auth_client.post("/api/v1/auth/otp", json={"code": "000000"})
+                 for _ in range(20)]
+    assert any(r.status_code == 429 for r in responses), {
+        "statuses": [r.status_code for r in responses], "verification_calls": len(calls),
+    }
+    assert len(calls) < 20

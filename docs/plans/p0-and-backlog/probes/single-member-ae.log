@@ -1,0 +1,105 @@
+......................FF.F................FF....F.............FFF....... [ 59%]
+.F.....FF..F.........................F............                       [100%]
+=================================== FAILURES ===================================
+____________________ test_upsert_series_is_anime_lifecycle _____________________
+../rssripple-v16-rebased/tests/unit/test_anime_signals.py:160: in test_upsert_series_is_anime_lifecycle
+    assert s.is_anime is False
+           ^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'is_anime'
+___________________ test_upsert_series_identity_marks_anime ____________________
+../rssripple-v16-rebased/tests/unit/test_anime_signals.py:189: in test_upsert_series_identity_marks_anime
+    assert s.is_anime is True
+           ^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'is_anime'
+__________________ test_upsert_series_no_evidence_stays_null ___________________
+../rssripple-v16-rebased/tests/unit/test_anime_signals.py:213: in test_upsert_series_no_evidence_stays_null
+    assert s.is_anime is None
+           ^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'is_anime'
+__________________ test_upsert_converges_cross_source_via_bag __________________
+../rssripple-v16-rebased/tests/unit/test_external_ids.py:146: in test_upsert_converges_cross_source_via_bag
+    assert s1.collection_id is not None
+           ^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'collection_id'
+______________________ test_upsert_bags_alt_external_ids _______________________
+../rssripple-v16-rebased/tests/unit/test_external_ids.py:197: in test_upsert_bags_alt_external_ids
+    assert await _bag_pairs(db_session, "series", s1.id) == {
+                                                  ^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'id'
+___________ test_seed_migration_does_not_duplicate_upsert_bagged_ids ___________
+../rssripple-v16-rebased/tests/unit/test_external_ids.py:331: in test_seed_migration_does_not_duplicate_upsert_bagged_ids
+    ("collection", s.collection_id, "wikipedia:1"),
+                   ^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'collection_id'
+_________________ test_two_members_create_collection_and_link __________________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:158: in test_two_members_create_collection_and_link
+    assert len(colls) == 1
+E   assert 2 == 1
+E    +  where 2 = len([<app.models.work_collection.WorkCollection object at 0x7faf98f93e10>, <app.models.work_collection.WorkCollection object at 0x7faf9a063350>])
+___________________ test_partial_member_failure_still_links ____________________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:195: in test_partial_member_failure_still_links
+    assert len(colls) == 1
+E   assert 2 == 1
+E    +  where 2 = len([<app.models.work_collection.WorkCollection object at 0x7faf9a097650>, <app.models.work_collection.WorkCollection object at 0x7faf9a0d5a90>])
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.franchise_service:franchise_service.py:285 [franchise] member match failed for '作品X OVA': llm down
+WARNING  app.services.franchise_service:franchise_service.py:478 [franchise] resource a67c5a1d-95af-43bf-b6b3-e1221e6299e1: all 3 members failed to resolve; keeping parent collection '作品X 系列'
+_____________________ test_collection_reused_on_second_run _____________________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:221: in test_collection_reused_on_second_run
+    assert len(colls) == 1
+E   assert 2 == 1
+E    +  where 2 = len([<app.models.work_collection.WorkCollection object at 0x7fafb277b710>, <app.models.work_collection.WorkCollection object at 0x7fafb277b050>])
+___________________ test_ova_member_upserted_as_season_zero ____________________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:462: in test_ova_member_upserted_as_season_zero
+    assert by_id["bangumi:100"].season_number == 1
+           ^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'bangumi:100'
+______________ test_unmarked_tv_member_goes_to_shell_not_pack_s1 _______________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:749: in test_unmarked_tv_member_goes_to_shell_not_pack_s1
+    battle, first = works["mal:821"], works["bangumi:8290"]
+                    ^^^^^^^^^^^^^^^^
+E   KeyError: 'mal:821'
+_________________ test_unmarked_base_name_member_takes_pack_s1 _________________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:785: in test_unmarked_base_name_member_takes_pack_s1
+    work = (await db_session.execute(select(TVSeries))).scalars().one()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:1867: in one
+    return self._only_one_row(
+/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:799: in _only_one_row
+    raise exc.NoResultFound(
+E   sqlalchemy.exc.NoResultFound: No row was found when one was required
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.franchise_service:franchise_service.py:478 [franchise] resource 46cdd1a0-1d2f-49e1-8521-064d1715435e: all 1 members failed to resolve; keeping parent collection '头文字D Initial D'
+____________ test_resolve_member_local_lookup_failure_still_upserts ____________
+../rssripple-v16-rebased/tests/unit/test_franchise_service.py:825: in test_resolve_member_local_lookup_failure_still_upserts
+    assert result is not None
+E   assert None is not None
+------------------------------ Captured log call -------------------------------
+WARNING  app.services.franchise_service:franchise_service.py:318 [franchise] local reuse check failed for '作品X': local lookup down
+__________________ test_write_back_normalizes_genre_on_create __________________
+../rssripple-v16-rebased/tests/unit/test_genre_registry.py:139: in test_write_back_normalizes_genre_on_create
+    assert s.genre == ["Animation", "Drama"]
+           ^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'genre'
+=============================== warnings summary ===============================
+tests/unit/test_anime_signals.py::test_is_anime_from_tmdb[genre_ids0-ja-countries0-True]
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_anime_signals.py::test_upsert_series_is_anime_lifecycle
+FAILED tests/unit/test_anime_signals.py::test_upsert_series_identity_marks_anime
+FAILED tests/unit/test_anime_signals.py::test_upsert_series_no_evidence_stays_null
+FAILED tests/unit/test_external_ids.py::test_upsert_converges_cross_source_via_bag
+FAILED tests/unit/test_external_ids.py::test_upsert_bags_alt_external_ids - A...
+FAILED tests/unit/test_external_ids.py::test_seed_migration_does_not_duplicate_upsert_bagged_ids
+FAILED tests/unit/test_franchise_service.py::test_two_members_create_collection_and_link
+FAILED tests/unit/test_franchise_service.py::test_partial_member_failure_still_links
+FAILED tests/unit/test_franchise_service.py::test_collection_reused_on_second_run
+FAILED tests/unit/test_franchise_service.py::test_ova_member_upserted_as_season_zero
+FAILED tests/unit/test_franchise_service.py::test_unmarked_tv_member_goes_to_shell_not_pack_s1
+FAILED tests/unit/test_franchise_service.py::test_unmarked_base_name_member_takes_pack_s1
+FAILED tests/unit/test_franchise_service.py::test_resolve_member_local_lookup_failure_still_upserts
+FAILED tests/unit/test_genre_registry.py::test_write_back_normalizes_genre_on_create
+14 failed, 108 passed, 1 warning in 51.27s

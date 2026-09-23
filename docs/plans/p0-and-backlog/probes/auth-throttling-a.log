@@ -1,0 +1,11 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________________ test_repeated_invalid_otp_is_bounded _____________________
+tests/api/test_auth_throttling.py:15: in test_repeated_invalid_otp_is_bounded
+    assert any(r.status_code == 429 for r in responses), {
+E   AssertionError: {'statuses': [401, 401, 401, 401, 401, 401, ...], 'verification_calls': 20}
+E   assert False
+E    +  where False = any(<generator object test_repeated_invalid_otp_is_bounded.<locals>.<genexpr> at 0x7f854ace5560>)
+=========================== short test summary info ============================
+FAILED tests/api/test_auth_throttling.py::test_repeated_invalid_otp_is_bounded
+1 failed in 1.89s
