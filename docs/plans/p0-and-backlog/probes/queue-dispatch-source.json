@@ -1,0 +1,24 @@
+{
+  "base": "f9d4a0a",
+  "prototype": "/tmp/rssripple-v14-dispatch-lx",
+  "files": {
+    "app/services/task_queue.py": "8aa766677154e2bd714eff80cb484f7a448d5b3f944dbc386fe2d7feacf20e9e",
+    "tests/unit/test_queue_execution_ownership.py": "50bcb20aec201debed1742d915b9a89cefacd199adfb2f1836b910cc2aec7478",
+    "tests/unit/test_task_queue.py": "ebe74facc00ff258bfb7636c1391fc88121eec77fad50b4d091d54055ced0a04",
+    "app/services/agent_service.py": "b7574c385ab2d600225e4fd5c5818810d0757f8dac96c395c321dd167ca9f806",
+    "tests/unit/test_queue_download_ownership.py": "e1b0f6ed6ad6189a7379e84f7cb77866959ca9f844a54d84a9a5368c8836b109",
+    "app/models/download_dispatch.py": "f08e35413ccc368967977f921e1613f107113935a18fbc317a726b1d47fc34ac",
+    "app/services/download_dispatch.py": "ac6ab158b87de65a2daa791576a03a65e3c6fc22b9425c0802144c492d536b36",
+    "app/models/__init__.py": "f66f655203a3f5fdfb65909a1be5f40e803aa901a0899a08b1d761bfe313c05e",
+    "tests/unit/test_download_dispatch.py": "e34fdec99ef4ed7db470bc93f0c5a6e1111489d03348a0dabaa9008d538698a4",
+    "docs/design/business-logic.md": "95ce3a1fafdddcd0c796e73844adfb115152078e543ad50d4a0e50461abe32e2",
+    "docs/design/data-models.md": "f433ba92ada1de31538a3e1673024ea98c785719f78617fd74325779c38c7ad1",
+    "docs/design/db-migration.md": "8cb1eccb7578c950cc29717de4c41c1882bb4de0effd1e05c8ddf22958473400",
+    "docs/testing/integration-inventory.md": "0a518b58fa06f4d464f9a360e918bcf35f4695ea69e438180cb4c98dee3229e1",
+    "tests/integration/organize/download_dispatch_schema_driver.py": "b038c71b5bae84811fe2365840a1938ac7bc3b04e85c2cd66d33f397e037218e",
+    "tests/integration/organize/test_download_dispatch_schema.py": "dac7a61945edadeaed82d5d26f984129c5cfb528b1d8b823646175535ed29c57",
+    "app/services/download_dispatch_cleanup.py": "7072fb2872db3301ee0436e4a3e1db550e3fc3a61f78e533bd7b467e7add4d51",
+    "tests/unit/test_download_dispatch_cleanup.py": "483694f883269bbb27f2f16e158ac0af36e58b34ba13a2ff3dbb7c604d5d7eff",
+    "app/services/scheduler.py": "36cb51e6f96e2de75314f42e8ba2ce9321b356e0b9da04d731844be7732b708a"
+  }
+}

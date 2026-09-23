@@ -1,0 +1,16 @@
+{
+  "backend": "postgresql",
+  "legacy_row_preserved": true,
+  "startup_calls": 2,
+  "reservation_row_preserved": true,
+  "raw_default_settled": false,
+  "rejected": [
+    "operation",
+    "task",
+    "null-settled"
+  ],
+  "data": "synthetic schema fixture, no RPC",
+  "probe_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "source_sha256": "b038c71b5bae84811fe2365840a1938ac7bc3b04e85c2cd66d33f397e037218e"
+}

@@ -1,0 +1,209 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________________ test_dispatch_schema_upgrade_is_repeatable __________________
+
+tmp_path = PosixPath('/tmp/pytest-of-robinqu/pytest-1371/test_dispatch_schema_upgrade_i0')
+
+    async def test_dispatch_schema_upgrade_is_repeatable(tmp_path):
+        output = tmp_path / "result.json"
+        env = dict(
+            os.environ,
+            PROBE_ROOT=str(tmp_path),
+            PROBE_RESULT_PATH=str(output),
+            DATABASE_URL=f"sqlite+aioturso:///{tmp_path / 'legacy.db'}",
+        )
+        env.pop("PROBE_POSTGRES_PROJECT", None)
+        result = await asyncio.to_thread(
+            subprocess.run,
+            [sys.executable, "-m", "tests.integration.organize.download_dispatch_schema_driver"],
+            cwd=Path(__file__).resolve().parents[3],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+>       assert result.returncode == 0, result.stdout + result.stderr
+E       AssertionError: Traceback (most recent call last):
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 307, in _exec_ddl_only
+E             _run_execute_with_io(stmt, self.extra_io)
+E             ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 185, in _run_execute_with_io
+E             result = stmt.execute()
+E         turso.Error: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+E         
+E         During handling of the above exception, another exception occurred:
+E         
+E         Traceback (most recent call last):
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+E             self.dialect.do_execute(
+E             ~~~~~~~~~~~~~~~~~~~~~~~^
+E                 cursor, str_statement, effective_parameters, context
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             )
+E             ^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+E             cursor.execute(statement, parameters)
+E             ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 230, in execute
+E             self._adapt_connection._handle_exception(error)
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 368, in _handle_exception
+E             raise error.with_traceback(exc_info[2])
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 228, in execute
+E             return self.await_(self._execute_async(operation, parameters))
+E                    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+E             return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+E                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+E             value = await result
+E                     ^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 251, in _execute_async
+E             result = await self._cursor.execute(operation, parameters)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 252, in execute
+E             description, lastrowid, rowcount = await self._connection._run(_exec)
+E                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 95, in _run
+E             return await fut
+E                    ^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py", line 38, in run
+E             result = func()
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249, in _exec
+E             cur.execute(sql, parameters)
+E             ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 678, in execute
+E             self._maybe_implicit_begin(sql)
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 665, in _maybe_implicit_begin
+E             self._connection._maybe_implicit_begin(sql)
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 469, in _maybe_implicit_begin
+E             self._exec_ddl_only(f"BEGIN {level}")
+E             ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 311, in _exec_ddl_only
+E             raise _map_turso_exception(exc)
+E         turso.lib.DatabaseError: Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+E         
+E         The above exception was the direct cause of the following exception:
+E         
+E         Traceback (most recent call last):
+E           File "<frozen runpy>", line 198, in _run_module_as_main
+E           File "<frozen runpy>", line 88, in _run_code
+E           File "/tmp/rssripple-v14-dispatch-lx/tests/integration/organize/download_dispatch_schema_driver.py", line 96, in <module>
+E             asyncio.run(main())
+E             ~~~~~~~~~~~^^^^^^^^
+E           File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 195, in run
+E             return runner.run(main)
+E                    ~~~~~~~~~~^^^^^^
+E           File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/runners.py", line 118, in run
+E             return self._loop.run_until_complete(task)
+E                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+E           File "/home/robinqu/.local/share/uv/python/cpython-3.13.3-linux-x86_64-gnu/lib/python3.13/asyncio/base_events.py", line 719, in run_until_complete
+E             return future.result()
+E                    ~~~~~~~~~~~~~^^
+E           File "/tmp/rssripple-v14-dispatch-lx/tests/integration/organize/download_dispatch_schema_driver.py", line 41, in main
+E             await conn.execute(text("INSERT INTO app_settings (key, value) VALUES ('probe-legacy', 'preserved')"))
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/ext/asyncio/engine.py", line 659, in execute
+E             result = await greenlet_spawn(
+E                      ^^^^^^^^^^^^^^^^^^^^^
+E             ...<5 lines>...
+E             )
+E             ^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 203, in greenlet_spawn
+E             result = context.switch(value)
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1421, in execute
+E             return meth(
+E                 self,
+E                 distilled_parameters,
+E                 execution_options or NO_OPTIONS,
+E             )
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+E             return connection._execute_clauseelement(
+E                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                 self, distilled_params, execution_options
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             )
+E             ^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1643, in _execute_clauseelement
+E             ret = self._execute_context(
+E                 dialect,
+E             ...<8 lines>...
+E                 cache_hit=cache_hit,
+E             )
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1848, in _execute_context
+E             return self._exec_single_context(
+E                    ~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                 dialect, context, statement, parameters
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             )
+E             ^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1988, in _exec_single_context
+E             self._handle_dbapi_exception(
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+E                 e, str_statement, effective_parameters, cursor, context
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             )
+E             ^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 2365, in _handle_dbapi_exception
+E             raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py", line 1969, in _exec_single_context
+E             self.dialect.do_execute(
+E             ~~~~~~~~~~~~~~~~~~~~~~~^
+E                 cursor, str_statement, effective_parameters, context
+E                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E             )
+E             ^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/engine/default.py", line 952, in do_execute
+E             cursor.execute(statement, parameters)
+E             ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 230, in execute
+E             self._adapt_connection._handle_exception(error)
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 368, in _handle_exception
+E             raise error.with_traceback(exc_info[2])
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 228, in execute
+E             return self.await_(self._execute_async(operation, parameters))
+E                    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 132, in await_only
+E             return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+E                    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py", line 196, in greenlet_spawn
+E             value = await result
+E                     ^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/sqlalchemy/connectors/asyncio.py", line 251, in _execute_async
+E             result = await self._cursor.execute(operation, parameters)
+E                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 252, in execute
+E             description, lastrowid, rowcount = await self._connection._run(_exec)
+E                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 95, in _run
+E             return await fut
+E                    ^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/worker.py", line 38, in run
+E             result = func()
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib_aio.py", line 249, in _exec
+E             cur.execute(sql, parameters)
+E             ~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 678, in execute
+E             self._maybe_implicit_begin(sql)
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 665, in _maybe_implicit_begin
+E             self._connection._maybe_implicit_begin(sql)
+E             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 469, in _maybe_implicit_begin
+E             self._exec_ddl_only(f"BEGIN {level}")
+E             ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+E           File "/workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/turso/lib.py", line 311, in _exec_ddl_only
+E             raise _map_turso_exception(exc)
+E         sqlalchemy.exc.DatabaseError: (turso.lib.DatabaseError) Transaction error: Concurrent transaction mode is only supported when MVCC is enabled
+E         [SQL: INSERT INTO app_settings (key, value) VALUES ('probe-legacy', 'preserved')]
+E         (Background on this error at: https://sqlalche.me/e/20/4xp6)
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['/workspace/dropbox/github/robinqu/RSSRipple/.venv/bin/python', '-m', 'tests.integration.organi...key, value) VALUES (\'probe-legacy\', \'preserved\')]\n(Background on this error at: https://sqlalche.me/e/20/4xp6)\n').returncode
+
+tests/integration/organize/test_download_dispatch_schema.py:29: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/organize/test_download_dispatch_schema.py::test_dispatch_schema_upgrade_is_repeatable
+1 failed in 0.78s

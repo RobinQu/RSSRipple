@@ -1,0 +1,1607 @@
+--- a/app/services/task_queue.py
++++ b/app/services/task_queue.py
+@@ -21,12 +21,59 @@
+ import uuid
+ from abc import ABC, abstractmethod
+ from collections.abc import Awaitable, Callable
++from contextvars import ContextVar
++from dataclasses import dataclass
+ from datetime import datetime
+ from typing import Any
+ 
+ from app.utils.time import utcnow
+ 
+ logger = logging.getLogger(__name__)
++
++
++@dataclass(frozen=True)
++class _ExecutionOwnership:
++    queue: "RedisQueue"
++    key: str
++    job_id: str
++    token: str
++
++
++_execution_ownership: ContextVar[_ExecutionOwnership | None] = ContextVar("queue_execution_ownership", default=None)
++
++
++def current_job_identity() -> tuple[str, str] | None:
++    owner = _execution_ownership.get()
++    return (owner.key, owner.job_id) if owner is not None else None
++
++
++class ExecutionOwnershipLostError(RuntimeError):
++    """The current queued execution no longer owns its job."""
++
++
++async def require_execution_ownership() -> None:
++    """Reject stale Redis handlers before starting a business operation.
++
++    Direct API calls and MemoryQueue have no Redis execution context. This
++    check does not fence an external operation after it has already started.
++    Redis failure propagates: unknown ownership is not permission to proceed.
++    """
++    owner = _execution_ownership.get()
++    if owner is None:
++        return
++    queue = owner.queue
++    async with queue._redis.pipeline(transaction=True) as pipe:
++        pipe.hgetall(f"{_JOB_PFX}{owner.key}")
++        pipe.get(f"{_ACTIVE_PFX}{owner.key}")
++        pipe.exists(queue._consumer_key)
++        state, active, leased = await pipe.execute()
++    if (state.get("job_id") != owner.job_id or
++            state.get("status") != JobStatus.RUNNING or
++            state.get("execution_token") != owner.token or
++            state.get("consumer_id") != queue._consumer_id or
++            active != owner.job_id or not leased):
++        raise ExecutionOwnershipLostError(f"Queue execution lost ownership: {owner.key}")
++
+ 
+ MAX_CONCURRENT = 4
+ JOB_TTL_SECONDS = 86_400  # 24 h — how long Redis keeps job state after completion
+@@ -101,6 +148,10 @@
+         If no handler is registered, the job is enqueued but will fail at
+         execution time.
+         """
++
++    async def job_is_retired(self, key: str, job_id: str) -> bool:
++        """Only durable backends can prove a historical execution is retired."""
++        return False
+ 
+     @abstractmethod
+     async def status(self, key: str) -> dict | None:
+@@ -217,7 +268,7 @@
+     async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
+         if key in self._active_keys:
+             return None
+-        job = _MemJob(job_id=uuid.uuid4().hex[:8], job_type=job_type, key=key, payload=payload)
++        job = _MemJob(job_id=uuid.uuid4().hex, job_type=job_type, key=key, payload=payload)
+         self._active_keys.add(key)
+         self._jobs_by_key[key] = job
+         self._queue.put_nowait(job)
+@@ -371,14 +422,11 @@
+         return bool(await self._redis.set(f"{_TICK_PFX}{key}", "1", nx=True, ex=ttl))
+ 
+     async def enqueue(self, job_type: str, key: str, payload: dict) -> dict | None:
++        from redis.exceptions import WatchError
++
+         active_key = f"{_ACTIVE_PFX}{key}"
+-        job_id = uuid.uuid4().hex[:8]
++        job_id = uuid.uuid4().hex
+         now = utcnow().isoformat()
+-
+-        # Atomic SETNX — only one active job per key across all instances
+-        acquired = await self._redis.set(active_key, job_id, nx=True, ex=self._ttl)
+-        if not acquired:
+-            return None
+ 
+         job_hash = {
+             "job_id": job_id,
+@@ -390,20 +438,47 @@
+             "queued_at": now,
+             "started_at": "",
+             "finished_at": "",
++            "execution_token": "",
++            "consumer_id": "",
+         }
+         redis_key = f"{_JOB_PFX}{key}"
+         msg = json.dumps({"job_id": job_id, "job_type": job_type, "key": key, "payload": payload})
+         job_hash["message"] = msg
+-        async with self._redis.pipeline(transaction=True) as pipe:
+-            pipe.hset(redis_key, mapping=job_hash)
+-            pipe.expire(redis_key, self._ttl)
+-            if job_type in _PRIORITY_JOB_TYPES:
+-                pipe.lpush(_QUEUE_LIST, msg)
+-            else:
+-                pipe.rpush(_QUEUE_LIST, msg)
+-            await pipe.execute()
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(active_key)
++                    if await pipe.exists(active_key):
++                        return None
++                    pipe.multi()
++                    pipe.set(active_key, job_id, ex=self._ttl)
++                    pipe.hset(redis_key, mapping=job_hash)
++                    pipe.expire(redis_key, self._ttl)
++                    if job_type in _PRIORITY_JOB_TYPES:
++                        pipe.lpush(_QUEUE_LIST, msg)
++                    else:
++                        pipe.rpush(_QUEUE_LIST, msg)
++                    await pipe.execute()
++                    break
++                except WatchError:
++                    continue
+         logger.info("Enqueued %s/%s (job=%s) → Redis", job_type, key[:16], job_id)
+         return self._deserialize(job_hash)
++
++    async def job_is_retired(self, key: str, job_id: str) -> bool:
++        async with self._redis.pipeline(transaction=True) as pipe:
++            pipe.hgetall(f"{_JOB_PFX}{key}")
++            pipe.get(f"{_ACTIVE_PFX}{key}")
++            state, active = await pipe.execute()
++        if active == job_id:
++            return False
++        if not state:
++            return True
++        if not state.get("job_id") or state.get("status") not in {
++            JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.DONE, JobStatus.FAILED,
++        }:
++            return False
++        return state["job_id"] != job_id or state["status"] in {JobStatus.DONE, JobStatus.FAILED}
+ 
+     async def status(self, key: str) -> dict | None:
+         raw = await self._redis.hgetall(f"{_JOB_PFX}{key}")
+@@ -439,10 +514,32 @@
+         await self._redis.delete(redis_key, active_key)
+ 
+     async def update_progress(self, key: str, result: dict) -> None:
++        from redis.exceptions import WatchError
++
++        owner = _execution_ownership.get()
++        if owner is None or owner.queue is not self or owner.key != key:
++            return
+         redis_key = f"{_JOB_PFX}{key}"
+-        if await self._redis.exists(redis_key):
+-            await self._redis.hset(redis_key, "result", json.dumps(result))
+-            await self._redis.expire(redis_key, self._ttl)
++        active = f"{_ACTIVE_PFX}{key}"
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(redis_key, active, self._consumer_key)
++                    state = await pipe.hgetall(redis_key)
++                    if (state.get("job_id") != owner.job_id or
++                            state.get("status") != JobStatus.RUNNING or
++                            state.get("execution_token") != owner.token or
++                            state.get("consumer_id") != self._consumer_id or
++                            await pipe.get(active) != owner.job_id or
++                            not await pipe.exists(self._consumer_key)):
++                        return
++                    pipe.multi()
++                    pipe.hset(redis_key, "result", json.dumps(result))
++                    pipe.expire(redis_key, self._ttl)
++                    await pipe.execute()
++                    return
++                except WatchError:
++                    continue
+ 
+     async def _worker_loop(self) -> None:
+         while True:
+@@ -493,6 +590,41 @@
+             except Exception as exc:
+                 logger.warning("RedisQueue heartbeat failed: %s", exc)
+ 
++    async def _recover_descriptor(self, processing_key, consumer_id, raw, msg) -> bool:
++        """Fence recovery against renewal, completion and another claimant."""
++        from redis.exceptions import WatchError
++
++        key = f"{_JOB_PFX}{msg['key']}"
++        active = f"{_ACTIVE_PFX}{msg['key']}"
++        lease = f"{_CONSUMER_PFX}{consumer_id}"
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(key, active, lease, processing_key)
++                    state = await pipe.hgetall(key)
++                    if (await pipe.exists(lease) or
++                            state.get("job_id") != msg["job_id"] or
++                            state.get("status") not in (JobStatus.QUEUED, JobStatus.RUNNING) or
++                            state.get("consumer_id") not in (None, "", consumer_id) or
++                            await pipe.get(active) != msg["job_id"] or
++                            raw not in await pipe.lrange(processing_key, 0, -1)):
++                        return False
++                    pipe.multi()
++                    pipe.hset(key, mapping={
++                        "status": JobStatus.QUEUED, "started_at": "",
++                        "finished_at": "", "error": "",
++                        "execution_token": "", "consumer_id": "",
++                    })
++                    if msg.get("job_type") in _PRIORITY_JOB_TYPES:
++                        pipe.lpush(_QUEUE_LIST, raw)
++                    else:
++                        pipe.rpush(_QUEUE_LIST, raw)
++                    pipe.lrem(processing_key, 1, raw)
++                    await pipe.execute()
++                    return True
++                except WatchError:
++                    continue
++
+     async def _recover_orphaned_jobs(self, *, reconcile_legacy: bool = False) -> None:
+         """Return jobs owned by dead consumers to the durable backlog.
+ 
+@@ -500,7 +632,8 @@
+         once. A processing list is touched only after its consumer lease has
+         expired, so work executing in another healthy process is never stolen.
+         """
+-        acquired = await self._redis.set(_RECOVERY_LOCK, self._consumer_id, nx=True, ex=30)
++        recovery_token = uuid.uuid4().hex
++        acquired = await self._redis.set(_RECOVERY_LOCK, recovery_token, nx=True, ex=30)
+         if not acquired:
+             return
+         try:
+@@ -526,20 +659,8 @@
+                         continue
+                     if (state.get("job_id") == msg.get("job_id") and
+                             state.get("status") in (JobStatus.QUEUED, JobStatus.RUNNING)):
+-                        async with self._redis.pipeline(transaction=True) as pipe:
+-                            pipe.hset(f"{_JOB_PFX}{msg['key']}", mapping={
+-                                "status": JobStatus.QUEUED,
+-                                "started_at": "",
+-                                "finished_at": "",
+-                                "error": "",
+-                            })
+-                            if msg.get("job_type") in _PRIORITY_JOB_TYPES:
+-                                pipe.lpush(_QUEUE_LIST, raw)
+-                            else:
+-                                pipe.rpush(_QUEUE_LIST, raw)
+-                            pipe.lrem(processing_key, 1, raw)
+-                            await pipe.execute()
+-                        recovered += 1
++                        if await self._recover_descriptor(processing_key, consumer_id, raw, msg):
++                            recovered += 1
+                     else:
+                         await self._redis.lrem(processing_key, 1, raw)
+                 if not await self._redis.llen(processing_key):
+@@ -558,101 +679,158 @@
+                 if (state.get("status") == JobStatus.RUNNING and
+                         not state.get("message") and
+                         state.get("job_id") not in processing_job_ids):
+-                    key = state.get("key", "")
+-                    async with self._redis.pipeline(transaction=True) as pipe:
+-                        pipe.hset(job_key, mapping={
+-                            "status": JobStatus.FAILED,
+-                            "error": "worker interrupted before durable recovery was available",
+-                            "finished_at": utcnow().isoformat(),
+-                        })
+-                        if key:
+-                            pipe.delete(f"{_ACTIVE_PFX}{key}")
+-                        await pipe.execute()
++                    await self._fail_legacy_execution(job_key, state.get("job_id"))
+         finally:
+             # Do not turn task cancellation into another Redis round trip;
+             # the lock has a short TTL and cancellation must remain prompt.
+             current = asyncio.current_task()
+             if not current or not current.cancelling():
+-                if await self._redis.get(_RECOVERY_LOCK) == self._consumer_id:
+-                    await self._redis.delete(_RECOVERY_LOCK)
+-
+-    async def _run(self, msg: dict, raw: str) -> None:
+-        job_type: str = msg["job_type"]
+-        key: str = msg["key"]
+-        payload: dict = msg["payload"]
+-        redis_key = f"{_JOB_PFX}{key}"
+-        active_key = f"{_ACTIVE_PFX}{key}"
+-
+-        try:
+-            handler = self._handlers.get(job_type)
+-            if handler is None:
+-                logger.warning("No handler for job_type=%s — failing job", job_type)
+-                async with self._redis.pipeline(transaction=True) as pipe:
+-                    pipe.hset(redis_key, mapping={
++                await self._release_recovery_lock(recovery_token)
++
++    async def _fail_legacy_execution(self, job_key: str, expected_id: str | None) -> None:
++        from redis.exceptions import WatchError
++
++        active = f"{_ACTIVE_PFX}{job_key.removeprefix(_JOB_PFX)}"
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(job_key, active)
++                    state = await pipe.hgetall(job_key)
++                    if (not expected_id or state.get("job_id") != expected_id or
++                            state.get("status") != JobStatus.RUNNING or
++                            state.get("message") or state.get("execution_token")):
++                        return
++                    owns_active = await pipe.get(active) == expected_id
++                    pipe.multi()
++                    pipe.hset(job_key, mapping={
+                         "status": JobStatus.FAILED,
+-                        "error": f"No handler registered for job_type={job_type!r}",
++                        "error": "worker interrupted before durable recovery was available",
+                         "finished_at": utcnow().isoformat(),
+                     })
+-                    pipe.delete(active_key)
++                    if owns_active:
++                        pipe.delete(active)
++                    await pipe.execute()
++                    return
++                except WatchError:
++                    continue
++
++    async def _release_recovery_lock(self, token: str) -> None:
++        from redis.exceptions import WatchError
++
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(_RECOVERY_LOCK)
++                    if await pipe.get(_RECOVERY_LOCK) != token:
++                        return
++                    pipe.multi()
++                    pipe.delete(_RECOVERY_LOCK)
++                    await pipe.execute()
++                    return
++                except WatchError:
++                    continue
++
++    async def _claim_execution(self, msg: dict) -> str | None:
++        from redis.exceptions import WatchError
++
++        key = f"{_JOB_PFX}{msg['key']}"
++        active = f"{_ACTIVE_PFX}{msg['key']}"
++        token = uuid.uuid4().hex
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(key, active, self._consumer_key)
++                    state = await pipe.hgetall(key)
++                    if (state.get("job_id") != msg["job_id"] or
++                            state.get("status") != JobStatus.QUEUED or
++                            await pipe.get(active) != msg["job_id"] or
++                            not await pipe.exists(self._consumer_key)):
++                        return None
++                    pipe.multi()
++                    pipe.hset(key, mapping={
++                        "status": JobStatus.RUNNING,
++                        "started_at": utcnow().isoformat(),
++                        "execution_token": token,
++                        "consumer_id": self._consumer_id,
++                    })
++                    await pipe.execute()
++                    return token
++                except WatchError:
++                    continue
++
++    async def _finish_execution(self, msg, raw, token, status, extra, *, requeue):
++        from redis.exceptions import WatchError
++
++        key = f"{_JOB_PFX}{msg['key']}"
++        active = f"{_ACTIVE_PFX}{msg['key']}"
++        while True:
++            async with self._redis.pipeline(transaction=True) as pipe:
++                try:
++                    await pipe.watch(key, active, self._consumer_key)
++                    state = await pipe.hgetall(key)
++                    if (state.get("job_id") != msg["job_id"] or
++                            state.get("status") != JobStatus.RUNNING or
++                            state.get("execution_token") != token or
++                            state.get("consumer_id") != self._consumer_id or
++                            await pipe.get(active) != msg["job_id"] or
++                            not await pipe.exists(self._consumer_key)):
++                        # Retain the descriptor for lease recovery/garbage
++                        # collection; never erase the current owner's work.
++                        return False
++                    pipe.multi()
++                    if requeue:
++                        pipe.hset(key, mapping={
++                            "status": JobStatus.QUEUED, "started_at": "",
++                            "finished_at": "", "error": "",
++                            "execution_token": "", "consumer_id": "",
++                        })
++                        if msg["job_type"] in _PRIORITY_JOB_TYPES:
++                            pipe.lpush(_QUEUE_LIST, raw)
++                        else:
++                            pipe.rpush(_QUEUE_LIST, raw)
++                        pipe.expire(active, self._ttl)
++                    else:
++                        pipe.hset(key, mapping={
++                            "status": status, "finished_at": utcnow().isoformat(), **extra,
++                        })
++                        pipe.delete(active)
+                     pipe.lrem(self._processing_key, 1, raw)
+-                    pipe.expire(redis_key, self._ttl)
++                    pipe.expire(key, self._ttl)
+                     await pipe.execute()
++                    return True
++                except WatchError:
++                    continue
++
++    async def _run(self, msg: dict, raw: str) -> None:
++        context_token = None
++        try:
++            token = await self._claim_execution(msg)
++            if token is None:
+                 return
+-
+-            await self._redis.hset(redis_key, mapping={
+-                "status": JobStatus.RUNNING,
+-                "started_at": utcnow().isoformat(),
+-            })
+-            logger.info("Running %s/%s", job_type, key[:16])
+-
+-            # Build final state before the atomic pipeline so no await
+-            # separates setting the terminal status from releasing the dedup key.
++            context_token = _execution_ownership.set(
++                _ExecutionOwnership(self, msg["key"], msg["job_id"], token)
++            )
++            handler = self._handlers.get(msg["job_type"])
+             finish_status = JobStatus.FAILED
+             finish_extra: dict = {}
+             requeue = False
+             try:
+-                result = await handler(payload)
++                if handler is None:
++                    raise RuntimeError(f"No handler registered for job_type={msg['job_type']!r}")
++                result = await handler(msg["payload"])
+                 finish_status = JobStatus.DONE
+                 finish_extra = {"result": json.dumps(result) if result is not None else ""}
+-                logger.info("Done %s/%s", job_type, key[:16])
+             except asyncio.CancelledError:
+-                # Graceful deploy/restart: put the durable descriptor back on
+-                # the queue and retain the active-key lock. Abrupt termination
+-                # is handled by consumer-lease recovery instead.
+                 requeue = True
+-                logger.info("Requeueing %s/%s during worker shutdown", job_type, key[:16])
+             except Exception as exc:
+                 finish_extra = {"error": str(exc)}
+-                logger.error("Failed %s/%s: %s", job_type, key[:16], exc)
+-
+-            # Atomic pipeline: write terminal state + delete dedup key together.
+-            # This prevents a window where status=DONE is visible but the active
+-            # key still blocks a re-enqueue.
+-            async with self._redis.pipeline(transaction=True) as pipe:
+-                if requeue:
+-                    pipe.hset(redis_key, mapping={
+-                        "status": JobStatus.QUEUED,
+-                        "started_at": "",
+-                        "finished_at": "",
+-                        "error": "",
+-                    })
+-                    if job_type in _PRIORITY_JOB_TYPES:
+-                        pipe.lpush(_QUEUE_LIST, raw)
+-                    else:
+-                        pipe.rpush(_QUEUE_LIST, raw)
+-                    pipe.lrem(self._processing_key, 1, raw)
+-                    pipe.expire(active_key, self._ttl)
+-                else:
+-                    pipe.hset(redis_key, mapping={
+-                        "status": finish_status,
+-                        "finished_at": utcnow().isoformat(),
+-                        **finish_extra,
+-                    })
+-                    pipe.delete(active_key)
+-                    pipe.lrem(self._processing_key, 1, raw)
+-                pipe.expire(redis_key, self._ttl)
+-                await pipe.execute()
++                logger.error("Failed %s/%s: %s", msg["job_type"], msg["key"][:16], exc)
++            await self._finish_execution(
++                msg, raw, token, finish_status, finish_extra, requeue=requeue,
++            )
+         finally:
++            if context_token is not None:
++                _execution_ownership.reset(context_token)
+             self._sem.release()
+ 
+     @staticmethod
+--- /dev/null
++++ b/tests/unit/test_queue_execution_ownership.py
+@@ -0,0 +1,187 @@
++"""Deterministic ownership races; fakeredis transport, production queue methods."""
++
++import asyncio
++
++import fakeredis
++import pytest
++
++from app.services.task_queue import RedisQueue
++
++
++@pytest.mark.parametrize("replacement", ["recover", "new_job"])
++@pytest.mark.parametrize("ending", ["success", "failure", "cancel", "progress"])
++async def test_old_execution_cannot_change_current_owner(replacement, ending):
++    server = fakeredis.FakeServer()
++    clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
++    old, current = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
++    old_started, current_started = asyncio.Event(), asyncio.Event()
++    old_release, current_release = asyncio.Event(), asyncio.Event()
++
++    async def old_handler(payload):
++        old_started.set()
++        await old_release.wait()
++        if ending == "progress":
++            await old.update_progress("ownership", {"owner": "stale progress"})
++        if ending == "failure":
++            raise RuntimeError("Synthetic stale failure")
++        return {"owner": "old"}
++
++    async def current_handler(payload):
++        current_started.set()
++        await current_release.wait()
++        return {"owner": "current"}
++
++    old.register("synthetic", old_handler)
++    current.register("synthetic", current_handler)
++    await old.start()
++    try:
++        original = await old.enqueue("synthetic", "ownership", {})
++        await asyncio.wait_for(old_started.wait(), 2)
++        stale_task = next(iter(old._run_tasks))
++        # Stop claiming new descriptors while leaving the original handler live.
++        old._worker.cancel()
++        await old._worker
++        if replacement == "recover":
++            await clients[0].delete(old._consumer_key)
++        else:
++            await old.clear("ownership")
++            fresh = await old.enqueue("synthetic", "ownership", {})
++            assert fresh["job_id"] != original["job_id"]
++        await current.start()
++        await asyncio.wait_for(current_started.wait(), 2)
++        before = await current.status("ownership")
++        assert before["status"] == "running"
++        if ending == "cancel":
++            stale_task.cancel()
++        else:
++            old_release.set()
++        await asyncio.wait_for(asyncio.gather(stale_task, return_exceptions=True), 2)
++        after = await current.status("ownership")
++        assert after == before, "Stale completion/failure/cancel changed the current execution"
++        assert await clients[1].get("rssripple:active:ownership") == before["job_id"]
++        assert await clients[1].llen("rssripple:jobs") == 0, "Stale cancel requeued the old execution"
++    finally:
++        old_release.set()
++        current_release.set()
++        await old.stop()
++        await current.stop()
++
++
++
++async def test_recovery_rechecks_lease_renewal_atomically(monkeypatch):
++    server = fakeredis.FakeServer()
++    clients = [fakeredis.aioredis.FakeRedis(server=server, decode_responses=True) for _ in range(2)]
++    owner, scanner = [RedisQueue(redis_client=client, max_concurrent=1) for client in clients]
++    started, release = asyncio.Event(), asyncio.Event()
++
++    async def handler(payload):
++        started.set()
++        await release.wait()
++
++    owner.register("synthetic", handler)
++    await owner.start()
++    await scanner.start(consume=False)
++    try:
++        await owner.enqueue("synthetic", "renewed", {})
++        await asyncio.wait_for(started.wait(), 2)
++        await clients[0].delete(owner._consumer_key)
++        original_read = clients[1].hgetall
++        renewed = False
++
++        async def renew_during_read(key):
++            nonlocal renewed
++            state = await original_read(key)
++            if key == "rssripple:job:renewed" and not renewed:
++                renewed = True
++                await clients[0].set(owner._consumer_key, "1", ex=15)
++            return state
++
++        monkeypatch.setattr(clients[1], "hgetall", renew_during_read)
++        await scanner._recover_orphaned_jobs()
++        assert renewed, "The renewal race must actually execute"
++        assert (await owner.status("renewed"))["status"] == "running"
++        assert await clients[0].llen("rssripple:jobs") == 0
++    finally:
++        release.set()
++        await owner.stop()
++        await scanner.stop()
++
++
++async def test_failed_enqueue_does_not_leave_active_key(monkeypatch):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    await queue.start(consume=False)
++    try:
++        async def abort_transaction(self, *args, **kwargs):
++            raise RuntimeError("Synthetic failure before transaction execution")
++
++        with monkeypatch.context() as patcher:
++            patcher.setattr(type(client.pipeline()), "execute", abort_transaction)
++            with pytest.raises(RuntimeError, match="Synthetic failure"):
++                await queue.enqueue("synthetic", "atomic-enqueue", {})
++        assert await client.get("rssripple:active:atomic-enqueue") is None
++        assert await queue.status("atomic-enqueue") is None
++        assert await client.llen("rssripple:jobs") == 0
++        assert await queue.enqueue("synthetic", "atomic-enqueue", {}) is not None
++    finally:
++        await queue.stop()
++
++
++async def test_recovery_release_preserves_successor_lock(monkeypatch):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    from app.services.task_queue import _RECOVERY_LOCK
++    lock = _RECOVERY_LOCK
++    replaced = False
++
++    def racing_get(original):
++        async def get(self, key, *args, **kwargs):
++            nonlocal replaced
++            value = await original(self, key, *args, **kwargs)
++            if key == lock and value is not None and not replaced:
++                replaced = True
++                # Expiration and a successor acquiring the lock after our read.
++                await client.set(lock, "successor-token", ex=30)
++            return value
++        return get
++
++    for cls in [type(client), type(client.pipeline())]:
++        monkeypatch.setattr(cls, "get", racing_get(cls.get))
++    await queue._recover_orphaned_jobs()
++    assert replaced, "The lock replacement race must execute"
++    assert await client.get(lock) == "successor-token"
++    await client.aclose()
++
++
++async def test_legacy_recovery_cannot_fail_replacement_job(monkeypatch):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    key = "rssripple:job:legacy-replaced"
++    active = "rssripple:active:legacy-replaced"
++    await client.hset(key, mapping={
++        "job_id": "old", "key": "legacy-replaced", "job_type": "synthetic",
++        "status": "running",
++    })
++    await client.set(active, "old")
++    original = client.hgetall
++    replaced = False
++
++    async def replace_after_read(name):
++        nonlocal replaced
++        state = await original(name)
++        if name == key and not replaced:
++            replaced = True
++            await client.hset(key, mapping={
++                "job_id": "new", "status": "queued", "message": "new-descriptor",
++            })
++            await client.set(active, "new")
++        return state
++
++    monkeypatch.setattr(client, "hgetall", replace_after_read)
++    await queue._recover_orphaned_jobs(reconcile_legacy=True)
++    assert replaced
++    state = await original(key)
++    assert state["job_id"] == "new"
++    assert state["status"] == "queued"
++    assert await client.get(active) == "new"
++    await client.aclose()
+--- a/tests/unit/test_task_queue.py
++++ b/tests/unit/test_task_queue.py
+@@ -399,12 +399,26 @@
+             queue._deserialize = original
+         assert [job["key"] for job in jobs] == ["rlj1"]
+ 
+-    async def test_update_progress_is_shared_in_redis(self, queue):
+-        await queue.start(consume=False)
+-        await queue.enqueue("slow", "progress-redis", {})
+-        await queue.update_progress("progress-redis", {"message": "working", "output": "abc"})
+-        state = await queue.status("progress-redis")
+-        assert state["result"] == {"message": "working", "output": "abc"}
++    async def test_update_progress_is_shared_in_redis(self, queue, redis_client):
++        reported, release = asyncio.Event(), asyncio.Event()
++
++        async def handler(payload):
++            await queue.update_progress("progress-redis", {"message": "working", "output": "abc"})
++            reported.set()
++            await release.wait()
++
++        queue.register("slow", handler)
++        await queue.start()
++        try:
++            await queue.enqueue("slow", "progress-redis", {})
++            await asyncio.wait_for(reported.wait(), 2)
++            reader = RedisQueue(redis_client=redis_client)
++            state = await reader.status("progress-redis")
++            assert state["result"] == {"message": "working", "output": "abc"}
++            await queue.update_progress("progress-redis", {"message": "outside handler"})
++            assert (await reader.status("progress-redis"))["result"] == state["result"]
++        finally:
++            release.set()
+ 
+     async def test_consume_false_enqueues_without_consuming(self, queue, redis_client):
+         """start(consume=False) (web role): the job lands in the Redis list
+--- a/app/services/agent_service.py
++++ b/app/services/agent_service.py
+@@ -237,6 +237,30 @@
+ 
+     Shared by agent dispatch and manual creation (``POST /tasks``).
+     """
++    from app.services.task_queue import current_job_identity, require_execution_ownership
++
++    await require_execution_ownership()
++    identity = current_job_identity()
++    reservation = None
++    payload = resolve_torrent_payload(resource)
++    if identity is not None:
++        from app.services.download_dispatch import operation_key, payload_digest, reserve_dispatch
++
++        parameters = {
++            "resource_id": resource.id, "agent_id": agent_id,
++            "downloader_id": downloader.id, "download_dir": download_dir,
++            "payload_digest": payload_digest(payload),
++        }
++        reservation = await reserve_dispatch(
++            db.bind, operation_key(identity, resource.id, agent_id), parameters, job_identity=identity,
++        )
++        existing = await db.get(DownloadTask, reservation.task_id)
++        if existing is not None:
++            return existing
++        if reservation.settled:
++            raise ValueError("Queued download task was removed; refusing to recreate it")
++        # Reservation can wait on another writer; recheck before starting RPC.
++        await require_execution_ownership()
+     task = DownloadTask(
+         agent_id=agent_id,
+         file_resource_id=resource.id,
+@@ -245,7 +269,8 @@
+         status="pending",
+         max_retries=settings.max_retry_count,
+     )
+-    db.add(task)
++    if reservation is None:
++        db.add(task)
+     # NOTE: no flush before the RPC on purpose. Flushing would emit the INSERT
+     # and acquire the SQLite write lock for the whole duration of the
+     # downloader call (up to ``transmission_timeout`` seconds), stalling all
+@@ -257,7 +282,7 @@
+     try:
+         result = await asyncio.wait_for(
+             wrapper.add_torrent(
+-                resolve_torrent_payload(resource),
++                payload,
+                 download_dir=task.download_dir,
+             ),
+             timeout=settings.transmission_timeout,
+@@ -270,6 +295,16 @@
+         task.status = "error"
+         task.error_message = str(e)[:2000]
+ 
++    if reservation is not None:
++        from app.services.download_dispatch import persist_dispatch_result
++
++        return await persist_dispatch_result(db, reservation, {
++            "agent_id": agent_id, "file_resource_id": resource.id,
++            "downloader_id": downloader.id, "download_dir": download_dir,
++            "status": task.status, "max_retries": task.max_retries,
++            "transmission_torrent_id": task.transmission_torrent_id,
++            "confirmed_at": task.confirmed_at, "error_message": task.error_message,
++        })
+     await db.flush()
+     return task
+ 
+--- /dev/null
++++ b/tests/unit/test_queue_download_ownership.py
+@@ -0,0 +1,176 @@
++"""Stale queue executions must stop before initiating a downloader operation."""
++
++import asyncio
++from types import SimpleNamespace
++from unittest.mock import AsyncMock
++
++import fakeredis
++import pytest
++from sqlalchemy import select
++
++from app.models.channel import Channel
++from app.models.download_task import DownloadTask
++from app.models.downloader import DownloaderInstance
++from app.models.file_resource import FileResource
++from app.services.agent_service import create_and_submit_task
++from app.services.task_queue import ExecutionOwnershipLostError, RedisQueue
++
++
++@pytest.mark.parametrize("condition", ["token", "lease", "active", "job_id", "status", "consumer", "redis_failure", "current"])
++async def test_download_requires_current_execution(monkeypatch, condition, db_session):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    entered, resume, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
++    wrapper = SimpleNamespace(add_torrent=AsyncMock(return_value={"torrent_id": 1}))
++    monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
++    db = db_session
++    channel = Channel(name="ownership", type="rss_feed", url="https://example.invalid", field_mapping={})
++    downloader = DownloaderInstance(name="ownership", type="mock", url="http://example.invalid", download_dir="/downloads")
++    db.add_all([channel, downloader])
++    await db.flush()
++    resource = FileResource(channel_id=channel.id, guid="ownership", title_raw="Synthetic", torrent_url="magnet:?xt=synthetic")
++    db.add(resource)
++    await db.commit()
++
++    errors = []
++
++    async def handler(payload):
++        entered.set()
++        await resume.wait()
++        try:
++            await create_and_submit_task(resource, downloader, db)
++        except Exception as exc:
++            errors.append(exc)
++            raise
++        finally:
++            finished.set()
++
++    queue.register("synthetic", handler)
++    await queue.start()
++    try:
++        await queue.enqueue("synthetic", "download-ownership", {})
++        await asyncio.wait_for(entered.wait(), 2)
++        job_key = "rssripple:job:download-ownership"
++        if condition in {"token", "job_id", "status", "consumer"}:
++            field = {"token": "execution_token", "job_id": "job_id", "status": "status", "consumer": "consumer_id"}[condition]
++            await client.hset(job_key, field, "replacement")
++        elif condition == "lease":
++            await client.delete(queue._consumer_key)
++        elif condition == "active":
++            await client.set("rssripple:active:download-ownership", "replacement")
++        elif condition == "redis_failure":
++            pipeline_class = type(client.pipeline())
++            execute = pipeline_class.execute
++            failed = False
++
++            async def fail_guard_once(self, *args, **kwargs):
++                nonlocal failed
++                if not failed:
++                    failed = True
++                    raise ConnectionError("Synthetic ownership read failure")
++                return await execute(self, *args, **kwargs)
++
++            monkeypatch.setattr(pipeline_class, "execute", fail_guard_once)
++        resume.set()
++        await asyncio.wait_for(finished.wait(), 2)
++        if condition == "current":
++            wrapper.add_torrent.assert_awaited_once()
++            assert len((await db.scalars(select(DownloadTask))).all()) == 1
++            assert errors == []
++        else:
++            wrapper.add_torrent.assert_not_awaited()
++            assert (await db.scalars(select(DownloadTask))).all() == []
++            assert len(errors) == 1
++            assert isinstance(errors[0], ConnectionError if condition == "redis_failure" else ExecutionOwnershipLostError)
++    finally:
++        resume.set()
++        await queue.stop()
++
++
++@pytest.mark.parametrize("changed", ["directory", "payload", "downloader"])
++async def test_same_dispatch_rejects_changed_parameters_before_rpc(monkeypatch, db_session, changed):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    wrapper = SimpleNamespace(add_torrent=AsyncMock(return_value={"torrent_id": 1}))
++    monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
++    channel = Channel(name="drift", type="rss_feed", url="https://example.invalid", field_mapping={})
++    downloader = DownloaderInstance(name="drift", type="mock", url="http://example.invalid", download_dir="/downloads")
++    db_session.add_all([channel, downloader])
++    await db_session.flush()
++    resource = FileResource(channel_id=channel.id, guid="drift", title_raw="Synthetic", torrent_url="magnet:?xt=original")
++    db_session.add(resource)
++    await db_session.commit()
++    finished = asyncio.Event()
++    errors = []
++
++    async def handler(payload):
++        try:
++            await create_and_submit_task(resource, downloader, db_session, download_dir="/downloads")
++            await db_session.commit()
++            directory = "/elsewhere" if changed == "directory" else "/downloads"
++            selected_downloader = SimpleNamespace(id="another-downloader") if changed == "downloader" else downloader
++            if changed == "payload":
++                resource.torrent_url = "magnet:?xt=replacement"
++            await create_and_submit_task(resource, selected_downloader, db_session, download_dir=directory)
++        except Exception as exc:
++            errors.append(exc)
++        finally:
++            finished.set()
++
++    queue.register("synthetic", handler)
++    await queue.start()
++    try:
++        await queue.enqueue("synthetic", "drift", {})
++        await asyncio.wait_for(finished.wait(), 5)
++        assert len(errors) == 1 and "parameters changed" in str(errors[0])
++        wrapper.add_torrent.assert_awaited_once()
++        assert len((await db_session.scalars(select(DownloadTask))).all()) == 1
++    finally:
++        await queue.stop()
++
++
++@pytest.mark.parametrize("scope", ["different_agents", "new_jobs"])
++async def test_distinct_dispatch_operations_keep_distinct_tasks(monkeypatch, db_session, scope):
++    from app.models.agent import Agent
++
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    wrapper = SimpleNamespace(add_torrent=AsyncMock(return_value={"torrent_id": 1}))
++    monkeypatch.setattr("app.clients.downloader.get_downloader_client", lambda _: wrapper)
++    channel = Channel(name="scope", type="rss_feed", url="https://example.invalid", field_mapping={})
++    downloader = DownloaderInstance(name="scope", type="mock", url="http://example.invalid", download_dir="/downloads")
++    db_session.add_all([channel, downloader])
++    await db_session.flush()
++    agents = [Agent(name=f"scope-{i}", channel_id=channel.id, downloader_id=downloader.id) for i in range(2)]
++    resource = FileResource(channel_id=channel.id, guid="scope", title_raw="Synthetic", torrent_url="magnet:?xt=synthetic")
++    db_session.add_all([resource, *agents])
++    await db_session.commit()
++
++    async def handler(payload):
++        for agent_id in payload["agent_ids"]:
++            await create_and_submit_task(resource, downloader, db_session, agent_id=agent_id, download_dir="/downloads")
++            await db_session.commit()
++        return {"done": True}
++
++    queue.register("synthetic", handler)
++    await queue.start()
++    try:
++        payloads = [[agents[0].id, agents[1].id]] if scope == "different_agents" else [[agents[0].id], [agents[0].id]]
++        job_ids = []
++        for ids in payloads:
++            job = await queue.enqueue("synthetic", "scope", {"agent_ids": ids})
++            assert job is not None
++            job_ids.append(job["job_id"])
++            async with asyncio.timeout(5):
++                while (await queue.status("scope"))["status"] in {"queued", "running"}:
++                    await asyncio.sleep(0.01)
++            assert (await queue.status("scope"))["status"] == "done"
++        tasks = (await db_session.scalars(select(DownloadTask))).all()
++        assert len(tasks) == 2 and tasks[0].id != tasks[1].id
++        assert {task.transmission_torrent_id for task in tasks} == {1}
++        assert {task.agent_id for task in tasks} == ({a.id for a in agents} if scope == "different_agents" else {agents[0].id})
++        assert len(set(job_ids)) == len(payloads)
++        assert all(len(identifier) == 32 for identifier in job_ids)
++        assert wrapper.add_torrent.await_count == 2
++    finally:
++        await queue.stop()
+--- /dev/null
++++ b/app/models/download_dispatch.py
+@@ -0,0 +1,24 @@
++"""Immutable identity reservation for a queued download operation."""
++
++import uuid
++from datetime import datetime
++
++from sqlalchemy import JSON, Boolean, DateTime, String, false, func
++from sqlalchemy.orm import Mapped, mapped_column
++
++from app.database import Base
++
++
++class DownloadDispatch(Base):
++    __tablename__ = "download_dispatches"
++
++    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
++    operation_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
++    # Reserved before a DownloadTask exists. Retained after its deletion so an
++    # old execution cannot recreate a task that a user deliberately removed.
++    task_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
++    job_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
++    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
++    parameters: Mapped[dict] = mapped_column(JSON, nullable=False)
++    settled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
++    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), index=True)
+--- /dev/null
++++ b/app/services/download_dispatch.py
+@@ -0,0 +1,86 @@
++"""Reserve before RPC; persist its result once in the caller's transaction."""
++
++import hashlib
++import json
++import uuid
++from dataclasses import dataclass
++
++from sqlalchemy import select, update
++from sqlalchemy.dialects.postgresql import insert as pg_insert
++from sqlalchemy.dialects.sqlite import insert as sqlite_insert
++from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
++
++from app.models.download_dispatch import DownloadDispatch
++from app.models.download_task import DownloadTask
++
++
++@dataclass(frozen=True)
++class DispatchReservation:
++    operation_key: str
++    task_id: str
++    settled: bool
++
++
++def operation_key(job_identity, resource_id, agent_id):
++    body = ["download-v1", *job_identity, resource_id, agent_id]
++    return hashlib.sha256(json.dumps(body, separators=(",", ":")).encode()).hexdigest()
++
++
++def payload_digest(payload):
++    # Distinguish a URL string from cached torrent bytes, even with equal bytes.
++    raw = b"bytes:" + payload if isinstance(payload, bytes) else b"url:" + payload.encode()
++    return hashlib.sha256(raw).hexdigest()
++
++
++async def reserve_dispatch(bind, key, parameters, *, job_identity=None):
++    """Own a short intent transaction; callers must not hold a write lock.
++
++    This commits only an immutable reservation, never the caller's business
++    writes. It does not hold a DB transaction across an external RPC.
++    """
++    engine = bind.engine if isinstance(bind, AsyncConnection) else bind
++    async with AsyncSession(bind=engine, expire_on_commit=False) as db, db.begin():
++        insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++        await db.execute(
++            insert(DownloadDispatch).values(
++                operation_key=key, task_id=str(uuid.uuid4()), parameters=parameters,
++                job_key=job_identity[0] if job_identity else None,
++                job_id=job_identity[1] if job_identity else None,
++            ).on_conflict_do_nothing(index_elements=["operation_key"])
++        )
++        row = await db.scalar(select(DownloadDispatch).where(DownloadDispatch.operation_key == key))
++        if row.parameters != parameters:
++            raise ValueError("Queued download parameters changed; a new dispatch operation is required")
++        return DispatchReservation(key, row.task_id, row.settled)
++
++
++async def persist_dispatch_result(db, reservation, values):
++    # Serialize result publication with the intent row, after all RPC work.
++    # A previously settled but deleted task is a tombstone, not a retry slot.
++    settled = await db.scalar(
++        update(DownloadDispatch)
++        .where(DownloadDispatch.operation_key == reservation.operation_key)
++        .values(settled=DownloadDispatch.settled)
++        .returning(DownloadDispatch.settled)
++    )
++    if settled is None:
++        raise ValueError("Queued download reservation disappeared")
++    if settled:
++        existing = await db.get(DownloadTask, reservation.task_id, populate_existing=True)
++        if existing is None:
++            raise ValueError("Queued download task was removed; refusing to recreate it")
++        return existing
++    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
++    await db.execute(
++        insert(DownloadTask).values(id=reservation.task_id, **values)
++        .on_conflict_do_nothing(index_elements=["id"])
++    )
++    await db.execute(
++        update(DownloadDispatch)
++        .where(DownloadDispatch.operation_key == reservation.operation_key)
++        .values(settled=True)
++    )
++    task = await db.get(DownloadTask, reservation.task_id, populate_existing=True)
++    if task is None:
++        raise ValueError("Reserved download task disappeared during persistence")
++    return task
+--- a/app/models/__init__.py
++++ b/app/models/__init__.py
+@@ -13,6 +13,7 @@
+ from app.models.channel import Channel
+ from app.models.channel_raw_title_mapping import ChannelRawTitleMapping
+ from app.models.decision_migration import DecisionMigration
++from app.models.download_dispatch import DownloadDispatch
+ from app.models.download_notification import DownloadNotification
+ from app.models.download_task import DownloadTask
+ from app.models.downloader import DownloaderInstance
+@@ -62,6 +63,7 @@
+     "ChannelRawTitleMapping",
+     "DownloaderInstance",
+     "DownloadTask",
++    "DownloadDispatch",
+     "DownloadNotification",
+     "NotificationBuildFailure",
+     "PendingDecision",
+@@ -93,3 +95,4 @@
+ # classes above are already defined.
+ import app.services.organize_config_events as _organize_config_events  # noqa: E402, F401
+ import app.services.work_search_events as _work_search_events  # noqa: E402, F401
++
+--- /dev/null
++++ b/tests/unit/test_download_dispatch.py
+@@ -0,0 +1,106 @@
++"""Persistent dispatch identity: frozen parameters, result reuse and deletion."""
++
++import uuid
++
++import pytest
++from sqlalchemy import func, select
++
++from app.models.channel import Channel
++from app.models.download_task import DownloadTask
++from app.models.downloader import DownloaderInstance
++from app.models.file_resource import FileResource
++from app.services.download_dispatch import operation_key, persist_dispatch_result, reserve_dispatch
++
++
++async def test_reservation_reuses_identity_and_rejects_parameter_drift(db_session):
++    key = operation_key(("agent:x", "job"), "resource", "agent")
++    parameters = {"download_dir": "/downloads", "payload_digest": "captured"}
++    first = await reserve_dispatch(db_session.bind, key, parameters)
++    second = await reserve_dispatch(db_session.bind, key, parameters)
++    assert first.task_id == second.task_id
++    assert uuid.UUID(first.task_id).version == 4
++    with pytest.raises(ValueError, match="parameters changed"):
++        await reserve_dispatch(db_session.bind, key, {**parameters, "download_dir": "/elsewhere"})
++    other = await reserve_dispatch(db_session.bind, operation_key(("agent:x", "new-job"), "resource", "agent"), parameters)
++    assert other.task_id != first.task_id
++    assert operation_key(("agent:x", "job"), "other-resource", "agent") != key
++    assert operation_key(("agent:x", "job"), "resource", "other-agent") != key
++
++
++async def test_result_reuses_task_and_does_not_recreate_deleted_task(db_session):
++    channel = Channel(name="synthetic", type="rss_feed", url="https://example.invalid", field_mapping={})
++    downloader = DownloaderInstance(name="synthetic", type="mock", url="http://example.invalid", download_dir="/downloads")
++    db_session.add_all([channel, downloader])
++    await db_session.flush()
++    resource = FileResource(channel_id=channel.id, guid=str(uuid.uuid4()), title_raw="Synthetic", torrent_url="magnet:?xt=synthetic")
++    db_session.add(resource)
++    await db_session.commit()
++    values = {"file_resource_id": resource.id, "downloader_id": downloader.id, "download_dir": "/downloads", "status": "downloading", "transmission_torrent_id": 1}
++    reservation = await reserve_dispatch(db_session.bind, "a" * 64, {"fixture": "synthetic"})
++    task = await persist_dispatch_result(db_session, reservation, values)
++    await db_session.commit()
++    replay = await persist_dispatch_result(db_session, reservation, {**values, "status": "error"})
++    await db_session.commit()
++    assert replay.id == task.id and replay.status == "downloading"
++    assert await db_session.scalar(select(func.count()).select_from(DownloadTask)) == 1
++    await db_session.delete(task)
++    await db_session.commit()
++    with pytest.raises(ValueError, match="removed"):
++        await persist_dispatch_result(db_session, reservation, values)
++    await db_session.rollback()
++    assert await db_session.scalar(select(func.count()).select_from(DownloadTask)) == 0
++
++
++async def test_raw_insert_reservation_defaults_to_unsettled(db_session):
++    from sqlalchemy import text
++
++    from app.models.download_dispatch import DownloadDispatch
++
++    identifier = str(uuid.uuid4())
++    await db_session.execute(text(
++        "INSERT INTO download_dispatches (id, operation_key, task_id, parameters) "
++        "VALUES (:id, :operation, :task, :parameters)"
++    ), {"id": identifier, "operation": "b" * 64, "task": str(uuid.uuid4()), "parameters": "{}"})
++    assert await db_session.scalar(select(DownloadDispatch.settled).where(DownloadDispatch.id == identifier)) is False
++
++
++async def test_result_rollback_preserves_reservation_for_retry(db_session):
++    from sqlalchemy import text
++    from sqlalchemy.exc import IntegrityError
++
++    from app.models.download_dispatch import DownloadDispatch
++
++    channel = Channel(name="rollback", type="rss_feed", url="https://example.invalid", field_mapping={})
++    downloader = DownloaderInstance(name="rollback", type="mock", url="http://example.invalid", download_dir="/downloads")
++    db_session.add_all([channel, downloader])
++    await db_session.flush()
++    resource = FileResource(channel_id=channel.id, guid=str(uuid.uuid4()), title_raw="Synthetic", torrent_url="magnet:?xt=synthetic")
++    db_session.add(resource)
++    await db_session.commit()
++    values = {"file_resource_id": resource.id, "downloader_id": downloader.id, "download_dir": "/downloads", "status": "downloading", "transmission_torrent_id": 1}
++    key, parameters = "c" * 64, {"fixture": "rollback"}
++    reservation = await reserve_dispatch(db_session.bind, key, parameters)
++    await persist_dispatch_result(db_session, reservation, values)
++    with pytest.raises(IntegrityError):
++        await db_session.execute(text("UPDATE download_tasks SET download_dir = NULL WHERE id = :id"), {"id": reservation.task_id})
++    await db_session.rollback()
++    assert await db_session.scalar(select(func.count()).select_from(DownloadTask)) == 0
++    assert await db_session.scalar(select(DownloadDispatch.settled).where(DownloadDispatch.operation_key == key)) is False
++    await db_session.rollback()
++    replay = await reserve_dispatch(db_session.bind, key, parameters)
++    assert replay.task_id == reservation.task_id
++    task = await persist_dispatch_result(db_session, replay, values)
++    await db_session.commit()
++    assert task.id == reservation.task_id
++    assert await db_session.scalar(select(func.count()).select_from(DownloadTask)) == 1
++
++
++async def test_connection_bound_caller_cannot_roll_back_reservation(db_session):
++    from app.models.download_dispatch import DownloadDispatch
++
++    key = "d" * 64
++    async with db_session.bind.connect() as connection:
++        outer = await connection.begin()
++        reservation = await reserve_dispatch(connection, key, {"fixture": "external-connection"})
++        await outer.rollback()
++    assert await db_session.scalar(select(DownloadDispatch.task_id).where(DownloadDispatch.operation_key == key)) == reservation.task_id
+--- a/docs/design/business-logic.md
++++ b/docs/design/business-logic.md
+@@ -773,3 +773,21 @@
+ 部署迁移和启动门禁见 db-migration.md；验证记录与尚未完成的发布验收见 `docs/plans/p0-and-backlog/V13-CONSUMPTION-PROGRESS.md`。
+ 
+ FTS sidecar 并发：派生索引独立引擎使用 pool_size=1、max_overflow=0，短读写事务通过连接池串行，避免实验性 Turso FTS 多连接并发的原生崩溃。主业务数据库池与并发不变；sidecar checkout 内不得加入网络调用。并发调用者继续等待连接，不跳过检索或写入；全量索引重建仍须遵循已有业务契约。
++
++### Redis 执行所有权与下载发起
++
++Redis handler 每次 claim 持有独立执行 token。创建下载任务前，从同一 Redis 事务读取 job/active/consumer lease，要求 job_id、running、token、consumer 和 active 均匹配；失权抛 ExecutionOwnershipLostError，Redis 读取失败也不允许继续发起。直接 API/MemoryQueue 无 Redis 执行上下文，沿用既有行为。此检查不保证校验之后或已开始的远端操作被撤销，不能代替下载器幂等和任务持久关联，也不代表其他 handler 副作用已经受到保护。
++
++### 队列派发的持久幂等
++
++Redis 逻辑作业 ID 在接管时保留，新作业使用完整 UUID hex。派发身份对 queue key/job_id/资源/Agent 作 SHA256；冻结参数包含下载器、目录、payload 类型及摘要。先在独立短事务中预留 DownloadDispatch 与任务 UUID，提交后再发 RPC；调用方此时不得持有数据库写锁。参数不一致拒绝复用。主业务事务在 RPC 之后锁住预留行，以预留 UUID 原子插入任务并标记 settled；重入只返回已存在的任务，不覆盖其状态。已删除的 settled 任务不能重建。手动 API 无 Redis 上下文，继续独立创建；重试 API 更新原任务。
++
++这不是外部操作 exactly-once：下载器可接受两次请求，Transmission 按 torrent 身份去重，本地任务按派发身份去重。不同逻辑作业仍是不同身份，旧 writer、队列存储完全丢失后的新作业以及其他 handler 的副作用需要各自恢复协议。
++
++派发预留事务从调用方绑定的 AsyncEngine 获取独立连接；若调用方绑定 AsyncConnection，则使用其 engine，不能加入外层连接事务，否则外层 rollback 会撤销预留。调用方无写锁跨 RPC 的前提仍需保持。
++
++### 派发预留保留与清理
++
++每日业务清理提交后，另行分页扫描超过 7 天且 DownloadTask 已不存在的预留。Redis 以一次事务读取 job hash 和 active key：同 job_id 仍 queued/running、active 仍指向旧作业或状态异常时保留；原作业终态、同 key 被不同 job_id 替代或原记录缺失时才可清理。Redis 故障立即停止本轮后续清理，MemoryQueue 无法证明 Redis 作业退休则保留。未知 job_key/job_id 的历史或直接写入记录保留。7 天是预留年龄，不是任务删除后的计时器。
++
++数据库读取会话在 Redis 调用前关闭；删除事务再次要求任务不存在且 settled 与扫描时一致，防止与任务落库竞争。每页 500 条，以 created_at/id 游标推进，旧但仍活动的记录不会阻塞后续候选。已有任务的预留随任务保留；删除任务后的记录只有满足年龄与队列终态条件才删除。不得复用历史逻辑 job_id；清理后旧执行的结果持久化必须因预留缺失而拒绝。
+--- a/docs/design/data-models.md
++++ b/docs/design/data-models.md
+@@ -849,3 +849,7 @@
+ 每资源至多一条 created 和一条最新 metadata。创建序号永久充当 origin；metadata 替换时在同一事务删除旧事件并写入更高序号，不重编号。资源删除级联清理事件，频道计数器不回退。
+ 
+ baseline 和 cursor 分别表示历史准入与消费确认，不要求 cursor>=baseline。普通频道切换 cursor=0，baseline 取新频道当前前缀，历史时间下界沿用旧 last_consumed_at；显式回填清空历史下界。指定扫描可扩展历史准入并在处理前回退 cursor 以保留失败重试，确认只在同 generation 内前进。全历史以 datetime.min 表示下界。业务协议见 business-logic.md，升级步骤见 db-migration.md。
++
++### DownloadDispatch（队列派发预留）
++
++队列派发的稳定身份表 download_dispatches：id 为 UUID v4 主键；operation_key 为唯一 SHA256 字符串；task_id 为唯一预留 UUID v4；parameters 为冻结 JSON（资源、Agent、下载器、目录和 payload 摘要）；settled 为非空 Boolean，数据库默认 false；created_at 为 UTC。task_id 在任务创建之前预留，因此不指向 DownloadTask 外键；任务删除后保留记录以阻止旧执行重建。身份 JSON 的 ID 是不可变操作快照，不建立级联外键。新增可空 job_key（512）与 job_id（32）保存逻辑队列身份，created_at 建索引；身份缺失时保守保留。正常 queued 派发始终填入两字段。
+--- a/docs/design/db-migration.md
++++ b/docs/design/db-migration.md
+@@ -302,3 +302,11 @@
+ web/worker 在运行配置和调度启动前检查迁移状态；真正空库初始化 fresh 标记，旧数据无标记拒绝启动。有标记仍检查资源初始事件与旧 Agent 的匹配频道进度，防止遗漏迁移或混用旧写入者。DB_MIGRATE_ON_STARTUP=false 不跳过此门禁。
+ 
+ 专项证据与发布验收状态见 V13-CONSUMPTION-PROGRESS.md；本节描述迁移协议，不表示已对生产数据库执行迁移。
++
++### 下载派发预留表
++
++新版本注册 DownloadDispatch，由常规模型建表创建 download_dispatches（唯一 operation_key 与 task_id）；不回填旧下载任务，也不对 downloader/torrent_id 加全局唯一。已存在任务继续保持原有身份。混合版本 worker 不支持执行所有权保证，部署需停启全部 worker。Turso 的 Boolean 默认必须使用 SQL 布尔表达式，不能用字符串 'false'；原型旧表不作为正式升级来源。两后端旧库启动、重复建表和唯一约束直接写入测试属于合入前必要门禁。
++
++派发表旧库建表已在 Turso 与 PostgreSQL 通过同一驱动验证两次生产 create_tables：旧 AppSetting 和新增预留保留，直接 SQL 的 operation_key/task_id 唯一约束、settled 非空及 false 默认生效。验证只覆盖相对本基线缺派发表的旧 schema，不代表任意更早或实验 schema 自动可升级。
++
++当前候选派发表还包含可空 job_key/job_id 与 created_at 索引，正常派发填入身份供清理验证；缺身份记录不清理。尚未发布的旧实验表不属于支持升级来源。字段加入后的两后端升级与约束验收已由 mo/mp 复核；最终完整门禁仍待完成，之前 mk/ml 记录对应较早候选。
+--- a/docs/testing/integration-inventory.md
++++ b/docs/testing/integration-inventory.md
+@@ -315,3 +315,15 @@
+ V13 发布补偿定时集成：`organize/test_publication_scheduler.py` 使用真实生产五秒 IntervalTrigger、MemoryQueue、handler 和临时 Turso；暂停经历一次 tick 后仍待消费，恢复后自动产生一条成功 AgentRun 并确认游标。仅移除无关定时任务，不手动调用发布回调或缩短周期。数据为合成资源；此用例不证明外部下载副作用。
+ 
+ V13 FTS 并发回归：`organize/test_fts_concurrency.py` 在独立子进程和临时 Turso sidecar 上运行生产 FTS 初始化、写入和检索；8 个并发调用者共 400 写、400 读，要求进程正常退出、无操作异常、最终索引恰好包含 10 个唯一预期 ID。数据明确为合成压力夹具；进程隔离保留原生崩溃输出。此测试不替代完整 HTTP/调度负载门禁，也不证明此前 page_cache 崩溃与已复现 btree 崩溃同源。
++
++V14 派发持久化原型测试：test_download_dispatch 验证预留复用、参数漂移、不同逻辑操作、结果复用、删除后不重建与直接 SQL 默认值；test_queue_download_ownership 使用临时真实数据库覆盖八种身份/连接状态。真实 PG/Redis/Transmission 的已审核 torrent 接管探针见 V14 文档：两次 RPC 接受仍仅一条持久任务，无媒体下载。这些证据不替代全量门禁或其他 handler 验收。
++
++V14 md/me/mf 补验：实际 NOT NULL 故障回滚后预留保持 unsettled，重试复用 UUID；同作业目录/payload/下载器漂移在第二次 RPC 前拒绝。真实 PG 的延迟外键约束使 COMMIT（不是 flush）失败，已审核 torrent RPC 接受后重试复用同一任务 UUID，最终一任务一 torrent。该探针显式在同一逻辑 handler 内换事务重试，不宣称验证了生产自动重试或进程崩溃恢复。
++
++V14 mg 崩溃探针使用两个独立进程和真实 PG/Redis/Transmission：A 在真实 RPC 接受后 SIGKILL（-9），B 等待默认 lease 自然过期后通过生产队列自动接管（退出 0）；保留 job_id/task UUID，最终一任务一 torrent。使用 confirmed torrent、无媒体下载；handler 为专用薄包装，不表示全部生产 job handler 已验收。mh/mi 连接绑定测试先复现外层回滚抹掉预留，再验证独立引擎连接修复。
++
++V14 派发表升级正式集成：organize/test_download_dispatch_schema.py 在新子进程构造仅缺 download_dispatches 的旧 schema，通过生产 create_tables 连续两次执行，保留旧 AppSetting 与首次升级后预留；直接 SQL 验证 operation_key/task_id 唯一、settled 非空和 false 默认值。默认 Turso 入常规集成收集；同驱动在专用 PostgreSQL 项目亦验证通过。数据为合成迁移夹具，不涉及 RSS 或 RPC。
++
++V14 预留清理测试 test_download_dispatch_cleanup 覆盖 Redis 终态/替换/缺失、queued/running/active 孤儿/未知状态、年龄、缺身份、Redis 故障、分页越过活动记录、数据库 settled 竞争以及已有任务不删除。使用真实临时 DB、FakeRedis 的生产 RedisQueue 判断；不替代真实 Redis 清理集成。每日 scheduler 回归确认数据库绑定和事务外接线。
++
++V14 mq 在真实 PG/Redis 中确认退休孤立记录删除、queued/running 保留；任务事务先持有预留行锁，清理 DELETE 在 pg_stat_activity 显示 Lock 等待，任务提交后 DELETE 影响零行，任务及 settled 预留保留。mr 在实际队列上下文/临时 DB 下验证不同 Agent 或新逻辑作业（同 queue key）各保留独立任务，下载器替身返回同一 torrent ID 也不会错误合并。
+--- /dev/null
++++ b/tests/integration/organize/download_dispatch_schema_driver.py
+@@ -0,0 +1,98 @@
++"""Upgrade a legacy schema through production startup, then exercise raw SQL."""
++
++import asyncio
++import json
++import os
++import subprocess
++import uuid
++from pathlib import Path
++
++probe_root = Path(os.environ["PROBE_ROOT"]).resolve()
++assert probe_root.is_relative_to(Path("/tmp"))
++project = os.environ.get("PROBE_POSTGRES_PROJECT")
++if project:
++    assert project.startswith("rssripple-v14-schema-")
++    [state] = json.loads(subprocess.check_output(["docker", "inspect", f"{project}-postgres-1"]))
++    assert state["Config"]["Labels"]["com.docker.compose.project"] == project
++    address = state["NetworkSettings"]["Networks"][project + "_isolated"]["IPAddress"]
++    os.environ["DATABASE_URL"] = f"postgresql+asyncpg://probe:probe@{address}:5432/probe"
++else:
++    assert os.environ["DATABASE_URL"] == f"sqlite+aioturso:///{probe_root / 'legacy.db'}"
++
++from sqlalchemy import inspect, select, text  # noqa: E402
++from sqlalchemy.exc import IntegrityError  # noqa: E402
++
++import app.database as database  # noqa: E402
++import app.models  # noqa: E402,F401
++from app.models.app_setting import AppSetting  # noqa: E402
++from app.models.download_dispatch import DownloadDispatch  # noqa: E402
++
++INSERT = (
++    "INSERT INTO download_dispatches (id, operation_key, task_id, parameters) VALUES (:id, :key, :task, :parameters)"
++)
++
++
++async def main():
++    try:
++        async with database.engine.begin() as conn:
++            if not project:
++                await conn.execute(text("PRAGMA journal_mode='mvcc'"))
++            assert not await conn.run_sync(lambda sync: inspect(sync).has_table("app_settings"))
++            legacy_tables = [t for t in database.Base.metadata.sorted_tables if t.name != "download_dispatches"]
++            await conn.run_sync(lambda sync: database.Base.metadata.create_all(sync, tables=legacy_tables))
++            await conn.execute(text("INSERT INTO app_settings (key, value) VALUES ('probe-legacy', 'preserved')"))
++            assert not await conn.run_sync(lambda sync: inspect(sync).has_table("download_dispatches"))
++        await database.create_tables()
++        row = {"id": str(uuid.uuid4()), "key": "a" * 64, "task": str(uuid.uuid4()), "parameters": "{}"}
++        async with database.engine.begin() as conn:
++            await conn.execute(text(INSERT), row)
++        rejected = []
++        for duplicate in ["operation", "task"]:
++            other = {**row, "id": str(uuid.uuid4())}
++            if duplicate == "operation":
++                other["task"] = str(uuid.uuid4())
++            else:
++                other["key"] = "b" * 64
++            try:
++                async with database.engine.begin() as conn:
++                    await conn.execute(text(INSERT), other)
++            except IntegrityError:
++                rejected.append(duplicate)
++            else:
++                raise AssertionError(f"Duplicate {duplicate} was accepted")
++        try:
++            async with database.engine.begin() as conn:
++                await conn.execute(text("UPDATE download_dispatches SET settled = NULL WHERE id = :id"), row)
++        except IntegrityError:
++            rejected.append("null-settled")
++        else:
++            raise AssertionError("NULL settled was accepted")
++        await database.create_tables()
++        async with database.async_session_factory() as db:
++            assert (await db.get(AppSetting, "probe-legacy")).value == "preserved"
++            [dispatch] = (await db.scalars(select(DownloadDispatch))).all()
++            assert dispatch.task_id == row["task"] and dispatch.settled is False
++        Path(os.environ["PROBE_RESULT_PATH"]).write_text(
++            json.dumps(
++                {
++                    "backend": "postgresql" if project else "turso",
++                    "legacy_row_preserved": True,
++                    "startup_calls": 2,
++                    "reservation_row_preserved": True,
++                    "raw_default_settled": False,
++                    "rejected": rejected,
++                    "data": "synthetic schema fixture, no RPC",
++                },
++                indent=2,
++            )
++            + "\n"
++        )
++    finally:
++        from app.services import fts
++
++        if fts._FTS_ENGINE is not None:
++            await fts._FTS_ENGINE.dispose()
++        await database.engine.dispose()
++
++
++asyncio.run(main())
+--- /dev/null
++++ b/tests/integration/organize/test_download_dispatch_schema.py
+@@ -0,0 +1,34 @@
++"""Legacy upgrade must preserve data and enforce dispatch identity in the DB."""
++
++import asyncio
++import json
++import os
++import subprocess
++import sys
++from pathlib import Path
++
++
++async def test_dispatch_schema_upgrade_is_repeatable(tmp_path):
++    output = tmp_path / "result.json"
++    env = dict(
++        os.environ,
++        PROBE_ROOT=str(tmp_path),
++        PROBE_RESULT_PATH=str(output),
++        DATABASE_URL=f"sqlite+aioturso:///{tmp_path / 'legacy.db'}",
++    )
++    env.pop("PROBE_POSTGRES_PROJECT", None)
++    result = await asyncio.to_thread(
++        subprocess.run,
++        [sys.executable, "-m", "tests.integration.organize.download_dispatch_schema_driver"],
++        cwd=Path(__file__).resolve().parents[3],
++        env=env,
++        capture_output=True,
++        text=True,
++        timeout=90,
++    )
++    assert result.returncode == 0, result.stdout + result.stderr
++    report = json.loads(output.read_text())
++    assert report["startup_calls"] == 2
++    assert report["legacy_row_preserved"] and report["reservation_row_preserved"]
++    assert report["raw_default_settled"] is False
++    assert report["rejected"] == ["operation", "task", "null-settled"]
+--- /dev/null
++++ b/app/services/download_dispatch_cleanup.py
+@@ -0,0 +1,64 @@
++"""Remove aged orphan reservations only after their logical job is retired."""
++
++import logging
++from datetime import timedelta
++
++from sqlalchemy import and_, delete, exists, or_, select
++from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
++
++from app.models.download_dispatch import DownloadDispatch
++from app.models.download_task import DownloadTask
++from app.utils.time import utcnow
++
++logger = logging.getLogger(__name__)
++RETENTION_DAYS = 7
++PAGE_SIZE = 500
++
++
++def _task_missing():
++    return ~exists(select(DownloadTask.id).where(DownloadTask.id == DownloadDispatch.task_id))
++
++
++async def cleanup_dispatch_reservations(engine, queue):
++    if isinstance(engine, AsyncConnection):
++        engine = engine.engine
++    cutoff = utcnow() - timedelta(days=RETENTION_DAYS)
++    last = None
++    deleted = 0
++    while True:
++        conditions = [
++            DownloadDispatch.created_at < cutoff,
++            DownloadDispatch.job_key.is_not(None),
++            DownloadDispatch.job_id.is_not(None),
++            _task_missing(),
++        ]
++        if last is not None:
++            conditions.append(or_(
++                DownloadDispatch.created_at > last[0],
++                and_(DownloadDispatch.created_at == last[0], DownloadDispatch.id > last[1]),
++            ))
++        async with AsyncSession(engine) as db:
++            rows = (await db.execute(select(
++                DownloadDispatch.id, DownloadDispatch.job_key, DownloadDispatch.job_id,
++                DownloadDispatch.created_at, DownloadDispatch.settled,
++            ).where(*conditions).order_by(
++                DownloadDispatch.created_at, DownloadDispatch.id,
++            ).limit(PAGE_SIZE))).all()
++        if not rows:
++            return deleted
++        for row in rows:
++            try:
++                retired = await queue.job_is_retired(row.job_key, row.job_id)
++            except Exception:
++                logger.warning("Reservation cleanup deferred: queue state unavailable", exc_info=True)
++                return deleted
++            if not retired:
++                continue
++            async with AsyncSession(engine) as db, db.begin():
++                result = await db.execute(delete(DownloadDispatch).where(
++                    DownloadDispatch.id == row.id,
++                    DownloadDispatch.settled == row.settled,
++                    _task_missing(),
++                ))
++                deleted += result.rowcount
++        last = (rows[-1].created_at, rows[-1].id)
+--- /dev/null
++++ b/tests/unit/test_download_dispatch_cleanup.py
+@@ -0,0 +1,98 @@
++"""Retention must not remove a dispatch that can still run or has a task."""
++
++import uuid
++from datetime import timedelta
++from unittest.mock import AsyncMock
++
++import fakeredis
++from sqlalchemy import select, update
++from sqlalchemy.ext.asyncio import AsyncSession
++
++from app.models.download_dispatch import DownloadDispatch
++from app.services import download_dispatch_cleanup as cleanup
++from app.services.task_queue import RedisQueue
++from app.utils.time import utcnow
++
++
++def reservation(name, *, age=8, known=True):
++    return DownloadDispatch(
++        operation_key=uuid.uuid4().hex * 2, task_id=str(uuid.uuid4()),
++        job_key=name if known else None, job_id="old" if known else None,
++        parameters={}, created_at=utcnow() - timedelta(days=age),
++    )
++
++
++async def test_cleanup_preserves_recoverable_and_unknown_jobs(db_session, monkeypatch):
++    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
++    queue = RedisQueue(redis_client=client)
++    names = ["running", "queued", "absent", "done", "failed", "replaced", "active-orphan", "unknown", "young", "anonymous"]
++    rows = [reservation(name, age=1 if name == "young" else 8, known=name != "anonymous") for name in names]
++    db_session.add_all(rows)
++    await db_session.commit()
++    for name in ["running", "queued", "done", "failed", "unknown"]:
++        await client.hset("rssripple:job:" + name, mapping={"job_id": "old", "status": name})
++    await client.hset("rssripple:job:replaced", mapping={"job_id": "new", "status": "running"})
++    await client.set("rssripple:active:replaced", "new")
++    await client.set("rssripple:active:active-orphan", "old")
++    monkeypatch.setattr(cleanup, "PAGE_SIZE", 2)
++    assert await cleanup.cleanup_dispatch_reservations(db_session.bind, queue) == 4
++    async with AsyncSession(db_session.bind) as check:
++        remaining = set(await check.scalars(select(DownloadDispatch.job_key)))
++    assert remaining == {"running", "queued", "active-orphan", "unknown", "young", None}
++    await client.aclose()
++
++
++async def test_cleanup_skips_when_queue_read_fails(db_session):
++    row = reservation("outage")
++    db_session.add(row)
++    await db_session.commit()
++    queue = AsyncMock()
++    queue.job_is_retired.side_effect = ConnectionError("Synthetic Redis failure")
++    assert await cleanup.cleanup_dispatch_reservations(db_session.bind, queue) == 0
++    async with AsyncSession(db_session.bind) as check:
++        assert await check.get(DownloadDispatch, row.id) is not None
++
++
++async def test_cleanup_rechecks_settlement_after_queue_read(db_session):
++    row = reservation("racing-settlement")
++    db_session.add(row)
++    await db_session.commit()
++
++    async def settle_before_delete(key, job_id):
++        async with AsyncSession(db_session.bind) as other, other.begin():
++            await other.execute(update(DownloadDispatch).where(DownloadDispatch.id == row.id).values(settled=True))
++        return True
++
++    queue = AsyncMock()
++    queue.job_is_retired.side_effect = settle_before_delete
++    assert await cleanup.cleanup_dispatch_reservations(db_session.bind, queue) == 0
++    async with AsyncSession(db_session.bind) as check:
++        assert (await check.get(DownloadDispatch, row.id)).settled is True
++
++
++async def test_cleanup_retains_reservation_with_existing_task(db_session):
++    from app.models.channel import Channel
++    from app.models.download_task import DownloadTask
++    from app.models.downloader import DownloaderInstance
++    from app.models.file_resource import FileResource
++
++    channel = Channel(name="retained", type="rss_feed", url="https://example.invalid", field_mapping={})
++    downloader = DownloaderInstance(name="retained", type="mock", url="http://example.invalid", download_dir="/downloads")
++    db_session.add_all([channel, downloader])
++    await db_session.flush()
++    resource = FileResource(channel_id=channel.id, guid="retained", title_raw="Synthetic", torrent_url="magnet:?xt=synthetic")
++    db_session.add(resource)
++    await db_session.flush()
++    row = reservation("retired-with-task")
++    row.settled = True
++    db_session.add_all([row, DownloadTask(
++        id=row.task_id, file_resource_id=resource.id, downloader_id=downloader.id,
++        download_dir="/downloads", status="completed",
++    )])
++    await db_session.commit()
++    queue = AsyncMock()
++    queue.job_is_retired.return_value = True
++    assert await cleanup.cleanup_dispatch_reservations(db_session.bind, queue) == 0
++    queue.job_is_retired.assert_not_awaited()
++    async with AsyncSession(db_session.bind) as check:
++        assert await check.get(DownloadDispatch, row.id) is not None
+--- a/app/services/scheduler.py
++++ b/app/services/scheduler.py
+@@ -542,6 +542,12 @@
+                 )
+         except Exception as e:
+             logger.warning("Unresolved-resource cleanup failed: %s", e)
++
++    # The business cleanup transaction has committed before Redis is queried.
++    from app.services.download_dispatch_cleanup import cleanup_dispatch_reservations
++    from app.services.task_queue import task_queue
++
++    await cleanup_dispatch_reservations(db.bind, task_queue)
+ 
+ 
+ async def _check_downloader_connections() -> None:

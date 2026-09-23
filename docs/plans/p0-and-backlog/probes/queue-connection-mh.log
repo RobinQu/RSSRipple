@@ -1,0 +1,28 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_connection_bound_caller_cannot_roll_back_reservation ___________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fa4e27eeba0>
+
+    async def test_connection_bound_caller_cannot_roll_back_reservation(db_session):
+        from app.models.download_dispatch import DownloadDispatch
+    
+        key = "d" * 64
+        async with db_session.bind.connect() as connection:
+            outer = await connection.begin()
+            reservation = await reserve_dispatch(connection, key, {"fixture": "external-connection"})
+            await outer.rollback()
+>       assert await db_session.scalar(select(DownloadDispatch.task_id).where(DownloadDispatch.operation_key == key)) == reservation.task_id
+E       AssertionError: assert None == '191ff4b4-52c4-4b56-b8f9-a3f11b6d2684'
+E        +  where '191ff4b4-52c4-4b56-b8f9-a3f11b6d2684' = DispatchReservation(operation_key='dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd', task_id='191ff4b4-52c4-4b56-b8f9-a3f11b6d2684', settled=False).task_id
+
+tests/unit/test_download_dispatch.py:106: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_download_dispatch.py::test_connection_bound_caller_cannot_roll_back_reservation
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_download_dispatch.py::test_connection_bound_caller_cannot_roll_back_reservation
+1 failed, 1 warning in 0.55s

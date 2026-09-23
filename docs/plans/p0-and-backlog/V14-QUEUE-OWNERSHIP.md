@@ -138,3 +138,59 @@ lw 独立项目 down -v 已退出 0，PostgreSQL/Redis/Transmission 容器、专
 本地 main 已含 B7 提交 edfceef。B4 原型仍在 /tmp/rssripple-v14-ownership-kr，运行实现未合入；可恢复队列核心补丁为 probes/queue-ownership-prototype.patch，下载入口/测试/业务文档补丁为 probes/queue-download-ownership.patch，两者现在均以含 B7 的主干为适用基线。继续前核对 source.json；不要把整个旧原型目录覆盖到主干，旧原型其余文件未包含 B7 最终配置/FTS 修复。
 
 当前无运行中的测试或专用 Compose 项目。下一步先落定持久派发身份设计，再用已保存的 lw 真实数据重复落库探针验证；补齐真实取消/崩溃恢复矩阵及其余 handler 的副作用边界。V14 的局部绿测不替代新的完整单元/API 与集成门禁。
+
+## 持久派发身份原型与真实接管转绿（lx–mc）
+
+新原型 /tmp/rssripple-v14-dispatch-lx 从已验收 main 复制并应用 B4 补丁，含 B7 最终配置/FTS 修复。稳定身份选择 queue key/job_id/资源/Agent；新 job_id 使用完整 UUID hex（旧 queued ID 继续读取）。DownloadDispatch 用独立短事务预留任务 UUID 和冻结参数，RPC 完成后主业务事务锁预留行、按 UUID 插入一次并标记 settled。参数漂移拒绝、已保存状态不覆盖、删除任务保留 tombstone；手动 API 无上下文保持既有路径。两个事务之间无数据库写锁跨 RPC。保留/清理政策、跨系统故障及调用方无写锁前提仍需验收。
+
+lx 两项身份/持久化数据库测试通过；ly 真实测试 DB 的准入矩阵与队列回归 77 passed、1 warning、7.49 秒。lz 使用相同已审核 torrent、新独立 PG/Redis/Transmission 栈，A RPC 接受后失去租约、B 接管先落库、A 再完成，rpc_ids=[1,1]、daemon_torrents=1、persisted_tasks=1；peers=0、媒体字节=0，探针退出 0，down -v 清理退出 0。驱动 download_takeover_reserved_probe.py、compose.download-lz.yml 与 queue-download-lz-* 已保存。
+
+ma 原有 Agent/手动任务 API 131 passed、1 warning、55.20 秒、退出 0。随后原始 SQL 默认值检查 mb 发现字符串 'false' 在 Turso 被读成 True，1 failed、0.62 秒；改用 SQLAlchemy false()，mc 直接写入/身份/准入 11 passed、1 warning、4.78 秒。Ruff 通过。ma/lz 发生于默认值修正之前，不能描述为最终全量门禁。
+
+**最新完整候选补丁**为 probes/queue-dispatch-prototype.patch，源码哈希 queue-dispatch-source.json，固定基线 f9d4a0a；已 git apply --check。该补丁包含并取代应用步骤上的旧 queue-ownership/queue-download 补丁，不应重复叠加。刷新工具 /tmp/refresh_v14_dispatch.py 固定 git 基线，防止后续主干变化丢失差异。权威模型/业务/迁移和测试清单在候选补丁内同步，未合入运行代码。当前全部测试均终态、无专用 Compose 项目。
+
+下一步：真实 COMMIT 失败/崩溃恢复、不同目录/payload 的同身份拒绝、新操作/不同 Agent 不误合并、两后端旧库升级及直接唯一约束、任务删除与预留保留清理、其他 handler 副作用，之后才是冻结完整门禁和合入评审。
+
+## 回滚、参数漂移与真实 COMMIT 故障（md / me / mf）
+
+md 在真实测试库中先写入任务与 settled，再触发 NOT NULL 约束故障；rollback 后任务为零、独立预留仍存在且 unsettled，重试保持原 task_id 并仅一条任务。test_download_dispatch 4 passed、1 warning、1.81 秒。me 通过生产队列上下文与测试数据库分别改变 directory/payload/downloader，均在第二次 RPC 前抛参数变化错误，第一次任务保留；准入文件 11 passed、1 warning、4.67 秒。
+
+mf 独立 PG/Redis/Transmission 栈使用同一 confirmed torrent，测试专用 DEFERRABLE INITIALLY DEFERRED 外键允许 flush，但令第一次 COMMIT 实际失败；随后在同一逻辑 Redis handler 的新事务中重试。rpc_ids=[1,1]，两次 proposed task UUID 完全相同，最终一任务、一 torrent，预留 settled=true，peers=0/媒体字节=0。退出 0、down -v 清理退出 0。驱动 download_commit_reserved_probe.py 和 queue-commit-mf-* 已保存；此是显式恢复测试，不是自动 handler 重试或独立进程崩溃恢复证据。
+
+最新 aggregate patch/source 已刷新，仍未合入。下一步保持两后端升级/唯一约束、自动崩溃接管、预留清理政策和其他 handler 边界的验收要求；不能以本轮事务回滚通过缩小 B4 范围。当前所有测试已结束，无专用运行栈。
+
+## SIGKILL 自动接管与独立预留连接（mg / mh / mi）
+
+mg 独立 PG/Redis/Transmission 项目，两个独立 Python worker 进程；A 在真实 captured torrent RPC 接受后、任务落库前挂起，父进程确认预留已持久且无 DownloadTask 后 SIGKILL A（-9）。B 使用生产 RedisQueue 启动，默认 15 秒 lease/5 秒 heartbeat 未改，无人工删租约或手动调恢复回调；自然过期后自动接管并退出 0。同一 job_id、同一预留 UUID、rpc_ids=[1,1]，最终一任务一 torrent，媒体字节=0、peers=0。驱动 download_crash_reserved_probe.py、结果/日志 queue-crash-mg-* 已保存，项目清理退出 0。该测试为共享下载业务入口的专用 handler，不代表全部 17 类生产 handler。
+
+mh 连接绑定边界负测确认：AsyncSession(bind=已有 AsyncConnection) 的新会话加入外层事务，外层 rollback 抹掉预留，1 failed、0.55 秒。reserve_dispatch 改为从 AsyncConnection.engine 取独立连接，原 AsyncEngine 路径保持；mi 身份/准入/参数漂移回归 16 passed、1 warning、6.42 秒，Ruff 通过。mg 在此修复前使用引擎绑定路径通过，不能充当最终所有路径全量验收。
+
+aggregate patch/source 及候选权威文档/测试清单已刷新。当前所有进程终态，专用栈已清理。下一步两后端旧库建表与直接唯一约束、预留清理/保留、同资源不同 Agent 与新操作的集成隔离、剩余 handler 的副作用，之后冻结完整门禁。
+
+## 两后端旧 schema 升级与直接 SQL 约束（mj / ml / mk）
+
+新增正式集成 test_download_dispatch_schema.py 和共用 driver，旧 schema 为当前基线全部表但缺 download_dispatches，并保留 AppSetting 哨兵。生产 create_tables 第一次补表后插入预留，再第二次启动，旧哨兵和预留均保留；直接 SQL 对重复 operation_key、重复 task_id、NULL settled 分别触发 IntegrityError，默认 settled=False。
+
+mj 旧库夹具未启用既有 Turso MVCC，在种子 INSERT 阶段失败，未进入迁移；修正初始化后 ml 正式子进程测试 1 passed、0.98 秒、退出 0。mk 同驱动在专用 PostgreSQL 16 上退出 0，全部断言通过；项目 rssripple-v14-schema-mk 清理退出 0。日志、JUnit 和 PG 结果保存为 queue-schema-*。Ruff 通过，正式测试/driver 已加入最新 aggregate patch 清单，Turso 场景纳入常规集成收集。此证据不涵盖任意更早的 schema、实验原型表升级或历史任务业务重写。
+
+下一步优先定稿预留保留/清理：不能只按年龄删除仍可被接管的预留，也不能在任务删除后立即抹掉防重建记录。需要同时考察逻辑作业终态/缺失、现有任务及 Redis 不可用时保守跳过；现有 operation_key 是摘要，清理所需作业身份字段尚须设计。其余 handler 副作用验证继续保持范围，B4 仍未完成。当前没有运行中的测试或专用栈。
+
+## 预留保留/清理协议原型（mm / mn）
+
+必要性与方案：仅按年龄删除可破坏仍在排队/接管的稳定 UUID；永久保留全部预留又会随已删除任务增长。候选增加 job_key/job_id 和 created_at 索引；7 天以上、无对应任务、Redis 确认原作业退休三条件同时满足才删。queued/running、active 孤儿、异常状态或身份缺失保留；Redis 不可用停止后续清理。终态不回到 queued，重新入队使用全新完整 UUID；不得复用旧逻辑 job_id。
+
+清理按 created_at/id 分页（500 条），数据库读取结束后再调用 Redis，删除时重新检查无任务且 settled 未改变。已有任务永不因此删除预留。接入每日清理原事务提交后的阶段，并沿用该会话数据库绑定；AsyncConnection 归一为其 engine 获取独立连接。
+
+mm 队列/派发/保留矩阵 86 passed、1 warning、11.08 秒；随后补已有任务保留与 scheduler 接线，mn 33 passed、1 warning、9.67 秒，Ruff 通过。证据 queue-retention-mm/mn.*。此轮尚未做真实 Redis 清理竞争验证；新增列后必须重跑两后端 schema 验收。
+
+最新 aggregate patch 已包含模型、清理服务、每日入口、测试及权威文档更新；当前没有运行测试或专用栈。继续真实清理/删除竞争、同资源不同 Agent/新操作隔离和其余 handler 边界，再进入最终全量验收。
+
+## 当前 schema、真实清理竞争及操作隔离（mo / mp / mq / mr）
+
+mo 新字段后的 Turso 正式升级测试 1 passed、0.88 秒、退出 0；mp 同驱动在独立 PostgreSQL 16 上重复生产 create_tables、保留哨兵/预留、直接 SQL 唯一/非空/默认值断言均通过。
+
+mq 使用同项目真实 PG/Redis：三条退休/缺失/替换的孤立预留删除，queued/running 保留。另让实际 persist_dispatch_result 的事务先锁预留并写任务，清理尝试 DELETE；监测 pg_stat_activity 明确观察 wait_event_type=Lock，再释放 writer 提交。DELETE 返回 0，已落库任务和 settled 预留均保留。驱动 dispatch_cleanup_pg_redis_probe.py 与 queue-cleanup-mq-* 已保存。数据为合成持久化夹具，无 RPC。项目 rssripple-v14-schema-mp 清理退出 0。
+
+mr 增加实际队列上下文/测试数据库的两种隔离：同逻辑作业内不同 Agent，及同 key 的新逻辑作业。下载器替身均返回同一 torrent ID，但分别保留两条不同任务 UUID 与正确 Agent 归属；新作业 ID 独立且为 32 hex。准入/漂移/隔离测试文件 13 passed、1 warning、5.80 秒，Ruff 通过。
+
+aggregate patch/source 与候选权威文档/集成清单已刷新。当前无运行测试/专用栈；下一步集中审核其余 handler 的业务副作用与阻塞路径，不能把共享下载入口的覆盖等同于 B4 全部完成。

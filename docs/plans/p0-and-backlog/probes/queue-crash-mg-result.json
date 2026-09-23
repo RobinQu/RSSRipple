@@ -1,0 +1,23 @@
+{
+  "case_id": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+  "torrent_sha256": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813",
+  "worker_exit_codes": [
+    -9,
+    0
+  ],
+  "rpc_ids": [
+    "1",
+    "1"
+  ],
+  "persisted_tasks": 1,
+  "daemon_torrents": 1,
+  "reserved_task_id_preserved": true,
+  "logical_job_id_preserved": true,
+  "lease": "natural expiry with default 15-second lease and 5-second heartbeat",
+  "received_media_bytes": 0,
+  "peers_connected": 0,
+  "scope": "production RedisQueue and create_and_submit_task; synthetic handler around captured torrent",
+  "probe_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "source_sha256": "878f9c9a3019d55061152db2367c832752dd48d85a95a94aac7e3f3ab7e5018e"
+}

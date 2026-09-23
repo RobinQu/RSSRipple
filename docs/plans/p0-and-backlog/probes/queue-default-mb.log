@@ -1,0 +1,29 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_raw_insert_reservation_defaults_to_unsettled _______________
+
+db_session = <sqlalchemy.ext.asyncio.session.AsyncSession object at 0x7fa3a7302ba0>
+
+    async def test_raw_insert_reservation_defaults_to_unsettled(db_session):
+        from sqlalchemy import text
+    
+        from app.models.download_dispatch import DownloadDispatch
+    
+        identifier = str(uuid.uuid4())
+        await db_session.execute(text(
+            "INSERT INTO download_dispatches (id, operation_key, task_id, parameters) "
+            "VALUES (:id, :operation, :task, :parameters)"
+        ), {"id": identifier, "operation": "b" * 64, "task": str(uuid.uuid4()), "parameters": "{}"})
+>       assert await db_session.scalar(select(DownloadDispatch.settled).where(DownloadDispatch.id == identifier)) is False
+E       assert True is False
+
+tests/unit/test_download_dispatch.py:64: AssertionError
+=============================== warnings summary ===============================
+tests/unit/test_download_dispatch.py::test_raw_insert_reservation_defaults_to_unsettled
+  /workspace/dropbox/github/robinqu/RSSRipple/.venv/lib/python3.13/site-packages/pytest_asyncio/plugin.py:916: PytestDeprecationWarning: Overriding the "event_loop_policy" fixture is deprecated and will be removed in a future version of pytest-asyncio. Use the "pytest_asyncio_loop_factories" hook to customize event loop creation.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_download_dispatch.py::test_raw_insert_reservation_defaults_to_unsettled
+1 failed, 1 warning in 0.62s

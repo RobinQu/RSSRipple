@@ -1,0 +1,24 @@
+{
+  "case_id": "f79ef2eb-02d5-42d3-80dc-70dd3c1d733b",
+  "torrent_sha256": "7f2b6d96aeeb800355ca64985173449a91b4b76df85edeba6a105368e64dd813",
+  "rpc_ids": [
+    1,
+    1
+  ],
+  "proposed_task_ids": [
+    "55e80845-ebf2-4aee-8fd7-2fbfa88a6bb0",
+    "55e80845-ebf2-4aee-8fd7-2fbfa88a6bb0"
+  ],
+  "persisted_tasks": 1,
+  "daemon_torrents": 1,
+  "failure": [
+    "actual deferred FK failure at COMMIT"
+  ],
+  "reservation_survived_rollback": true,
+  "received_media_bytes": 0,
+  "peers_connected": 0,
+  "retry_scope": "same logical Redis handler; explicit fresh transaction after actual COMMIT failure",
+  "probe_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "source_sha256": "bff207910ff7bbfa8fefeb2e8f20759b18d460375b8040ce669628d8452d11cd"
+}

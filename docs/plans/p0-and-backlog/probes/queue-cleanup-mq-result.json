@@ -1,0 +1,14 @@
+{
+  "backend": "actual PostgreSQL and Redis",
+  "data": "synthetic; no RPC",
+  "retired_orphans_deleted": 3,
+  "active_orphans_retained": [
+    "queued",
+    "running"
+  ],
+  "delete_waited_on_writer_lock": true,
+  "concurrent_task_and_reservation_preserved": true,
+  "probe_exit_code": 0,
+  "cleanup_exit_code": 0,
+  "source_sha256": "60dd3f9ff3e30797bb64a488268e8f30ac9335628618746f676b2d38a3b2b4d6"
+}
